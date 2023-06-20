@@ -2,16 +2,16 @@ pub export fn entry() void {
     var a: u32 = 0;
     _ = @as(comptime_int, a);
 }
-pub export fn entry2() void{
+pub export fn entry2() void {
     var a: u32 = 0;
     _ = @as(comptime_float, a);
 }
-pub export fn entry3() void{
+pub export fn entry3() void {
     comptime var aa: comptime_float = 0.0;
     var a: f32 = 4;
     aa = a;
 }
-pub export fn entry4() void{
+pub export fn entry4() void {
     comptime var aa: comptime_int = 0.0;
     var a: f32 = 4;
     aa = a;

@@ -1247,7 +1247,7 @@ fn processOneTarget(job: Job) anyerror!void {
     for (all_features.items) |feature| {
         if (feature.llvm_name) |llvm_name| {
             try w.print(
-                \\    result[@enumToInt(Feature.{})] = .{{
+                \\    result[@intFromEnum(Feature.{})] = .{{
                 \\        .llvm_name = "{}",
                 \\        .description = "{}",
                 \\        .dependencies = featureSet(&[_]Feature{{
@@ -1260,7 +1260,7 @@ fn processOneTarget(job: Job) anyerror!void {
             );
         } else {
             try w.print(
-                \\    result[@enumToInt(Feature.{})] = .{{
+                \\    result[@intFromEnum(Feature.{})] = .{{
                 \\        .llvm_name = null,
                 \\        .description = "{}",
                 \\        .dependencies = featureSet(&[_]Feature{{

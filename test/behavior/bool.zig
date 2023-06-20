@@ -13,22 +13,22 @@ test "cast bool to int" {
 
     const t = true;
     const f = false;
-    try expectEqual(@as(u32, 1), @boolToInt(t));
-    try expectEqual(@as(u32, 0), @boolToInt(f));
-    try expectEqual(-1, @bitCast(i1, @boolToInt(t)));
-    try expectEqual(0, @bitCast(i1, @boolToInt(f)));
-    try expectEqual(u1, @TypeOf(@boolToInt(t)));
-    try expectEqual(u1, @TypeOf(@boolToInt(f)));
-    try nonConstCastBoolToInt(t, f);
+    try expectEqual(@as(u32, 1), @intFromBool(t));
+    try expectEqual(@as(u32, 0), @intFromBool(f));
+    try expectEqual(-1, @bitCast(i1, @intFromBool(t)));
+    try expectEqual(0, @bitCast(i1, @intFromBool(f)));
+    try expectEqual(u1, @TypeOf(@intFromBool(t)));
+    try expectEqual(u1, @TypeOf(@intFromBool(f)));
+    try nonConstCastIntFromBool(t, f);
 }
 
-fn nonConstCastBoolToInt(t: bool, f: bool) !void {
-    try expectEqual(@as(u32, 1), @boolToInt(t));
-    try expectEqual(@as(u32, 0), @boolToInt(f));
-    try expectEqual(@as(i1, -1), @bitCast(i1, @boolToInt(t)));
-    try expectEqual(@as(i1, 0), @bitCast(i1, @boolToInt(f)));
-    try expectEqual(u1, @TypeOf(@boolToInt(t)));
-    try expectEqual(u1, @TypeOf(@boolToInt(f)));
+fn nonConstCastIntFromBool(t: bool, f: bool) !void {
+    try expectEqual(@as(u32, 1), @intFromBool(t));
+    try expectEqual(@as(u32, 0), @intFromBool(f));
+    try expectEqual(@as(i1, -1), @bitCast(i1, @intFromBool(t)));
+    try expectEqual(@as(i1, 0), @bitCast(i1, @intFromBool(f)));
+    try expectEqual(u1, @TypeOf(@intFromBool(t)));
+    try expectEqual(u1, @TypeOf(@intFromBool(f)));
 }
 
 test "bool cmp" {

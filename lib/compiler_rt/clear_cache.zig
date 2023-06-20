@@ -63,7 +63,7 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
                     .addr = start,
                     .len = end - start,
                 };
-                const result = sysarch(ARM_SYNC_ICACHE, @ptrToInt(&arg));
+                const result = sysarch(ARM_SYNC_ICACHE, @intFromPtr(&arg));
                 std.debug.assert(result == 0);
                 exportIt();
             },

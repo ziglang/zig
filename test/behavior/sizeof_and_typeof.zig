@@ -92,15 +92,15 @@ test "@offsetOf" {
 
     // // Normal struct fields can be moved/padded
     var a: A = undefined;
-    try expect(@ptrToInt(&a.a) - @ptrToInt(&a) == @offsetOf(A, "a"));
-    try expect(@ptrToInt(&a.b) - @ptrToInt(&a) == @offsetOf(A, "b"));
-    try expect(@ptrToInt(&a.c) - @ptrToInt(&a) == @offsetOf(A, "c"));
-    try expect(@ptrToInt(&a.d) - @ptrToInt(&a) == @offsetOf(A, "d"));
-    try expect(@ptrToInt(&a.e) - @ptrToInt(&a) == @offsetOf(A, "e"));
-    try expect(@ptrToInt(&a.f) - @ptrToInt(&a) == @offsetOf(A, "f"));
-    try expect(@ptrToInt(&a.g) - @ptrToInt(&a) == @offsetOf(A, "g"));
-    try expect(@ptrToInt(&a.h) - @ptrToInt(&a) == @offsetOf(A, "h"));
-    try expect(@ptrToInt(&a.i) - @ptrToInt(&a) == @offsetOf(A, "i"));
+    try expect(@intFromPtr(&a.a) - @intFromPtr(&a) == @offsetOf(A, "a"));
+    try expect(@intFromPtr(&a.b) - @intFromPtr(&a) == @offsetOf(A, "b"));
+    try expect(@intFromPtr(&a.c) - @intFromPtr(&a) == @offsetOf(A, "c"));
+    try expect(@intFromPtr(&a.d) - @intFromPtr(&a) == @offsetOf(A, "d"));
+    try expect(@intFromPtr(&a.e) - @intFromPtr(&a) == @offsetOf(A, "e"));
+    try expect(@intFromPtr(&a.f) - @intFromPtr(&a) == @offsetOf(A, "f"));
+    try expect(@intFromPtr(&a.g) - @intFromPtr(&a) == @offsetOf(A, "g"));
+    try expect(@intFromPtr(&a.h) - @intFromPtr(&a) == @offsetOf(A, "h"));
+    try expect(@intFromPtr(&a.i) - @intFromPtr(&a) == @offsetOf(A, "i"));
 }
 
 test "@bitOffsetOf" {
@@ -231,7 +231,7 @@ test "@sizeOf comparison against zero" {
 
 test "hardcoded address in typeof expression" {
     const S = struct {
-        fn func() @TypeOf(@intToPtr(*[]u8, 0x10).*[0]) {
+        fn func() @TypeOf(@ptrFromInt(*[]u8, 0x10).*[0]) {
             return 0;
         }
     };
@@ -252,7 +252,7 @@ test "array access of generic param in typeof expression" {
 test "lazy size cast to float" {
     {
         const S = struct { a: u8 };
-        try expect(@intToFloat(f32, @sizeOf(S)) == 1.0);
+        try expect(@floatFromInt(f32, @sizeOf(S)) == 1.0);
     }
     {
         const S = struct { a: u8 };

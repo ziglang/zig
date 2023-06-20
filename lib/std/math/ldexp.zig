@@ -24,7 +24,7 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
 
     var exponent: i32 = @intCast(i32, (repr << 1) >> (mantissa_bits + 1));
     if (exponent == 0)
-        exponent += (@as(i32, exponent_bits) + @boolToInt(T == f80)) - @clz(repr << 1);
+        exponent += (@as(i32, exponent_bits) + @intFromBool(T == f80)) - @clz(repr << 1);
 
     if (n >= 0) {
         if (n > max_biased_exponent - exponent) {
@@ -53,11 +53,11 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
             var result = repr & mantissa_mask;
 
             if (T != f80) // Include integer bit
-                result |= @as(TBits, @boolToInt(exponent > 0)) << fractional_bits;
+                result |= @as(TBits, @intFromBool(exponent > 0)) << fractional_bits;
             result = @intCast(TBits, (result >> (shift - 1)));
 
             // Round result, including round-to-even for exact ties
-            result = ((result + 1) >> 1) & ~@as(TBits, @boolToInt(exact_tie));
+            result = ((result + 1) >> 1) & ~@as(TBits, @intFromBool(exact_tie));
             return @bitCast(T, result | sign_bit);
         }
 

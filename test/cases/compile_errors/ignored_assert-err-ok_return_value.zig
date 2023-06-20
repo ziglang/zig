@@ -1,7 +1,9 @@
 export fn foo() void {
     bar() catch unreachable;
 }
-fn bar() anyerror!i32 { return 0; }
+fn bar() anyerror!i32 {
+    return 0;
+}
 
 // error
 // backend=stage2

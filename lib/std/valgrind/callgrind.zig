@@ -11,7 +11,7 @@ pub const CallgrindClientRequest = enum(usize) {
 };
 
 fn doCallgrindClientRequestExpr(default: usize, request: CallgrindClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) usize {
-    return valgrind.doClientRequest(default, @intCast(usize, @enumToInt(request)), a1, a2, a3, a4, a5);
+    return valgrind.doClientRequest(default, @intCast(usize, @intFromEnum(request)), a1, a2, a3, a4, a5);
 }
 
 fn doCallgrindClientRequestStmt(request: CallgrindClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) void {
@@ -28,7 +28,7 @@ pub fn dumpStats() void {
 /// the dump. This string is written as a description field into the
 /// profile data dump.
 pub fn dumpStatsAt(pos_str: [*]u8) void {
-    doCallgrindClientRequestStmt(.DumpStatsAt, @ptrToInt(pos_str), 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(.DumpStatsAt, @intFromPtr(pos_str), 0, 0, 0, 0);
 }
 
 /// Zero cost centers

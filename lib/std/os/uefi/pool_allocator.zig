@@ -9,7 +9,7 @@ const Allocator = mem.Allocator;
 
 const UefiPoolAllocator = struct {
     fn getHeader(ptr: [*]u8) *[*]align(8) u8 {
-        return @intToPtr(*[*]align(8) u8, @ptrToInt(ptr) - @sizeOf(usize));
+        return @ptrFromInt(*[*]align(8) u8, @intFromPtr(ptr) - @sizeOf(usize));
     }
 
     fn alloc(
@@ -31,7 +31,7 @@ const UefiPoolAllocator = struct {
         var unaligned_ptr: [*]align(8) u8 = undefined;
         if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, full_len, &unaligned_ptr) != .Success) return null;
 
-        const unaligned_addr = @ptrToInt(unaligned_ptr);
+        const unaligned_addr = @intFromPtr(unaligned_ptr);
         const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), ptr_align);
 
         var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);

@@ -130,7 +130,7 @@ pub const Type = struct {
         // The InternPool data structure hashes based on Key to make interned objects
         // unique. An Index can be treated simply as u32 value for the
         // purpose of Type/Value hashing and equality.
-        return std.hash.uint32(@enumToInt(ty.toIntern()));
+        return std.hash.uint32(@intFromEnum(ty.toIntern()));
     }
 
     pub fn format(ty: Type, comptime unused_fmt_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -227,7 +227,7 @@ pub const Type = struct {
                     if (info.vector_index == .runtime) {
                         try writer.writeAll(":?");
                     } else if (info.vector_index != .none) {
-                        try writer.print(":{d}", .{@enumToInt(info.vector_index)});
+                        try writer.print(":{d}", .{@intFromEnum(info.vector_index)});
                     }
                     try writer.writeAll(") ");
                 }
@@ -1227,7 +1227,7 @@ pub const Type = struct {
             if (have_tag) {
                 return abiAlignmentAdvanced(union_obj.tag_ty, mod, strat);
             } else {
-                return AbiAlignmentAdvanced{ .scalar = @boolToInt(union_obj.layout == .Extern) };
+                return AbiAlignmentAdvanced{ .scalar = @intFromBool(union_obj.layout == .Extern) };
             }
         }
 
@@ -1307,7 +1307,7 @@ pub const Type = struct {
                 .anyframe_type => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
                 .array_type => |array_type| {
-                    const len = array_type.len + @boolToInt(array_type.sentinel != .none);
+                    const len = array_type.len + @intFromBool(array_type.sentinel != .none);
                     switch (try array_type.child.toType().abiSizeAdvanced(mod, strat)) {
                         .scalar => |elem_size| return .{ .scalar = len * elem_size },
                         .val => switch (strat) {
@@ -1630,7 +1630,7 @@ pub const Type = struct {
             .anyframe_type => return target.ptrBitWidth(),
 
             .array_type => |array_type| {
-                const len = array_type.len + @boolToInt(array_type.sentinel != .none);
+                const len = array_type.len + @intFromBool(array_type.sentinel != .none);
                 if (len == 0) return 0;
                 const elem_ty = array_type.child.toType();
                 const elem_size = @max(elem_ty.abiAlignment(mod), elem_ty.abiSize(mod));
@@ -2182,7 +2182,7 @@ pub const Type = struct {
     }
 
     pub fn arrayLenIncludingSentinel(ty: Type, mod: *const Module) u64 {
-        return ty.arrayLen(mod) + @boolToInt(ty.sentinel(mod) != null);
+        return ty.arrayLen(mod) + @intFromBool(ty.sentinel(mod) != null);
     }
 
     pub fn vectorLen(ty: Type, mod: *const Module) u32 {
@@ -2477,7 +2477,7 @@ pub const Type = struct {
 
                 inline .array_type, .vector_type => |seq_type, seq_tag| {
                     const has_sentinel = seq_tag == .array_type and seq_type.sentinel != .none;
-                    if (seq_type.len + @boolToInt(has_sentinel) == 0) return (try mod.intern(.{ .aggregate = .{
+                    if (seq_type.len + @intFromBool(has_sentinel) == 0) return (try mod.intern(.{ .aggregate = .{
                         .ty = ty.toIntern(),
                         .storage = .{ .elems = &.{} },
                     } })).toValue();
@@ -3540,7 +3540,7 @@ pub const Type = struct {
         if (max == 0) return 0;
         const base = std.math.log2(max);
         const upper = (@as(u64, 1) << @intCast(u6, base)) - 1;
-        return @intCast(u16, base + @boolToInt(upper < max));
+        return @intCast(u16, base + @intFromBool(upper < max));
     }
 
     /// This is only used for comptime asserts. Bump this number when you make a change

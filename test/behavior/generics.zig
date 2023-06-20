@@ -267,7 +267,7 @@ test "generic function instantiation turns into comptime call" {
             .Enum => std.builtin.Type.EnumField,
             else => void,
         } {
-            return @typeInfo(T).Enum.fields[@enumToInt(field)];
+            return @typeInfo(T).Enum.fields[@intFromEnum(field)];
         }
 
         pub fn FieldEnum(comptime T: type) type {
@@ -425,10 +425,10 @@ test "null sentinel pointer passed as generic argument" {
 
     const S = struct {
         fn doTheTest(a: anytype) !void {
-            try std.testing.expect(@ptrToInt(a) == 8);
+            try std.testing.expect(@intFromPtr(a) == 8);
         }
     };
-    try S.doTheTest((@intToPtr([*:null]const [*c]const u8, 8)));
+    try S.doTheTest((@ptrFromInt([*:null]const [*c]const u8, 8)));
 }
 
 test "generic function passed as comptime argument" {

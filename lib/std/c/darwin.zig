@@ -51,19 +51,19 @@ pub const EXC = enum(exception_type_t) {
 
 pub const EXC_SOFT_SIGNAL = 0x10003;
 
-pub const EXC_MASK_BAD_ACCESS = 1 << @enumToInt(EXC.BAD_ACCESS);
-pub const EXC_MASK_BAD_INSTRUCTION = 1 << @enumToInt(EXC.BAD_INSTRUCTION);
-pub const EXC_MASK_ARITHMETIC = 1 << @enumToInt(EXC.ARITHMETIC);
-pub const EXC_MASK_EMULATION = 1 << @enumToInt(EXC.EMULATION);
-pub const EXC_MASK_SOFTWARE = 1 << @enumToInt(EXC.SOFTWARE);
-pub const EXC_MASK_BREAKPOINT = 1 << @enumToInt(EXC.BREAKPOINT);
-pub const EXC_MASK_SYSCALL = 1 << @enumToInt(EXC.SYSCALL);
-pub const EXC_MASK_MACH_SYSCALL = 1 << @enumToInt(EXC.MACH_SYSCALL);
-pub const EXC_MASK_RPC_ALERT = 1 << @enumToInt(EXC.RPC_ALERT);
-pub const EXC_MASK_CRASH = 1 << @enumToInt(EXC.CRASH);
-pub const EXC_MASK_RESOURCE = 1 << @enumToInt(EXC.RESOURCE);
-pub const EXC_MASK_GUARD = 1 << @enumToInt(EXC.GUARD);
-pub const EXC_MASK_CORPSE_NOTIFY = 1 << @enumToInt(EXC.CORPSE_NOTIFY);
+pub const EXC_MASK_BAD_ACCESS = 1 << @intFromEnum(EXC.BAD_ACCESS);
+pub const EXC_MASK_BAD_INSTRUCTION = 1 << @intFromEnum(EXC.BAD_INSTRUCTION);
+pub const EXC_MASK_ARITHMETIC = 1 << @intFromEnum(EXC.ARITHMETIC);
+pub const EXC_MASK_EMULATION = 1 << @intFromEnum(EXC.EMULATION);
+pub const EXC_MASK_SOFTWARE = 1 << @intFromEnum(EXC.SOFTWARE);
+pub const EXC_MASK_BREAKPOINT = 1 << @intFromEnum(EXC.BREAKPOINT);
+pub const EXC_MASK_SYSCALL = 1 << @intFromEnum(EXC.SYSCALL);
+pub const EXC_MASK_MACH_SYSCALL = 1 << @intFromEnum(EXC.MACH_SYSCALL);
+pub const EXC_MASK_RPC_ALERT = 1 << @intFromEnum(EXC.RPC_ALERT);
+pub const EXC_MASK_CRASH = 1 << @intFromEnum(EXC.CRASH);
+pub const EXC_MASK_RESOURCE = 1 << @intFromEnum(EXC.RESOURCE);
+pub const EXC_MASK_GUARD = 1 << @intFromEnum(EXC.GUARD);
+pub const EXC_MASK_CORPSE_NOTIFY = 1 << @intFromEnum(EXC.CORPSE_NOTIFY);
 pub const EXC_MASK_MACHINE = arch_bits.EXC_MASK_MACHINE;
 
 pub const EXC_MASK_ALL = EXC_MASK_BAD_ACCESS |
@@ -1177,10 +1177,10 @@ pub const sigset_t = u32;
 pub const empty_sigset: sigset_t = 0;
 
 pub const SIG = struct {
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const HOLD = @intToPtr(?Sigaction.handler_fn, 5);
+    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
+    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
+    pub const HOLD = @ptrFromInt(?Sigaction.handler_fn, 5);
 
     /// block specified signal set
     pub const _BLOCK = 1;
@@ -1411,7 +1411,7 @@ pub const MAP = struct {
     pub const NOCACHE = 0x0400;
     /// don't reserve needed swap area
     pub const NORESERVE = 0x0040;
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
 };
 
 pub const MSF = struct {
@@ -2463,7 +2463,7 @@ pub const KernE = enum(u32) {
 pub const mach_msg_return_t = kern_return_t;
 
 pub fn getMachMsgError(err: mach_msg_return_t) MachMsgE {
-    return @intToEnum(MachMsgE, @truncate(u32, @intCast(usize, err)));
+    return @enumFromInt(MachMsgE, @truncate(u32, @intCast(usize, err)));
 }
 
 /// All special error code bits defined below.
@@ -2665,10 +2665,10 @@ pub const RTLD = struct {
     pub const NODELETE = 0x80;
     pub const FIRST = 0x100;
 
-    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
-    pub const MAIN_ONLY = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -5)));
+    pub const NEXT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -1)));
+    pub const DEFAULT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -2)));
+    pub const SELF = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -3)));
+    pub const MAIN_ONLY = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -5)));
 };
 
 pub const F = struct {
@@ -3418,12 +3418,12 @@ pub const PosixSpawn = struct {
 };
 
 pub fn getKernError(err: kern_return_t) KernE {
-    return @intToEnum(KernE, @truncate(u32, @intCast(usize, err)));
+    return @enumFromInt(KernE, @truncate(u32, @intCast(usize, err)));
 }
 
 pub fn unexpectedKernError(err: KernE) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.print("unexpected error: {d}\n", .{@enumToInt(err)});
+        std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
@@ -3455,7 +3455,7 @@ pub const MachTask = extern struct {
         var out_port: mach_port_name_t = undefined;
         switch (getKernError(mach_port_allocate(
             self.port,
-            @enumToInt(right),
+            @intFromEnum(right),
             &out_port,
         ))) {
             .SUCCESS => return .{ .port = out_port },
@@ -3473,7 +3473,7 @@ pub const MachTask = extern struct {
             self.port,
             port.port,
             port.port,
-            @enumToInt(msg),
+            @intFromEnum(msg),
         ))) {
             .SUCCESS => return,
             .FAILURE => return error.PermissionDenied,
@@ -3665,7 +3665,7 @@ pub const MachTask = extern struct {
     }
 
     fn setProtectionImpl(task: MachTask, address: u64, len: usize, set_max: bool, prot: vm_prot_t) MachError!void {
-        switch (getKernError(mach_vm_protect(task.port, address, len, @boolToInt(set_max), prot))) {
+        switch (getKernError(mach_vm_protect(task.port, address, len, @intFromBool(set_max), prot))) {
             .SUCCESS => return,
             .FAILURE => return error.PermissionDenied,
             else => |err| return unexpectedKernError(err),
@@ -3700,7 +3700,7 @@ pub const MachTask = extern struct {
             switch (getKernError(mach_vm_write(
                 task.port,
                 curr_addr,
-                @ptrToInt(out_buf.ptr),
+                @intFromPtr(out_buf.ptr),
                 @intCast(mach_msg_type_number_t, curr_size),
             ))) {
                 .SUCCESS => {},
@@ -3752,7 +3752,7 @@ pub const MachTask = extern struct {
                 else => |err| return unexpectedKernError(err),
             }
 
-            @memcpy(out_buf[0..curr_bytes_read], @intToPtr([*]const u8, vm_memory));
+            @memcpy(out_buf[0..curr_bytes_read], @ptrFromInt([*]const u8, vm_memory));
             _ = vm_deallocate(mach_task_self(), vm_memory, curr_bytes_read);
 
             out_buf = out_buf[curr_bytes_read..];
@@ -3831,7 +3831,7 @@ pub const MachTask = extern struct {
             const self_task = machTaskForSelf();
             _ = vm_deallocate(
                 self_task.port,
-                @ptrToInt(list.buf.ptr),
+                @intFromPtr(list.buf.ptr),
                 @intCast(vm_size_t, list.buf.len * @sizeOf(mach_port_t)),
             );
         }

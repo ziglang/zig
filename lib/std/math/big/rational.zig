@@ -276,7 +276,7 @@ pub const Rational = struct {
         }
         mantissa >>= 1;
 
-        const f = math.scalbn(@intToFloat(T, mantissa), @intCast(i32, exp - msize1));
+        const f = math.scalbn(@floatFromInt(T, mantissa), @intCast(i32, exp - msize1));
         if (math.isInf(f)) {
             exact = false;
         }
@@ -289,7 +289,7 @@ pub const Rational = struct {
         try self.p.set(p);
         try self.q.set(q);
 
-        self.p.setSign(@boolToInt(self.p.isPositive()) ^ @boolToInt(self.q.isPositive()) == 0);
+        self.p.setSign(@intFromBool(self.p.isPositive()) ^ @intFromBool(self.q.isPositive()) == 0);
         self.q.setSign(true);
 
         try self.reduce();
@@ -310,7 +310,7 @@ pub const Rational = struct {
         try self.p.copy(a.toConst());
         try self.q.copy(b.toConst());
 
-        self.p.setSign(@boolToInt(self.p.isPositive()) ^ @boolToInt(self.q.isPositive()) == 0);
+        self.p.setSign(@intFromBool(self.p.isPositive()) ^ @intFromBool(self.q.isPositive()) == 0);
         self.q.setSign(true);
 
         try self.reduce();

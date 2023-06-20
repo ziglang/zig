@@ -1,9 +1,9 @@
 export fn entry(x: i32) usize {
-    return @ptrToInt(x);
+    return @intFromPtr(x);
 }
 
 // error
 // backend=stage2
 // target=native
 //
-// :2:22: error: expected pointer, found 'i32'
+// :2:24: error: expected pointer, found 'i32'

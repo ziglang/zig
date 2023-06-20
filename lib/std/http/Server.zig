@@ -402,7 +402,7 @@ pub const Response = struct {
 
         try w.writeAll(@tagName(res.version));
         try w.writeByte(' ');
-        try w.print("{d}", .{@enumToInt(res.status)});
+        try w.print("{d}", .{@intFromEnum(res.status)});
         try w.writeByte(' ');
         if (res.reason) |reason| {
             try w.writeAll(reason);

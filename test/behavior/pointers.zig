@@ -184,8 +184,8 @@ test "implicit cast error unions with non-optional to optional pointer" {
 }
 
 test "compare equality of optional and non-optional pointer" {
-    const a = @intToPtr(*const usize, 0x12345678);
-    const b = @intToPtr(?*usize, 0x12345678);
+    const a = @ptrFromInt(*const usize, 0x12345678);
+    const b = @ptrFromInt(?*usize, 0x12345678);
     try expect(a == b);
     try expect(b == a);
 }
@@ -197,14 +197,14 @@ test "allowzero pointer and slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    var ptr = @intToPtr([*]allowzero i32, 0);
+    var ptr = @ptrFromInt([*]allowzero i32, 0);
     var opt_ptr: ?[*]allowzero i32 = ptr;
     try expect(opt_ptr != null);
-    try expect(@ptrToInt(ptr) == 0);
+    try expect(@intFromPtr(ptr) == 0);
     var runtime_zero: usize = 0;
     var slice = ptr[runtime_zero..10];
     try comptime expect(@TypeOf(slice) == []allowzero i32);
-    try expect(@ptrToInt(&slice[5]) == 20);
+    try expect(@intFromPtr(&slice[5]) == 20);
 
     try comptime expect(@typeInfo(@TypeOf(ptr)).Pointer.is_allowzero);
     try comptime expect(@typeInfo(@TypeOf(slice)).Pointer.is_allowzero);
@@ -367,10 +367,10 @@ test "pointer sentinel with +inf" {
 }
 
 test "pointer to array at fixed address" {
-    const array = @intToPtr(*volatile [2]u32, 0x10);
+    const array = @ptrFromInt(*volatile [2]u32, 0x10);
     // Silly check just to reference `array`
-    try expect(@ptrToInt(&array[0]) == 0x10);
-    try expect(@ptrToInt(&array[1]) == 0x14);
+    try expect(@intFromPtr(&array[0]) == 0x10);
+    try expect(@intFromPtr(&array[1]) == 0x14);
 }
 
 test "pointer arithmetic affects the alignment" {
@@ -404,16 +404,16 @@ test "pointer arithmetic affects the alignment" {
     }
 }
 
-test "@ptrToInt on null optional at comptime" {
+test "@intFromPtr on null optional at comptime" {
     {
-        const pointer = @intToPtr(?*u8, 0x000);
-        const x = @ptrToInt(pointer);
+        const pointer = @ptrFromInt(?*u8, 0x000);
+        const x = @intFromPtr(pointer);
         _ = x;
-        try comptime expect(0 == @ptrToInt(pointer));
+        try comptime expect(0 == @intFromPtr(pointer));
     }
     {
-        const pointer = @intToPtr(?*u8, 0xf00);
-        try comptime expect(0xf00 == @ptrToInt(pointer));
+        const pointer = @ptrFromInt(?*u8, 0xf00);
+        try comptime expect(0xf00 == @intFromPtr(pointer));
     }
 }
 
@@ -516,7 +516,7 @@ test "ptrCast comptime known slice to C pointer" {
     try std.testing.expectEqualStrings(s, std.mem.sliceTo(p, 0));
 }
 
-test "ptrToInt on a generic function" {
+test "intFromPtr on a generic function" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -527,7 +527,7 @@ test "ptrToInt on a generic function" {
             return i;
         }
         fn doTheTest(a: anytype) !void {
-            try expect(@ptrToInt(a) != 0);
+            try expect(@intFromPtr(a) != 0);
         }
     };
     try S.doTheTest(&S.generic);

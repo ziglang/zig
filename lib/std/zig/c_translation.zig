@@ -21,30 +21,30 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
         .Int => {
             switch (@typeInfo(SourceType)) {
                 .Pointer => {
-                    return castInt(DestType, @ptrToInt(target));
+                    return castInt(DestType, @intFromPtr(target));
                 },
                 .Optional => |opt| {
                     if (@typeInfo(opt.child) == .Pointer) {
-                        return castInt(DestType, @ptrToInt(target));
+                        return castInt(DestType, @intFromPtr(target));
                     }
                 },
                 .Int => {
                     return castInt(DestType, target);
                 },
                 .Fn => {
-                    return castInt(DestType, @ptrToInt(&target));
+                    return castInt(DestType, @intFromPtr(&target));
                 },
                 .Bool => {
-                    return @boolToInt(target);
+                    return @intFromBool(target);
                 },
                 else => {},
             }
         },
         .Float => {
             switch (@typeInfo(SourceType)) {
-                .Int => return @intToFloat(DestType, target),
+                .Int => return @floatFromInt(DestType, target),
                 .Float => return @floatCast(DestType, target),
-                .Bool => return @intToFloat(DestType, @boolToInt(target)),
+                .Bool => return @floatFromInt(DestType, @intFromBool(target)),
                 else => {},
             }
         },
@@ -88,13 +88,13 @@ fn castPtr(comptime DestType: type, target: anytype) DestType {
 fn castToPtr(comptime DestType: type, comptime SourceType: type, target: anytype) DestType {
     switch (@typeInfo(SourceType)) {
         .Int => {
-            return @intToPtr(DestType, castInt(usize, target));
+            return @ptrFromInt(DestType, castInt(usize, target));
         },
         .ComptimeInt => {
             if (target < 0)
-                return @intToPtr(DestType, @bitCast(usize, @intCast(isize, target)))
+                return @ptrFromInt(DestType, @bitCast(usize, @intCast(isize, target)))
             else
-                return @intToPtr(DestType, @intCast(usize, target));
+                return @ptrFromInt(DestType, @intCast(usize, target));
         },
         .Pointer => {
             return castPtr(DestType, target);
@@ -120,34 +120,34 @@ fn ptrInfo(comptime PtrType: type) std.builtin.Type.Pointer {
 test "cast" {
     var i = @as(i64, 10);
 
-    try testing.expect(cast(*u8, 16) == @intToPtr(*u8, 16));
+    try testing.expect(cast(*u8, 16) == @ptrFromInt(*u8, 16));
     try testing.expect(cast(*u64, &i).* == @as(u64, 10));
     try testing.expect(cast(*i64, @as(?*align(1) i64, &i)) == &i);
 
-    try testing.expect(cast(?*u8, 2) == @intToPtr(*u8, 2));
+    try testing.expect(cast(?*u8, 2) == @ptrFromInt(*u8, 2));
     try testing.expect(cast(?*i64, @as(*align(1) i64, &i)) == &i);
     try testing.expect(cast(?*i64, @as(?*align(1) i64, &i)) == &i);
 
-    try testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(*u32, 4)));
-    try testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(?*u32, 4)));
+    try testing.expectEqual(@as(u32, 4), cast(u32, @ptrFromInt(*u32, 4)));
+    try testing.expectEqual(@as(u32, 4), cast(u32, @ptrFromInt(?*u32, 4)));
     try testing.expectEqual(@as(u32, 10), cast(u32, @as(u64, 10)));
 
     try testing.expectEqual(@bitCast(i32, @as(u32, 0x8000_0000)), cast(i32, @as(u32, 0x8000_0000)));
 
-    try testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*const u8, 2)));
-    try testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*volatile u8, 2)));
+    try testing.expectEqual(@ptrFromInt(*u8, 2), cast(*u8, @ptrFromInt(*const u8, 2)));
+    try testing.expectEqual(@ptrFromInt(*u8, 2), cast(*u8, @ptrFromInt(*volatile u8, 2)));
 
-    try testing.expectEqual(@intToPtr(?*anyopaque, 2), cast(?*anyopaque, @intToPtr(*u8, 2)));
+    try testing.expectEqual(@ptrFromInt(?*anyopaque, 2), cast(?*anyopaque, @ptrFromInt(*u8, 2)));
 
     var foo: c_int = -1;
-    try testing.expect(cast(*anyopaque, -1) == @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1))));
-    try testing.expect(cast(*anyopaque, foo) == @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1))));
-    try testing.expect(cast(?*anyopaque, -1) == @intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))));
-    try testing.expect(cast(?*anyopaque, foo) == @intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(*anyopaque, -1) == @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(*anyopaque, foo) == @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(?*anyopaque, -1) == @ptrFromInt(?*anyopaque, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(?*anyopaque, foo) == @ptrFromInt(?*anyopaque, @bitCast(usize, @as(isize, -1))));
 
     const FnPtr = ?*align(1) const fn (*anyopaque) void;
-    try testing.expect(cast(FnPtr, 0) == @intToPtr(FnPtr, @as(usize, 0)));
-    try testing.expect(cast(FnPtr, foo) == @intToPtr(FnPtr, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(FnPtr, 0) == @ptrFromInt(FnPtr, @as(usize, 0)));
+    try testing.expect(cast(FnPtr, foo) == @ptrFromInt(FnPtr, @bitCast(usize, @as(isize, -1))));
 }
 
 /// Given a value returns its size as C's sizeof operator would.

@@ -17,7 +17,7 @@ fn open() usize {
 }
 
 fn write(fd: usize, a: [*]const u8, len: usize) usize {
-    return syscall4(.WRITE, fd, @ptrToInt(a), len);
+    return syscall4(.WRITE, fd, @intFromPtr(a), len);
 }
 
 fn syscall4(n: enum { WRITE }, a: usize, b: usize, c: usize) usize {

@@ -5,7 +5,7 @@ const S = struct {
         pub fn str(_: @This(), extra: []u32) []i32 {
             return @bitCast([]i32, extra);
         }
-    },  
+    },
 };
 
 pub export fn entry() void {

@@ -25,7 +25,7 @@ pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) 
 
     switch (info.Pointer.size) {
         .One => switch (strat) {
-            .Shallow => hash(hasher, @ptrToInt(key), .Shallow),
+            .Shallow => hash(hasher, @intFromPtr(key), .Shallow),
             .Deep => hash(hasher, key.*, .Shallow),
             .DeepRecursive => hash(hasher, key.*, .DeepRecursive),
         },
@@ -44,7 +44,7 @@ pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) 
         .Many,
         .C,
         => switch (strat) {
-            .Shallow => hash(hasher, @ptrToInt(key), .Shallow),
+            .Shallow => hash(hasher, @intFromPtr(key), .Shallow),
             else => @compileError(
                 \\ unknown-length pointers and C pointers cannot be hashed deeply.
                 \\ Consider providing your own hash function.
@@ -108,10 +108,10 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
             },
         },
 
-        .Bool => hash(hasher, @boolToInt(key), strat),
-        .Enum => hash(hasher, @enumToInt(key), strat),
-        .ErrorSet => hash(hasher, @errorToInt(key), strat),
-        .AnyFrame, .Fn => hash(hasher, @ptrToInt(key), strat),
+        .Bool => hash(hasher, @intFromBool(key), strat),
+        .Enum => hash(hasher, @intFromEnum(key), strat),
+        .ErrorSet => hash(hasher, @intFromError(key), strat),
+        .AnyFrame, .Fn => hash(hasher, @intFromPtr(key), strat),
 
         .Pointer => @call(.always_inline, hashPointer, .{ hasher, key, strat }),
 

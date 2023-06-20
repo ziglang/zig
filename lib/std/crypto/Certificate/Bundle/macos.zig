@@ -42,7 +42,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
 
         const table_header = try reader.readStructBig(TableHeader);
 
-        if (@intToEnum(std.os.darwin.cssm.DB_RECORDTYPE, table_header.table_id) != .X509_CERTIFICATE) {
+        if (@enumFromInt(std.os.darwin.cssm.DB_RECORDTYPE, table_header.table_id) != .X509_CERTIFICATE) {
             continue;
         }
 

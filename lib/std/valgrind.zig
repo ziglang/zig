@@ -94,7 +94,7 @@ pub fn IsTool(base: [2]u8, code: usize) bool {
 }
 
 fn doClientRequestExpr(default: usize, request: ClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) usize {
-    return doClientRequest(default, @intCast(usize, @enumToInt(request)), a1, a2, a3, a4, a5);
+    return doClientRequest(default, @intCast(usize, @intFromEnum(request)), a1, a2, a3, a4, a5);
 }
 
 fn doClientRequestStmt(request: ClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) void {
@@ -117,7 +117,7 @@ test "works whether running on valgrind or not" {
 /// a JITter or some such, since it provides a way to make sure valgrind will
 /// retranslate the invalidated area.  Returns no value.
 pub fn discardTranslations(qzz: []const u8) void {
-    doClientRequestStmt(.DiscardTranslations, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0);
+    doClientRequestStmt(.DiscardTranslations, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
 pub fn innerThreads(qzz: [*]u8) void {
@@ -125,19 +125,19 @@ pub fn innerThreads(qzz: [*]u8) void {
 }
 
 pub fn nonSIMDCall0(func: fn (usize) usize) usize {
-    return doClientRequestExpr(0, .ClientCall0, @ptrToInt(func), 0, 0, 0, 0);
+    return doClientRequestExpr(0, .ClientCall0, @intFromPtr(func), 0, 0, 0, 0);
 }
 
 pub fn nonSIMDCall1(func: fn (usize, usize) usize, a1: usize) usize {
-    return doClientRequestExpr(0, .ClientCall1, @ptrToInt(func), a1, 0, 0, 0);
+    return doClientRequestExpr(0, .ClientCall1, @intFromPtr(func), a1, 0, 0, 0);
 }
 
 pub fn nonSIMDCall2(func: fn (usize, usize, usize) usize, a1: usize, a2: usize) usize {
-    return doClientRequestExpr(0, .ClientCall2, @ptrToInt(func), a1, a2, 0, 0);
+    return doClientRequestExpr(0, .ClientCall2, @intFromPtr(func), a1, a2, 0, 0);
 }
 
 pub fn nonSIMDCall3(func: fn (usize, usize, usize, usize) usize, a1: usize, a2: usize, a3: usize) usize {
-    return doClientRequestExpr(0, .ClientCall3, @ptrToInt(func), a1, a2, a3, 0);
+    return doClientRequestExpr(0, .ClientCall3, @intFromPtr(func), a1, a2, a3, 0);
 }
 
 /// Counts the number of errors that have been recorded by a tool.  Nb:
@@ -149,15 +149,15 @@ pub fn countErrors() usize {
 }
 
 pub fn mallocLikeBlock(mem: []u8, rzB: usize, is_zeroed: bool) void {
-    doClientRequestStmt(.MalloclikeBlock, @ptrToInt(mem.ptr), mem.len, rzB, @boolToInt(is_zeroed), 0);
+    doClientRequestStmt(.MalloclikeBlock, @intFromPtr(mem.ptr), mem.len, rzB, @intFromBool(is_zeroed), 0);
 }
 
 pub fn resizeInPlaceBlock(oldmem: []u8, newsize: usize, rzB: usize) void {
-    doClientRequestStmt(.ResizeinplaceBlock, @ptrToInt(oldmem.ptr), oldmem.len, newsize, rzB, 0);
+    doClientRequestStmt(.ResizeinplaceBlock, @intFromPtr(oldmem.ptr), oldmem.len, newsize, rzB, 0);
 }
 
 pub fn freeLikeBlock(addr: [*]u8, rzB: usize) void {
-    doClientRequestStmt(.FreelikeBlock, @ptrToInt(addr), rzB, 0, 0, 0);
+    doClientRequestStmt(.FreelikeBlock, @intFromPtr(addr), rzB, 0, 0, 0);
 }
 
 /// Create a memory pool.
@@ -166,7 +166,7 @@ pub const MempoolFlags = struct {
     pub const MetaPool = 2;
 };
 pub fn createMempool(pool: [*]u8, rzB: usize, is_zeroed: bool, flags: usize) void {
-    doClientRequestStmt(.CreateMempool, @ptrToInt(pool), rzB, @boolToInt(is_zeroed), flags, 0);
+    doClientRequestStmt(.CreateMempool, @intFromPtr(pool), rzB, @intFromBool(is_zeroed), flags, 0);
 }
 
 /// Destroy a memory pool.
@@ -176,39 +176,39 @@ pub fn destroyMempool(pool: [*]u8) void {
 
 /// Associate a piece of memory with a memory pool.
 pub fn mempoolAlloc(pool: [*]u8, mem: []u8) void {
-    doClientRequestStmt(.MempoolAlloc, @ptrToInt(pool), @ptrToInt(mem.ptr), mem.len, 0, 0);
+    doClientRequestStmt(.MempoolAlloc, @intFromPtr(pool), @intFromPtr(mem.ptr), mem.len, 0, 0);
 }
 
 /// Disassociate a piece of memory from a memory pool.
 pub fn mempoolFree(pool: [*]u8, addr: [*]u8) void {
-    doClientRequestStmt(.MempoolFree, @ptrToInt(pool), @ptrToInt(addr), 0, 0, 0);
+    doClientRequestStmt(.MempoolFree, @intFromPtr(pool), @intFromPtr(addr), 0, 0, 0);
 }
 
 /// Disassociate any pieces outside a particular range.
 pub fn mempoolTrim(pool: [*]u8, mem: []u8) void {
-    doClientRequestStmt(.MempoolTrim, @ptrToInt(pool), @ptrToInt(mem.ptr), mem.len, 0, 0);
+    doClientRequestStmt(.MempoolTrim, @intFromPtr(pool), @intFromPtr(mem.ptr), mem.len, 0, 0);
 }
 
 /// Resize and/or move a piece associated with a memory pool.
 pub fn moveMempool(poolA: [*]u8, poolB: [*]u8) void {
-    doClientRequestStmt(.MoveMempool, @ptrToInt(poolA), @ptrToInt(poolB), 0, 0, 0);
+    doClientRequestStmt(.MoveMempool, @intFromPtr(poolA), @intFromPtr(poolB), 0, 0, 0);
 }
 
 /// Resize and/or move a piece associated with a memory pool.
 pub fn mempoolChange(pool: [*]u8, addrA: [*]u8, mem: []u8) void {
-    doClientRequestStmt(.MempoolChange, @ptrToInt(pool), @ptrToInt(addrA), @ptrToInt(mem.ptr), mem.len, 0);
+    doClientRequestStmt(.MempoolChange, @intFromPtr(pool), @intFromPtr(addrA), @intFromPtr(mem.ptr), mem.len, 0);
 }
 
 /// Return if a mempool exists.
 pub fn mempoolExists(pool: [*]u8) bool {
-    return doClientRequestExpr(0, .MempoolExists, @ptrToInt(pool), 0, 0, 0, 0) != 0;
+    return doClientRequestExpr(0, .MempoolExists, @intFromPtr(pool), 0, 0, 0, 0) != 0;
 }
 
 /// Mark a piece of memory as being a stack. Returns a stack id.
 /// start is the lowest addressable stack byte, end is the highest
 /// addressable stack byte.
 pub fn stackRegister(stack: []u8) usize {
-    return doClientRequestExpr(0, .StackRegister, @ptrToInt(stack.ptr), @ptrToInt(stack.ptr) + stack.len, 0, 0, 0);
+    return doClientRequestExpr(0, .StackRegister, @intFromPtr(stack.ptr), @intFromPtr(stack.ptr) + stack.len, 0, 0, 0);
 }
 
 /// Unmark the piece of memory associated with a stack id as being a stack.
@@ -220,7 +220,7 @@ pub fn stackDeregister(id: usize) void {
 /// start is the new lowest addressable stack byte, end is the new highest
 /// addressable stack byte.
 pub fn stackChange(id: usize, newstack: []u8) void {
-    doClientRequestStmt(.StackChange, id, @ptrToInt(newstack.ptr), @ptrToInt(newstack.ptr) + newstack.len, 0, 0);
+    doClientRequestStmt(.StackChange, id, @intFromPtr(newstack.ptr), @intFromPtr(newstack.ptr) + newstack.len, 0, 0);
 }
 
 // Load PDB debug info for Wine PE image_map.
@@ -235,7 +235,7 @@ pub fn stackChange(id: usize, newstack: []u8) void {
 /// result will be dumped in there and is guaranteed to be zero
 /// terminated.  If no info is found, the first byte is set to zero.
 pub fn mapIpToSrcloc(addr: *const u8, buf64: [64]u8) usize {
-    return doClientRequestExpr(0, .MapIpToSrcloc, @ptrToInt(addr), @ptrToInt(&buf64[0]), 0, 0, 0);
+    return doClientRequestExpr(0, .MapIpToSrcloc, @intFromPtr(addr), @intFromPtr(&buf64[0]), 0, 0, 0);
 }
 
 /// Disable error reporting for this thread.  Behaves in a stack like
@@ -261,7 +261,7 @@ pub fn enableErrorReporting() void {
 /// If no connection is opened, output will go to the log output.
 /// Returns 1 if command not recognised, 0 otherwise.
 pub fn monitorCommand(command: [*]u8) bool {
-    return doClientRequestExpr(0, .GdbMonitorCommand, @ptrToInt(command.ptr), 0, 0, 0, 0) != 0;
+    return doClientRequestExpr(0, .GdbMonitorCommand, @intFromPtr(command.ptr), 0, 0, 0, 0) != 0;
 }
 
 pub const memcheck = @import("valgrind/memcheck.zig");

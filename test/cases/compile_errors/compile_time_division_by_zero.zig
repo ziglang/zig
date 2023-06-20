@@ -3,7 +3,9 @@ fn foo(x: u32) u32 {
     return 1 / x;
 }
 
-export fn entry() usize { return @sizeOf(@TypeOf(y)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(y));
+}
 
 // error
 // backend=llvm

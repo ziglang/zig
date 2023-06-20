@@ -24,11 +24,13 @@ pub const JsonNode = struct {
 fn foo() void {
     var jll: JasonList = undefined;
     jll.init(1234);
-    var jd = JsonNode {.kind = JsonType.JSONArray , .jobject = JsonOA.JSONArray {jll} };
+    var jd = JsonNode{ .kind = JsonType.JSONArray, .jobject = JsonOA.JSONArray{jll} };
     _ = jd;
 }
 
-export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(foo));
+}
 
 // error
 // backend=stage2

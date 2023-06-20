@@ -116,11 +116,11 @@ const WValue = union(enum) {
     fn free(value: *WValue, gen: *CodeGen) void {
         if (value.* != .local) return;
         const local_value = value.local.value;
-        const reserved = gen.args.len + @boolToInt(gen.return_value != .none);
+        const reserved = gen.args.len + @intFromBool(gen.return_value != .none);
         if (local_value < reserved + 2) return; // reserved locals may never be re-used. Also accounts for 2 stack locals.
 
         const index = local_value - reserved;
-        const valtype = @intToEnum(wasm.Valtype, gen.locals.items[index]);
+        const valtype = @enumFromInt(wasm.Valtype, gen.locals.items[index]);
         switch (valtype) {
             .i32 => gen.free_locals_i32.append(gen.gpa, local_value) catch return, // It's ok to fail any of those, a new local can be allocated instead
             .i64 => gen.free_locals_i64.append(gen.gpa, local_value) catch return,
@@ -889,7 +889,7 @@ fn processDeath(func: *CodeGen, ref: Air.Inst.Ref) void {
     // TODO: Upon branch consolidation free any locals if needed.
     const value = func.currentBranch().values.getPtr(ref) orelse return;
     if (value.* != .local) return;
-    const reserved_indexes = func.args.len + @boolToInt(func.return_value != .none);
+    const reserved_indexes = func.args.len + @intFromBool(func.return_value != .none);
     if (value.local.value < reserved_indexes) {
         return; // function arguments can never be re-used
     }
@@ -911,7 +911,7 @@ fn addTag(func: *CodeGen, tag: Mir.Inst.Tag) error{OutOfMemory}!void {
 
 fn addExtended(func: *CodeGen, opcode: wasm.MiscOpcode) error{OutOfMemory}!void {
     const extra_index = @intCast(u32, func.mir_extra.items.len);
-    try func.mir_extra.append(func.gpa, @enumToInt(opcode));
+    try func.mir_extra.append(func.gpa, @intFromEnum(opcode));
     try func.addInst(.{ .tag = .misc_prefix, .data = .{ .payload = extra_index } });
 }
 
@@ -1902,13 +1902,13 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .trap => func.airTrap(inst),
         .breakpoint => func.airBreakpoint(inst),
         .br => func.airBr(inst),
-        .bool_to_int => func.airBoolToInt(inst),
+        .int_from_bool => func.airIntFromBool(inst),
         .cond_br => func.airCondBr(inst),
         .intcast => func.airIntcast(inst),
         .fptrunc => func.airFptrunc(inst),
         .fpext => func.airFpext(inst),
-        .float_to_int => func.airFloatToInt(inst),
-        .int_to_float => func.airIntToFloat(inst),
+        .int_from_float => func.airIntFromFloat(inst),
+        .float_from_int => func.airFloatFromInt(inst),
         .get_union_tag => func.airGetUnionTag(inst),
 
         .@"try" => func.airTry(inst),
@@ -1951,7 +1951,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .ptr_sub => func.airPtrBinOp(inst, .sub),
         .ptr_elem_ptr => func.airPtrElemPtr(inst),
         .ptr_elem_val => func.airPtrElemVal(inst),
-        .ptrtoint => func.airPtrToInt(inst),
+        .int_from_ptr => func.airIntFromPtr(inst),
         .ret => func.airRet(inst),
         .ret_ptr => func.airRetPtr(inst),
         .ret_load => func.airRetLoad(inst),
@@ -2061,7 +2061,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .cmp_neq_optimized,
         .cmp_vector_optimized,
         .reduce_optimized,
-        .float_to_int_optimized,
+        .int_from_float_optimized,
         => return func.fail("TODO implement optimized float mode", .{}),
 
         .work_item_id,
@@ -3218,7 +3218,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
                 return WValue{ .imm32 = 0 };
             }
         } else {
-            return WValue{ .imm32 = @boolToInt(!val.isNull(mod)) };
+            return WValue{ .imm32 = @intFromBool(!val.isNull(mod)) };
         },
         .aggregate => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
             .array_type => return func.fail("Wasm TODO: LowerConstant for {}", .{ty.fmt(mod)}),
@@ -3904,7 +3904,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         }
 
         // Account for default branch so always add '1'
-        const depth = @intCast(u32, highest - lowest + @boolToInt(has_else_body)) + 1;
+        const depth = @intCast(u32, highest - lowest + @intFromBool(has_else_body)) + 1;
         const jump_table: Mir.JumpTable = .{ .length = depth };
         const table_extra_index = try func.addExtra(jump_table);
         try func.addInst(.{ .tag = .br_table, .data = .{ .payload = table_extra_index } });
@@ -3939,7 +3939,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         break :blk target_ty.intInfo(mod).signedness;
     };
 
-    try func.branches.ensureUnusedCapacity(func.gpa, case_list.items.len + @boolToInt(has_else_body));
+    try func.branches.ensureUnusedCapacity(func.gpa, case_list.items.len + @intFromBool(has_else_body));
     for (case_list.items, 0..) |case, index| {
         // when sparse, we use if/else-chain, so emit conditional checks
         if (is_sparse) {
@@ -4480,7 +4480,7 @@ fn trunc(func: *CodeGen, operand: WValue, wanted_ty: Type, given_ty: Type) Inner
     return result;
 }
 
-fn airBoolToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airIntFromBool(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
     const result = func.reuseOperand(un_op, operand);
@@ -4511,7 +4511,7 @@ fn airArrayToSlice(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, slice_local, &.{ty_op.operand});
 }
 
-fn airPtrToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airIntFromPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.options.module.?;
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
@@ -4812,7 +4812,7 @@ fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, elem_result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
-fn airFloatToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airIntFromFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.options.module.?;
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
@@ -4821,7 +4821,7 @@ fn airFloatToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const op_ty = func.typeOf(ty_op.operand);
 
     if (op_ty.abiSize(mod) > 8) {
-        return func.fail("TODO: floatToInt for integers/floats with bitsize larger than 64 bits", .{});
+        return func.fail("TODO: intFromFloat for integers/floats with bitsize larger than 64 bits", .{});
     }
 
     try func.emitWValue(operand);
@@ -4837,7 +4837,7 @@ fn airFloatToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
-fn airIntToFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airFloatFromInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.options.module.?;
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
@@ -4846,7 +4846,7 @@ fn airIntToFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const op_ty = func.typeOf(ty_op.operand);
 
     if (op_ty.abiSize(mod) > 8) {
-        return func.fail("TODO: intToFloat for integers/floats with bitsize larger than 64 bits", .{});
+        return func.fail("TODO: floatFromInt for integers/floats with bitsize larger than 64 bits", .{});
     }
 
     try func.emitWValue(operand);

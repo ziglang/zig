@@ -1,5 +1,5 @@
 export fn entry() void {
-    const fn_ptr = @intToPtr(*align(1) fn () void, 0xffd2);
+    const fn_ptr = @ptrFromInt(*align(1) fn () void, 0xffd2);
     comptime fn_ptr();
 }
 

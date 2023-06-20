@@ -9,12 +9,16 @@ export fn entry2() void {
     _ = someFuncPtr;
 }
 
-fn foo(p: FooType) void {_ = p;}
+fn foo(p: FooType) void {
+    _ = p;
+}
 export fn entry3() void {
     _ = foo;
 }
 
-fn bar(p: @TypeOf(null)) void {_ = p;}
+fn bar(p: @TypeOf(null)) void {
+    _ = p;
+}
 export fn entry4() void {
     _ = bar;
 }
@@ -28,4 +32,4 @@ export fn entry4() void {
 // :8:28: error: parameter of type '@TypeOf(null)' not allowed
 // :12:8: error: parameter of opaque type 'tmp.FooType' not allowed
 // :1:17: note: opaque declared here
-// :17:8: error: parameter of type '@TypeOf(null)' not allowed
+// :19:8: error: parameter of type '@TypeOf(null)' not allowed

@@ -227,7 +227,7 @@ pub fn Atomic(comptime T: type) type {
                     .Toggle => self.fetchXor(mask, ordering),
                 };
 
-                return @boolToInt(value & mask != 0);
+                return @intFromBool(value & mask != 0);
             }
 
             inline fn x86BitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
@@ -392,8 +392,8 @@ test "Atomic.swap" {
         try testing.expectEqual(a.load(.SeqCst), true);
 
         var b = Atomic(?*u8).init(null);
-        try testing.expectEqual(b.swap(@intToPtr(?*u8, @alignOf(u8)), ordering), null);
-        try testing.expectEqual(b.load(.SeqCst), @intToPtr(?*u8, @alignOf(u8)));
+        try testing.expectEqual(b.swap(@ptrFromInt(?*u8, @alignOf(u8)), ordering), null);
+        try testing.expectEqual(b.load(.SeqCst), @ptrFromInt(?*u8, @alignOf(u8)));
     }
 }
 

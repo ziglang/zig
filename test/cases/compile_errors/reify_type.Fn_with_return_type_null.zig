@@ -8,7 +8,9 @@ const Foo = @Type(.{
         .params = &.{},
     },
 });
-comptime { _ = Foo; }
+comptime {
+    _ = Foo;
+}
 
 // error
 // backend=stage2

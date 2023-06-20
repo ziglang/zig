@@ -98,17 +98,17 @@ pub fn getMessages(eb: ErrorBundle) []const MessageIndex {
 }
 
 pub fn getErrorMessage(eb: ErrorBundle, index: MessageIndex) ErrorMessage {
-    return eb.extraData(ErrorMessage, @enumToInt(index)).data;
+    return eb.extraData(ErrorMessage, @intFromEnum(index)).data;
 }
 
 pub fn getSourceLocation(eb: ErrorBundle, index: SourceLocationIndex) SourceLocation {
     assert(index != .none);
-    return eb.extraData(SourceLocation, @enumToInt(index)).data;
+    return eb.extraData(SourceLocation, @intFromEnum(index)).data;
 }
 
 pub fn getNotes(eb: ErrorBundle, index: MessageIndex) []const MessageIndex {
     const notes_len = eb.getErrorMessage(index).notes_len;
-    const start = @enumToInt(index) + @typeInfo(ErrorMessage).Struct.fields.len;
+    const start = @intFromEnum(index) + @typeInfo(ErrorMessage).Struct.fields.len;
     return @ptrCast([]const MessageIndex, eb.extra[start..][0..notes_len]);
 }
 
@@ -125,8 +125,8 @@ fn extraData(eb: ErrorBundle, comptime T: type, index: usize) struct { data: T, 
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => eb.extra[i],
-            MessageIndex => @intToEnum(MessageIndex, eb.extra[i]),
-            SourceLocationIndex => @intToEnum(SourceLocationIndex, eb.extra[i]),
+            MessageIndex => @enumFromInt(MessageIndex, eb.extra[i]),
+            SourceLocationIndex => @enumFromInt(SourceLocationIndex, eb.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -189,7 +189,7 @@ fn renderErrorMessageToWriter(
     const counting_stderr = counting_writer.writer();
     const err_msg = eb.getErrorMessage(err_msg_index);
     if (err_msg.src_loc != .none) {
-        const src = eb.extraData(SourceLocation, @enumToInt(err_msg.src_loc));
+        const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
         try counting_stderr.writeByteNTimes(' ', indent);
         try ttyconf.setColor(stderr, .bold);
         try counting_stderr.print("{s}:{d}:{d}: ", .{
@@ -407,15 +407,15 @@ pub const Wip = struct {
     }
 
     pub fn addErrorMessage(wip: *Wip, em: ErrorMessage) !MessageIndex {
-        return @intToEnum(MessageIndex, try addExtra(wip, em));
+        return @enumFromInt(MessageIndex, try addExtra(wip, em));
     }
 
     pub fn addErrorMessageAssumeCapacity(wip: *Wip, em: ErrorMessage) MessageIndex {
-        return @intToEnum(MessageIndex, addExtraAssumeCapacity(wip, em));
+        return @enumFromInt(MessageIndex, addExtraAssumeCapacity(wip, em));
     }
 
     pub fn addSourceLocation(wip: *Wip, sl: SourceLocation) !SourceLocationIndex {
-        return @intToEnum(SourceLocationIndex, try addExtra(wip, sl));
+        return @enumFromInt(SourceLocationIndex, try addExtra(wip, sl));
     }
 
     pub fn addReferenceTrace(wip: *Wip, rt: ReferenceTrace) !void {
@@ -433,7 +433,7 @@ pub const Wip = struct {
         // The ensureUnusedCapacity call above guarantees this.
         const notes_start = wip.reserveNotes(@intCast(u32, other_list.len)) catch unreachable;
         for (notes_start.., other_list) |note, message| {
-            wip.extra.items[note] = @enumToInt(wip.addOtherMessage(other, message) catch unreachable);
+            wip.extra.items[note] = @intFromEnum(wip.addOtherMessage(other, message) catch unreachable);
         }
     }
 
@@ -455,7 +455,7 @@ pub const Wip = struct {
         });
         const notes_start = try wip.reserveNotes(other_msg.notes_len);
         for (notes_start.., other.getNotes(msg_index)) |note, other_note| {
-            wip.extra.items[note] = @enumToInt(try wip.addOtherMessage(other, other_note));
+            wip.extra.items[note] = @intFromEnum(try wip.addOtherMessage(other, other_note));
         }
         return msg;
     }
@@ -505,8 +505,8 @@ pub const Wip = struct {
         inline for (fields) |field| {
             wip.extra.items[i] = switch (field.type) {
                 u32 => @field(extra, field.name),
-                MessageIndex => @enumToInt(@field(extra, field.name)),
-                SourceLocationIndex => @enumToInt(@field(extra, field.name)),
+                MessageIndex => @intFromEnum(@field(extra, field.name)),
+                SourceLocationIndex => @intFromEnum(@field(extra, field.name)),
                 else => @compileError("bad field type"),
             };
             i += 1;

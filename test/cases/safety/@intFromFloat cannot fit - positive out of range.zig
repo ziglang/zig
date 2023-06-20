@@ -8,13 +8,13 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
     std.process.exit(1);
 }
 pub fn main() !void {
-    baz(bar(-129.1));
+    baz(bar(256.2));
     return error.TestFailed;
 }
-fn bar(a: f32) i8 {
-    return @floatToInt(i8, a);
+fn bar(a: f32) u8 {
+    return @intFromFloat(u8, a);
 }
-fn baz(_: i8) void { }
+fn baz(_: u8) void {}
 // run
 // backend=llvm
 // target=native

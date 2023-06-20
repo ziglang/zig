@@ -332,13 +332,13 @@ test "Random float chi-square goodness of fit" {
     while (i < num_numbers) : (i += 1) {
         const rand_f32 = random.float(f32);
         const rand_f64 = random.float(f64);
-        var f32_put = try f32_hist.getOrPut(@floatToInt(u32, rand_f32 * @intToFloat(f32, num_buckets)));
+        var f32_put = try f32_hist.getOrPut(@intFromFloat(u32, rand_f32 * @floatFromInt(f32, num_buckets)));
         if (f32_put.found_existing) {
             f32_put.value_ptr.* += 1;
         } else {
             f32_put.value_ptr.* = 1;
         }
-        var f64_put = try f64_hist.getOrPut(@floatToInt(u32, rand_f64 * @intToFloat(f64, num_buckets)));
+        var f64_put = try f64_hist.getOrPut(@intFromFloat(u32, rand_f64 * @floatFromInt(f64, num_buckets)));
         if (f64_put.found_existing) {
             f64_put.value_ptr.* += 1;
         } else {
@@ -352,8 +352,8 @@ test "Random float chi-square goodness of fit" {
     {
         var j: u32 = 0;
         while (j < num_buckets) : (j += 1) {
-            const count = @intToFloat(f64, (if (f32_hist.get(j)) |v| v else 0));
-            const expected = @intToFloat(f64, num_numbers) / @intToFloat(f64, num_buckets);
+            const count = @floatFromInt(f64, (if (f32_hist.get(j)) |v| v else 0));
+            const expected = @floatFromInt(f64, num_numbers) / @floatFromInt(f64, num_buckets);
             const delta = count - expected;
             const variance = (delta * delta) / expected;
             f32_total_variance += variance;
@@ -363,8 +363,8 @@ test "Random float chi-square goodness of fit" {
     {
         var j: u64 = 0;
         while (j < num_buckets) : (j += 1) {
-            const count = @intToFloat(f64, (if (f64_hist.get(j)) |v| v else 0));
-            const expected = @intToFloat(f64, num_numbers) / @intToFloat(f64, num_buckets);
+            const count = @floatFromInt(f64, (if (f64_hist.get(j)) |v| v else 0));
+            const expected = @floatFromInt(f64, num_numbers) / @floatFromInt(f64, num_buckets);
             const delta = count - expected;
             const variance = (delta * delta) / expected;
             f64_total_variance += variance;

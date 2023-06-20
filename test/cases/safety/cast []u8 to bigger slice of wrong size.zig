@@ -9,7 +9,7 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 }
 
 pub fn main() !void {
-    const x = widenSlice(&[_]u8{1, 2, 3, 4, 5});
+    const x = widenSlice(&[_]u8{ 1, 2, 3, 4, 5 });
     if (x.len == 0) return error.Whatever;
     return error.TestFailed;
 }

@@ -186,11 +186,11 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     PanicSwitch.preDispatch();
 
     const addr = switch (builtin.os.tag) {
-        .linux => @ptrToInt(info.fields.sigfault.addr),
-        .freebsd, .macos => @ptrToInt(info.addr),
-        .netbsd => @ptrToInt(info.info.reason.fault.addr),
-        .openbsd => @ptrToInt(info.data.fault.addr),
-        .solaris => @ptrToInt(info.reason.fault.addr),
+        .linux => @intFromPtr(info.fields.sigfault.addr),
+        .freebsd, .macos => @intFromPtr(info.addr),
+        .netbsd => @intFromPtr(info.info.reason.fault.addr),
+        .openbsd => @intFromPtr(info.data.fault.addr),
+        .solaris => @intFromPtr(info.reason.fault.addr),
         else => @compileError("TODO implement handleSegfaultPosix for new POSIX OS"),
     };
 
@@ -279,7 +279,7 @@ fn handleSegfaultWindowsExtra(info: *os.windows.EXCEPTION_POINTERS, comptime msg
         const regs = info.ContextRecord.getRegs();
         break :ctx StackContext{ .exception = .{ .bp = regs.bp, .ip = regs.ip } };
     } else ctx: {
-        const addr = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
+        const addr = @intFromPtr(info.ExceptionRecord.ExceptionAddress);
         break :ctx StackContext{ .current = .{ .ret_addr = addr } };
     };
 

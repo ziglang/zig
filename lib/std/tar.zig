@@ -70,8 +70,8 @@ pub const Header = struct {
     }
 
     pub fn fileType(header: Header) FileType {
-        const result = @intToEnum(FileType, header.bytes[156]);
-        return if (result == @intToEnum(FileType, 0)) .normal else result;
+        const result = @enumFromInt(FileType, header.bytes[156]);
+        return if (result == @enumFromInt(FileType, 0)) .normal else result;
     }
 
     fn str(header: Header, start: usize, end: usize) []const u8 {

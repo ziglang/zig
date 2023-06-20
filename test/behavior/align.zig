@@ -24,7 +24,7 @@ test "slicing array of length 1 can not assume runtime index is always zero" {
     const slice = @as(*align(4) [1]u8, &foo)[runtime_index..];
     try expect(@TypeOf(slice) == []u8);
     try expect(slice.len == 0);
-    try expect(@truncate(u2, @ptrToInt(slice.ptr) - 1) == 0);
+    try expect(@truncate(u2, @intFromPtr(slice.ptr) - 1) == 0);
 }
 
 test "default alignment allows unspecified in type syntax" {
@@ -299,11 +299,11 @@ test "page aligned array on stack" {
     var number1: u8 align(16) = 42;
     var number2: u8 align(16) = 43;
 
-    try expect(@ptrToInt(&array[0]) & 0xFFF == 0);
+    try expect(@intFromPtr(&array[0]) & 0xFFF == 0);
     try expect(array[3] == 4);
 
-    try expect(@truncate(u4, @ptrToInt(&number1)) == 0);
-    try expect(@truncate(u4, @ptrToInt(&number2)) == 0);
+    try expect(@truncate(u4, @intFromPtr(&number1)) == 0);
+    try expect(@truncate(u4, @intFromPtr(&number2)) == 0);
     try expect(number1 == 42);
     try expect(number2 == 43);
 }
@@ -518,7 +518,7 @@ test "struct field explicit alignment" {
     node.massive_byte = 100;
     try expect(node.massive_byte == 100);
     try comptime expect(@TypeOf(&node.massive_byte) == *align(64) u8);
-    try expect(@ptrToInt(&node.massive_byte) % 64 == 0);
+    try expect(@intFromPtr(&node.massive_byte) % 64 == 0);
 }
 
 test "align(@alignOf(T)) T does not force resolution of T" {
@@ -561,7 +561,7 @@ test "align(N) on functions" {
     if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
     if (native_arch == .thumb) return error.SkipZigTest;
 
-    try expect((@ptrToInt(&overaligned_fn) & (0x1000 - 1)) == 0);
+    try expect((@intFromPtr(&overaligned_fn) & (0x1000 - 1)) == 0);
 }
 fn overaligned_fn() align(0x1000) i32 {
     return 42;
@@ -578,7 +578,7 @@ test "comptime alloc alignment" {
     _ = bytes1;
 
     comptime var bytes2 align(256) = [_]u8{0};
-    var bytes2_addr = @ptrToInt(&bytes2);
+    var bytes2_addr = @intFromPtr(&bytes2);
     try expect(bytes2_addr & 0xff == 0);
 }
 

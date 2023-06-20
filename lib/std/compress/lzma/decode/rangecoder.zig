@@ -57,7 +57,7 @@ pub const RangeDecoder = struct {
         var result: u32 = 0;
         var i: usize = 0;
         while (i < count) : (i += 1)
-            result = (result << 1) ^ @boolToInt(try self.getBit(reader));
+            result = (result << 1) ^ @intFromBool(try self.getBit(reader));
         return result;
     }
 
@@ -93,7 +93,7 @@ pub const RangeDecoder = struct {
         var i: @TypeOf(num_bits) = 0;
         while (i < num_bits) : (i += 1) {
             const bit = try self.decodeBit(reader, &probs[tmp], update);
-            tmp = (tmp << 1) ^ @boolToInt(bit);
+            tmp = (tmp << 1) ^ @intFromBool(bit);
         }
         return tmp - (@as(u32, 1) << num_bits);
     }
@@ -110,7 +110,7 @@ pub const RangeDecoder = struct {
         var tmp: usize = 1;
         var i: @TypeOf(num_bits) = 0;
         while (i < num_bits) : (i += 1) {
-            const bit = @boolToInt(try self.decodeBit(reader, &probs[offset + tmp], update));
+            const bit = @intFromBool(try self.decodeBit(reader, &probs[offset + tmp], update));
             tmp = (tmp << 1) ^ bit;
             result ^= @as(u32, bit) << i;
         }

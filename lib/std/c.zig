@@ -113,7 +113,7 @@ pub usingnamespace switch (builtin.os.tag) {
 
 pub fn getErrno(rc: anytype) c.E {
     if (rc == -1) {
-        return @intToEnum(c.E, c._errno().*);
+        return @enumFromInt(c.E, c._errno().*);
     } else {
         return .SUCCESS;
     }

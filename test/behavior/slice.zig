@@ -138,10 +138,10 @@ fn memFree(comptime T: type, memory: []T) void {
 test "slice of hardcoded address to pointer" {
     const S = struct {
         fn doTheTest() !void {
-            const pointer = @intToPtr([*]u8, 0x04)[0..2];
+            const pointer = @ptrFromInt([*]u8, 0x04)[0..2];
             try comptime expect(@TypeOf(pointer) == *[2]u8);
             const slice: []const u8 = pointer;
-            try expect(@ptrToInt(slice.ptr) == 4);
+            try expect(@intFromPtr(slice.ptr) == 4);
             try expect(slice.len == 2);
         }
     };
@@ -197,13 +197,13 @@ test "slicing pointer by length" {
     }
 }
 
-const x = @intToPtr([*]i32, 0x1000)[0..0x500];
+const x = @ptrFromInt([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
-    try expect(@ptrToInt(x) == 0x1000);
+    try expect(@intFromPtr(x) == 0x1000);
     try expect(x.len == 0x500);
 
-    try expect(@ptrToInt(y) == 0x1400);
+    try expect(@intFromPtr(y) == 0x1400);
     try expect(y.len == 0x400);
 }
 
@@ -838,13 +838,13 @@ test "empty slice ptr is non null" {
         const empty_slice: []u8 = &[_]u8{};
         const p: [*]u8 = empty_slice.ptr + 0;
         const t = @ptrCast([*]i8, p);
-        try expect(@ptrToInt(t) == @ptrToInt(empty_slice.ptr));
+        try expect(@intFromPtr(t) == @intFromPtr(empty_slice.ptr));
     }
     {
         const empty_slice: []u8 = &.{};
         const p: [*]u8 = empty_slice.ptr + 0;
         const t = @ptrCast([*]i8, p);
-        try expect(@ptrToInt(t) == @ptrToInt(empty_slice.ptr));
+        try expect(@intFromPtr(t) == @intFromPtr(empty_slice.ptr));
     }
 }
 

@@ -122,7 +122,7 @@ pub fn setThreadPointer(addr: usize) void {
                 .seg_not_present = 0,
                 .useable = 1,
             };
-            const rc = std.os.linux.syscall1(.set_thread_area, @ptrToInt(&user_desc));
+            const rc = std.os.linux.syscall1(.set_thread_area, @intFromPtr(&user_desc));
             assert(rc == 0);
 
             const gdt_entry_number = user_desc.entry_number;
@@ -191,7 +191,7 @@ fn initTLS(phdrs: []elf.Phdr) void {
 
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
-            elf.PT_PHDR => img_base = @ptrToInt(phdrs.ptr) - phdr.p_vaddr,
+            elf.PT_PHDR => img_base = @intFromPtr(phdrs.ptr) - phdr.p_vaddr,
             elf.PT_TLS => tls_phdr = phdr,
             else => {},
         }
@@ -205,7 +205,7 @@ fn initTLS(phdrs: []elf.Phdr) void {
         // the data stored in the PT_TLS segment is p_filesz and may be less
         // than the former
         tls_align_factor = phdr.p_align;
-        tls_data = @intToPtr([*]u8, img_base + phdr.p_vaddr)[0..phdr.p_filesz];
+        tls_data = @ptrFromInt([*]u8, img_base + phdr.p_vaddr)[0..phdr.p_filesz];
         tls_data_alloc_size = phdr.p_memsz;
     } else {
         tls_align_factor = @alignOf(usize);
@@ -292,7 +292,7 @@ pub fn prepareTLS(area: []u8) usize {
     // Return the corrected value (if needed) for the tp register.
     // Overflow here is not a problem, the pointer arithmetic involving the tp
     // is done with wrapping semantics.
-    return @ptrToInt(area.ptr) +% tls_tp_offset +%
+    return @intFromPtr(area.ptr) +% tls_tp_offset +%
         if (tls_tp_points_past_tcb) tls_image.data_offset else tls_image.tcb_offset;
 }
 
@@ -328,7 +328,7 @@ pub fn initStaticTLS(phdrs: []elf.Phdr) void {
         ) catch os.abort();
 
         // Make sure the slice is correctly aligned.
-        const begin_addr = @ptrToInt(alloc_tls_area.ptr);
+        const begin_addr = @intFromPtr(alloc_tls_area.ptr);
         const begin_aligned_addr = mem.alignForward(usize, begin_addr, tls_image.alloc_align);
         const start = begin_aligned_addr - begin_addr;
         break :blk alloc_tls_area[start .. start + tls_image.alloc_size];

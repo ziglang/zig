@@ -5,7 +5,7 @@ comptime {
     _ = @sizeOf(S) == 1;
 }
 comptime {
-    _ = [*c][4]fn() callconv(.C) void;
+    _ = [*c][4]fn () callconv(.C) void;
 }
 
 // error

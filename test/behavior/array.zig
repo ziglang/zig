@@ -176,8 +176,8 @@ test "array with sentinels" {
             var arr: [3:0x55]u8 = undefined;
             // Make sure the sentinel pointer is pointing after the last element.
             if (!is_ct) {
-                const sentinel_ptr = @ptrToInt(&arr[3]);
-                const last_elem_ptr = @ptrToInt(&arr[2]);
+                const sentinel_ptr = @intFromPtr(&arr[3]);
+                const last_elem_ptr = @intFromPtr(&arr[2]);
                 try expect((sentinel_ptr - last_elem_ptr) == 1);
             }
             // Make sure the sentinel is writeable.

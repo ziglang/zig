@@ -1,7 +1,9 @@
-fn f(a : i32) void {
+fn f(a: i32) void {
     const a = 0;
 }
-export fn entry() void { f(1); }
+export fn entry() void {
+    f(1);
+}
 
 // error
 // backend=stage2

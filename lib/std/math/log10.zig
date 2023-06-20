@@ -134,7 +134,7 @@ inline fn less_than_5(x: u32) u32 {
 }
 
 fn oldlog10(x: anytype) u8 {
-    return @floatToInt(u8, @log10(@intToFloat(f64, x)));
+    return @intFromFloat(u8, @log10(@floatFromInt(f64, x)));
 }
 
 test "oldlog10 doesn't work" {

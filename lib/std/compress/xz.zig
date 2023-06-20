@@ -18,7 +18,7 @@ fn readStreamFlags(reader: anytype, check: *Check) !void {
     if (reserved1 != 0)
         return error.CorruptInput;
 
-    check.* = @intToEnum(Check, try bit_reader.readBitsNoEof(u4, 4));
+    check.* = @enumFromInt(Check, try bit_reader.readBitsNoEof(u4, 4));
 
     const reserved2 = try bit_reader.readBitsNoEof(u4, 4);
     if (reserved2 != 0)

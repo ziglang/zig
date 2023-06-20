@@ -9,10 +9,10 @@ test "casting integer address to function pointer" {
 
 fn addressToFunction() void {
     var addr: usize = 0xdeadbee0;
-    _ = @intToPtr(*const fn () void, addr);
+    _ = @ptrFromInt(*const fn () void, addr);
 }
 
-test "mutate through ptr initialized with constant intToPtr value" {
+test "mutate through ptr initialized with constant ptrFromInt value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -21,7 +21,7 @@ test "mutate through ptr initialized with constant intToPtr value" {
 }
 
 fn forceCompilerAnalyzeBranchHardCodedPtrDereference(x: bool) void {
-    const hardCodedP = @intToPtr(*volatile u8, 0xdeadbeef);
+    const hardCodedP = @ptrFromInt(*volatile u8, 0xdeadbeef);
     if (x) {
         hardCodedP.* = hardCodedP.* | 10;
     } else {
@@ -29,20 +29,20 @@ fn forceCompilerAnalyzeBranchHardCodedPtrDereference(x: bool) void {
     }
 }
 
-test "@intToPtr creates null pointer" {
+test "@ptrFromInt creates null pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    const ptr = @intToPtr(?*u32, 0);
+    const ptr = @ptrFromInt(?*u32, 0);
     try expectEqual(@as(?*u32, null), ptr);
 }
 
-test "@intToPtr creates allowzero zero pointer" {
+test "@ptrFromInt creates allowzero zero pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    const ptr = @intToPtr(*allowzero u32, 0);
-    try expectEqual(@as(usize, 0), @ptrToInt(ptr));
+    const ptr = @ptrFromInt(*allowzero u32, 0);
+    try expectEqual(@as(usize, 0), @intFromPtr(ptr));
 }

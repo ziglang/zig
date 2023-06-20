@@ -61,7 +61,7 @@ pub fn suggestVectorSize(comptime T: type) ?usize {
 
 test "suggestVectorSizeForCpu works with signed and unsigned values" {
     comptime var cpu = std.Target.Cpu.baseline(std.Target.Cpu.Arch.x86_64);
-    comptime cpu.features.addFeature(@enumToInt(std.Target.x86.Feature.avx512f));
+    comptime cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.avx512f));
     const signed_integer_size = suggestVectorSizeForCpu(i32, cpu).?;
     const unsigned_integer_size = suggestVectorSizeForCpu(u32, cpu).?;
     try std.testing.expectEqual(@as(usize, 16), unsigned_integer_size);
@@ -94,7 +94,7 @@ pub inline fn iota(comptime T: type, comptime len: usize) @Vector(len, T) {
         for (&out, 0..) |*element, i| {
             element.* = switch (@typeInfo(T)) {
                 .Int => @intCast(T, i),
-                .Float => @intToFloat(T, i),
+                .Float => @floatFromInt(T, i),
                 else => @compileError("Can't use type " ++ @typeName(T) ++ " in iota."),
             };
         }

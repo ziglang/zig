@@ -837,7 +837,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const data = emit.mir.extraData(Mir.LoadMemoryPie, payload).data;
-    const reg = @intToEnum(Register, data.register);
+    const reg = @enumFromInt(Register, data.register);
 
     // PC-relative displacement to the entry in memory.
     // adrp
@@ -1245,7 +1245,7 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
             var count: u6 = 0;
             var other_reg: ?Register = null;
             while (i > 0) : (i -= 1) {
-                const reg = @intToEnum(Register, i - 1);
+                const reg = @enumFromInt(Register, i - 1);
                 if (regListIsSet(reg_list, reg)) {
                     if (count == 0 and odd_number_of_regs) {
                         try emit.writeInstruction(Instruction.ldr(
@@ -1274,7 +1274,7 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
             var count: u6 = 0;
             var other_reg: ?Register = null;
             while (i < 32) : (i += 1) {
-                const reg = @intToEnum(Register, i);
+                const reg = @enumFromInt(Register, i);
                 if (regListIsSet(reg_list, reg)) {
                     if (count == number_of_regs - 1 and odd_number_of_regs) {
                         try emit.writeInstruction(Instruction.str(

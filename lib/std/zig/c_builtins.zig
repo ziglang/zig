@@ -11,10 +11,10 @@ pub inline fn __builtin_bswap64(val: u64) u64 {
 }
 
 pub inline fn __builtin_signbit(val: f64) c_int {
-    return @boolToInt(std.math.signbit(val));
+    return @intFromBool(std.math.signbit(val));
 }
 pub inline fn __builtin_signbitf(val: f32) c_int {
-    return @boolToInt(std.math.signbit(val));
+    return @intFromBool(std.math.signbit(val));
 }
 
 pub inline fn __builtin_popcount(val: c_uint) c_int {
@@ -215,11 +215,11 @@ pub inline fn __builtin_inff() f32 {
 }
 
 pub inline fn __builtin_isnan(x: anytype) c_int {
-    return @boolToInt(std.math.isNan(x));
+    return @intFromBool(std.math.isNan(x));
 }
 
 pub inline fn __builtin_isinf(x: anytype) c_int {
-    return @boolToInt(std.math.isInf(x));
+    return @intFromBool(std.math.isInf(x));
 }
 
 /// Similar to isinf, except the return value is -1 for an argument of -Inf and 1 for an argument of +Inf.
@@ -230,7 +230,7 @@ pub inline fn __builtin_isinf_sign(x: anytype) c_int {
 
 pub inline fn __has_builtin(func: anytype) c_int {
     _ = func;
-    return @boolToInt(true);
+    return @intFromBool(true);
 }
 
 pub inline fn __builtin_assume(cond: bool) void {
@@ -243,7 +243,7 @@ pub inline fn __builtin_unreachable() noreturn {
 
 pub inline fn __builtin_constant_p(expr: anytype) c_int {
     _ = expr;
-    return @boolToInt(false);
+    return @intFromBool(false);
 }
 pub fn __builtin_mul_overflow(a: anytype, b: anytype, result: *@TypeOf(a, b)) c_int {
     const res = @mulWithOverflow(a, b);

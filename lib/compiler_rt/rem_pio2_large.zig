@@ -295,7 +295,7 @@ pub fn rem_pio2_large(x: []f64, y: []f64, e0: i32, nx: i32, prec: usize) i32 {
         i += 1;
         j += 1;
     }) {
-        f[U(i)] = if (j < 0) 0.0 else @intToFloat(f64, ipio2[U(j)]);
+        f[U(i)] = if (j < 0) 0.0 else @floatFromInt(f64, ipio2[U(j)]);
     }
 
     // compute q[0],q[1],...q[jk]
@@ -322,16 +322,16 @@ pub fn rem_pio2_large(x: []f64, y: []f64, e0: i32, nx: i32, prec: usize) i32 {
             i += 1;
             j -= 1;
         }) {
-            fw = @intToFloat(f64, @floatToInt(i32, 0x1p-24 * z));
-            iq[U(i)] = @floatToInt(i32, z - 0x1p24 * fw);
+            fw = @floatFromInt(f64, @intFromFloat(i32, 0x1p-24 * z));
+            iq[U(i)] = @intFromFloat(i32, z - 0x1p24 * fw);
             z = q[U(j - 1)] + fw;
         }
 
         // compute n
         z = math.scalbn(z, q0); // actual value of z
         z -= 8.0 * @floor(z * 0.125); // trim off integer >= 8
-        n = @floatToInt(i32, z);
-        z -= @intToFloat(f64, n);
+        n = @intFromFloat(i32, z);
+        z -= @floatFromInt(f64, n);
         ih = 0;
         if (q0 > 0) { // need iq[jz-1] to determine n
             i = iq[U(jz - 1)] >> @intCast(u5, 24 - q0);
@@ -390,7 +390,7 @@ pub fn rem_pio2_large(x: []f64, y: []f64, e0: i32, nx: i32, prec: usize) i32 {
 
                 i = jz + 1;
                 while (i <= jz + k) : (i += 1) { // add q[jz+1] to q[jz+k]
-                    f[U(jx + i)] = @intToFloat(f64, ipio2[U(jv + i)]);
+                    f[U(jx + i)] = @floatFromInt(f64, ipio2[U(jv + i)]);
                     j = 0;
                     fw = 0;
                     while (j <= jx) : (j += 1) {
@@ -414,13 +414,13 @@ pub fn rem_pio2_large(x: []f64, y: []f64, e0: i32, nx: i32, prec: usize) i32 {
         } else { // break z into 24-bit if necessary
             z = math.scalbn(z, -q0);
             if (z >= 0x1p24) {
-                fw = @intToFloat(f64, @floatToInt(i32, 0x1p-24 * z));
-                iq[U(jz)] = @floatToInt(i32, z - 0x1p24 * fw);
+                fw = @floatFromInt(f64, @intFromFloat(i32, 0x1p-24 * z));
+                iq[U(jz)] = @intFromFloat(i32, z - 0x1p24 * fw);
                 jz += 1;
                 q0 += 24;
-                iq[U(jz)] = @floatToInt(i32, fw);
+                iq[U(jz)] = @intFromFloat(i32, fw);
             } else {
-                iq[U(jz)] = @floatToInt(i32, z);
+                iq[U(jz)] = @intFromFloat(i32, z);
             }
         }
 
@@ -428,7 +428,7 @@ pub fn rem_pio2_large(x: []f64, y: []f64, e0: i32, nx: i32, prec: usize) i32 {
         fw = math.scalbn(@as(f64, 1.0), q0);
         i = jz;
         while (i >= 0) : (i -= 1) {
-            q[U(i)] = fw * @intToFloat(f64, iq[U(i)]);
+            q[U(i)] = fw * @floatFromInt(f64, iq[U(i)]);
             fw *= 0x1p-24;
         }
 

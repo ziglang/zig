@@ -1,7 +1,7 @@
 export fn entry() void {
     foo();
 }
-fn foo() callconv(.Naked) void { }
+fn foo() callconv(.Naked) void {}
 
 // error
 // backend=llvm

@@ -3,7 +3,7 @@ export fn entry() void {
     var bytes: [100]u8 align(16) = undefined;
     _ = @asyncCall(&bytes, {}, ptr, .{});
 }
-fn afunc() void { }
+fn afunc() void {}
 
 // error
 // backend=stage1

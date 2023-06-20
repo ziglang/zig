@@ -487,7 +487,7 @@ test "Condition - multi signal" {
 
     // The first paddle will be hit one last time by the last paddle.
     for (paddles, 0..) |p, i| {
-        const expected = @as(u32, num_iterations) + @boolToInt(i == 0);
+        const expected = @as(u32, num_iterations) + @intFromBool(i == 0);
         try testing.expectEqual(p.value, expected);
     }
 }
