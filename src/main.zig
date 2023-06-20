@@ -2548,9 +2548,18 @@ fn buildOutputType(
             want_native_include_dirs = true;
     }
 
-    if (sysroot == null and cross_target.isNativeOs() and
-        (system_libs.count() != 0 or want_native_include_dirs))
-    {
+    const want_native_paths_detection = blk: {
+        if (sysroot != null) break :blk false;
+        // If we are building natively on macOS and targeting any Apple platform,
+        // try auto-detecting the native SDK.
+        // Note that if the user specified the sysroot explicitly, we will NOT auto-detect
+        // the SDK.
+        if ((comptime builtin.target.isDarwin()) and cross_target.isDarwin()) break :blk true;
+        break :blk cross_target.isNativeOs() and
+            (system_libs.count() != 0 or want_native_include_dirs);
+    };
+
+    if (want_native_paths_detection) {
         const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
             fatal("unable to detect native system paths: {s}", .{@errorName(err)});
         };
