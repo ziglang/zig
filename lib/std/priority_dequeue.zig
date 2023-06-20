@@ -69,9 +69,7 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             // The first element is on a min layer;
             // next two are on a max layer;
             // next four are on a min layer, and so on.
-            const leading_zeros = @clz(index + 1);
-            const highest_set_bit = @bitSizeOf(usize) - 1 - leading_zeros;
-            return (highest_set_bit & 1) == 0;
+            return 1 == @clz(index +% 1) & 1;
         }
 
         fn nextIsMinLayer(self: Self) bool {
