@@ -145,6 +145,7 @@ test {
     _ = @import("behavior/bugs/15778.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
+    _ = @import("behavior/c_char_signedness.zig");
     _ = @import("behavior/call.zig");
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/cast_int.zig");

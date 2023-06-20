@@ -1910,6 +1910,32 @@ pub const Target = struct {
         }
     }
 
+    /// Default signedness of `char` for the native C compiler for this target
+    /// Note that char signedness is implementation-defined and many compilers provide
+    /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
+    pub fn charSignedness(target: Target) std.builtin.Signedness {
+        switch (target.cpu.arch) {
+            .aarch64,
+            .aarch64_32,
+            .aarch64_be,
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            => return if (target.os.tag.isDarwin() or target.os.tag == .windows) .signed else .unsigned,
+            .powerpc, .powerpc64 => return if (target.os.tag.isDarwin()) .signed else .unsigned,
+            .powerpc64le,
+            .s390x,
+            .xcore,
+            .arc,
+            .msp430,
+            .riscv32,
+            .riscv64,
+            => return .unsigned,
+            else => return .signed,
+        }
+    }
+
     pub const CType = enum {
         char,
         short,
