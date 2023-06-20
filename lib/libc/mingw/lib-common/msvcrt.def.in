@@ -350,6 +350,8 @@ __wgetmainargs
 F_X86_ANY(__winitenv DATA)
 F_I386(_abnormal_termination)
 F_NON_I386(_abs64)
+F_NON_I386(llabs == _abs64)
+F_NON_I386(imaxabs == _abs64)
 _access
 ; _access_s Replaced by emu
 _acmdln DATA
@@ -387,7 +389,9 @@ _atodbl_l
 _atof_l
 _atoflt_l
 _atoi64
+atoll == _atoi64
 _atoi64_l
+_atoll_l == _atoi64_l
 _atoi_l
 _atol_l
 _atoldbl
@@ -459,7 +463,7 @@ _cwscanf_l
 _cwscanf_s
 _cwscanf_s_l
 F_X86_ANY(_dstbias DATA)
-F_ARM_ANY(_daylight DATA)
+_daylight DATA
 _difftime32 F_I386(== difftime)
 _difftime64
 _dup
@@ -560,7 +564,7 @@ _fwscanf_s_l
 _gcvt
 _gcvt_s
 F_ARM_ANY(_get_current_locale)
-F_ARM_ANY(_get_doserrno)
+_get_doserrno
 F_ARM_ANY(_get_environ)
 F_ARM_ANY(_get_errno)
 F_ARM_ANY(_get_fileinfo)
@@ -939,8 +943,8 @@ _scwprintf_p_l
 _searchenv
 _searchenv_s
 F_I386(_seh_longjmp_unwind)
-F_ARM_ANY(_set_controlfp)
-F_ARM_ANY(_set_doserrno)
+_set_controlfp
+_set_doserrno
 F_ARM_ANY(_set_errno)
 _set_error_mode
 F_ARM_ANY(_set_fileinfo)
@@ -1034,10 +1038,18 @@ _strtime
 ; _strtime_s replaced by emu
 _strtod_l
 _strtoi64
+strtoll == _strtoi64
+strtoimax == _strtoi64
 _strtoi64_l
+_strtoll_l == _strtoi64_l
+_strtoimax_l == _strtoi64_l
 _strtol_l
 _strtoui64
+strtoull == _strtoui64
+strtoumax == _strtoui64
 _strtoui64_l
+_strtoull_l == _strtoui64_l
+_strtoumax_l == _strtoui64_l
 _strtoul_l
 _strupr
 _strupr_l
@@ -1061,12 +1073,14 @@ F_ARM_ANY(_tempnam_dbg)
 F_I386(_time32 == time)
 F_ARM_ANY(_time32)
 _time64
+_timezone DATA
 _tolower
 _tolower_l
 _toupper
 _toupper_l
 _towlower_l
 _towupper_l
+_tzname DATA
 _tzset
 _ui64toa
 _ui64toa_s
@@ -1435,6 +1449,7 @@ F_NON_I386(log10f F_X86_ANY(DATA))
 F_ARM_ANY(log10l == log10)
 F_NON_I386(logf F_X86_ANY(DATA))
 F_ARM_ANY(logl == log)
+longjmp
 malloc
 mblen
 F_ARM_ANY(mbrlen)

@@ -40,6 +40,7 @@ DnsAsyncRegisterTerm
 DnsCancelQuery@4
 DnsCheckNrptRuleIntegrity@4
 DnsCheckNrptRules@12
+DnsCleanupTcpConnections@4
 DnsConnectionDeletePolicyEntries@4
 DnsConnectionDeletePolicyEntriesPrivate@8
 DnsConnectionDeleteProxyInfo@8

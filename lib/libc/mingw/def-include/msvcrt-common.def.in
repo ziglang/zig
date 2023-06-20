@@ -12,7 +12,11 @@ wcscmpi == _wcsicmp
 strcasecmp == _stricmp
 strncasecmp == _strnicmp
 
+#ifdef UCRTBASE
+; access is provided as an alias for __mingw_access
+#else
 ADD_UNDERSCORE(access)
+#endif
 ADD_UNDERSCORE(chdir)
 ADD_UNDERSCORE(chmod)
 ADD_UNDERSCORE(chsize)
@@ -139,15 +143,10 @@ ADD_UNDERSCORE(hypot)
 ;logb
 ADD_UNDERSCORE(nextafter)
 
-longjmp
-
 #ifndef UCRTBASE
-_daylight DATA
-_timezone DATA
-_tzname DATA
-ADD_UNDERSCORE(daylight)
-ADD_UNDERSCORE(timezone)
-ADD_UNDERSCORE(tzname)
+daylight DATA == _daylight
+timezone DATA == _timezone
+tzname DATA == _tzname
 
 ADD_UNDERSCORE(vsnprintf_s)
 #endif

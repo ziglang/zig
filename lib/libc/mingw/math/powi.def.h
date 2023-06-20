@@ -68,6 +68,22 @@
 #include <math.h>
 #include <errno.h>
 
+static __FLT_TYPE do_powi_iter(__FLT_TYPE d, int y)
+{
+  unsigned int u = (unsigned int) y;
+  __FLT_TYPE rslt = ((u & 1) != 0) ? d : __FLT_CST(1.0);
+  u >>= 1;
+  do
+    {
+      d *= d;
+      if ((u & 1) != 0)
+        rslt *= d;
+      u >>= 1;
+    }
+  while (u > 0);
+  return rslt;
+}
+
 __FLT_TYPE __cdecl
 __FLT_ABI(__powi) (__FLT_TYPE x, int y);
 
@@ -76,6 +92,7 @@ __FLT_ABI(__powi) (__FLT_TYPE x, int y)
 {
   int x_class = fpclassify (x);
   int odd_y = y & 1;
+  int recip = 0;
   __FLT_TYPE d, rslt;
 
   if (y == 0 || x == __FLT_CST(1.0))
@@ -125,7 +142,8 @@ __FLT_ABI(__powi) (__FLT_TYPE x, int y)
 
   if (y < 0)
     {
-      d = __FLT_CST(1.0) / d;
+      /* By default, do the reciprocal of the result. */
+      recip = 1;
       y = -y;
     }
 
@@ -135,18 +153,21 @@ __FLT_ABI(__powi) (__FLT_TYPE x, int y)
     rslt = d;
   else
     {
-      unsigned int u = (unsigned int) y;
-      rslt = ((u & 1) != 0) ? d : __FLT_CST(1.0);
-      u >>= 1;
-      do
-	{
-	  d *= d;
-	  if ((u & 1) != 0)
-	    rslt *= d;
-	  u >>= 1;
-	}
-      while (u > 0);
+      rslt = do_powi_iter(d, y);
+      if (recip && fpclassify(rslt) == FP_INFINITE && d > __FLT_CST(1.0))
+        {
+          /* Uncommon case - we had overflow, but we're going to calculate
+             the reciprocal. If this happened, redo the calculation by doing
+             the reciprocal upfront instead. Instead of trying to calculate
+             whether this will happen, we prefer keeping the default case
+             cheap. */
+          d = __FLT_CST(1.0) / d;
+          recip = 0;
+          rslt = do_powi_iter(d, y);
+        }
     }
+  if (recip)
+    rslt = __FLT_CST(1.0) / rslt;
   if (signbit (x) && odd_y)
     rslt = -rslt;
   return rslt;

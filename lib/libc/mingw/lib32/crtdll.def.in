@@ -1,0 +1,726 @@
+;
+;* crtdll.def
+;* This file has no copyright assigned and is placed in the Public Domain.
+;* This file is part of the mingw-runtime package.
+;* No warranty is given; refer to the file DISCLAIMER.PD within the package.
+;
+; Exports from crtdll.dll from Windows 95 SYSTEM directory. Hopefully this
+; should also work with the crtdll provided with Windows NT.
+;
+; NOTE: The crtdll is OBSOLETE and msvcrt should be used instead.  The msvcrt
+; is available for free download from Microsoft Corporation and will work on
+; Windows 95.  Support for the crtdll is deprecated and this file may be
+; deleted in future versions.
+;
+; These three functions appear to be name mangled in some way, so GCC is
+; probably not going to be able to use them in any case.
+;
+;    ??2@YAPAXI@Z
+;    ??3@YAXPAX@Z
+;    ?_set_new_handler@@YAP6AHI@ZP6AHI@Z@Z
+;
+; These are functions for which I have not yet written prototypes or
+; otherwise set up (they are still included below though unlike those
+; first three).
+;
+;    _CIacos
+;    _CIasin
+;    _CIatan
+;    _CIatan2
+;    _CIcos
+;    _CIcosh
+;    _CIexp
+;    _CIfmod
+;    _CIlog
+;    _CIlog10
+;    _CIpow
+;    _CIsin
+;    _CIsinh
+;    _CIsqrt
+;    _CItan
+;    _CItanh
+;    __dllonexit
+;    __mb_cur_max_dll
+;    __threadhandle
+;    __threadid
+;    _abnormal_termination
+;    _acmdln_dll
+;    _aexit_rtn_dll
+;    _amsg_exit
+;    _commit
+;    _commode_dll
+;    _cpumode_dll
+;    _ctype
+;    _expand
+;    _fcloseall
+;    _filbuf
+;    _fileinfo_dll
+;    _flsbuf
+;    _flushall
+;    _fmode_dll
+;    _fpieee_flt
+;    _fsopen
+;    _ftol
+;    _getdiskfree
+;    _getdllprocaddr
+;    _getdrive
+;    _getdrives
+;    _getsystime
+;    _initterm
+;    _ismbbalnum
+;    _ismbbalpha
+;    _ismbbgraph
+;    _ismbbkalnum
+;    _ismbbkana
+;    _ismbbkpunct
+;    _ismbblead
+;    _ismbbprint
+;    _ismbbpunct
+;    _ismbbtrail
+;    _ismbcalpha
+;    _ismbcdigit
+;    _ismbchira
+;    _ismbckata
+;    _ismbcl0
+;    _ismbcl1
+;    _ismbcl2
+;    _ismbclegal
+;    _ismbclower
+;    _ismbcprint
+;    _ismbcspace
+;    _ismbcsymbol
+;    _ismbcupper
+;    _ismbslead
+;    _ismbstrail
+;    _lfind
+;    _loaddll
+;    _lrotl
+;    _lrotr
+;    _lsearch
+;    _makepath
+;    _matherr
+;    _mbbtombc
+;    _mbbtype
+;    _mbccpy
+;    _mbcjistojms
+;    _mbcjmstojis
+;    _mbclen
+;    _mbctohira
+;    _mbctokata
+;    _mbctolower
+;    _mbctombb
+;    _mbctoupper
+;    _mbctype
+;    _mbsbtype
+;    _mbscat
+;    _mbscmp
+;    _mbscpy
+;    _mbscspn
+;    _mbsdec
+;    _mbsdup
+;    _mbsicmp
+;    _mbsinc
+;    _mbslen
+;    _mbslwr
+;    _mbsnbcat
+;    _mbsnbcmp
+;    _mbsnbcnt
+;    _mbsnbcpy
+;    _mbsnbicmp
+;    _mbsnbset
+;    _mbsnccnt
+;    _mbsncmp
+;    _mbsncpy
+;    _mbsnextc
+;    _mbsnicmp
+;    _mbsninc
+;    _mbsnset
+;    _mbspbrk
+;    _mbsrchr
+;    _mbsrev
+;    _mbsset
+;    _mbsspn
+;    _mbsspnp
+;    _mbsstr
+;    _mbstrlen
+;    _mbsupr
+;    _onexit
+;    _osversion_dll
+;    _pctype_dll
+;    _purecall
+;    _pwctype_dll
+;    _rmtmp
+;    _rotl
+;    _rotr
+;    _setsystime
+;    _snprintf
+;    _snwprintf
+;    _splitpath
+;    _strdate
+;    _strdec
+;    _strinc
+;    _strncnt
+;    _strnextc
+;    _strninc
+;    _strspnp
+;    _strtime
+;    _tempnam
+;    _ultoa
+;    _unloaddll
+;    _vsnprintf
+;    _vsnwprintf
+;    _wtoi
+;    _wtol
+;
+LIBRARY "crtdll.dll"
+EXPORTS
+
+#include "msvcrt-common.def.in"
+
+_CIacos
+_CIasin
+_CIatan
+_CIatan2
+_CIcos
+_CIcosh
+_CIexp
+_CIfmod
+_CIlog
+_CIlog10
+_CIpow
+_CIsin
+_CIsinh
+_CIsqrt
+_CItan
+_CItanh
+_HUGE_dll DATA
+_HUGE DATA == _HUGE_dll
+_XcptFilter
+__GetMainArgs
+__argc_dll DATA
+__argc DATA == __argc_dll
+__argv_dll DATA
+__argv DATA == __argv_dll
+__dllonexit
+__doserrno
+__fpecode
+__isascii
+__iscsym
+__iscsymf
+__mb_cur_max_dll DATA
+__mb_cur_max DATA == __mb_cur_max_dll
+__pxcptinfoptrs
+__threadhandle
+__threadid
+__toascii
+_abnormal_termination
+_access
+_acmdln_dll DATA
+_acmdln DATA == _acmdln_dll
+_aexit_rtn_dll DATA
+_aexit_rtn DATA == _aexit_rtn_dll
+_amsg_exit
+_assert
+_basemajor_dll DATA
+_baseminor_dll DATA
+_baseversion_dll DATA
+_beep
+_beginthread
+_c_exit
+_cabs DATA
+_cexit
+_cgets
+_chdir
+_chdrive
+_chgsign
+_chmod
+_chsize
+_clearfp
+_close
+_commit
+_commode_dll DATA
+_commode DATA == _commode_dll
+_control87
+_controlfp
+_copysign
+_cprintf
+_cpumode_dll DATA
+_cputs
+_creat
+_cscanf
+_ctype DATA
+_cwait
+_daylight_dll DATA
+_daylight DATA == _daylight_dll
+_dup
+_dup2
+_ecvt
+_endthread
+_environ_dll DATA
+_environ DATA == _environ_dll
+_eof
+_errno
+_except_handler2
+_execl
+_execle
+_execlp
+_execlpe
+_execv
+_execve
+_execvp
+_execvpe
+_exit
+_expand
+_fcloseall
+_fcvt
+_fdopen
+_fgetchar
+_fgetwchar
+_filbuf
+_fileinfo_dll DATA
+_fileinfo DATA == _fileinfo_dll
+_filelength
+_fileno
+_findclose
+_findfirst
+_findnext
+_finite
+_flsbuf
+_flushall
+_fmode_dll DATA
+_fmode DATA == _fmode_dll
+_fpclass
+_fpieee_flt
+_fpreset DATA
+_fputchar
+_fputwchar
+_fsopen
+_fstat
+_ftime
+_ftol
+_fullpath
+_futime
+_gcvt
+_get_osfhandle
+_getch
+_getche
+_getcwd
+_getdcwd
+_getdiskfree
+_getdllprocaddr
+_getdrive
+_getdrives
+_getpid
+_getsystime
+_getw
+_global_unwind2
+_heapchk
+_heapmin
+_heapset
+_heapwalk
+_hypot
+_initterm
+_iob DATA
+_isatty
+_isctype
+_ismbbalnum
+_ismbbalpha
+_ismbbgraph
+_ismbbkalnum
+_ismbbkana
+_ismbbkpunct
+_ismbblead
+_ismbbprint
+_ismbbpunct
+_ismbbtrail
+_ismbcalpha
+_ismbcdigit
+_ismbchira
+_ismbckata
+_ismbcl0
+_ismbcl1
+_ismbcl2
+_ismbclegal
+_ismbclower
+_ismbcprint
+_ismbcspace
+_ismbcsymbol
+_ismbcupper
+_ismbslead
+_ismbstrail
+_isnan
+_itoa
+_j0
+_j1
+_jn
+_kbhit
+_lfind
+_loaddll
+_local_unwind2
+_locking
+_logb
+_lrotl
+_lrotr
+_lsearch
+_lseek
+_ltoa
+_makepath
+_matherr
+_mbbtombc
+_mbbtype
+_mbccpy
+_mbcjistojms
+_mbcjmstojis
+_mbclen
+_mbctohira
+_mbctokata
+_mbctolower
+_mbctombb
+_mbctoupper
+_mbctype DATA
+_mbsbtype
+_mbscat
+_mbschr
+_mbscmp
+_mbscpy
+_mbscspn
+_mbsdec
+_mbsdup
+_mbsicmp
+_mbsinc
+_mbslen
+_mbslwr
+_mbsnbcat
+_mbsnbcmp
+_mbsnbcnt
+_mbsnbcpy
+_mbsnbicmp
+_mbsnbset
+_mbsncat
+_mbsnccnt
+_mbsncmp
+_mbsncpy
+_mbsnextc
+_mbsnicmp
+_mbsninc
+_mbsnset
+_mbspbrk
+_mbsrchr
+_mbsrev
+_mbsset
+_mbsspn
+_mbsspnp
+_mbsstr
+_mbstok
+_mbstrlen
+_mbsupr
+_memccpy
+_memicmp
+_mkdir
+_mktemp
+_msize
+_nextafter
+_onexit
+_open
+_open_osfhandle
+_osmajor_dll DATA
+_osminor_dll DATA
+_osmode_dll DATA
+_osver_dll DATA
+_osver DATA == _osver_dll
+_osversion_dll DATA
+_pclose
+_pctype_dll DATA
+_pctype DATA == _pctype_dll
+_pgmptr_dll DATA
+_pgmptr DATA == _pgmptr_dll
+_pipe
+_popen
+_purecall
+_putch
+_putenv
+_putw
+_pwctype_dll DATA
+_pwctype DATA == _pwctype_dll
+_read
+_rmdir
+_rmtmp
+_rotl
+_rotr
+_scalb
+_searchenv
+_seterrormode
+_setjmp
+_setmode
+_setsystime
+_sleep
+_snprintf
+_snwprintf
+_sopen
+_spawnl
+_spawnle
+_spawnlp
+_spawnlpe
+_spawnv
+_spawnve
+_spawnvp
+_spawnvpe
+_splitpath
+_stat
+_statusfp
+_strcmpi
+_strdate
+_strdec
+_strdup
+_strerror
+_stricmp
+_stricoll
+_strinc
+_strlwr
+strlwr == _strlwr
+_strncnt
+_strnextc
+_strnicmp
+_strninc
+_strnset
+_strrev
+_strset
+_strspnp
+_strtime
+_strupr
+_swab
+_sys_errlist DATA
+_sys_nerr_dll DATA
+_sys_nerr DATA == _sys_nerr_dll
+_tell
+_tempnam
+_timezone_dll DATA
+_timezone DATA == _timezone_dll
+_tolower
+_toupper
+_tzname DATA
+_tzset
+_ultoa
+_umask
+_ungetch
+_unlink
+_unloaddll
+_utime
+_vsnprintf
+_vsnwprintf
+_wcsdup
+_wcsicmp
+_wcsicoll
+_wcslwr
+wcslwr == _wcslwr
+_wcsnicmp
+_wcsnset
+_wcsrev
+_wcsset
+_wcsupr
+_winmajor_dll DATA
+_winmajor DATA == _winmajor_dll
+_winminor_dll DATA
+_winminor DATA == _winminor_dll
+_winver_dll DATA
+_winver DATA == _winver_dll
+_write
+_wtoi
+_wtol
+_y0
+_y1
+_yn
+abort
+abs
+acos
+asctime
+asin DATA
+atan DATA
+atan2 DATA
+atexit DATA
+atof
+atoi
+atol
+bsearch
+calloc
+ceil
+clearerr
+clock
+cos DATA
+cosh
+ctime DATA
+;_ctime32 = ctime
+difftime
+div
+exit
+exp DATA
+fabs DATA
+fclose
+feof
+ferror
+fflush
+fgetc
+fgetpos
+fgets
+fgetwc
+floor
+fmod
+fopen
+fprintf
+fputc
+fputs
+fputwc
+fread
+free
+freopen
+frexp
+fscanf
+fseek
+fsetpos
+ftell
+fwprintf
+fwrite
+fwscanf
+getc
+getchar
+getenv
+gets
+gmtime DATA
+;_gmtime32 = gmtime
+is_wctype
+isalnum
+isalpha
+iscntrl
+isdigit
+isgraph
+isleadbyte
+islower
+isprint
+ispunct
+isspace
+isupper
+iswalnum
+iswalpha
+iswascii
+iswcntrl
+iswctype
+iswdigit
+iswgraph
+iswlower
+iswprint
+iswpunct
+iswspace
+iswupper
+iswxdigit
+isxdigit
+labs
+ldexp DATA
+ldiv
+localeconv
+localtime DATA
+;_localtime32 = localtime
+log
+log10
+longjmp
+malloc
+mblen
+mbstowcs
+mbtowc
+memchr
+memcmp
+memcpy
+memmove
+memset
+mktime DATA
+;_mktime32 = mktime
+modf
+perror
+pow
+printf
+putc
+putchar
+puts
+qsort
+raise
+rand
+realloc
+remove
+rename
+rewind
+scanf
+setbuf
+setlocale
+setvbuf
+signal
+sin
+sinh
+sprintf
+sqrt
+srand
+sscanf
+strcat
+strchr
+strcmp
+strcoll
+strcpy
+strcspn
+strerror
+strftime
+strlen
+strncat
+strncmp
+strncpy
+strpbrk
+strrchr
+strspn
+strstr
+strtod
+strtok
+strtol
+strtoul
+strxfrm
+swprintf
+swscanf
+system
+tan
+tanh
+time DATA
+;_time32 = time
+tmpfile
+tmpnam
+tolower
+toupper
+towlower
+towupper
+ungetc
+ungetwc
+vfprintf
+vfwprintf
+vprintf
+vsprintf
+vswprintf
+vwprintf
+wcscat
+wcschr
+wcscmp
+wcscoll
+wcscpy
+wcscspn
+wcsftime
+wcslen
+wcsncat
+wcsncmp
+wcsncpy
+wcspbrk
+wcsrchr
+wcsspn
+wcsstr
+wcstod
+wcstok
+wcstol
+wcstombs
+wcstoul
+wcsxfrm
+wctomb
+wprintf
+wscanf

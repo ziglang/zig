@@ -121,7 +121,6 @@ AppCompat_RunDLLW
 SHCreateShellFolderView
 AssocCreateForClasses
 AssocGetDetailsOfPropKey
-CheckEscapesW
 CommandLineToArgvW
 Control_RunDLL
 Control_RunDLLA
