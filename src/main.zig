@@ -769,7 +769,7 @@ fn buildOutputType(
     var link_libc = false;
     var link_libcpp = false;
     var link_libunwind = false;
-    var want_native_include_dirs = false;
+    var want_native_include_dirs: ?bool = null;
     var want_pic: ?bool = null;
     var want_pie: ?bool = null;
     var want_lto: ?bool = null;
@@ -849,7 +849,6 @@ fn buildOutputType(
     var minor_subsystem_version: ?u32 = null;
     var wasi_exec_model: ?std.builtin.WasiExecModel = null;
     var enable_link_snapshots: bool = false;
-    var native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null;
     var install_name: ?[]const u8 = null;
     var hash_style: link.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
@@ -2569,58 +2568,6 @@ fn buildOutputType(
         }
     }
 
-    if (comptime builtin.target.isDarwin()) {
-        // If we want to link against frameworks, we need system headers.
-        if (framework_dirs.items.len > 0 or frameworks.count() > 0)
-            want_native_include_dirs = true;
-    }
-
-    if (sysroot == null and cross_target.isNativeOs() and
-        (system_libs.count() != 0 or want_native_include_dirs))
-    {
-        const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
-            fatal("unable to detect native system paths: {s}", .{@errorName(err)});
-        };
-        for (paths.warnings.items) |warning| {
-            warn("{s}", .{warning});
-        }
-
-        const has_sysroot = if (comptime builtin.target.isDarwin()) outer: {
-            if (std.zig.system.darwin.isDarwinSDKInstalled(arena)) {
-                const sdk = std.zig.system.darwin.getDarwinSDK(arena, target_info.target) orelse
-                    break :outer false;
-                native_darwin_sdk = sdk;
-                try clang_argv.ensureUnusedCapacity(2);
-                clang_argv.appendAssumeCapacity("-isysroot");
-                clang_argv.appendAssumeCapacity(sdk.path);
-                break :outer true;
-            } else break :outer false;
-        } else false;
-
-        try clang_argv.ensureUnusedCapacity(paths.include_dirs.items.len * 2);
-        const isystem_flag = if (has_sysroot) "-iwithsysroot" else "-isystem";
-        for (paths.include_dirs.items) |include_dir| {
-            clang_argv.appendAssumeCapacity(isystem_flag);
-            clang_argv.appendAssumeCapacity(include_dir);
-        }
-
-        try clang_argv.ensureUnusedCapacity(paths.framework_dirs.items.len * 2);
-        try framework_dirs.ensureUnusedCapacity(paths.framework_dirs.items.len);
-        const iframework_flag = if (has_sysroot) "-iframeworkwithsysroot" else "-iframework";
-        for (paths.framework_dirs.items) |framework_dir| {
-            clang_argv.appendAssumeCapacity(iframework_flag);
-            clang_argv.appendAssumeCapacity(framework_dir);
-            framework_dirs.appendAssumeCapacity(framework_dir);
-        }
-
-        for (paths.lib_dirs.items) |lib_dir| {
-            try lib_dirs.append(lib_dir);
-        }
-        for (paths.rpaths.items) |rpath| {
-            try rpath_list.append(rpath);
-        }
-    }
-
     {
         // Resolve static libraries into full paths.
         const sep = fs.path.sep_str;
@@ -3092,6 +3039,7 @@ fn buildOutputType(
         .link_libc = link_libc,
         .link_libcpp = link_libcpp,
         .link_libunwind = link_libunwind,
+        .want_native_include_dirs = want_native_include_dirs,
         .want_pic = want_pic,
         .want_pie = want_pie,
         .want_lto = want_lto,
@@ -3192,7 +3140,6 @@ fn buildOutputType(
         .wasi_exec_model = wasi_exec_model,
         .debug_compile_errors = debug_compile_errors,
         .enable_link_snapshots = enable_link_snapshots,
-        .native_darwin_sdk = native_darwin_sdk,
         .install_name = install_name,
         .entitlements = entitlements,
         .pagezero_size = pagezero_size,
@@ -4070,8 +4017,17 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
             fatal("unable to detect libc for non-native target", .{});
         }
 
+        var darwin_sdk = if ((comptime builtin.target.isDarwin()) and
+            !std.zig.system.NativePaths.isNix() and
+            std.zig.system.darwin.isDarwinSDKInstalled(gpa))
+            std.zig.system.darwin.getDarwinSDK(gpa, builtin.target)
+        else
+            null;
+        defer if (darwin_sdk) |*sdk| sdk.deinit(gpa);
+
         var libc = LibCInstallation.findNative(.{
             .allocator = gpa,
+            .darwin_sdk = darwin_sdk,
             .verbose = true,
         }) catch |err| {
             fatal("unable to detect native libc: {s}", .{@errorName(err)});

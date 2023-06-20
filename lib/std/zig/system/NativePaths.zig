@@ -6,7 +6,6 @@ const process = std.process;
 const mem = std.mem;
 
 const NativePaths = @This();
-const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 
 include_dirs: ArrayList([:0]u8),
 lib_dirs: ArrayList([:0]u8),
@@ -14,9 +13,11 @@ framework_dirs: ArrayList([:0]u8),
 rpaths: ArrayList([:0]u8),
 warnings: ArrayList([:0]u8),
 
-pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths {
-    const native_target = native_info.target;
+pub fn isNix() bool {
+    return process.hasEnvVarConstant("NIX_CFLAGS_COMPILE") and process.hasEnvVarConstant("NIX_LDFLAGS");
+}
 
+pub fn detect(allocator: Allocator, native_target: std.Target) !NativePaths {
     var self: NativePaths = .{
         .include_dirs = ArrayList([:0]u8).init(allocator),
         .lib_dirs = ArrayList([:0]u8).init(allocator),
@@ -26,11 +27,10 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
     };
     errdefer self.deinit();
 
-    var is_nix = false;
-    if (process.getEnvVarOwned(allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
+    if (isNix()) {
+        const nix_cflags_compile = try process.getEnvVarOwned(allocator, "NIX_CFLAGS_COMPILE");
         defer allocator.free(nix_cflags_compile);
 
-        is_nix = true;
         var it = mem.tokenizeScalar(u8, nix_cflags_compile, ' ');
         while (true) {
             const word = it.next() orelse break;
@@ -53,16 +53,11 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
                 try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_COMPILE: {s}", .{word});
             }
         }
-    } else |err| switch (err) {
-        error.InvalidUtf8 => {},
-        error.EnvironmentVariableNotFound => {},
-        error.OutOfMemory => |e| return e,
-    }
-    if (process.getEnvVarOwned(allocator, "NIX_LDFLAGS")) |nix_ldflags| {
+
+        const nix_ldflags = try process.getEnvVarOwned(allocator, "NIX_LDFLAGS");
         defer allocator.free(nix_ldflags);
 
-        is_nix = true;
-        var it = mem.tokenizeScalar(u8, nix_ldflags, ' ');
+        it = mem.tokenizeScalar(u8, nix_ldflags, ' ');
         while (true) {
             const word = it.next() orelse break;
             if (mem.eql(u8, word, "-rpath")) {
@@ -80,12 +75,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
                 break;
             }
         }
-    } else |err| switch (err) {
-        error.InvalidUtf8 => {},
-        error.EnvironmentVariableNotFound => {},
-        error.OutOfMemory => |e| return e,
-    }
-    if (is_nix) {
+
         return self;
     }
 

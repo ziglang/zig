@@ -278,8 +278,7 @@ pub fn writeBuildVersionLC(options: *const link.Options, lc_writer: anytype) !vo
         const platform_version = @as(u32, @intCast(ver.major << 16 | ver.minor << 8));
         break :blk platform_version;
     };
-    const sdk_version = if (options.native_darwin_sdk) |sdk| blk: {
-        const ver = sdk.version;
+    const sdk_version = if (options.darwin_sdk_version) |ver| blk: {
         const sdk_version = @as(u32, @intCast(ver.major << 16 | ver.minor << 8));
         break :blk sdk_version;
     } else platform_version;

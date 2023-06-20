@@ -213,8 +213,8 @@ pub const Options = struct {
     /// (Zig compiler development) Enable dumping of linker's state as JSON.
     enable_link_snapshots: bool = false,
 
-    /// (Darwin) Path and version of the native SDK if detected.
-    native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
+    /// (Darwin) Version of the native SDK if detected.
+    darwin_sdk_version: ?std.SemanticVersion = null,
 
     /// (Darwin) Install name for the dylib
     install_name: ?[]const u8 = null,

@@ -124,6 +124,7 @@ zig_lib_directory: Directory,
 local_cache_directory: Directory,
 global_cache_directory: Directory,
 libc_include_dir_list: []const []const u8,
+libc_framework_dir_list: []const []const u8,
 thread_pool: *ThreadPool,
 
 /// Populated when we build the libc++ static library. A Job to build this is placed in the queue
@@ -517,6 +518,7 @@ pub const InitOptions = struct {
     link_libc: bool = false,
     link_libcpp: bool = false,
     link_libunwind: bool = false,
+    want_native_include_dirs: ?bool = null,
     want_pic: ?bool = null,
     /// This means that if the output mode is an executable it will be a
     /// Position Independent Executable. If the output mode is not an
@@ -636,8 +638,6 @@ pub const InitOptions = struct {
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     /// (Zig compiler development) Enable dumping linker's state as JSON.
     enable_link_snapshots: bool = false,
-    /// (Darwin) Path and version of the native SDK if detected.
-    native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
     /// (Darwin) Install name of the dylib
     install_name: ?[]const u8 = null,
     /// (Darwin) Path to entitlements file
@@ -855,14 +855,60 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
-        const sysroot = blk: {
-            if (options.sysroot) |sysroot| {
-                break :blk sysroot;
-            } else if (options.native_darwin_sdk) |sdk| {
-                break :blk sdk.path;
-            } else {
-                break :blk null;
+        var clang_argv = std.ArrayList([]const u8).init(arena);
+        var lib_dirs = std.ArrayList([]const u8).init(arena);
+        var framework_dirs = std.ArrayList([]const u8).init(arena);
+        var rpath_list = std.ArrayList([]const u8).init(arena);
+
+        try clang_argv.appendSlice(options.clang_argv);
+        try lib_dirs.appendSlice(options.lib_dirs);
+        try framework_dirs.appendSlice(options.framework_dirs);
+        try rpath_list.appendSlice(options.rpath_list);
+
+        const want_native_include_dirs = options.sysroot == null and options.is_native_os and
+            (options.system_lib_names.len > 0 or options.want_native_include_dirs orelse false);
+        const darwin_native = (comptime builtin.target.isDarwin()) and options.target.isDarwin() and options.sysroot == null;
+        var darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null;
+
+        if (want_native_include_dirs or darwin_native) {
+            const paths = std.zig.system.NativePaths.detect(arena, options.target) catch |err| {
+                fatal("unable to detect native system paths: {s}", .{@errorName(err)});
+            };
+
+            for (paths.warnings.items) |warning| {
+                std.log.warn("{s}", .{warning});
             }
+
+            try clang_argv.ensureUnusedCapacity(paths.include_dirs.items.len * 2);
+            for (paths.include_dirs.items) |include_dir| {
+                clang_argv.appendAssumeCapacity("-isystem");
+                clang_argv.appendAssumeCapacity(include_dir);
+            }
+
+            try clang_argv.ensureUnusedCapacity(paths.framework_dirs.items.len * 2);
+            try framework_dirs.ensureUnusedCapacity(paths.framework_dirs.items.len);
+            for (paths.framework_dirs.items) |framework_dir| {
+                clang_argv.appendAssumeCapacity("-iframework");
+                clang_argv.appendAssumeCapacity(framework_dir);
+                framework_dirs.appendAssumeCapacity(framework_dir);
+            }
+
+            for (paths.lib_dirs.items) |lib_dir| {
+                try lib_dirs.append(lib_dir);
+            }
+            for (paths.rpaths.items) |rpath| {
+                try rpath_list.append(rpath);
+            }
+
+            if (!std.zig.system.NativePaths.isNix() and std.zig.system.darwin.isDarwinSDKInstalled(arena)) {
+                darwin_sdk = std.zig.system.darwin.getDarwinSDK(arena, options.target);
+            }
+        }
+
+        const sysroot = blk: {
+            if (options.sysroot) |sysroot| break :blk sysroot;
+            if (darwin_sdk) |sdk| break :blk sdk.path;
+            break :blk null;
         };
 
         const lto = blk: {
@@ -948,7 +994,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             options.is_native_abi,
             link_libc,
             options.libc_installation,
-            options.native_darwin_sdk != null,
+            darwin_sdk,
         );
 
         const must_pie = target_util.requiresPIE(options.target);
@@ -1477,11 +1523,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .link_libunwind = link_libunwind,
             .objects = options.link_objects,
             .frameworks = options.frameworks,
-            .framework_dirs = options.framework_dirs,
+            .framework_dirs = framework_dirs.items,
             .system_libs = system_libs,
             .wasi_emulated_libs = options.wasi_emulated_libs,
-            .lib_dirs = options.lib_dirs,
-            .rpath_list = options.rpath_list,
+            .lib_dirs = lib_dirs.items,
+            .rpath_list = rpath_list.items,
             .symbol_wrap_set = options.symbol_wrap_set,
             .strip = strip,
             .is_native_os = options.is_native_os,
@@ -1535,6 +1581,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .soname = options.soname,
             .version = options.version,
             .compatibility_version = options.compatibility_version,
+            .darwin_sdk_version = if (darwin_sdk) |sdk| sdk.version else null,
             .libc_installation = libc_dirs.libc_installation,
             .pic = pic,
             .pie = pie,
@@ -1563,7 +1610,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .wasi_exec_model = wasi_exec_model,
             .hash_style = options.hash_style,
             .enable_link_snapshots = options.enable_link_snapshots,
-            .native_darwin_sdk = options.native_darwin_sdk,
             .install_name = options.install_name,
             .entitlements = options.entitlements,
             .pagezero_size = options.pagezero_size,
@@ -1596,11 +1642,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .embed_file_work_queue = std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
-            .clang_argv = options.clang_argv,
+            .clang_argv = clang_argv.items,
             .c_source_files = options.c_source_files,
             .cache_parent = cache,
             .self_exe_path = options.self_exe_path,
             .libc_include_dir_list = libc_dirs.libc_include_dir_list,
+            .libc_framework_dir_list = libc_dirs.libc_framework_dir_list,
             .sanitize_c = sanitize_c,
             .thread_pool = options.thread_pool,
             .clang_passthrough_mode = options.clang_passthrough_mode,
@@ -2367,7 +2414,8 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     if (comp.bin_file.options.link_libc) {
         man.hash.add(comp.bin_file.options.libc_installation != null);
         if (comp.bin_file.options.libc_installation) |libc_installation| {
-            man.hash.addBytes(libc_installation.crt_dir.?);
+            man.hash.addOptionalBytes(libc_installation.crt_dir);
+            man.hash.addOptionalBytes(libc_installation.framework_dir);
             if (target.abi == .msvc) {
                 man.hash.addBytes(libc_installation.msvc_lib_dir.?);
                 man.hash.addBytes(libc_installation.kernel32_lib_dir.?);
@@ -3635,6 +3683,7 @@ pub fn obtainCObjectCacheManifest(comp: *const Compilation) Cache.Manifest {
     // decision should not be overridden here.
     if (comp.bin_file.options.libc_installation != null) {
         man.hash.addListOfBytes(comp.libc_include_dir_list);
+        man.hash.addListOfBytes(comp.libc_framework_dir_list);
     }
 
     return man;
@@ -4353,6 +4402,11 @@ pub fn addCCArgs(
                 try argv.append(include_dir);
             }
 
+            for (comp.libc_framework_dir_list) |framework_dir| {
+                try argv.append("-iframework");
+                try argv.append(framework_dir);
+            }
+
             if (target.cpu.model.llvm_name) |llvm_name| {
                 try argv.appendSlice(&[_][]const u8{
                     "-Xclang", "-target-cpu", "-Xclang", llvm_name,
@@ -4822,39 +4876,9 @@ test "classifyFileExt" {
 
 const LibCDirs = struct {
     libc_include_dir_list: []const []const u8,
+    libc_framework_dir_list: []const []const u8,
     libc_installation: ?*const LibCInstallation,
 };
-
-fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8, target: Target) !LibCDirs {
-    const arch_name = @tagName(target.cpu.arch);
-    const os_name = try std.fmt.allocPrint(arena, "{s}.{d}", .{
-        @tagName(target.os.tag),
-        target.os.version_range.semver.min.major,
-    });
-    const s = std.fs.path.sep_str;
-    const list = try arena.alloc([]const u8, 3);
-
-    list[0] = try std.fmt.allocPrint(
-        arena,
-        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-none",
-        .{ zig_lib_dir, arch_name, os_name },
-    );
-    list[1] = try std.fmt.allocPrint(
-        arena,
-        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
-        .{ zig_lib_dir, os_name },
-    );
-    list[2] = try std.fmt.allocPrint(
-        arena,
-        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-macos-any",
-        .{zig_lib_dir},
-    );
-
-    return LibCDirs{
-        .libc_include_dir_list = list,
-        .libc_installation = null,
-    };
-}
 
 fn detectLibCIncludeDirs(
     arena: Allocator,
@@ -4863,11 +4887,12 @@ fn detectLibCIncludeDirs(
     is_native_abi: bool,
     link_libc: bool,
     libc_installation: ?*const LibCInstallation,
-    has_macos_sdk: bool,
+    darwin_sdk: ?std.zig.system.darwin.DarwinSDK,
 ) !LibCDirs {
     if (!link_libc) {
         return LibCDirs{
             .libc_include_dir_list = &[0][]u8{},
+            .libc_framework_dir_list = &[0][]u8{},
             .libc_installation = null,
         };
     }
@@ -4879,28 +4904,22 @@ fn detectLibCIncludeDirs(
     // If linking system libraries and targeting the native abi, default to
     // using the system libc installation.
     if (is_native_abi and !target.isMinGW()) {
-        if (target.isDarwin()) {
-            return if (has_macos_sdk)
-                // For Darwin/macOS, we are all set with getDarwinSDK found earlier.
-                LibCDirs{
-                    .libc_include_dir_list = &[0][]u8{},
-                    .libc_installation = null,
-                }
-            else
-                getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target);
-        }
         const libc = try arena.create(LibCInstallation);
-        libc.* = LibCInstallation.findNative(.{ .allocator = arena }) catch |err| switch (err) {
+        libc.* = LibCInstallation.findNative(.{
+            .allocator = arena,
+            .darwin_sdk = darwin_sdk,
+        }) catch |err| switch (err) {
             error.CCompilerExitCode,
             error.CCompilerCrashed,
             error.CCompilerCannotFindHeaders,
             error.UnableToSpawnCCompiler,
+            error.DarwinSdkNotFound,
             => |e| {
                 // We tried to integrate with the native system C compiler,
                 // however, it is not installed. So we must rely on our bundled
                 // libc files.
                 if (target_util.canBuildLibC(target)) {
-                    return detectLibCFromBuilding(arena, zig_lib_dir, target, has_macos_sdk);
+                    return detectLibCFromBuilding(arena, zig_lib_dir, target);
                 }
                 return e;
             },
@@ -4912,7 +4931,7 @@ fn detectLibCIncludeDirs(
     // If not linking system libraries, build and provide our own libc by
     // default if possible.
     if (target_util.canBuildLibC(target)) {
-        return detectLibCFromBuilding(arena, zig_lib_dir, target, has_macos_sdk);
+        return detectLibCFromBuilding(arena, zig_lib_dir, target);
     }
 
     // If zig can't build the libc for the target and we are targeting the
@@ -4926,23 +4945,33 @@ fn detectLibCIncludeDirs(
 
     if (use_system_abi) {
         const libc = try arena.create(LibCInstallation);
-        libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true });
+        libc.* = try LibCInstallation.findNative(.{
+            .allocator = arena,
+            .darwin_sdk = darwin_sdk,
+            .verbose = true,
+        });
         return detectLibCFromLibCInstallation(arena, target, libc);
     }
 
     return LibCDirs{
         .libc_include_dir_list = &[0][]u8{},
+        .libc_framework_dir_list = &[0][]u8{},
         .libc_installation = null,
     };
 }
 
 fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const LibCInstallation) !LibCDirs {
     var list = try std.ArrayList([]const u8).initCapacity(arena, 5);
+    var framework_list = std.ArrayList([]const u8).init(arena);
 
     list.appendAssumeCapacity(lci.include_dir.?);
 
     const is_redundant = mem.eql(u8, lci.sys_include_dir.?, lci.include_dir.?);
     if (!is_redundant) list.appendAssumeCapacity(lci.sys_include_dir.?);
+
+    if (target.isDarwin()) {
+        try framework_list.append(lci.framework_dir.?);
+    }
 
     if (target.os.tag == .windows) {
         if (std.fs.path.dirname(lci.include_dir.?)) |include_dir_parent| {
@@ -4967,25 +4996,44 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
 
     return LibCDirs{
         .libc_include_dir_list = list.items,
+        .libc_framework_dir_list = framework_list.items,
         .libc_installation = lci,
     };
 }
 
-fn detectLibCFromBuilding(
-    arena: Allocator,
-    zig_lib_dir: []const u8,
-    target: std.Target,
-    has_macos_sdk: bool,
-) !LibCDirs {
+fn detectLibCFromBuilding(arena: Allocator, zig_lib_dir: []const u8, target: std.Target) !LibCDirs {
     switch (target.os.tag) {
-        .macos => return if (has_macos_sdk)
-            // For Darwin/macOS, we are all set with getDarwinSDK found earlier.
-            LibCDirs{
-                .libc_include_dir_list = &[0][]u8{},
+        .macos => {
+            const arch_name = @tagName(target.cpu.arch);
+            const os_name = try std.fmt.allocPrint(arena, "{s}.{d}", .{
+                @tagName(target.os.tag),
+                target.os.version_range.semver.min.major,
+            });
+            const s = std.fs.path.sep_str;
+            const list = try arena.alloc([]const u8, 3);
+
+            list[0] = try std.fmt.allocPrint(
+                arena,
+                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-none",
+                .{ zig_lib_dir, arch_name, os_name },
+            );
+            list[1] = try std.fmt.allocPrint(
+                arena,
+                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
+                .{ zig_lib_dir, os_name },
+            );
+            list[2] = try std.fmt.allocPrint(
+                arena,
+                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-macos-any",
+                .{zig_lib_dir},
+            );
+
+            return LibCDirs{
+                .libc_include_dir_list = list,
+                .libc_framework_dir_list = &[0][]u8{},
                 .libc_installation = null,
-            }
-        else
-            getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target),
+            };
+        },
         else => {
             const generic_name = target_util.libCGenericName(target);
             // Some architectures are handled by the same set of headers.
@@ -5034,6 +5082,7 @@ fn detectLibCFromBuilding(
 
             return LibCDirs{
                 .libc_include_dir_list = list,
+                .libc_framework_dir_list = &[0][]u8{},
                 .libc_installation = null,
             };
         },

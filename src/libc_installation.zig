@@ -11,6 +11,7 @@ const is_haiku = builtin.target.os.tag == .haiku;
 
 const log = std.log.scoped(.libc_installation);
 
+const DarwinSDK = std.zig.system.darwin.DarwinSDK;
 const ZigWindowsSDK = @import("windows_sdk.zig").ZigWindowsSDK;
 
 /// See the render function implementation for documentation of the fields.
@@ -21,6 +22,7 @@ pub const LibCInstallation = struct {
     msvc_lib_dir: ?[]const u8 = null,
     kernel32_lib_dir: ?[]const u8 = null,
     gcc_dir: ?[]const u8 = null,
+    framework_dir: ?[]const u8 = null,
 
     pub const FindError = error{
         OutOfMemory,
@@ -35,6 +37,7 @@ pub const LibCInstallation = struct {
         UnsupportedArchitecture,
         WindowsSdkNotFound,
         ZigIsTheCCompiler,
+        DarwinSdkNotFound,
     };
 
     pub fn parse(
@@ -121,6 +124,11 @@ pub const LibCInstallation = struct {
             return error.ParseError;
         }
 
+        if (self.framework_dir == null and target.isDarwin()) {
+            log.err("framework_dir may not be empty for {s}\n", .{@tagName(os_tag)});
+            return error.ParseError;
+        }
+
         return self;
     }
 
@@ -132,6 +140,7 @@ pub const LibCInstallation = struct {
         const msvc_lib_dir = self.msvc_lib_dir orelse "";
         const kernel32_lib_dir = self.kernel32_lib_dir orelse "";
         const gcc_dir = self.gcc_dir orelse "";
+        const framework_dir = self.framework_dir orelse "";
 
         try out.print(
             \\# The directory that contains `stdlib.h`.
@@ -160,6 +169,8 @@ pub const LibCInstallation = struct {
             \\# Only needed when targeting Haiku.
             \\gcc_dir={s}
             \\
+            \\# The directory that contains system frameworks (Darwin only).
+            \\framework_dir={s}
         , .{
             include_dir,
             sys_include_dir,
@@ -167,6 +178,7 @@ pub const LibCInstallation = struct {
             msvc_lib_dir,
             kernel32_lib_dir,
             gcc_dir,
+            framework_dir,
         });
     }
 
@@ -175,6 +187,9 @@ pub const LibCInstallation = struct {
 
         /// If enabled, will print human-friendly errors to stderr.
         verbose: bool = false,
+
+        /// Darwin SDK structure.
+        darwin_sdk: ?DarwinSDK = null,
     };
 
     /// Finds the default, native libc.
@@ -182,7 +197,23 @@ pub const LibCInstallation = struct {
         var self: LibCInstallation = .{};
 
         if (is_darwin) {
-            @panic("Darwin is handled separately via std.zig.system.darwin module");
+            if (args.darwin_sdk) |sdk| {
+                const is_pre_11 = builtin.target.os.version_range.semver.min.major < 11;
+                const include_path = if (is_pre_11) "/usr/local/include" else "/usr/include";
+                const framework_path = if (is_pre_11) "/Library/Frameworks" else "/System/Library/Frameworks";
+                self.include_dir = try std.fmt.allocPrintZ(args.allocator, "{s}{s}", .{
+                    sdk.path,
+                    include_path,
+                });
+                self.sys_include_dir = try args.allocator.dupeZ(u8, self.include_dir.?);
+                self.framework_dir = try std.fmt.allocPrintZ(args.allocator, "{s}{s}", .{
+                    sdk.path,
+                    framework_path,
+                });
+            } else if (std.process.can_spawn) {
+                try self.findNativeIncludeDirPosix(args);
+                // TODO find framework dir using clang
+            }
         } else if (is_windows) {
             if (!build_options.have_llvm)
                 return error.WindowsSdkNotFound;
