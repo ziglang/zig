@@ -66,7 +66,7 @@ pub fn cmdObjCopy(
         } else if (mem.eql(u8, arg, "--listen=-")) {
             listen = true;
         } else if (mem.startsWith(u8, arg, "--only-section=")) {
-            only_section = arg["--output-target=".len..];
+            only_section = arg["--only-section=".len..];
         } else if (mem.eql(u8, arg, "--pad-to")) {
             i += 1;
             if (i >= args.len) fatal("expected another argument after '{s}'", .{arg});
