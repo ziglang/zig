@@ -1,14 +1,373 @@
 const std = @import("std");
 const testing = std.testing;
 const ArenaAllocator = std.heap.ArenaAllocator;
+const Allocator = std.mem.Allocator;
 
 const parseFromSlice = @import("./static.zig").parseFromSlice;
 const parseFromSliceLeaky = @import("./static.zig").parseFromSliceLeaky;
 const parseFromTokenSource = @import("./static.zig").parseFromTokenSource;
 const parseFromTokenSourceLeaky = @import("./static.zig").parseFromTokenSourceLeaky;
+const parseFromValue = @import("./static.zig").parseFromValue;
+const parseFromValueLeaky = @import("./static.zig").parseFromValueLeaky;
 const ParseOptions = @import("./static.zig").ParseOptions;
+
 const JsonScanner = @import("./scanner.zig").Scanner;
 const jsonReader = @import("./scanner.zig").reader;
+const Diagnostics = @import("./scanner.zig").Diagnostics;
+
+const Value = @import("./dynamic.zig").Value;
+
+const Primitives = struct {
+    bool: bool,
+    // f16, f80, f128: don't work in std.fmt.parseFloat(T).
+    f32: f32,
+    f64: f64,
+    u0: u0,
+    i0: i0,
+    u1: u1,
+    i1: i1,
+    u8: u8,
+    i8: i8,
+    i130: i130,
+};
+
+const primitives_0 = Primitives{
+    .bool = false,
+    .f32 = 0,
+    .f64 = 0,
+    .u0 = 0,
+    .i0 = 0,
+    .u1 = 0,
+    .i1 = 0,
+    .u8 = 0,
+    .i8 = 0,
+    .i130 = 0,
+};
+const primitives_0_doc_0 =
+    \\{
+    \\  "bool": false,
+    \\  "f32": 0,
+    \\  "f64": 0,
+    \\  "u0": 0,
+    \\  "i0": 0,
+    \\  "u1": 0,
+    \\  "i1": 0,
+    \\  "u8": 0,
+    \\  "i8": 0,
+    \\  "i130": 0
+    \\}
+;
+const primitives_0_doc_1 = // looks like a float.
+    \\{
+    \\  "bool": false,
+    \\  "f32": 0.0,
+    \\  "f64": 0.0,
+    \\  "u0": 0.0,
+    \\  "i0": 0.0,
+    \\  "u1": 0.0,
+    \\  "i1": 0.0,
+    \\  "u8": 0.0,
+    \\  "i8": 0.0,
+    \\  "i130": 0.0
+    \\}
+;
+
+const primitives_1 = Primitives{
+    .bool = true,
+    .f32 = 1073741824,
+    .f64 = 1152921504606846976,
+    .u0 = 0,
+    .i0 = 0,
+    .u1 = 1,
+    .i1 = -1,
+    .u8 = 255,
+    .i8 = -128,
+    .i130 = -680564733841876926926749214863536422911,
+};
+const primitives_1_doc_0 =
+    \\{
+    \\  "bool": true,
+    \\  "f32": 1073741824,
+    \\  "f64": 1152921504606846976,
+    \\  "u0": 0,
+    \\  "i0": 0,
+    \\  "u1": 1,
+    \\  "i1": -1,
+    \\  "u8": 255,
+    \\  "i8": -128,
+    \\  "i130": -680564733841876926926749214863536422911
+    \\}
+;
+const primitives_1_doc_1 = // float rounding.
+    \\{
+    \\  "bool": true,
+    \\  "f32": 1073741825,
+    \\  "f64": 1152921504606846977,
+    \\  "u0": 0,
+    \\  "i0": 0,
+    \\  "u1": 1,
+    \\  "i1": -1,
+    \\  "u8": 255,
+    \\  "i8": -128,
+    \\  "i130": -680564733841876926926749214863536422911
+    \\}
+;
+
+const Aggregates = struct {
+    optional: ?i32,
+    array: [4]i32,
+    vector: @Vector(4, i32),
+    pointer: *i32,
+    pointer_const: *const i32,
+    slice: []i32,
+    slice_const: []const i32,
+    slice_sentinel: [:0]i32,
+    slice_sentinel_const: [:0]const i32,
+};
+
+var zero: i32 = 0;
+const zero_const: i32 = 0;
+var array_of_zeros: [4:0]i32 = [_:0]i32{ 0, 0, 0, 0 };
+var one: i32 = 1;
+const one_const: i32 = 1;
+var array_countdown: [4:0]i32 = [_:0]i32{ 4, 3, 2, 1 };
+
+const aggregates_0 = Aggregates{
+    .optional = null,
+    .array = [4]i32{ 0, 0, 0, 0 },
+    .vector = @Vector(4, i32){ 0, 0, 0, 0 },
+    .pointer = &zero,
+    .pointer_const = &zero_const,
+    .slice = array_of_zeros[0..0],
+    .slice_const = &[_]i32{},
+    .slice_sentinel = array_of_zeros[0..0 :0],
+    .slice_sentinel_const = &[_:0]i32{},
+};
+const aggregates_0_doc =
+    \\{
+    \\  "optional": null,
+    \\  "array": [0, 0, 0, 0],
+    \\  "vector": [0, 0, 0, 0],
+    \\  "pointer": 0,
+    \\  "pointer_const": 0,
+    \\  "slice": [],
+    \\  "slice_const": [],
+    \\  "slice_sentinel": [],
+    \\  "slice_sentinel_const": []
+    \\}
+;
+
+const aggregates_1 = Aggregates{
+    .optional = 1,
+    .array = [4]i32{ 1, 2, 3, 4 },
+    .vector = @Vector(4, i32){ 1, 2, 3, 4 },
+    .pointer = &one,
+    .pointer_const = &one_const,
+    .slice = array_countdown[0..],
+    .slice_const = array_countdown[0..],
+    .slice_sentinel = array_countdown[0.. :0],
+    .slice_sentinel_const = array_countdown[0.. :0],
+};
+const aggregates_1_doc =
+    \\{
+    \\  "optional": 1,
+    \\  "array": [1, 2, 3, 4],
+    \\  "vector": [1, 2, 3, 4],
+    \\  "pointer": 1,
+    \\  "pointer_const": 1,
+    \\  "slice": [4, 3, 2, 1],
+    \\  "slice_const": [4, 3, 2, 1],
+    \\  "slice_sentinel": [4, 3, 2, 1],
+    \\  "slice_sentinel_const": [4, 3, 2, 1]
+    \\}
+;
+
+const Strings = struct {
+    slice_u8: []u8,
+    slice_const_u8: []const u8,
+    array_u8: [4]u8,
+    slice_sentinel_u8: [:0]u8,
+    slice_const_sentinel_u8: [:0]const u8,
+    array_sentinel_u8: [4:0]u8,
+};
+
+var abcd = [4:0]u8{ 'a', 'b', 'c', 'd' };
+const strings_0 = Strings{
+    .slice_u8 = abcd[0..],
+    .slice_const_u8 = "abcd",
+    .array_u8 = [4]u8{ 'a', 'b', 'c', 'd' },
+    .slice_sentinel_u8 = abcd[0..],
+    .slice_const_sentinel_u8 = "abcd",
+    .array_sentinel_u8 = [4:0]u8{ 'a', 'b', 'c', 'd' },
+};
+const strings_0_doc_0 =
+    \\{
+    \\  "slice_u8": "abcd",
+    \\  "slice_const_u8": "abcd",
+    \\  "array_u8": "abcd",
+    \\  "slice_sentinel_u8": "abcd",
+    \\  "slice_const_sentinel_u8": "abcd",
+    \\  "array_sentinel_u8": "abcd"
+    \\}
+;
+const strings_0_doc_1 =
+    \\{
+    \\  "slice_u8": [97, 98, 99, 100],
+    \\  "slice_const_u8": [97, 98, 99, 100],
+    \\  "array_u8": [97, 98, 99, 100],
+    \\  "slice_sentinel_u8": [97, 98, 99, 100],
+    \\  "slice_const_sentinel_u8": [97, 98, 99, 100],
+    \\  "array_sentinel_u8": [97, 98, 99, 100]
+    \\}
+;
+
+const Subnamespaces = struct {
+    packed_struct: packed struct { a: u32, b: u32 },
+    union_enum: union(enum) { i: i32, s: []const u8, v },
+    inferred_enum: enum { a, b },
+    explicit_enum: enum(u8) { a = 0, b = 1 },
+
+    custom_struct: struct {
+        pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) !@This() {
+            _ = allocator;
+            _ = options;
+            try source.skipValue();
+            return @This(){};
+        }
+        pub fn jsonParseFromValue(allocator: Allocator, source: Value, options: ParseOptions) !@This() {
+            _ = allocator;
+            _ = source;
+            _ = options;
+            return @This(){};
+        }
+    },
+    custom_union: union(enum) {
+        i: i32,
+        s: []const u8,
+        pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) !@This() {
+            _ = allocator;
+            _ = options;
+            try source.skipValue();
+            return @This(){ .i = 0 };
+        }
+        pub fn jsonParseFromValue(allocator: Allocator, source: Value, options: ParseOptions) !@This() {
+            _ = allocator;
+            _ = source;
+            _ = options;
+            return @This(){ .i = 0 };
+        }
+    },
+    custom_enum: enum {
+        a,
+        b,
+        pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) !@This() {
+            _ = allocator;
+            _ = options;
+            try source.skipValue();
+            return .a;
+        }
+        pub fn jsonParseFromValue(allocator: Allocator, source: Value, options: ParseOptions) !@This() {
+            _ = allocator;
+            _ = source;
+            _ = options;
+            return .a;
+        }
+    },
+};
+
+const subnamespaces_0 = Subnamespaces{
+    .packed_struct = .{ .a = 0, .b = 0 },
+    .union_enum = .{ .i = 0 },
+    .inferred_enum = .a,
+    .explicit_enum = .a,
+    .custom_struct = .{},
+    .custom_union = .{ .i = 0 },
+    .custom_enum = .a,
+};
+const subnamespaces_0_doc =
+    \\{
+    \\  "packed_struct": {"a": 0, "b": 0},
+    \\  "union_enum": {"i": 0},
+    \\  "inferred_enum": "a",
+    \\  "explicit_enum": "a",
+    \\  "custom_struct": null,
+    \\  "custom_union": null,
+    \\  "custom_enum": null
+    \\}
+;
+
+fn testAllParseFunctions(comptime T: type, expected: T, doc: []const u8) !void {
+    // First do the one with the debug info in case we get a SyntaxError or something.
+    {
+        var scanner = JsonScanner.initCompleteInput(testing.allocator, doc);
+        defer scanner.deinit();
+        var diagnostics = Diagnostics{};
+        scanner.enableDiagnostics(&diagnostics);
+        var parsed = parseFromTokenSource(T, testing.allocator, &scanner, .{}) catch |e| {
+            std.debug.print("at line,col: {}:{}\n", .{ diagnostics.getLine(), diagnostics.getColumn() });
+            return e;
+        };
+        defer parsed.deinit();
+        try testing.expectEqualDeep(expected, parsed.value);
+    }
+    {
+        const parsed = try parseFromSlice(T, testing.allocator, doc, .{});
+        defer parsed.deinit();
+        try testing.expectEqualDeep(expected, parsed.value);
+    }
+    {
+        var stream = std.io.fixedBufferStream(doc);
+        var json_reader = jsonReader(std.testing.allocator, stream.reader());
+        defer json_reader.deinit();
+        var parsed = try parseFromTokenSource(T, testing.allocator, &json_reader, .{});
+        defer parsed.deinit();
+        try testing.expectEqualDeep(expected, parsed.value);
+    }
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    {
+        try testing.expectEqualDeep(expected, try parseFromSliceLeaky(T, arena.allocator(), doc, .{}));
+    }
+    {
+        var scanner = JsonScanner.initCompleteInput(testing.allocator, doc);
+        defer scanner.deinit();
+        try testing.expectEqualDeep(expected, try parseFromTokenSourceLeaky(T, arena.allocator(), &scanner, .{}));
+    }
+    {
+        var stream = std.io.fixedBufferStream(doc);
+        var json_reader = jsonReader(std.testing.allocator, stream.reader());
+        defer json_reader.deinit();
+        try testing.expectEqualDeep(expected, try parseFromTokenSourceLeaky(T, arena.allocator(), &json_reader, .{}));
+    }
+
+    const parsed_dynamic = try parseFromSlice(Value, testing.allocator, doc, .{});
+    defer parsed_dynamic.deinit();
+    {
+        const parsed = try parseFromValue(T, testing.allocator, parsed_dynamic.value, .{});
+        defer parsed.deinit();
+        try testing.expectEqualDeep(expected, parsed.value);
+    }
+    {
+        try testing.expectEqualDeep(expected, try parseFromValueLeaky(T, arena.allocator(), parsed_dynamic.value, .{}));
+    }
+}
+
+test "test all types" {
+    if (true) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/16108
+    try testAllParseFunctions(Primitives, primitives_0, primitives_0_doc_0);
+    try testAllParseFunctions(Primitives, primitives_0, primitives_0_doc_1);
+    try testAllParseFunctions(Primitives, primitives_1, primitives_1_doc_0);
+    try testAllParseFunctions(Primitives, primitives_1, primitives_1_doc_1);
+
+    try testAllParseFunctions(Aggregates, aggregates_0, aggregates_0_doc);
+    try testAllParseFunctions(Aggregates, aggregates_1, aggregates_1_doc);
+
+    try testAllParseFunctions(Strings, strings_0, strings_0_doc_0);
+    try testAllParseFunctions(Strings, strings_0, strings_0_doc_1);
+
+    try testAllParseFunctions(Subnamespaces, subnamespaces_0, subnamespaces_0_doc);
+}
 
 test "parse" {
     try testing.expectEqual(false, try parseFromSliceLeaky(bool, testing.allocator, "false", .{}));
