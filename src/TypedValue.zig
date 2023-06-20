@@ -242,11 +242,6 @@ pub fn print(
                 }
                 try writer.writeAll("@enumFromInt(");
                 try print(.{
-                    .ty = Type.type,
-                    .val = enum_tag.ty.toValue(),
-                }, writer, level - 1, mod);
-                try writer.writeAll(", ");
-                try print(.{
                     .ty = ip.typeOf(enum_tag.int).toType(),
                     .val = enum_tag.int.toValue(),
                 }, writer, level - 1, mod);

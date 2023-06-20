@@ -230,6 +230,9 @@ pub const Inst = struct {
         /// Given an indexable type, returns the type of the element at given index.
         /// Uses the `bin` union field. lhs is the indexable type, rhs is the index.
         elem_type_index,
+        /// Given a pointer type, returns its element type.
+        /// Uses the `un_node` field.
+        elem_type,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -838,13 +841,12 @@ pub const Inst = struct {
         int_cast,
         /// Implements the `@ptrCast` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        /// Not every `@ptrCast` will correspond to this instruction - see also
+        /// `ptr_cast_full` in `Extended`.
         ptr_cast,
         /// Implements the `@truncate` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
         truncate,
-        /// Implements the `@alignCast` builtin.
-        /// Uses `pl_node` with payload `Bin`. `lhs` is dest alignment, `rhs` is operand.
-        align_cast,
 
         /// Implements the `@hasDecl` builtin.
         /// Uses the `pl_node` union field. Payload is `Bin`.
@@ -1005,6 +1007,7 @@ pub const Inst = struct {
                 .array_type_sentinel,
                 .vector_type,
                 .elem_type_index,
+                .elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1172,7 +1175,6 @@ pub const Inst = struct {
                 .int_cast,
                 .ptr_cast,
                 .truncate,
-                .align_cast,
                 .has_field,
                 .clz,
                 .ctz,
@@ -1309,6 +1311,7 @@ pub const Inst = struct {
                 .array_type_sentinel,
                 .vector_type,
                 .elem_type_index,
+                .elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1454,7 +1457,6 @@ pub const Inst = struct {
                 .int_cast,
                 .ptr_cast,
                 .truncate,
-                .align_cast,
                 .has_field,
                 .clz,
                 .ctz,
@@ -1539,6 +1541,7 @@ pub const Inst = struct {
                 .array_type_sentinel = .pl_node,
                 .vector_type = .pl_node,
                 .elem_type_index = .bin,
+                .elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as = .bin,
@@ -1717,7 +1720,6 @@ pub const Inst = struct {
                 .int_cast = .pl_node,
                 .ptr_cast = .pl_node,
                 .truncate = .pl_node,
-                .align_cast = .pl_node,
                 .typeof_builtin = .pl_node,
 
                 .has_decl = .pl_node,
@@ -1948,9 +1950,6 @@ pub const Inst = struct {
         /// `small` 0=>weak 1=>strong
         /// `operand` is payload index to `Cmpxchg`.
         cmpxchg,
-        /// Implement the builtin `@addrSpaceCast`
-        /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
-        addrspace_cast,
         /// Implement builtin `@cVaArg`.
         /// `operand` is payload index to `BinNode`.
         c_va_arg,
@@ -1963,12 +1962,21 @@ pub const Inst = struct {
         /// Implement builtin `@cVaStart`.
         /// `operand` is `src_node: i32`.
         c_va_start,
-        /// Implements the `@constCast` builtin.
+        /// Implements the following builtins:
+        /// `@ptrCast`, `@alignCast`, `@addrSpaceCast`, `@constCast`, `@volatileCast`.
+        /// Represents an arbitrary nesting of the above builtins. Such a nesting is treated as a
+        /// single operation which can modify multiple components of a pointer type.
+        /// `operand` is payload index to `BinNode`.
+        /// `small` contains `FullPtrCastFlags`.
+        /// AST node is the root of the nested casts.
+        /// `lhs` is dest type, `rhs` is operand.
+        ptr_cast_full,
         /// `operand` is payload index to `UnNode`.
-        const_cast,
-        /// Implements the `@volatileCast` builtin.
-        /// `operand` is payload index to `UnNode`.
-        volatile_cast,
+        /// `small` contains `FullPtrCastFlags`.
+        /// Guaranteed to only have flags where no explicit destination type is
+        /// required (const_cast and volatile_cast).
+        /// AST node is the root of the nested casts.
+        ptr_cast_no_dest,
         /// Implements the `@workItemId` builtin.
         /// `operand` is payload index to `UnNode`.
         work_item_id,
@@ -2804,6 +2812,14 @@ pub const Inst = struct {
         anon,
         /// Use the name specified in the next `dbg_var_{val,ptr}` instruction.
         dbg_var,
+    };
+
+    pub const FullPtrCastFlags = packed struct(u5) {
+        ptr_cast: bool = false,
+        align_cast: bool = false,
+        addrspace_cast: bool = false,
+        const_cast: bool = false,
+        volatile_cast: bool = false,
     };
 
     /// Trailing:

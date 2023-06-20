@@ -960,6 +960,7 @@ fn analyzeBodyInner(
             .elem_val                     => try sema.zirElemVal(block, inst),
             .elem_val_node                => try sema.zirElemValNode(block, inst),
             .elem_type_index              => try sema.zirElemTypeIndex(block, inst),
+            .elem_type                    => try sema.zirElemType(block, inst),
             .enum_literal                 => try sema.zirEnumLiteral(block, inst),
             .int_from_enum                  => try sema.zirIntFromEnum(block, inst),
             .enum_from_int                  => try sema.zirEnumFromInt(block, inst),
@@ -1044,7 +1045,6 @@ fn analyzeBodyInner(
             .int_cast                     => try sema.zirIntCast(block, inst),
             .ptr_cast                     => try sema.zirPtrCast(block, inst),
             .truncate                     => try sema.zirTruncate(block, inst),
-            .align_cast                   => try sema.zirAlignCast(block, inst),
             .has_decl                     => try sema.zirHasDecl(block, inst),
             .has_field                    => try sema.zirHasField(block, inst),
             .byte_swap                    => try sema.zirByteSwap(block, inst),
@@ -1172,13 +1172,12 @@ fn analyzeBodyInner(
                     .reify                 => try sema.zirReify(             block, extended, inst),
                     .builtin_async_call    => try sema.zirBuiltinAsyncCall(  block, extended),
                     .cmpxchg               => try sema.zirCmpxchg(           block, extended),
-                    .addrspace_cast        => try sema.zirAddrSpaceCast(     block, extended),
                     .c_va_arg              => try sema.zirCVaArg(            block, extended),
                     .c_va_copy             => try sema.zirCVaCopy(           block, extended),
                     .c_va_end              => try sema.zirCVaEnd(            block, extended),
                     .c_va_start            => try sema.zirCVaStart(          block, extended),
-                    .const_cast,           => try sema.zirConstCast(         block, extended),
-                    .volatile_cast,        => try sema.zirVolatileCast(      block, extended),
+                    .ptr_cast_full         => try sema.zirPtrCastFull(       block, extended),
+                    .ptr_cast_no_dest      => try sema.zirPtrCastNoDest(       block, extended),
                     .work_item_id          => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_size       => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_id         => try sema.zirWorkItem(          block, extended, extended.opcode),
@@ -1819,6 +1818,24 @@ pub fn resolveType(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Ins
     const ty = try sema.analyzeAsType(block, src, air_inst);
     if (ty.isGenericPoison()) return error.GenericPoison;
     return ty;
+}
+
+fn resolveCastDestType(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Inst.Ref, builtin_name: []const u8) !Type {
+    return sema.resolveType(block, src, zir_ref) catch |err| switch (err) {
+        error.GenericPoison => {
+            // Cast builtins use their result type as the destination type, but
+            // it could be an anytype argument, which we can't catch in AstGen.
+            const msg = msg: {
+                const msg = try sema.errMsg(block, src, "{s} must have a known result type", .{builtin_name});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, src, msg, "result type is unknown due to anytype parameter", .{});
+                try sema.errNote(block, src, msg, "use @as to provide explicit result type", .{});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
+        },
+        else => |e| return e,
+    };
 }
 
 fn analyzeAsType(
@@ -7953,6 +7970,14 @@ fn zirElemTypeIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     }
 }
 
+fn zirElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const un_node = sema.code.instructions.items(.data)[inst].un_node;
+    const ptr_ty = try sema.resolveType(block, .unneeded, un_node.operand);
+    assert(ptr_ty.zigTypeTag(mod) == .Pointer); // validated by a previous instruction
+    return sema.addType(ptr_ty.childType(mod));
+}
+
 fn zirVectorType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
@@ -8278,13 +8303,12 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const src = inst_data.src();
-    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, "@enumFromInt");
     const operand = try sema.resolveInst(extra.rhs);
 
     if (dest_ty.zigTypeTag(mod) != .Enum) {
-        return sema.fail(block, dest_ty_src, "expected enum, found '{}'", .{dest_ty.fmt(mod)});
+        return sema.fail(block, src, "expected enum, found '{}'", .{dest_ty.fmt(mod)});
     }
     _ = try sema.checkIntType(block, operand_src, sema.typeOf(operand));
 
@@ -9572,14 +9596,14 @@ fn zirIntCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
 
-    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, "@intCast");
     const operand = try sema.resolveInst(extra.rhs);
 
-    return sema.intCast(block, inst_data.src(), dest_ty, dest_ty_src, operand, operand_src, true);
+    return sema.intCast(block, inst_data.src(), dest_ty, src, operand, operand_src, true);
 }
 
 fn intCast(
@@ -9733,11 +9757,11 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
 
-    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, "@bitCast");
     const operand = try sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
     switch (dest_ty.zigTypeTag(mod)) {
@@ -9756,14 +9780,14 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .Type,
         .Undefined,
         .Void,
-        => return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}'", .{dest_ty.fmt(mod)}),
+        => return sema.fail(block, src, "cannot @bitCast to '{}'", .{dest_ty.fmt(mod)}),
 
         .Enum => {
             const msg = msg: {
-                const msg = try sema.errMsg(block, dest_ty_src, "cannot @bitCast to '{}'", .{dest_ty.fmt(mod)});
+                const msg = try sema.errMsg(block, src, "cannot @bitCast to '{}'", .{dest_ty.fmt(mod)});
                 errdefer msg.destroy(sema.gpa);
                 switch (operand_ty.zigTypeTag(mod)) {
-                    .Int, .ComptimeInt => try sema.errNote(block, dest_ty_src, msg, "use @enumFromInt to cast from '{}'", .{operand_ty.fmt(mod)}),
+                    .Int, .ComptimeInt => try sema.errNote(block, src, msg, "use @enumFromInt to cast from '{}'", .{operand_ty.fmt(mod)}),
                     else => {},
                 }
 
@@ -9774,11 +9798,11 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
         .Pointer => {
             const msg = msg: {
-                const msg = try sema.errMsg(block, dest_ty_src, "cannot @bitCast to '{}'", .{dest_ty.fmt(mod)});
+                const msg = try sema.errMsg(block, src, "cannot @bitCast to '{}'", .{dest_ty.fmt(mod)});
                 errdefer msg.destroy(sema.gpa);
                 switch (operand_ty.zigTypeTag(mod)) {
-                    .Int, .ComptimeInt => try sema.errNote(block, dest_ty_src, msg, "use @ptrFromInt to cast from '{}'", .{operand_ty.fmt(mod)}),
-                    .Pointer => try sema.errNote(block, dest_ty_src, msg, "use @ptrCast to cast from '{}'", .{operand_ty.fmt(mod)}),
+                    .Int, .ComptimeInt => try sema.errNote(block, src, msg, "use @ptrFromInt to cast from '{}'", .{operand_ty.fmt(mod)}),
+                    .Pointer => try sema.errNote(block, src, msg, "use @ptrCast to cast from '{}'", .{operand_ty.fmt(mod)}),
                     else => {},
                 }
 
@@ -9792,7 +9816,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 .Union => "union",
                 else => unreachable,
             };
-            return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}'; {s} does not have a guaranteed in-memory layout", .{
+            return sema.fail(block, src, "cannot @bitCast to '{}'; {s} does not have a guaranteed in-memory layout", .{
                 dest_ty.fmt(mod), container,
             });
         },
@@ -9876,11 +9900,11 @@ fn zirFloatCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
 
-    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, "@floatCast");
     const operand = try sema.resolveInst(extra.rhs);
 
     const target = mod.getTarget();
@@ -9889,7 +9913,7 @@ fn zirFloatCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         .Float => false,
         else => return sema.fail(
             block,
-            dest_ty_src,
+            src,
             "expected float type, found '{}'",
             .{dest_ty.fmt(mod)},
         ),
@@ -20552,50 +20576,6 @@ fn reifyStruct(
     return decl_val;
 }
 
-fn zirAddrSpaceCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
-    const mod = sema.mod;
-    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-    const src = LazySrcLoc.nodeOffset(extra.node);
-    const addrspace_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
-    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
-
-    const dest_addrspace = try sema.analyzeAddressSpace(block, addrspace_src, extra.lhs, .pointer);
-    const ptr = try sema.resolveInst(extra.rhs);
-    const ptr_ty = sema.typeOf(ptr);
-
-    try sema.checkPtrOperand(block, ptr_src, ptr_ty);
-
-    var ptr_info = ptr_ty.ptrInfo(mod);
-    const src_addrspace = ptr_info.flags.address_space;
-    if (!target_util.addrSpaceCastIsValid(sema.mod.getTarget(), src_addrspace, dest_addrspace)) {
-        const msg = msg: {
-            const msg = try sema.errMsg(block, src, "invalid address space cast", .{});
-            errdefer msg.destroy(sema.gpa);
-            try sema.errNote(block, src, msg, "address space '{s}' is not compatible with address space '{s}'", .{ @tagName(src_addrspace), @tagName(dest_addrspace) });
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(msg);
-    }
-
-    ptr_info.flags.address_space = dest_addrspace;
-    const dest_ptr_ty = try mod.ptrType(ptr_info);
-    const dest_ty = if (ptr_ty.zigTypeTag(mod) == .Optional)
-        try mod.optionalType(dest_ptr_ty.toIntern())
-    else
-        dest_ptr_ty;
-
-    try sema.requireRuntimeBlock(block, src, ptr_src);
-    // TODO: Address space cast safety?
-
-    return block.addInst(.{
-        .tag = .addrspace_cast,
-        .data = .{ .ty_op = .{
-            .ty = try sema.addType(dest_ty),
-            .operand = ptr,
-        } },
-    });
-}
-
 fn resolveVaListRef(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Inst.Ref) CompileError!Air.Inst.Ref {
     const va_list_ty = try sema.getBuiltinType("VaList");
     const va_list_ptr = try sema.mod.singleMutPtrType(va_list_ty);
@@ -20711,14 +20691,14 @@ fn zirFrameSize(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const dest_ty = try sema.resolveType(block, ty_src, extra.lhs);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, "@intFromFloat");
     const operand = try sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
 
-    _ = try sema.checkIntType(block, ty_src, dest_ty);
+    _ = try sema.checkIntType(block, src, dest_ty);
     try sema.checkFloatType(block, operand_src, operand_ty);
 
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
@@ -20751,14 +20731,14 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
 fn zirFloatFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const dest_ty = try sema.resolveType(block, ty_src, extra.lhs);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, "@floatFromInt");
     const operand = try sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
 
-    try sema.checkFloatType(block, ty_src, dest_ty);
+    try sema.checkFloatType(block, src, dest_ty);
     _ = try sema.checkIntType(block, operand_src, operand_ty);
 
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
@@ -20779,21 +20759,20 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
 
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
 
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_res = try sema.resolveInst(extra.rhs);
     const operand_coerced = try sema.coerce(block, Type.usize, operand_res, operand_src);
 
-    const type_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const ptr_ty = try sema.resolveType(block, src, extra.lhs);
-    try sema.checkPtrType(block, type_src, ptr_ty);
+    const ptr_ty = try sema.resolveCastDestType(block, src, extra.lhs, "@ptrFromInt");
+    try sema.checkPtrType(block, src, ptr_ty);
     const elem_ty = ptr_ty.elemType2(mod);
     const ptr_align = try ptr_ty.ptrAlignmentAdvanced(mod, sema);
 
     if (ptr_ty.isSlice(mod)) {
         const msg = msg: {
-            const msg = try sema.errMsg(block, type_src, "integer cannot be converted to slice type '{}'", .{ptr_ty.fmt(sema.mod)});
+            const msg = try sema.errMsg(block, src, "integer cannot be converted to slice type '{}'", .{ptr_ty.fmt(sema.mod)});
             errdefer msg.destroy(sema.gpa);
-            try sema.errNote(block, type_src, msg, "slice length cannot be inferred from address", .{});
+            try sema.errNote(block, src, msg, "slice length cannot be inferred from address", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -20841,12 +20820,11 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     const ip = &mod.intern_pool;
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const src = LazySrcLoc.nodeOffset(extra.node);
-    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
-    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, "@errSetCast");
     const operand = try sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
-    try sema.checkErrorSetType(block, dest_ty_src, dest_ty);
+    try sema.checkErrorSetType(block, src, dest_ty);
     try sema.checkErrorSetType(block, operand_src, operand_ty);
 
     // operand must be defined since it can be an invalid error value
@@ -20869,7 +20847,7 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
             break :disjoint true;
         }
 
-        try sema.resolveInferredErrorSetTy(block, dest_ty_src, dest_ty);
+        try sema.resolveInferredErrorSetTy(block, src, dest_ty);
         try sema.resolveInferredErrorSetTy(block, operand_src, operand_ty);
         for (dest_ty.errorSetNames(mod)) |dest_err_name| {
             if (Type.errorSetHasFieldIp(ip, operand_ty.toIntern(), dest_err_name))
@@ -20924,138 +20902,415 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     return block.addBitCast(dest_ty, operand);
 }
 
+fn zirPtrCastFull(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const flags = @bitCast(Zir.Inst.FullPtrCastFlags, @truncate(u5, extended.small));
+    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const operand = try sema.resolveInst(extra.rhs);
+    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, "@ptrCast"); // TODO: better error message (builtin name)
+    return sema.ptrCastFull(
+        block,
+        flags,
+        src,
+        operand,
+        operand_src,
+        dest_ty,
+    );
+}
+
 fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, "@ptrCast");
     const operand = try sema.resolveInst(extra.rhs);
+
+    return sema.ptrCastFull(
+        block,
+        .{ .ptr_cast = true },
+        src,
+        operand,
+        operand_src,
+        dest_ty,
+    );
+}
+
+fn ptrCastFull(
+    sema: *Sema,
+    block: *Block,
+    flags: Zir.Inst.FullPtrCastFlags,
+    src: LazySrcLoc,
+    operand: Air.Inst.Ref,
+    operand_src: LazySrcLoc,
+    dest_ty: Type,
+) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
     const operand_ty = sema.typeOf(operand);
 
-    try sema.checkPtrType(block, dest_ty_src, dest_ty);
+    try sema.checkPtrType(block, src, dest_ty);
     try sema.checkPtrOperand(block, operand_src, operand_ty);
 
-    const operand_info = operand_ty.ptrInfo(mod);
+    const src_info = operand_ty.ptrInfo(mod);
     const dest_info = dest_ty.ptrInfo(mod);
-    if (operand_info.flags.is_const and !dest_info.flags.is_const) {
-        const msg = msg: {
-            const msg = try sema.errMsg(block, src, "cast discards const qualifier", .{});
-            errdefer msg.destroy(sema.gpa);
 
-            try sema.errNote(block, src, msg, "consider using '@constCast'", .{});
-            break :msg msg;
+    try sema.resolveTypeLayout(src_info.child.toType());
+    try sema.resolveTypeLayout(dest_info.child.toType());
+
+    const src_slice_like = src_info.flags.size == .Slice or
+        (src_info.flags.size == .One and src_info.child.toType().zigTypeTag(mod) == .Array);
+
+    const dest_slice_like = dest_info.flags.size == .Slice or
+        (dest_info.flags.size == .One and dest_info.child.toType().zigTypeTag(mod) == .Array);
+
+    if (dest_info.flags.size == .Slice and !src_slice_like) {
+        return sema.fail(block, src, "illegal pointer cast to slice", .{});
+    }
+
+    if (dest_info.flags.size == .Slice) {
+        const src_elem_size = switch (src_info.flags.size) {
+            .Slice => src_info.child.toType().abiSize(mod),
+            // pointer to array
+            .One => src_info.child.toType().childType(mod).abiSize(mod),
+            else => unreachable,
         };
-        return sema.failWithOwnedErrorMsg(msg);
-    }
-    if (operand_info.flags.is_volatile and !dest_info.flags.is_volatile) {
-        const msg = msg: {
-            const msg = try sema.errMsg(block, src, "cast discards volatile qualifier", .{});
-            errdefer msg.destroy(sema.gpa);
-
-            try sema.errNote(block, src, msg, "consider using '@volatileCast'", .{});
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(msg);
-    }
-    if (operand_info.flags.address_space != dest_info.flags.address_space) {
-        const msg = msg: {
-            const msg = try sema.errMsg(block, src, "cast changes pointer address space", .{});
-            errdefer msg.destroy(sema.gpa);
-
-            try sema.errNote(block, src, msg, "consider using '@addrSpaceCast'", .{});
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(msg);
+        const dest_elem_size = dest_info.child.toType().abiSize(mod);
+        if (src_elem_size != dest_elem_size) {
+            return sema.fail(block, src, "TODO: implement @ptrCast between slices changing the length", .{});
+        }
     }
 
-    const dest_is_slice = dest_ty.isSlice(mod);
-    const operand_is_slice = operand_ty.isSlice(mod);
-    if (dest_is_slice and !operand_is_slice) {
-        return sema.fail(block, dest_ty_src, "illegal pointer cast to slice", .{});
+    // The checking logic in this function must stay in sync with Sema.coerceInMemoryAllowedPtrs
+
+    if (!flags.ptr_cast) {
+        check_size: {
+            if (src_info.flags.size == dest_info.flags.size) break :check_size;
+            if (src_slice_like and dest_slice_like) break :check_size;
+            if (src_info.flags.size == .C) break :check_size;
+            if (dest_info.flags.size == .C) break :check_size;
+            return sema.failWithOwnedErrorMsg(msg: {
+                const msg = try sema.errMsg(block, src, "cannot implicitly convert {s} pointer to {s} pointer", .{
+                    pointerSizeString(src_info.flags.size),
+                    pointerSizeString(dest_info.flags.size),
+                });
+                errdefer msg.destroy(sema.gpa);
+                if (dest_info.flags.size == .Many and
+                    (src_info.flags.size == .Slice or
+                    (src_info.flags.size == .One and src_info.child.toType().zigTypeTag(mod) == .Array)))
+                {
+                    try sema.errNote(block, src, msg, "use 'ptr' field to convert slice to many pointer", .{});
+                } else {
+                    try sema.errNote(block, src, msg, "use @ptrCast to change pointer size", .{});
+                }
+                break :msg msg;
+            });
+        }
+
+        check_child: {
+            const src_child = if (dest_info.flags.size == .Slice and src_info.flags.size == .One) blk: {
+                // *[n]T -> []T
+                break :blk src_info.child.toType().childType(mod);
+            } else src_info.child.toType();
+
+            const dest_child = dest_info.child.toType();
+
+            const imc_res = try sema.coerceInMemoryAllowed(
+                block,
+                dest_child,
+                src_child,
+                !dest_info.flags.is_const,
+                mod.getTarget(),
+                src,
+                operand_src,
+            );
+            if (imc_res == .ok) break :check_child;
+            return sema.failWithOwnedErrorMsg(msg: {
+                const msg = try sema.errMsg(block, src, "pointer element type '{}' cannot coerce into element type '{}'", .{
+                    src_child.fmt(mod),
+                    dest_child.fmt(mod),
+                });
+                errdefer msg.destroy(sema.gpa);
+                try imc_res.report(sema, block, src, msg);
+                try sema.errNote(block, src, msg, "use @ptrCast to cast pointer element type", .{});
+                break :msg msg;
+            });
+        }
+
+        check_sent: {
+            if (dest_info.sentinel == .none) break :check_sent;
+            if (src_info.flags.size == .C) break :check_sent;
+            if (src_info.sentinel != .none) {
+                const coerced_sent = try mod.intern_pool.getCoerced(sema.gpa, src_info.sentinel, dest_info.child);
+                if (dest_info.sentinel == coerced_sent) break :check_sent;
+            }
+            if (src_slice_like and src_info.flags.size == .One and dest_info.flags.size == .Slice) {
+                // [*]nT -> []T
+                const arr_ty = src_info.child.toType();
+                if (arr_ty.sentinel(mod)) |src_sentinel| {
+                    const coerced_sent = try mod.intern_pool.getCoerced(sema.gpa, src_sentinel.toIntern(), dest_info.child);
+                    if (dest_info.sentinel == coerced_sent) break :check_sent;
+                }
+            }
+            return sema.failWithOwnedErrorMsg(msg: {
+                const msg = if (src_info.sentinel == .none) blk: {
+                    break :blk try sema.errMsg(block, src, "destination pointer requires '{}' sentinel", .{
+                        dest_info.sentinel.toValue().fmtValue(dest_info.child.toType(), mod),
+                    });
+                } else blk: {
+                    break :blk try sema.errMsg(block, src, "pointer sentinel '{}' cannot coerce into pointer sentinel '{}'", .{
+                        src_info.sentinel.toValue().fmtValue(src_info.child.toType(), mod),
+                        dest_info.sentinel.toValue().fmtValue(dest_info.child.toType(), mod),
+                    });
+                };
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, src, msg, "use @ptrCast to cast pointer sentinel", .{});
+                break :msg msg;
+            });
+        }
+
+        if (src_info.packed_offset.host_size != dest_info.packed_offset.host_size) {
+            return sema.failWithOwnedErrorMsg(msg: {
+                const msg = try sema.errMsg(block, src, "pointer host size '{}' cannot coerce into pointer host size '{}'", .{
+                    src_info.packed_offset.host_size,
+                    dest_info.packed_offset.host_size,
+                });
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, src, msg, "use @ptrCast to cast pointer host size", .{});
+                break :msg msg;
+            });
+        }
+
+        if (src_info.packed_offset.bit_offset != dest_info.packed_offset.bit_offset) {
+            return sema.failWithOwnedErrorMsg(msg: {
+                const msg = try sema.errMsg(block, src, "pointer bit offset '{}' cannot coerce into pointer bit offset '{}'", .{
+                    src_info.packed_offset.bit_offset,
+                    dest_info.packed_offset.bit_offset,
+                });
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, src, msg, "use @ptrCast to cast pointer bit offset", .{});
+                break :msg msg;
+            });
+        }
+
+        check_allowzero: {
+            const src_allows_zero = operand_ty.ptrAllowsZero(mod);
+            const dest_allows_zero = dest_ty.ptrAllowsZero(mod);
+            if (!src_allows_zero) break :check_allowzero;
+            if (dest_allows_zero) break :check_allowzero;
+
+            return sema.failWithOwnedErrorMsg(msg: {
+                const msg = try sema.errMsg(block, src, "'{}' could have null values which are illegal in type '{}'", .{
+                    operand_ty.fmt(mod),
+                    dest_ty.fmt(mod),
+                });
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, src, msg, "use @ptrCast to assert the pointer is not null", .{});
+                break :msg msg;
+            });
+        }
+
+        // TODO: vector index?
     }
-    const ptr = if (operand_is_slice and !dest_is_slice)
-        try sema.analyzeSlicePtr(block, operand_src, operand, operand_ty)
-    else
-        operand;
 
-    const dest_elem_ty = dest_ty.elemType2(mod);
-    try sema.resolveTypeLayout(dest_elem_ty);
-    const dest_align = dest_ty.ptrAlignment(mod);
+    const src_align = src_info.flags.alignment.toByteUnitsOptional() orelse src_info.child.toType().abiAlignment(mod);
+    const dest_align = dest_info.flags.alignment.toByteUnitsOptional() orelse dest_info.child.toType().abiAlignment(mod);
+    if (!flags.align_cast) {
+        if (dest_align > src_align) {
+            return sema.failWithOwnedErrorMsg(msg: {
+                const msg = try sema.errMsg(block, src, "cast increases pointer alignment", .{});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, operand_src, msg, "'{}' has alignment '{d}'", .{
+                    operand_ty.fmt(mod), src_align,
+                });
+                try sema.errNote(block, src, msg, "'{}' has alignment '{d}'", .{
+                    dest_ty.fmt(mod), dest_align,
+                });
+                try sema.errNote(block, src, msg, "use @alignCast to assert pointer alignment", .{});
+                break :msg msg;
+            });
+        }
+    }
 
-    const operand_elem_ty = operand_ty.elemType2(mod);
-    try sema.resolveTypeLayout(operand_elem_ty);
-    const operand_align = operand_ty.ptrAlignment(mod);
+    if (!flags.addrspace_cast) {
+        if (src_info.flags.address_space != dest_info.flags.address_space) {
+            return sema.failWithOwnedErrorMsg(msg: {
+                const msg = try sema.errMsg(block, src, "cast changes pointer address space", .{});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, operand_src, msg, "'{}' has address space '{s}'", .{
+                    operand_ty.fmt(mod), @tagName(src_info.flags.address_space),
+                });
+                try sema.errNote(block, src, msg, "'{}' has address space '{s}'", .{
+                    dest_ty.fmt(mod), @tagName(dest_info.flags.address_space),
+                });
+                try sema.errNote(block, src, msg, "use @addrSpaceCast to cast pointer address space", .{});
+                break :msg msg;
+            });
+        }
+    } else {
+        // Some address space casts are always disallowed
+        if (!target_util.addrSpaceCastIsValid(mod.getTarget(), src_info.flags.address_space, dest_info.flags.address_space)) {
+            return sema.failWithOwnedErrorMsg(msg: {
+                const msg = try sema.errMsg(block, src, "invalid address space cast", .{});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, operand_src, msg, "address space '{s}' is not compatible with address space '{s}'", .{
+                    @tagName(src_info.flags.address_space),
+                    @tagName(dest_info.flags.address_space),
+                });
+                break :msg msg;
+            });
+        }
+    }
 
-    // If the destination is less aligned than the source, preserve the source alignment
-    const aligned_dest_ty = if (operand_align <= dest_align) dest_ty else blk: {
-        // Unwrap the pointer (or pointer-like optional) type, set alignment, and re-wrap into result
-        var dest_ptr_info = dest_ty.ptrInfo(mod);
-        dest_ptr_info.flags.alignment = Alignment.fromNonzeroByteUnits(operand_align);
+    if (!flags.const_cast) {
+        if (src_info.flags.is_const and !dest_info.flags.is_const) {
+            return sema.failWithOwnedErrorMsg(msg: {
+                const msg = try sema.errMsg(block, src, "cast discards const qualifier", .{});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, src, msg, "use @constCast to discard const qualifier", .{});
+                break :msg msg;
+            });
+        }
+    }
+
+    if (!flags.volatile_cast) {
+        if (src_info.flags.is_volatile and !dest_info.flags.is_volatile) {
+            return sema.failWithOwnedErrorMsg(msg: {
+                const msg = try sema.errMsg(block, src, "cast discards volatile qualifier", .{});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, src, msg, "use @volatileCast to discard volatile qualifier", .{});
+                break :msg msg;
+            });
+        }
+    }
+
+    const ptr = if (src_info.flags.size == .Slice and dest_info.flags.size != .Slice) ptr: {
+        break :ptr try sema.analyzeSlicePtr(block, operand_src, operand, operand_ty);
+    } else operand;
+
+    const dest_ptr_ty = if (dest_info.flags.size == .Slice and src_info.flags.size != .Slice) blk: {
+        // Only convert to a many-pointer at first
+        var info = dest_info;
+        info.flags.size = .Many;
+        const ty = try mod.ptrType(info);
         if (dest_ty.zigTypeTag(mod) == .Optional) {
-            break :blk try mod.optionalType((try mod.ptrType(dest_ptr_info)).toIntern());
+            break :blk try mod.optionalType(ty.toIntern());
         } else {
-            break :blk try mod.ptrType(dest_ptr_info);
+            break :blk ty;
         }
-    };
+    } else dest_ty;
 
-    if (dest_is_slice) {
-        const operand_elem_size = operand_elem_ty.abiSize(mod);
-        const dest_elem_size = dest_elem_ty.abiSize(mod);
-        if (operand_elem_size != dest_elem_size) {
-            return sema.fail(block, dest_ty_src, "TODO: implement @ptrCast between slices changing the length", .{});
+    // Cannot do @addrSpaceCast at comptime
+    if (!flags.addrspace_cast) {
+        if (try sema.resolveMaybeUndefVal(ptr)) |ptr_val| {
+            if (!dest_ty.ptrAllowsZero(mod) and ptr_val.isUndef(mod)) {
+                return sema.failWithUseOfUndef(block, operand_src);
+            }
+            if (!dest_ty.ptrAllowsZero(mod) and ptr_val.isNull(mod)) {
+                return sema.fail(block, operand_src, "null pointer casted to type '{}'", .{dest_ty.fmt(mod)});
+            }
+            if (dest_align > src_align) {
+                if (try ptr_val.getUnsignedIntAdvanced(mod, null)) |addr| {
+                    if (addr % dest_align != 0) {
+                        return sema.fail(block, operand_src, "pointer address 0x{X} is not aligned to {d} bytes", .{ addr, dest_align });
+                    }
+                }
+            }
+            if (dest_info.flags.size == .Slice and src_info.flags.size != .Slice) {
+                if (ptr_val.isUndef(mod)) return sema.addConstUndef(dest_ty);
+                const arr_len = try mod.intValue(Type.usize, src_info.child.toType().arrayLen(mod));
+                return sema.addConstant((try mod.intern(.{ .ptr = .{
+                    .ty = dest_ty.toIntern(),
+                    .addr = mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr,
+                    .len = arr_len.toIntern(),
+                } })).toValue());
+            } else {
+                assert(dest_ptr_ty.eql(dest_ty, mod));
+                return sema.addConstant(try mod.getCoerced(ptr_val, dest_ty));
+            }
         }
-    }
-
-    if (dest_align > operand_align) {
-        const msg = msg: {
-            const msg = try sema.errMsg(block, src, "cast increases pointer alignment", .{});
-            errdefer msg.destroy(sema.gpa);
-
-            try sema.errNote(block, operand_src, msg, "'{}' has alignment '{d}'", .{
-                operand_ty.fmt(mod), operand_align,
-            });
-            try sema.errNote(block, dest_ty_src, msg, "'{}' has alignment '{d}'", .{
-                dest_ty.fmt(mod), dest_align,
-            });
-
-            try sema.errNote(block, src, msg, "consider using '@alignCast'", .{});
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(msg);
-    }
-
-    if (try sema.resolveMaybeUndefVal(ptr)) |operand_val| {
-        if (!dest_ty.ptrAllowsZero(mod) and operand_val.isUndef(mod)) {
-            return sema.failWithUseOfUndef(block, operand_src);
-        }
-        if (!dest_ty.ptrAllowsZero(mod) and operand_val.isNull(mod)) {
-            return sema.fail(block, operand_src, "null pointer casted to type '{}'", .{dest_ty.fmt(mod)});
-        }
-        return sema.addConstant(try mod.getCoerced(operand_val, aligned_dest_ty));
     }
 
     try sema.requireRuntimeBlock(block, src, null);
+
     if (block.wantSafety() and operand_ty.ptrAllowsZero(mod) and !dest_ty.ptrAllowsZero(mod) and
-        (try sema.typeHasRuntimeBits(dest_ty.elemType2(mod)) or dest_ty.elemType2(mod).zigTypeTag(mod) == .Fn))
+        (try sema.typeHasRuntimeBits(dest_info.child.toType()) or dest_info.child.toType().zigTypeTag(mod) == .Fn))
     {
         const ptr_int = try block.addUnOp(.int_from_ptr, ptr);
         const is_non_zero = try block.addBinOp(.cmp_neq, ptr_int, .zero_usize);
-        const ok = if (operand_is_slice) ok: {
-            const len = try sema.analyzeSliceLen(block, operand_src, operand);
+        const ok = if (src_info.flags.size == .Slice and dest_info.flags.size == .Slice) ok: {
+            const len = try sema.analyzeSliceLen(block, operand_src, ptr);
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bit_or, len_zero, is_non_zero);
         } else is_non_zero;
         try sema.addSafetyCheck(block, ok, .cast_to_null);
     }
 
-    return block.addBitCast(aligned_dest_ty, ptr);
+    if (block.wantSafety() and dest_align > src_align and try sema.typeHasRuntimeBits(dest_info.child.toType())) {
+        const align_minus_1 = try sema.addConstant(
+            try mod.intValue(Type.usize, dest_align - 1),
+        );
+        const ptr_int = try block.addUnOp(.int_from_ptr, ptr);
+        const remainder = try block.addBinOp(.bit_and, ptr_int, align_minus_1);
+        const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
+        const ok = if (src_info.flags.size == .Slice and dest_info.flags.size == .Slice) ok: {
+            const len = try sema.analyzeSliceLen(block, operand_src, ptr);
+            const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
+            break :ok try block.addBinOp(.bit_or, len_zero, is_aligned);
+        } else is_aligned;
+        try sema.addSafetyCheck(block, ok, .incorrect_alignment);
+    }
+
+    // If we're going from an array pointer to a slice, this will only be the pointer part!
+    const result_ptr = if (flags.addrspace_cast) ptr: {
+        // We can't change address spaces with a bitcast, so this requires two instructions
+        var intermediate_info = src_info;
+        intermediate_info.flags.address_space = dest_info.flags.address_space;
+        const intermediate_ptr_ty = try mod.ptrType(intermediate_info);
+        const intermediate_ty = if (dest_ptr_ty.zigTypeTag(mod) == .Optional) blk: {
+            break :blk try mod.optionalType(intermediate_ptr_ty.toIntern());
+        } else intermediate_ptr_ty;
+        const intermediate = try block.addInst(.{
+            .tag = .addrspace_cast,
+            .data = .{ .ty_op = .{
+                .ty = try sema.addType(intermediate_ty),
+                .operand = ptr,
+            } },
+        });
+        if (intermediate_ty.eql(dest_ptr_ty, mod)) {
+            // We only changed the address space, so no need for a bitcast
+            break :ptr intermediate;
+        }
+        break :ptr try block.addBitCast(dest_ptr_ty, intermediate);
+    } else ptr: {
+        break :ptr try block.addBitCast(dest_ptr_ty, ptr);
+    };
+
+    if (dest_info.flags.size == .Slice and src_info.flags.size != .Slice) {
+        // We have to construct a slice using the operand's child's array length
+        // Note that we know from the check at the start of the function that operand_ty is slice-like
+        const arr_len = try sema.addConstant(
+            try mod.intValue(Type.usize, src_info.child.toType().arrayLen(mod)),
+        );
+        return block.addInst(.{
+            .tag = .slice,
+            .data = .{ .ty_pl = .{
+                .ty = try sema.addType(dest_ty),
+                .payload = try sema.addExtra(Air.Bin{
+                    .lhs = result_ptr,
+                    .rhs = arr_len,
+                }),
+            } },
+        });
+    } else {
+        assert(dest_ptr_ty.eql(dest_ty, mod));
+        return result_ptr;
+    }
 }
 
-fn zirConstCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+fn zirPtrCastNoDest(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
+    const flags = @bitCast(Zir.Inst.FullPtrCastFlags, @truncate(u5, extended.small));
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src = LazySrcLoc.nodeOffset(extra.node);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
@@ -21064,7 +21319,8 @@ fn zirConstCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
     try sema.checkPtrOperand(block, operand_src, operand_ty);
 
     var ptr_info = operand_ty.ptrInfo(mod);
-    ptr_info.flags.is_const = false;
+    if (flags.const_cast) ptr_info.flags.is_const = false;
+    if (flags.volatile_cast) ptr_info.flags.is_volatile = false;
     const dest_ty = try mod.ptrType(ptr_info);
 
     if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
@@ -21075,49 +21331,25 @@ fn zirConstCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
     return block.addBitCast(dest_ty, operand);
 }
 
-fn zirVolatileCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
-    const mod = sema.mod;
-    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const src = LazySrcLoc.nodeOffset(extra.node);
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
-    const operand = try sema.resolveInst(extra.operand);
-    const operand_ty = sema.typeOf(operand);
-    try sema.checkPtrOperand(block, operand_src, operand_ty);
-
-    var ptr_info = operand_ty.ptrInfo(mod);
-    ptr_info.flags.is_volatile = false;
-    const dest_ty = try mod.ptrType(ptr_info);
-
-    if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
-        return sema.addConstant(operand_val);
-    }
-
-    try sema.requireRuntimeBlock(block, src, null);
-    return block.addBitCast(dest_ty, operand);
-}
-
 fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const dest_scalar_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, "@truncate");
+    const dest_scalar_ty = try sema.checkIntOrVectorAllowComptime(block, dest_ty, src);
     const operand = try sema.resolveInst(extra.rhs);
-    const dest_is_comptime_int = try sema.checkIntType(block, dest_ty_src, dest_scalar_ty);
     const operand_ty = sema.typeOf(operand);
     const operand_scalar_ty = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
-    const is_vector = operand_ty.zigTypeTag(mod) == .Vector;
-    const dest_ty = if (is_vector)
-        try mod.vectorType(.{
-            .len = operand_ty.vectorLen(mod),
-            .child = dest_scalar_ty.toIntern(),
-        })
-    else
-        dest_scalar_ty;
 
-    if (dest_is_comptime_int) {
+    const operand_is_vector = operand_ty.zigTypeTag(mod) == .Vector;
+    const dest_is_vector = dest_ty.zigTypeTag(mod) == .Vector;
+    if (operand_is_vector != dest_is_vector) {
+        return sema.fail(block, operand_src, "expected type '{}', found '{}'", .{ dest_ty.fmt(mod), operand_ty.fmt(mod) });
+    }
+
+    if (dest_scalar_ty.zigTypeTag(mod) == .ComptimeInt) {
         return sema.coerce(block, dest_ty, operand, operand_src);
     }
 
@@ -21147,7 +21379,7 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .{ dest_ty.fmt(mod), operand_ty.fmt(mod) },
                 );
                 errdefer msg.destroy(sema.gpa);
-                try sema.errNote(block, dest_ty_src, msg, "destination type has {d} bits", .{
+                try sema.errNote(block, src, msg, "destination type has {d} bits", .{
                     dest_info.bits,
                 });
                 try sema.errNote(block, operand_src, msg, "operand type has {d} bits", .{
@@ -21161,7 +21393,7 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     if (try sema.resolveMaybeUndefValIntable(operand)) |val| {
         if (val.isUndef(mod)) return sema.addConstUndef(dest_ty);
-        if (!is_vector) {
+        if (!dest_is_vector) {
             return sema.addConstant(try mod.getCoerced(
                 try val.intTrunc(operand_ty, sema.arena, dest_info.signedness, dest_info.bits, mod),
                 dest_ty,
@@ -21180,59 +21412,6 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     return block.addTyOp(.trunc, dest_ty, operand);
-}
-
-fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const mod = sema.mod;
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const align_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const dest_align = try sema.resolveAlign(block, align_src, extra.lhs);
-    const ptr = try sema.resolveInst(extra.rhs);
-    const ptr_ty = sema.typeOf(ptr);
-
-    try sema.checkPtrOperand(block, ptr_src, ptr_ty);
-
-    var ptr_info = ptr_ty.ptrInfo(mod);
-    ptr_info.flags.alignment = dest_align;
-    var dest_ty = try mod.ptrType(ptr_info);
-    if (ptr_ty.zigTypeTag(mod) == .Optional) {
-        dest_ty = try mod.optionalType(dest_ty.toIntern());
-    }
-
-    if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |val| {
-        if (try val.getUnsignedIntAdvanced(mod, null)) |addr| {
-            const dest_align_bytes = dest_align.toByteUnitsOptional().?;
-            if (addr % dest_align_bytes != 0) {
-                return sema.fail(block, ptr_src, "pointer address 0x{X} is not aligned to {d} bytes", .{ addr, dest_align_bytes });
-            }
-        }
-        return sema.addConstant(try mod.getCoerced(val, dest_ty));
-    }
-
-    try sema.requireRuntimeBlock(block, inst_data.src(), ptr_src);
-    if (block.wantSafety() and dest_align.order(Alignment.fromNonzeroByteUnits(1)).compare(.gt) and
-        try sema.typeHasRuntimeBits(ptr_info.child.toType()))
-    {
-        const align_minus_1 = try sema.addConstant(
-            try mod.intValue(Type.usize, dest_align.toByteUnitsOptional().? - 1),
-        );
-        const actual_ptr = if (ptr_ty.isSlice(mod))
-            try sema.analyzeSlicePtr(block, ptr_src, ptr, ptr_ty)
-        else
-            ptr;
-        const ptr_int = try block.addUnOp(.int_from_ptr, actual_ptr);
-        const remainder = try block.addBinOp(.bit_and, ptr_int, align_minus_1);
-        const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-        const ok = if (ptr_ty.isSlice(mod)) ok: {
-            const len = try sema.analyzeSliceLen(block, ptr_src, ptr);
-            const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
-            break :ok try block.addBinOp(.bit_or, len_zero, is_aligned);
-        } else is_aligned;
-        try sema.addSafetyCheck(block, ok, .incorrect_alignment);
-    }
-    return sema.bitCast(block, dest_ty, ptr, ptr_src, null);
 }
 
 fn zirBitCount(
@@ -21546,7 +21725,7 @@ fn checkPtrOperand(
             };
             return sema.failWithOwnedErrorMsg(msg);
         },
-        .Optional => if (ty.isPtrLikeOptional(mod)) return,
+        .Optional => if (ty.childType(mod).zigTypeTag(mod) == .Pointer) return,
         else => {},
     }
     return sema.fail(block, ty_src, "expected pointer type, found '{}'", .{ty.fmt(mod)});
@@ -21577,7 +21756,7 @@ fn checkPtrType(
             };
             return sema.failWithOwnedErrorMsg(msg);
         },
-        .Optional => if (ty.isPtrLikeOptional(mod)) return,
+        .Optional => if (ty.childType(mod).zigTypeTag(mod) == .Pointer) return,
         else => {},
     }
     return sema.fail(block, ty_src, "expected pointer type, found '{}'", .{ty.fmt(mod)});

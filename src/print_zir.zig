@@ -154,6 +154,7 @@ const Writer = struct {
             .alloc,
             .alloc_mut,
             .alloc_comptime_mut,
+            .elem_type,
             .indexable_ptr_len,
             .anyframe_type,
             .bit_not,
@@ -329,7 +330,6 @@ const Writer = struct {
             .int_cast,
             .ptr_cast,
             .truncate,
-            .align_cast,
             .div_exact,
             .div_floor,
             .div_trunc,
@@ -507,8 +507,6 @@ const Writer = struct {
             .reify,
             .c_va_copy,
             .c_va_end,
-            .const_cast,
-            .volatile_cast,
             .work_item_id,
             .work_group_size,
             .work_group_id,
@@ -525,7 +523,6 @@ const Writer = struct {
             .err_set_cast,
             .wasm_memory_grow,
             .prefetch,
-            .addrspace_cast,
             .c_va_arg,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
@@ -539,6 +536,8 @@ const Writer = struct {
 
             .builtin_async_call => try self.writeBuiltinAsyncCall(stream, extended),
             .cmpxchg => try self.writeCmpxchg(stream, extended),
+            .ptr_cast_full => try self.writePtrCastFull(stream, extended),
+            .ptr_cast_no_dest => try self.writePtrCastNoDest(stream, extended),
         }
     }
 
@@ -961,6 +960,33 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.failure_order);
         try stream.writeAll(") ");
+        try self.writeSrc(stream, src);
+    }
+
+    fn writePtrCastFull(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const flags = @bitCast(Zir.Inst.FullPtrCastFlags, @truncate(u5, extended.small));
+        const extra = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+        const src = LazySrcLoc.nodeOffset(extra.node);
+        if (flags.ptr_cast) try stream.writeAll("ptr_cast, ");
+        if (flags.align_cast) try stream.writeAll("align_cast, ");
+        if (flags.addrspace_cast) try stream.writeAll("addrspace_cast, ");
+        if (flags.const_cast) try stream.writeAll("const_cast, ");
+        if (flags.volatile_cast) try stream.writeAll("volatile_cast, ");
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(")) ");
+        try self.writeSrc(stream, src);
+    }
+
+    fn writePtrCastNoDest(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const flags = @bitCast(Zir.Inst.FullPtrCastFlags, @truncate(u5, extended.small));
+        const extra = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+        const src = LazySrcLoc.nodeOffset(extra.node);
+        if (flags.const_cast) try stream.writeAll("const_cast, ");
+        if (flags.volatile_cast) try stream.writeAll("volatile_cast, ");
+        try self.writeInstRef(stream, extra.operand);
+        try stream.writeAll(")) ");
         try self.writeSrc(stream, src);
     }
 

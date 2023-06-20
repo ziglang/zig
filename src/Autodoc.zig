@@ -1529,7 +1529,6 @@ fn walkInstruction(
         .int_cast,
         .ptr_cast,
         .truncate,
-        .align_cast,
         .has_decl,
         .has_field,
         .div_exact,
@@ -3024,8 +3023,6 @@ fn walkInstruction(
                 .int_from_error,
                 .error_from_int,
                 .reify,
-                .const_cast,
-                .volatile_cast,
                 => {
                     const extra = file.zir.extraData(Zir.Inst.UnNode, extended.operand).data;
                     const bin_index = self.exprs.items.len;

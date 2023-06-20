@@ -129,6 +129,8 @@ pub const MemLocRequirement = enum {
     never,
     /// The builtin always needs a memory location.
     always,
+    /// The builtin forwards the question to argument at index 0.
+    forward0,
     /// The builtin forwards the question to argument at index 1.
     forward1,
 };
@@ -168,14 +170,14 @@ pub const list = list: {
             "@addrSpaceCast",
             .{
                 .tag = .addrspace_cast,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
             "@alignCast",
             .{
                 .tag = .align_cast,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -226,8 +228,8 @@ pub const list = list: {
             "@bitCast",
             .{
                 .tag = .bit_cast,
-                .needs_mem_loc = .forward1,
-                .param_count = 2,
+                .needs_mem_loc = .forward0,
+                .param_count = 1,
             },
         },
         .{
@@ -457,7 +459,7 @@ pub const list = list: {
             .{
                 .tag = .err_set_cast,
                 .eval_to_error = .always,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -502,14 +504,14 @@ pub const list = list: {
             "@floatCast",
             .{
                 .tag = .float_cast,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
             "@intFromFloat",
             .{
                 .tag = .int_from_float,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -572,14 +574,14 @@ pub const list = list: {
             "@intCast",
             .{
                 .tag = .int_cast,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
             "@enumFromInt",
             .{
                 .tag = .enum_from_int,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -594,14 +596,14 @@ pub const list = list: {
             "@floatFromInt",
             .{
                 .tag = .float_from_int,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
             "@ptrFromInt",
             .{
                 .tag = .ptr_from_int,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -685,7 +687,7 @@ pub const list = list: {
             "@ptrCast",
             .{
                 .tag = .ptr_cast,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -938,7 +940,7 @@ pub const list = list: {
             "@truncate",
             .{
                 .tag = .truncate,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
