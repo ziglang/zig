@@ -288,9 +288,6 @@ fn scanAtomRelocsArm64(zld: *Zld, atom_index: AtomIndex, relocs: []align(1) cons
             .sym_index = sym_index,
             .file = atom.file,
         };
-        const sym = zld.getSymbol(sym_loc);
-
-        if (sym.sect() and !sym.ext()) continue;
 
         const target = if (object.getGlobal(sym_index)) |global_index|
             zld.globals.items[global_index]
@@ -337,9 +334,6 @@ fn scanAtomRelocsX86(zld: *Zld, atom_index: AtomIndex, relocs: []align(1) const 
             .sym_index = sym_index,
             .file = atom.file,
         };
-        const sym = zld.getSymbol(sym_loc);
-
-        if (sym.sect() and !sym.ext()) continue;
 
         const target = if (object.getGlobal(sym_index)) |global_index|
             zld.globals.items[global_index]
