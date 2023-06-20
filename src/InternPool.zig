@@ -443,18 +443,12 @@ pub const Key = union(enum) {
                 return @intCast(u32, field_index);
             }
             // Auto-numbered enum. Convert `int_tag_val` to field index.
-            switch (ip.indexToKey(int_tag_val).int.storage) {
-                .u64 => |x| {
-                    if (x >= self.names.len) return null;
-                    return @intCast(u32, x);
-                },
-                .i64 => |x| {
-                    if (x >= self.names.len or x < 0) return null;
-                    return @intCast(u32, x);
-                },
-                .big_int => return null, // out of range
+            const field_index = switch (ip.indexToKey(int_tag_val).int.storage) {
+                inline .u64, .i64 => |x| std.math.cast(u32, x) orelse return null,
+                .big_int => |x| x.to(u32) catch return null,
                 .lazy_align, .lazy_size => unreachable,
-            }
+            };
+            return if (field_index < self.names.len) field_index else null;
         }
     };
 

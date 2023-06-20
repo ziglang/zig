@@ -812,11 +812,6 @@ test "signed integer as enum tag" {
     try expect(@intFromEnum(SignedEnum.A2) == 1);
 }
 
-test "int to enum with signed tag type" {
-    const E = enum(i32) { a, b, c };
-    try expect(@intToEnum(E, 0) == .a);
-}
-
 test "enum with one member and custom tag type" {
     const E = enum(u2) {
         One,
@@ -1201,4 +1196,19 @@ test "enum tag from a local variable" {
     };
     const i = @enumFromInt(S.Int(u32), 0);
     try std.testing.expect(@intFromEnum(i) == 0);
+}
+
+test "auto-numbered enum with signed tag type" {
+    const E = enum(i32) { a, b };
+
+    try std.testing.expectEqual(@as(i32, 0), @intFromEnum(E.a));
+    try std.testing.expectEqual(@as(i32, 1), @intFromEnum(E.b));
+    try std.testing.expectEqual(E.a, @enumFromInt(E, 0));
+    try std.testing.expectEqual(E.b, @enumFromInt(E, 1));
+    try std.testing.expectEqual(E.a, @enumFromInt(E, @as(i32, 0)));
+    try std.testing.expectEqual(E.b, @enumFromInt(E, @as(i32, 1)));
+    try std.testing.expectEqual(E.a, @enumFromInt(E, @as(u32, 0)));
+    try std.testing.expectEqual(E.b, @enumFromInt(E, @as(u32, 1)));
+    try std.testing.expectEqualStrings("a", @tagName(E.a));
+    try std.testing.expectEqualStrings("b", @tagName(E.b));
 }
