@@ -142,18 +142,22 @@ extern "C" {
 #define _malloc_dbg(s,t,f,l) malloc(s)
 #define _calloc_dbg(c,s,t,f,l) calloc(c,s)
 #define _realloc_dbg(p,s,t,f,l) realloc(p,s)
-#define _recalloc_dbg(p,c,s,t,f,l) _recalloc(p,c,s)
 #define _expand_dbg(p,s,t,f,l) _expand(p,s)
 #define _free_dbg(p,t) free(p)
 #define _msize_dbg(p,t) _msize(p)
 
 #define _aligned_malloc_dbg(s,a,f,l) _aligned_malloc(s,a)
 #define _aligned_realloc_dbg(p,s,a,f,l) _aligned_realloc(p,s,a)
-#define _aligned_recalloc_dbg(p,c,s,a,f,l) _aligned_realloc(p,c,s,a)
 #define _aligned_free_dbg(p) _aligned_free(p)
 #define _aligned_offset_malloc_dbg(s,a,o,f,l) _aligned_offset_malloc(s,a,o)
 #define _aligned_offset_realloc_dbg(p,s,a,o,f,l) _aligned_offset_realloc(p,s,a,o)
+
+#if __MSVCRT_VERSION__ >= 0x900
+#define _recalloc_dbg(p,c,s,t,f,l) _recalloc(p,c,s)
+#define _aligned_recalloc_dbg(p,c,s,a,f,l) _aligned_realloc(p,c,s,a)
 #define _aligned_offset_recalloc_dbg(p,c,s,a,o,f,l) _aligned_offset_recalloc(p,c,s,a,o)
+#define _aligned_msize_dbg(p,a,o) _aligned_msize(p,a,o)
+#endif
 
 #define _malloca_dbg(s,t,f,l) _malloca(s)
 #define _freea_dbg(p,t) _freea(p)

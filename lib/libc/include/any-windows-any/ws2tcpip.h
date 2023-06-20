@@ -28,9 +28,6 @@
 #define UDP_NOCHECKSUM 1
 #define UDP_CHECKSUM_COVERAGE 20
 
-#define TCP_EXPEDITED_1122 0x0002
-
-
 #include <ws2ipdef.h>
 
 
@@ -265,12 +262,12 @@ WCHAR *gai_strerrorW(int);
 #include <mstcpip.h>
 
 #if (_WIN32_WINNT >= 0x0600)
-#define addrinfoEx __MINGW_NAME_AW(addrinfoEx)
+#define ADDRINFOEX __MINGW_NAME_AW(ADDRINFOEX)
 #define PADDRINFOEX __MINGW_NAME_AW(PADDRINFOEX)
 #define GetAddrInfoEx __MINGW_NAME_AW(GetAddrInfoEx)
 #define SetAddrInfoEx __MINGW_NAME_AW(SetAddrInfoEx)
 
-  typedef struct addrinfoExA {
+  typedef struct addrinfoexA {
     int                ai_flags;
     int                ai_family;
     int                ai_socktype;
@@ -284,7 +281,7 @@ WCHAR *gai_strerrorW(int);
     struct addrinfoexA *ai_next;
   } ADDRINFOEXA, *PADDRINFOEXA;
 
-  typedef struct addrinfoExW {
+  typedef struct addrinfoexW {
     int                ai_flags;
     int                ai_family;
     int                ai_socktype;
@@ -298,7 +295,11 @@ WCHAR *gai_strerrorW(int);
     struct addrinfoexW *ai_next;
   } ADDRINFOEXW, *PADDRINFOEXW;
 
-typedef PVOID LPLOOKUPSERVICE_COMPLETION_ROUTINE; /*reserved*/
+  typedef void (CALLBACK * LPLOOKUPSERVICE_COMPLETION_ROUTINE)(
+    DWORD dwError,
+    DWORD dwBytes,
+    LPWSAOVERLAPPED lpOverlapped
+  );
 
 WINSOCK_API_LINKAGE int WSAAPI GetAddrInfoExA(PCSTR pName, PCSTR pServiceName, DWORD dwNameSpace,
 					      LPGUID lpNspId,const ADDRINFOEXA *pHints,PADDRINFOEXA *ppResult,
