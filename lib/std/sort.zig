@@ -101,7 +101,7 @@ fn siftDown(a: usize, cur: usize, b: usize, context: anytype) void {
     //  for `a = 0`, the expression equals `2*cur+1`. `2*cur` is an even number, therefore adding 1 is safe.
 
     // stop if we overshot the boundary
-    if (child < b) {} else return;
+    if (!(child < b)) return;
 
     const next_child = child + 1; // `next_child` is at most `b`, therefore no overflow is possible
 
