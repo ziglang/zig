@@ -739,32 +739,24 @@ const PosixThreadImpl = struct {
 };
 
 const WasiThreadImpl = struct {
-    comptime {
-        // Sets the stack pointer, which is needed after creating a new thread
-        // to ensure the stack of the main thread isn't being poluted.
-        asm (
-            \\ .text
-            \\ .export_name	__set_stack_pointer, __set_stack_pointer
-            \\ .globaltype __stack_pointer, i32
-            \\ .hidden wasi_thread_start
-            \\ .globl wasi_thread_start
-            \\ .type __set_stack_pointer, @function
-            \\
-            \\ __set_stack_pointer:
-            \\	  .functype	__set_stack_pointer (i32) -> ()
-            \\    local.get 0 # The raw pointer which replaces the stack pointer
-            \\    global.set __stack_pointer
-            \\    end_function
-        );
-    }
     thread: *WasiThread,
 
     pub const ThreadHandle = i32;
     threadlocal var tls_thread_id: Id = 0;
 
     const WasiThread = struct {
+        /// Thread ID
         tid: Atomic(i32) = Atomic(i32).init(0),
+        /// Contains all memory which was allocated to bootstrap this thread, including:
+        /// - Guard page
+        /// - Stack
+        /// - TLS segment
+        /// - `Instance`
+        /// All memory is freed upon call to `join`
         memory: []u8,
+        /// The allocator used to allocate the thread's memory,
+        /// which is also used during `join` to ensure clean-up.
+        allocator: std.mem.Allocator,
     };
 
     /// A meta-data structure used to bootstrap a thread
@@ -790,7 +782,7 @@ const WasiThreadImpl = struct {
     }
 
     fn getHandle(self: Impl) ThreadHandle {
-        return self.thread.tid;
+        return self.thread.tid.load(.SeqCst);
     }
 
     fn detach(self: Impl) void {
@@ -813,7 +805,6 @@ const WasiThreadImpl = struct {
             }
         };
 
-        var guard_offset: usize = undefined;
         var stack_offset: usize = undefined;
         var tls_offset: usize = undefined;
         var wrapper_offset: usize = undefined;
@@ -824,8 +815,11 @@ const WasiThreadImpl = struct {
         // - The TLS segment
         // - `Instance` - containing information about how to call the user's function.
         const map_bytes = blk: {
+            // start with atleast a single page, which is used as a guard to prevent
+            // other threads clobbering our new thread.
+            // Unfortunately, WebAssembly has no notion of read-only segments, so this
+            // is only a temporary measure until the entire page is "run over".
             var bytes: usize = std.wasm.page_size;
-            guard_offset = bytes;
 
             bytes = std.mem.alignForward(usize, bytes, 16); // align stack to 16 bytes
             stack_offset = bytes;
@@ -855,7 +849,7 @@ const WasiThreadImpl = struct {
 
         const instance = @ptrCast(*Instance, @alignCast(@alignOf(Instance), &allocated_memory[instance_offset]));
         instance.* = .{
-            .thread = .{ .memory = allocated_memory },
+            .thread = .{ .memory = allocated_memory, .allocator = config.allocator.? },
             .base = @ptrToInt(allocated_memory.ptr),
             .tls_base = tls_offset,
             .stack_pointer = stack_offset,
@@ -921,6 +915,16 @@ const WasiThreadImpl = struct {
             \\ global.get __tls_align
             \\ local.set %[ret]
             : [ret] "=r" (-> u32),
+        );
+    }
+
+    /// Allows for setting the stack pointer in the WebAssembly module.
+    inline fn __set_stack_pointer(addr: [*]u8) void {
+        asm volatile (
+            \\ local.get %[ptr]
+            \\ global.set __stack_pointer
+            :
+            : [ptr] "r" (addr),
         );
     }
 };
