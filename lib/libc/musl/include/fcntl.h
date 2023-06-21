@@ -195,7 +195,7 @@ ssize_t tee(int, int, size_t, unsigned);
 #define loff_t off_t
 #endif
 
-#if defined(_LARGEFILE64_SOURCE) || defined(_GNU_SOURCE)
+#if defined(_LARGEFILE64_SOURCE)
 #define F_GETLK64 F_GETLK
 #define F_SETLK64 F_SETLK
 #define F_SETLKW64 F_SETLKW

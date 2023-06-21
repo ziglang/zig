@@ -4918,7 +4918,7 @@ fn detectLibCFromBuilding(
             const generic_name = target_util.libCGenericName(target);
             // Some architectures are handled by the same set of headers.
             const arch_name = if (target.abi.isMusl())
-                musl.archName(target.cpu.arch)
+                musl.archNameHeaders(target.cpu.arch)
             else if (target.cpu.arch.isThumb())
                 // ARM headers are valid for Thumb too.
                 switch (target.cpu.arch) {
