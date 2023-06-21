@@ -1,6 +1,7 @@
 const std = @import("std");
 const ConfigHeader = @This();
 const Step = std.Build.Step;
+const Allocator = std.mem.Allocator;
 
 pub const Style = union(enum) {
     /// The configure format supported by autotools. It uses `#undef foo` to
@@ -292,17 +293,26 @@ fn render_cmake(
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
+    var build = step.owner;
+    var allocator = build.allocator;
+
     var values_copy = try values.clone();
     defer values_copy.deinit();
 
     var any_errors = false;
     var line_index: u32 = 0;
     var line_it = std.mem.splitScalar(u8, contents, '\n');
-    while (line_it.next()) |line| : (line_index += 1) {
+    while (line_it.next()) |raw_line| : (line_index += 1) {
         // if we reached the end of the buffer there is nothing worth doing anymore
         if (line_it.index == line_it.buffer.len) {
             continue;
         }
+
+        const first_pass = replace_variables(allocator, raw_line, values, "@", "@") catch @panic("Failed to substitute");
+        const line = replace_variables(allocator, first_pass, values, "${", "}") catch @panic("Failed to substitute");
+
+        allocator.free(first_pass);
+        defer allocator.free(line);
 
         if (!std.mem.startsWith(u8, line, "#")) {
             try output.appendSlice(line);
@@ -490,4 +500,66 @@ fn renderValueNasm(output: *std.ArrayList(u8), name: []const u8, value: Value) !
             try output.writer().print("%define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
         },
     }
+}
+
+fn replace_variables(
+    allocator: Allocator,
+    contents: []const u8,
+    values: std.StringArrayHashMap(Value),
+    prefix: []const u8,
+    suffix: []const u8,
+) ![]const u8 {
+    var content_buf = allocator.dupe(u8, contents) catch @panic("OOM");
+
+    var last_index: usize = 0;
+    while (std.mem.indexOfPos(u8, content_buf, last_index, prefix)) |prefix_index| {
+        const start_index = prefix_index + prefix.len;
+        if (std.mem.indexOfPos(u8, content_buf, start_index, suffix)) |suffix_index| {
+            const end_index = suffix_index + suffix.len;
+
+            const beginline = content_buf[0..prefix_index];
+            const endline = content_buf[end_index..];
+            const key = content_buf[start_index..suffix_index];
+            const value = values.get(key) orelse .undef;
+
+            switch (value) {
+                .boolean => |b| {
+                    const buf = try std.fmt.allocPrint(allocator, "{s}{}{s}", .{ beginline, @intFromBool(b), endline });
+                    last_index = start_index + 1;
+
+                    allocator.free(content_buf);
+                    content_buf = buf;
+                },
+                .int => |i| {
+                    const buf = try std.fmt.allocPrint(allocator, "{s}{}{s}", .{ beginline, i, endline });
+                    const isNegative = i < 0;
+                    const digits = (if (0 < i) std.math.log10(std.math.absCast(i)) else 0) + 1;
+                    last_index = start_index + @intFromBool(isNegative) + digits + 1;
+
+                    allocator.free(content_buf);
+                    content_buf = buf;
+                },
+                .string => |string| {
+                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ beginline, string, endline });
+                    last_index = start_index + string.len + 1;
+
+                    allocator.free(content_buf);
+                    content_buf = buf;
+                },
+
+                else => {
+                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}", .{ beginline, endline });
+                    last_index = start_index + 1;
+
+                    allocator.free(content_buf);
+                    content_buf = buf;
+                },
+            }
+            continue;
+        }
+
+        last_index = start_index + 1;
+    }
+
+    return content_buf;
 }
