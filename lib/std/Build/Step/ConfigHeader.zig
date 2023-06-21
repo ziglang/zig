@@ -299,6 +299,11 @@ fn render_cmake(
     var line_index: u32 = 0;
     var line_it = std.mem.splitScalar(u8, contents, '\n');
     while (line_it.next()) |line| : (line_index += 1) {
+        // if we reached the end of the buffer there is nothing worth doing anymore
+        if (line_it.index == line_it.buffer.len) {
+            continue;
+        }
+
         if (!std.mem.startsWith(u8, line, "#")) {
             try output.appendSlice(line);
             try output.appendSlice("\n");
@@ -313,6 +318,9 @@ fn render_cmake(
             try output.appendSlice("\n");
             continue;
         }
+
+        const booldefine = std.mem.eql(u8, cmakedefine, "cmakedefine01");
+
         const name = it.next() orelse {
             try step.addError("{s}:{d}: error: missing define name", .{
                 src_path, line_index + 1,
@@ -320,19 +328,66 @@ fn render_cmake(
             any_errors = true;
             continue;
         };
-        const kv = values_copy.fetchSwapRemove(name) orelse {
-            try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
-                src_path, line_index + 1, name,
-            });
-            any_errors = true;
-            continue;
+        var value = values_copy.get(name) orelse blk: {
+            if (booldefine) {
+                break :blk Value{ .int = 0 };
+            }
+            break :blk Value.undef;
         };
-        try renderValueC(output, name, kv.value);
-    }
 
-    for (values_copy.keys()) |name| {
-        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
-        any_errors = true;
+        value = blk: {
+            switch (value) {
+                .boolean => |b| {
+                    if (!b) {
+                        break :blk Value.undef;
+                    }
+                },
+                .int => |i| {
+                    if (i == 0) {
+                        break :blk Value.undef;
+                    }
+                },
+                .string => |string| {
+                    if (string.len == 0) {
+                        break :blk Value.undef;
+                    }
+                },
+
+                else => {
+                    break :blk value;
+                },
+            }
+        };
+
+        if (booldefine) {
+            value = blk: {
+                switch (value) {
+                    .undef => {
+                        break :blk Value{ .boolean = false };
+                    },
+                    .defined => {
+                        break :blk Value{ .boolean = false };
+                    },
+                    .boolean => |b| {
+                        break :blk Value{ .boolean = b };
+                    },
+                    .int => |i| {
+                        break :blk Value{ .boolean = i != 0 };
+                    },
+                    .string => |string| {
+                        break :blk Value{ .boolean = string.len != 0 };
+                    },
+
+                    else => {
+                        break :blk Value{ .boolean = false };
+                    },
+                }
+            };
+        } else if (value != Value.undef) {
+            value = Value{ .ident = it.rest() };
+        }
+
+        try renderValueC(output, name, value);
     }
 
     if (any_errors) {
@@ -392,8 +447,7 @@ fn renderValueC(output: *std.ArrayList(u8), name: []const u8, value: Value) !voi
         .boolean => |b| {
             try output.appendSlice("#define ");
             try output.appendSlice(name);
-            try output.appendSlice(" ");
-            try output.appendSlice(if (b) "true\n" else "false\n");
+            try output.appendSlice(if (b) " 1\n" else " 0\n");
         },
         .int => |i| {
             try output.writer().print("#define {s} {d}\n", .{ name, i });
