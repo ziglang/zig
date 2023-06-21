@@ -2308,25 +2308,25 @@ fn airStore(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void 
     const ptr_info = ptr_ty.ptrInfo(mod);
     const ty = ptr_ty.childType(mod);
 
-    if (ptr_info.host_size == 0) {
+    if (ptr_info.packed_offset.host_size == 0) {
         try func.store(lhs, rhs, ty, 0);
     } else {
         // at this point we have a non-natural alignment, we must
         // load the value, and then shift+or the rhs into the result location.
-        const int_elem_ty = try mod.intType(.unsigned, ptr_info.host_size * 8);
+        const int_elem_ty = try mod.intType(.unsigned, ptr_info.packed_offset.host_size * 8);
 
         if (isByRef(int_elem_ty, mod)) {
             return func.fail("TODO: airStore for pointers to bitfields with backing type larger than 64bits", .{});
         }
 
         var mask = @intCast(u64, (@as(u65, 1) << @intCast(u7, ty.bitSize(mod))) - 1);
-        mask <<= @intCast(u6, ptr_info.bit_offset);
+        mask <<= @intCast(u6, ptr_info.packed_offset.bit_offset);
         mask ^= ~@as(u64, 0);
-        const shift_val = if (ptr_info.host_size <= 4)
-            WValue{ .imm32 = ptr_info.bit_offset }
+        const shift_val = if (ptr_info.packed_offset.host_size <= 4)
+            WValue{ .imm32 = ptr_info.packed_offset.bit_offset }
         else
-            WValue{ .imm64 = ptr_info.bit_offset };
-        const mask_val = if (ptr_info.host_size <= 4)
+            WValue{ .imm64 = ptr_info.packed_offset.bit_offset };
+        const mask_val = if (ptr_info.packed_offset.host_size <= 4)
             WValue{ .imm32 = @truncate(u32, mask) }
         else
             WValue{ .imm64 = mask };
@@ -2335,7 +2335,7 @@ fn airStore(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void 
         const loaded = try func.load(lhs, int_elem_ty, 0);
         const anded = try func.binOp(loaded, mask_val, int_elem_ty, .@"and");
         const extended_value = try func.intcast(rhs, ty, int_elem_ty);
-        const shifted_value = if (ptr_info.bit_offset > 0) shifted: {
+        const shifted_value = if (ptr_info.packed_offset.bit_offset > 0) shifted: {
             break :shifted try func.binOp(extended_value, shift_val, int_elem_ty, .shl);
         } else extended_value;
         const result = try func.binOp(anded, shifted_value, int_elem_ty, .@"or");
@@ -2468,18 +2468,18 @@ fn airLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result new_local;
         }
 
-        if (ptr_info.host_size == 0) {
+        if (ptr_info.packed_offset.host_size == 0) {
             const stack_loaded = try func.load(operand, ty, 0);
             break :result try stack_loaded.toLocal(func, ty);
         }
 
         // at this point we have a non-natural alignment, we must
         // shift the value to obtain the correct bit.
-        const int_elem_ty = try mod.intType(.unsigned, ptr_info.host_size * 8);
-        const shift_val = if (ptr_info.host_size <= 4)
-            WValue{ .imm32 = ptr_info.bit_offset }
-        else if (ptr_info.host_size <= 8)
-            WValue{ .imm64 = ptr_info.bit_offset }
+        const int_elem_ty = try mod.intType(.unsigned, ptr_info.packed_offset.host_size * 8);
+        const shift_val = if (ptr_info.packed_offset.host_size <= 4)
+            WValue{ .imm32 = ptr_info.packed_offset.bit_offset }
+        else if (ptr_info.packed_offset.host_size <= 8)
+            WValue{ .imm64 = ptr_info.packed_offset.bit_offset }
         else
             return func.fail("TODO: airLoad where ptr to bitfield exceeds 64 bits", .{});
 
@@ -3699,7 +3699,7 @@ fn structFieldPtr(
     const offset = switch (struct_ty.containerLayout(mod)) {
         .Packed => switch (struct_ty.zigTypeTag(mod)) {
             .Struct => offset: {
-                if (result_ty.ptrInfo(mod).host_size != 0) {
+                if (result_ty.ptrInfo(mod).packed_offset.host_size != 0) {
                     break :offset @as(u32, 0);
                 }
                 break :offset struct_ty.packedStructFieldByteOffset(index, mod);

@@ -33,6 +33,7 @@ const Liveness = @import("Liveness.zig");
 const isUpDir = @import("introspect.zig").isUpDir;
 const clang = @import("clang.zig");
 const InternPool = @import("InternPool.zig");
+const Alignment = InternPool.Alignment;
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -241,7 +242,7 @@ pub const MonomorphedFuncsAdaptedContext = struct {
 };
 
 pub const SetAlignStack = struct {
-    alignment: u32,
+    alignment: Alignment,
     /// TODO: This needs to store a non-lazy source location for the case of an inline function
     /// which does `@setAlignStack` (applying it to the caller).
     src: LazySrcLoc,
@@ -432,7 +433,7 @@ pub const Decl = struct {
     /// Populated when `has_tv`.
     @"linksection": InternPool.OptionalNullTerminatedString,
     /// Populated when `has_tv`.
-    @"align": u32,
+    alignment: Alignment,
     /// Populated when `has_tv`.
     @"addrspace": std.builtin.AddressSpace,
     /// The direct parent namespace of the Decl.
@@ -863,13 +864,7 @@ pub const Decl = struct {
 
     pub fn getAlignment(decl: Decl, mod: *Module) u32 {
         assert(decl.has_tv);
-        if (decl.@"align" != 0) {
-            // Explicit alignment.
-            return decl.@"align";
-        } else {
-            // Natural alignment.
-            return decl.ty.abiAlignment(mod);
-        }
+        return @intCast(u32, decl.alignment.toByteUnitsOptional() orelse decl.ty.abiAlignment(mod));
     }
 
     pub fn intern(decl: *Decl, mod: *Module) Allocator.Error!void {
@@ -955,7 +950,7 @@ pub const Struct = struct {
         /// Uses `none` to indicate no default.
         default_val: InternPool.Index,
         /// Zero means to use the ABI alignment of the type.
-        abi_align: u32,
+        abi_align: Alignment,
         /// undefined until `status` is `have_layout`.
         offset: u32,
         /// If true then `default_val` is the comptime field value.
@@ -967,9 +962,9 @@ pub const Struct = struct {
             mod: *Module,
             layout: std.builtin.Type.ContainerLayout,
         ) u32 {
-            if (field.abi_align != 0) {
+            if (field.abi_align.toByteUnitsOptional()) |abi_align| {
                 assert(layout != .Packed);
-                return field.abi_align;
+                return @intCast(u32, abi_align);
             }
 
             const target = mod.getTarget();
@@ -1150,17 +1145,13 @@ pub const Union = struct {
         /// undefined until `status` is `have_field_types` or `have_layout`.
         ty: Type,
         /// 0 means the ABI alignment of the type.
-        abi_align: u32,
+        abi_align: Alignment,
 
         /// Returns the field alignment, assuming the union is not packed.
         /// Keep implementation in sync with `Sema.unionFieldAlignment`.
         /// Prefer to call that function instead of this one during Sema.
         pub fn normalAlignment(field: Field, mod: *Module) u32 {
-            if (field.abi_align == 0) {
-                return field.ty.abiAlignment(mod);
-            } else {
-                return field.abi_align;
-            }
+            return @intCast(u32, field.abi_align.toByteUnitsOptional() orelse field.ty.abiAlignment(mod));
         }
     };
 
@@ -1272,20 +1263,14 @@ pub const Union = struct {
         for (fields, 0..) |field, i| {
             if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-            const field_align = a: {
-                if (field.abi_align == 0) {
-                    break :a field.ty.abiAlignment(mod);
-                } else {
-                    break :a field.abi_align;
-                }
-            };
+            const field_align = field.abi_align.toByteUnitsOptional() orelse field.ty.abiAlignment(mod);
             const field_size = field.ty.abiSize(mod);
             if (field_size > payload_size) {
                 payload_size = field_size;
                 biggest_field = @intCast(u32, i);
             }
             if (field_align > payload_align) {
-                payload_align = field_align;
+                payload_align = @intCast(u32, field_align);
                 most_aligned_field = @intCast(u32, i);
                 most_aligned_field_size = field_size;
             }
@@ -4394,7 +4379,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.has_linksection_or_addrspace = false;
     new_decl.ty = Type.type;
     new_decl.val = struct_ty.toValue();
-    new_decl.@"align" = 0;
+    new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
@@ -4584,7 +4569,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
         decl.ty = InternPool.Index.type_type.toType();
         decl.val = ty.toValue();
-        decl.@"align" = 0;
+        decl.alignment = .none;
         decl.@"linksection" = .none;
         decl.has_tv = true;
         decl.owns_tv = false;
@@ -4665,9 +4650,9 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
     decl.ty = decl_tv.ty;
     decl.val = (try decl_tv.val.intern(decl_tv.ty, mod)).toValue();
-    decl.@"align" = blk: {
+    decl.alignment = blk: {
         const align_ref = decl.zirAlignRef(mod);
-        if (align_ref == .none) break :blk 0;
+        if (align_ref == .none) break :blk .none;
         break :blk try sema.resolveAlign(&block_scope, align_src, align_ref);
     };
     decl.@"linksection" = blk: {
@@ -5758,7 +5743,7 @@ pub fn allocateNewDecl(
         .owns_tv = false,
         .ty = undefined,
         .val = undefined,
-        .@"align" = undefined,
+        .alignment = undefined,
         .@"linksection" = .none,
         .@"addrspace" = .generic,
         .analysis = .unreferenced,
@@ -5830,7 +5815,7 @@ pub fn initNewAnonDecl(
     new_decl.src_line = src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
-    new_decl.@"align" = 0;
+    new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
@@ -6773,13 +6758,9 @@ pub fn manyConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
 }
 
 pub fn adjustPtrTypeChild(mod: *Module, ptr_ty: Type, new_child: Type) Allocator.Error!Type {
-    const info = Type.ptrInfoIp(&mod.intern_pool, ptr_ty.toIntern());
-    return mod.ptrType(.{
-        .child = new_child.toIntern(),
-        .sentinel = info.sentinel,
-        .flags = info.flags,
-        .packed_offset = info.packed_offset,
-    });
+    var info = ptr_ty.ptrInfo(mod);
+    info.child = new_child.toIntern();
+    return mod.ptrType(info);
 }
 
 pub fn funcType(mod: *Module, info: InternPool.Key.FuncType) Allocator.Error!Type {
@@ -7018,7 +6999,7 @@ pub fn atomicPtrAlignment(
     mod: *Module,
     ty: Type,
     diags: *AtomicPtrAlignmentDiagnostics,
-) AtomicPtrAlignmentError!u32 {
+) AtomicPtrAlignmentError!Alignment {
     const target = mod.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
         .avr,
@@ -7104,11 +7085,11 @@ pub fn atomicPtrAlignment(
                 };
                 return error.FloatTooBig;
             }
-            return 0;
+            return .none;
         },
-        .Bool => return 0,
+        .Bool => return .none,
         else => {
-            if (ty.isPtrAtRuntime(mod)) return 0;
+            if (ty.isPtrAtRuntime(mod)) return .none;
             return error.BadType;
         },
     };
@@ -7122,7 +7103,7 @@ pub fn atomicPtrAlignment(
         return error.IntTooBig;
     }
 
-    return 0;
+    return .none;
 }
 
 pub fn opaqueSrcLoc(mod: *Module, opaque_type: InternPool.Key.OpaqueType) SrcLoc {

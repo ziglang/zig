@@ -1714,7 +1714,7 @@ pub const DeclGen = struct {
         ty: Type,
         name: CValue,
         qualifiers: CQualifiers,
-        alignment: u32,
+        alignment: u64,
         kind: CType.Kind,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const mod = dg.module;
@@ -1733,10 +1733,10 @@ pub const DeclGen = struct {
         const store = &dg.ctypes.set;
         const mod = dg.module;
 
-        switch (std.math.order(alignas.@"align", alignas.abi)) {
-            .lt => try w.print("zig_under_align({}) ", .{alignas.getAlign()}),
+        switch (alignas.abiOrder()) {
+            .lt => try w.print("zig_under_align({}) ", .{alignas.toByteUnits()}),
             .eq => {},
-            .gt => try w.print("zig_align({}) ", .{alignas.getAlign()}),
+            .gt => try w.print("zig_align({}) ", .{alignas.toByteUnits()}),
         }
 
         const trailing =
@@ -1840,7 +1840,7 @@ pub const DeclGen = struct {
             decl.ty,
             .{ .decl = decl_index },
             CQualifiers.init(.{ .@"const" = variable.is_const }),
-            decl.@"align",
+            @intCast(u32, decl.alignment.toByteUnits(0)),
             .complete,
         );
         try fwd_decl_writer.writeAll(";\n");
@@ -2314,10 +2314,10 @@ fn renderAggregateFields(
     const fields = cty.fields();
     for (fields) |field| {
         try writer.writeByteNTimes(' ', indent + 1);
-        switch (std.math.order(field.alignas.@"align", field.alignas.abi)) {
-            .lt => try writer.print("zig_under_align({}) ", .{field.alignas.getAlign()}),
+        switch (field.alignas.abiOrder()) {
+            .lt => try writer.print("zig_under_align({}) ", .{field.alignas.toByteUnits()}),
             .eq => {},
-            .gt => try writer.print("zig_align({}) ", .{field.alignas.getAlign()}),
+            .gt => try writer.print("zig_align({}) ", .{field.alignas.toByteUnits()}),
         }
         const trailing = try renderTypePrefix(.none, store, mod, writer, field.type, .suffix, .{});
         try writer.print("{}{ }", .{ trailing, fmtIdent(mem.span(field.name)) });
@@ -2639,7 +2639,7 @@ pub fn genFunc(f: *Function) !void {
         pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
             const lhs_ty = ctx.keys[lhs_index];
             const rhs_ty = ctx.keys[rhs_index];
-            return lhs_ty.alignas.getAlign() > rhs_ty.alignas.getAlign();
+            return lhs_ty.alignas.order(rhs_ty.alignas).compare(.gt);
         }
     };
     free_locals.sort(SortContext{ .keys = free_locals.keys() });
@@ -2690,7 +2690,7 @@ pub fn genDecl(o: *Object) !void {
         if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
         if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
             try w.print("zig_linksection(\"{s}\", ", .{s});
-        try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, .{}, decl.@"align", .complete);
+        try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, .{}, decl.alignment.toByteUnits(0), .complete);
         if (decl.@"linksection" != .none) try w.writeAll(", read, write)");
         try w.writeAll(" = ");
         try o.dg.renderValue(w, tv.ty, variable.init.toValue(), .StaticInitializer);
@@ -2701,14 +2701,14 @@ pub fn genDecl(o: *Object) !void {
         const fwd_decl_writer = o.dg.fwd_decl.writer();
 
         try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
-        try o.dg.renderTypeAndName(fwd_decl_writer, tv.ty, decl_c_value, Const, decl.@"align", .complete);
+        try o.dg.renderTypeAndName(fwd_decl_writer, tv.ty, decl_c_value, Const, decl.alignment.toByteUnits(0), .complete);
         try fwd_decl_writer.writeAll(";\n");
 
         const w = o.writer();
         if (!is_global) try w.writeAll("static ");
         if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
             try w.print("zig_linksection(\"{s}\", ", .{s});
-        try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, Const, decl.@"align", .complete);
+        try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, Const, decl.alignment.toByteUnits(0), .complete);
         if (decl.@"linksection" != .none) try w.writeAll(", read)");
         try w.writeAll(" = ");
         try o.dg.renderValue(w, tv.ty, tv.val, .StaticInitializer);
@@ -3324,7 +3324,7 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const ptr_ty = f.typeOf(ty_op.operand);
     const ptr_scalar_ty = ptr_ty.scalarType(mod);
     const ptr_info = ptr_scalar_ty.ptrInfo(mod);
-    const src_ty = ptr_info.pointee_type;
+    const src_ty = ptr_info.child.toType();
 
     if (!src_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         try reap(f, inst, &.{ty_op.operand});
@@ -3335,7 +3335,10 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
 
     try reap(f, inst, &.{ty_op.operand});
 
-    const is_aligned = ptr_info.@"align" == 0 or ptr_info.@"align" >= src_ty.abiAlignment(mod);
+    const is_aligned = if (ptr_info.flags.alignment.toByteUnitsOptional()) |alignment|
+        alignment >= src_ty.abiAlignment(mod)
+    else
+        true;
     const is_array = lowersToArray(src_ty, mod);
     const need_memcpy = !is_aligned or is_array;
 
@@ -3354,12 +3357,12 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll(", sizeof(");
         try f.renderType(writer, src_ty);
         try writer.writeAll("))");
-    } else if (ptr_info.host_size > 0 and ptr_info.vector_index == .none) {
-        const host_bits: u16 = ptr_info.host_size * 8;
+    } else if (ptr_info.packed_offset.host_size > 0 and ptr_info.flags.vector_index == .none) {
+        const host_bits: u16 = ptr_info.packed_offset.host_size * 8;
         const host_ty = try mod.intType(.unsigned, host_bits);
 
         const bit_offset_ty = try mod.intType(.unsigned, Type.smallestUnsignedBits(host_bits - 1));
-        const bit_offset_val = try mod.intValue(bit_offset_ty, ptr_info.bit_offset);
+        const bit_offset_val = try mod.intValue(bit_offset_ty, ptr_info.packed_offset.bit_offset);
 
         const field_ty = try mod.intType(.unsigned, @intCast(u16, src_ty.bitSize(mod)));
 
@@ -3593,20 +3596,22 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
 
     if (val_is_undef) {
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-        if (safety and ptr_info.host_size == 0) {
+        if (safety and ptr_info.packed_offset.host_size == 0) {
             const writer = f.object.writer();
             try writer.writeAll("memset(");
             try f.writeCValue(writer, ptr_val, .FunctionArgument);
             try writer.writeAll(", 0xaa, sizeof(");
-            try f.renderType(writer, ptr_info.pointee_type);
+            try f.renderType(writer, ptr_info.child.toType());
             try writer.writeAll("));\n");
         }
         return .none;
     }
 
-    const is_aligned = ptr_info.@"align" == 0 or
-        ptr_info.@"align" >= ptr_info.pointee_type.abiAlignment(mod);
-    const is_array = lowersToArray(ptr_info.pointee_type, mod);
+    const is_aligned = if (ptr_info.flags.alignment.toByteUnitsOptional()) |alignment|
+        alignment >= src_ty.abiAlignment(mod)
+    else
+        true;
+    const is_array = lowersToArray(ptr_info.child.toType(), mod);
     const need_memcpy = !is_aligned or is_array;
 
     const src_val = try f.resolveInst(bin_op.rhs);
@@ -3618,7 +3623,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     if (need_memcpy) {
         // For this memcpy to safely work we need the rhs to have the same
         // underlying type as the lhs (i.e. they must both be arrays of the same underlying type).
-        assert(src_ty.eql(ptr_info.pointee_type, f.object.dg.module));
+        assert(src_ty.eql(ptr_info.child.toType(), f.object.dg.module));
 
         // If the source is a constant, writeCValue will emit a brace initialization
         // so work around this by initializing into new local.
@@ -3646,12 +3651,12 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         if (src_val == .constant) {
             try freeLocal(f, inst, array_src.new_local, 0);
         }
-    } else if (ptr_info.host_size > 0 and ptr_info.vector_index == .none) {
-        const host_bits = ptr_info.host_size * 8;
+    } else if (ptr_info.packed_offset.host_size > 0 and ptr_info.flags.vector_index == .none) {
+        const host_bits = ptr_info.packed_offset.host_size * 8;
         const host_ty = try mod.intType(.unsigned, host_bits);
 
         const bit_offset_ty = try mod.intType(.unsigned, Type.smallestUnsignedBits(host_bits - 1));
-        const bit_offset_val = try mod.intValue(bit_offset_ty, ptr_info.bit_offset);
+        const bit_offset_val = try mod.intValue(bit_offset_ty, ptr_info.packed_offset.bit_offset);
 
         const src_bits = src_ty.bitSize(mod);
 
@@ -3663,7 +3668,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         defer mask.deinit();
 
         try mask.setTwosCompIntLimit(.max, .unsigned, @intCast(usize, src_bits));
-        try mask.shiftLeft(&mask, ptr_info.bit_offset);
+        try mask.shiftLeft(&mask, ptr_info.packed_offset.bit_offset);
         try mask.bitNotWrap(&mask, .unsigned, host_bits);
 
         const mask_val = try mod.intValue_big(host_ty, mask.toConst());
@@ -5201,7 +5206,7 @@ fn fieldLocation(
                 else
                     .{ .identifier = ip.stringToSlice(container_ty.structFieldName(next_field_index, mod)) } };
             } else if (container_ty.hasRuntimeBitsIgnoreComptime(mod)) .end else .begin,
-            .Packed => if (field_ptr_ty.ptrInfo(mod).host_size == 0)
+            .Packed => if (field_ptr_ty.ptrInfo(mod).packed_offset.host_size == 0)
                 .{ .byte_offset = container_ty.packedStructFieldByteOffset(field_index, mod) }
             else
                 .begin,

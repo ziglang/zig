@@ -620,6 +620,8 @@ pub const Key = union(enum) {
         len: Index = .none,
 
         pub const Addr = union(enum) {
+            const Tag = @typeInfo(Addr).Union.tag_type.?;
+
             decl: Module.Decl.Index,
             mut_decl: MutDecl,
             comptime_field: Index,
@@ -1241,11 +1243,13 @@ pub const Item = struct {
 /// When adding a tag to this enum, consider adding a corresponding entry to
 /// `primitives` in AstGen.zig.
 pub const Index = enum(u32) {
-    pub const first_type: Index = .u1_type;
+    pub const first_type: Index = .u0_type;
     pub const last_type: Index = .empty_struct_type;
     pub const first_value: Index = .undef;
     pub const last_value: Index = .empty_struct;
 
+    u0_type,
+    i0_type,
     u1_type,
     u8_type,
     i8_type,
@@ -1305,6 +1309,7 @@ pub const Index = enum(u32) {
     single_const_pointer_to_comptime_int_type,
     slice_const_u8_type,
     slice_const_u8_sentinel_0_type,
+    optional_noreturn_type,
     anyerror_void_error_union_type,
     generic_poison_type,
     /// `@TypeOf(.{})`
@@ -1533,6 +1538,16 @@ pub const Index = enum(u32) {
 pub const static_keys = [_]Key{
     .{ .int_type = .{
         .signedness = .unsigned,
+        .bits = 0,
+    } },
+
+    .{ .int_type = .{
+        .signedness = .signed,
+        .bits = 0,
+    } },
+
+    .{ .int_type = .{
+        .signedness = .unsigned,
         .bits = 1,
     } },
 
@@ -1637,6 +1652,7 @@ pub const static_keys = [_]Key{
     .{ .simple_type = .extern_options },
     .{ .simple_type = .type_info },
 
+    // [*]u8
     .{ .ptr_type = .{
         .child = .u8_type,
         .flags = .{
@@ -1644,7 +1660,7 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // manyptr_const_u8_type
+    // [*]const u8
     .{ .ptr_type = .{
         .child = .u8_type,
         .flags = .{
@@ -1653,7 +1669,7 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // manyptr_const_u8_sentinel_0_type
+    // [*:0]const u8
     .{ .ptr_type = .{
         .child = .u8_type,
         .sentinel = .zero_u8,
@@ -1663,6 +1679,7 @@ pub const static_keys = [_]Key{
         },
     } },
 
+    // comptime_int
     .{ .ptr_type = .{
         .child = .comptime_int_type,
         .flags = .{
@@ -1671,7 +1688,7 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // slice_const_u8_type
+    // []const u8
     .{ .ptr_type = .{
         .child = .u8_type,
         .flags = .{
@@ -1680,7 +1697,7 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // slice_const_u8_sentinel_0_type
+    // [:0]const u8
     .{ .ptr_type = .{
         .child = .u8_type,
         .sentinel = .zero_u8,
@@ -1690,7 +1707,10 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // anyerror_void_error_union_type
+    // ?noreturn
+    .{ .opt_type = .noreturn_type },
+
+    // anyerror!void
     .{ .error_union_type = .{
         .error_set_type = .anyerror_type,
         .payload_type = .void_type,
@@ -2279,8 +2299,9 @@ pub const Alignment = enum(u6) {
         return fromByteUnits(n);
     }
 
-    pub fn min(a: Alignment, b: Alignment) Alignment {
-        return @enumFromInt(Alignment, @min(@intFromEnum(a), @intFromEnum(b)));
+    pub fn order(lhs: Alignment, rhs: Alignment) std.math.Order {
+        assert(lhs != .none and rhs != .none);
+        return std.math.order(@intFromEnum(lhs), @intFromEnum(rhs));
     }
 };
 
@@ -5463,6 +5484,8 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
     // An alternative would be to topological sort the static keys, but this would
     // mean that the range of type indices would not be dense.
     return switch (index) {
+        .u0_type,
+        .i0_type,
         .u1_type,
         .u8_type,
         .i8_type,
@@ -5522,6 +5545,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
+        .optional_noreturn_type,
         .anyerror_void_error_union_type,
         .generic_poison_type,
         .empty_struct_type,
@@ -5669,20 +5693,96 @@ pub fn aggregateTypeLenIncludingSentinel(ip: *const InternPool, ty: Index) u64 {
     };
 }
 
+pub fn funcReturnType(ip: *const InternPool, ty: Index) Index {
+    const item = ip.items.get(@intFromEnum(ty));
+    const child_item = switch (item.tag) {
+        .type_pointer => ip.items.get(ip.extra.items[
+            item.data + std.meta.fieldIndex(Tag.TypePointer, "child").?
+        ]),
+        .type_function => item,
+        else => unreachable,
+    };
+    assert(child_item.tag == .type_function);
+    return @enumFromInt(Index, ip.extra.items[
+        child_item.data + std.meta.fieldIndex(TypeFunction, "return_type").?
+    ]);
+}
+
 pub fn isNoReturn(ip: *const InternPool, ty: Index) bool {
     return switch (ty) {
         .noreturn_type => true,
-        else => switch (ip.indexToKey(ty)) {
-            .error_set_type => |error_set_type| error_set_type.names.len == 0,
+        else => switch (ip.items.items(.tag)[@intFromEnum(ty)]) {
+            .type_error_set => ip.extra.items[ip.items.items(.data)[@intFromEnum(ty)] + std.meta.fieldIndex(ErrorSet, "names_len").?] == 0,
             else => false,
         },
     };
+}
+
+pub fn isUndef(ip: *const InternPool, val: Index) bool {
+    return val == .undef or ip.items.items(.tag)[@intFromEnum(val)] == .undef;
+}
+
+pub fn isRuntimeValue(ip: *const InternPool, val: Index) bool {
+    return ip.items.items(.tag)[@intFromEnum(val)] == .runtime_value;
+}
+
+pub fn isVariable(ip: *const InternPool, val: Index) bool {
+    return ip.items.items(.tag)[@intFromEnum(val)] == .variable;
+}
+
+pub fn getBackingDecl(ip: *const InternPool, val: Index) Module.Decl.OptionalIndex {
+    var base = @intFromEnum(val);
+    while (true) {
+        switch (ip.items.items(.tag)[base]) {
+            inline .ptr_decl,
+            .ptr_mut_decl,
+            => |tag| return @enumFromInt(Module.Decl.OptionalIndex, ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "decl").?
+            ]),
+            inline .ptr_eu_payload,
+            .ptr_opt_payload,
+            .ptr_elem,
+            .ptr_field,
+            => |tag| base = ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "base").?
+            ],
+            inline .ptr_slice => |tag| base = ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "ptr").?
+            ],
+            else => return .none,
+        }
+    }
+}
+
+pub fn getBackingAddrTag(ip: *const InternPool, val: Index) ?Key.Ptr.Addr.Tag {
+    var base = @intFromEnum(val);
+    while (true) {
+        switch (ip.items.items(.tag)[base]) {
+            .ptr_decl => return .decl,
+            .ptr_mut_decl => return .mut_decl,
+            .ptr_comptime_field => return .comptime_field,
+            .ptr_int => return .int,
+            inline .ptr_eu_payload,
+            .ptr_opt_payload,
+            .ptr_elem,
+            .ptr_field,
+            => |tag| base = ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "base").?
+            ],
+            inline .ptr_slice => |tag| base = ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "ptr").?
+            ],
+            else => return null,
+        }
+    }
 }
 
 /// This is a particularly hot function, so we operate directly on encodings
 /// rather than the more straightforward implementation of calling `indexToKey`.
 pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPoison}!std.builtin.TypeId {
     return switch (index) {
+        .u0_type,
+        .i0_type,
         .u1_type,
         .u8_type,
         .i8_type,
@@ -5754,6 +5854,7 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .slice_const_u8_sentinel_0_type,
         => .Pointer,
 
+        .optional_noreturn_type => .Optional,
         .anyerror_void_error_union_type => .ErrorUnion,
         .empty_struct_type => .Struct,
 

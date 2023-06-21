@@ -850,6 +850,8 @@ pub const Inst = struct {
     pub const Index = u32;
 
     pub const Ref = enum(u32) {
+        u0_type = @intFromEnum(InternPool.Index.u0_type),
+        i0_type = @intFromEnum(InternPool.Index.i0_type),
         u1_type = @intFromEnum(InternPool.Index.u1_type),
         u8_type = @intFromEnum(InternPool.Index.u8_type),
         i8_type = @intFromEnum(InternPool.Index.i8_type),
@@ -909,6 +911,7 @@ pub const Inst = struct {
         single_const_pointer_to_comptime_int_type = @intFromEnum(InternPool.Index.single_const_pointer_to_comptime_int_type),
         slice_const_u8_type = @intFromEnum(InternPool.Index.slice_const_u8_type),
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
+        optional_noreturn_type = @intFromEnum(InternPool.Index.optional_noreturn_type),
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
         empty_struct_type = @intFromEnum(InternPool.Index.empty_struct_type),
@@ -1182,7 +1185,7 @@ pub fn getMainBody(air: Air) []const Air.Inst.Index {
     return air.extra[extra.end..][0..extra.data.body_len];
 }
 
-pub fn typeOf(air: Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
+pub fn typeOf(air: *const Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
     const ref_int = @intFromEnum(inst);
     if (ref_int < InternPool.static_keys.len) {
         return InternPool.static_keys[ref_int].typeOf().toType();
@@ -1190,7 +1193,7 @@ pub fn typeOf(air: Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
     return air.typeOfIndex(ref_int - ref_start_index, ip);
 }
 
-pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
+pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
     const datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst]) {
         .add,
@@ -1403,7 +1406,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand, ip);
-            return callee_ty.fnReturnTypeIp(ip);
+            return ip.funcReturnType(callee_ty.toIntern()).toType();
         },
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {
