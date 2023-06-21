@@ -36,6 +36,9 @@ pub fn insertion(
 /// O(1) memory (no allocator required).
 /// Sorts in ascending order with respect to the given `lessThan` function.
 pub fn insertionContext(a: usize, b: usize, context: anytype) void {
+    assert(a <= b);
+    assert(a < std.math.maxInt(usize));
+
     var i = a + 1;
     while (i < b) : (i += 1) {
         var j = i;
