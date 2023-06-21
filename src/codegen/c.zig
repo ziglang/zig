@@ -1205,7 +1205,7 @@ pub const DeclGen = struct {
                 try dg.renderValue(writer, Type.bool, is_null_val, initializer_type);
                 try writer.writeAll(" }");
             },
-            .aggregate => |aggregate| switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .aggregate => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .array_type, .vector_type => {
                     if (location == .FunctionArgument) {
                         try writer.writeByte('(');
@@ -1278,7 +1278,7 @@ pub const DeclGen = struct {
 
                         if (!empty) try writer.writeByte(',');
 
-                        const field_val = switch (aggregate.storage) {
+                        const field_val = switch (mod.intern_pool.indexToKey(val.ip_index).aggregate.storage) {
                             .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
                                 .ty = field_ty,
                                 .storage = .{ .u64 = bytes[field_i] },
@@ -1309,7 +1309,7 @@ pub const DeclGen = struct {
                                 if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 if (!empty) try writer.writeByte(',');
-                                const field_val = switch (aggregate.storage) {
+                                const field_val = switch (mod.intern_pool.indexToKey(val.ip_index).aggregate.storage) {
                                     .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
                                         .ty = field.ty.toIntern(),
                                         .storage = .{ .u64 = bytes[field_i] },
@@ -1358,7 +1358,7 @@ pub const DeclGen = struct {
                                     if (field.is_comptime) continue;
                                     if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                                    const field_val = switch (aggregate.storage) {
+                                    const field_val = switch (mod.intern_pool.indexToKey(val.ip_index).aggregate.storage) {
                                         .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
                                             .ty = field.ty.toIntern(),
                                             .storage = .{ .u64 = bytes[field_i] },
@@ -1400,7 +1400,7 @@ pub const DeclGen = struct {
                                     try dg.renderType(writer, ty);
                                     try writer.writeByte(')');
 
-                                    const field_val = switch (aggregate.storage) {
+                                    const field_val = switch (mod.intern_pool.indexToKey(val.ip_index).aggregate.storage) {
                                         .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
                                             .ty = field.ty.toIntern(),
                                             .storage = .{ .u64 = bytes[field_i] },
