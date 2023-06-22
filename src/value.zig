@@ -745,7 +745,15 @@ pub const Value = struct {
                 .Extern => for (ty.structFields(mod).values(), 0..) |field, i| {
                     const off = @intCast(usize, ty.structFieldOffset(i, mod));
                     const field_val = switch (val.ip_index) {
-                        .none => val.castTag(.aggregate).?.data[i],
+                        .none => switch (val.tag()) {
+                            .bytes => {
+                                buffer[off] = val.castTag(.bytes).?.data[i];
+                                continue;
+                            },
+                            .aggregate => val.castTag(.aggregate).?.data[i],
+                            .repeated => val.castTag(.repeated).?.data,
+                            else => unreachable,
+                        },
                         else => switch (mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage) {
                             .bytes => |bytes| {
                                 buffer[off] = bytes[i];
