@@ -34,7 +34,9 @@ pub fn insertion(
 
 /// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case.
 /// O(1) memory (no allocator required).
-/// Sorts in ascending order with respect to the given `lessThan` function.
+/// `context` must have methods `swap` and `lessThan`,
+/// which each take 2 `usize` parameters indicating the index of an item.
+/// Sorts in ascending order with respect to `lessThan`.
 pub fn insertionContext(a: usize, b: usize, context: anytype) void {
     var i = a + 1;
     while (i < b) : (i += 1) {
@@ -71,7 +73,9 @@ pub fn heap(
 
 /// Unstable in-place sort. O(n*log(n)) best case, worst case and average case.
 /// O(1) memory (no allocator required).
-/// Sorts in ascending order with respect to the given `lessThan` function.
+/// `context` must have methods `swap` and `lessThan`,
+/// which each take 2 `usize` parameters indicating the index of an item.
+/// Sorts in ascending order with respect to `lessThan`.
 pub fn heapContext(a: usize, b: usize, context: anytype) void {
     // build the heap in linear time.
     var i = a + (b - a) / 2;
