@@ -762,13 +762,13 @@ const WasiThreadImpl = struct {
     /// A meta-data structure used to bootstrap a thread
     const Instance = struct {
         thread: WasiThread,
-        /// Address of this `Instance`
-        base: usize,
-        /// Contains the pointer of the new __tls_base.
-        tls_base: usize,
-        /// Contains the pointer to the stack for the newly spawned thread.
-        stack_pointer: usize,
-        /// Contains the pointer to the wrapper which holds all arguments
+        /// Contains the offset to the new __tls_base.
+        /// The offset starting from the memory's base.
+        tls_offset: usize,
+        /// Contains the offset to the stack for the newly spawned thread.
+        /// The offset is calculated starting from the memory's base.
+        stack_offset: usize,
+        /// Contains the raw pointer value to the wrapper which holds all arguments
         /// for the callback.
         raw_ptr: usize,
         /// Function pointer to a wrapping function which will call the user's
@@ -790,9 +790,12 @@ const WasiThreadImpl = struct {
     }
 
     fn join(self: Impl) void {
-        // TODO cleanup memory
-        // The memory also contains the thread's stack, which is problematic while freeing the memory
-        // defer self.thread.allocator.free(self.thread.memory);
+        defer {
+            // Create a copy of the allocator so we do not free the reference to the
+            // original allocator while freeing the memory.
+            var allocator = self.thread.allocator;
+            allocator.free(self.thread.memory);
+        }
 
         var spin: u8 = 10;
         while (true) {
@@ -808,11 +811,11 @@ const WasiThreadImpl = struct {
             }
 
             const result = asm (
-                \\local.get %[ptr]
-                \\local.get %[expected]
-                \\i64.const -1 # infinite
-                \\memory.atomic.wait32 0
-                \\local.set %[ret]
+                \\ local.get %[ptr]
+                \\ local.get %[expected]
+                \\ i64.const -1 # infinite
+                \\ memory.atomic.wait32 0
+                \\ local.set %[ret]
                 : [ret] "=r" (-> u32),
                 : [ptr] "r" (&self.thread.tid.value),
                   [expected] "r" (tid),
@@ -883,9 +886,8 @@ const WasiThreadImpl = struct {
         const instance = @ptrCast(*Instance, @alignCast(@alignOf(Instance), &allocated_memory[instance_offset]));
         instance.* = .{
             .thread = .{ .memory = allocated_memory, .allocator = config.allocator.? },
-            .base = @ptrToInt(allocated_memory.ptr),
-            .tls_base = tls_offset,
-            .stack_pointer = stack_offset,
+            .tls_offset = tls_offset,
+            .stack_offset = stack_offset,
             .raw_ptr = @ptrToInt(wrapper),
             .call_back = &Wrapper.entry,
         };
@@ -903,8 +905,8 @@ const WasiThreadImpl = struct {
 
     /// Bootstrap procedure, called by the HOST environment after thread creation.
     export fn wasi_thread_start(tid: i32, arg: *Instance) void {
-        __set_stack_pointer(arg.thread.memory.ptr + arg.stack_pointer);
-        __wasm_init_tls(arg.thread.memory.ptr + arg.tls_base);
+        __set_stack_pointer(arg.thread.memory.ptr + arg.stack_offset);
+        __wasm_init_tls(arg.thread.memory.ptr + arg.tls_offset);
         WasiThreadImpl.tls_thread_id = @intCast(u32, tid);
 
         // Finished bootstrapping, call user's procedure.
