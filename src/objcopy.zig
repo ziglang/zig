@@ -442,7 +442,7 @@ const BinaryElfOutput = struct {
     }
 
     fn sectionValidForOutput(shdr: anytype) bool {
-        return shdr.sh_size > 0 and shdr.sh_type != elf.SHT_NOBITS and
+        return shdr.sh_type != elf.SHT_NOBITS and
             ((shdr.sh_flags & elf.SHF_ALLOC) == elf.SHF_ALLOC);
     }
 
