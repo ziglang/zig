@@ -253,7 +253,7 @@ fn bswap(x: anytype) @TypeOf(x) {
 
     const T = @TypeOf(x);
     switch (@typeInfo(T)) {
-        .Enum => return @intToEnum(T, @byteSwap(@enumToInt(x))),
+        .Enum => return @enumFromInt(T, @byteSwap(@intFromEnum(x))),
         .Int => return @byteSwap(x),
         .Struct => |info| switch (info.layout) {
             .Extern => {
@@ -286,7 +286,7 @@ fn bswap_and_workaround_u32(bytes_ptr: *const [4]u8) u32 {
 /// workaround for https://github.com/ziglang/zig/issues/14904
 fn bswap_and_workaround_tag(bytes_ptr: *const [4]u8) InMessage.Tag {
     const int = std.mem.readIntLittle(u32, bytes_ptr);
-    return @intToEnum(InMessage.Tag, int);
+    return @enumFromInt(InMessage.Tag, int);
 }
 
 const OutMessage = std.zig.Server.Message;

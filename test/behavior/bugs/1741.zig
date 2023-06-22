@@ -8,5 +8,5 @@ test "fixed" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const x: f32 align(128) = 12.34;
-    try std.testing.expect(@ptrToInt(&x) % 128 == 0);
+    try std.testing.expect(@intFromPtr(&x) % 128 == 0);
 }

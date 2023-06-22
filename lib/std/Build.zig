@@ -124,6 +124,9 @@ host: NativeTargetInfo,
 dep_prefix: []const u8 = "",
 
 modules: std.StringArrayHashMap(*Module),
+/// A map from build root dirs to the corresponding `*Dependency`. This is shared with all child
+/// `Build`s.
+initialized_deps: *std.StringHashMap(*Dependency),
 
 pub const ExecError = error{
     ReadFailure,
@@ -209,6 +212,9 @@ pub fn create(
     const env_map = try allocator.create(EnvMap);
     env_map.* = try process.getEnvMap(allocator);
 
+    const initialized_deps = try allocator.create(std.StringHashMap(*Dependency));
+    initialized_deps.* = std.StringHashMap(*Dependency).init(allocator);
+
     const self = try allocator.create(Build);
     self.* = .{
         .zig_exe = zig_exe,
@@ -261,6 +267,7 @@ pub fn create(
         .args = null,
         .host = host,
         .modules = std.StringArrayHashMap(*Module).init(allocator),
+        .initialized_deps = initialized_deps,
     };
     try self.top_level_steps.put(allocator, self.install_tls.step.name, &self.install_tls);
     try self.top_level_steps.put(allocator, self.uninstall_tls.step.name, &self.uninstall_tls);
@@ -345,6 +352,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .host = parent.host,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
+        .initialized_deps = parent.initialized_deps,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -464,7 +472,7 @@ pub fn addOptions(self: *Build) *Step.Options {
 pub const ExecutableOptions = struct {
     name: []const u8,
     root_source_file: ?FileSource = null,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
     linkage: ?Step.Compile.Linkage = null,
@@ -522,7 +530,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
 pub const SharedLibraryOptions = struct {
     name: []const u8,
     root_source_file: ?FileSource = null,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     max_rss: usize = 0,
@@ -554,7 +562,7 @@ pub const StaticLibraryOptions = struct {
     root_source_file: ?FileSource = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
@@ -584,7 +592,7 @@ pub const TestOptions = struct {
     root_source_file: FileSource,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filter: ?[]const u8 = null,
     test_runner: ?[]const u8 = null,
@@ -751,7 +759,7 @@ pub fn dupePath(self: *Build, bytes: []const u8) []u8 {
 
 pub fn addWriteFile(self: *Build, file_path: []const u8, data: []const u8) *Step.WriteFile {
     const write_file_step = self.addWriteFiles();
-    write_file_step.add(file_path, data);
+    _ = write_file_step.add(file_path, data);
     return write_file_step;
 }
 
@@ -1380,7 +1388,7 @@ pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []con
             if (fs.path.isAbsolute(name)) {
                 return name;
             }
-            var it = mem.tokenize(u8, PATH, &[_]u8{fs.path.delimiter});
+            var it = mem.tokenizeScalar(u8, PATH, fs.path.delimiter);
             while (it.next()) |path| {
                 const full_path = self.pathJoin(&.{
                     path,
@@ -1560,6 +1568,11 @@ pub fn dependencyInner(
     comptime build_zig: type,
     args: anytype,
 ) *Dependency {
+    if (b.initialized_deps.get(build_root_string)) |dep| {
+        // TODO: check args are the same
+        return dep;
+    }
+
     const build_root: std.Build.Cache.Directory = .{
         .path = build_root_string,
         .handle = std.fs.cwd().openDir(build_root_string, .{}) catch |err| {
@@ -1578,6 +1591,9 @@ pub fn dependencyInner(
 
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
     dep.* = .{ .builder = sub_builder };
+
+    b.initialized_deps.put(build_root_string, dep) catch @panic("OOM");
+
     return dep;
 }
 
@@ -1696,10 +1712,10 @@ fn dumpBadGetPathHelp(
         s.name,
     });
 
-    const tty_config = std.debug.detectTTYConfig(stderr);
-    tty_config.setColor(w, .Red) catch {};
+    const tty_config = std.io.tty.detectConfig(stderr);
+    tty_config.setColor(w, .red) catch {};
     try stderr.writeAll("    The step was created by this stack trace:\n");
-    tty_config.setColor(w, .Reset) catch {};
+    tty_config.setColor(w, .reset) catch {};
 
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         try w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
@@ -1711,9 +1727,9 @@ fn dumpBadGetPathHelp(
         return;
     };
     if (asking_step) |as| {
-        tty_config.setColor(w, .Red) catch {};
+        tty_config.setColor(w, .red) catch {};
         try stderr.writeAll("    The step that is missing a dependency on the above step was created by this stack trace:\n");
-        tty_config.setColor(w, .Reset) catch {};
+        tty_config.setColor(w, .reset) catch {};
 
         std.debug.writeStackTrace(as.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
             try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
@@ -1721,9 +1737,9 @@ fn dumpBadGetPathHelp(
         };
     }
 
-    tty_config.setColor(w, .Red) catch {};
+    tty_config.setColor(w, .red) catch {};
     try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
-    tty_config.setColor(w, .Reset) catch {};
+    tty_config.setColor(w, .reset) catch {};
 }
 
 /// Allocates a new string for assigning a value to a named macro.

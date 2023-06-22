@@ -3,7 +3,6 @@ const isNan = std.math.isNan;
 const isInf = std.math.isInf;
 const scalbn = std.math.scalbn;
 const ilogb = std.math.ilogb;
-const max = std.math.max;
 const fabs = std.math.fabs;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
@@ -17,7 +16,7 @@ pub inline fn divc3(comptime T: type, a: T, b: T, c_in: T, d_in: T) Complex(T) {
     var d = d_in;
 
     // logbw used to prevent under/over-flow
-    const logbw = ilogb(max(fabs(c), fabs(d)));
+    const logbw = ilogb(@max(fabs(c), fabs(d)));
     const logbw_finite = logbw != maxInt(i32) and logbw != minInt(i32);
     const ilogbw = if (logbw_finite) b: {
         c = scalbn(c, -logbw);

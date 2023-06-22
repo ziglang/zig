@@ -103,10 +103,12 @@ pub fn deinit(self: *SpirV) void {
     self.decl_link.deinit();
 }
 
-pub fn updateFunc(self: *SpirV, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *SpirV, module: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
+
+    const func = module.funcPtr(func_index);
 
     var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
     defer decl_gen.deinit();
@@ -131,12 +133,12 @@ pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) 
 
 pub fn updateDeclExports(
     self: *SpirV,
-    module: *Module,
+    mod: *Module,
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
-    const decl = module.declPtr(decl_index);
-    if (decl.val.tag() == .function and decl.ty.fnCallingConvention() == .Kernel) {
+    const decl = mod.declPtr(decl_index);
+    if (decl.val.getFunctionIndex(mod) != .none and decl.ty.fnCallingConvention(mod) == .Kernel) {
         // TODO: Unify with resolveDecl in spirv.zig.
         const entry = try self.decl_link.getOrPut(decl_index);
         if (!entry.found_existing) {
@@ -145,7 +147,7 @@ pub fn updateDeclExports(
         const spv_decl_index = entry.value_ptr.*;
 
         for (exports) |exp| {
-            try self.spv.declareEntryPoint(spv_decl_index, exp.options.name);
+            try self.spv.declareEntryPoint(spv_decl_index, mod.intern_pool.stringToSlice(exp.opts.name));
         }
     }
 
@@ -188,7 +190,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
     var error_info = std.ArrayList(u8).init(self.spv.arena);
     try error_info.appendSlice("zig_errors");
     const module = self.base.options.module.?;
-    for (module.error_name_list.items) |name| {
+    for (module.global_error_set.keys()) |name_nts| {
+        const name = module.intern_pool.stringToSlice(name_nts);
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.

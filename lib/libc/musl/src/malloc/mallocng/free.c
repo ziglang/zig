@@ -119,7 +119,7 @@ void free(void *p)
 	if (((uintptr_t)(start-1) ^ (uintptr_t)end) >= 2*PGSZ && g->last_idx) {
 		unsigned char *base = start + (-(uintptr_t)start & (PGSZ-1));
 		size_t len = (end-base) & -PGSZ;
-		if (len) {
+		if (len && USE_MADV_FREE) {
 			int e = errno;
 			madvise(base, len, MADV_FREE);
 			errno = e;

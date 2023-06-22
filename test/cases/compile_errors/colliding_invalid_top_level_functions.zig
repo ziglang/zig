@@ -1,6 +1,8 @@
 fn func() bogus {}
 fn func() bogus {}
-export fn entry() usize { return @sizeOf(@TypeOf(func)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(func));
+}
 
 // error
 // backend=stage2

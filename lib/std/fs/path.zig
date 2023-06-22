@@ -67,7 +67,7 @@ fn joinSepMaybeZ(allocator: Allocator, separator: u8, comptime sepPredicate: fn 
             if (this_path.len == 0) continue;
             const prev_sep = sepPredicate(prev_path[prev_path.len - 1]);
             const this_sep = sepPredicate(this_path[0]);
-            sum += @boolToInt(!prev_sep and !this_sep);
+            sum += @intFromBool(!prev_sep and !this_sep);
             sum += if (prev_sep and this_sep) this_path.len - 1 else this_path.len;
             prev_path = this_path;
         }
@@ -358,7 +358,7 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
                 return relative_path;
             }
 
-            var it = mem.tokenize(u8, path, &[_]u8{this_sep});
+            var it = mem.tokenizeScalar(u8, path, this_sep);
             _ = (it.next() orelse return relative_path);
             _ = (it.next() orelse return relative_path);
             return WindowsPath{
@@ -420,8 +420,8 @@ fn networkShareServersEql(ns1: []const u8, ns2: []const u8) bool {
     const sep1 = ns1[0];
     const sep2 = ns2[0];
 
-    var it1 = mem.tokenize(u8, ns1, &[_]u8{sep1});
-    var it2 = mem.tokenize(u8, ns2, &[_]u8{sep2});
+    var it1 = mem.tokenizeScalar(u8, ns1, sep1);
+    var it2 = mem.tokenizeScalar(u8, ns2, sep2);
 
     // TODO ASCII is wrong, we actually need full unicode support to compare paths.
     return ascii.eqlIgnoreCase(it1.next().?, it2.next().?);
@@ -441,8 +441,8 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             const sep1 = p1[0];
             const sep2 = p2[0];
 
-            var it1 = mem.tokenize(u8, p1, &[_]u8{sep1});
-            var it2 = mem.tokenize(u8, p2, &[_]u8{sep2});
+            var it1 = mem.tokenizeScalar(u8, p1, sep1);
+            var it2 = mem.tokenizeScalar(u8, p2, sep2);
 
             // TODO ASCII is wrong, we actually need full unicode support to compare paths.
             return ascii.eqlIgnoreCase(it1.next().?, it2.next().?) and ascii.eqlIgnoreCase(it1.next().?, it2.next().?);
@@ -535,7 +535,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
                 break :l disk_designator.len;
             },
             .NetworkShare => {
-                var it = mem.tokenize(u8, paths[first_index], "/\\");
+                var it = mem.tokenizeAny(u8, paths[first_index], "/\\");
                 const server_name = it.next().?;
                 const other_name = it.next().?;
 
@@ -570,7 +570,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
         if (!correct_disk_designator) {
             continue;
         }
-        var it = mem.tokenize(u8, p[parsed.disk_designator.len..], "/\\");
+        var it = mem.tokenizeAny(u8, p[parsed.disk_designator.len..], "/\\");
         while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
@@ -657,13 +657,13 @@ pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.E
             negative_count = 0;
             result.clearRetainingCapacity();
         }
-        var it = mem.tokenize(u8, p, "/");
+        var it = mem.tokenizeScalar(u8, p, '/');
         while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
             } else if (mem.eql(u8, component, "..")) {
                 if (result.items.len == 0) {
-                    negative_count += @boolToInt(!is_abs);
+                    negative_count += @intFromBool(!is_abs);
                     continue;
                 }
                 while (true) {
@@ -1078,8 +1078,8 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
         return resolved_to;
     }
 
-    var from_it = mem.tokenize(u8, resolved_from, "/\\");
-    var to_it = mem.tokenize(u8, resolved_to, "/\\");
+    var from_it = mem.tokenizeAny(u8, resolved_from, "/\\");
+    var to_it = mem.tokenizeAny(u8, resolved_to, "/\\");
     while (true) {
         const from_component = from_it.next() orelse return allocator.dupe(u8, to_it.rest());
         const to_rest = to_it.rest();
@@ -1092,7 +1092,7 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
         while (from_it.next()) |_| {
             up_index_end += "\\..".len;
         }
-        const result = try allocator.alloc(u8, up_index_end + @boolToInt(to_rest.len > 0) + to_rest.len);
+        const result = try allocator.alloc(u8, up_index_end + @intFromBool(to_rest.len > 0) + to_rest.len);
         errdefer allocator.free(result);
 
         result[0..2].* = "..".*;
@@ -1102,7 +1102,7 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
             result_index += 3;
         }
 
-        var rest_it = mem.tokenize(u8, to_rest, "/\\");
+        var rest_it = mem.tokenizeAny(u8, to_rest, "/\\");
         while (rest_it.next()) |to_component| {
             result[result_index] = '\\';
             result_index += 1;
@@ -1124,8 +1124,8 @@ pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]
     const resolved_to = try resolvePosix(allocator, &[_][]const u8{ cwd, to });
     defer allocator.free(resolved_to);
 
-    var from_it = mem.tokenize(u8, resolved_from, "/");
-    var to_it = mem.tokenize(u8, resolved_to, "/");
+    var from_it = mem.tokenizeScalar(u8, resolved_from, '/');
+    var to_it = mem.tokenizeScalar(u8, resolved_to, '/');
     while (true) {
         const from_component = from_it.next() orelse return allocator.dupe(u8, to_it.rest());
         const to_rest = to_it.rest();

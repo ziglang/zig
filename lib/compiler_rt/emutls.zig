@@ -49,7 +49,7 @@ const simple_allocator = struct {
 
     /// Allocate a memory chunk.
     pub fn advancedAlloc(alignment: u29, size: usize) [*]u8 {
-        const minimal_alignment = std.math.max(@alignOf(usize), alignment);
+        const minimal_alignment = @max(@alignOf(usize), alignment);
 
         var aligned_ptr: ?*anyopaque = undefined;
         if (std.c.posix_memalign(&aligned_ptr, minimal_alignment, size) != 0) {
@@ -170,7 +170,7 @@ const current_thread_storage = struct {
 
         // make it to contains at least 16 objects (to avoid too much
         // reallocation at startup).
-        const size = std.math.max(16, index);
+        const size = @max(16, index);
 
         // create a new array and store it.
         var array: *ObjectArray = ObjectArray.init(size);

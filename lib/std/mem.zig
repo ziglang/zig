@@ -73,7 +73,7 @@ pub fn ValidationAllocator(comptime T: type) type {
             const underlying = self.getUnderlyingAllocatorPtr();
             const result = underlying.rawAlloc(n, log2_ptr_align, ret_addr) orelse
                 return null;
-            assert(mem.isAlignedLog2(@ptrToInt(result), log2_ptr_align));
+            assert(mem.isAlignedLog2(@intFromPtr(result), log2_ptr_align));
             return result;
         }
 
@@ -96,10 +96,10 @@ pub fn ValidationAllocator(comptime T: type) type {
             log2_buf_align: u8,
             ret_addr: usize,
         ) void {
-            _ = ctx;
-            _ = log2_buf_align;
-            _ = ret_addr;
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
             assert(buf.len > 0);
+            const underlying = self.getUnderlyingAllocatorPtr();
+            underlying.rawFree(buf, log2_buf_align, ret_addr);
         }
 
         pub fn reset(self: *Self) void {
@@ -185,7 +185,7 @@ test "Allocator.resize" {
         var values = try testing.allocator.alloc(T, 100);
         defer testing.allocator.free(values);
 
-        for (values, 0..) |*v, i| v.* = @intToFloat(T, i);
+        for (values, 0..) |*v, i| v.* = @floatFromInt(T, i);
         if (!testing.allocator.resize(values, values.len + 10)) return error.OutOfMemory;
         values = values.ptr[0 .. values.len + 10];
         try testing.expect(values.len == 110);
@@ -233,7 +233,7 @@ pub fn zeroes(comptime T: type) T {
             return @as(T, 0);
         },
         .Enum, .EnumLiteral => {
-            return @intToEnum(T, 0);
+            return @enumFromInt(T, 0);
         },
         .Void => {
             return {};
@@ -566,12 +566,39 @@ test "zeroInit" {
     }, nested_baz);
 }
 
+pub fn sort(
+    comptime T: type,
+    items: []T,
+    context: anytype,
+    comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+) void {
+    std.sort.block(T, items, context, lessThanFn);
+}
+
+pub fn sortUnstable(
+    comptime T: type,
+    items: []T,
+    context: anytype,
+    comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+) void {
+    std.sort.pdq(T, items, context, lessThanFn);
+}
+
+/// TODO: currently this just calls `insertionSortContext`. The block sort implementation
+/// in this file needs to be adapted to use the sort context.
+pub fn sortContext(a: usize, b: usize, context: anytype) void {
+    std.sort.insertionContext(a, b, context);
+}
+
+pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
+    std.sort.pdqContext(a, b, context);
+}
+
 /// Compares two slices of numbers lexicographically. O(n).
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
-    const n = math.min(lhs.len, rhs.len);
-    var i: usize = 0;
-    while (i < n) : (i += 1) {
-        switch (math.order(lhs[i], rhs[i])) {
+    const n = @min(lhs.len, rhs.len);
+    for (lhs[0..n], rhs[0..n]) |lhs_elem, rhs_elem| {
+        switch (math.order(lhs_elem, rhs_elem)) {
             .eq => continue,
             .lt => return .lt,
             .gt => return .gt,
@@ -614,7 +641,7 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 /// Compares two slices and returns the index of the first inequality.
 /// Returns null if the slices are equal.
 pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
-    const shortest = math.min(a.len, b.len);
+    const shortest = @min(a.len, b.len);
     if (a.ptr == b.ptr)
         return if (a.len == b.len) null else shortest;
     var index: usize = 0;
@@ -1347,7 +1374,7 @@ pub fn readVarPackedInt(
         const value = if (read_size == 1) b: {
             break :b @truncate(uN, read_bytes[0] >> bit_shift);
         } else b: {
-            const i: u1 = @boolToInt(endian == .Big);
+            const i: u1 = @intFromBool(endian == .Big);
             const head = @truncate(uN, read_bytes[i] >> bit_shift);
             const tail_shift = @intCast(Log2N, @as(u4, 8) - bit_shift);
             const tail = @truncate(uN, read_bytes[1 - i]);
@@ -1610,7 +1637,7 @@ pub fn writeInt(comptime T: type, buffer: *[@divExact(@typeInfo(T).Int.bits, 8)]
     }
 }
 
-pub fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
+fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
     const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
@@ -1643,7 +1670,7 @@ pub fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, va
     writeIntLittle(StoreInt, write_bytes[0..store_size], write_value);
 }
 
-pub fn writePackedIntBig(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
+fn writePackedIntBig(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
     const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
@@ -1930,72 +1957,117 @@ test "byteSwapAllFields" {
     }, k);
 }
 
+/// Deprecated: use `tokenizeAny`, `tokenizeSequence`, or `tokenizeScalar`
+pub const tokenize = tokenizeAny;
+
 /// Returns an iterator that iterates over the slices of `buffer` that are not
-/// any of the bytes in `delimiter_bytes`.
+/// any of the items in `delimiters`.
 ///
-/// `tokenize(u8, "   abc def    ghi  ", " ")` will return slices
+/// `tokenizeAny(u8, "   abc|def ||  ghi  ", " |")` will return slices
 /// for "abc", "def", "ghi", null, in that order.
 ///
 /// If `buffer` is empty, the iterator will return null.
-/// If `delimiter_bytes` does not exist in buffer,
+/// If none of `delimiters` exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 ///
-/// See also: `split` and `splitBackwards`.
-pub fn tokenize(comptime T: type, buffer: []const T, delimiter_bytes: []const T) TokenIterator(T) {
+/// See also: `tokenizeSequence`, `tokenizeScalar`,
+///           `splitSequence`,`splitAny`, `splitScalar`,
+///           `splitBackwardsSequence`, `splitBackwardsAny`, and `splitBackwardsScalar`
+pub fn tokenizeAny(comptime T: type, buffer: []const T, delimiters: []const T) TokenIterator(T, .any) {
     return .{
         .index = 0,
         .buffer = buffer,
-        .delimiter_bytes = delimiter_bytes,
+        .delimiter = delimiters,
     };
 }
 
-test "tokenize" {
-    var it = tokenize(u8, "   abc def   ghi  ", " ");
+/// Returns an iterator that iterates over the slices of `buffer` that are not
+/// the sequence in `delimiter`.
+///
+/// `tokenizeSequence(u8, "<>abc><def<><>ghi", "<>")` will return slices
+/// for "abc><def", "ghi", null, in that order.
+///
+/// If `buffer` is empty, the iterator will return null.
+/// If `delimiter` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+/// The delimiter length must not be zero.
+///
+/// See also: `tokenizeAny`, `tokenizeScalar`,
+///           `splitSequence`,`splitAny`, and `splitScalar`
+///           `splitBackwardsSequence`, `splitBackwardsAny`, and `splitBackwardsScalar`
+pub fn tokenizeSequence(comptime T: type, buffer: []const T, delimiter: []const T) TokenIterator(T, .sequence) {
+    assert(delimiter.len != 0);
+    return .{
+        .index = 0,
+        .buffer = buffer,
+        .delimiter = delimiter,
+    };
+}
+
+/// Returns an iterator that iterates over the slices of `buffer` that are not
+/// `delimiter`.
+///
+/// `tokenizeScalar(u8, "   abc def     ghi  ", ' ')` will return slices
+/// for "abc", "def", "ghi", null, in that order.
+///
+/// If `buffer` is empty, the iterator will return null.
+/// If `delimiter` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+///
+/// See also: `tokenizeAny`, `tokenizeSequence`,
+///           `splitSequence`,`splitAny`, and `splitScalar`
+///           `splitBackwardsSequence`, `splitBackwardsAny`, and `splitBackwardsScalar`
+pub fn tokenizeScalar(comptime T: type, buffer: []const T, delimiter: T) TokenIterator(T, .scalar) {
+    return .{
+        .index = 0,
+        .buffer = buffer,
+        .delimiter = delimiter,
+    };
+}
+
+test "tokenizeScalar" {
+    var it = tokenizeScalar(u8, "   abc def   ghi  ", ' ');
     try testing.expect(eql(u8, it.next().?, "abc"));
     try testing.expect(eql(u8, it.peek().?, "def"));
     try testing.expect(eql(u8, it.next().?, "def"));
     try testing.expect(eql(u8, it.next().?, "ghi"));
     try testing.expect(it.next() == null);
 
-    it = tokenize(u8, "..\\bob", "\\");
+    it = tokenizeScalar(u8, "..\\bob", '\\');
     try testing.expect(eql(u8, it.next().?, ".."));
     try testing.expect(eql(u8, "..", "..\\bob"[0..it.index]));
     try testing.expect(eql(u8, it.next().?, "bob"));
     try testing.expect(it.next() == null);
 
-    it = tokenize(u8, "//a/b", "/");
+    it = tokenizeScalar(u8, "//a/b", '/');
     try testing.expect(eql(u8, it.next().?, "a"));
     try testing.expect(eql(u8, it.next().?, "b"));
     try testing.expect(eql(u8, "//a/b", "//a/b"[0..it.index]));
     try testing.expect(it.next() == null);
 
-    it = tokenize(u8, "|", "|");
+    it = tokenizeScalar(u8, "|", '|');
     try testing.expect(it.next() == null);
     try testing.expect(it.peek() == null);
 
-    it = tokenize(u8, "", "|");
+    it = tokenizeScalar(u8, "", '|');
     try testing.expect(it.next() == null);
     try testing.expect(it.peek() == null);
 
-    it = tokenize(u8, "hello", "");
+    it = tokenizeScalar(u8, "hello", ' ');
     try testing.expect(eql(u8, it.next().?, "hello"));
     try testing.expect(it.next() == null);
 
-    it = tokenize(u8, "hello", " ");
-    try testing.expect(eql(u8, it.next().?, "hello"));
-    try testing.expect(it.next() == null);
-
-    var it16 = tokenize(
+    var it16 = tokenizeScalar(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("hello"),
-        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+        ' ',
     );
     try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("hello")));
     try testing.expect(it16.next() == null);
 }
 
-test "tokenize (multibyte)" {
-    var it = tokenize(u8, "a|b,c/d e", " /,|");
+test "tokenizeAny" {
+    var it = tokenizeAny(u8, "a|b,c/d e", " /,|");
     try testing.expect(eql(u8, it.next().?, "a"));
     try testing.expect(eql(u8, it.peek().?, "b"));
     try testing.expect(eql(u8, it.next().?, "b"));
@@ -2005,7 +2077,11 @@ test "tokenize (multibyte)" {
     try testing.expect(it.next() == null);
     try testing.expect(it.peek() == null);
 
-    var it16 = tokenize(
+    it = tokenizeAny(u8, "hello", "");
+    try testing.expect(eql(u8, it.next().?, "hello"));
+    try testing.expect(it.next() == null);
+
+    var it16 = tokenizeAny(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("a|b,c/d e"),
         std.unicode.utf8ToUtf16LeStringLiteral(" /,|"),
@@ -2018,32 +2094,87 @@ test "tokenize (multibyte)" {
     try testing.expect(it16.next() == null);
 }
 
-test "tokenize (reset)" {
-    var it = tokenize(u8, "   abc def   ghi  ", " ");
-    try testing.expect(eql(u8, it.next().?, "abc"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "ghi"));
-
-    it.reset();
-
-    try testing.expect(eql(u8, it.next().?, "abc"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "ghi"));
+test "tokenizeSequence" {
+    var it = tokenizeSequence(u8, "a<>b<><>c><>d><", "<>");
+    try testing.expectEqualStrings("a", it.next().?);
+    try testing.expectEqualStrings("b", it.peek().?);
+    try testing.expectEqualStrings("b", it.next().?);
+    try testing.expectEqualStrings("c>", it.next().?);
+    try testing.expectEqualStrings("d><", it.next().?);
     try testing.expect(it.next() == null);
+    try testing.expect(it.peek() == null);
+
+    var it16 = tokenizeSequence(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("a<>b<><>c><>d><"),
+        std.unicode.utf8ToUtf16LeStringLiteral("<>"),
+    );
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c>")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d><")));
+    try testing.expect(it16.next() == null);
 }
 
+test "tokenize (reset)" {
+    {
+        var it = tokenizeAny(u8, "   abc def   ghi  ", " ");
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = tokenizeSequence(u8, "<><>abc<>def<><>ghi<>", "<>");
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = tokenizeScalar(u8, "   abc def   ghi  ", ' ');
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+}
+
+/// Deprecated: use `splitSequence`, `splitAny`, or `splitScalar`
+pub const split = splitSequence;
+
 /// Returns an iterator that iterates over the slices of `buffer` that
-/// are separated by bytes in `delimiter`.
+/// are separated by the byte sequence in `delimiter`.
 ///
-/// `split(u8, "abc|def||ghi", "|")` will return slices
+/// `splitSequence(u8, "abc||def||||ghi", "||")` will return slices
 /// for "abc", "def", "", "ghi", null, in that order.
 ///
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 /// The delimiter length must not be zero.
 ///
-/// See also: `tokenize` and `splitBackwards`.
-pub fn split(comptime T: type, buffer: []const T, delimiter: []const T) SplitIterator(T) {
+/// See also: `splitAny`, `splitScalar`, `splitBackwardsSequence`,
+///           `splitBackwardsAny`,`splitBackwardsScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitSequence(comptime T: type, buffer: []const T, delimiter: []const T) SplitIterator(T, .sequence) {
     assert(delimiter.len != 0);
     return .{
         .index = 0,
@@ -2052,8 +2183,48 @@ pub fn split(comptime T: type, buffer: []const T, delimiter: []const T) SplitIte
     };
 }
 
-test "split" {
-    var it = split(u8, "abc|def||ghi", "|");
+/// Returns an iterator that iterates over the slices of `buffer` that
+/// are separated by any item in `delimiters`.
+///
+/// `splitAny(u8, "abc,def||ghi", "|,")` will return slices
+/// for "abc", "def", "", "ghi", null, in that order.
+///
+/// If none of `delimiters` exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+///
+/// See also: `splitSequence`, `splitScalar`, `splitBackwardsSequence`,
+///           `splitBackwardsAny`,`splitBackwardsScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitAny(comptime T: type, buffer: []const T, delimiters: []const T) SplitIterator(T, .any) {
+    return .{
+        .index = 0,
+        .buffer = buffer,
+        .delimiter = delimiters,
+    };
+}
+
+/// Returns an iterator that iterates over the slices of `buffer` that
+/// are separated by `delimiter`.
+///
+/// `splitScalar(u8, "abc|def||ghi", '|')` will return slices
+/// for "abc", "def", "", "ghi", null, in that order.
+///
+/// If `delimiter` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+///
+/// See also: `splitSequence`, `splitAny`, `splitBackwardsSequence`,
+///           `splitBackwardsAny`,`splitBackwardsScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitScalar(comptime T: type, buffer: []const T, delimiter: T) SplitIterator(T, .scalar) {
+    return .{
+        .index = 0,
+        .buffer = buffer,
+        .delimiter = delimiter,
+    };
+}
+
+test "splitScalar" {
+    var it = splitScalar(u8, "abc|def||ghi", '|');
     try testing.expectEqualSlices(u8, it.rest(), "abc|def||ghi");
     try testing.expectEqualSlices(u8, it.first(), "abc");
 
@@ -2069,30 +2240,30 @@ test "split" {
     try testing.expectEqualSlices(u8, it.rest(), "");
     try testing.expect(it.next() == null);
 
-    it = split(u8, "", "|");
+    it = splitScalar(u8, "", '|');
     try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expect(it.next() == null);
 
-    it = split(u8, "|", "|");
+    it = splitScalar(u8, "|", '|');
     try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expectEqualSlices(u8, it.next().?, "");
     try testing.expect(it.next() == null);
 
-    it = split(u8, "hello", " ");
+    it = splitScalar(u8, "hello", ' ');
     try testing.expectEqualSlices(u8, it.first(), "hello");
     try testing.expect(it.next() == null);
 
-    var it16 = split(
+    var it16 = splitScalar(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("hello"),
-        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+        ' ',
     );
     try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("hello"));
     try testing.expect(it16.next() == null);
 }
 
-test "split (multibyte)" {
-    var it = split(u8, "a, b ,, c, d, e", ", ");
+test "splitSequence" {
+    var it = splitSequence(u8, "a, b ,, c, d, e", ", ");
     try testing.expectEqualSlices(u8, it.first(), "a");
     try testing.expectEqualSlices(u8, it.rest(), "b ,, c, d, e");
     try testing.expectEqualSlices(u8, it.next().?, "b ,");
@@ -2101,7 +2272,7 @@ test "split (multibyte)" {
     try testing.expectEqualSlices(u8, it.next().?, "e");
     try testing.expect(it.next() == null);
 
-    var it16 = split(
+    var it16 = splitSequence(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
         std.unicode.utf8ToUtf16LeStringLiteral(", "),
@@ -2114,42 +2285,144 @@ test "split (multibyte)" {
     try testing.expect(it16.next() == null);
 }
 
-test "split (reset)" {
-    var it = split(u8, "abc def ghi", " ");
-    try testing.expect(eql(u8, it.first(), "abc"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "ghi"));
-
-    it.reset();
-
-    try testing.expect(eql(u8, it.first(), "abc"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "ghi"));
+test "splitAny" {
+    var it = splitAny(u8, "a,b, c d e", ", ");
+    try testing.expectEqualSlices(u8, it.first(), "a");
+    try testing.expectEqualSlices(u8, it.rest(), "b, c d e");
+    try testing.expectEqualSlices(u8, it.next().?, "b");
+    try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expectEqualSlices(u8, it.next().?, "c");
+    try testing.expectEqualSlices(u8, it.next().?, "d");
+    try testing.expectEqualSlices(u8, it.next().?, "e");
     try testing.expect(it.next() == null);
+
+    it = splitAny(u8, "hello", "");
+    try testing.expect(eql(u8, it.next().?, "hello"));
+    try testing.expect(it.next() == null);
+
+    var it16 = splitAny(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("a,b, c d e"),
+        std.unicode.utf8ToUtf16LeStringLiteral(", "),
+    );
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("a"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral(""));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("e"));
+    try testing.expect(it16.next() == null);
 }
 
-/// Returns an iterator that iterates backwards over the slices of `buffer`
-/// that are separated by bytes in `delimiter`.
+test "split (reset)" {
+    {
+        var it = splitSequence(u8, "abc def ghi", " ");
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = splitAny(u8, "abc def,ghi", " ,");
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = splitScalar(u8, "abc def ghi", ' ');
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+}
+
+/// Deprecated: use `splitBackwardsSequence`, `splitBackwardsAny`, or `splitBackwardsScalar`
+pub const splitBackwards = splitBackwardsSequence;
+
+/// Returns an iterator that iterates backwards over the slices of `buffer` that
+/// are separated by the sequence in `delimiter`.
 ///
-/// `splitBackwards(u8, "abc|def||ghi", "|")` will return slices
+/// `splitBackwardsSequence(u8, "abc||def||||ghi", "||")` will return slices
 /// for "ghi", "", "def", "abc", null, in that order.
 ///
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 /// The delimiter length must not be zero.
 ///
-/// See also: `tokenize` and `split`.
-pub fn splitBackwards(comptime T: type, buffer: []const T, delimiter: []const T) SplitBackwardsIterator(T) {
+/// See also: `splitBackwardsAny`, `splitBackwardsScalar`,
+///           `splitSequence`, `splitAny`,`splitScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitBackwardsSequence(comptime T: type, buffer: []const T, delimiter: []const T) SplitBackwardsIterator(T, .sequence) {
     assert(delimiter.len != 0);
-    return SplitBackwardsIterator(T){
+    return .{
         .index = buffer.len,
         .buffer = buffer,
         .delimiter = delimiter,
     };
 }
 
-test "splitBackwards" {
-    var it = splitBackwards(u8, "abc|def||ghi", "|");
+/// Returns an iterator that iterates backwards over the slices of `buffer` that
+/// are separated by any item in `delimiters`.
+///
+/// `splitBackwardsAny(u8, "abc,def||ghi", "|,")` will return slices
+/// for "ghi", "", "def", "abc", null, in that order.
+///
+/// If none of `delimiters` exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+///
+/// See also: `splitBackwardsSequence`, `splitBackwardsScalar`,
+///           `splitSequence`, `splitAny`,`splitScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitBackwardsAny(comptime T: type, buffer: []const T, delimiters: []const T) SplitBackwardsIterator(T, .any) {
+    return .{
+        .index = buffer.len,
+        .buffer = buffer,
+        .delimiter = delimiters,
+    };
+}
+
+/// Returns an iterator that iterates backwards over the slices of `buffer` that
+/// are separated by `delimiter`.
+///
+/// `splitBackwardsScalar(u8, "abc|def||ghi", '|')` will return slices
+/// for "ghi", "", "def", "abc", null, in that order.
+///
+/// If `delimiter` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+///
+/// See also: `splitBackwardsSequence`, `splitBackwardsAny`,
+///           `splitSequence`, `splitAny`,`splitScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitBackwardsScalar(comptime T: type, buffer: []const T, delimiter: T) SplitBackwardsIterator(T, .scalar) {
+    return .{
+        .index = buffer.len,
+        .buffer = buffer,
+        .delimiter = delimiter,
+    };
+}
+
+test "splitBackwardsScalar" {
+    var it = splitBackwardsScalar(u8, "abc|def||ghi", '|');
     try testing.expectEqualSlices(u8, it.rest(), "abc|def||ghi");
     try testing.expectEqualSlices(u8, it.first(), "ghi");
 
@@ -2165,30 +2438,30 @@ test "splitBackwards" {
     try testing.expectEqualSlices(u8, it.rest(), "");
     try testing.expect(it.next() == null);
 
-    it = splitBackwards(u8, "", "|");
+    it = splitBackwardsScalar(u8, "", '|');
     try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expect(it.next() == null);
 
-    it = splitBackwards(u8, "|", "|");
+    it = splitBackwardsScalar(u8, "|", '|');
     try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expectEqualSlices(u8, it.next().?, "");
     try testing.expect(it.next() == null);
 
-    it = splitBackwards(u8, "hello", " ");
+    it = splitBackwardsScalar(u8, "hello", ' ');
     try testing.expectEqualSlices(u8, it.first(), "hello");
     try testing.expect(it.next() == null);
 
-    var it16 = splitBackwards(
+    var it16 = splitBackwardsScalar(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("hello"),
-        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+        ' ',
     );
     try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("hello"));
     try testing.expect(it16.next() == null);
 }
 
-test "splitBackwards (multibyte)" {
-    var it = splitBackwards(u8, "a, b ,, c, d, e", ", ");
+test "splitBackwardsSequence" {
+    var it = splitBackwardsSequence(u8, "a, b ,, c, d, e", ", ");
     try testing.expectEqualSlices(u8, it.rest(), "a, b ,, c, d, e");
     try testing.expectEqualSlices(u8, it.first(), "e");
 
@@ -2207,7 +2480,7 @@ test "splitBackwards (multibyte)" {
     try testing.expectEqualSlices(u8, it.rest(), "");
     try testing.expect(it.next() == null);
 
-    var it16 = splitBackwards(
+    var it16 = splitBackwardsSequence(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
         std.unicode.utf8ToUtf16LeStringLiteral(", "),
@@ -2220,18 +2493,83 @@ test "splitBackwards (multibyte)" {
     try testing.expect(it16.next() == null);
 }
 
-test "splitBackwards (reset)" {
-    var it = splitBackwards(u8, "abc def ghi", " ");
-    try testing.expect(eql(u8, it.first(), "ghi"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "abc"));
+test "splitBackwardsAny" {
+    var it = splitBackwardsAny(u8, "a,b, c d e", ", ");
+    try testing.expectEqualSlices(u8, it.rest(), "a,b, c d e");
+    try testing.expectEqualSlices(u8, it.first(), "e");
 
-    it.reset();
+    try testing.expectEqualSlices(u8, it.rest(), "a,b, c d");
+    try testing.expectEqualSlices(u8, it.next().?, "d");
 
-    try testing.expect(eql(u8, it.first(), "ghi"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "abc"));
+    try testing.expectEqualSlices(u8, it.rest(), "a,b, c");
+    try testing.expectEqualSlices(u8, it.next().?, "c");
+
+    try testing.expectEqualSlices(u8, it.rest(), "a,b,");
+    try testing.expectEqualSlices(u8, it.next().?, "");
+
+    try testing.expectEqualSlices(u8, it.rest(), "a,b");
+    try testing.expectEqualSlices(u8, it.next().?, "b");
+
+    try testing.expectEqualSlices(u8, it.rest(), "a");
+    try testing.expectEqualSlices(u8, it.next().?, "a");
+
+    try testing.expectEqualSlices(u8, it.rest(), "");
     try testing.expect(it.next() == null);
+
+    var it16 = splitBackwardsAny(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("a,b, c d e"),
+        std.unicode.utf8ToUtf16LeStringLiteral(", "),
+    );
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("e"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral(""));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a"));
+    try testing.expect(it16.next() == null);
+}
+
+test "splitBackwards (reset)" {
+    {
+        var it = splitBackwardsSequence(u8, "abc def ghi", " ");
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = splitBackwardsAny(u8, "abc def,ghi", " ,");
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = splitBackwardsScalar(u8, "abc def ghi", ' ');
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(it.next() == null);
+    }
 }
 
 /// Returns an iterator with a sliding window of slices for `buffer`.
@@ -2402,10 +2740,15 @@ test "endsWith" {
     try testing.expect(!endsWith(u8, "Bob", "Bo"));
 }
 
-pub fn TokenIterator(comptime T: type) type {
+pub const DelimiterType = enum { sequence, any, scalar };
+
+pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
-        delimiter_bytes: []const T,
+        delimiter: switch (delimiter_type) {
+            .sequence, .any => []const T,
+            .scalar => T,
+        },
         index: usize,
 
         const Self = @This();
@@ -2422,7 +2765,10 @@ pub fn TokenIterator(comptime T: type) type {
         /// complete. Does not advance to the next token.
         pub fn peek(self: *Self) ?[]const T {
             // move to beginning of token
-            while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
+            while (self.index < self.buffer.len and self.isDelimiter(self.index)) : (self.index += switch (delimiter_type) {
+                .sequence => self.delimiter.len,
+                .any, .scalar => 1,
+            }) {}
             const start = self.index;
             if (start == self.buffer.len) {
                 return null;
@@ -2430,7 +2776,7 @@ pub fn TokenIterator(comptime T: type) type {
 
             // move to end of token
             var end = start;
-            while (end < self.buffer.len and !self.isSplitByte(self.buffer[end])) : (end += 1) {}
+            while (end < self.buffer.len and !self.isDelimiter(end)) : (end += 1) {}
 
             return self.buffer[start..end];
         }
@@ -2439,7 +2785,10 @@ pub fn TokenIterator(comptime T: type) type {
         pub fn rest(self: Self) []const T {
             // move to beginning of token
             var index: usize = self.index;
-            while (index < self.buffer.len and self.isSplitByte(self.buffer[index])) : (index += 1) {}
+            while (index < self.buffer.len and self.isDelimiter(index)) : (index += switch (delimiter_type) {
+                .sequence => self.delimiter.len,
+                .any, .scalar => 1,
+            }) {}
             return self.buffer[index..];
         }
 
@@ -2448,22 +2797,32 @@ pub fn TokenIterator(comptime T: type) type {
             self.index = 0;
         }
 
-        fn isSplitByte(self: Self, byte: T) bool {
-            for (self.delimiter_bytes) |delimiter_byte| {
-                if (byte == delimiter_byte) {
-                    return true;
-                }
+        fn isDelimiter(self: Self, index: usize) bool {
+            switch (delimiter_type) {
+                .sequence => return startsWith(T, self.buffer[index..], self.delimiter),
+                .any => {
+                    const item = self.buffer[index];
+                    for (self.delimiter) |delimiter_item| {
+                        if (item == delimiter_item) {
+                            return true;
+                        }
+                    }
+                    return false;
+                },
+                .scalar => return self.buffer[index] == self.delimiter,
             }
-            return false;
         }
     };
 }
 
-pub fn SplitIterator(comptime T: type) type {
+pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
         index: ?usize,
-        delimiter: []const T,
+        delimiter: switch (delimiter_type) {
+            .sequence, .any => []const T,
+            .scalar => T,
+        },
 
         const Self = @This();
 
@@ -2477,8 +2836,15 @@ pub fn SplitIterator(comptime T: type) type {
         /// Returns a slice of the next field, or null if splitting is complete.
         pub fn next(self: *Self) ?[]const T {
             const start = self.index orelse return null;
-            const end = if (indexOfPos(T, self.buffer, start, self.delimiter)) |delim_start| blk: {
-                self.index = delim_start + self.delimiter.len;
+            const end = if (switch (delimiter_type) {
+                .sequence => indexOfPos(T, self.buffer, start, self.delimiter),
+                .any => indexOfAnyPos(T, self.buffer, start, self.delimiter),
+                .scalar => indexOfScalarPos(T, self.buffer, start, self.delimiter),
+            }) |delim_start| blk: {
+                self.index = delim_start + switch (delimiter_type) {
+                    .sequence => self.delimiter.len,
+                    .any, .scalar => 1,
+                };
                 break :blk delim_start;
             } else blk: {
                 self.index = null;
@@ -2501,11 +2867,14 @@ pub fn SplitIterator(comptime T: type) type {
     };
 }
 
-pub fn SplitBackwardsIterator(comptime T: type) type {
+pub fn SplitBackwardsIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
         index: ?usize,
-        delimiter: []const T,
+        delimiter: switch (delimiter_type) {
+            .sequence, .any => []const T,
+            .scalar => T,
+        },
 
         const Self = @This();
 
@@ -2519,9 +2888,16 @@ pub fn SplitBackwardsIterator(comptime T: type) type {
         /// Returns a slice of the next field, or null if splitting is complete.
         pub fn next(self: *Self) ?[]const T {
             const end = self.index orelse return null;
-            const start = if (lastIndexOf(T, self.buffer[0..end], self.delimiter)) |delim_start| blk: {
+            const start = if (switch (delimiter_type) {
+                .sequence => lastIndexOf(T, self.buffer[0..end], self.delimiter),
+                .any => lastIndexOfAny(T, self.buffer[0..end], self.delimiter),
+                .scalar => lastIndexOfScalar(T, self.buffer[0..end], self.delimiter),
+            }) |delim_start| blk: {
                 self.index = delim_start;
-                break :blk delim_start + self.delimiter.len;
+                break :blk delim_start + switch (delimiter_type) {
+                    .sequence => self.delimiter.len,
+                    .any, .scalar => 1,
+                };
             } else blk: {
                 self.index = null;
                 break :blk 0;
@@ -2724,7 +3100,7 @@ test "testStringEquality" {
 
 test "testReadInt" {
     try testReadIntImpl();
-    comptime try testReadIntImpl();
+    try comptime testReadIntImpl();
 }
 fn testReadIntImpl() !void {
     {
@@ -2775,7 +3151,7 @@ fn testReadIntImpl() !void {
 
 test writeIntSlice {
     try testWriteIntImpl();
-    comptime try testWriteIntImpl();
+    try comptime testWriteIntImpl();
 }
 fn testWriteIntImpl() !void {
     var bytes: [8]u8 = undefined;
@@ -2919,7 +3295,7 @@ pub fn min(comptime T: type, slice: []const T) T {
     assert(slice.len > 0);
     var best = slice[0];
     for (slice[1..]) |item| {
-        best = math.min(best, item);
+        best = @min(best, item);
     }
     return best;
 }
@@ -2936,7 +3312,7 @@ pub fn max(comptime T: type, slice: []const T) T {
     assert(slice.len > 0);
     var best = slice[0];
     for (slice[1..]) |item| {
-        best = math.max(best, item);
+        best = @max(best, item);
     }
     return best;
 }
@@ -2955,8 +3331,8 @@ pub fn minMax(comptime T: type, slice: []const T) struct { min: T, max: T } {
     var minVal = slice[0];
     var maxVal = slice[0];
     for (slice[1..]) |item| {
-        minVal = math.min(minVal, item);
-        maxVal = math.max(maxVal, item);
+        minVal = @min(minVal, item);
+        maxVal = @max(maxVal, item);
     }
     return .{ .min = minVal, .max = maxVal };
 }
@@ -3402,7 +3778,7 @@ pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
         return 0;
 
     // Calculate the aligned base address with an eye out for overflow.
-    const addr = @ptrToInt(ptr);
+    const addr = @intFromPtr(ptr);
     var ov = @addWithOverflow(addr, align_to - 1);
     if (ov[1] != 0) return null;
     ov[0] &= ~@as(usize, align_to - 1);
@@ -3424,16 +3800,16 @@ pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
 pub fn alignPointer(ptr: anytype, align_to: usize) ?@TypeOf(ptr) {
     const adjust_off = alignPointerOffset(ptr, align_to) orelse return null;
     const T = @TypeOf(ptr);
-    // Avoid the use of intToPtr to avoid losing the pointer provenance info.
+    // Avoid the use of ptrFromInt to avoid losing the pointer provenance info.
     return @alignCast(@typeInfo(T).Pointer.alignment, ptr + adjust_off);
 }
 
 test "alignPointer" {
     const S = struct {
         fn checkAlign(comptime T: type, base: usize, align_to: usize, expected: usize) !void {
-            var ptr = @intToPtr(T, base);
+            var ptr = @ptrFromInt(T, base);
             var aligned = alignPointer(ptr, align_to);
-            try testing.expectEqual(expected, @ptrToInt(aligned));
+            try testing.expectEqual(expected, @intFromPtr(aligned));
         }
     };
 
@@ -3692,13 +4068,13 @@ test "bytesAsSlice keeps pointer alignment" {
     {
         var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
         const numbers = bytesAsSlice(u32, bytes[0..]);
-        comptime try testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+        try comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
     }
     {
         var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
         var runtime_zero: usize = 0;
         const numbers = bytesAsSlice(u32, bytes[runtime_zero..]);
-        comptime try testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+        try comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
     }
 }
 
@@ -3791,7 +4167,7 @@ test "sliceAsBytes packed struct at runtime and comptime" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "sliceAsBytes and bytesAsSlice back" {
@@ -3836,22 +4212,17 @@ test "sliceAsBytes preserves pointer attributes" {
 /// Round an address up to the next (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
 /// Asserts that rounding up the address does not cause integer overflow.
-pub fn alignForward(addr: usize, alignment: usize) usize {
-    return alignForwardGeneric(usize, addr, alignment);
+pub fn alignForward(comptime T: type, addr: T, alignment: T) T {
+    assert(isValidAlignGeneric(T, alignment));
+    return alignBackward(T, addr + (alignment - 1), alignment);
 }
 
 pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
     const alignment = @as(usize, 1) << @intCast(math.Log2Int(usize), log2_alignment);
-    return alignForward(addr, alignment);
+    return alignForward(usize, addr, alignment);
 }
 
-/// Round an address up to the next (or current) aligned address.
-/// The alignment must be a power of 2 and greater than 0.
-/// Asserts that rounding up the address does not cause integer overflow.
-pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
-    assert(isValidAlignGeneric(T, alignment));
-    return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
-}
+pub const alignForwardGeneric = @compileError("renamed to alignForward");
 
 /// Force an evaluation of the expression; this tries to prevent
 /// the compiler from optimizing the computation away even if the
@@ -3865,8 +4236,8 @@ pub fn doNotOptimizeAway(val: anytype) void {
     const t = @typeInfo(@TypeOf(val));
     switch (t) {
         .Void, .Null, .ComptimeInt, .ComptimeFloat => return,
-        .Enum => doNotOptimizeAway(@enumToInt(val)),
-        .Bool => doNotOptimizeAway(@boolToInt(val)),
+        .Enum => doNotOptimizeAway(@intFromEnum(val)),
+        .Bool => doNotOptimizeAway(@intFromBool(val)),
         .Int => {
             const bits = t.Int.bits;
             if (bits <= max_gp_register_bits and builtin.zig_backend != .stage2_c) {
@@ -3944,44 +4315,40 @@ test "doNotOptimizeAway" {
 }
 
 test "alignForward" {
-    try testing.expect(alignForward(1, 1) == 1);
-    try testing.expect(alignForward(2, 1) == 2);
-    try testing.expect(alignForward(1, 2) == 2);
-    try testing.expect(alignForward(2, 2) == 2);
-    try testing.expect(alignForward(3, 2) == 4);
-    try testing.expect(alignForward(4, 2) == 4);
-    try testing.expect(alignForward(7, 8) == 8);
-    try testing.expect(alignForward(8, 8) == 8);
-    try testing.expect(alignForward(9, 8) == 16);
-    try testing.expect(alignForward(15, 8) == 16);
-    try testing.expect(alignForward(16, 8) == 16);
-    try testing.expect(alignForward(17, 8) == 24);
+    try testing.expect(alignForward(usize, 1, 1) == 1);
+    try testing.expect(alignForward(usize, 2, 1) == 2);
+    try testing.expect(alignForward(usize, 1, 2) == 2);
+    try testing.expect(alignForward(usize, 2, 2) == 2);
+    try testing.expect(alignForward(usize, 3, 2) == 4);
+    try testing.expect(alignForward(usize, 4, 2) == 4);
+    try testing.expect(alignForward(usize, 7, 8) == 8);
+    try testing.expect(alignForward(usize, 8, 8) == 8);
+    try testing.expect(alignForward(usize, 9, 8) == 16);
+    try testing.expect(alignForward(usize, 15, 8) == 16);
+    try testing.expect(alignForward(usize, 16, 8) == 16);
+    try testing.expect(alignForward(usize, 17, 8) == 24);
 }
 
 /// Round an address down to the previous (or current) aligned address.
 /// Unlike `alignBackward`, `alignment` can be any positive number, not just a power of 2.
 pub fn alignBackwardAnyAlign(i: usize, alignment: usize) usize {
     if (isValidAlign(alignment))
-        return alignBackward(i, alignment);
+        return alignBackward(usize, i, alignment);
     assert(alignment != 0);
     return i - @mod(i, alignment);
 }
 
 /// Round an address down to the previous (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
-pub fn alignBackward(addr: usize, alignment: usize) usize {
-    return alignBackwardGeneric(usize, addr, alignment);
-}
-
-/// Round an address down to the previous (or current) aligned address.
-/// The alignment must be a power of 2 and greater than 0.
-pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
+pub fn alignBackward(comptime T: type, addr: T, alignment: T) T {
     assert(isValidAlignGeneric(T, alignment));
     // 000010000 // example alignment
     // 000001111 // subtract 1
     // 111110000 // binary not
     return addr & ~(alignment - 1);
 }
+
+pub const alignBackwardGeneric = @compileError("renamed to alignBackward");
 
 /// Returns whether `alignment` is a valid alignment, meaning it is
 /// a positive power of 2.
@@ -4013,7 +4380,7 @@ pub fn isAligned(addr: usize, alignment: usize) bool {
 }
 
 pub fn isAlignedGeneric(comptime T: type, addr: T, alignment: T) bool {
-    return alignBackwardGeneric(T, addr, alignment) == addr;
+    return alignBackward(T, addr, alignment) == addr;
 }
 
 test "isAligned" {
@@ -4058,10 +4425,10 @@ fn AlignedSlice(comptime AttributeSource: type, comptime new_alignment: usize) t
 /// Returns the largest slice in the given bytes that conforms to the new alignment,
 /// or `null` if the given bytes contain no conforming address.
 pub fn alignInBytes(bytes: []u8, comptime new_alignment: usize) ?[]align(new_alignment) u8 {
-    const begin_address = @ptrToInt(bytes.ptr);
+    const begin_address = @intFromPtr(bytes.ptr);
     const end_address = begin_address + bytes.len;
 
-    const begin_address_aligned = mem.alignForward(begin_address, new_alignment);
+    const begin_address_aligned = mem.alignForward(usize, begin_address, new_alignment);
     const new_length = std.math.sub(usize, end_address, begin_address_aligned) catch |e| switch (e) {
         error.Overflow => return null,
     };
@@ -4179,7 +4546,7 @@ test "read/write(Var)PackedInt" {
                         }
 
                         const signedness = @typeInfo(PackedType).Int.signedness;
-                        const NextPowerOfTwoInt = std.meta.Int(signedness, comptime try std.math.ceilPowerOfTwo(u16, @bitSizeOf(PackedType)));
+                        const NextPowerOfTwoInt = std.meta.Int(signedness, try comptime std.math.ceilPowerOfTwo(u16, @bitSizeOf(PackedType)));
                         const ui64 = std.meta.Int(signedness, 64);
                         inline for ([_]type{ PackedType, NextPowerOfTwoInt, ui64 }) |U| {
                             { // Variable-size Read/Write (Native-endian)

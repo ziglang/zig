@@ -404,7 +404,7 @@ pub const XSalsa20Poly1305 = struct {
         debug.assert(c.len == m.len);
         const extended = extend(rounds, k, npub);
         var block0 = [_]u8{0} ** 64;
-        const mlen0 = math.min(32, c.len);
+        const mlen0 = @min(32, c.len);
         @memcpy(block0[32..][0..mlen0], c[0..mlen0]);
         Salsa20.xor(block0[0..], block0[0..], 0, extended.key, extended.nonce);
         var mac = Poly1305.init(block0[0..32]);

@@ -61,6 +61,13 @@ rename_step_with_output_arg: bool = true,
 /// nothing.
 skip_foreign_checks: bool = false,
 
+/// If this is true, failing to execute a foreign binary will be considered an
+/// error. However if this is false, the step will be skipped on failure instead.
+///
+/// This allows for a Run step to attempt to execute a foreign binary using an
+/// external executor (such as qemu) but not fail if the executor is unavailable.
+failing_to_execute_foreign_is_an_error: bool = true,
+
 /// If stderr or stdout exceeds this amount, the child process is killed and
 /// the step fails.
 max_stdio_size: usize = 10 * 1024 * 1024,
@@ -424,6 +431,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
+    if (self.stdin) |bytes| {
+        man.hash.addBytes(bytes);
+    }
+
     if (self.captured_stdout) |output| {
         man.hash.addBytes(output.basename);
     }
@@ -680,6 +691,8 @@ fn runCommand(
             try Step.handleVerbose2(step.owner, self.cwd, self.env_map, interp_argv.items);
 
             break :term spawnChildAndCollect(self, interp_argv.items, has_side_effects, prog_node) catch |e| {
+                if (!self.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
+
                 return step.fail("unable to spawn interpreter {s}: {s}", .{
                     interp_argv.items[0], @errorName(e),
                 });
@@ -1022,9 +1035,9 @@ fn evalZigTest(
 
                 const TrHdr = std.zig.Server.Message.TestResults;
                 const tr_hdr = @ptrCast(*align(1) const TrHdr, body);
-                fail_count += @boolToInt(tr_hdr.flags.fail);
-                skip_count += @boolToInt(tr_hdr.flags.skip);
-                leak_count += @boolToInt(tr_hdr.flags.leak);
+                fail_count += @intFromBool(tr_hdr.flags.fail);
+                skip_count += @intFromBool(tr_hdr.flags.skip);
+                leak_count += @intFromBool(tr_hdr.flags.leak);
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);

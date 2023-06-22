@@ -1,4 +1,4 @@
-pub export fn entry() void { }
+pub export fn entry() void {}
 comptime {
     @export(entry, .{ .name = "" });
 }

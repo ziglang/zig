@@ -78,7 +78,7 @@ pub fn main() anyerror!void {
         var residue: []const u8 = undefined;
         var name: []const u8 = undefined;
 
-        var it = mem.split(u8, line, "  ");
+        var it = mem.splitSequence(u8, line, "  ");
         while (it.next()) |property| {
             const i = mem.indexOf(u8, property, "=").?;
             const key = property[0..i];

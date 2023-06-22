@@ -17,7 +17,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
     _ = log2_align;
     assert(n > 0);
     if (n > maxInt(usize) - (mem.page_size - 1)) return null;
-    const aligned_len = mem.alignForward(n, mem.page_size);
+    const aligned_len = mem.alignForward(usize, n, mem.page_size);
 
     if (builtin.os.tag == .windows) {
         const w = os.windows;
@@ -39,7 +39,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
         -1,
         0,
     ) catch return null;
-    assert(mem.isAligned(@ptrToInt(slice.ptr), mem.page_size));
+    assert(mem.isAligned(@intFromPtr(slice.ptr), mem.page_size));
     const new_hint = @alignCast(mem.page_size, slice.ptr + aligned_len);
     _ = @cmpxchgStrong(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, hint, new_hint, .Monotonic, .Monotonic);
     return slice.ptr;
@@ -54,33 +54,33 @@ fn resize(
 ) bool {
     _ = log2_buf_align;
     _ = return_address;
-    const new_size_aligned = mem.alignForward(new_size, mem.page_size);
+    const new_size_aligned = mem.alignForward(usize, new_size, mem.page_size);
 
     if (builtin.os.tag == .windows) {
         const w = os.windows;
         if (new_size <= buf_unaligned.len) {
-            const base_addr = @ptrToInt(buf_unaligned.ptr);
+            const base_addr = @intFromPtr(buf_unaligned.ptr);
             const old_addr_end = base_addr + buf_unaligned.len;
-            const new_addr_end = mem.alignForward(base_addr + new_size, mem.page_size);
+            const new_addr_end = mem.alignForward(usize, base_addr + new_size, mem.page_size);
             if (old_addr_end > new_addr_end) {
                 // For shrinking that is not releasing, we will only
                 // decommit the pages not needed anymore.
                 w.VirtualFree(
-                    @intToPtr(*anyopaque, new_addr_end),
+                    @ptrFromInt(*anyopaque, new_addr_end),
                     old_addr_end - new_addr_end,
                     w.MEM_DECOMMIT,
                 );
             }
             return true;
         }
-        const old_size_aligned = mem.alignForward(buf_unaligned.len, mem.page_size);
+        const old_size_aligned = mem.alignForward(usize, buf_unaligned.len, mem.page_size);
         if (new_size_aligned <= old_size_aligned) {
             return true;
         }
         return false;
     }
 
-    const buf_aligned_len = mem.alignForward(buf_unaligned.len, mem.page_size);
+    const buf_aligned_len = mem.alignForward(usize, buf_unaligned.len, mem.page_size);
     if (new_size_aligned == buf_aligned_len)
         return true;
 
@@ -103,7 +103,7 @@ fn free(_: *anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) v
     if (builtin.os.tag == .windows) {
         os.windows.VirtualFree(slice.ptr, 0, os.windows.MEM_RELEASE);
     } else {
-        const buf_aligned_len = mem.alignForward(slice.len, mem.page_size);
+        const buf_aligned_len = mem.alignForward(usize, slice.len, mem.page_size);
         const ptr = @alignCast(mem.page_size, slice.ptr);
         os.munmap(ptr[0..buf_aligned_len]);
     }

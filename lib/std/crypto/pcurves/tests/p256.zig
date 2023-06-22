@@ -134,3 +134,9 @@ test "p256 scalar inverse" {
     const inverse = scalar.invert();
     try std.testing.expectEqualSlices(u8, &out, &inverse.toBytes(.Big));
 }
+
+test "p256 scalar parity" {
+    try std.testing.expect(P256.scalar.Scalar.zero.isOdd() == false);
+    try std.testing.expect(P256.scalar.Scalar.one.isOdd());
+    try std.testing.expect(P256.scalar.Scalar.one.dbl().isOdd() == false);
+}

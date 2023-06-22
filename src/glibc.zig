@@ -5,7 +5,7 @@ const log = std.log;
 const fs = std.fs;
 const path = fs.path;
 const assert = std.debug.assert;
-const Version = std.builtin.Version;
+const Version = std.SemanticVersion;
 
 const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
@@ -109,7 +109,7 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
             const target_name = mem.sliceTo(contents[index..], 0);
             index += target_name.len + 1;
 
-            var component_it = mem.tokenize(u8, target_name, "-");
+            var component_it = mem.tokenizeScalar(u8, target_name, '-');
             const arch_name = component_it.next() orelse {
                 log.err("abilists: expected arch name", .{});
                 return error.ZigInstallationCorrupt;
@@ -172,7 +172,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
 
     const target = comp.getTarget();
     const target_ver = target.os.version_range.linux.glibc;
-    const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33 }) != .gt;
+    const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33, .patch = 0 }) != .gt;
 
     // In all cases in this function, we add the C compiler flags to
     // cache_exempt_flags rather than extra_flags, because these arguments
@@ -378,7 +378,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
     const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
     const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
     const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparc64;
-    const is_64 = arch.ptrBitWidth() == 64;
+    const is_64 = comp.getTarget().ptrBitWidth() == 64;
 
     const s = path.sep_str;
 
@@ -435,7 +435,6 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
 
 fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
     const target = comp.getTarget();
-    const arch = target.cpu.arch;
     const opt_nptl: ?[]const u8 = if (target.os.tag == .linux) "nptl" else "htl";
 
     const s = path.sep_str;
@@ -444,11 +443,11 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
     try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "include"));
 
     if (target.os.tag == .linux) {
-        try add_include_dirs_arch(arena, args, arch, null, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux"));
+        try add_include_dirs_arch(arena, args, target, null, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux"));
     }
 
     if (opt_nptl) |nptl| {
-        try add_include_dirs_arch(arena, args, arch, nptl, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps"));
+        try add_include_dirs_arch(arena, args, target, nptl, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps"));
     }
 
     if (target.os.tag == .linux) {
@@ -474,12 +473,12 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
     try args.append("-I");
     try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix" ++ s ++ "sysv"));
 
-    try add_include_dirs_arch(arena, args, arch, null, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix"));
+    try add_include_dirs_arch(arena, args, target, null, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix"));
 
     try args.append("-I");
     try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix"));
 
-    try add_include_dirs_arch(arena, args, arch, null, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps"));
+    try add_include_dirs_arch(arena, args, target, null, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps"));
 
     try args.append("-I");
     try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "generic"));
@@ -489,7 +488,7 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
 
     try args.append("-I");
     try args.append(try std.fmt.allocPrint(arena, "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}", .{
-        comp.zig_lib_directory.path.?, @tagName(arch), @tagName(target.os.tag), @tagName(target.abi),
+        comp.zig_lib_directory.path.?, @tagName(target.cpu.arch), @tagName(target.os.tag), @tagName(target.abi),
     }));
 
     try args.append("-I");
@@ -508,15 +507,16 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
 fn add_include_dirs_arch(
     arena: Allocator,
     args: *std.ArrayList([]const u8),
-    arch: std.Target.Cpu.Arch,
+    target: std.Target,
     opt_nptl: ?[]const u8,
     dir: []const u8,
 ) error{OutOfMemory}!void {
+    const arch = target.cpu.arch;
     const is_x86 = arch == .x86 or arch == .x86_64;
     const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
     const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
     const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparc64;
-    const is_64 = arch.ptrBitWidth() == 64;
+    const is_64 = target.ptrBitWidth() == 64;
 
     const s = path.sep_str;
 

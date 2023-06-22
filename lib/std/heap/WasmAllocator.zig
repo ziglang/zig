@@ -55,7 +55,7 @@ fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*
         const addr = a: {
             const top_free_ptr = frees[class];
             if (top_free_ptr != 0) {
-                const node = @intToPtr(*usize, top_free_ptr + (slot_size - @sizeOf(usize)));
+                const node = @ptrFromInt(*usize, top_free_ptr + (slot_size - @sizeOf(usize)));
                 frees[class] = node.*;
                 break :a top_free_ptr;
             }
@@ -74,11 +74,11 @@ fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*
                 break :a next_addr;
             }
         };
-        return @intToPtr([*]u8, addr);
+        return @ptrFromInt([*]u8, addr);
     }
     const bigpages_needed = bigPagesNeeded(actual_len);
     const addr = allocBigPages(bigpages_needed);
-    return @intToPtr([*]u8, addr);
+    return @ptrFromInt([*]u8, addr);
 }
 
 fn resize(
@@ -121,16 +121,16 @@ fn free(
     const actual_len = @max(buf.len + @sizeOf(usize), buf_align);
     const slot_size = math.ceilPowerOfTwoAssert(usize, actual_len);
     const class = math.log2(slot_size) - min_class;
-    const addr = @ptrToInt(buf.ptr);
+    const addr = @intFromPtr(buf.ptr);
     if (class < size_class_count) {
-        const node = @intToPtr(*usize, addr + (slot_size - @sizeOf(usize)));
+        const node = @ptrFromInt(*usize, addr + (slot_size - @sizeOf(usize)));
         node.* = frees[class];
         frees[class] = addr;
     } else {
         const bigpages_needed = bigPagesNeeded(actual_len);
         const pow2_pages = math.ceilPowerOfTwoAssert(usize, bigpages_needed);
         const big_slot_size_bytes = pow2_pages * bigpage_size;
-        const node = @intToPtr(*usize, addr + (big_slot_size_bytes - @sizeOf(usize)));
+        const node = @ptrFromInt(*usize, addr + (big_slot_size_bytes - @sizeOf(usize)));
         const big_class = math.log2(pow2_pages);
         node.* = big_frees[big_class];
         big_frees[big_class] = addr;
@@ -148,7 +148,7 @@ fn allocBigPages(n: usize) usize {
 
     const top_free_ptr = big_frees[class];
     if (top_free_ptr != 0) {
-        const node = @intToPtr(*usize, top_free_ptr + (slot_size_bytes - @sizeOf(usize)));
+        const node = @ptrFromInt(*usize, top_free_ptr + (slot_size_bytes - @sizeOf(usize)));
         big_frees[class] = node.*;
         return top_free_ptr;
     }

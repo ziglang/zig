@@ -208,22 +208,22 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_block => {
             return stream.print("expected block, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_block_or_assignment => {
             return stream.print("expected block or assignment, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_block_or_expr => {
             return stream.print("expected block or expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_block_or_field => {
             return stream.print("expected block or field, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_container_members => {
@@ -233,42 +233,42 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_expr => {
             return stream.print("expected expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_expr_or_assignment => {
             return stream.print("expected expression or assignment, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_fn => {
             return stream.print("expected function, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_inlinable => {
             return stream.print("expected 'while' or 'for', found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_labelable => {
             return stream.print("expected 'while', 'for', 'inline', or '{{', found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_param_list => {
             return stream.print("expected parameter list, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_prefix_expr => {
             return stream.print("expected prefix expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_primary_type_expr => {
             return stream.print("expected primary type expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_pub_item => {
@@ -276,7 +276,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_return_type => {
             return stream.print("expected return type expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_semi_or_else => {
@@ -292,32 +292,32 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_suffix_op => {
             return stream.print("expected pointer dereference, optional unwrap, or field access, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_type_expr => {
             return stream.print("expected type expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_var_decl => {
             return stream.print("expected variable declaration, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_var_decl_or_fn => {
             return stream.print("expected variable declaration or function, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_loop_payload => {
             return stream.print("expected loop payload, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_container => {
             return stream.print("expected a struct, enum or union, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .extern_fn_body => {
@@ -434,7 +434,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
 
         .expected_token => {
-            const found_tag = token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)];
+            const found_tag = token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)];
             const expected_symbol = parse_error.extra.expected_tag.symbol();
             switch (found_tag) {
                 .invalid => return stream.print("expected '{s}', found invalid bytes", .{
@@ -1289,7 +1289,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         },
         .@"for" => {
             const extra = @bitCast(Node.For, datas[n].rhs);
-            n = tree.extra_data[datas[n].lhs + extra.inputs + @boolToInt(extra.has_else)];
+            n = tree.extra_data[datas[n].lhs + extra.inputs + @intFromBool(extra.has_else)];
         },
         .@"suspend" => {
             if (datas[n].lhs != 0) {
@@ -2291,7 +2291,7 @@ fn fullForComponents(tree: Ast, info: full.For.Components) full.For {
         result.label_token = tok_i - 1;
     }
     const last_cond_token = tree.lastToken(info.inputs[info.inputs.len - 1]);
-    result.payload_token = last_cond_token + 3 + @boolToInt(token_tags[last_cond_token + 1] == .comma);
+    result.payload_token = last_cond_token + 3 + @intFromBool(token_tags[last_cond_token + 1] == .comma);
     if (info.else_expr != 0) {
         result.else_token = tree.lastToken(info.then_expr) + 1;
     }

@@ -8,7 +8,7 @@ pub fn main() void {
 }
 
 fn print() void {
-    const msg = @ptrToInt("Hello, World!\n");
+    const msg = @intFromPtr("Hello, World!\n");
     const len = 14;
     _ = write(1, msg, len);
 }

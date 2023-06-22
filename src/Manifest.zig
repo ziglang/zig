@@ -39,7 +39,7 @@ pub const multihash_function: MultihashFunction = switch (Hash) {
 comptime {
     // We avoid unnecessary uleb128 code in hexDigest by asserting here the
     // values are small enough to be contained in the one-byte encoding.
-    assert(@enumToInt(multihash_function) < 127);
+    assert(@intFromEnum(multihash_function) < 127);
     assert(Hash.digest_length < 127);
 }
 pub const multihash_len = 1 + 1 + Hash.digest_length;
@@ -117,8 +117,8 @@ test hex64 {
 pub fn hexDigest(digest: [Hash.digest_length]u8) [multihash_len * 2]u8 {
     var result: [multihash_len * 2]u8 = undefined;
 
-    result[0] = hex_charset[@enumToInt(multihash_function) >> 4];
-    result[1] = hex_charset[@enumToInt(multihash_function) & 15];
+    result[0] = hex_charset[@intFromEnum(multihash_function) >> 4];
+    result[1] = hex_charset[@intFromEnum(multihash_function) & 15];
 
     result[2] = hex_charset[Hash.digest_length >> 4];
     result[3] = hex_charset[Hash.digest_length & 15];
@@ -284,7 +284,7 @@ const Parse = struct {
                     @errorName(err),
                 });
             };
-            if (@intToEnum(MultihashFunction, their_multihash_func) != multihash_function) {
+            if (@enumFromInt(MultihashFunction, their_multihash_func) != multihash_function) {
                 return fail(p, tok, "unsupported hash function: only sha2-256 is supported", .{});
             }
         }

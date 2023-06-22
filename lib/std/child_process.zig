@@ -449,7 +449,7 @@ pub const ChildProcess = struct {
                 // has a value greater than 0
                 if ((fd[0].revents & std.os.POLL.IN) != 0) {
                     const err_int = try readIntFd(err_pipe[0]);
-                    return @errSetCast(SpawnError, @intToError(err_int));
+                    return @errSetCast(SpawnError, @errorFromInt(err_int));
                 }
             } else {
                 // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
@@ -462,7 +462,7 @@ pub const ChildProcess = struct {
                 // Here we potentially return the fork child's error from the parent
                 // pid.
                 if (err_int != maxInt(ErrInt)) {
-                    return @errSetCast(SpawnError, @intToError(err_int));
+                    return @errSetCast(SpawnError, @errorFromInt(err_int));
                 }
             }
         }
@@ -530,7 +530,7 @@ pub const ChildProcess = struct {
         // can fail between fork() and execve().
         // Therefore, we do all the allocation for the execve() before the fork().
         // This means we must do the null-termination of argv and env vars here.
-        const argv_buf = try arena.allocSentinel(?[*:0]u8, self.argv.len, null);
+        const argv_buf = try arena.allocSentinel(?[*:0]const u8, self.argv.len, null);
         for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
         const envp = m: {
@@ -542,7 +542,7 @@ pub const ChildProcess = struct {
             } else if (builtin.output_mode == .Exe) {
                 // Then we have Zig start code and this works.
                 // TODO type-safety for null-termination of `os.environ`.
-                break :m @ptrCast([*:null]?[*:0]u8, os.environ.ptr);
+                break :m @ptrCast([*:null]const ?[*:0]const u8, os.environ.ptr);
             } else {
                 // TODO come up with a solution for this.
                 @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
@@ -850,7 +850,7 @@ pub const ChildProcess = struct {
                     return original_err;
                 }
 
-                var it = mem.tokenize(u16, PATH, &[_]u16{';'});
+                var it = mem.tokenizeScalar(u16, PATH, ';');
                 while (it.next()) |search_path| {
                     dir_buf.clearRetainingCapacity();
                     try dir_buf.appendSlice(self.allocator, search_path);
@@ -957,15 +957,12 @@ fn windowsCreateProcessPathExt(
     // NtQueryDirectoryFile calls.
 
     var dir = dir: {
-        if (fs.path.isAbsoluteWindowsWTF16(dir_buf.items[0..dir_path_len])) {
-            const prefixed_path = try windows.wToPrefixedFileW(dir_buf.items[0..dir_path_len]);
-            break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{}, true) catch return error.FileNotFound;
-        }
         // needs to be null-terminated
         try dir_buf.append(allocator, 0);
-        defer dir_buf.shrinkRetainingCapacity(dir_buf.items[0..dir_path_len].len);
+        defer dir_buf.shrinkRetainingCapacity(dir_path_len);
         const dir_path_z = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
-        break :dir std.fs.cwd().openDirW(dir_path_z.ptr, .{}, true) catch return error.FileNotFound;
+        const prefixed_path = try windows.wToPrefixedFileW(dir_path_z);
+        break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{}, true) catch return error.FileNotFound;
     };
     defer dir.close();
 
@@ -1067,7 +1064,7 @@ fn windowsCreateProcessPathExt(
     // Now we know that at least *a* file matching the wildcard exists, we can loop
     // through PATHEXT in order and exec any that exist
 
-    var ext_it = mem.tokenize(u16, pathext, &[_]u16{';'});
+    var ext_it = mem.tokenizeScalar(u16, pathext, ';');
     while (ext_it.next()) |ext| {
         if (!windowsCreateProcessSupportsExtension(ext)) continue;
 
@@ -1359,7 +1356,7 @@ fn destroyPipe(pipe: [2]os.fd_t) void {
 // Child of fork calls this to report an error to the fork parent.
 // Then the child exits.
 fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
-    writeIntFd(fd, @as(ErrInt, @errorToInt(err))) catch {};
+    writeIntFd(fd, @as(ErrInt, @intFromError(err))) catch {};
     // If we're linking libc, some naughty applications may have registered atexit handlers
     // which we really do not want to run in the fork child. I caught LLVM doing this and
     // it caused a deadlock instead of doing an exit syscall. In the words of Avril Lavigne,

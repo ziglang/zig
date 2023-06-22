@@ -446,6 +446,12 @@ pub const Inst = struct {
         /// Bitwise logical xor of packed double-precision floating-point values
         xor,
 
+        /// Pack with signed saturation
+        ackssw,
+        /// Pack with signed saturation
+        ackssd,
+        /// Pack with unsigned saturation
+        ackusw,
         /// Add packed signed integers with signed saturation
         adds,
         /// Add packed unsigned integers with unsigned saturation
@@ -596,6 +602,18 @@ pub const Inst = struct {
         /// Replicate single floating-point values
         movsldup,
 
+        /// Pack with unsigned saturation
+        ackusd,
+        /// Blend packed single-precision floating-point values
+        /// Blend scalar single-precision floating-point values
+        /// Blend packed double-precision floating-point values
+        /// Blend scalar double-precision floating-point values
+        blend,
+        /// Variable blend packed single-precision floating-point values
+        /// Variable blend scalar single-precision floating-point values
+        /// Variable blend packed double-precision floating-point values
+        /// Variable blend scalar double-precision floating-point values
+        blendv,
         /// Extract packed floating-point values
         extract,
         /// Insert scalar single-precision floating-point value
@@ -651,6 +669,9 @@ pub const Inst = struct {
         /// Register, register, register operands.
         /// Uses `rrr` payload.
         rrr,
+        /// Register, register, register, register operands.
+        /// Uses `rrrr` payload.
+        rrrr,
         /// Register, register, register, immediate (byte) operands.
         /// Uses `rrri` payload.
         rrri,
@@ -870,6 +891,13 @@ pub const Inst = struct {
             r2: Register,
             r3: Register,
         },
+        rrrr: struct {
+            fixes: Fixes = ._,
+            r1: Register,
+            r2: Register,
+            r3: Register,
+            r4: Register,
+        },
         rrri: struct {
             fixes: Fixes = ._,
             r1: Register,
@@ -1025,16 +1053,16 @@ pub const MemorySib = struct {
         const sib = mem.sib;
         assert(sib.scale_index.scale == 0 or std.math.isPowerOfTwo(sib.scale_index.scale));
         return .{
-            .ptr_size = @enumToInt(sib.ptr_size),
-            .base_tag = @enumToInt(@as(Memory.Base.Tag, sib.base)),
+            .ptr_size = @intFromEnum(sib.ptr_size),
+            .base_tag = @intFromEnum(@as(Memory.Base.Tag, sib.base)),
             .base = switch (sib.base) {
                 .none => undefined,
-                .reg => |r| @enumToInt(r),
-                .frame => |fi| @enumToInt(fi),
+                .reg => |r| @intFromEnum(r),
+                .frame => |fi| @intFromEnum(fi),
             },
             .scale_index = @as(u32, sib.scale_index.scale) << 0 |
                 @as(u32, if (sib.scale_index.scale > 0)
-                @enumToInt(sib.scale_index.index)
+                @intFromEnum(sib.scale_index.index)
             else
                 undefined) << 4,
             .disp = sib.disp,
@@ -1045,15 +1073,15 @@ pub const MemorySib = struct {
         const scale = @truncate(u4, msib.scale_index);
         assert(scale == 0 or std.math.isPowerOfTwo(scale));
         return .{ .sib = .{
-            .ptr_size = @intToEnum(Memory.PtrSize, msib.ptr_size),
-            .base = switch (@intToEnum(Memory.Base.Tag, msib.base_tag)) {
+            .ptr_size = @enumFromInt(Memory.PtrSize, msib.ptr_size),
+            .base = switch (@enumFromInt(Memory.Base.Tag, msib.base_tag)) {
                 .none => .none,
-                .reg => .{ .reg = @intToEnum(Register, msib.base) },
-                .frame => .{ .frame = @intToEnum(bits.FrameIndex, msib.base) },
+                .reg => .{ .reg = @enumFromInt(Register, msib.base) },
+                .frame => .{ .frame = @enumFromInt(bits.FrameIndex, msib.base) },
             },
             .scale_index = .{
                 .scale = scale,
-                .index = if (scale > 0) @intToEnum(Register, msib.scale_index >> 4) else undefined,
+                .index = if (scale > 0) @enumFromInt(Register, msib.scale_index >> 4) else undefined,
             },
             .disp = msib.disp,
         } };
@@ -1068,14 +1096,14 @@ pub const MemoryRip = struct {
 
     pub fn encode(mem: Memory) MemoryRip {
         return .{
-            .ptr_size = @enumToInt(mem.rip.ptr_size),
+            .ptr_size = @intFromEnum(mem.rip.ptr_size),
             .disp = mem.rip.disp,
         };
     }
 
     pub fn decode(mrip: MemoryRip) Memory {
         return .{ .rip = .{
-            .ptr_size = @intToEnum(Memory.PtrSize, mrip.ptr_size),
+            .ptr_size = @enumFromInt(Memory.PtrSize, mrip.ptr_size),
             .disp = mrip.disp,
         } };
     }
@@ -1091,7 +1119,7 @@ pub const MemoryMoffs = struct {
 
     pub fn encode(seg: Register, offset: u64) MemoryMoffs {
         return .{
-            .seg = @enumToInt(seg),
+            .seg = @intFromEnum(seg),
             .msb = @truncate(u32, offset >> 32),
             .lsb = @truncate(u32, offset >> 0),
         };
@@ -1099,7 +1127,7 @@ pub const MemoryMoffs = struct {
 
     pub fn decode(moffs: MemoryMoffs) Memory {
         return .{ .moffs = .{
-            .seg = @intToEnum(Register, moffs.seg),
+            .seg = @enumFromInt(Register, moffs.seg),
             .offset = @as(u64, moffs.msb) << 32 | @as(u64, moffs.lsb) << 0,
         } };
     }
@@ -1140,8 +1168,8 @@ pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
         .sib => |sib| switch (sib.base) {
             .none, .reg => mem,
             .frame => |index| if (mir.frame_locs.len > 0) Memory.sib(sib.ptr_size, .{
-                .base = .{ .reg = mir.frame_locs.items(.base)[@enumToInt(index)] },
-                .disp = mir.frame_locs.items(.disp)[@enumToInt(index)] + sib.disp,
+                .base = .{ .reg = mir.frame_locs.items(.base)[@intFromEnum(index)] },
+                .disp = mir.frame_locs.items(.disp)[@intFromEnum(index)] + sib.disp,
                 .scale_index = mem.scaleIndex(),
             }) else mem,
         },

@@ -263,7 +263,7 @@ pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance
 
 test "expectApproxEqRel" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const eps_value = comptime math.epsilon(T);
+        const eps_value = comptime math.floatEps(T);
         const sqrt_eps_value = comptime @sqrt(eps_value);
 
         const pos_x: T = 12.0;
@@ -279,7 +279,7 @@ test "expectApproxEqRel" {
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal (with
 /// the differences highlighted in red), then returns a test failure error.
-/// The colorized output is optional and controlled by the return of `std.debug.detectTTYConfig()`.
+/// The colorized output is optional and controlled by the return of `std.io.tty.detectConfig()`.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
     if (expected.ptr == actual.ptr and expected.len == actual.len) {
@@ -305,14 +305,14 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     var window_start: usize = 0;
     if (@max(actual.len, expected.len) > max_window_size) {
         const alignment = if (T == u8) 16 else 2;
-        window_start = std.mem.alignBackward(diff_index - @min(diff_index, alignment), alignment);
+        window_start = std.mem.alignBackward(usize, diff_index - @min(diff_index, alignment), alignment);
     }
     const expected_window = expected[window_start..@min(expected.len, window_start + max_window_size)];
     const expected_truncated = window_start + expected_window.len < expected.len;
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const ttyconf = std.debug.detectTTYConfig(std.io.getStdErr());
+    const ttyconf = std.io.tty.detectConfig(std.io.getStdErr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
@@ -379,7 +379,7 @@ fn SliceDiffer(comptime T: type) type {
         start_index: usize,
         expected: []const T,
         actual: []const T,
-        ttyconf: std.debug.TTY.Config,
+        ttyconf: std.io.tty.Config,
 
         const Self = @This();
 
@@ -387,9 +387,9 @@ fn SliceDiffer(comptime T: type) type {
             for (self.expected, 0..) |value, i| {
                 var full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
-                if (diff) try self.ttyconf.setColor(writer, .Red);
+                if (diff) try self.ttyconf.setColor(writer, .red);
                 try writer.print("[{}]: {any}\n", .{ full_index, value });
-                if (diff) try self.ttyconf.setColor(writer, .Reset);
+                if (diff) try self.ttyconf.setColor(writer, .reset);
             }
         }
     };
@@ -398,7 +398,7 @@ fn SliceDiffer(comptime T: type) type {
 const BytesDiffer = struct {
     expected: []const u8,
     actual: []const u8,
-    ttyconf: std.debug.TTY.Config,
+    ttyconf: std.io.tty.Config,
 
     pub fn write(self: BytesDiffer, writer: anytype) !void {
         var expected_iterator = ChunkIterator{ .bytes = self.expected };
@@ -427,9 +427,9 @@ const BytesDiffer = struct {
     }
 
     fn writeByteDiff(self: BytesDiffer, writer: anytype, comptime fmt: []const u8, byte: u8, diff: bool) !void {
-        if (diff) try self.ttyconf.setColor(writer, .Red);
+        if (diff) try self.ttyconf.setColor(writer, .red);
         try writer.print(fmt, .{byte});
-        if (diff) try self.ttyconf.setColor(writer, .Reset);
+        if (diff) try self.ttyconf.setColor(writer, .reset);
     }
 
     const ChunkIterator = struct {
@@ -1116,7 +1116,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
 pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
     inline for (comptime std.meta.declarations(T)) |decl| {
-        if (decl.is_pub) _ = @field(T, decl.name);
+        if (decl.is_pub) _ = &@field(T, decl.name);
     }
 }
 
@@ -1132,7 +1132,7 @@ pub fn refAllDeclsRecursive(comptime T: type) void {
                     else => {},
                 }
             }
-            _ = @field(T, decl.name);
+            _ = &@field(T, decl.name);
         }
     }
 }

@@ -22,7 +22,7 @@ pub fn cmp(a: [*:0]const u8, b: [*:0]const u8) i8 {
 }
 
 test "cstr fns" {
-    comptime try testCStrFnsImpl();
+    try comptime testCStrFnsImpl();
     try testCStrFnsImpl();
 }
 

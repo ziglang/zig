@@ -21,7 +21,7 @@ const LPARAM = windows.LPARAM;
 const FARPROC = windows.FARPROC;
 
 pub const SOCKET = *opaque {};
-pub const INVALID_SOCKET = @intToPtr(SOCKET, ~@as(usize, 0));
+pub const INVALID_SOCKET = @ptrFromInt(SOCKET, ~@as(usize, 0));
 
 pub const GROUP = u32;
 pub const ADDRESS_FAMILY = u16;

@@ -202,7 +202,7 @@ const DarwinImpl = struct {
         };
 
         if (status >= 0) return;
-        switch (@intToEnum(std.os.E, -status)) {
+        switch (@enumFromInt(std.os.E, -status)) {
             // Wait was interrupted by the OS or other spurious signalling.
             .INTR => {},
             // Address of the futex was paged out. This is unlikely, but possible in theory, and
@@ -229,7 +229,7 @@ const DarwinImpl = struct {
             const status = os.darwin.__ulock_wake(flags, addr, 0);
 
             if (status >= 0) return;
-            switch (@intToEnum(std.os.E, -status)) {
+            switch (@enumFromInt(std.os.E, -status)) {
                 .INTR => continue, // spurious wake()
                 .FAULT => unreachable, // __ulock_wake doesn't generate EFAULT according to darwin pthread_cond_t
                 .NOENT => return, // nothing was woken up
@@ -304,11 +304,11 @@ const FreebsdImpl = struct {
         }
 
         const rc = os.freebsd._umtx_op(
-            @ptrToInt(&ptr.value),
-            @enumToInt(os.freebsd.UMTX_OP.WAIT_UINT_PRIVATE),
+            @intFromPtr(&ptr.value),
+            @intFromEnum(os.freebsd.UMTX_OP.WAIT_UINT_PRIVATE),
             @as(c_ulong, expect),
             tm_size,
-            @ptrToInt(tm_ptr),
+            @intFromPtr(tm_ptr),
         );
 
         switch (os.errno(rc)) {
@@ -326,8 +326,8 @@ const FreebsdImpl = struct {
 
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
         const rc = os.freebsd._umtx_op(
-            @ptrToInt(&ptr.value),
-            @enumToInt(os.freebsd.UMTX_OP.WAKE_PRIVATE),
+            @intFromPtr(&ptr.value),
+            @intFromEnum(os.freebsd.UMTX_OP.WAKE_PRIVATE),
             @as(c_ulong, max_waiters),
             0, // there is no timeout struct
             0, // there is no timeout struct pointer
@@ -719,7 +719,7 @@ const PosixImpl = struct {
 
             // Make sure the pointer is aligned,
             // then cut off the zero bits from the alignment to get the unique address.
-            const addr = @ptrToInt(ptr);
+            const addr = @intFromPtr(ptr);
             assert(addr & (alignment - 1) == 0);
             return addr >> @ctz(@as(usize, alignment));
         }

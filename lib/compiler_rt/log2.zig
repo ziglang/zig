@@ -84,7 +84,7 @@ pub fn log2f(x_: f32) callconv(.C) f32 {
     u &= 0xFFFFF000;
     hi = @bitCast(f32, u);
     const lo = f - hi - hfsq + s * (hfsq + R);
-    return (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + @intToFloat(f32, k);
+    return (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + @floatFromInt(f32, k);
 }
 
 pub fn log2(x_: f64) callconv(.C) f64 {
@@ -150,7 +150,7 @@ pub fn log2(x_: f64) callconv(.C) f64 {
     var val_lo = (lo + hi) * ivln2lo + lo * ivln2hi;
 
     // spadd(val_hi, val_lo, y)
-    const y = @intToFloat(f64, k);
+    const y = @floatFromInt(f64, k);
     const ww = y + val_hi;
     val_lo += (y - ww) + val_hi;
     val_hi = ww;

@@ -43,6 +43,8 @@ static void *start(void *arg)
 	union sigval val = args->sev->sigev_value;
 
 	pthread_barrier_wait(&args->b);
+	if (self->cancel)
+		return 0;
 	for (;;) {
 		siginfo_t si;
 		while (sigwaitinfo(SIGTIMER_SET, &si) < 0);
@@ -113,8 +115,10 @@ int timer_create(clockid_t clk, struct sigevent *restrict evp, timer_t *restrict
 		ksev.sigev_signo = SIGTIMER;
 		ksev.sigev_notify = SIGEV_THREAD_ID;
 		ksev.sigev_tid = td->tid;
-		if (syscall(SYS_timer_create, clk, &ksev, &timerid) < 0)
+		if (syscall(SYS_timer_create, clk, &ksev, &timerid) < 0) {
 			timerid = -1;
+			td->cancel = 1;
+		}
 		td->timer_id = timerid;
 		pthread_barrier_wait(&args.b);
 		if (timerid < 0) return -1;

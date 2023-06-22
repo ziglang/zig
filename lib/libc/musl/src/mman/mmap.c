@@ -37,5 +37,3 @@ void *__mmap(void *start, size_t len, int prot, int flags, int fd, off_t off)
 }
 
 weak_alias(__mmap, mmap);
-
-weak_alias(mmap, mmap64);

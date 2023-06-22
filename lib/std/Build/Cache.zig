@@ -123,7 +123,7 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
     var i: u8 = 1; // Start at 1 to skip over checking the null prefix.
     while (i < prefixes_slice.len) : (i += 1) {
         const p = prefixes_slice[i].path.?;
-        if (mem.startsWith(u8, resolved_path, p)) {
+        if (p.len > 0 and mem.startsWith(u8, resolved_path, p)) {
             // +1 to skip over the path separator here
             const sub_path = try gpa.dupe(u8, resolved_path[p.len + 1 ..]);
             gpa.free(resolved_path);
@@ -212,7 +212,7 @@ pub const HashHelper = struct {
     /// Convert the input value into bytes and record it as a dependency of the process being cached.
     pub fn add(hh: *HashHelper, x: anytype) void {
         switch (@TypeOf(x)) {
-            std.builtin.Version => {
+            std.SemanticVersion => {
                 hh.add(x.major);
                 hh.add(x.minor);
                 hh.add(x.patch);
@@ -408,7 +408,7 @@ pub const Manifest = struct {
             if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
                 .read = true,
                 .truncate = false,
-                .lock = .Exclusive,
+                .lock = .exclusive,
                 .lock_nonblocking = self.want_shared_lock,
             })) |manifest_file| {
                 self.manifest_file = manifest_file;
@@ -418,7 +418,7 @@ pub const Manifest = struct {
                 error.WouldBlock => {
                     self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
                         .mode = .read_write,
-                        .lock = .Shared,
+                        .lock = .shared,
                     });
                     break;
                 },
@@ -438,7 +438,7 @@ pub const Manifest = struct {
 
             const input_file_count = self.files.items.len;
             var any_file_changed = false;
-            var line_iter = mem.tokenize(u8, file_contents, "\n");
+            var line_iter = mem.tokenizeScalar(u8, file_contents, '\n');
             var idx: usize = 0;
             if (if (line_iter.next()) |line| !std.mem.eql(u8, line, manifest_header) else true) {
                 if (try self.upgradeToExclusiveLock()) continue;
@@ -467,7 +467,7 @@ pub const Manifest = struct {
                     break :blk new;
                 };
 
-                var iter = mem.tokenize(u8, line, " ");
+                var iter = mem.tokenizeScalar(u8, line, ' ');
                 const size = iter.next() orelse return error.InvalidFormat;
                 const inode = iter.next() orelse return error.InvalidFormat;
                 const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
@@ -885,7 +885,7 @@ pub const Manifest = struct {
             // Here we intentionally have a period where the lock is released, in case there are
             // other processes holding a shared lock.
             manifest_file.unlock();
-            try manifest_file.lock(.Exclusive);
+            try manifest_file.lock(.exclusive);
         }
         self.have_exclusive_lock = true;
         return true;

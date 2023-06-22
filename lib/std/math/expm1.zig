@@ -88,8 +88,8 @@ fn expm1_32(x_: f32) f32 {
                 kf += 0.5;
             }
 
-            k = @floatToInt(i32, kf);
-            const t = @intToFloat(f32, k);
+            k = @intFromFloat(i32, kf);
+            const t = @floatFromInt(f32, k);
             hi = x - t * ln2_hi;
             lo = t * ln2_lo;
         }
@@ -219,8 +219,8 @@ fn expm1_64(x_: f64) f64 {
                 kf += 0.5;
             }
 
-            k = @floatToInt(i32, kf);
-            const t = @intToFloat(f64, k);
+            k = @intFromFloat(i32, kf);
+            const t = @floatFromInt(f64, k);
             hi = x - t * ln2_hi;
             lo = t * ln2_lo;
         }

@@ -32,7 +32,7 @@ pub const MADV = linux.MADV;
 pub const MAP = struct {
     pub usingnamespace linux.MAP;
     /// Only used by libc to communicate failure.
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
 };
 pub const MSF = linux.MSF;
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;
@@ -100,6 +100,7 @@ pub const stack_t = linux.stack_t;
 pub const tcflag_t = linux.tcflag_t;
 pub const termios = linux.termios;
 pub const time_t = linux.time_t;
+pub const timer_t = linux.timer_t;
 pub const timespec = linux.timespec;
 pub const timeval = linux.timeval;
 pub const timezone = linux.timezone;
@@ -349,6 +350,18 @@ const __SIZEOF_PTHREAD_MUTEX_T = switch (native_abi) {
     else => @compileError("unsupported ABI"),
 };
 const __SIZEOF_SEM_T = 4 * @sizeOf(usize);
+
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = switch (native_abi) {
+    .musl, .musleabi, .musleabihf => 2048,
+    .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (native_arch) {
+        .aarch64, .arm, .armeb, .powerpc, .powerpc64, .powerpc64le, .loongarch32, .loongarch64 => 131072,
+        .sparc64 => 24576,
+        else => 16 * 1024,
+    },
+    .android => if (@sizeOf(usize) == 8) 16 * 1024 else 8 * 1024,
+    else => 16 * 1024,
+};
 
 pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;

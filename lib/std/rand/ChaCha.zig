@@ -10,7 +10,7 @@ const Self = @This();
 
 const Cipher = std.crypto.stream.chacha.ChaCha8IETF;
 
-const State = [2 * Cipher.block_length]u8;
+const State = [8 * Cipher.block_length]u8;
 
 state: State,
 offset: usize,

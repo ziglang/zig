@@ -93,7 +93,7 @@ pub const HuffmanEncoder = struct {
             return;
         }
         self.lfs = list;
-        sort.sort(LiteralNode, self.lfs, {}, byFreq);
+        mem.sort(LiteralNode, self.lfs, {}, byFreq);
 
         // Get the number of literals for each bit count
         var bit_count = self.bitCounts(list, max_bits);
@@ -270,7 +270,7 @@ pub const HuffmanEncoder = struct {
             var chunk = list[list.len - @intCast(u32, bits) ..];
 
             self.lns = chunk;
-            sort.sort(LiteralNode, self.lns, {}, byLiteral);
+            mem.sort(LiteralNode, self.lns, {}, byLiteral);
 
             for (chunk) |node| {
                 self.codes[node.literal] = HuffCode{

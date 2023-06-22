@@ -237,7 +237,7 @@ pub fn dump(step: *Step) void {
 
     const stderr = std.io.getStdErr();
     const w = stderr.writer();
-    const tty_config = std.debug.detectTTYConfig(stderr);
+    const tty_config = std.io.tty.detectConfig(stderr);
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
             @errorName(err),

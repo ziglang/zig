@@ -36,7 +36,7 @@ const __isPlatformVersionAtLeast = if (builtin.os.tag.isDarwin()) struct {
             .platform = platform,
             .version = constructVersion(major, minor, subminor),
         };
-        return @boolToInt(_availability_version_check(1, &[_]dyld_build_version_t{build_version}));
+        return @intFromBool(_availability_version_check(1, &[_]dyld_build_version_t{build_version}));
     }
 
     // _availability_version_check darwin API support.

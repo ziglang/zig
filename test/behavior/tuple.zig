@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqualStrings = std.testing.expectEqualStrings;
 const expectEqual = std.testing.expectEqual;
@@ -23,7 +24,7 @@ test "tuple concatenation" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "tuple multiplication" {
@@ -46,7 +47,7 @@ test "tuple multiplication" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "more tuple concatenation" {
@@ -91,7 +92,7 @@ test "more tuple concatenation" {
     };
 
     try T.doTheTest();
-    comptime try T.doTheTest();
+    try comptime T.doTheTest();
 }
 
 test "pass tuple to comptime var parameter" {
@@ -105,7 +106,7 @@ test "pass tuple to comptime var parameter" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "tuple initializer for var" {
@@ -163,7 +164,7 @@ test "array-like initializer for tuple types" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "anon struct as the result from a labeled block" {
@@ -180,7 +181,7 @@ test "anon struct as the result from a labeled block" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "tuple as the result from a labeled block" {
@@ -195,7 +196,7 @@ test "tuple as the result from a labeled block" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "initializing tuple with explicit type" {
@@ -427,4 +428,28 @@ test "sentinel slice in tuple" {
     const S = struct { [:0]const u8 };
 
     _ = S;
+}
+
+test "tuple pointer is indexable" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct { u32, bool };
+
+    const x: S = .{ 123, true };
+    comptime assert(@TypeOf(&(&x)[0]) == *const u32); // validate constness
+    try expectEqual(@as(u32, 123), (&x)[0]);
+    try expectEqual(true, (&x)[1]);
+
+    var y: S = .{ 123, true };
+    comptime assert(@TypeOf(&(&y)[0]) == *u32); // validate constness
+    try expectEqual(@as(u32, 123), (&y)[0]);
+    try expectEqual(true, (&y)[1]);
+
+    (&y)[0] = 100;
+    (&y)[1] = false;
+    try expectEqual(@as(u32, 100), (&y)[0]);
+    try expectEqual(false, (&y)[1]);
 }

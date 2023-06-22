@@ -407,7 +407,7 @@ pub const Register = enum(u6) {
     /// Returns the unique 4-bit ID of this register which is used in
     /// the machine code
     pub fn id(self: Register) u5 {
-        return @truncate(u5, @enumToInt(self));
+        return @truncate(u5, @intFromEnum(self));
     }
 
     pub fn dwarfLocOp(reg: Register) u8 {

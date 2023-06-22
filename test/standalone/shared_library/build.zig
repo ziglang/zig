@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) void {
     const lib = b.addSharedLibrary(.{
         .name = "mathtest",
         .root_source_file = .{ .path = "mathtest.zig" },
-        .version = .{ .major = 1, .minor = 0 },
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .target = target,
         .optimize = optimize,
     });

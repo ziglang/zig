@@ -32,7 +32,7 @@ usingnamespace struct {
 };
 
 test "usingnamespace does not redeclare an imported variable" {
-    comptime try std.testing.expect(@This().foo == 42);
+    try comptime std.testing.expect(@This().foo == 42);
 }
 
 usingnamespace @import("usingnamespace/foo.zig");

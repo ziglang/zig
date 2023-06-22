@@ -172,9 +172,9 @@ pub const RTLD = struct {
     pub const NODELETE = 0x01000;
     pub const NOLOAD = 0x02000;
 
-    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
+    pub const NEXT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -1)));
+    pub const DEFAULT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -2)));
+    pub const SELF = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -3)));
 };
 
 pub const dl_phdr_info = extern struct {
@@ -591,7 +591,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const REMAPDUP = 0x0004;
@@ -1090,9 +1090,9 @@ pub const winsize = extern struct {
 const NSIG = 32;
 
 pub const SIG = struct {
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
+    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
+    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -1668,3 +1668,60 @@ pub const sigevent = extern struct {
     sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
     sigev_notify_attributes: ?*pthread_attr_t,
 };
+
+pub const PTRACE = struct {
+    pub const FORK = 0x0001;
+    pub const VFORK = 0x0002;
+    pub const VFORK_DONE = 0x0004;
+    pub const LWP_CREATE = 0x0008;
+    pub const LWP_EXIT = 0x0010;
+    pub const POSIX_SPAWN = 0x0020;
+};
+
+pub const PT = struct {
+    pub const TRACE_ME = 0;
+    pub const READ_I = 1;
+    pub const READ_D = 2;
+    pub const WRITE_I = 4;
+    pub const WRITE_D = 5;
+    pub const CONTINUE = 7;
+    pub const KILL = 8;
+    pub const ATTACH = 9;
+    pub const DETACH = 10;
+    pub const IO = 11;
+    pub const DUMPCORE = 11;
+    pub const LWPINFO = 12;
+};
+
+pub const ptrace_event = extern struct {
+    set_event: c_int,
+};
+
+pub const ptrace_state = extern struct {
+    report_event: c_int,
+    _option: extern union {
+        other_pid: pid_t,
+        lwp: lwpid_t,
+    },
+};
+
+pub const ptrace_io_desc = extern struct {
+    op: c_int,
+    offs: ?*anyopaque,
+    addr: ?*anyopaque,
+    len: usize,
+};
+
+pub const PIOD = struct {
+    pub const READ_D = 1;
+    pub const WRITE_D = 2;
+    pub const READ_I = 3;
+    pub const WRITE_I = 4;
+};
+
+pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: ?*anyopaque, data: c_int) c_int;
+
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = 16 * 1024;
+
+pub const timer_t = *opaque {};

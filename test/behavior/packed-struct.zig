@@ -7,7 +7,6 @@ const native_endian = builtin.cpu.arch.endian();
 
 test "flags in packed structs" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Flags1 = packed struct {
         // first 8 bits
@@ -94,7 +93,6 @@ test "flags in packed structs" {
 
 test "consistent size of packed structs" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const TxData1 = packed struct { data: u8, _23: u23, full: bool = false };
     const TxData2 = packed struct { data: u9, _22: u22, full: bool = false };
@@ -353,7 +351,7 @@ test "byte-aligned field pointer offsets" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "load pointer from packed struct" {
@@ -377,7 +375,7 @@ test "load pointer from packed struct" {
     }
 }
 
-test "@ptrToInt on a packed struct field" {
+test "@intFromPtr on a packed struct field" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -396,7 +394,7 @@ test "@ptrToInt on a packed struct field" {
             .z = 0,
         };
     };
-    try expect(@ptrToInt(&S.p0.z) - @ptrToInt(&S.p0.x) == 2);
+    try expect(@intFromPtr(&S.p0.z) - @intFromPtr(&S.p0.x) == 2);
 }
 
 test "optional pointer in packed struct" {

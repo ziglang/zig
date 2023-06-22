@@ -1,5 +1,5 @@
 export fn foo() void {
-    var ptr = &[_]u8{0,0,0,0};
+    var ptr = &[_]u8{ 0, 0, 0, 0 };
     ptr[1] = 2;
 }
 export fn bar() void {
@@ -11,11 +11,11 @@ export fn baz() void {
     ptr.* = false;
 }
 export fn qux() void {
-    const S = struct{
+    const S = struct {
         x: usize,
         y: usize,
     };
-    var ptr = &S{.x=1,.y=2};
+    var ptr = &S{ .x = 1, .y = 2 };
     ptr.x = 2;
 }
 export fn quux() void {

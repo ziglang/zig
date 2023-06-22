@@ -60,7 +60,7 @@ test "cast negative integer to pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    try expectEqual(@intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))), h.MAP_FAILED);
+    try expectEqual(@ptrFromInt(?*anyopaque, @bitCast(usize, @as(isize, -1))), h.MAP_FAILED);
 }
 
 test "casting to union with a macro" {

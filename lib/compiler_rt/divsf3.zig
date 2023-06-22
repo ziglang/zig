@@ -179,7 +179,7 @@ inline fn div(a: f32, b: f32) f32 {
     } else if (writtenExponent < 1) {
         if (writtenExponent == 0) {
             // Check whether the rounded result is normal.
-            const round = @boolToInt((residual << 1) > bSignificand);
+            const round = @intFromBool((residual << 1) > bSignificand);
             // Clear the implicit bit.
             var absResult = quotient & significandMask;
             // Round.
@@ -193,7 +193,7 @@ inline fn div(a: f32, b: f32) f32 {
         // code to round them correctly.
         return @bitCast(f32, quotientSign);
     } else {
-        const round = @boolToInt((residual << 1) > bSignificand);
+        const round = @intFromBool((residual << 1) > bSignificand);
         // Clear the implicit bit
         var absResult = quotient & significandMask;
         // Insert the exponent

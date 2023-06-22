@@ -5,7 +5,7 @@ const expect = std.testing.expect;
 test "truncate u0 to larger integer allowed and has comptime-known result" {
     var x: u0 = 0;
     const y = @truncate(u8, x);
-    comptime try expect(y == 0);
+    try comptime expect(y == 0);
 }
 
 test "truncate.u0.literal" {
@@ -28,7 +28,7 @@ test "truncate.u0.var" {
 test "truncate i0 to larger integer allowed and has comptime-known result" {
     var x: i0 = 0;
     const y = @truncate(i8, x);
-    comptime try expect(y == 0);
+    try comptime expect(y == 0);
 }
 
 test "truncate.i0.literal" {
@@ -61,7 +61,6 @@ test "truncate on comptime integer" {
 
 test "truncate on vectors" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -74,6 +73,6 @@ test "truncate on vectors" {
             try expect(std.mem.eql(u8, &@as([4]u8, v2), &[4]u8{ 0xbb, 0xdd, 0xff, 0x22 }));
         }
     };
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
     try S.doTheTest();
 }

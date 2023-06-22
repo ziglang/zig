@@ -38,10 +38,10 @@ pub fn CPU_SET(cpu: usize, set: *cpuset_t) void {
     }
 }
 
-pub fn CPU_ISSET(cpu: usize, set: cpuset_t) void {
+pub fn CPU_ISSET(cpu: usize, set: cpuset_t) bool {
     const x = cpu / @sizeOf(c_long);
     if (x < @sizeOf(cpuset_t)) {
-        return set.__bits[x] & __BIT_MASK(x);
+        return set.__bits[x] & __BIT_MASK(x) != 0;
     }
     return false;
 }
@@ -75,7 +75,7 @@ pub const _errno = __error;
 
 pub extern "c" var malloc_options: [*:0]const u8;
 
-pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
+pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) isize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn getentropy(buf_ptr: [*]u8, buf_len: usize) c_int;
@@ -322,7 +322,7 @@ pub const RTLD = struct {
 
 pub const dl_phdr_info = extern struct {
     /// Module relocation base.
-    dlpi_addr: if (builtin.cpu.arch.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
+    dlpi_addr: if (builtin.target.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
     /// Module name.
     dlpi_name: ?[*:0]const u8,
     /// Pointer to module's phdr.
@@ -961,7 +961,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0010;
@@ -1086,9 +1086,9 @@ pub const SIG = struct {
     pub const UNBLOCK = 2;
     pub const SETMASK = 3;
 
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
+    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
+    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -2586,6 +2586,8 @@ pub const sigevent = extern struct {
     },
 };
 
+pub const timer_t = *opaque {};
+
 pub const MIN = struct {
     pub const INCORE = 0x1;
     pub const REFERENCED = 0x2;
@@ -2648,7 +2650,7 @@ const ioctl_cmd = enum(u32) {
 };
 
 fn ioImpl(cmd: ioctl_cmd, op: u8, nr: u8, comptime IT: type) u32 {
-    return @bitCast(u32, @enumToInt(cmd) | @intCast(u32, @truncate(u8, @sizeOf(IT))) << 16 | @intCast(u32, op) << 8 | nr);
+    return @bitCast(u32, @intFromEnum(cmd) | @intCast(u32, @truncate(u8, @sizeOf(IT))) << 16 | @intCast(u32, op) << 8 | nr);
 }
 
 pub fn IO(op: u8, nr: u8) u32 {
@@ -2818,3 +2820,21 @@ pub const ptrace_cs_remote = extern struct {
 };
 
 pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: [*:0]u8, data: c_int) c_int;
+
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
+    .x86, .powerpc => 4 * 512,
+    else => 4 * 1024,
+};
+
+pub const SYS_NMLN = 256;
+
+pub const utsname = extern struct {
+    sysname: [255:0]u8,
+    nodename: [255:0]u8,
+    release: [255:0]u8,
+    version: [255:0]u8,
+    machine: [255:0]u8,
+};
+
+pub extern "c" fn uname(u: *utsname) c_int;

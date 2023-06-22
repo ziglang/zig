@@ -83,7 +83,7 @@ pub const Month = enum(u4) {
     /// return the numeric calendar value for the given month
     /// i.e. jan=1, feb=2, etc
     pub fn numeric(self: Month) u4 {
-        return @enumToInt(self);
+        return @intFromEnum(self);
     }
 };
 
@@ -122,7 +122,7 @@ pub const YearAndDay = struct {
             if (days_left < days_in_month)
                 break;
             days_left -= days_in_month;
-            month = @intToEnum(Month, @enumToInt(month) + 1);
+            month = @enumFromInt(Month, @intFromEnum(month) + 1);
         }
         return .{ .month = month, .day_index = @intCast(u5, days_left) };
     }

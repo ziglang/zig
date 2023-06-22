@@ -1,5 +1,5 @@
-const A = enum {x};
-const A = enum {x};
+const A = enum { x };
+const A = enum { x };
 
 // error
 // backend=stage2

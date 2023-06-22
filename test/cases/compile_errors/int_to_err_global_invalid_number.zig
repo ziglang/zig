@@ -4,7 +4,7 @@ const Set1 = error{
 };
 comptime {
     var x: u16 = 3;
-    var y = @intToError(x);
+    var y = @errorFromInt(x);
     _ = y;
 }
 
@@ -12,4 +12,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :7:25: error: integer value '3' represents no error
+// :7:27: error: integer value '3' represents no error

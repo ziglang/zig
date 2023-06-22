@@ -4,7 +4,9 @@ const Foo = struct {
 };
 export fn entry() void {
     const xx: [2]Foo = .{ .{ .name = "", .T = u8 }, .{ .name = "", .T = u8 } };
-    for (xx) |f| { _ = f;}
+    for (xx) |f| {
+        _ = f;
+    }
 }
 
 // error

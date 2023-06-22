@@ -3,7 +3,9 @@ fn foo(x: u8) void {
         0 => {},
     }
 }
-export fn entry() usize { return @sizeOf(@TypeOf(&foo)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(&foo));
+}
 
 // error
 // backend=stage2

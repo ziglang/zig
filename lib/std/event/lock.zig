@@ -55,14 +55,14 @@ pub const Lock = struct {
         const head = switch (self.head) {
             UNLOCKED => unreachable,
             LOCKED => null,
-            else => @intToPtr(*Waiter, self.head),
+            else => @ptrFromInt(*Waiter, self.head),
         };
 
         if (head) |h| {
             h.tail.next = &waiter;
             h.tail = &waiter;
         } else {
-            self.head = @ptrToInt(&waiter);
+            self.head = @intFromPtr(&waiter);
         }
 
         suspend {
@@ -102,8 +102,8 @@ pub const Lock = struct {
                         break :blk null;
                     },
                     else => {
-                        const waiter = @intToPtr(*Waiter, self.lock.head);
-                        self.lock.head = if (waiter.next == null) LOCKED else @ptrToInt(waiter.next);
+                        const waiter = @ptrFromInt(*Waiter, self.lock.head);
+                        self.lock.head = if (waiter.next == null) LOCKED else @intFromPtr(waiter.next);
                         if (waiter.next) |next|
                             next.tail = waiter.tail;
                         break :blk waiter;

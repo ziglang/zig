@@ -1,6 +1,8 @@
-const resource = @embedFile("bogus.txt",);
+const resource = @embedFile("bogus.txt");
 
-export fn entry() usize { return @sizeOf(@TypeOf(resource)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(resource));
+}
 
 // error
 // backend=stage2

@@ -36,7 +36,9 @@ pub const P256 = struct {
 
     /// Reject the neutral element.
     pub fn rejectIdentity(p: P256) IdentityElementError!void {
-        if (p.x.isZero()) {
+        const affine_0 = @intFromBool(p.x.equivalent(AffineCoordinates.identityElement.x)) & (@intFromBool(p.y.isZero()) | @intFromBool(p.y.equivalent(AffineCoordinates.identityElement.y)));
+        const is_identity = @intFromBool(p.z.isZero()) | affine_0;
+        if (is_identity != 0) {
             return error.IdentityElement;
         }
     }
@@ -47,8 +49,8 @@ pub const P256 = struct {
         const y = p.y;
         const x3AxB = x.sq().mul(x).sub(x).sub(x).sub(x).add(B);
         const yy = y.sq();
-        const on_curve = @boolToInt(x3AxB.equivalent(yy));
-        const is_identity = @boolToInt(x.equivalent(AffineCoordinates.identityElement.x)) & @boolToInt(y.equivalent(AffineCoordinates.identityElement.y));
+        const on_curve = @intFromBool(x3AxB.equivalent(yy));
+        const is_identity = @intFromBool(x.equivalent(AffineCoordinates.identityElement.x)) & @intFromBool(y.equivalent(AffineCoordinates.identityElement.y));
         if ((on_curve | is_identity) == 0) {
             return error.InvalidEncoding;
         }
@@ -69,7 +71,7 @@ pub const P256 = struct {
         const x3AxB = x.sq().mul(x).sub(x).sub(x).sub(x).add(B);
         var y = try x3AxB.sqrt();
         const yn = y.neg();
-        y.cMov(yn, @boolToInt(is_odd) ^ @boolToInt(y.isOdd()));
+        y.cMov(yn, @intFromBool(is_odd) ^ @intFromBool(y.isOdd()));
         return y;
     }
 
@@ -217,7 +219,7 @@ pub const P256 = struct {
             .y = Y3,
             .z = Z3,
         };
-        ret.cMov(p, @boolToInt(q.x.isZero()));
+        ret.cMov(p, @intFromBool(q.x.isZero()));
         return ret;
     }
 
@@ -286,12 +288,14 @@ pub const P256 = struct {
 
     /// Return affine coordinates.
     pub fn affineCoordinates(p: P256) AffineCoordinates {
+        const affine_0 = @intFromBool(p.x.equivalent(AffineCoordinates.identityElement.x)) & (@intFromBool(p.y.isZero()) | @intFromBool(p.y.equivalent(AffineCoordinates.identityElement.y)));
+        const is_identity = @intFromBool(p.z.isZero()) | affine_0;
         const zinv = p.z.invert();
         var ret = AffineCoordinates{
             .x = p.x.mul(zinv),
             .y = p.y.mul(zinv),
         };
-        ret.cMov(AffineCoordinates.identityElement, @boolToInt(p.x.isZero()));
+        ret.cMov(AffineCoordinates.identityElement, is_identity);
         return ret;
     }
 

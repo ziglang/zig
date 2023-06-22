@@ -143,7 +143,7 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime ReaderType: type)
                     b.* = try self.readBits(u8, u8_bit_count, &out_bits);
                     out_bits_total += out_bits;
                 }
-                const incomplete_byte = @boolToInt(out_bits_total % u8_bit_count > 0);
+                const incomplete_byte = @intFromBool(out_bits_total % u8_bit_count > 0);
                 return (out_bits_total / u8_bit_count) + incomplete_byte;
             }
 

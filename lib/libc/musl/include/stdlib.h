@@ -95,7 +95,7 @@ size_t __ctype_get_mb_cur_max(void);
 #define WTERMSIG(s) ((s) & 0x7f)
 #define WSTOPSIG(s) WEXITSTATUS(s)
 #define WIFEXITED(s) (!WTERMSIG(s))
-#define WIFSTOPPED(s) ((short)((((s)&0xffff)*0x10001)>>8) > 0x7f00)
+#define WIFSTOPPED(s) ((short)((((s)&0xffff)*0x10001U)>>8) > 0x7f00)
 #define WIFSIGNALED(s) (((s)&0xffff)-1U < 0xffu)
 
 int posix_memalign (void **, size_t, size_t);
@@ -163,7 +163,7 @@ double strtod_l(const char *__restrict, char **__restrict, struct __locale_struc
 long double strtold_l(const char *__restrict, char **__restrict, struct __locale_struct *);
 #endif
 
-#if defined(_LARGEFILE64_SOURCE) || defined(_GNU_SOURCE)
+#if defined(_LARGEFILE64_SOURCE)
 #define mkstemp64 mkstemp
 #define mkostemp64 mkostemp
 #if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)

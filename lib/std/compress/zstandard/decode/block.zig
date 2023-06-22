@@ -894,7 +894,7 @@ pub fn decodeBlockReader(
 /// Decode the header of a block.
 pub fn decodeBlockHeader(src: *const [3]u8) frame.Zstandard.Block.Header {
     const last_block = src[0] & 1 == 1;
-    const block_type = @intToEnum(frame.Zstandard.Block.Type, (src[0] & 0b110) >> 1);
+    const block_type = @enumFromInt(frame.Zstandard.Block.Type, (src[0] & 0b110) >> 1);
     const block_size = ((src[0] & 0b11111000) >> 3) + (@as(u21, src[1]) << 5) + (@as(u21, src[2]) << 13);
     return .{
         .last_block = last_block,
@@ -1058,7 +1058,7 @@ fn decodeStreams(size_format: u2, stream_data: []const u8) !LiteralsSection.Stre
 ///   - `error.EndOfStream` if there are not enough bytes in `source`
 pub fn decodeLiteralsHeader(source: anytype) !LiteralsSection.Header {
     const byte0 = try source.readByte();
-    const block_type = @intToEnum(LiteralsSection.BlockType, byte0 & 0b11);
+    const block_type = @enumFromInt(LiteralsSection.BlockType, byte0 & 0b11);
     const size_format = @intCast(u2, (byte0 & 0b1100) >> 2);
     var regenerated_size: u20 = undefined;
     var compressed_size: ?u18 = null;
@@ -1132,9 +1132,9 @@ pub fn decodeSequencesHeader(
 
     const compression_modes = try source.readByte();
 
-    const matches_mode = @intToEnum(SequencesSection.Header.Mode, (compression_modes & 0b00001100) >> 2);
-    const offsets_mode = @intToEnum(SequencesSection.Header.Mode, (compression_modes & 0b00110000) >> 4);
-    const literal_mode = @intToEnum(SequencesSection.Header.Mode, (compression_modes & 0b11000000) >> 6);
+    const matches_mode = @enumFromInt(SequencesSection.Header.Mode, (compression_modes & 0b00001100) >> 2);
+    const offsets_mode = @enumFromInt(SequencesSection.Header.Mode, (compression_modes & 0b00110000) >> 4);
+    const literal_mode = @enumFromInt(SequencesSection.Header.Mode, (compression_modes & 0b11000000) >> 6);
     if (compression_modes & 0b11 != 0) return error.ReservedBitSet;
 
     return SequencesSection.Header{

@@ -377,6 +377,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .r => inst.data.r.fixes,
         .rr => inst.data.rr.fixes,
         .rrr => inst.data.rrr.fixes,
+        .rrrr => inst.data.rrrr.fixes,
         .rrri => inst.data.rrri.fixes,
         .rri_s, .rri_u => inst.data.rri.fixes,
         .ri_s, .ri_u => inst.data.ri.fixes,
@@ -429,6 +430,12 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.rrr.r1 },
             .{ .reg = inst.data.rrr.r2 },
             .{ .reg = inst.data.rrr.r3 },
+        },
+        .rrrr => &.{
+            .{ .reg = inst.data.rrrr.r1 },
+            .{ .reg = inst.data.rrrr.r2 },
+            .{ .reg = inst.data.rrrr.r3 },
+            .{ .reg = inst.data.rrrr.r4 },
         },
         .rrri => &.{
             .{ .reg = inst.data.rrri.r1 },

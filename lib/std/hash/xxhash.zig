@@ -126,8 +126,8 @@ pub const XxHash64 = struct {
         return b +% prime_4;
     }
 
-    pub fn hash(input: []const u8) u64 {
-        var hasher = XxHash64.init(0);
+    pub fn hash(seed: u64, input: []const u8) u64 {
+        var hasher = XxHash64.init(seed);
         hasher.update(input);
         return hasher.final();
     }
@@ -236,8 +236,8 @@ pub const XxHash32 = struct {
         return acc;
     }
 
-    pub fn hash(input: []const u8) u32 {
-        var hasher = XxHash32.init(0);
+    pub fn hash(seed: u32, input: []const u8) u32 {
+        var hasher = XxHash32.init(seed);
         hasher.update(input);
         return hasher.final();
     }
@@ -246,23 +246,23 @@ pub const XxHash32 = struct {
 test "xxhash64" {
     const hash = XxHash64.hash;
 
-    try expectEqual(hash(""), 0xef46db3751d8e999);
-    try expectEqual(hash("a"), 0xd24ec4f1a98c6e5b);
-    try expectEqual(hash("abc"), 0x44bc2cf5ad770999);
-    try expectEqual(hash("message digest"), 0x066ed728fceeb3be);
-    try expectEqual(hash("abcdefghijklmnopqrstuvwxyz"), 0xcfe1f278fa89835c);
-    try expectEqual(hash("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), 0xaaa46907d3047814);
-    try expectEqual(hash("12345678901234567890123456789012345678901234567890123456789012345678901234567890"), 0xe04a477f19ee145d);
+    try expectEqual(hash(0, ""), 0xef46db3751d8e999);
+    try expectEqual(hash(0, "a"), 0xd24ec4f1a98c6e5b);
+    try expectEqual(hash(0, "abc"), 0x44bc2cf5ad770999);
+    try expectEqual(hash(0, "message digest"), 0x066ed728fceeb3be);
+    try expectEqual(hash(0, "abcdefghijklmnopqrstuvwxyz"), 0xcfe1f278fa89835c);
+    try expectEqual(hash(0, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), 0xaaa46907d3047814);
+    try expectEqual(hash(0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890"), 0xe04a477f19ee145d);
 }
 
 test "xxhash32" {
     const hash = XxHash32.hash;
 
-    try expectEqual(hash(""), 0x02cc5d05);
-    try expectEqual(hash("a"), 0x550d7456);
-    try expectEqual(hash("abc"), 0x32d153ff);
-    try expectEqual(hash("message digest"), 0x7c948494);
-    try expectEqual(hash("abcdefghijklmnopqrstuvwxyz"), 0x63a14d5f);
-    try expectEqual(hash("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), 0x9c285e64);
-    try expectEqual(hash("12345678901234567890123456789012345678901234567890123456789012345678901234567890"), 0x9c05f475);
+    try expectEqual(hash(0, ""), 0x02cc5d05);
+    try expectEqual(hash(0, "a"), 0x550d7456);
+    try expectEqual(hash(0, "abc"), 0x32d153ff);
+    try expectEqual(hash(0, "message digest"), 0x7c948494);
+    try expectEqual(hash(0, "abcdefghijklmnopqrstuvwxyz"), 0x63a14d5f);
+    try expectEqual(hash(0, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), 0x9c285e64);
+    try expectEqual(hash(0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890"), 0x9c05f475);
 }

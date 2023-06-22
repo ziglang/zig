@@ -125,7 +125,13 @@ static void pop_arg(union arg *arg, int type, va_list *ap)
 
 static void out(FILE *f, const wchar_t *s, size_t l)
 {
-	while (l-- && !(f->flags & F_ERR)) fputwc(*s++, f);
+	while (l-- && !ferror(f)) fputwc(*s++, f);
+}
+
+static void pad(FILE *f, int n, int fl)
+{
+	if ((fl & LEFT_ADJ) || !n || ferror(f)) return;
+	fprintf(f, "%*s", n, "");
 }
 
 static int getint(wchar_t **s) {
@@ -242,6 +248,10 @@ static int wprintf_core(FILE *f, const wchar_t *fmt, va_list *ap, union arg *nl_
 		}
 
 		if (!f) continue;
+
+		/* Do not process any new directives once in error state. */
+		if (ferror(f)) return -1;
+
 		t = s[-1];
 		if (ps && (t&15)==3) t&=~32;
 
@@ -258,15 +268,12 @@ static int wprintf_core(FILE *f, const wchar_t *fmt, va_list *ap, union arg *nl_
 			}
 			continue;
 		case 'c':
-			if (w<1) w=1;
-			if (w>1 && !(fl&LEFT_ADJ)) fprintf(f, "%*s", w-1, "");
-			fputwc(btowc(arg.i), f);
-			if (w>1 && (fl&LEFT_ADJ)) fprintf(f, "%*s", w-1, "");
-			l = w;
-			continue;
 		case 'C':
-			fputwc(arg.i, f);
-			l = 1;
+			if (w<1) w=1;
+			pad(f, w-1, fl);
+			out(f, &(wchar_t){t=='C' ? arg.i : btowc(arg.i)}, 1);
+			pad(f, w-1, fl^LEFT_ADJ);
+			l = w;
 			continue;
 		case 'S':
 			a = arg.p;
@@ -274,9 +281,9 @@ static int wprintf_core(FILE *f, const wchar_t *fmt, va_list *ap, union arg *nl_
 			if (p<0 && *z) goto overflow;
 			p = z-a;
 			if (w<p) w=p;
-			if (!(fl&LEFT_ADJ)) fprintf(f, "%*s", w-p, "");
+			pad(f, w-p, fl);
 			out(f, a, p);
-			if ((fl&LEFT_ADJ)) fprintf(f, "%*s", w-p, "");
+			pad(f, w-p, fl^LEFT_ADJ);
 			l=w;
 			continue;
 		case 'm':
@@ -289,14 +296,14 @@ static int wprintf_core(FILE *f, const wchar_t *fmt, va_list *ap, union arg *nl_
 			if (p<0 && *bs) goto overflow;
 			p=l;
 			if (w<p) w=p;
-			if (!(fl&LEFT_ADJ)) fprintf(f, "%*s", w-p, "");
+			pad(f, w-p, fl);
 			bs = arg.p;
 			while (l--) {
 				i=mbtowc(&wc, bs, MB_LEN_MAX);
 				bs+=i;
-				fputwc(wc, f);
+				out(f, &wc, 1);
 			}
-			if ((fl&LEFT_ADJ)) fprintf(f, "%*s", w-p, "");
+			pad(f, w-p, fl^LEFT_ADJ);
 			l=w;
 			continue;
 		}
@@ -340,8 +347,8 @@ overflow:
 int vfwprintf(FILE *restrict f, const wchar_t *restrict fmt, va_list ap)
 {
 	va_list ap2;
-	int nl_type[NL_ARGMAX] = {0};
-	union arg nl_arg[NL_ARGMAX];
+	int nl_type[NL_ARGMAX+1] = {0};
+	union arg nl_arg[NL_ARGMAX+1];
 	int olderr;
 	int ret;
 
@@ -357,7 +364,7 @@ int vfwprintf(FILE *restrict f, const wchar_t *restrict fmt, va_list ap)
 	olderr = f->flags & F_ERR;
 	f->flags &= ~F_ERR;
 	ret = wprintf_core(f, fmt, &ap2, nl_arg, nl_type);
-	if (f->flags & F_ERR) ret = -1;
+	if (ferror(f)) ret = -1;
 	f->flags |= olderr;
 	FUNLOCK(f);
 	va_end(ap2);

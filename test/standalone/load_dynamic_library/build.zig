@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
     const lib = b.addSharedLibrary(.{
         .name = "add",
         .root_source_file = .{ .path = "add.zig" },
-        .version = .{ .major = 1, .minor = 0 },
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .optimize = optimize,
         .target = target,
     });

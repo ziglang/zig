@@ -1,6 +1,6 @@
 export fn entry() void {
-    const v: @import("std").meta.Vector(4, u32) = [4]u32{ 10, 11, 12, 13 };
-    const x: @import("std").meta.Vector(4, u32) = [4]u32{ 14, 15, 16, 17 };
+    const v: @Vector(4, u32) = [4]u32{ 10, 11, 12, 13 };
+    const x: @Vector(4, u32) = [4]u32{ 14, 15, 16, 17 };
     var z = @shuffle(u32, v, x, [8]i32{ 0, 1, 2, 3, 7, 6, 5, 4 });
     _ = z;
 }
