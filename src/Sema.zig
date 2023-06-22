@@ -8273,7 +8273,7 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
     if (try sema.resolveMaybeUndefVal(enum_tag)) |enum_tag_val| {
         const val = try enum_tag_val.intFromEnum(enum_tag_ty, mod);
-        return sema.addConstant(int_tag_ty, try val.copy(sema.arena));
+        return sema.addConstant(int_tag_ty, val);
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
@@ -28723,14 +28723,11 @@ fn beginComptimePtrMutation(
                                     // without making a call to this function.
                                     const arena = sema.arena;
 
-                                    const repeated_val = try val_ptr.castTag(.repeated).?.data.copy(arena);
+                                    const repeated_val = try val_ptr.castTag(.repeated).?.data.intern(parent.ty.childType(mod), mod);
                                     const array_len_including_sentinel =
                                         try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel(mod));
                                     const elems = try arena.alloc(Value, array_len_including_sentinel);
-                                    if (elems.len > 0) elems[0] = repeated_val;
-                                    for (elems[1..]) |*elem| {
-                                        elem.* = try repeated_val.copy(arena);
-                                    }
+                                    @memset(elems, repeated_val.toValue());
 
                                     val_ptr.* = try Value.Tag.aggregate.create(arena, elems);
 
@@ -36421,7 +36418,7 @@ fn valuesEqual(
     rhs: Value,
     ty: Type,
 ) CompileError!bool {
-    return Value.eqlAdvanced(lhs, ty, rhs, ty, sema.mod, sema);
+    return lhs.eql(rhs, ty, sema.mod);
 }
 
 /// Asserts the values are comparable vectors of type `ty`.
