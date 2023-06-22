@@ -1305,7 +1305,7 @@ fn genHtml(
     defer root_node.end();
 
     var env_map = try process.getEnvMap(allocator);
-    try env_map.put("ZIG_DEBUG_COLOR", "1");
+    try env_map.put("YES_COLOR", "1");
 
     const host = try std.zig.system.NativeTargetInfo.detect(.{});
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe, opt_zig_lib_dir);

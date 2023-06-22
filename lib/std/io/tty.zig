@@ -7,11 +7,11 @@ const native_os = builtin.os.tag;
 
 /// Detect suitable TTY configuration options for the given file (commonly stdout/stderr).
 /// This includes feature checks for ANSI escape codes and the Windows console API, as well as
-/// respecting the `ZIG_DEBUG_COLOR` and `YES_COLOR` environment variables to override the default.
+/// respecting the `NO_COLOR` and `YES_COLOR` environment variables to override the default.
 pub fn detectConfig(file: File) Config {
     const force_color: ?bool = if (builtin.os.tag == .wasi)
         null // wasi does not support environment variables
-    else if (process.hasEnvVarConstant("ZIG_DEBUG_COLOR"))
+    else if (process.hasEnvVarConstant("NO_COLOR"))
         false
     else if (process.hasEnvVarConstant("YES_COLOR"))
         true
