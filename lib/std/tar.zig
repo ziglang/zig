@@ -24,7 +24,7 @@ pub const FileType = enum(u8) {
     gnu_long_link = 'K',
     _,
 
-    pub const sentinel = @intToEnum(FileType, 0xff);
+    pub const sentinel = @enumFromInt(FileType, 0xff);
 
     pub const NamedTypesBitset = std.StaticBitSet(128);
 
@@ -35,7 +35,7 @@ pub const FileType = enum(u8) {
             .symbolic_link, .character_special, .block_special, .fifo,
             .contiguous,
         }) |ft|
-            result.set(@enumToInt(ft));
+            result.set(@intFromEnum(ft));
         break :blk result;
     };
 
@@ -43,13 +43,13 @@ pub const FileType = enum(u8) {
         return
         // verify not beyond NamedTypesBitset.bit_length to avoid assertion
         // failure in std.bit_set
-        @enumToInt(ft) < NamedTypesBitset.bit_length and
-            named_types_bitset.isSet(@enumToInt(ft));
+        @intFromEnum(ft) < NamedTypesBitset.bit_length and
+            named_types_bitset.isSet(@intFromEnum(ft));
     }
 
     pub fn tagName(ft: FileType) ?[]const u8 {
         return inline for (std.meta.fields(FileType)) |f| {
-            if (@enumToInt(ft) == f.value) break f.name;
+            if (@intFromEnum(ft) == f.value) break f.name;
         } else null;
     }
 };
@@ -76,12 +76,12 @@ fn parseNumeric(b: []const u8) !i64 {
         // data bytes and treat the value as an unsigned number.
 
         // inv = 0xff if negative else 0
-        const inv = @as(u8, @boolToInt(b[0] & 0x40 != 0)) * 0xff;
+        const inv = @as(u8, @intFromBool(b[0] & 0x40 != 0)) * 0xff;
 
         var x: u64 = 0;
         for (0..b.len) |i| {
             // ignore the signal bit in first byte
-            const mask = @as(u8, 0xff) >> @boolToInt(i == 0);
+            const mask = @as(u8, 0xff) >> @intFromBool(i == 0);
             const c = b[i] ^ inv & mask;
             if (x > 0x00ff_ffff_ffff_ffff) return error.Overflow;
             x = x << 8 | c;
@@ -442,14 +442,14 @@ pub const Header = struct {
     // TODO remove when unused
     pub fn format(h: Header, comptime _: []const u8, _: fmt.FormatOptions, writer: anytype) !void {
         const tagname = inline for (std.meta.fields(FileType)) |field| {
-            if (@enumToInt(h.type) == field.value) break field.name;
+            if (@intFromEnum(h.type) == field.value) break field.name;
         } else "null";
         try writer.print("type={s} size={} name={s} mtime={} mode=0o{o}", .{ tagname, h.size, h.name, h.mtime, h.mode });
         try debugFormatSet(h.fmt, writer);
     }
 
     fn structField(comptime field_enum: std.meta.FieldEnum(Header)) std.builtin.Type.StructField {
-        return @typeInfo(Header).Struct.fields[@enumToInt(field_enum)];
+        return @typeInfo(Header).Struct.fields[@intFromEnum(field_enum)];
     }
 
     fn fieldDefault(comptime field: std.builtin.Type.StructField) field.type {
@@ -766,7 +766,7 @@ pub fn HeaderIterator(comptime Reader: type) type {
             size: usize,
             outbuf: *std.ArrayListUnmanaged(u8),
         ) ![]u8 {
-            var want = mem.alignForwardGeneric(usize, size, block_len);
+            var want = mem.alignForward(usize, size, block_len);
             outbuf.items.len = 0;
             var w = outbuf.writer(self.allocator);
             var buf: [block_len]u8 = undefined;
@@ -1080,7 +1080,7 @@ fn makeSymLink(dir: fs.Dir, target_path: []const u8, symlink_path: []const u8) !
         };
         defer file.close();
         const stat = try file.stat();
-        break :blk stat.kind == .Directory;
+        break :blk stat.kind == .directory;
     };
     try dir.symLink(target_path, symlink_path, .{ .is_directory = is_directory });
 }
@@ -1146,7 +1146,7 @@ pub fn pipeToFileSystem(
                 defer file.close();
                 const size = math.cast(usize, header.size) orelse
                     return error.Header;
-                const want = mem.alignForwardGeneric(usize, size, block_len);
+                const want = mem.alignForward(usize, size, block_len);
                 var lim_reader = std.io.limitedReader(reader, want);
                 var bytes_left = size;
                 while (true) {
@@ -1156,7 +1156,7 @@ pub fn pipeToFileSystem(
                         block_len => {},
                         else => return error.UnexpectedEndOfStream,
                     }
-                    _ = try file.write(iter.buf[0..math.min(bytes_left, block_len)]);
+                    _ = try file.write(iter.buf[0..@min(bytes_left, block_len)]);
                     bytes_left -|= block_len;
                 }
 
@@ -1195,7 +1195,7 @@ pub fn pipeToFileSystem(
                 format.setIntersection(fmt_pax);
             },
             else => {
-                log.err("unsupported type '{?s}':{}", .{ header.type.tagName(), @enumToInt(header.type) });
+                log.err("unsupported type '{?s}':{}", .{ header.type.tagName(), @intFromEnum(header.type) });
                 return error.TarUnexpectedFileType;
             },
         }

@@ -72,7 +72,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 200,
                 .mtime = try unixTime(1392395740, 0),
-                .type = @intToEnum(FileType, 0x53),
+                .type = @enumFromInt(FileType, 0x53),
                 .linkname = "",
                 .uname = "david",
                 .gname = "david",
@@ -86,7 +86,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 200,
                 .mtime = try unixTime(1392342187, 0),
-                .type = @intToEnum(FileType, 0x30),
+                .type = @enumFromInt(FileType, 0x30),
                 .linkname = "",
                 .uname = "david",
                 .gname = "david",
@@ -105,7 +105,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 200,
                 .mtime = try unixTime(1392340456, 0),
-                .type = @intToEnum(FileType, 0x30),
+                .type = @enumFromInt(FileType, 0x30),
                 .linkname = "",
                 .uname = "david",
                 .gname = "david",
@@ -125,7 +125,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 200,
                 .mtime = try unixTime(1392337404, 0),
-                .type = @intToEnum(FileType, 0x30),
+                .type = @enumFromInt(FileType, 0x30),
                 .linkname = "",
                 .uname = "david",
                 .gname = "david",
@@ -145,7 +145,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 4,
                 .mtime = try unixTime(1392398319, 0),
-                .type = @intToEnum(FileType, 0x30),
+                .type = @enumFromInt(FileType, 0x30),
                 .linkname = "",
                 .uname = "david",
                 .gname = "david",
@@ -426,7 +426,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 14,
                 .mtime = try unixTime(1441973427, 0),
-                .type = @intToEnum(FileType, 'D'),
+                .type = @enumFromInt(FileType, 'D'),
                 .uname = "rawr",
                 .gname = "dsnet",
                 .atime = try unixTime(1441974501, 0),
@@ -452,7 +452,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 536870912,
                 .mtime = try unixTime(1441973427, 0),
-                .type = @intToEnum(FileType, 'S'),
+                .type = @enumFromInt(FileType, 'S'),
                 .uname = "rawr",
                 .gname = "dsnet",
                 .atime = try unixTime(1441991948, 0),
@@ -467,7 +467,7 @@ test "std.tar validate testdata headers" {
                 .name = "bar",
                 .linkname = "PAX4/PAX4/long-linkpath-name",
                 .mtime = try unixTime(0, 0),
-                .type = @intToEnum(tar.FileType, '2'),
+                .type = @enumFromInt(tar.FileType, '2'),
                 .pax_recs = &.{
                     "linkpath", "PAX4/PAX4/long-linkpath-name",
                 },
@@ -715,7 +715,7 @@ test "std.tar validate testdata headers" {
             }
 
             if (actual.size == -1) continue;
-            const block_size = std.mem.alignForwardGeneric(usize, @intCast(usize, actual.size), 512);
+            const block_size = std.mem.alignForward(usize, @intCast(usize, actual.size), 512);
             // validate checksums if exist or skip over file contents
             if (test_case.chksums.len > i) {
                 var h = std.crypto.hash.Md5.init(.{});
@@ -746,7 +746,7 @@ test "std.tar validate testdata headers" {
         }
 
         if (test_case.err) |e| {
-            if (e != merr) {
+            if (merr == null or e != merr.?) {
                 errors += 1;
                 std.log.err("errors don't match. expecting {!} found {?!}", .{ e, merr });
             }
