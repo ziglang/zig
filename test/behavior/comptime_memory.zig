@@ -431,3 +431,10 @@ test "dereference undefined pointer to zero-bit type" {
     const p1: *[0]u32 = undefined;
     try testing.expect(p1.*.len == 0);
 }
+
+test "type pun extern struct" {
+    const S = extern struct { f: u8 };
+    comptime var s = S{ .f = 123 };
+    @ptrCast(*u8, &s).* = 72;
+    try testing.expectEqual(@as(u8, 72), s.f);
+}

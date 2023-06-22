@@ -120,14 +120,6 @@ pub const Type = struct {
         return a.toIntern() == b.toIntern();
     }
 
-    pub fn hash(ty: Type, mod: *const Module) u32 {
-        _ = mod; // TODO: remove this parameter
-        // The InternPool data structure hashes based on Key to make interned objects
-        // unique. An Index can be treated simply as u32 value for the
-        // purpose of Type/Value hashing and equality.
-        return std.hash.uint32(@intFromEnum(ty.toIntern()));
-    }
-
     pub fn format(ty: Type, comptime unused_fmt_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = ty;
         _ = unused_fmt_string;
