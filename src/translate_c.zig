@@ -1010,17 +1010,23 @@ fn buildFlexibleArrayFn(
     const bit_offset = layout.getFieldOffset(field_index); // this is a target-specific constant based on the struct layout
     const byte_offset = bit_offset / 8;
 
-    const casted_self = try Tag.ptr_cast.create(c.arena, .{
+    const casted_self = try Tag.as.create(c.arena, .{
         .lhs = intermediate_type_ident,
-        .rhs = self_param,
+        .rhs = try Tag.ptr_cast.create(c.arena, self_param),
     });
     const field_offset = try transCreateNodeNumber(c, byte_offset, .int);
     const field_ptr = try Tag.add.create(c.arena, .{ .lhs = casted_self, .rhs = field_offset });
 
-    const alignment = try Tag.alignof.create(c.arena, element_type);
-
-    const ptr_val = try Tag.align_cast.create(c.arena, .{ .lhs = alignment, .rhs = field_ptr });
-    const ptr_cast = try Tag.ptr_cast.create(c.arena, .{ .lhs = return_type_ident, .rhs = ptr_val });
+    const ptr_cast = try Tag.as.create(c.arena, .{
+        .lhs = return_type_ident,
+        .rhs = try Tag.ptr_cast.create(
+            c.arena,
+            try Tag.align_cast.create(
+                c.arena,
+                field_ptr,
+            ),
+        ),
+    });
     const return_stmt = try Tag.@"return".create(c.arena, ptr_cast);
     try block_scope.statements.append(return_stmt);
 
@@ -1579,14 +1585,14 @@ fn transOffsetOfExpr(
 /// pointer arithmetic expressions, where wraparound will ensure we get the correct value.
 /// node -> @bitCast(usize, @intCast(isize, node))
 fn usizeCastForWrappingPtrArithmetic(gpa: mem.Allocator, node: Node) TransError!Node {
-    const intcast_node = try Tag.int_cast.create(gpa, .{
+    const intcast_node = try Tag.as.create(gpa, .{
         .lhs = try Tag.type.create(gpa, "isize"),
-        .rhs = node,
+        .rhs = try Tag.int_cast.create(gpa, node),
     });
 
-    return Tag.bit_cast.create(gpa, .{
+    return Tag.as.create(gpa, .{
         .lhs = try Tag.type.create(gpa, "usize"),
-        .rhs = intcast_node,
+        .rhs = try Tag.bit_cast.create(gpa, intcast_node),
     });
 }
 
@@ -1781,7 +1787,10 @@ fn transBinaryOperator(
         const elem_type = c_pointer.castTag(.c_pointer).?.data.elem_type;
         const sizeof = try Tag.sizeof.create(c.arena, elem_type);
 
-        const bitcast = try Tag.bit_cast.create(c.arena, .{ .lhs = ptrdiff_type, .rhs = infixOpNode });
+        const bitcast = try Tag.as.create(c.arena, .{
+            .lhs = ptrdiff_type,
+            .rhs = try Tag.bit_cast.create(c.arena, infixOpNode),
+        });
 
         return Tag.div_exact.create(c.arena, .{
             .lhs = bitcast,
@@ -2310,7 +2319,7 @@ fn transIntegerLiteral(
     //     unsigned char y = 256;
     // How this gets evaluated is the 256 is an integer, which gets truncated to signed char, then bit-casted
     // to unsigned char, resulting in 0. In order for this to work, we have to emit this zig code:
-    //     var y = @bitCast(u8, @truncate(i8, @as(c_int, 256)));
+    //     var y = @as(u8, @bitCast(@as(i8, @truncate(@as(c_int, 256)))));
     // Ideally in translate-c we could flatten this out to simply:
     //     var y: u8 = 0;
     // But the first step is to be correct, and the next step is to make the output more elegant.
@@ -2501,7 +2510,10 @@ fn transCCast(
             .lt => {
                 // @truncate(SameSignSmallerInt, src_int_expr)
                 const ty_node = try transQualTypeIntWidthOf(c, dst_type, src_type_is_signed);
-                src_int_expr = try Tag.truncate.create(c.arena, .{ .lhs = ty_node, .rhs = src_int_expr });
+                src_int_expr = try Tag.as.create(c.arena, .{
+                    .lhs = ty_node,
+                    .rhs = try Tag.truncate.create(c.arena, src_int_expr),
+                });
             },
             .gt => {
                 // @as(SameSignBiggerInt, src_int_expr)
@@ -2512,36 +2524,57 @@ fn transCCast(
                 // src_int_expr = src_int_expr
             },
         }
-        // @bitCast(dest_type, intermediate_value)
-        return Tag.bit_cast.create(c.arena, .{ .lhs = dst_node, .rhs = src_int_expr });
+        // @as(dest_type, @bitCast(intermediate_value))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.bit_cast.create(c.arena, src_int_expr),
+        });
     }
     if (cIsVector(src_type) or cIsVector(dst_type)) {
         // C cast where at least 1 operand is a vector requires them to be same size
-        // @bitCast(dest_type, val)
-        return Tag.bit_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @as(dest_type, @bitCast(val))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.bit_cast.create(c.arena, expr),
+        });
     }
     if (cIsInteger(dst_type) and qualTypeIsPtr(src_type)) {
         // @intCast(dest_type, @intFromPtr(val))
         const int_from_ptr = try Tag.int_from_ptr.create(c.arena, expr);
-        return Tag.int_cast.create(c.arena, .{ .lhs = dst_node, .rhs = int_from_ptr });
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.int_cast.create(c.arena, int_from_ptr),
+        });
     }
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
-        // @ptrFromInt(dest_type, val)
-        return Tag.ptr_from_int.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @as(dest_type, @ptrFromInt(val))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.ptr_from_int.create(c.arena, expr),
+        });
     }
     if (cIsFloating(src_type) and cIsFloating(dst_type)) {
-        // @floatCast(dest_type, val)
-        return Tag.float_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @as(dest_type, @floatCast(val))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.float_cast.create(c.arena, expr),
+        });
     }
     if (cIsFloating(src_type) and !cIsFloating(dst_type)) {
-        // @intFromFloat(dest_type, val)
-        return Tag.int_from_float.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @as(dest_type, @intFromFloat(val))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.int_from_float.create(c.arena, expr),
+        });
     }
     if (!cIsFloating(src_type) and cIsFloating(dst_type)) {
         var rhs = expr;
         if (qualTypeIsBoolean(src_type)) rhs = try Tag.int_from_bool.create(c.arena, expr);
-        // @floatFromInt(dest_type, val)
-        return Tag.float_from_int.create(c.arena, .{ .lhs = dst_node, .rhs = rhs });
+        // @as(dest_type, @floatFromInt(val))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.float_from_int.create(c.arena, rhs),
+        });
     }
     if (qualTypeIsBoolean(src_type) and !qualTypeIsBoolean(dst_type)) {
         // @intFromBool returns a u1
@@ -3487,9 +3520,9 @@ fn transSignedArrayAccess(
 
     const then_value = try Tag.add.create(c.arena, .{
         .lhs = container_node,
-        .rhs = try Tag.int_cast.create(c.arena, .{
+        .rhs = try Tag.as.create(c.arena, .{
             .lhs = try Tag.type.create(c.arena, "usize"),
-            .rhs = tmp_ref,
+            .rhs = try Tag.int_cast.create(c.arena, tmp_ref),
         }),
     });
 
@@ -3499,17 +3532,17 @@ fn transSignedArrayAccess(
     });
 
     const minuend = container_node;
-    const signed_size = try Tag.int_cast.create(c.arena, .{
+    const signed_size = try Tag.as.create(c.arena, .{
         .lhs = try Tag.type.create(c.arena, "isize"),
-        .rhs = tmp_ref,
+        .rhs = try Tag.int_cast.create(c.arena, tmp_ref),
     });
     const to_cast = try Tag.add_wrap.create(c.arena, .{
         .lhs = signed_size,
         .rhs = try Tag.negate.create(c.arena, Tag.one_literal.init()),
     });
-    const bitcast_node = try Tag.bit_cast.create(c.arena, .{
+    const bitcast_node = try Tag.as.create(c.arena, .{
         .lhs = try Tag.type.create(c.arena, "usize"),
-        .rhs = to_cast,
+        .rhs = try Tag.bit_cast.create(c.arena, to_cast),
     });
     const subtrahend = try Tag.bit_not.create(c.arena, bitcast_node);
     const difference = try Tag.sub.create(c.arena, .{
@@ -3566,7 +3599,13 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
     const rhs = if (is_longlong or is_signed) blk: {
         // check if long long first so that signed long long doesn't just become unsigned long long
         const typeid_node = if (is_longlong) try Tag.type.create(c.arena, "usize") else try transQualTypeIntWidthOf(c, subscr_qt, false);
-        break :blk try Tag.int_cast.create(c.arena, .{ .lhs = typeid_node, .rhs = try transExpr(c, scope, subscr_expr, .used) });
+        break :blk try Tag.as.create(c.arena, .{
+            .lhs = typeid_node,
+            .rhs = try Tag.int_cast.create(
+                c.arena,
+                try transExpr(c, scope, subscr_expr, .used),
+            ),
+        });
     } else try transExpr(c, scope, subscr_expr, .used);
 
     const node = try Tag.array_access.create(c.arena, .{
@@ -3968,8 +4007,7 @@ fn transCreateCompoundAssign(
         }
 
         if (is_shift) {
-            const cast_to_type = try qualTypeToLog2IntRef(c, scope, rhs_qt, loc);
-            rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
+            rhs_node = try Tag.int_cast.create(c.arena, rhs_node);
         } else if (requires_int_cast) {
             rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
         }
@@ -4008,8 +4046,7 @@ fn transCreateCompoundAssign(
         try block_scope.statements.append(assign);
     } else {
         if (is_shift) {
-            const cast_to_type = try qualTypeToLog2IntRef(c, &block_scope.base, rhs_qt, loc);
-            rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
+            rhs_node = try Tag.int_cast.create(c.arena, rhs_node);
         } else if (requires_int_cast) {
             rhs_node = try transCCast(c, &block_scope.base, loc, lhs_qt, rhs_qt, rhs_node);
         }
@@ -4029,7 +4066,10 @@ fn transCreateCompoundAssign(
 // Casting away const or volatile requires us to use @ptrFromInt
 fn removeCVQualifiers(c: *Context, dst_type_node: Node, expr: Node) Error!Node {
     const int_from_ptr = try Tag.int_from_ptr.create(c.arena, expr);
-    return Tag.ptr_from_int.create(c.arena, .{ .lhs = dst_type_node, .rhs = int_from_ptr });
+    return Tag.as.create(c.arena, .{
+        .lhs = dst_type_node,
+        .rhs = try Tag.ptr_from_int.create(c.arena, int_from_ptr),
+    });
 }
 
 fn transCPtrCast(
@@ -4062,11 +4102,12 @@ fn transCPtrCast(
             // For opaque types a ptrCast is enough
             expr
         else blk: {
-            const alignof = try Tag.std_meta_alignment.create(c.arena, dst_type_node);
-            const align_cast = try Tag.align_cast.create(c.arena, .{ .lhs = alignof, .rhs = expr });
-            break :blk align_cast;
+            break :blk try Tag.align_cast.create(c.arena, expr);
         };
-        return Tag.ptr_cast.create(c.arena, .{ .lhs = dst_type_node, .rhs = rhs });
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_type_node,
+            .rhs = try Tag.ptr_cast.create(c.arena, rhs),
+        });
     }
 }
 
@@ -4335,19 +4376,6 @@ fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
         },
         else => return 0,
     }
-}
-
-fn qualTypeToLog2IntRef(c: *Context, scope: *Scope, qt: clang.QualType, source_loc: clang.SourceLocation) !Node {
-    const int_bit_width = try qualTypeIntBitWidth(c, qt);
-
-    if (int_bit_width != 0) {
-        // we can perform the log2 now.
-        const cast_bit_width = math.log2_int(u64, int_bit_width);
-        return Tag.log2_int_type.create(c.arena, cast_bit_width);
-    }
-
-    const zig_type = try transQualType(c, scope, qt, source_loc);
-    return Tag.std_math_Log2Int.create(c.arena, zig_type);
 }
 
 fn qualTypeChildIsFnProto(qt: clang.QualType) bool {
@@ -4731,14 +4759,12 @@ fn transCreateNodeShiftOp(
 
     const lhs_expr = stmt.getLHS();
     const rhs_expr = stmt.getRHS();
-    const rhs_location = rhs_expr.getBeginLoc();
     // lhs >> @as(u5, rh)
 
     const lhs = try transExpr(c, scope, lhs_expr, .used);
 
-    const rhs_type = try qualTypeToLog2IntRef(c, scope, stmt.getType(), rhs_location);
     const rhs = try transExprCoercing(c, scope, rhs_expr, .used);
-    const rhs_casted = try Tag.int_cast.create(c.arena, .{ .lhs = rhs_type, .rhs = rhs });
+    const rhs_casted = try Tag.int_cast.create(c.arena, rhs);
 
     return transCreateNodeInfixOp(c, op, lhs, rhs_casted, used);
 }
@@ -6513,9 +6539,9 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
             },
             .LBracket => {
                 const index_val = try macroIntFromBool(c, try parseCExpr(c, m, scope));
-                const index = try Tag.int_cast.create(c.arena, .{
+                const index = try Tag.as.create(c.arena, .{
                     .lhs = try Tag.type.create(c.arena, "usize"),
-                    .rhs = index_val,
+                    .rhs = try Tag.int_cast.create(c.arena, index_val),
                 });
                 node = try Tag.array_access.create(c.arena, .{ .lhs = node, .rhs = index });
                 try m.skip(c, .RBracket);
