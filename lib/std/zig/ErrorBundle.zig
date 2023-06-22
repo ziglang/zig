@@ -224,7 +224,7 @@ fn renderErrorMessageToWriter(
             // TODO basic unicode code point monospace width
             const before_caret = src.data.span_main - src.data.span_start;
             // -1 since span.main includes the caret
-            const after_caret = src.data.span_end - src.data.span_main -| 1;
+            const after_caret = src.data.span_end -| src.data.span_main -| 1;
             try stderr.writeByteNTimes(' ', src.data.column - before_caret);
             try ttyconf.setColor(stderr, .green);
             try stderr.writeByteNTimes('~', before_caret);
