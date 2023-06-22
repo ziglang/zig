@@ -8637,9 +8637,11 @@ pub const FuncGen = struct {
             return result_ptr;
         }
 
-        if (llvm_dest_ty.isStruct(&o.builder)) {
+        if (llvm_dest_ty.isStruct(&o.builder) or
+            ((operand_ty.zigTypeTag(mod) == .Vector or inst_ty.zigTypeTag(mod) == .Vector) and operand_ty.bitSize(mod) != inst_ty.bitSize(mod)))
+        {
             // Both our operand and our result are values, not pointers,
-            // but LLVM won't let us bitcast struct values.
+            // but LLVM won't let us bitcast struct values or vectors with padding bits.
             // Therefore, we store operand to alloca, then load for result.
             const alignment = Builder.Alignment.fromByteUnits(
                 @max(operand_ty.abiAlignment(mod), inst_ty.abiAlignment(mod)),

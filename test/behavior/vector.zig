@@ -1324,6 +1324,55 @@ test "store to vector in slice" {
     try expectEqual(v[1], v[0]);
 }
 
+test "store vector with memset" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_llvm) {
+        switch (builtin.target.cpu.arch) {
+            .wasm32,
+            .mips,
+            .mipsel,
+            .mips64,
+            .mips64el,
+            .riscv64,
+            .powerpc,
+            => {
+                // LLVM 16 ERROR: "Converting bits to bytes lost precision"
+                // https://github.com/ziglang/zig/issues/16177
+                return error.SkipZigTest;
+            },
+            else => {},
+        }
+    }
+
+    var a: [5]@Vector(2, i1) = undefined;
+    var b: [5]@Vector(2, u2) = undefined;
+    var c: [5]@Vector(2, i4) = undefined;
+    var d: [5]@Vector(2, u8) = undefined;
+    var e: [5]@Vector(2, i9) = undefined;
+    var ka = @Vector(2, i1){ -1, 0 };
+    var kb = @Vector(2, u2){ 0, 1 };
+    var kc = @Vector(2, i4){ 2, 3 };
+    var kd = @Vector(2, u8){ 4, 5 };
+    var ke = @Vector(2, i9){ 6, 7 };
+    @memset(&a, ka);
+    @memset(&b, kb);
+    @memset(&c, kc);
+    @memset(&d, kd);
+    @memset(&e, ke);
+    try std.testing.expectEqual(ka, a[0]);
+    try std.testing.expectEqual(kb, b[1]);
+    try std.testing.expectEqual(kc, c[2]);
+    try std.testing.expectEqual(kd, d[3]);
+    try std.testing.expectEqual(ke, e[4]);
+}
+
 test "addition of vectors represented as strings" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
