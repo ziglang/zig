@@ -21,5 +21,5 @@ pub fn __fixtfti(a: f128) callconv(.C) i128 {
 const v2u64 = @Vector(2, u64);
 
 fn __fixtfti_windows_x86_64(a: f128) callconv(.C) v2u64 {
-    return @bitCast(v2u64, intFromFloat(i128, a));
+    return @as(v2u64, @bitCast(intFromFloat(i128, a)));
 }

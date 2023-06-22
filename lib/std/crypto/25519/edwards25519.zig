@@ -162,8 +162,8 @@ pub const Edwards25519 = struct {
         const reduced = if ((s[s.len - 1] & 0x80) == 0) s else scalar.reduce(s);
         var e: [2 * 32]i8 = undefined;
         for (reduced, 0..) |x, i| {
-            e[i * 2 + 0] = @as(i8, @truncate(u4, x));
-            e[i * 2 + 1] = @as(i8, @truncate(u4, x >> 4));
+            e[i * 2 + 0] = @as(i8, @as(u4, @truncate(x)));
+            e[i * 2 + 1] = @as(i8, @as(u4, @truncate(x >> 4)));
         }
         // Now, e[0..63] is between 0 and 15, e[63] is between 0 and 7
         var carry: i8 = 0;
@@ -190,9 +190,9 @@ pub const Edwards25519 = struct {
         while (true) : (pos -= 1) {
             const slot = e[pos];
             if (slot > 0) {
-                q = q.add(pc[@intCast(usize, slot)]);
+                q = q.add(pc[@as(usize, @intCast(slot))]);
             } else if (slot < 0) {
-                q = q.sub(pc[@intCast(usize, -slot)]);
+                q = q.sub(pc[@as(usize, @intCast(-slot))]);
             }
             if (pos == 0) break;
             q = q.dbl().dbl().dbl().dbl();
@@ -206,7 +206,7 @@ pub const Edwards25519 = struct {
         var q = Edwards25519.identityElement;
         var pos: usize = 252;
         while (true) : (pos -= 4) {
-            const slot = @truncate(u4, (s[pos >> 3] >> @truncate(u3, pos)));
+            const slot = @as(u4, @truncate((s[pos >> 3] >> @as(u3, @truncate(pos)))));
             if (vartime) {
                 if (slot != 0) {
                     q = q.add(pc[slot]);
@@ -283,15 +283,15 @@ pub const Edwards25519 = struct {
         while (true) : (pos -= 1) {
             const slot1 = e1[pos];
             if (slot1 > 0) {
-                q = q.add(pc1[@intCast(usize, slot1)]);
+                q = q.add(pc1[@as(usize, @intCast(slot1))]);
             } else if (slot1 < 0) {
-                q = q.sub(pc1[@intCast(usize, -slot1)]);
+                q = q.sub(pc1[@as(usize, @intCast(-slot1))]);
             }
             const slot2 = e2[pos];
             if (slot2 > 0) {
-                q = q.add(pc2[@intCast(usize, slot2)]);
+                q = q.add(pc2[@as(usize, @intCast(slot2))]);
             } else if (slot2 < 0) {
-                q = q.sub(pc2[@intCast(usize, -slot2)]);
+                q = q.sub(pc2[@as(usize, @intCast(-slot2))]);
             }
             if (pos == 0) break;
             q = q.dbl().dbl().dbl().dbl();
@@ -326,9 +326,9 @@ pub const Edwards25519 = struct {
             for (es, 0..) |e, i| {
                 const slot = e[pos];
                 if (slot > 0) {
-                    q = q.add(pcs[i][@intCast(usize, slot)]);
+                    q = q.add(pcs[i][@as(usize, @intCast(slot))]);
                 } else if (slot < 0) {
-                    q = q.sub(pcs[i][@intCast(usize, -slot)]);
+                    q = q.sub(pcs[i][@as(usize, @intCast(-slot))]);
                 }
             }
             if (pos == 0) break;
@@ -427,7 +427,7 @@ pub const Edwards25519 = struct {
         }
         const empty_block = [_]u8{0} ** H.block_length;
         var t = [3]u8{ 0, n * h_l, 0 };
-        var xctx_len_u8 = [1]u8{@intCast(u8, xctx.len)};
+        var xctx_len_u8 = [1]u8{@as(u8, @intCast(xctx.len))};
         var st = H.init(.{});
         st.update(empty_block[0..]);
         st.update(s);

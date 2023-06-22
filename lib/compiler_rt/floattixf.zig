@@ -17,5 +17,5 @@ pub fn __floattixf(a: i128) callconv(.C) f80 {
 }
 
 fn __floattixf_windows_x86_64(a: @Vector(2, u64)) callconv(.C) f80 {
-    return floatFromInt(f80, @bitCast(i128, a));
+    return floatFromInt(f80, @as(i128, @bitCast(a)));
 }

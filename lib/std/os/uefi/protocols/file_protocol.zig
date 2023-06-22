@@ -152,7 +152,7 @@ pub const FileInfo = extern struct {
     attribute: u64,
 
     pub fn getFileName(self: *const FileInfo) [*:0]const u16 {
-        return @ptrCast([*:0]const u16, @ptrCast([*]const u8, self) + @sizeOf(FileInfo));
+        return @as([*:0]const u16, @ptrCast(@as([*]const u8, @ptrCast(self)) + @sizeOf(FileInfo)));
     }
 
     pub const efi_file_read_only: u64 = 0x0000000000000001;
@@ -182,7 +182,7 @@ pub const FileSystemInfo = extern struct {
     _volume_label: u16,
 
     pub fn getVolumeLabel(self: *const FileSystemInfo) [*:0]const u16 {
-        return @ptrCast([*:0]const u16, &self._volume_label);
+        return @as([*:0]const u16, @ptrCast(&self._volume_label));
     }
 
     pub const guid align(8) = Guid{

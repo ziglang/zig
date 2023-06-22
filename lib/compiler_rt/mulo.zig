@@ -45,7 +45,7 @@ inline fn muloXi4_genericFast(comptime ST: type, a: ST, b: ST, overflow: *c_int)
     //invariant: -2^{bitwidth(EST)} < res < 2^{bitwidth(EST)-1}
     if (res < min or max < res)
         overflow.* = 1;
-    return @truncate(ST, res);
+    return @as(ST, @truncate(res));
 }
 
 pub fn __mulosi4(a: i32, b: i32, overflow: *c_int) callconv(.C) i32 {

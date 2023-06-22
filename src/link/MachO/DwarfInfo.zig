@@ -70,7 +70,7 @@ pub fn genSubprogramLookupByName(
                         low_pc = addr;
                     }
                     if (try attr.getConstant(self)) |constant| {
-                        low_pc = @intCast(u64, constant);
+                        low_pc = @as(u64, @intCast(constant));
                     }
                 },
                 dwarf.AT.high_pc => {
@@ -78,7 +78,7 @@ pub fn genSubprogramLookupByName(
                         high_pc = addr;
                     }
                     if (try attr.getConstant(self)) |constant| {
-                        high_pc = @intCast(u64, constant);
+                        high_pc = @as(u64, @intCast(constant));
                     }
                 },
                 else => {},
@@ -261,7 +261,7 @@ pub const Attribute = struct {
 
         switch (self.form) {
             dwarf.FORM.string => {
-                return mem.sliceTo(@ptrCast([*:0]const u8, debug_info.ptr), 0);
+                return mem.sliceTo(@as([*:0]const u8, @ptrCast(debug_info.ptr)), 0);
             },
             dwarf.FORM.strp => {
                 const off = if (cuh.is_64bit)
@@ -499,5 +499,5 @@ fn findAbbrevEntrySize(self: DwarfInfo, da_off: usize, da_len: usize, di_off: us
 
 fn getString(self: DwarfInfo, off: u64) []const u8 {
     assert(off < self.debug_str.len);
-    return mem.sliceTo(@ptrCast([*:0]const u8, self.debug_str.ptr + @intCast(usize, off)), 0);
+    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.debug_str.ptr + @as(usize, @intCast(off)))), 0);
 }

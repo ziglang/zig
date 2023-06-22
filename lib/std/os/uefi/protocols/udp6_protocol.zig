@@ -87,7 +87,7 @@ pub const Udp6ReceiveData = extern struct {
     fragment_count: u32,
 
     pub fn getFragments(self: *Udp6ReceiveData) []Udp6FragmentData {
-        return @ptrCast([*]Udp6FragmentData, @ptrCast([*]u8, self) + @sizeOf(Udp6ReceiveData))[0..self.fragment_count];
+        return @as([*]Udp6FragmentData, @ptrCast(@as([*]u8, @ptrCast(self)) + @sizeOf(Udp6ReceiveData)))[0..self.fragment_count];
     }
 };
 
@@ -97,7 +97,7 @@ pub const Udp6TransmitData = extern struct {
     fragment_count: u32,
 
     pub fn getFragments(self: *Udp6TransmitData) []Udp6FragmentData {
-        return @ptrCast([*]Udp6FragmentData, @ptrCast([*]u8, self) + @sizeOf(Udp6TransmitData))[0..self.fragment_count];
+        return @as([*]Udp6FragmentData, @ptrCast(@as([*]u8, @ptrCast(self)) + @sizeOf(Udp6TransmitData)))[0..self.fragment_count];
     }
 };
 

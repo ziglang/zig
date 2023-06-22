@@ -556,7 +556,7 @@ pub const Loop = struct {
                 self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.IN);
             },
             .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
-                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_READ, os.system.EV_ONESHOT);
+                self.bsdWaitKev(@as(usize, @intCast(fd)), os.system.EVFILT_READ, os.system.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -568,7 +568,7 @@ pub const Loop = struct {
                 self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.OUT);
             },
             .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
-                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
+                self.bsdWaitKev(@as(usize, @intCast(fd)), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -580,8 +580,8 @@ pub const Loop = struct {
                 self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.OUT | os.linux.EPOLL.IN);
             },
             .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
-                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_READ, os.system.EV_ONESHOT);
-                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
+                self.bsdWaitKev(@as(usize, @intCast(fd)), os.system.EVFILT_READ, os.system.EV_ONESHOT);
+                self.bsdWaitKev(@as(usize, @intCast(fd)), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -1415,7 +1415,7 @@ pub const Loop = struct {
                     var events: [1]os.linux.epoll_event = undefined;
                     const count = os.epoll_wait(self.os_data.epollfd, events[0..], -1);
                     for (events[0..count]) |ev| {
-                        const resume_node = @ptrFromInt(*ResumeNode, ev.data.ptr);
+                        const resume_node = @as(*ResumeNode, @ptrFromInt(ev.data.ptr));
                         const handle = resume_node.handle;
                         const resume_node_id = resume_node.id;
                         switch (resume_node_id) {
@@ -1439,7 +1439,7 @@ pub const Loop = struct {
                     const empty_kevs = &[0]os.Kevent{};
                     const count = os.kevent(self.os_data.kqfd, empty_kevs, eventlist[0..], null) catch unreachable;
                     for (eventlist[0..count]) |ev| {
-                        const resume_node = @ptrFromInt(*ResumeNode, ev.udata);
+                        const resume_node = @as(*ResumeNode, @ptrFromInt(ev.udata));
                         const handle = resume_node.handle;
                         const resume_node_id = resume_node.id;
                         switch (resume_node_id) {

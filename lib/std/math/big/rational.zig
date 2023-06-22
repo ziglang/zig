@@ -137,7 +137,7 @@ pub const Rational = struct {
         debug.assert(@typeInfo(T) == .Float);
 
         const UnsignedInt = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
-        const f_bits = @bitCast(UnsignedInt, f);
+        const f_bits = @as(UnsignedInt, @bitCast(f));
 
         const exponent_bits = math.floatExponentBits(T);
         const exponent_bias = (1 << (exponent_bits - 1)) - 1;
@@ -146,7 +146,7 @@ pub const Rational = struct {
         const exponent_mask = (1 << exponent_bits) - 1;
         const mantissa_mask = (1 << mantissa_bits) - 1;
 
-        var exponent = @intCast(i16, (f_bits >> mantissa_bits) & exponent_mask);
+        var exponent = @as(i16, @intCast((f_bits >> mantissa_bits) & exponent_mask));
         var mantissa = f_bits & mantissa_mask;
 
         switch (exponent) {
@@ -177,9 +177,9 @@ pub const Rational = struct {
 
         try self.q.set(1);
         if (shift >= 0) {
-            try self.q.shiftLeft(&self.q, @intCast(usize, shift));
+            try self.q.shiftLeft(&self.q, @as(usize, @intCast(shift)));
         } else {
-            try self.p.shiftLeft(&self.p, @intCast(usize, -shift));
+            try self.p.shiftLeft(&self.p, @as(usize, @intCast(-shift)));
         }
 
         try self.reduce();
@@ -210,7 +210,7 @@ pub const Rational = struct {
         }
 
         // 1. left-shift a or sub so that a/b is in [1 << msize1, 1 << (msize2 + 1)]
-        var exp = @intCast(isize, self.p.bitCountTwosComp()) - @intCast(isize, self.q.bitCountTwosComp());
+        var exp = @as(isize, @intCast(self.p.bitCountTwosComp())) - @as(isize, @intCast(self.q.bitCountTwosComp()));
 
         var a2 = try self.p.clone();
         defer a2.deinit();
@@ -220,9 +220,9 @@ pub const Rational = struct {
 
         const shift = msize2 - exp;
         if (shift >= 0) {
-            try a2.shiftLeft(&a2, @intCast(usize, shift));
+            try a2.shiftLeft(&a2, @as(usize, @intCast(shift)));
         } else {
-            try b2.shiftLeft(&b2, @intCast(usize, -shift));
+            try b2.shiftLeft(&b2, @as(usize, @intCast(-shift)));
         }
 
         // 2. compute quotient and remainder
@@ -254,8 +254,8 @@ pub const Rational = struct {
         // 4. Rounding
         if (emin - msize <= exp and exp <= emin) {
             // denormal
-            const shift1 = @intCast(math.Log2Int(BitReprType), emin - (exp - 1));
-            const lost_bits = mantissa & ((@intCast(BitReprType, 1) << shift1) - 1);
+            const shift1 = @as(math.Log2Int(BitReprType), @intCast(emin - (exp - 1)));
+            const lost_bits = mantissa & ((@as(BitReprType, @intCast(1)) << shift1) - 1);
             have_rem = have_rem or lost_bits != 0;
             mantissa >>= shift1;
             exp = 2 - ebias;
@@ -276,7 +276,7 @@ pub const Rational = struct {
         }
         mantissa >>= 1;
 
-        const f = math.scalbn(@floatFromInt(T, mantissa), @intCast(i32, exp - msize1));
+        const f = math.scalbn(@as(T, @floatFromInt(mantissa)), @as(i32, @intCast(exp - msize1)));
         if (math.isInf(f)) {
             exact = false;
         }
@@ -477,7 +477,7 @@ fn extractLowBits(a: Int, comptime T: type) T {
     const t_bits = @typeInfo(T).Int.bits;
     const limb_bits = @typeInfo(Limb).Int.bits;
     if (t_bits <= limb_bits) {
-        return @truncate(T, a.limbs[0]);
+        return @as(T, @truncate(a.limbs[0]));
     } else {
         var r: T = 0;
         comptime var i: usize = 0;

@@ -368,7 +368,7 @@ pub const File = struct {
 
             return Stat{
                 .inode = st.ino,
-                .size = @bitCast(u64, st.size),
+                .size = @as(u64, @bitCast(st.size)),
                 .mode = st.mode,
                 .kind = kind,
                 .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
@@ -398,7 +398,7 @@ pub const File = struct {
             }
             return Stat{
                 .inode = info.InternalInformation.IndexNumber,
-                .size = @bitCast(u64, info.StandardInformation.EndOfFile),
+                .size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
                 .mode = 0,
                 .kind = if (info.StandardInformation.Directory == 0) .file else .directory,
                 .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
@@ -650,7 +650,7 @@ pub const File = struct {
 
         /// Returns the size of the file
         pub fn size(self: Self) u64 {
-            return @intCast(u64, self.stat.size);
+            return @as(u64, @intCast(self.stat.size));
         }
 
         /// Returns a `Permissions` struct, representing the permissions on the file
@@ -855,7 +855,7 @@ pub const File = struct {
                         if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) {
                             var reparse_buf: [windows.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
                             try windows.DeviceIoControl(self.handle, windows.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]);
-                            const reparse_struct = @ptrCast(*const windows.REPARSE_DATA_BUFFER, @alignCast(@alignOf(windows.REPARSE_DATA_BUFFER), &reparse_buf[0]));
+                            const reparse_struct: *const windows.REPARSE_DATA_BUFFER = @ptrCast(@alignCast(&reparse_buf[0]));
                             break :reparse_blk reparse_struct.ReparseTag;
                         }
                         break :reparse_blk 0;
@@ -864,7 +864,7 @@ pub const File = struct {
                     break :blk MetadataWindows{
                         .attributes = info.BasicInformation.FileAttributes,
                         .reparse_tag = reparse_tag,
-                        ._size = @bitCast(u64, info.StandardInformation.EndOfFile),
+                        ._size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
                         .access_time = windows.fromSysTime(info.BasicInformation.LastAccessTime),
                         .modified_time = windows.fromSysTime(info.BasicInformation.LastWriteTime),
                         .creation_time = windows.fromSysTime(info.BasicInformation.CreationTime),
@@ -881,16 +881,16 @@ pub const File = struct {
                         .NOSYS => {
                             const st = try os.fstat(self.handle);
 
-                            stx.mode = @intCast(u16, st.mode);
+                            stx.mode = @as(u16, @intCast(st.mode));
 
                             // Hacky conversion from timespec to statx_timestamp
                             stx.atime = std.mem.zeroes(os.linux.statx_timestamp);
                             stx.atime.tv_sec = st.atim.tv_sec;
-                            stx.atime.tv_nsec = @intCast(u32, st.atim.tv_nsec); // Guaranteed to succeed (tv_nsec is always below 10^9)
+                            stx.atime.tv_nsec = @as(u32, @intCast(st.atim.tv_nsec)); // Guaranteed to succeed (tv_nsec is always below 10^9)
 
                             stx.mtime = std.mem.zeroes(os.linux.statx_timestamp);
                             stx.mtime.tv_sec = st.mtim.tv_sec;
-                            stx.mtime.tv_nsec = @intCast(u32, st.mtim.tv_nsec);
+                            stx.mtime.tv_nsec = @as(u32, @intCast(st.mtim.tv_nsec));
 
                             stx.mask = os.linux.STATX_BASIC_STATS | os.linux.STATX_MTIME;
                         },
@@ -1414,7 +1414,7 @@ pub const File = struct {
                 amt = try os.sendfile(out_fd, in_fd, offset + off, count - off, zero_iovec, trailers, flags);
                 off += amt;
             }
-            amt = @intCast(usize, off - count);
+            amt = @as(usize, @intCast(off - count));
         }
         var i: usize = 0;
         while (i < trailers.len) {

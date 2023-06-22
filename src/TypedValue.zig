@@ -250,7 +250,7 @@ pub fn print(
             },
             .empty_enum_value => return writer.writeAll("(empty enum value)"),
             .float => |float| switch (float.storage) {
-                inline else => |x| return writer.print("{d}", .{@floatCast(f64, x)}),
+                inline else => |x| return writer.print("{d}", .{@as(f64, @floatCast(x))}),
             },
             .ptr => |ptr| {
                 if (ptr.addr == .int) {
@@ -273,7 +273,7 @@ pub fn print(
                         for (buf[0..max_len], 0..) |*c, i| {
                             const elem = try val.elemValue(mod, i);
                             if (elem.isUndef(mod)) break :str;
-                            c.* = @intCast(u8, elem.toUnsignedInt(mod));
+                            c.* = @as(u8, @intCast(elem.toUnsignedInt(mod)));
                         }
                         const truncated = if (len > max_string_len) " (truncated)" else "";
                         return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
@@ -352,11 +352,11 @@ pub fn print(
                                 if (container_ty.isTuple(mod)) {
                                     try writer.print("[{d}]", .{field.index});
                                 }
-                                const field_name = container_ty.structFieldName(@intCast(usize, field.index), mod);
+                                const field_name = container_ty.structFieldName(@as(usize, @intCast(field.index)), mod);
                                 try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Union => {
-                                const field_name = container_ty.unionFields(mod).keys()[@intCast(usize, field.index)];
+                                const field_name = container_ty.unionFields(mod).keys()[@as(usize, @intCast(field.index))];
                                 try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Pointer => {

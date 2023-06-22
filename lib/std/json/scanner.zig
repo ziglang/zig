@@ -193,7 +193,7 @@ pub const TokenType = enum {
 /// to get meaningful information from this.
 pub const Diagnostics = struct {
     line_number: u64 = 1,
-    line_start_cursor: usize = @bitCast(usize, @as(isize, -1)), // Start just "before" the input buffer to get a 1-based column for line 1.
+    line_start_cursor: usize = @as(usize, @bitCast(@as(isize, -1))), // Start just "before" the input buffer to get a 1-based column for line 1.
     total_bytes_before_current_input: u64 = 0,
     cursor_pointer: *const usize = undefined,
 
@@ -1719,7 +1719,7 @@ const BitStack = struct {
 
     pub fn push(self: *@This(), b: u1) Allocator.Error!void {
         const byte_index = self.bit_len >> 3;
-        const bit_index = @intCast(u3, self.bit_len & 7);
+        const bit_index = @as(u3, @intCast(self.bit_len & 7));
 
         if (self.bytes.items.len <= byte_index) {
             try self.bytes.append(0);
@@ -1733,8 +1733,8 @@ const BitStack = struct {
 
     pub fn peek(self: *const @This()) u1 {
         const byte_index = (self.bit_len - 1) >> 3;
-        const bit_index = @intCast(u3, (self.bit_len - 1) & 7);
-        return @intCast(u1, (self.bytes.items[byte_index] >> bit_index) & 1);
+        const bit_index = @as(u3, @intCast((self.bit_len - 1) & 7));
+        return @as(u1, @intCast((self.bytes.items[byte_index] >> bit_index) & 1));
     }
 
     pub fn pop(self: *@This()) u1 {

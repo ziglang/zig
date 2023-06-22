@@ -33,7 +33,7 @@ pub inline fn extendf(
     const dstMinNormal: dst_rep_t = @as(dst_rep_t, 1) << dstSigBits;
 
     // Break a into a sign and representation of the absolute value
-    const aRep: src_rep_t = @bitCast(src_rep_t, a);
+    const aRep: src_rep_t = @as(src_rep_t, @bitCast(a));
     const aAbs: src_rep_t = aRep & srcAbsMask;
     const sign: src_rep_t = aRep & srcSignMask;
     var absResult: dst_rep_t = undefined;
@@ -58,10 +58,10 @@ pub inline fn extendf(
         // the correct adjusted exponent in the destination type.
         const scale: u32 = @clz(aAbs) -
             @clz(@as(src_rep_t, srcMinNormal));
-        absResult = @as(dst_rep_t, aAbs) << @intCast(DstShift, dstSigBits - srcSigBits + scale);
+        absResult = @as(dst_rep_t, aAbs) << @as(DstShift, @intCast(dstSigBits - srcSigBits + scale));
         absResult ^= dstMinNormal;
         const resultExponent: u32 = dstExpBias - srcExpBias - scale + 1;
-        absResult |= @intCast(dst_rep_t, resultExponent) << dstSigBits;
+        absResult |= @as(dst_rep_t, @intCast(resultExponent)) << dstSigBits;
     } else {
         // a is zero.
         absResult = 0;
@@ -69,7 +69,7 @@ pub inline fn extendf(
 
     // Apply the signbit to (dst_t)abs(a).
     const result: dst_rep_t align(@alignOf(dst_t)) = absResult | @as(dst_rep_t, sign) << (dstBits - srcBits);
-    return @bitCast(dst_t, result);
+    return @as(dst_t, @bitCast(result));
 }
 
 pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits)) f80 {
@@ -104,7 +104,7 @@ pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeI
         // a is a normal number.
         // Extend to the destination type by shifting the significand and
         // exponent into the proper position and rebiasing the exponent.
-        dst.exp = @intCast(u16, a_abs >> src_sig_bits);
+        dst.exp = @as(u16, @intCast(a_abs >> src_sig_bits));
         dst.exp += dst_exp_bias - src_exp_bias;
         dst.fraction = @as(u64, a_abs) << (dst_sig_bits - src_sig_bits);
         dst.fraction |= dst_int_bit; // bit 64 is always set for normal numbers
@@ -124,9 +124,9 @@ pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeI
         const scale: u16 = @clz(a_abs) -
             @clz(@as(src_rep_t, src_min_normal));
 
-        dst.fraction = @as(u64, a_abs) << @intCast(u6, dst_sig_bits - src_sig_bits + scale);
+        dst.fraction = @as(u64, a_abs) << @as(u6, @intCast(dst_sig_bits - src_sig_bits + scale));
         dst.fraction |= dst_int_bit; // bit 64 is always set for normal numbers
-        dst.exp = @truncate(u16, a_abs >> @intCast(SrcShift, src_sig_bits - scale));
+        dst.exp = @as(u16, @truncate(a_abs >> @as(SrcShift, @intCast(src_sig_bits - scale))));
         dst.exp ^= 1;
         dst.exp |= dst_exp_bias - src_exp_bias - scale + 1;
     } else {

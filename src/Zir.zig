@@ -74,12 +74,12 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => code.extra[i],
-            Inst.Ref => @enumFromInt(Inst.Ref, code.extra[i]),
-            i32 => @bitCast(i32, code.extra[i]),
-            Inst.Call.Flags => @bitCast(Inst.Call.Flags, code.extra[i]),
-            Inst.BuiltinCall.Flags => @bitCast(Inst.BuiltinCall.Flags, code.extra[i]),
-            Inst.SwitchBlock.Bits => @bitCast(Inst.SwitchBlock.Bits, code.extra[i]),
-            Inst.FuncFancy.Bits => @bitCast(Inst.FuncFancy.Bits, code.extra[i]),
+            Inst.Ref => @as(Inst.Ref, @enumFromInt(code.extra[i])),
+            i32 => @as(i32, @bitCast(code.extra[i])),
+            Inst.Call.Flags => @as(Inst.Call.Flags, @bitCast(code.extra[i])),
+            Inst.BuiltinCall.Flags => @as(Inst.BuiltinCall.Flags, @bitCast(code.extra[i])),
+            Inst.SwitchBlock.Bits => @as(Inst.SwitchBlock.Bits, @bitCast(code.extra[i])),
+            Inst.FuncFancy.Bits => @as(Inst.FuncFancy.Bits, @bitCast(code.extra[i])),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -101,7 +101,7 @@ pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
 
 pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
     const raw_slice = code.extra[start..][0..len];
-    return @ptrCast([]Inst.Ref, raw_slice);
+    return @as([]Inst.Ref, @ptrCast(raw_slice));
 }
 
 pub fn hasCompileErrors(code: Zir) bool {
@@ -2992,7 +2992,7 @@ pub const Inst = struct {
                 (@as(u128, self.piece1) << 32) |
                 (@as(u128, self.piece2) << 64) |
                 (@as(u128, self.piece3) << 96);
-            return @bitCast(f128, int_bits);
+            return @as(f128, @bitCast(int_bits));
         }
     };
 
@@ -3228,15 +3228,15 @@ pub const DeclIterator = struct {
         }
         it.decl_i += 1;
 
-        const flags = @truncate(u4, it.cur_bit_bag);
+        const flags = @as(u4, @truncate(it.cur_bit_bag));
         it.cur_bit_bag >>= 4;
 
-        const sub_index = @intCast(u32, it.extra_index);
+        const sub_index = @as(u32, @intCast(it.extra_index));
         it.extra_index += 5; // src_hash(4) + line(1)
         const name = it.zir.nullTerminatedString(it.zir.extra[it.extra_index]);
         it.extra_index += 3; // name(1) + value(1) + doc_comment(1)
-        it.extra_index += @truncate(u1, flags >> 2);
-        it.extra_index += @truncate(u1, flags >> 3);
+        it.extra_index += @as(u1, @truncate(flags >> 2));
+        it.extra_index += @as(u1, @truncate(flags >> 3));
 
         return Item{
             .sub_index = sub_index,
@@ -3258,7 +3258,7 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
             const extended = datas[decl_inst].extended;
             switch (extended.opcode) {
                 .struct_decl => {
-                    const small = @bitCast(Inst.StructDecl.Small, extended.small);
+                    const small = @as(Inst.StructDecl.Small, @bitCast(extended.small));
                     var extra_index: usize = extended.operand;
                     extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_fields_len);
@@ -3281,7 +3281,7 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
                     return declIteratorInner(zir, extra_index, decls_len);
                 },
                 .enum_decl => {
-                    const small = @bitCast(Inst.EnumDecl.Small, extended.small);
+                    const small = @as(Inst.EnumDecl.Small, @bitCast(extended.small));
                     var extra_index: usize = extended.operand;
                     extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_tag_type);
@@ -3296,7 +3296,7 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
                     return declIteratorInner(zir, extra_index, decls_len);
                 },
                 .union_decl => {
-                    const small = @bitCast(Inst.UnionDecl.Small, extended.small);
+                    const small = @as(Inst.UnionDecl.Small, @bitCast(extended.small));
                     var extra_index: usize = extended.operand;
                     extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_tag_type);
@@ -3311,7 +3311,7 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
                     return declIteratorInner(zir, extra_index, decls_len);
                 },
                 .opaque_decl => {
-                    const small = @bitCast(Inst.OpaqueDecl.Small, extended.small);
+                    const small = @as(Inst.OpaqueDecl.Small, @bitCast(extended.small));
                     var extra_index: usize = extended.operand;
                     extra_index += @intFromBool(small.has_src_node);
                     const decls_len = if (small.has_decls_len) decls_len: {
@@ -3507,7 +3507,7 @@ fn findDeclsSwitch(
 
     const special_prong = extra.data.bits.specialProng();
     if (special_prong != .none) {
-        const body_len = @truncate(u31, zir.extra[extra_index]);
+        const body_len = @as(u31, @truncate(zir.extra[extra_index]));
         extra_index += 1;
         const body = zir.extra[extra_index..][0..body_len];
         extra_index += body.len;
@@ -3520,7 +3520,7 @@ fn findDeclsSwitch(
         var scalar_i: usize = 0;
         while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
             extra_index += 1;
-            const body_len = @truncate(u31, zir.extra[extra_index]);
+            const body_len = @as(u31, @truncate(zir.extra[extra_index]));
             extra_index += 1;
             const body = zir.extra[extra_index..][0..body_len];
             extra_index += body_len;
@@ -3535,7 +3535,7 @@ fn findDeclsSwitch(
             extra_index += 1;
             const ranges_len = zir.extra[extra_index];
             extra_index += 1;
-            const body_len = @truncate(u31, zir.extra[extra_index]);
+            const body_len = @as(u31, @truncate(zir.extra[extra_index]));
             extra_index += 1;
             const items = zir.refSlice(extra_index, items_len);
             extra_index += items_len;
@@ -3617,7 +3617,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                     ret_ty_ref = .void_type;
                 },
                 1 => {
-                    ret_ty_ref = @enumFromInt(Inst.Ref, zir.extra[extra_index]);
+                    ret_ty_ref = @as(Inst.Ref, @enumFromInt(zir.extra[extra_index]));
                     extra_index += 1;
                 },
                 else => {
@@ -3671,7 +3671,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                 ret_ty_body = zir.extra[extra_index..][0..body_len];
                 extra_index += ret_ty_body.len;
             } else if (extra.data.bits.has_ret_ty_ref) {
-                ret_ty_ref = @enumFromInt(Inst.Ref, zir.extra[extra_index]);
+                ret_ty_ref = @as(Inst.Ref, @enumFromInt(zir.extra[extra_index]));
                 extra_index += 1;
             }
 
@@ -3715,7 +3715,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
 pub const ref_start_index: u32 = InternPool.static_len;
 
 pub fn indexToRef(inst: Inst.Index) Inst.Ref {
-    return @enumFromInt(Inst.Ref, ref_start_index + inst);
+    return @as(Inst.Ref, @enumFromInt(ref_start_index + inst));
 }
 
 pub fn refToIndex(inst: Inst.Ref) ?Inst.Index {

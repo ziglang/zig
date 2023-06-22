@@ -414,7 +414,7 @@ pub const CLOCK = struct {
 
 pub const MAP = struct {
     /// mmap() error return code
-    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     /// changes are seen by others
     pub const SHARED = 0x01;
     /// changes are only seen by caller
@@ -443,7 +443,7 @@ pub const W = struct {
     pub const NOWAIT = 0x20;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, s & 0xff);
+        return @as(u8, @intCast(s & 0xff));
     }
 
     pub fn TERMSIG(s: u32) u32 {
@@ -481,9 +481,9 @@ pub const SA = struct {
 };
 
 pub const SIG = struct {
-    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
-    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
-    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
 
     pub const HUP = 1;
     pub const INT = 2;

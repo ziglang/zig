@@ -466,7 +466,7 @@ pub const DeclGen = struct {
                 unused.* = undef;
             }
 
-            const word = @bitCast(Word, self.partial_word.buffer);
+            const word = @as(Word, @bitCast(self.partial_word.buffer));
             const result_id = try self.dg.spv.constInt(self.u32_ty_ref, word);
             try self.members.append(self.u32_ty_ref);
             try self.initializers.append(result_id);
@@ -482,7 +482,7 @@ pub const DeclGen = struct {
         }
 
         fn addUndef(self: *@This(), amt: u64) !void {
-            for (0..@intCast(usize, amt)) |_| {
+            for (0..@as(usize, @intCast(amt))) |_| {
                 try self.addByte(undef);
             }
         }
@@ -539,13 +539,13 @@ pub const DeclGen = struct {
             const mod = self.dg.module;
             const int_info = ty.intInfo(mod);
             const int_bits = switch (int_info.signedness) {
-                .signed => @bitCast(u64, val.toSignedInt(mod)),
+                .signed => @as(u64, @bitCast(val.toSignedInt(mod))),
                 .unsigned => val.toUnsignedInt(mod),
             };
 
             // TODO: Swap endianess if the compiler is big endian.
             const len = ty.abiSize(mod);
-            try self.addBytes(std.mem.asBytes(&int_bits)[0..@intCast(usize, len)]);
+            try self.addBytes(std.mem.asBytes(&int_bits)[0..@as(usize, @intCast(len))]);
         }
 
         fn addFloat(self: *@This(), ty: Type, val: Value) !void {
@@ -557,15 +557,15 @@ pub const DeclGen = struct {
             switch (ty.floatBits(target)) {
                 16 => {
                     const float_bits = val.toFloat(f16, mod);
-                    try self.addBytes(std.mem.asBytes(&float_bits)[0..@intCast(usize, len)]);
+                    try self.addBytes(std.mem.asBytes(&float_bits)[0..@as(usize, @intCast(len))]);
                 },
                 32 => {
                     const float_bits = val.toFloat(f32, mod);
-                    try self.addBytes(std.mem.asBytes(&float_bits)[0..@intCast(usize, len)]);
+                    try self.addBytes(std.mem.asBytes(&float_bits)[0..@as(usize, @intCast(len))]);
                 },
                 64 => {
                     const float_bits = val.toFloat(f64, mod);
-                    try self.addBytes(std.mem.asBytes(&float_bits)[0..@intCast(usize, len)]);
+                    try self.addBytes(std.mem.asBytes(&float_bits)[0..@as(usize, @intCast(len))]);
                 },
                 else => unreachable,
             }
@@ -664,7 +664,7 @@ pub const DeclGen = struct {
                 .int => try self.addInt(ty, val),
                 .err => |err| {
                     const int = try mod.getErrorValue(err.name);
-                    try self.addConstInt(u16, @intCast(u16, int));
+                    try self.addConstInt(u16, @as(u16, @intCast(int)));
                 },
                 .error_union => |error_union| {
                     const payload_ty = ty.errorUnionPayload(mod);
@@ -755,10 +755,10 @@ pub const DeclGen = struct {
                         switch (aggregate.storage) {
                             .bytes => |bytes| try self.addBytes(bytes),
                             .elems, .repeated_elem => {
-                                for (0..@intCast(usize, array_type.len)) |i| {
+                                for (0..@as(usize, @intCast(array_type.len))) |i| {
                                     try self.lower(elem_ty, switch (aggregate.storage) {
                                         .bytes => unreachable,
-                                        .elems => |elem_vals| elem_vals[@intCast(usize, i)].toValue(),
+                                        .elems => |elem_vals| elem_vals[@as(usize, @intCast(i))].toValue(),
                                         .repeated_elem => |elem_val| elem_val.toValue(),
                                     });
                                 }
@@ -1132,7 +1132,7 @@ pub const DeclGen = struct {
 
         const payload_padding_len = layout.payload_size - active_field_size;
         if (payload_padding_len != 0) {
-            const payload_padding_ty_ref = try self.spv.arrayType(@intCast(u32, payload_padding_len), u8_ty_ref);
+            const payload_padding_ty_ref = try self.spv.arrayType(@as(u32, @intCast(payload_padding_len)), u8_ty_ref);
             member_types.appendAssumeCapacity(payload_padding_ty_ref);
             member_names.appendAssumeCapacity(try self.spv.resolveString("payload_padding"));
         }
@@ -1259,7 +1259,7 @@ pub const DeclGen = struct {
 
                 return try self.spv.resolve(.{ .vector_type = .{
                     .component_type = try self.resolveType(ty.childType(mod), repr),
-                    .component_count = @intCast(u32, ty.vectorLen(mod)),
+                    .component_count = @as(u32, @intCast(ty.vectorLen(mod))),
                 } });
             },
             .Struct => {
@@ -1588,7 +1588,7 @@ pub const DeclGen = struct {
                 init_val,
                 actual_storage_class,
                 final_storage_class == .Generic,
-                @intCast(u32, decl.alignment.toByteUnits(0)),
+                @as(u32, @intCast(decl.alignment.toByteUnits(0))),
             );
         }
     }
@@ -1856,7 +1856,7 @@ pub const DeclGen = struct {
     }
 
     fn maskStrangeInt(self: *DeclGen, ty_ref: CacheRef, value_id: IdRef, bits: u16) !IdRef {
-        const mask_value = if (bits == 64) 0xFFFF_FFFF_FFFF_FFFF else (@as(u64, 1) << @intCast(u6, bits)) - 1;
+        const mask_value = if (bits == 64) 0xFFFF_FFFF_FFFF_FFFF else (@as(u64, 1) << @as(u6, @intCast(bits))) - 1;
         const result_id = self.spv.allocId();
         const mask_id = try self.spv.constInt(ty_ref, mask_value);
         try self.func.body.emit(self.spv.gpa, .OpBitwiseAnd, .{
@@ -2063,7 +2063,7 @@ pub const DeclGen = struct {
                 self.func.body.writeOperand(spec.LiteralInteger, 0xFFFF_FFFF);
             } else {
                 const int = elem.toSignedInt(mod);
-                const unsigned = if (int >= 0) @intCast(u32, int) else @intCast(u32, ~int + a_len);
+                const unsigned = if (int >= 0) @as(u32, @intCast(int)) else @as(u32, @intCast(~int + a_len));
                 self.func.body.writeOperand(spec.LiteralInteger, unsigned);
             }
         }
@@ -2689,7 +2689,7 @@ pub const DeclGen = struct {
         // are not allowed to be created from a phi node, and throw an error for those.
         const result_type_id = try self.resolveTypeId(ty);
 
-        try self.func.body.emitRaw(self.spv.gpa, .OpPhi, 2 + @intCast(u16, incoming_blocks.items.len * 2)); // result type + result + variable/parent...
+        try self.func.body.emitRaw(self.spv.gpa, .OpPhi, 2 + @as(u16, @intCast(incoming_blocks.items.len * 2))); // result type + result + variable/parent...
         self.func.body.writeOperand(spec.IdResultType, result_type_id);
         self.func.body.writeOperand(spec.IdRef, result_id);
 
@@ -3105,7 +3105,7 @@ pub const DeclGen = struct {
             while (case_i < num_cases) : (case_i += 1) {
                 // SPIR-V needs a literal here, which' width depends on the case condition.
                 const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-                const items = @ptrCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+                const items = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[case.end..][0..case.data.items_len]));
                 const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
                 extra_index = case.end + case.data.items_len + case_body.len;
 
@@ -3116,7 +3116,7 @@ pub const DeclGen = struct {
                         return self.todo("switch on runtime value???", .{});
                     };
                     const int_val = switch (cond_ty.zigTypeTag(mod)) {
-                        .Int => if (cond_ty.isSignedInt(mod)) @bitCast(u64, value.toSignedInt(mod)) else value.toUnsignedInt(mod),
+                        .Int => if (cond_ty.isSignedInt(mod)) @as(u64, @bitCast(value.toSignedInt(mod))) else value.toUnsignedInt(mod),
                         .Enum => blk: {
                             // TODO: figure out of cond_ty is correct (something with enum literals)
                             break :blk (try value.intFromEnum(cond_ty, mod)).toUnsignedInt(mod); // TODO: composite integer constants
@@ -3124,7 +3124,7 @@ pub const DeclGen = struct {
                         else => unreachable,
                     };
                     const int_lit: spec.LiteralContextDependentNumber = switch (cond_words) {
-                        1 => .{ .uint32 = @intCast(u32, int_val) },
+                        1 => .{ .uint32 = @as(u32, @intCast(int_val)) },
                         2 => .{ .uint64 = int_val },
                         else => unreachable,
                     };
@@ -3139,7 +3139,7 @@ pub const DeclGen = struct {
         var case_i: u32 = 0;
         while (case_i < num_cases) : (case_i += 1) {
             const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items = @ptrCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+            const items = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[case.end..][0..case.data.items_len]));
             const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
             extra_index = case.end + case.data.items_len + case_body.len;
 
@@ -3167,15 +3167,15 @@ pub const DeclGen = struct {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.Asm, ty_pl.payload);
 
-        const is_volatile = @truncate(u1, extra.data.flags >> 31) != 0;
-        const clobbers_len = @truncate(u31, extra.data.flags);
+        const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
+        const clobbers_len = @as(u31, @truncate(extra.data.flags));
 
         if (!is_volatile and self.liveness.isUnused(inst)) return null;
 
         var extra_i: usize = extra.end;
-        const outputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.outputs_len]);
+        const outputs = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]));
         extra_i += outputs.len;
-        const inputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
+        const inputs = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]));
         extra_i += inputs.len;
 
         if (outputs.len > 1) {
@@ -3297,7 +3297,7 @@ pub const DeclGen = struct {
         const mod = self.module;
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
-        const args = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
+        const args = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]));
         const callee_ty = self.typeOf(pl_op.operand);
         const zig_fn_ty = switch (callee_ty.zigTypeTag(mod)) {
             .Fn => callee_ty,

@@ -2898,19 +2898,19 @@ test "big int conversion write twos complement with padding" {
 
     buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xaa };
     m.readTwosComplement(buffer[0..13], bit_count, .Little, .unsigned);
-    try testing.expect(m.toConst().orderAgainstScalar(@truncate(Limb, 0xaa_02030405_06070809_0a0b0c0d)) == .eq);
+    try testing.expect(m.toConst().orderAgainstScalar(@as(Limb, @truncate(0xaa_02030405_06070809_0a0b0c0d))) == .eq);
 
     buffer = &[_]u8{ 0xaa, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
     m.readTwosComplement(buffer[0..13], bit_count, .Big, .unsigned);
-    try testing.expect(m.toConst().orderAgainstScalar(@truncate(Limb, 0xaa_02030405_06070809_0a0b0c0d)) == .eq);
+    try testing.expect(m.toConst().orderAgainstScalar(@as(Limb, @truncate(0xaa_02030405_06070809_0a0b0c0d))) == .eq);
 
     buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xaa, 0xaa, 0xaa, 0xaa };
     m.readTwosComplement(buffer[0..16], bit_count, .Little, .unsigned);
-    try testing.expect(m.toConst().orderAgainstScalar(@truncate(Limb, 0xaaaaaaaa_02030405_06070809_0a0b0c0d)) == .eq);
+    try testing.expect(m.toConst().orderAgainstScalar(@as(Limb, @truncate(0xaaaaaaaa_02030405_06070809_0a0b0c0d))) == .eq);
 
     buffer = &[_]u8{ 0xaa, 0xaa, 0xaa, 0xaa, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
     m.readTwosComplement(buffer[0..16], bit_count, .Big, .unsigned);
-    try testing.expect(m.toConst().orderAgainstScalar(@truncate(Limb, 0xaaaaaaaa_02030405_06070809_0a0b0c0d)) == .eq);
+    try testing.expect(m.toConst().orderAgainstScalar(@as(Limb, @truncate(0xaaaaaaaa_02030405_06070809_0a0b0c0d))) == .eq);
 
     bit_count = 12 * 8 + 2;
 
@@ -3014,20 +3014,20 @@ test "big int bit reverse" {
     try bitReverseTest(u96, 0x123456789abcdef111213141, 0x828c84888f7b3d591e6a2c48);
     try bitReverseTest(u128, 0x123456789abcdef11121314151617181, 0x818e868a828c84888f7b3d591e6a2c48);
 
-    try bitReverseTest(i8, @bitCast(i8, @as(u8, 0x92)), @bitCast(i8, @as(u8, 0x49)));
-    try bitReverseTest(i16, @bitCast(i16, @as(u16, 0x1234)), @bitCast(i16, @as(u16, 0x2c48)));
-    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0x123456)), @bitCast(i24, @as(u24, 0x6a2c48)));
-    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0x12345f)), @bitCast(i24, @as(u24, 0xfa2c48)));
-    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0xf23456)), @bitCast(i24, @as(u24, 0x6a2c4f)));
-    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0x12345678)), @bitCast(i32, @as(u32, 0x1e6a2c48)));
-    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0xf2345678)), @bitCast(i32, @as(u32, 0x1e6a2c4f)));
-    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0x1234567f)), @bitCast(i32, @as(u32, 0xfe6a2c48)));
-    try bitReverseTest(i40, @bitCast(i40, @as(u40, 0x123456789a)), @bitCast(i40, @as(u40, 0x591e6a2c48)));
-    try bitReverseTest(i48, @bitCast(i48, @as(u48, 0x123456789abc)), @bitCast(i48, @as(u48, 0x3d591e6a2c48)));
-    try bitReverseTest(i56, @bitCast(i56, @as(u56, 0x123456789abcde)), @bitCast(i56, @as(u56, 0x7b3d591e6a2c48)));
-    try bitReverseTest(i64, @bitCast(i64, @as(u64, 0x123456789abcdef1)), @bitCast(i64, @as(u64, 0x8f7b3d591e6a2c48)));
-    try bitReverseTest(i96, @bitCast(i96, @as(u96, 0x123456789abcdef111213141)), @bitCast(i96, @as(u96, 0x828c84888f7b3d591e6a2c48)));
-    try bitReverseTest(i128, @bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181)), @bitCast(i128, @as(u128, 0x818e868a828c84888f7b3d591e6a2c48)));
+    try bitReverseTest(i8, @as(i8, @bitCast(@as(u8, 0x92))), @as(i8, @bitCast(@as(u8, 0x49))));
+    try bitReverseTest(i16, @as(i16, @bitCast(@as(u16, 0x1234))), @as(i16, @bitCast(@as(u16, 0x2c48))));
+    try bitReverseTest(i24, @as(i24, @bitCast(@as(u24, 0x123456))), @as(i24, @bitCast(@as(u24, 0x6a2c48))));
+    try bitReverseTest(i24, @as(i24, @bitCast(@as(u24, 0x12345f))), @as(i24, @bitCast(@as(u24, 0xfa2c48))));
+    try bitReverseTest(i24, @as(i24, @bitCast(@as(u24, 0xf23456))), @as(i24, @bitCast(@as(u24, 0x6a2c4f))));
+    try bitReverseTest(i32, @as(i32, @bitCast(@as(u32, 0x12345678))), @as(i32, @bitCast(@as(u32, 0x1e6a2c48))));
+    try bitReverseTest(i32, @as(i32, @bitCast(@as(u32, 0xf2345678))), @as(i32, @bitCast(@as(u32, 0x1e6a2c4f))));
+    try bitReverseTest(i32, @as(i32, @bitCast(@as(u32, 0x1234567f))), @as(i32, @bitCast(@as(u32, 0xfe6a2c48))));
+    try bitReverseTest(i40, @as(i40, @bitCast(@as(u40, 0x123456789a))), @as(i40, @bitCast(@as(u40, 0x591e6a2c48))));
+    try bitReverseTest(i48, @as(i48, @bitCast(@as(u48, 0x123456789abc))), @as(i48, @bitCast(@as(u48, 0x3d591e6a2c48))));
+    try bitReverseTest(i56, @as(i56, @bitCast(@as(u56, 0x123456789abcde))), @as(i56, @bitCast(@as(u56, 0x7b3d591e6a2c48))));
+    try bitReverseTest(i64, @as(i64, @bitCast(@as(u64, 0x123456789abcdef1))), @as(i64, @bitCast(@as(u64, 0x8f7b3d591e6a2c48))));
+    try bitReverseTest(i96, @as(i96, @bitCast(@as(u96, 0x123456789abcdef111213141))), @as(i96, @bitCast(@as(u96, 0x828c84888f7b3d591e6a2c48))));
+    try bitReverseTest(i128, @as(i128, @bitCast(@as(u128, 0x123456789abcdef11121314151617181))), @as(i128, @bitCast(@as(u128, 0x818e868a828c84888f7b3d591e6a2c48))));
 }
 
 fn byteSwapTest(comptime T: type, comptime input: comptime_int, comptime expected_output: comptime_int) !void {
@@ -3063,16 +3063,16 @@ test "big int byte swap" {
     try byteSwapTest(u128, 0x123456789abcdef11121314151617181, 0x8171615141312111f1debc9a78563412);
 
     try byteSwapTest(i8, -50, -50);
-    try byteSwapTest(i16, @bitCast(i16, @as(u16, 0x1234)), @bitCast(i16, @as(u16, 0x3412)));
-    try byteSwapTest(i24, @bitCast(i24, @as(u24, 0x123456)), @bitCast(i24, @as(u24, 0x563412)));
-    try byteSwapTest(i32, @bitCast(i32, @as(u32, 0x12345678)), @bitCast(i32, @as(u32, 0x78563412)));
-    try byteSwapTest(i40, @bitCast(i40, @as(u40, 0x123456789a)), @bitCast(i40, @as(u40, 0x9a78563412)));
-    try byteSwapTest(i48, @bitCast(i48, @as(u48, 0x123456789abc)), @bitCast(i48, @as(u48, 0xbc9a78563412)));
-    try byteSwapTest(i56, @bitCast(i56, @as(u56, 0x123456789abcde)), @bitCast(i56, @as(u56, 0xdebc9a78563412)));
-    try byteSwapTest(i64, @bitCast(i64, @as(u64, 0x123456789abcdef1)), @bitCast(i64, @as(u64, 0xf1debc9a78563412)));
-    try byteSwapTest(i88, @bitCast(i88, @as(u88, 0x123456789abcdef1112131)), @bitCast(i88, @as(u88, 0x312111f1debc9a78563412)));
-    try byteSwapTest(i96, @bitCast(i96, @as(u96, 0x123456789abcdef111213141)), @bitCast(i96, @as(u96, 0x41312111f1debc9a78563412)));
-    try byteSwapTest(i128, @bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181)), @bitCast(i128, @as(u128, 0x8171615141312111f1debc9a78563412)));
+    try byteSwapTest(i16, @as(i16, @bitCast(@as(u16, 0x1234))), @as(i16, @bitCast(@as(u16, 0x3412))));
+    try byteSwapTest(i24, @as(i24, @bitCast(@as(u24, 0x123456))), @as(i24, @bitCast(@as(u24, 0x563412))));
+    try byteSwapTest(i32, @as(i32, @bitCast(@as(u32, 0x12345678))), @as(i32, @bitCast(@as(u32, 0x78563412))));
+    try byteSwapTest(i40, @as(i40, @bitCast(@as(u40, 0x123456789a))), @as(i40, @bitCast(@as(u40, 0x9a78563412))));
+    try byteSwapTest(i48, @as(i48, @bitCast(@as(u48, 0x123456789abc))), @as(i48, @bitCast(@as(u48, 0xbc9a78563412))));
+    try byteSwapTest(i56, @as(i56, @bitCast(@as(u56, 0x123456789abcde))), @as(i56, @bitCast(@as(u56, 0xdebc9a78563412))));
+    try byteSwapTest(i64, @as(i64, @bitCast(@as(u64, 0x123456789abcdef1))), @as(i64, @bitCast(@as(u64, 0xf1debc9a78563412))));
+    try byteSwapTest(i88, @as(i88, @bitCast(@as(u88, 0x123456789abcdef1112131))), @as(i88, @bitCast(@as(u88, 0x312111f1debc9a78563412))));
+    try byteSwapTest(i96, @as(i96, @bitCast(@as(u96, 0x123456789abcdef111213141))), @as(i96, @bitCast(@as(u96, 0x41312111f1debc9a78563412))));
+    try byteSwapTest(i128, @as(i128, @bitCast(@as(u128, 0x123456789abcdef11121314151617181))), @as(i128, @bitCast(@as(u128, 0x8171615141312111f1debc9a78563412))));
 
     try byteSwapTest(u512, 0x80, 1 << 511);
     try byteSwapTest(i512, 0x80, minInt(i512));
@@ -3080,11 +3080,11 @@ test "big int byte swap" {
     try byteSwapTest(i512, -0x100, (1 << 504) - 1);
     try byteSwapTest(i400, -0x100, (1 << 392) - 1);
     try byteSwapTest(i400, -0x2, -(1 << 392) - 1);
-    try byteSwapTest(i24, @bitCast(i24, @as(u24, 0xf23456)), 0x5634f2);
-    try byteSwapTest(i24, 0x1234f6, @bitCast(i24, @as(u24, 0xf63412)));
-    try byteSwapTest(i32, @bitCast(i32, @as(u32, 0xf2345678)), 0x785634f2);
-    try byteSwapTest(i32, 0x123456f8, @bitCast(i32, @as(u32, 0xf8563412)));
-    try byteSwapTest(i48, 0x123456789abc, @bitCast(i48, @as(u48, 0xbc9a78563412)));
+    try byteSwapTest(i24, @as(i24, @bitCast(@as(u24, 0xf23456))), 0x5634f2);
+    try byteSwapTest(i24, 0x1234f6, @as(i24, @bitCast(@as(u24, 0xf63412))));
+    try byteSwapTest(i32, @as(i32, @bitCast(@as(u32, 0xf2345678))), 0x785634f2);
+    try byteSwapTest(i32, 0x123456f8, @as(i32, @bitCast(@as(u32, 0xf8563412))));
+    try byteSwapTest(i48, 0x123456789abc, @as(i48, @bitCast(@as(u48, 0xbc9a78563412))));
 }
 
 test "big.int mul multi-multi alias r with a and b" {

@@ -1,5 +1,5 @@
 pub export fn entry() void {
-    var y = @ptrFromInt([*]align(4) u8, 5);
+    var y: [*]align(4) u8 = @ptrFromInt(5);
     _ = y;
 }
 

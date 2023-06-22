@@ -172,7 +172,7 @@ pub const PROT = struct {
 
 pub const MAP = struct {
     pub const FILE = 0;
-    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     pub const ANONYMOUS = ANON;
     pub const COPY = PRIVATE;
     pub const SHARED = 1;
@@ -208,7 +208,7 @@ pub const W = struct {
     pub const TRAPPED = 0x0020;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, (s & 0xff00) >> 8);
+        return @as(u8, @intCast((s & 0xff00) >> 8));
     }
     pub fn TERMSIG(s: u32) u32 {
         return s & 0x7f;
@@ -220,7 +220,7 @@ pub const W = struct {
         return TERMSIG(s) == 0;
     }
     pub fn IFSTOPPED(s: u32) bool {
-        return @truncate(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+        return @as(u16, @truncate((((s & 0xffff) *% 0x10001) >> 8))) > 0x7f00;
     }
     pub fn IFSIGNALED(s: u32) bool {
         return (s & 0xffff) -% 1 < 0xff;
@@ -620,9 +620,9 @@ pub const S = struct {
 pub const BADSIG = SIG.ERR;
 
 pub const SIG = struct {
-    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
-    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
-    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
 
     pub const BLOCK = 1;
     pub const UNBLOCK = 2;
@@ -871,10 +871,10 @@ pub const RTLD = struct {
     pub const NODELETE = 0x01000;
     pub const NOLOAD = 0x02000;
 
-    pub const NEXT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -3)));
-    pub const ALL = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -4)));
+    pub const NEXT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
+    pub const DEFAULT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -2)))));
+    pub const SELF = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -3)))));
+    pub const ALL = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -4)))));
 };
 
 pub const dl_phdr_info = extern struct {

@@ -185,18 +185,18 @@ pub fn sentinel(comptime T: type) ?Elem(T) {
     switch (@typeInfo(T)) {
         .Array => |info| {
             const sentinel_ptr = info.sentinel orelse return null;
-            return @ptrCast(*const info.child, sentinel_ptr).*;
+            return @as(*const info.child, @ptrCast(sentinel_ptr)).*;
         },
         .Pointer => |info| {
             switch (info.size) {
                 .Many, .Slice => {
                     const sentinel_ptr = info.sentinel orelse return null;
-                    return @ptrCast(*align(1) const info.child, sentinel_ptr).*;
+                    return @as(*align(1) const info.child, @ptrCast(sentinel_ptr)).*;
                 },
                 .One => switch (@typeInfo(info.child)) {
                     .Array => |array_info| {
                         const sentinel_ptr = array_info.sentinel orelse return null;
-                        return @ptrCast(*align(1) const array_info.child, sentinel_ptr).*;
+                        return @as(*align(1) const array_info.child, @ptrCast(sentinel_ptr)).*;
                     },
                     else => {},
                 },
@@ -241,7 +241,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                             .Array = .{
                                 .len = array_info.len,
                                 .child = array_info.child,
-                                .sentinel = @ptrCast(?*const anyopaque, &sentinel_val),
+                                .sentinel = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
                             },
                         }),
                         .is_allowzero = info.is_allowzero,
@@ -259,7 +259,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                     .address_space = info.address_space,
                     .child = info.child,
                     .is_allowzero = info.is_allowzero,
-                    .sentinel = @ptrCast(?*const anyopaque, &sentinel_val),
+                    .sentinel = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
                 },
             }),
             else => {},
@@ -277,7 +277,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                                 .address_space = ptr_info.address_space,
                                 .child = ptr_info.child,
                                 .is_allowzero = ptr_info.is_allowzero,
-                                .sentinel = @ptrCast(?*const anyopaque, &sentinel_val),
+                                .sentinel = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
                             },
                         }),
                     },
@@ -929,8 +929,8 @@ test "intToEnum with error return" {
     try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
     try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
     try testing.expect(intToEnum(E3, zero) catch unreachable == E3.A);
-    try testing.expect(intToEnum(E3, 127) catch unreachable == @enumFromInt(E3, 127));
-    try testing.expect(intToEnum(E3, -128) catch unreachable == @enumFromInt(E3, -128));
+    try testing.expect(intToEnum(E3, 127) catch unreachable == @as(E3, @enumFromInt(127)));
+    try testing.expect(intToEnum(E3, -128) catch unreachable == @as(E3, @enumFromInt(-128)));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E3, 128));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E3, -129));
@@ -943,7 +943,7 @@ pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTa
 
     if (!enum_info.is_exhaustive) {
         if (std.math.cast(enum_info.tag_type, tag_int)) |tag| {
-            return @enumFromInt(EnumTag, tag);
+            return @as(EnumTag, @enumFromInt(tag));
         }
         return error.InvalidEnumTag;
     }

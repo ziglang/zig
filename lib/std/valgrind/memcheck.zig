@@ -21,7 +21,7 @@ pub const MemCheckClientRequest = enum(usize) {
 };
 
 fn doMemCheckClientRequestExpr(default: usize, request: MemCheckClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) usize {
-    return valgrind.doClientRequest(default, @intCast(usize, @intFromEnum(request)), a1, a2, a3, a4, a5);
+    return valgrind.doClientRequest(default, @as(usize, @intCast(@intFromEnum(request))), a1, a2, a3, a4, a5);
 }
 
 fn doMemCheckClientRequestStmt(request: MemCheckClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) void {
@@ -31,24 +31,24 @@ fn doMemCheckClientRequestStmt(request: MemCheckClientRequest, a1: usize, a2: us
 /// Mark memory at qzz.ptr as unaddressable for qzz.len bytes.
 /// This returns -1 when run on Valgrind and 0 otherwise.
 pub fn makeMemNoAccess(qzz: []u8) i1 {
-    return @intCast(i1, doMemCheckClientRequestExpr(0, // default return
-        .MakeMemNoAccess, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0));
+    return @as(i1, @intCast(doMemCheckClientRequestExpr(0, // default return
+        .MakeMemNoAccess, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0)));
 }
 
 /// Similarly, mark memory at qzz.ptr as addressable but undefined
 /// for qzz.len bytes.
 /// This returns -1 when run on Valgrind and 0 otherwise.
 pub fn makeMemUndefined(qzz: []u8) i1 {
-    return @intCast(i1, doMemCheckClientRequestExpr(0, // default return
-        .MakeMemUndefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0));
+    return @as(i1, @intCast(doMemCheckClientRequestExpr(0, // default return
+        .MakeMemUndefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0)));
 }
 
 /// Similarly, mark memory at qzz.ptr as addressable and defined
 /// for qzz.len bytes.
 pub fn makeMemDefined(qzz: []u8) i1 {
     // This returns -1 when run on Valgrind and 0 otherwise.
-    return @intCast(i1, doMemCheckClientRequestExpr(0, // default return
-        .MakeMemDefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0));
+    return @as(i1, @intCast(doMemCheckClientRequestExpr(0, // default return
+        .MakeMemDefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0)));
 }
 
 /// Similar to makeMemDefined except that addressability is
@@ -56,8 +56,8 @@ pub fn makeMemDefined(qzz: []u8) i1 {
 /// but those which are not addressable are left unchanged.
 /// This returns -1 when run on Valgrind and 0 otherwise.
 pub fn makeMemDefinedIfAddressable(qzz: []u8) i1 {
-    return @intCast(i1, doMemCheckClientRequestExpr(0, // default return
-        .MakeMemDefinedIfAddressable, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0));
+    return @as(i1, @intCast(doMemCheckClientRequestExpr(0, // default return
+        .MakeMemDefinedIfAddressable, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0)));
 }
 
 /// Create a block-description handle.  The description is an ascii
@@ -195,7 +195,7 @@ test "countLeakBlocks" {
 /// impossible to segfault your system by using this call.
 pub fn getVbits(zza: []u8, zzvbits: []u8) u2 {
     std.debug.assert(zzvbits.len >= zza.len / 8);
-    return @intCast(u2, doMemCheckClientRequestExpr(0, .GetVbits, @intFromPtr(zza.ptr), @intFromPtr(zzvbits), zza.len, 0, 0));
+    return @as(u2, @intCast(doMemCheckClientRequestExpr(0, .GetVbits, @intFromPtr(zza.ptr), @intFromPtr(zzvbits), zza.len, 0, 0)));
 }
 
 /// Set the validity data for addresses zza, copying it
@@ -208,7 +208,7 @@ pub fn getVbits(zza: []u8, zzvbits: []u8) u2 {
 /// impossible to segfault your system by using this call.
 pub fn setVbits(zzvbits: []u8, zza: []u8) u2 {
     std.debug.assert(zzvbits.len >= zza.len / 8);
-    return @intCast(u2, doMemCheckClientRequestExpr(0, .SetVbits, @intFromPtr(zza.ptr), @intFromPtr(zzvbits), zza.len, 0, 0));
+    return @as(u2, @intCast(doMemCheckClientRequestExpr(0, .SetVbits, @intFromPtr(zza.ptr), @intFromPtr(zzvbits), zza.len, 0, 0)));
 }
 
 /// Disable and re-enable reporting of addressing errors in the

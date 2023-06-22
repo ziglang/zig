@@ -17,5 +17,5 @@ pub fn __floatuntisf(a: u128) callconv(.C) f32 {
 }
 
 fn __floatuntisf_windows_x86_64(a: @Vector(2, u64)) callconv(.C) f32 {
-    return floatFromInt(f32, @bitCast(u128, a));
+    return floatFromInt(f32, @as(u128, @bitCast(a)));
 }

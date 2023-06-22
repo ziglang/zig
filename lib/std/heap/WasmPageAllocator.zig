@@ -40,7 +40,7 @@ const FreeBlock = struct {
 
     fn getBit(self: FreeBlock, idx: usize) PageStatus {
         const bit_offset = 0;
-        return @enumFromInt(PageStatus, Io.get(mem.sliceAsBytes(self.data), idx, bit_offset));
+        return @as(PageStatus, @enumFromInt(Io.get(mem.sliceAsBytes(self.data), idx, bit_offset)));
     }
 
     fn setBits(self: FreeBlock, start_idx: usize, len: usize, val: PageStatus) void {
@@ -63,7 +63,7 @@ const FreeBlock = struct {
     fn useRecycled(self: FreeBlock, num_pages: usize, log2_align: u8) usize {
         @setCold(true);
         for (self.data, 0..) |segment, i| {
-            const spills_into_next = @bitCast(i128, segment) < 0;
+            const spills_into_next = @as(i128, @bitCast(segment)) < 0;
             const has_enough_bits = @popCount(segment) >= num_pages;
 
             if (!spills_into_next and !has_enough_bits) continue;
@@ -109,7 +109,7 @@ fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, ra: usize) ?[*]u8 {
     if (len > maxInt(usize) - (mem.page_size - 1)) return null;
     const page_count = nPages(len);
     const page_idx = allocPages(page_count, log2_align) catch return null;
-    return @ptrFromInt([*]u8, page_idx * mem.page_size);
+    return @as([*]u8, @ptrFromInt(page_idx * mem.page_size));
 }
 
 fn allocPages(page_count: usize, log2_align: u8) !usize {
@@ -129,7 +129,7 @@ fn allocPages(page_count: usize, log2_align: u8) !usize {
     const next_page_addr = next_page_idx * mem.page_size;
     const aligned_addr = mem.alignForwardLog2(next_page_addr, log2_align);
     const drop_page_count = @divExact(aligned_addr - next_page_addr, mem.page_size);
-    const result = @wasmMemoryGrow(0, @intCast(u32, drop_page_count + page_count));
+    const result = @wasmMemoryGrow(0, @as(u32, @intCast(drop_page_count + page_count)));
     if (result <= 0)
         return error.OutOfMemory;
     assert(result == next_page_idx);
@@ -137,7 +137,7 @@ fn allocPages(page_count: usize, log2_align: u8) !usize {
     if (drop_page_count > 0) {
         freePages(next_page_idx, aligned_page_idx);
     }
-    return @intCast(usize, aligned_page_idx);
+    return @as(usize, @intCast(aligned_page_idx));
 }
 
 fn freePages(start: usize, end: usize) void {
@@ -151,7 +151,7 @@ fn freePages(start: usize, end: usize) void {
             // TODO: would it be better if we use the first page instead?
             new_end -= 1;
 
-            extended.data = @ptrFromInt([*]u128, new_end * mem.page_size)[0 .. mem.page_size / @sizeOf(u128)];
+            extended.data = @as([*]u128, @ptrFromInt(new_end * mem.page_size))[0 .. mem.page_size / @sizeOf(u128)];
             // Since this is the first page being freed and we consume it, assume *nothing* is free.
             @memset(extended.data, PageStatus.none_free);
         }

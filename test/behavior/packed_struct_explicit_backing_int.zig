@@ -25,7 +25,7 @@ test "packed struct explicit backing integer" {
     try expectEqual(24, @bitOffsetOf(S3, "y"));
 
     if (native_endian == .Little) {
-        const s3 = @bitCast(S3Padded, @as(u64, 0xe952d5c71ff4)).s3;
+        const s3 = @as(S3Padded, @bitCast(@as(u64, 0xe952d5c71ff4))).s3;
         try expectEqual(@as(u8, 0xf4), s3.x.a);
         try expectEqual(@as(u8, 0x1f), s3.x.b);
         try expectEqual(@as(u8, 0xc7), s3.x.c);

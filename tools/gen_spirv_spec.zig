@@ -40,7 +40,7 @@ fn extendedStructs(
     kinds: []const g.OperandKind,
 ) !ExtendedStructSet {
     var map = ExtendedStructSet.init(arena);
-    try map.ensureTotalCapacity(@intCast(u32, kinds.len));
+    try map.ensureTotalCapacity(@as(u32, @intCast(kinds.len)));
 
     for (kinds) |kind| {
         const enumerants = kind.enumerants orelse continue;

@@ -396,7 +396,7 @@ pub const ArgState = struct {
         }
 
         // Mark this argument as used
-        self.used_args |= @as(ArgSetType, 1) << @intCast(u5, next_index);
+        self.used_args |= @as(ArgSetType, 1) << @as(u5, @intCast(next_index));
         return next_index;
     }
 };
@@ -1056,7 +1056,7 @@ pub fn formatFloatScientific(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    var x = @floatCast(f64, value);
+    var x = @as(f64, @floatCast(value));
 
     // Errol doesn't handle these special cases.
     if (math.signbit(x)) {
@@ -1167,9 +1167,9 @@ pub fn formatFloatHexadecimal(
     const exponent_mask = (1 << exponent_bits) - 1;
     const exponent_bias = (1 << (exponent_bits - 1)) - 1;
 
-    const as_bits = @bitCast(TU, value);
+    const as_bits = @as(TU, @bitCast(value));
     var mantissa = as_bits & mantissa_mask;
-    var exponent: i32 = @truncate(u16, (as_bits >> mantissa_bits) & exponent_mask);
+    var exponent: i32 = @as(u16, @truncate((as_bits >> mantissa_bits) & exponent_mask));
 
     const is_denormal = exponent == 0 and mantissa != 0;
     const is_zero = exponent == 0 and mantissa == 0;
@@ -1218,7 +1218,7 @@ pub fn formatFloatHexadecimal(
             // Drop the excess bits.
             mantissa >>= 2;
             // Restore the alignment.
-            mantissa <<= @intCast(math.Log2Int(TU), (mantissa_digits - precision) * 4);
+            mantissa <<= @as(math.Log2Int(TU), @intCast((mantissa_digits - precision) * 4));
 
             const overflow = mantissa & (1 << 1 + mantissa_digits * 4) != 0;
             // Prefer a normalized result in case of overflow.
@@ -1296,7 +1296,7 @@ pub fn formatFloatDecimal(
         errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Decimal);
 
         // exp < 0 means the leading is always 0 as errol result is normalized.
-        var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
+        var num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
 
         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
         var num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
@@ -1325,7 +1325,7 @@ pub fn formatFloatDecimal(
 
         // Zero-fill until we reach significant digits or run out of precision.
         if (float_decimal.exp <= 0) {
-            const zero_digit_count = @intCast(usize, -float_decimal.exp);
+            const zero_digit_count = @as(usize, @intCast(-float_decimal.exp));
             const zeros_to_print = @min(zero_digit_count, precision);
 
             var i: usize = 0;
@@ -1354,7 +1354,7 @@ pub fn formatFloatDecimal(
         }
     } else {
         // exp < 0 means the leading is always 0 as errol result is normalized.
-        var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
+        var num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
 
         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
         var num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
@@ -1380,7 +1380,7 @@ pub fn formatFloatDecimal(
 
         // Zero-fill until we reach significant digits or run out of precision.
         if (float_decimal.exp < 0) {
-            const zero_digit_count = @intCast(usize, -float_decimal.exp);
+            const zero_digit_count = @as(usize, @intCast(-float_decimal.exp));
 
             var i: usize = 0;
             while (i < zero_digit_count) : (i += 1) {
@@ -1423,21 +1423,21 @@ pub fn formatInt(
     if (base == 10) {
         while (a >= 100) : (a = @divTrunc(a, 100)) {
             index -= 2;
-            buf[index..][0..2].* = digits2(@intCast(usize, a % 100));
+            buf[index..][0..2].* = digits2(@as(usize, @intCast(a % 100)));
         }
 
         if (a < 10) {
             index -= 1;
-            buf[index] = '0' + @intCast(u8, a);
+            buf[index] = '0' + @as(u8, @intCast(a));
         } else {
             index -= 2;
-            buf[index..][0..2].* = digits2(@intCast(usize, a));
+            buf[index..][0..2].* = digits2(@as(usize, @intCast(a)));
         }
     } else {
         while (true) {
             const digit = a % base;
             index -= 1;
-            buf[index] = digitToChar(@intCast(u8, digit), case);
+            buf[index] = digitToChar(@as(u8, @intCast(digit)), case);
             a /= base;
             if (a == 0) break;
         }
@@ -1595,10 +1595,10 @@ test "fmtDuration" {
 
 fn formatDurationSigned(ns: i64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     if (ns < 0) {
-        const data = FormatDurationData{ .ns = @intCast(u64, -ns), .negative = true };
+        const data = FormatDurationData{ .ns = @as(u64, @intCast(-ns)), .negative = true };
         try formatDuration(data, fmt, options, writer);
     } else {
-        const data = FormatDurationData{ .ns = @intCast(u64, ns) };
+        const data = FormatDurationData{ .ns = @as(u64, @intCast(ns)) };
         try formatDuration(data, fmt, options, writer);
     }
 }
@@ -1846,7 +1846,7 @@ fn parseWithSign(
             // The first digit of a negative number.
             // Consider parsing "-4" as an i3.
             // This should work, but positive 4 overflows i3, so we can't cast the digit to T and subtract.
-            x = math.cast(T, -@intCast(i8, digit)) orelse return error.Overflow;
+            x = math.cast(T, -@as(i8, @intCast(digit))) orelse return error.Overflow;
             continue;
         }
         x = try add(T, x, math.cast(T, digit) orelse return error.Overflow);
@@ -2099,7 +2099,7 @@ test "optional" {
         try expectFmt("optional: null\n", "optional: {?}\n", .{value});
     }
     {
-        const value = @ptrFromInt(?*i32, 0xf000d000);
+        const value = @as(?*i32, @ptrFromInt(0xf000d000));
         try expectFmt("optional: *i32@f000d000\n", "optional: {*}\n", .{value});
     }
 }
@@ -2218,7 +2218,7 @@ test "slice" {
     }
     {
         var runtime_zero: usize = 0;
-        const value = @ptrFromInt([*]align(1) const []const u8, 0xdeadbeef)[runtime_zero..runtime_zero];
+        const value = @as([*]align(1) const []const u8, @ptrFromInt(0xdeadbeef))[runtime_zero..runtime_zero];
         try expectFmt("slice: []const u8@deadbeef\n", "slice: {*}\n", .{value});
     }
     {
@@ -2248,17 +2248,17 @@ test "escape non-printable" {
 
 test "pointer" {
     {
-        const value = @ptrFromInt(*align(1) i32, 0xdeadbeef);
+        const value = @as(*align(1) i32, @ptrFromInt(0xdeadbeef));
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
     }
     const FnPtr = *align(1) const fn () void;
     {
-        const value = @ptrFromInt(FnPtr, 0xdeadbeef);
+        const value = @as(FnPtr, @ptrFromInt(0xdeadbeef));
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
     {
-        const value = @ptrFromInt(FnPtr, 0xdeadbeef);
+        const value = @as(FnPtr, @ptrFromInt(0xdeadbeef));
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
 }
@@ -2267,12 +2267,12 @@ test "cstr" {
     try expectFmt(
         "cstr: Test C\n",
         "cstr: {s}\n",
-        .{@ptrCast([*c]const u8, "Test C")},
+        .{@as([*c]const u8, @ptrCast("Test C"))},
     );
     try expectFmt(
         "cstr:     Test C\n",
         "cstr: {s:10}\n",
-        .{@ptrCast([*c]const u8, "Test C")},
+        .{@as([*c]const u8, @ptrCast("Test C"))},
     );
 }
 
@@ -2360,11 +2360,11 @@ test "non-exhaustive enum" {
     };
     try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.One\n", "enum: {}\n", .{Enum.One});
     try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {}\n", .{Enum.Two});
-    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(4660)\n", "enum: {}\n", .{@enumFromInt(Enum, 0x1234)});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(4660)\n", "enum: {}\n", .{@as(Enum, @enumFromInt(0x1234))});
     try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.One\n", "enum: {x}\n", .{Enum.One});
     try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {x}\n", .{Enum.Two});
     try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {X}\n", .{Enum.Two});
-    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(1234)\n", "enum: {x}\n", .{@enumFromInt(Enum, 0x1234)});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(1234)\n", "enum: {x}\n", .{@as(Enum, @enumFromInt(0x1234))});
 }
 
 test "float.scientific" {
@@ -2376,11 +2376,11 @@ test "float.scientific" {
 
 test "float.scientific.precision" {
     try expectFmt("f64: 1.40971e-42", "f64: {e:.5}", .{@as(f64, 1.409706e-42)});
-    try expectFmt("f64: 1.00000e-09", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 814313563)))});
-    try expectFmt("f64: 7.81250e-03", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1006632960)))});
+    try expectFmt("f64: 1.00000e-09", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 814313563))))});
+    try expectFmt("f64: 7.81250e-03", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1006632960))))});
     // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
     // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
-    try expectFmt("f64: 1.00001e+05", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1203982400)))});
+    try expectFmt("f64: 1.00001e+05", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1203982400))))});
 }
 
 test "float.special" {
@@ -2472,22 +2472,22 @@ test "float.decimal" {
 }
 
 test "float.libc.sanity" {
-    try expectFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 916964781)))});
-    try expectFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 925353389)))});
-    try expectFmt("f64: 0.10000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1036831278)))});
-    try expectFmt("f64: 1.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1065353133)))});
-    try expectFmt("f64: 10.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1092616192)))});
+    try expectFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 916964781))))});
+    try expectFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 925353389))))});
+    try expectFmt("f64: 0.10000", "f64: {d:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1036831278))))});
+    try expectFmt("f64: 1.00000", "f64: {d:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1065353133))))});
+    try expectFmt("f64: 10.00000", "f64: {d:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1092616192))))});
 
     // libc differences
     //
     // This is 0.015625 exactly according to gdb. We thus round down,
     // however glibc rounds up for some reason. This occurs for all
     // floats of the form x.yyyy25 on a precision point.
-    try expectFmt("f64: 0.01563", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1015021568)))});
+    try expectFmt("f64: 0.01563", "f64: {d:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1015021568))))});
     // errol3 rounds to ... 630 but libc rounds to ...632. Grisu3
     // also rounds to 630 so I'm inclined to believe libc is not
     // optimal here.
-    try expectFmt("f64: 18014400656965630.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1518338049)))});
+    try expectFmt("f64: 18014400656965630.00000", "f64: {d:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1518338049))))});
 }
 
 test "custom" {

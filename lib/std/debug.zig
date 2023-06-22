@@ -460,8 +460,8 @@ pub const StackIterator = struct {
         // We are unable to determine validity of memory for freestanding targets
         if (native_os == .freestanding) return true;
 
-        const aligned_address = address & ~@intCast(usize, (mem.page_size - 1));
-        const aligned_memory = @ptrFromInt([*]align(mem.page_size) u8, aligned_address)[0..mem.page_size];
+        const aligned_address = address & ~@as(usize, @intCast((mem.page_size - 1)));
+        const aligned_memory = @as([*]align(mem.page_size) u8, @ptrFromInt(aligned_address))[0..mem.page_size];
 
         if (native_os != .windows) {
             if (native_os != .wasi) {
@@ -511,7 +511,7 @@ pub const StackIterator = struct {
         if (fp == 0 or !mem.isAligned(fp, @alignOf(usize)) or !isValidMemory(fp))
             return null;
 
-        const new_fp = math.add(usize, @ptrFromInt(*const usize, fp).*, fp_bias) catch return null;
+        const new_fp = math.add(usize, @as(*const usize, @ptrFromInt(fp)).*, fp_bias) catch return null;
 
         // Sanity check: the stack grows down thus all the parent frames must be
         // be at addresses that are greater (or equal) than the previous one.
@@ -520,9 +520,9 @@ pub const StackIterator = struct {
         if (new_fp != 0 and new_fp < self.fp)
             return null;
 
-        const new_pc = @ptrFromInt(
+        const new_pc = @as(
             *const usize,
-            math.add(usize, fp, pc_offset) catch return null,
+            @ptrFromInt(math.add(usize, fp, pc_offset) catch return null),
         ).*;
 
         self.fp = new_fp;
@@ -555,10 +555,10 @@ pub fn writeCurrentStackTrace(
 pub noinline fn walkStackWindows(addresses: []usize) usize {
     if (builtin.cpu.arch == .x86) {
         // RtlVirtualUnwind doesn't exist on x86
-        return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @ptrCast(**anyopaque, addresses.ptr), null);
+        return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @as(**anyopaque, @ptrCast(addresses.ptr)), null);
     }
 
-    const tib = @ptrCast(*const windows.NT_TIB, &windows.teb().Reserved1);
+    const tib = @as(*const windows.NT_TIB, @ptrCast(&windows.teb().Reserved1));
 
     var context: windows.CONTEXT = std.mem.zeroes(windows.CONTEXT);
     windows.ntdll.RtlCaptureContext(&context);
@@ -584,7 +584,7 @@ pub noinline fn walkStackWindows(addresses: []usize) usize {
             );
         } else {
             // leaf function
-            context.setIp(@ptrFromInt(*u64, current_regs.sp).*);
+            context.setIp(@as(*u64, @ptrFromInt(current_regs.sp)).*);
             context.setSp(current_regs.sp + @sizeOf(usize));
         }
 
@@ -734,7 +734,7 @@ fn printLineInfo(
             if (printLineFromFile(out_stream, li)) {
                 if (li.column > 0) {
                     // The caret already takes one char
-                    const space_needed = @intCast(usize, li.column - 1);
+                    const space_needed = @as(usize, @intCast(li.column - 1));
 
                     try out_stream.writeByteNTimes(' ', space_needed);
                     try tty_config.setColor(out_stream, .green);
@@ -883,7 +883,7 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) error{Overflow}![]const u8
 pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugInfo {
     nosuspend {
         const mapped_mem = try mapWholeFile(elf_file);
-        const hdr = @ptrCast(*const elf.Ehdr, &mapped_mem[0]);
+        const hdr = @as(*const elf.Ehdr, @ptrCast(&mapped_mem[0]));
         if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
         if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
 
@@ -896,14 +896,13 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
 
         const shoff = hdr.e_shoff;
         const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
-        const str_shdr = @ptrCast(
-            *const elf.Shdr,
-            @alignCast(@alignOf(elf.Shdr), &mapped_mem[math.cast(usize, str_section_off) orelse return error.Overflow]),
-        );
+        const str_shdr: *const elf.Shdr = @ptrCast(@alignCast(
+            &mapped_mem[math.cast(usize, str_section_off) orelse return error.Overflow],
+        ));
         const header_strings = mapped_mem[str_shdr.sh_offset .. str_shdr.sh_offset + str_shdr.sh_size];
-        const shdrs = @ptrCast(
+        const shdrs = @as(
             [*]const elf.Shdr,
-            @alignCast(@alignOf(elf.Shdr), &mapped_mem[shoff]),
+            @ptrCast(@alignCast(&mapped_mem[shoff])),
         )[0..hdr.e_shnum];
 
         var opt_debug_info: ?[]const u8 = null;
@@ -982,10 +981,7 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
 fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugInfo {
     const mapped_mem = try mapWholeFile(macho_file);
 
-    const hdr = @ptrCast(
-        *const macho.mach_header_64,
-        @alignCast(@alignOf(macho.mach_header_64), mapped_mem.ptr),
-    );
+    const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
     if (hdr.magic != macho.MH_MAGIC_64)
         return error.InvalidDebugInfo;
 
@@ -998,9 +994,9 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
         else => {},
     } else return error.MissingDebugInfo;
 
-    const syms = @ptrCast(
+    const syms = @as(
         [*]const macho.nlist_64,
-        @alignCast(@alignOf(macho.nlist_64), &mapped_mem[symtab.symoff]),
+        @ptrCast(@alignCast(&mapped_mem[symtab.symoff])),
     )[0..symtab.nsyms];
     const strings = mapped_mem[symtab.stroff..][0 .. symtab.strsize - 1 :0];
 
@@ -1055,7 +1051,7 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
                     },
                     .fun_strx => {
                         state = .fun_size;
-                        last_sym.size = @intCast(u32, sym.n_value);
+                        last_sym.size = @as(u32, @intCast(sym.n_value));
                     },
                     else => return error.InvalidDebugInfo,
                 }
@@ -1283,10 +1279,10 @@ pub const DebugInfo = struct {
 
             var it = macho.LoadCommandIterator{
                 .ncmds = header.ncmds,
-                .buffer = @alignCast(@alignOf(u64), @ptrFromInt(
+                .buffer = @alignCast(@as(
                     [*]u8,
-                    @intFromPtr(header) + @sizeOf(macho.mach_header_64),
-                ))[0..header.sizeofcmds],
+                    @ptrFromInt(@intFromPtr(header) + @sizeOf(macho.mach_header_64)),
+                )[0..header.sizeofcmds]),
             };
             while (it.next()) |cmd| switch (cmd.cmd()) {
                 .SEGMENT_64 => {
@@ -1332,7 +1328,7 @@ pub const DebugInfo = struct {
                     return obj_di;
                 }
 
-                const mapped_module = @ptrFromInt([*]const u8, module.base_address)[0..module.size];
+                const mapped_module = @as([*]const u8, @ptrFromInt(module.base_address))[0..module.size];
                 const obj_di = try self.allocator.create(ModuleDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
 
@@ -1465,10 +1461,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
             const mapped_mem = try mapWholeFile(o_file);
 
-            const hdr = @ptrCast(
-                *const macho.mach_header_64,
-                @alignCast(@alignOf(macho.mach_header_64), mapped_mem.ptr),
-            );
+            const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
             if (hdr.magic != std.macho.MH_MAGIC_64)
                 return error.InvalidDebugInfo;
 
@@ -1487,21 +1480,18 @@ pub const ModuleDebugInfo = switch (native_os) {
             if (segcmd == null or symtabcmd == null) return error.MissingDebugInfo;
 
             // Parse symbols
-            const strtab = @ptrCast(
+            const strtab = @as(
                 [*]const u8,
-                &mapped_mem[symtabcmd.?.stroff],
+                @ptrCast(&mapped_mem[symtabcmd.?.stroff]),
             )[0 .. symtabcmd.?.strsize - 1 :0];
-            const symtab = @ptrCast(
+            const symtab = @as(
                 [*]const macho.nlist_64,
-                @alignCast(
-                    @alignOf(macho.nlist_64),
-                    &mapped_mem[symtabcmd.?.symoff],
-                ),
+                @ptrCast(@alignCast(&mapped_mem[symtabcmd.?.symoff])),
             )[0..symtabcmd.?.nsyms];
 
             // TODO handle tentative (common) symbols
             var addr_table = std.StringHashMap(u64).init(allocator);
-            try addr_table.ensureTotalCapacity(@intCast(u32, symtab.len));
+            try addr_table.ensureTotalCapacity(@as(u32, @intCast(symtab.len)));
             for (symtab) |sym| {
                 if (sym.n_strx == 0) continue;
                 if (sym.undf() or sym.tentative() or sym.abs()) continue;
@@ -1943,49 +1933,49 @@ fn dumpSegfaultInfoPosix(sig: i32, addr: usize, ctx_ptr: ?*const anyopaque) void
 
     switch (native_arch) {
         .x86 => {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.gregs[os.REG.EIP]);
-            const bp = @intCast(usize, ctx.mcontext.gregs[os.REG.EBP]);
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            const ip = @as(usize, @intCast(ctx.mcontext.gregs[os.REG.EIP]));
+            const bp = @as(usize, @intCast(ctx.mcontext.gregs[os.REG.EBP]));
             dumpStackTraceFromBase(bp, ip);
         },
         .x86_64 => {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
             const ip = switch (native_os) {
-                .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
-                .freebsd => @intCast(usize, ctx.mcontext.rip),
-                .openbsd => @intCast(usize, ctx.sc_rip),
-                .macos => @intCast(usize, ctx.mcontext.ss.rip),
+                .linux, .netbsd, .solaris => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.RIP])),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.rip)),
+                .openbsd => @as(usize, @intCast(ctx.sc_rip)),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.rip)),
                 else => unreachable,
             };
             const bp = switch (native_os) {
-                .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
-                .openbsd => @intCast(usize, ctx.sc_rbp),
-                .freebsd => @intCast(usize, ctx.mcontext.rbp),
-                .macos => @intCast(usize, ctx.mcontext.ss.rbp),
+                .linux, .netbsd, .solaris => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.RBP])),
+                .openbsd => @as(usize, @intCast(ctx.sc_rbp)),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.rbp)),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.rbp)),
                 else => unreachable,
             };
             dumpStackTraceFromBase(bp, ip);
         },
         .arm => {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.arm_pc);
-            const bp = @intCast(usize, ctx.mcontext.arm_fp);
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            const ip = @as(usize, @intCast(ctx.mcontext.arm_pc));
+            const bp = @as(usize, @intCast(ctx.mcontext.arm_fp));
             dumpStackTraceFromBase(bp, ip);
         },
         .aarch64 => {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
             const ip = switch (native_os) {
-                .macos => @intCast(usize, ctx.mcontext.ss.pc),
-                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
-                .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
-                else => @intCast(usize, ctx.mcontext.pc),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.pc)),
+                .netbsd => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.PC])),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.gpregs.elr)),
+                else => @as(usize, @intCast(ctx.mcontext.pc)),
             };
             // x29 is the ABI-designated frame pointer
             const bp = switch (native_os) {
-                .macos => @intCast(usize, ctx.mcontext.ss.fp),
-                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
-                .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
-                else => @intCast(usize, ctx.mcontext.regs[29]),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.fp)),
+                .netbsd => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.FP])),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.gpregs.x[os.REG.FP])),
+                else => @as(usize, @intCast(ctx.mcontext.regs[29])),
             };
             dumpStackTraceFromBase(bp, ip);
         },

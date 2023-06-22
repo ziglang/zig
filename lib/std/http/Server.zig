@@ -46,7 +46,7 @@ pub const Connection = struct {
         const nread = try conn.rawReadAtLeast(conn.read_buf[0..], 1);
         if (nread == 0) return error.EndOfStream;
         conn.read_start = 0;
-        conn.read_end = @intCast(u16, nread);
+        conn.read_end = @as(u16, @intCast(nread));
     }
 
     pub fn peek(conn: *Connection) []const u8 {
@@ -67,8 +67,8 @@ pub const Connection = struct {
 
             if (available_read > available_buffer) { // partially read buffered data
                 @memcpy(buffer[out_index..], conn.read_buf[conn.read_start..conn.read_end][0..available_buffer]);
-                out_index += @intCast(u16, available_buffer);
-                conn.read_start += @intCast(u16, available_buffer);
+                out_index += @as(u16, @intCast(available_buffer));
+                conn.read_start += @as(u16, @intCast(available_buffer));
 
                 break;
             } else if (available_read > 0) { // fully read buffered data
@@ -268,7 +268,7 @@ pub const Request = struct {
     }
 
     inline fn int64(array: *const [8]u8) u64 {
-        return @bitCast(u64, array.*);
+        return @as(u64, @bitCast(array.*));
     }
 
     method: http.Method,
@@ -493,7 +493,7 @@ pub const Response = struct {
             try res.connection.fill();
 
             const nchecked = try res.request.parser.checkCompleteHead(res.allocator, res.connection.peek());
-            res.connection.drop(@intCast(u16, nchecked));
+            res.connection.drop(@as(u16, @intCast(nchecked)));
 
             if (res.request.parser.state.isContent()) break;
         }
@@ -560,7 +560,7 @@ pub const Response = struct {
                 try res.connection.fill();
 
                 const nchecked = try res.request.parser.checkCompleteHead(res.allocator, res.connection.peek());
-                res.connection.drop(@intCast(u16, nchecked));
+                res.connection.drop(@as(u16, @intCast(nchecked)));
             }
 
             if (has_trail) {

@@ -38,7 +38,7 @@ pub fn deinit(itab: *ImportTable, allocator: Allocator) void {
 
 /// Size of the import table does not include the sentinel.
 pub fn size(itab: ImportTable) u32 {
-    return @intCast(u32, itab.entries.items.len) * @sizeOf(u64);
+    return @as(u32, @intCast(itab.entries.items.len)) * @sizeOf(u64);
 }
 
 pub fn addImport(itab: *ImportTable, allocator: Allocator, target: SymbolWithLoc) !ImportIndex {
@@ -49,7 +49,7 @@ pub fn addImport(itab: *ImportTable, allocator: Allocator, target: SymbolWithLoc
             break :blk index;
         } else {
             log.debug("  (allocating import entry at index {d})", .{itab.entries.items.len});
-            const index = @intCast(u32, itab.entries.items.len);
+            const index = @as(u32, @intCast(itab.entries.items.len));
             _ = itab.entries.addOneAssumeCapacity();
             break :blk index;
         }
@@ -73,7 +73,7 @@ fn getBaseAddress(ctx: Context) u32 {
     var addr = header.virtual_address;
     for (ctx.coff_file.import_tables.values(), 0..) |other_itab, i| {
         if (ctx.index == i) break;
-        addr += @intCast(u32, other_itab.entries.items.len * @sizeOf(u64)) + 8;
+        addr += @as(u32, @intCast(other_itab.entries.items.len * @sizeOf(u64))) + 8;
     }
     return addr;
 }

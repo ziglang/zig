@@ -393,7 +393,7 @@ pub const Node = extern union {
 
     pub fn tag(self: Node) Tag {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
-            return @enumFromInt(Tag, @intCast(std.meta.Tag(Tag), self.tag_if_small_enough));
+            return @as(Tag, @enumFromInt(@as(std.meta.Tag(Tag), @intCast(self.tag_if_small_enough))));
         } else {
             return self.ptr_otherwise.tag;
         }
@@ -778,7 +778,7 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
 
     try ctx.tokens.append(gpa, .{
         .tag = .eof,
-        .start = @intCast(u32, ctx.buf.items.len),
+        .start = @as(u32, @intCast(ctx.buf.items.len)),
     });
 
     return std.zig.Ast{
@@ -808,10 +808,10 @@ const Context = struct {
 
         try c.tokens.append(c.gpa, .{
             .tag = tag,
-            .start = @intCast(u32, start_index),
+            .start = @as(u32, @intCast(start_index)),
         });
 
-        return @intCast(u32, c.tokens.len - 1);
+        return @as(u32, @intCast(c.tokens.len - 1));
     }
 
     fn addToken(c: *Context, tag: TokenTag, bytes: []const u8) Allocator.Error!TokenIndex {
@@ -827,13 +827,13 @@ const Context = struct {
     fn listToSpan(c: *Context, list: []const NodeIndex) Allocator.Error!NodeSubRange {
         try c.extra_data.appendSlice(c.gpa, list);
         return NodeSubRange{
-            .start = @intCast(NodeIndex, c.extra_data.items.len - list.len),
-            .end = @intCast(NodeIndex, c.extra_data.items.len),
+            .start = @as(NodeIndex, @intCast(c.extra_data.items.len - list.len)),
+            .end = @as(NodeIndex, @intCast(c.extra_data.items.len)),
         };
     }
 
     fn addNode(c: *Context, elem: std.zig.Ast.Node) Allocator.Error!NodeIndex {
-        const result = @intCast(NodeIndex, c.nodes.len);
+        const result = @as(NodeIndex, @intCast(c.nodes.len));
         try c.nodes.append(c.gpa, elem);
         return result;
     }
@@ -841,7 +841,7 @@ const Context = struct {
     fn addExtra(c: *Context, extra: anytype) Allocator.Error!NodeIndex {
         const fields = std.meta.fields(@TypeOf(extra));
         try c.extra_data.ensureUnusedCapacity(c.gpa, fields.len);
-        const result = @intCast(u32, c.extra_data.items.len);
+        const result = @as(u32, @intCast(c.extra_data.items.len));
         inline for (fields) |field| {
             comptime std.debug.assert(field.type == NodeIndex);
             c.extra_data.appendAssumeCapacity(@field(extra, field.name));

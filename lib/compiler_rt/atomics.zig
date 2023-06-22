@@ -232,16 +232,16 @@ fn wideUpdate(comptime T: type, ptr: *T, val: T, update: anytype) T {
 
     const addr = @intFromPtr(ptr);
     const wide_addr = addr & ~(@as(T, smallest_atomic_fetch_exch_size) - 1);
-    const wide_ptr = @alignCast(smallest_atomic_fetch_exch_size, @ptrFromInt(*WideAtomic, wide_addr));
+    const wide_ptr: *align(smallest_atomic_fetch_exch_size) WideAtomic = @alignCast(@as(*WideAtomic, @ptrFromInt(wide_addr)));
 
     const inner_offset = addr & (@as(T, smallest_atomic_fetch_exch_size) - 1);
-    const inner_shift = @intCast(std.math.Log2Int(T), inner_offset * 8);
+    const inner_shift = @as(std.math.Log2Int(T), @intCast(inner_offset * 8));
 
     const mask = @as(WideAtomic, std.math.maxInt(T)) << inner_shift;
 
     var wide_old = @atomicLoad(WideAtomic, wide_ptr, .SeqCst);
     while (true) {
-        const old = @truncate(T, (wide_old & mask) >> inner_shift);
+        const old = @as(T, @truncate((wide_old & mask) >> inner_shift));
         const new = update(val, old);
         const wide_new = wide_old & ~mask | (@as(WideAtomic, new) << inner_shift);
         if (@cmpxchgWeak(WideAtomic, wide_ptr, wide_old, wide_new, .SeqCst, .SeqCst)) |new_wide_old| {

@@ -220,7 +220,7 @@ pub const Node = struct {
             try writer.writeByte(0);
         }
         // Write number of edges (max legal number of edges is 256).
-        try writer.writeByte(@intCast(u8, self.edges.items.len));
+        try writer.writeByte(@as(u8, @intCast(self.edges.items.len)));
 
         for (self.edges.items) |edge| {
             // Write edge label and offset to next node in trie.

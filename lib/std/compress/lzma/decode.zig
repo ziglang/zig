@@ -52,11 +52,11 @@ pub const Params = struct {
             return error.CorruptInput;
         }
 
-        const lc = @intCast(u4, props % 9);
+        const lc = @as(u4, @intCast(props % 9));
         props /= 9;
-        const lp = @intCast(u3, props % 5);
+        const lp = @as(u3, @intCast(props % 5));
         props /= 5;
-        const pb = @intCast(u3, props);
+        const pb = @as(u3, @intCast(props));
 
         const dict_size_provided = try reader.readIntLittle(u32);
         const dict_size = @max(0x1000, dict_size_provided);
@@ -342,7 +342,7 @@ pub const DecoderState = struct {
             result = (result << 1) ^ @intFromBool(try decoder.decodeBit(reader, &probs[result], update));
         }
 
-        return @truncate(u8, result - 0x100);
+        return @as(u8, @truncate(result - 0x100));
     }
 
     fn decodeDistance(
@@ -358,7 +358,7 @@ pub const DecoderState = struct {
         if (pos_slot < 4)
             return pos_slot;
 
-        const num_direct_bits = @intCast(u5, (pos_slot >> 1) - 1);
+        const num_direct_bits = @as(u5, @intCast((pos_slot >> 1) - 1));
         var result = (2 ^ (pos_slot & 1)) << num_direct_bits;
 
         if (pos_slot < 14) {

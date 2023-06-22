@@ -231,7 +231,7 @@ test "@sizeOf comparison against zero" {
 
 test "hardcoded address in typeof expression" {
     const S = struct {
-        fn func() @TypeOf(@ptrFromInt(*[]u8, 0x10).*[0]) {
+        fn func() @TypeOf(@as(*[]u8, @ptrFromInt(0x10)).*[0]) {
             return 0;
         }
     };
@@ -252,7 +252,7 @@ test "array access of generic param in typeof expression" {
 test "lazy size cast to float" {
     {
         const S = struct { a: u8 };
-        try expect(@floatFromInt(f32, @sizeOf(S)) == 1.0);
+        try expect(@as(f32, @floatFromInt(@sizeOf(S))) == 1.0);
     }
     {
         const S = struct { a: u8 };

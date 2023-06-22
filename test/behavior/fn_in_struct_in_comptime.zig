@@ -14,5 +14,5 @@ fn get_foo() fn (*u8) usize {
 
 test "define a function in an anonymous struct in comptime" {
     const foo = get_foo();
-    try expect(foo(@ptrFromInt(*u8, 12345)) == 12345);
+    try expect(foo(@as(*u8, @ptrFromInt(12345))) == 12345);
 }

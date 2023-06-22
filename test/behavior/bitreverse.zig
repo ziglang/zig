@@ -62,20 +62,20 @@ fn testBitReverse() !void {
 
     // using comptime_ints, signed, positive
     try expect(@bitReverse(@as(u8, 0)) == 0);
-    try expect(@bitReverse(@bitCast(i8, @as(u8, 0x92))) == @bitCast(i8, @as(u8, 0x49)));
-    try expect(@bitReverse(@bitCast(i16, @as(u16, 0x1234))) == @bitCast(i16, @as(u16, 0x2c48)));
-    try expect(@bitReverse(@bitCast(i24, @as(u24, 0x123456))) == @bitCast(i24, @as(u24, 0x6a2c48)));
-    try expect(@bitReverse(@bitCast(i24, @as(u24, 0x12345f))) == @bitCast(i24, @as(u24, 0xfa2c48)));
-    try expect(@bitReverse(@bitCast(i24, @as(u24, 0xf23456))) == @bitCast(i24, @as(u24, 0x6a2c4f)));
-    try expect(@bitReverse(@bitCast(i32, @as(u32, 0x12345678))) == @bitCast(i32, @as(u32, 0x1e6a2c48)));
-    try expect(@bitReverse(@bitCast(i32, @as(u32, 0xf2345678))) == @bitCast(i32, @as(u32, 0x1e6a2c4f)));
-    try expect(@bitReverse(@bitCast(i32, @as(u32, 0x1234567f))) == @bitCast(i32, @as(u32, 0xfe6a2c48)));
-    try expect(@bitReverse(@bitCast(i40, @as(u40, 0x123456789a))) == @bitCast(i40, @as(u40, 0x591e6a2c48)));
-    try expect(@bitReverse(@bitCast(i48, @as(u48, 0x123456789abc))) == @bitCast(i48, @as(u48, 0x3d591e6a2c48)));
-    try expect(@bitReverse(@bitCast(i56, @as(u56, 0x123456789abcde))) == @bitCast(i56, @as(u56, 0x7b3d591e6a2c48)));
-    try expect(@bitReverse(@bitCast(i64, @as(u64, 0x123456789abcdef1))) == @bitCast(i64, @as(u64, 0x8f7b3d591e6a2c48)));
-    try expect(@bitReverse(@bitCast(i96, @as(u96, 0x123456789abcdef111213141))) == @bitCast(i96, @as(u96, 0x828c84888f7b3d591e6a2c48)));
-    try expect(@bitReverse(@bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181))) == @bitCast(i128, @as(u128, 0x818e868a828c84888f7b3d591e6a2c48)));
+    try expect(@bitReverse(@as(i8, @bitCast(@as(u8, 0x92)))) == @as(i8, @bitCast(@as(u8, 0x49))));
+    try expect(@bitReverse(@as(i16, @bitCast(@as(u16, 0x1234)))) == @as(i16, @bitCast(@as(u16, 0x2c48))));
+    try expect(@bitReverse(@as(i24, @bitCast(@as(u24, 0x123456)))) == @as(i24, @bitCast(@as(u24, 0x6a2c48))));
+    try expect(@bitReverse(@as(i24, @bitCast(@as(u24, 0x12345f)))) == @as(i24, @bitCast(@as(u24, 0xfa2c48))));
+    try expect(@bitReverse(@as(i24, @bitCast(@as(u24, 0xf23456)))) == @as(i24, @bitCast(@as(u24, 0x6a2c4f))));
+    try expect(@bitReverse(@as(i32, @bitCast(@as(u32, 0x12345678)))) == @as(i32, @bitCast(@as(u32, 0x1e6a2c48))));
+    try expect(@bitReverse(@as(i32, @bitCast(@as(u32, 0xf2345678)))) == @as(i32, @bitCast(@as(u32, 0x1e6a2c4f))));
+    try expect(@bitReverse(@as(i32, @bitCast(@as(u32, 0x1234567f)))) == @as(i32, @bitCast(@as(u32, 0xfe6a2c48))));
+    try expect(@bitReverse(@as(i40, @bitCast(@as(u40, 0x123456789a)))) == @as(i40, @bitCast(@as(u40, 0x591e6a2c48))));
+    try expect(@bitReverse(@as(i48, @bitCast(@as(u48, 0x123456789abc)))) == @as(i48, @bitCast(@as(u48, 0x3d591e6a2c48))));
+    try expect(@bitReverse(@as(i56, @bitCast(@as(u56, 0x123456789abcde)))) == @as(i56, @bitCast(@as(u56, 0x7b3d591e6a2c48))));
+    try expect(@bitReverse(@as(i64, @bitCast(@as(u64, 0x123456789abcdef1)))) == @as(i64, @bitCast(@as(u64, 0x8f7b3d591e6a2c48))));
+    try expect(@bitReverse(@as(i96, @bitCast(@as(u96, 0x123456789abcdef111213141)))) == @as(i96, @bitCast(@as(u96, 0x828c84888f7b3d591e6a2c48))));
+    try expect(@bitReverse(@as(i128, @bitCast(@as(u128, 0x123456789abcdef11121314151617181)))) == @as(i128, @bitCast(@as(u128, 0x818e868a828c84888f7b3d591e6a2c48))));
 
     // using signed, negative. Compare to runtime ints returned from llvm.
     var neg8: i8 = -18;

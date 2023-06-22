@@ -11,7 +11,7 @@ inline fn mantissaOne(comptime T: type) comptime_int {
 inline fn reconstructFloat(comptime T: type, comptime exponent: comptime_int, comptime mantissa: comptime_int) T {
     const TBits = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
     const biased_exponent = @as(TBits, exponent + floatExponentMax(T));
-    return @bitCast(T, (biased_exponent << floatMantissaBits(T)) | @as(TBits, mantissa));
+    return @as(T, @bitCast((biased_exponent << floatMantissaBits(T)) | @as(TBits, mantissa)));
 }
 
 /// Returns the number of bits in the exponent of floating point type T.

@@ -97,7 +97,7 @@ test "type constructed by comptime function call" {
     l.array[0] = 10;
     l.array[1] = 11;
     l.array[2] = 12;
-    const ptr = @ptrCast([*]u8, &l.array);
+    const ptr = @as([*]u8, @ptrCast(&l.array));
     try expect(ptr[0] == 10);
     try expect(ptr[1] == 11);
     try expect(ptr[2] == 12);
@@ -171,7 +171,7 @@ fn getByte(ptr: ?*const u8) u8 {
     return ptr.?.*;
 }
 fn getFirstByte(comptime T: type, mem: []const T) u8 {
-    return getByte(@ptrCast(*const u8, &mem[0]));
+    return getByte(@as(*const u8, @ptrCast(&mem[0])));
 }
 
 test "generic fn keeps non-generic parameter types" {
@@ -428,7 +428,7 @@ test "null sentinel pointer passed as generic argument" {
             try std.testing.expect(@intFromPtr(a) == 8);
         }
     };
-    try S.doTheTest((@ptrFromInt([*:null]const [*c]const u8, 8)));
+    try S.doTheTest((@as([*:null]const [*c]const u8, @ptrFromInt(8))));
 }
 
 test "generic function passed as comptime argument" {

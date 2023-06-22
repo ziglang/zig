@@ -24,7 +24,7 @@ export fn foo_vector_ConstPtrSpecialBaseArray() void {
 export fn foo_vector_ConstPtrSpecialRef() void {
     comptime {
         var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
-        var target: [*]u8 = @ptrCast([*]u8, &buf);
+        var target: [*]u8 = @ptrCast(&buf);
         const slice = target[0..14 :0];
         _ = slice;
     }
@@ -40,7 +40,7 @@ export fn foo_cvector_ConstPtrSpecialBaseArray() void {
 export fn foo_cvector_ConstPtrSpecialRef() void {
     comptime {
         var buf = [_]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
-        var target: [*c]u8 = @ptrCast([*c]u8, &buf);
+        var target: [*c]u8 = @ptrCast(&buf);
         const slice = target[0..14 :0];
         _ = slice;
     }

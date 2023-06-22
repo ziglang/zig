@@ -62,7 +62,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         const token = tokenizer.next();
         try tokens.append(gpa, .{
             .tag = token.tag,
-            .start = @intCast(u32, token.loc.start),
+            .start = @as(u32, @intCast(token.loc.start)),
         });
         if (token.tag == .eof) break;
     }
@@ -123,7 +123,7 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void
 /// should point after the token in the error message.
 pub fn errorOffset(tree: Ast, parse_error: Error) u32 {
     return if (parse_error.token_is_prev)
-        @intCast(u32, tree.tokenSlice(parse_error.token).len)
+        @as(u32, @intCast(tree.tokenSlice(parse_error.token).len))
     else
         0;
 }
@@ -772,7 +772,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
     var n = node;
     var end_offset: TokenIndex = 0;
     while (true) switch (tags[n]) {
-        .root => return @intCast(TokenIndex, tree.tokens.len - 1),
+        .root => return @as(TokenIndex, @intCast(tree.tokens.len - 1)),
 
         .@"usingnamespace",
         .bool_not,
@@ -1288,7 +1288,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             n = extra.else_expr;
         },
         .@"for" => {
-            const extra = @bitCast(Node.For, datas[n].rhs);
+            const extra = @as(Node.For, @bitCast(datas[n].rhs));
             n = tree.extra_data[datas[n].lhs + extra.inputs + @intFromBool(extra.has_else)];
         },
         .@"suspend" => {
@@ -1955,7 +1955,7 @@ pub fn forSimple(tree: Ast, node: Node.Index) full.For {
 
 pub fn forFull(tree: Ast, node: Node.Index) full.For {
     const data = tree.nodes.items(.data)[node];
-    const extra = @bitCast(Node.For, data.rhs);
+    const extra = @as(Node.For, @bitCast(data.rhs));
     const inputs = tree.extra_data[data.lhs..][0..extra.inputs];
     const then_expr = tree.extra_data[data.lhs + extra.inputs];
     const else_expr = if (extra.has_else) tree.extra_data[data.lhs + extra.inputs + 1] else 0;

@@ -494,7 +494,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
             const res = if (use_c) blk: {
                 const rc = std.c.getrandom(buf.ptr, buf.len, 0);
                 break :blk .{
-                    .num_read = @bitCast(usize, rc),
+                    .num_read = @as(usize, @bitCast(rc)),
                     .err = std.c.getErrno(rc),
                 };
             } else blk: {
@@ -608,7 +608,7 @@ pub fn abort() noreturn {
         sigprocmask(SIG.UNBLOCK, &sigabrtmask, null);
 
         // Beyond this point should be unreachable.
-        @ptrFromInt(*allowzero volatile u8, 0).* = 0;
+        @as(*allowzero volatile u8, @ptrFromInt(0)).* = 0;
         raise(SIG.KILL) catch {};
         exit(127); // Pid 1 might not be signalled in some containers.
     }
@@ -678,10 +678,10 @@ pub fn exit(status: u8) noreturn {
         // exit() is only available if exitBootServices() has not been called yet.
         // This call to exit should not fail, so we don't care about its return value.
         if (uefi.system_table.boot_services) |bs| {
-            _ = bs.exit(uefi.handle, @enumFromInt(uefi.Status, status), 0, null);
+            _ = bs.exit(uefi.handle, @as(uefi.Status, @enumFromInt(status)), 0, null);
         }
         // If we can't exit, reboot the system instead.
-        uefi.system_table.runtime_services.resetSystem(uefi.tables.ResetType.ResetCold, @enumFromInt(uefi.Status, status), 0, null);
+        uefi.system_table.runtime_services.resetSystem(uefi.tables.ResetType.ResetCold, @as(uefi.Status, @enumFromInt(status)), 0, null);
     }
     system.exit(status);
 }
@@ -759,7 +759,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     while (true) {
         const rc = system.read(fd, buf.ptr, adjusted_len);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
+            .SUCCESS => return @as(usize, @intCast(rc)),
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
@@ -818,7 +818,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
         const rc = system.readv(fd, iov.ptr, iov_count);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
+            .SUCCESS => return @as(usize, @intCast(rc)),
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
@@ -892,11 +892,11 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
 
     const pread_sym = if (lfs64_abi) system.pread64 else system.pread;
 
-    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    const ioffset = @as(i64, @bitCast(offset)); // the OS treats this as unsigned
     while (true) {
         const rc = pread_sym(fd, buf.ptr, adjusted_len, ioffset);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
+            .SUCCESS => return @as(usize, @intCast(rc)),
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
@@ -929,7 +929,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
     if (builtin.os.tag == .windows) {
         var io_status_block: windows.IO_STATUS_BLOCK = undefined;
         var eof_info = windows.FILE_END_OF_FILE_INFORMATION{
-            .EndOfFile = @bitCast(windows.LARGE_INTEGER, length),
+            .EndOfFile = @as(windows.LARGE_INTEGER, @bitCast(length)),
         };
 
         const rc = windows.ntdll.NtSetInformationFile(
@@ -965,7 +965,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
     while (true) {
         const ftruncate_sym = if (lfs64_abi) system.ftruncate64 else system.ftruncate;
 
-        const ilen = @bitCast(i64, length); // the OS treats this as unsigned
+        const ilen = @as(i64, @bitCast(length)); // the OS treats this as unsigned
         switch (errno(ftruncate_sym(fd, ilen))) {
             .SUCCESS => return,
             .INTR => continue,
@@ -1001,7 +1001,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     if (have_pread_but_not_preadv) {
         // We could loop here; but proper usage of `preadv` must handle partial reads anyway.
         // So we simply read into the first vector only.
-        if (iov.len == 0) return @intCast(usize, 0);
+        if (iov.len == 0) return @as(usize, @intCast(0));
         const first = iov[0];
         return pread(fd, first.iov_base[0..first.iov_len], offset);
     }
@@ -1030,11 +1030,11 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
 
     const preadv_sym = if (lfs64_abi) system.preadv64 else system.preadv;
 
-    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    const ioffset = @as(i64, @bitCast(offset)); // the OS treats this as unsigned
     while (true) {
         const rc = preadv_sym(fd, iov.ptr, iov_count, ioffset);
         switch (errno(rc)) {
-            .SUCCESS => return @bitCast(usize, rc),
+            .SUCCESS => return @as(usize, @bitCast(rc)),
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
@@ -1143,7 +1143,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
     while (true) {
         const rc = system.write(fd, bytes.ptr, adjusted_len);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
+            .SUCCESS => return @as(usize, @intCast(rc)),
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
@@ -1212,11 +1212,11 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
         }
     }
 
-    const iov_count = if (iov.len > IOV_MAX) IOV_MAX else @intCast(u31, iov.len);
+    const iov_count = if (iov.len > IOV_MAX) IOV_MAX else @as(u31, @intCast(iov.len));
     while (true) {
         const rc = system.writev(fd, iov.ptr, iov_count);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
+            .SUCCESS => return @as(usize, @intCast(rc)),
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
@@ -1304,11 +1304,11 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
 
     const pwrite_sym = if (lfs64_abi) system.pwrite64 else system.pwrite;
 
-    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    const ioffset = @as(i64, @bitCast(offset)); // the OS treats this as unsigned
     while (true) {
         const rc = pwrite_sym(fd, bytes.ptr, adjusted_len, ioffset);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
+            .SUCCESS => return @as(usize, @intCast(rc)),
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
@@ -1390,12 +1390,12 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
 
     const pwritev_sym = if (lfs64_abi) system.pwritev64 else system.pwritev;
 
-    const iov_count = if (iov.len > IOV_MAX) IOV_MAX else @intCast(u31, iov.len);
-    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    const iov_count = if (iov.len > IOV_MAX) IOV_MAX else @as(u31, @intCast(iov.len));
+    const ioffset = @as(i64, @bitCast(offset)); // the OS treats this as unsigned
     while (true) {
         const rc = pwritev_sym(fd, iov.ptr, iov_count, ioffset);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
+            .SUCCESS => return @as(usize, @intCast(rc)),
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
@@ -1504,7 +1504,7 @@ pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t 
     while (true) {
         const rc = open_sym(file_path, flags, perm);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(fd_t, rc),
+            .SUCCESS => return @as(fd_t, @intCast(rc)),
             .INTR => continue,
 
             .FAULT => unreachable,
@@ -1653,11 +1653,11 @@ fn openOptionsFromFlagsWasi(fd: fd_t, oflag: u32) OpenError!WasiOpenOptions {
     rights &= fsb_cur.fs_rights_inheriting;
 
     return WasiOpenOptions{
-        .oflags = @truncate(w.oflags_t, (oflag >> 12)) & 0xfff,
+        .oflags = @as(w.oflags_t, @truncate((oflag >> 12))) & 0xfff,
         .lookup_flags = if (oflag & O.NOFOLLOW == 0) w.LOOKUP_SYMLINK_FOLLOW else 0,
         .fs_rights_base = rights,
         .fs_rights_inheriting = fsb_cur.fs_rights_inheriting,
-        .fs_flags = @truncate(w.fdflags_t, oflag & 0xfff),
+        .fs_flags = @as(w.fdflags_t, @truncate(oflag & 0xfff)),
     };
 }
 
@@ -1717,7 +1717,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
     while (true) {
         const rc = openat_sym(dir_fd, file_path, flags, mode);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(fd_t, rc),
+            .SUCCESS => return @as(fd_t, @intCast(rc)),
             .INTR => continue,
 
             .FAULT => unreachable,
@@ -1765,7 +1765,7 @@ pub fn openatW(dir_fd: fd_t, file_path_w: []const u16, flags: u32, mode: mode_t)
 pub fn dup(old_fd: fd_t) !fd_t {
     const rc = system.dup(old_fd);
     return switch (errno(rc)) {
-        .SUCCESS => return @intCast(fd_t, rc),
+        .SUCCESS => return @as(fd_t, @intCast(rc)),
         .MFILE => error.ProcessFdQuotaExceeded,
         .BADF => unreachable, // invalid file descriptor
         else => |err| return unexpectedErrno(err),
@@ -2024,7 +2024,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
 
     const err = if (builtin.link_libc) blk: {
         const c_err = if (std.c.getcwd(out_buffer.ptr, out_buffer.len)) |_| 0 else std.c._errno().*;
-        break :blk @enumFromInt(E, c_err);
+        break :blk @as(E, @enumFromInt(c_err));
     } else blk: {
         break :blk errno(system.getcwd(out_buffer.ptr, out_buffer.len));
     };
@@ -2661,12 +2661,12 @@ pub fn renameatW(
     const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path_w.len * 2;
     if (struct_len > struct_buf_len) return error.NameTooLong;
 
-    const rename_info = @ptrCast(*windows.FILE_RENAME_INFORMATION, &rename_info_buf);
+    const rename_info = @as(*windows.FILE_RENAME_INFORMATION, @ptrCast(&rename_info_buf));
 
     rename_info.* = .{
         .ReplaceIfExists = ReplaceIfExists,
         .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
-        .FileNameLength = @intCast(u32, new_path_w.len * 2), // already checked error.NameTooLong
+        .FileNameLength = @as(u32, @intCast(new_path_w.len * 2)), // already checked error.NameTooLong
         .FileName = undefined,
     };
     @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
@@ -2677,7 +2677,7 @@ pub fn renameatW(
         src_fd,
         &io_status_block,
         rename_info,
-        @intCast(u32, struct_len), // already checked for error.NameTooLong
+        @as(u32, @intCast(struct_len)), // already checked for error.NameTooLong
         .FileRenameInformation,
     );
 
@@ -3049,7 +3049,7 @@ pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 
     }
     const rc = system.readlink(file_path, out_buffer.ptr, out_buffer.len);
     switch (errno(rc)) {
-        .SUCCESS => return out_buffer[0..@bitCast(usize, rc)],
+        .SUCCESS => return out_buffer[0..@as(usize, @bitCast(rc))],
         .ACCES => return error.AccessDenied,
         .FAULT => unreachable,
         .INVAL => return error.NotLink,
@@ -3115,7 +3115,7 @@ pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) Read
     }
     const rc = system.readlinkat(dirfd, file_path, out_buffer.ptr, out_buffer.len);
     switch (errno(rc)) {
-        .SUCCESS => return out_buffer[0..@bitCast(usize, rc)],
+        .SUCCESS => return out_buffer[0..@as(usize, @bitCast(rc))],
         .ACCES => return error.AccessDenied,
         .FAULT => unreachable,
         .INVAL => return error.NotLink,
@@ -3227,7 +3227,7 @@ pub fn isatty(handle: fd_t) bool {
     if (builtin.os.tag == .linux) {
         while (true) {
             var wsz: linux.winsize = undefined;
-            const fd = @bitCast(usize, @as(isize, handle));
+            const fd = @as(usize, @bitCast(@as(isize, handle)));
             const rc = linux.syscall3(.ioctl, fd, linux.T.IOCGWINSZ, @intFromPtr(&wsz));
             switch (linux.getErrno(rc)) {
                 .SUCCESS => return true,
@@ -3271,14 +3271,14 @@ pub fn isCygwinPty(handle: fd_t) bool {
     var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (name_bytes_offset + num_name_bytes);
 
     var io_status_block: windows.IO_STATUS_BLOCK = undefined;
-    const rc = windows.ntdll.NtQueryInformationFile(handle, &io_status_block, &name_info_bytes, @intCast(u32, name_info_bytes.len), .FileNameInformation);
+    const rc = windows.ntdll.NtQueryInformationFile(handle, &io_status_block, &name_info_bytes, @as(u32, @intCast(name_info_bytes.len)), .FileNameInformation);
     switch (rc) {
         .SUCCESS => {},
         .INVALID_PARAMETER => unreachable,
         else => return false,
     }
 
-    const name_info = @ptrCast(*const windows.FILE_NAME_INFO, &name_info_bytes[0]);
+    const name_info = @as(*const windows.FILE_NAME_INFO, @ptrCast(&name_info_bytes[0]));
     const name_bytes = name_info_bytes[name_bytes_offset .. name_bytes_offset + @as(usize, name_info.FileNameLength)];
     const name_wide = mem.bytesAsSlice(u16, name_bytes);
     // Note: The name we get from NtQueryInformationFile will be prefixed with a '\', e.g. \msys-1888ae32e00d56aa-pty0-to-master
@@ -3325,9 +3325,9 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
         else
             0;
         const rc = try windows.WSASocketW(
-            @bitCast(i32, domain),
-            @bitCast(i32, filtered_sock_type),
-            @bitCast(i32, protocol),
+            @as(i32, @bitCast(domain)),
+            @as(i32, @bitCast(filtered_sock_type)),
+            @as(i32, @bitCast(protocol)),
             null,
             0,
             flags,
@@ -3353,7 +3353,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
     const rc = system.socket(domain, filtered_sock_type, protocol);
     switch (errno(rc)) {
         .SUCCESS => {
-            const fd = @intCast(fd_t, rc);
+            const fd = @as(fd_t, @intCast(rc));
             if (!have_sock_flags) {
                 try setSockFlags(fd, socket_type);
             }
@@ -3679,7 +3679,7 @@ pub fn accept(
         } else {
             switch (errno(rc)) {
                 .SUCCESS => {
-                    break @intCast(socket_t, rc);
+                    break @as(socket_t, @intCast(rc));
                 },
                 .INTR => continue,
                 .AGAIN => return error.WouldBlock,
@@ -3723,7 +3723,7 @@ pub const EpollCreateError = error{
 pub fn epoll_create1(flags: u32) EpollCreateError!i32 {
     const rc = system.epoll_create1(flags);
     switch (errno(rc)) {
-        .SUCCESS => return @intCast(i32, rc),
+        .SUCCESS => return @as(i32, @intCast(rc)),
         else => |err| return unexpectedErrno(err),
 
         .INVAL => unreachable,
@@ -3782,9 +3782,9 @@ pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*linux.epoll_event) EpollC
 pub fn epoll_wait(epfd: i32, events: []linux.epoll_event, timeout: i32) usize {
     while (true) {
         // TODO get rid of the @intCast
-        const rc = system.epoll_wait(epfd, events.ptr, @intCast(u32, events.len), timeout);
+        const rc = system.epoll_wait(epfd, events.ptr, @as(u32, @intCast(events.len)), timeout);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
+            .SUCCESS => return @as(usize, @intCast(rc)),
             .INTR => continue,
             .BADF => unreachable,
             .FAULT => unreachable,
@@ -3803,7 +3803,7 @@ pub const EventFdError = error{
 pub fn eventfd(initval: u32, flags: u32) EventFdError!i32 {
     const rc = system.eventfd(initval, flags);
     switch (errno(rc)) {
-        .SUCCESS => return @intCast(i32, rc),
+        .SUCCESS => return @as(i32, @intCast(rc)),
         else => |err| return unexpectedErrno(err),
 
         .INVAL => unreachable, // invalid parameters
@@ -3937,7 +3937,7 @@ pub const ConnectError = error{
 /// return error.WouldBlock when EAGAIN or EINPROGRESS is received.
 pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) ConnectError!void {
     if (builtin.os.tag == .windows) {
-        const rc = windows.ws2_32.connect(sock, sock_addr, @intCast(i32, len));
+        const rc = windows.ws2_32.connect(sock, sock_addr, @as(i32, @intCast(len)));
         if (rc == 0) return;
         switch (windows.ws2_32.WSAGetLastError()) {
             .WSAEADDRINUSE => return error.AddressInUse,
@@ -3992,10 +3992,10 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
 pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
     var err_code: i32 = undefined;
     var size: u32 = @sizeOf(u32);
-    const rc = system.getsockopt(sockfd, SOL.SOCKET, SO.ERROR, @ptrCast([*]u8, &err_code), &size);
+    const rc = system.getsockopt(sockfd, SOL.SOCKET, SO.ERROR, @as([*]u8, @ptrCast(&err_code)), &size);
     assert(size == 4);
     switch (errno(rc)) {
-        .SUCCESS => switch (@enumFromInt(E, err_code)) {
+        .SUCCESS => switch (@as(E, @enumFromInt(err_code))) {
             .SUCCESS => return,
             .ACCES => return error.PermissionDenied,
             .PERM => return error.PermissionDenied,
@@ -4035,13 +4035,13 @@ pub const WaitPidResult = struct {
 pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
     const Status = if (builtin.link_libc) c_int else u32;
     var status: Status = undefined;
-    const coerced_flags = if (builtin.link_libc) @intCast(c_int, flags) else flags;
+    const coerced_flags = if (builtin.link_libc) @as(c_int, @intCast(flags)) else flags;
     while (true) {
         const rc = system.waitpid(pid, &status, coerced_flags);
         switch (errno(rc)) {
             .SUCCESS => return .{
-                .pid = @intCast(pid_t, rc),
-                .status = @bitCast(u32, status),
+                .pid = @as(pid_t, @intCast(rc)),
+                .status = @as(u32, @bitCast(status)),
             },
             .INTR => continue,
             .CHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
@@ -4054,13 +4054,13 @@ pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
 pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
     const Status = if (builtin.link_libc) c_int else u32;
     var status: Status = undefined;
-    const coerced_flags = if (builtin.link_libc) @intCast(c_int, flags) else flags;
+    const coerced_flags = if (builtin.link_libc) @as(c_int, @intCast(flags)) else flags;
     while (true) {
         const rc = system.wait4(pid, &status, coerced_flags, ru);
         switch (errno(rc)) {
             .SUCCESS => return .{
-                .pid = @intCast(pid_t, rc),
-                .status = @bitCast(u32, status),
+                .pid = @as(pid_t, @intCast(rc)),
+                .status = @as(u32, @bitCast(status)),
             },
             .INTR => continue,
             .CHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
@@ -4182,7 +4182,7 @@ pub const KQueueError = error{
 pub fn kqueue() KQueueError!i32 {
     const rc = system.kqueue();
     switch (errno(rc)) {
-        .SUCCESS => return @intCast(i32, rc),
+        .SUCCESS => return @as(i32, @intCast(rc)),
         .MFILE => return error.ProcessFdQuotaExceeded,
         .NFILE => return error.SystemFdQuotaExceeded,
         else => |err| return unexpectedErrno(err),
@@ -4223,7 +4223,7 @@ pub fn kevent(
             timeout,
         );
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
+            .SUCCESS => return @as(usize, @intCast(rc)),
             .ACCES => return error.AccessDenied,
             .FAULT => unreachable,
             .BADF => unreachable, // Always a race condition.
@@ -4247,7 +4247,7 @@ pub const INotifyInitError = error{
 pub fn inotify_init1(flags: u32) INotifyInitError!i32 {
     const rc = system.inotify_init1(flags);
     switch (errno(rc)) {
-        .SUCCESS => return @intCast(i32, rc),
+        .SUCCESS => return @as(i32, @intCast(rc)),
         .INVAL => unreachable,
         .MFILE => return error.ProcessFdQuotaExceeded,
         .NFILE => return error.SystemFdQuotaExceeded,
@@ -4276,7 +4276,7 @@ pub fn inotify_add_watch(inotify_fd: i32, pathname: []const u8, mask: u32) INoti
 pub fn inotify_add_watchZ(inotify_fd: i32, pathname: [*:0]const u8, mask: u32) INotifyAddWatchError!i32 {
     const rc = system.inotify_add_watch(inotify_fd, pathname, mask);
     switch (errno(rc)) {
-        .SUCCESS => return @intCast(i32, rc),
+        .SUCCESS => return @as(i32, @intCast(rc)),
         .ACCES => return error.AccessDenied,
         .BADF => unreachable,
         .FAULT => unreachable,
@@ -4319,7 +4319,7 @@ pub const MProtectError = error{
 pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
     assert(mem.isAligned(memory.len, mem.page_size));
     if (builtin.os.tag == .windows) {
-        const win_prot: windows.DWORD = switch (@truncate(u3, protection)) {
+        const win_prot: windows.DWORD = switch (@as(u3, @truncate(protection))) {
             0b000 => windows.PAGE_NOACCESS,
             0b001 => windows.PAGE_READONLY,
             0b010 => unreachable, // +w -r not allowed
@@ -4350,7 +4350,7 @@ pub const ForkError = error{SystemResources} || UnexpectedError;
 pub fn fork() ForkError!pid_t {
     const rc = system.fork();
     switch (errno(rc)) {
-        .SUCCESS => return @intCast(pid_t, rc),
+        .SUCCESS => return @as(pid_t, @intCast(rc)),
         .AGAIN => return error.SystemResources,
         .NOMEM => return error.SystemResources,
         else => |err| return unexpectedErrno(err),
@@ -4391,14 +4391,14 @@ pub fn mmap(
 ) MMapError![]align(mem.page_size) u8 {
     const mmap_sym = if (lfs64_abi) system.mmap64 else system.mmap;
 
-    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    const ioffset = @as(i64, @bitCast(offset)); // the OS treats this as unsigned
     const rc = mmap_sym(ptr, length, prot, flags, fd, ioffset);
     const err = if (builtin.link_libc) blk: {
-        if (rc != std.c.MAP.FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
-        break :blk @enumFromInt(E, system._errno().*);
+        if (rc != std.c.MAP.FAILED) return @as([*]align(mem.page_size) u8, @ptrCast(@alignCast(rc)))[0..length];
+        break :blk @as(E, @enumFromInt(system._errno().*));
     } else blk: {
         const err = errno(rc);
-        if (err == .SUCCESS) return @ptrFromInt([*]align(mem.page_size) u8, rc)[0..length];
+        if (err == .SUCCESS) return @as([*]align(mem.page_size) u8, @ptrFromInt(rc))[0..length];
         break :blk err;
     };
     switch (err) {
@@ -4781,7 +4781,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
-        switch (wasi.fd_seek(fd, @bitCast(wasi.filedelta_t, offset), .SET, &new_offset)) {
+        switch (wasi.fd_seek(fd, @as(wasi.filedelta_t, @bitCast(offset)), .SET, &new_offset)) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4795,7 +4795,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
 
     const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
 
-    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    const ioffset = @as(i64, @bitCast(offset)); // the OS treats this as unsigned
     switch (errno(lseek_sym(fd, ioffset, SEEK.SET))) {
         .SUCCESS => return,
         .BADF => unreachable, // always a race condition
@@ -4811,7 +4811,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
 pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
     if (builtin.os.tag == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
-        switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK.CUR))) {
+        switch (errno(system.llseek(fd, @as(u64, @bitCast(offset)), &result, SEEK.CUR))) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4839,7 +4839,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
     }
     const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
 
-    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    const ioffset = @as(i64, @bitCast(offset)); // the OS treats this as unsigned
     switch (errno(lseek_sym(fd, ioffset, SEEK.CUR))) {
         .SUCCESS => return,
         .BADF => unreachable, // always a race condition
@@ -4855,7 +4855,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
 pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
     if (builtin.os.tag == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
-        switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK.END))) {
+        switch (errno(system.llseek(fd, @as(u64, @bitCast(offset)), &result, SEEK.END))) {
             .SUCCESS => return,
             .BADF => unreachable, // always a race condition
             .INVAL => return error.Unseekable,
@@ -4883,7 +4883,7 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
     }
     const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
 
-    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    const ioffset = @as(i64, @bitCast(offset)); // the OS treats this as unsigned
     switch (errno(lseek_sym(fd, ioffset, SEEK.END))) {
         .SUCCESS => return,
         .BADF => unreachable, // always a race condition
@@ -4929,7 +4929,7 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
 
     const rc = lseek_sym(fd, 0, SEEK.CUR);
     switch (errno(rc)) {
-        .SUCCESS => return @bitCast(u64, rc),
+        .SUCCESS => return @as(u64, @bitCast(rc)),
         .BADF => unreachable, // always a race condition
         .INVAL => return error.Unseekable,
         .OVERFLOW => return error.Unseekable,
@@ -4952,7 +4952,7 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
     while (true) {
         const rc = system.fcntl(fd, cmd, arg);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
+            .SUCCESS => return @as(usize, @intCast(rc)),
             .INTR => continue,
             .AGAIN, .ACCES => return error.Locked,
             .BADF => unreachable,
@@ -5122,7 +5122,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
 
         return getFdPath(fd, out_buffer);
     }
-    const result_path = std.c.realpath(pathname, out_buffer) orelse switch (@enumFromInt(E, std.c._errno().*)) {
+    const result_path = std.c.realpath(pathname, out_buffer) orelse switch (@as(E, @enumFromInt(std.c._errno().*))) {
         .SUCCESS => unreachable,
         .INVAL => unreachable,
         .BADF => unreachable,
@@ -5269,7 +5269,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                 };
                 var i: usize = 0;
                 while (i < len) {
-                    const kf: *align(1) system.kinfo_file = @ptrCast(*align(1) system.kinfo_file, &buf[i]);
+                    const kf: *align(1) system.kinfo_file = @as(*align(1) system.kinfo_file, @ptrCast(&buf[i]));
                     if (kf.fd == fd) {
                         len = mem.indexOfScalar(u8, &kf.path, 0) orelse MAX_PATH_BYTES;
                         if (len == 0) return error.NameTooLong;
@@ -5277,7 +5277,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                         @memcpy(result, kf.path[0..len]);
                         return result;
                     }
-                    i += @intCast(usize, kf.structsize);
+                    i += @as(usize, @intCast(kf.structsize));
                 }
                 return error.InvalidHandle;
             }
@@ -5357,22 +5357,22 @@ pub fn dl_iterate_phdr(
     if (builtin.link_libc) {
         switch (system.dl_iterate_phdr(struct {
             fn callbackC(info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int {
-                const context_ptr = @ptrCast(*const Context, @alignCast(@alignOf(*const Context), data));
+                const context_ptr: *const Context = @ptrCast(@alignCast(data));
                 callback(info, size, context_ptr.*) catch |err| return @intFromError(err);
                 return 0;
             }
-        }.callbackC, @ptrFromInt(?*anyopaque, @intFromPtr(&context)))) {
+        }.callbackC, @as(?*anyopaque, @ptrFromInt(@intFromPtr(&context))))) {
             0 => return,
-            else => |err| return @errSetCast(Error, @errorFromInt(@intCast(u16, err))), // TODO don't hardcode u16
+            else => |err| return @as(Error, @errSetCast(@errorFromInt(@as(u16, @intCast(err))))), // TODO don't hardcode u16
         }
     }
 
     const elf_base = std.process.getBaseAddress();
-    const ehdr = @ptrFromInt(*elf.Ehdr, elf_base);
+    const ehdr = @as(*elf.Ehdr, @ptrFromInt(elf_base));
     // Make sure the base address points to an ELF image.
     assert(mem.eql(u8, ehdr.e_ident[0..4], elf.MAGIC));
     const n_phdr = ehdr.e_phnum;
-    const phdrs = (@ptrFromInt([*]elf.Phdr, elf_base + ehdr.e_phoff))[0..n_phdr];
+    const phdrs = (@as([*]elf.Phdr, @ptrFromInt(elf_base + ehdr.e_phoff)))[0..n_phdr];
 
     var it = dl.linkmap_iterator(phdrs) catch unreachable;
 
@@ -5406,12 +5406,12 @@ pub fn dl_iterate_phdr(
         var dlpi_phnum: u16 = undefined;
 
         if (entry.l_addr != 0) {
-            const elf_header = @ptrFromInt(*elf.Ehdr, entry.l_addr);
-            dlpi_phdr = @ptrFromInt([*]elf.Phdr, entry.l_addr + elf_header.e_phoff);
+            const elf_header = @as(*elf.Ehdr, @ptrFromInt(entry.l_addr));
+            dlpi_phdr = @as([*]elf.Phdr, @ptrFromInt(entry.l_addr + elf_header.e_phoff));
             dlpi_phnum = elf_header.e_phnum;
         } else {
             // This is the running ELF image
-            dlpi_phdr = @ptrFromInt([*]elf.Phdr, elf_base + ehdr.e_phoff);
+            dlpi_phdr = @as([*]elf.Phdr, @ptrFromInt(elf_base + ehdr.e_phoff));
             dlpi_phnum = ehdr.e_phnum;
         }
 
@@ -5433,11 +5433,11 @@ pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var ts: timestamp_t = undefined;
-        switch (system.clock_time_get(@bitCast(u32, clk_id), 1, &ts)) {
+        switch (system.clock_time_get(@as(u32, @bitCast(clk_id)), 1, &ts)) {
             .SUCCESS => {
                 tp.* = .{
-                    .tv_sec = @intCast(i64, ts / std.time.ns_per_s),
-                    .tv_nsec = @intCast(isize, ts % std.time.ns_per_s),
+                    .tv_sec = @as(i64, @intCast(ts / std.time.ns_per_s)),
+                    .tv_nsec = @as(isize, @intCast(ts % std.time.ns_per_s)),
                 };
             },
             .INVAL => return error.UnsupportedClock,
@@ -5453,8 +5453,8 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
             const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
             const ft_per_s = std.time.ns_per_s / 100;
             tp.* = .{
-                .tv_sec = @intCast(i64, ft64 / ft_per_s) + std.time.epoch.windows,
-                .tv_nsec = @intCast(c_long, ft64 % ft_per_s) * 100,
+                .tv_sec = @as(i64, @intCast(ft64 / ft_per_s)) + std.time.epoch.windows,
+                .tv_nsec = @as(c_long, @intCast(ft64 % ft_per_s)) * 100,
             };
             return;
         } else {
@@ -5474,10 +5474,10 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
 pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var ts: timestamp_t = undefined;
-        switch (system.clock_res_get(@bitCast(u32, clk_id), &ts)) {
+        switch (system.clock_res_get(@as(u32, @bitCast(clk_id)), &ts)) {
             .SUCCESS => res.* = .{
-                .tv_sec = @intCast(i64, ts / std.time.ns_per_s),
-                .tv_nsec = @intCast(isize, ts % std.time.ns_per_s),
+                .tv_sec = @as(i64, @intCast(ts / std.time.ns_per_s)),
+                .tv_nsec = @as(isize, @intCast(ts % std.time.ns_per_s)),
             },
             .INVAL => return error.UnsupportedClock,
             else => |err| return unexpectedErrno(err),
@@ -5747,7 +5747,7 @@ pub fn res_mkquery(
         // TODO determine the circumstances for this and whether or
         // not this should be an error.
         if (j - i - 1 > 62) unreachable;
-        q[i - 1] = @intCast(u8, j - i);
+        q[i - 1] = @as(u8, @intCast(j - i));
     }
     q[i + 1] = ty;
     q[i + 3] = class;
@@ -5756,10 +5756,10 @@ pub fn res_mkquery(
     var ts: timespec = undefined;
     clock_gettime(CLOCK.REALTIME, &ts) catch {};
     const UInt = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(ts.tv_nsec)));
-    const unsec = @bitCast(UInt, ts.tv_nsec);
-    const id = @truncate(u32, unsec + unsec / 65536);
-    q[0] = @truncate(u8, id / 256);
-    q[1] = @truncate(u8, id);
+    const unsec = @as(UInt, @bitCast(ts.tv_nsec));
+    const id = @as(u32, @truncate(unsec + unsec / 65536));
+    q[0] = @as(u8, @truncate(id / 256));
+    q[1] = @as(u8, @truncate(id));
 
     @memcpy(buf[0..n], q[0..n]);
     return n;
@@ -5865,11 +5865,11 @@ pub fn sendmsg(
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
-                return @intCast(usize, rc);
+                return @as(usize, @intCast(rc));
             }
         } else {
             switch (errno(rc)) {
-                .SUCCESS => return @intCast(usize, rc),
+                .SUCCESS => return @as(usize, @intCast(rc)),
 
                 .ACCES => return error.AccessDenied,
                 .AGAIN => return error.WouldBlock,
@@ -5965,13 +5965,13 @@ pub fn sendto(
                 .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
                 else => |err| return windows.unexpectedWSAError(err),
             },
-            else => |rc| return @intCast(usize, rc),
+            else => |rc| return @as(usize, @intCast(rc)),
         }
     }
     while (true) {
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
         switch (errno(rc)) {
-            .SUCCESS => return @intCast(usize, rc),
+            .SUCCESS => return @as(usize, @intCast(rc)),
 
             .ACCES => return error.AccessDenied,
             .AGAIN => return error.WouldBlock,
@@ -6125,16 +6125,16 @@ pub fn sendfile(
             // Here we match BSD behavior, making a zero count value send as many bytes as possible.
             const adjusted_count_tmp = if (in_len == 0) max_count else @min(in_len, @as(size_t, max_count));
             // TODO we should not need this cast; improve return type of @min
-            const adjusted_count = @intCast(usize, adjusted_count_tmp);
+            const adjusted_count = @as(usize, @intCast(adjusted_count_tmp));
 
             const sendfile_sym = if (lfs64_abi) system.sendfile64 else system.sendfile;
 
             while (true) {
-                var offset: off_t = @bitCast(off_t, in_offset);
+                var offset: off_t = @as(off_t, @bitCast(in_offset));
                 const rc = sendfile_sym(out_fd, in_fd, &offset, adjusted_count);
                 switch (errno(rc)) {
                     .SUCCESS => {
-                        const amt = @bitCast(usize, rc);
+                        const amt = @as(usize, @bitCast(rc));
                         total_written += amt;
                         if (in_len == 0 and amt == 0) {
                             // We have detected EOF from `in_fd`.
@@ -6209,9 +6209,9 @@ pub fn sendfile(
 
             while (true) {
                 var sbytes: off_t = undefined;
-                const offset = @bitCast(off_t, in_offset);
+                const offset = @as(off_t, @bitCast(in_offset));
                 const err = errno(system.sendfile(in_fd, out_fd, offset, adjusted_count, hdtr, &sbytes, flags));
-                const amt = @bitCast(usize, sbytes);
+                const amt = @as(usize, @bitCast(sbytes));
                 switch (err) {
                     .SUCCESS => return amt,
 
@@ -6286,13 +6286,13 @@ pub fn sendfile(
 
             const adjusted_count_temporary = @min(in_len, @as(u63, max_count));
             // TODO we should not need this int cast; improve the return type of `@min`
-            const adjusted_count = @intCast(u63, adjusted_count_temporary);
+            const adjusted_count = @as(u63, @intCast(adjusted_count_temporary));
 
             while (true) {
                 var sbytes: off_t = adjusted_count;
-                const signed_offset = @bitCast(i64, in_offset);
+                const signed_offset = @as(i64, @bitCast(in_offset));
                 const err = errno(system.sendfile(in_fd, out_fd, signed_offset, &sbytes, hdtr, flags));
-                const amt = @bitCast(usize, sbytes);
+                const amt = @as(usize, @bitCast(sbytes));
                 switch (err) {
                     .SUCCESS => return amt,
 
@@ -6342,7 +6342,7 @@ pub fn sendfile(
         // Here we match BSD behavior, making a zero count value send as many bytes as possible.
         const adjusted_count_tmp = if (in_len == 0) buf.len else @min(buf.len, in_len);
         // TODO we should not need this cast; improve return type of @min
-        const adjusted_count = @intCast(usize, adjusted_count_tmp);
+        const adjusted_count = @as(usize, @intCast(adjusted_count_tmp));
         const amt_read = try pread(in_fd, buf[0..adjusted_count], in_offset);
         if (amt_read == 0) {
             if (in_len == 0) {
@@ -6413,14 +6413,14 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
         std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok) and
         has_copy_file_range_syscall.load(.Monotonic)))
     {
-        var off_in_copy = @bitCast(i64, off_in);
-        var off_out_copy = @bitCast(i64, off_out);
+        var off_in_copy = @as(i64, @bitCast(off_in));
+        var off_out_copy = @as(i64, @bitCast(off_out));
 
         while (true) {
             const rc = system.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
             if (builtin.os.tag == .freebsd) {
                 switch (system.getErrno(rc)) {
-                    .SUCCESS => return @intCast(usize, rc),
+                    .SUCCESS => return @as(usize, @intCast(rc)),
                     .BADF => return error.FilesOpenedWithWrongFlags,
                     .FBIG => return error.FileTooBig,
                     .IO => return error.InputOutput,
@@ -6433,7 +6433,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
                 }
             } else { // assume linux
                 switch (system.getErrno(rc)) {
-                    .SUCCESS => return @intCast(usize, rc),
+                    .SUCCESS => return @as(usize, @intCast(rc)),
                     .BADF => return error.FilesOpenedWithWrongFlags,
                     .FBIG => return error.FileTooBig,
                     .IO => return error.InputOutput,
@@ -6486,11 +6486,11 @@ pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
-                return @intCast(usize, rc);
+                return @as(usize, @intCast(rc));
             }
         } else {
             switch (errno(rc)) {
-                .SUCCESS => return @intCast(usize, rc),
+                .SUCCESS => return @as(usize, @intCast(rc)),
                 .FAULT => unreachable,
                 .INTR => continue,
                 .INVAL => unreachable,
@@ -6520,7 +6520,7 @@ pub fn ppoll(fds: []pollfd, timeout: ?*const timespec, mask: ?*const sigset_t) P
     const fds_count = math.cast(nfds_t, fds.len) orelse return error.SystemResources;
     const rc = system.ppoll(fds.ptr, fds_count, ts_ptr, mask);
     switch (errno(rc)) {
-        .SUCCESS => return @intCast(usize, rc),
+        .SUCCESS => return @as(usize, @intCast(rc)),
         .FAULT => unreachable,
         .INTR => return error.SignalInterrupt,
         .INVAL => unreachable,
@@ -6585,11 +6585,11 @@ pub fn recvfrom(
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
-                return @intCast(usize, rc);
+                return @as(usize, @intCast(rc));
             }
         } else {
             switch (errno(rc)) {
-                .SUCCESS => return @intCast(usize, rc),
+                .SUCCESS => return @as(usize, @intCast(rc)),
                 .BADF => unreachable, // always a race condition
                 .FAULT => unreachable,
                 .INVAL => unreachable,
@@ -6681,7 +6681,7 @@ pub const SetSockOptError = error{
 /// Set a socket's options.
 pub fn setsockopt(fd: socket_t, level: u32, optname: u32, opt: []const u8) SetSockOptError!void {
     if (builtin.os.tag == .windows) {
-        const rc = windows.ws2_32.setsockopt(fd, @intCast(i32, level), @intCast(i32, optname), opt.ptr, @intCast(i32, opt.len));
+        const rc = windows.ws2_32.setsockopt(fd, @as(i32, @intCast(level)), @as(i32, @intCast(optname)), opt.ptr, @as(i32, @intCast(opt.len)));
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
@@ -6694,7 +6694,7 @@ pub fn setsockopt(fd: socket_t, level: u32, optname: u32, opt: []const u8) SetSo
         }
         return;
     } else {
-        switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @intCast(socklen_t, opt.len)))) {
+        switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @as(socklen_t, @intCast(opt.len))))) {
             .SUCCESS => {},
             .BADF => unreachable, // always a race condition
             .NOTSOCK => unreachable, // always a race condition
@@ -6731,7 +6731,7 @@ pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
             const getErrno = if (use_c) std.c.getErrno else linux.getErrno;
             const rc = sys.memfd_create(name, flags);
             switch (getErrno(rc)) {
-                .SUCCESS => return @intCast(fd_t, rc),
+                .SUCCESS => return @as(fd_t, @intCast(rc)),
                 .FAULT => unreachable, // name has invalid memory
                 .INVAL => unreachable, // name/flags are faulty
                 .NFILE => return error.SystemFdQuotaExceeded,
@@ -6881,7 +6881,7 @@ pub fn ioctl_SIOCGIFINDEX(fd: fd_t, ifr: *ifreq) IoCtl_SIOCGIFINDEX_Error!void {
 pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) !fd_t {
     const rc = system.signalfd(fd, mask, flags);
     switch (errno(rc)) {
-        .SUCCESS => return @intCast(fd_t, rc),
+        .SUCCESS => return @as(fd_t, @intCast(rc)),
         .BADF, .INVAL => unreachable,
         .NFILE => return error.SystemFdQuotaExceeded,
         .NOMEM => return error.SystemResources,
@@ -6989,7 +6989,7 @@ pub fn prctl(option: PR, args: anytype) PrctlError!u31 {
 
     const rc = system.prctl(@intFromEnum(option), buf[0], buf[1], buf[2], buf[3]);
     switch (errno(rc)) {
-        .SUCCESS => return @intCast(u31, rc),
+        .SUCCESS => return @as(u31, @intCast(rc)),
         .ACCES => return error.AccessDenied,
         .BADF => return error.InvalidFileDescriptor,
         .FAULT => return error.InvalidAddress,
@@ -7170,7 +7170,7 @@ pub fn perf_event_open(
 ) PerfEventOpenError!fd_t {
     const rc = system.perf_event_open(attr, pid, cpu, group_fd, flags);
     switch (errno(rc)) {
-        .SUCCESS => return @intCast(fd_t, rc),
+        .SUCCESS => return @as(fd_t, @intCast(rc)),
         .@"2BIG" => return error.TooBig,
         .ACCES => return error.PermissionDenied,
         .BADF => unreachable, // group_fd file descriptor is not valid.
@@ -7205,7 +7205,7 @@ pub const TimerFdSetError = TimerFdGetError || error{Canceled};
 pub fn timerfd_create(clokid: i32, flags: u32) TimerFdCreateError!fd_t {
     var rc = linux.timerfd_create(clokid, flags);
     return switch (errno(rc)) {
-        .SUCCESS => @intCast(fd_t, rc),
+        .SUCCESS => @as(fd_t, @intCast(rc)),
         .INVAL => unreachable,
         .MFILE => return error.ProcessFdQuotaExceeded,
         .NFILE => return error.SystemFdQuotaExceeded,
@@ -7267,7 +7267,7 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!
         .macos, .ios, .tvos, .watchos => switch (errno(darwin.ptrace(
             math.cast(i32, request) orelse return error.Overflow,
             pid,
-            @ptrFromInt(?[*]u8, addr),
+            @as(?[*]u8, @ptrFromInt(addr)),
             math.cast(i32, signal) orelse return error.Overflow,
         ))) {
             .SUCCESS => {},

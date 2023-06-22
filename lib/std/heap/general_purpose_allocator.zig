@@ -250,7 +250,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             used_count: SlotIndex,
 
             fn usedBits(bucket: *BucketHeader, index: usize) *u8 {
-                return @ptrFromInt(*u8, @intFromPtr(bucket) + @sizeOf(BucketHeader) + index);
+                return @as(*u8, @ptrFromInt(@intFromPtr(bucket) + @sizeOf(BucketHeader) + index));
             }
 
             fn stackTracePtr(
@@ -259,10 +259,10 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 slot_index: SlotIndex,
                 trace_kind: TraceKind,
             ) *[stack_n]usize {
-                const start_ptr = @ptrCast([*]u8, bucket) + bucketStackFramesStart(size_class);
+                const start_ptr = @as([*]u8, @ptrCast(bucket)) + bucketStackFramesStart(size_class);
                 const addr = start_ptr + one_trace_size * traces_per_slot * slot_index +
                     @intFromEnum(trace_kind) * @as(usize, one_trace_size);
-                return @ptrCast(*[stack_n]usize, @alignCast(@alignOf(usize), addr));
+                return @ptrCast(@alignCast(addr));
             }
 
             fn captureStackTrace(
@@ -338,9 +338,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 if (used_byte != 0) {
                     var bit_index: u3 = 0;
                     while (true) : (bit_index += 1) {
-                        const is_used = @truncate(u1, used_byte >> bit_index) != 0;
+                        const is_used = @as(u1, @truncate(used_byte >> bit_index)) != 0;
                         if (is_used) {
-                            const slot_index = @intCast(SlotIndex, used_bits_byte * 8 + bit_index);
+                            const slot_index = @as(SlotIndex, @intCast(used_bits_byte * 8 + bit_index));
                             const stack_trace = bucketStackTrace(bucket, size_class, slot_index, .alloc);
                             const addr = bucket.page + slot_index * size_class;
                             log.err("memory address 0x{x} leaked: {}", .{
@@ -361,7 +361,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             var leaks = false;
             for (self.buckets, 0..) |optional_bucket, bucket_i| {
                 const first_bucket = optional_bucket orelse continue;
-                const size_class = @as(usize, 1) << @intCast(math.Log2Int(usize), bucket_i);
+                const size_class = @as(usize, 1) << @as(math.Log2Int(usize), @intCast(bucket_i));
                 const used_bits_count = usedBitsCount(size_class);
                 var bucket = first_bucket;
                 while (true) {
@@ -385,7 +385,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         fn freeBucket(self: *Self, bucket: *BucketHeader, size_class: usize) void {
             const bucket_size = bucketSize(size_class);
-            const bucket_slice = @ptrCast([*]align(@alignOf(BucketHeader)) u8, bucket)[0..bucket_size];
+            const bucket_slice = @as([*]align(@alignOf(BucketHeader)) u8, @ptrCast(bucket))[0..bucket_size];
             self.backing_allocator.free(bucket_slice);
         }
 
@@ -444,7 +444,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 self.small_allocations.deinit(self.backing_allocator);
             }
             self.* = undefined;
-            return @enumFromInt(Check, @intFromBool(leaks));
+            return @as(Check, @enumFromInt(@intFromBool(leaks)));
         }
 
         fn collectStackTrace(first_trace_addr: usize, addresses: *[stack_n]usize) void {
@@ -496,7 +496,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             bucket.alloc_cursor += 1;
 
             var used_bits_byte = bucket.usedBits(slot_index / 8);
-            const used_bit_index: u3 = @intCast(u3, slot_index % 8); // TODO cast should be unnecessary
+            const used_bit_index: u3 = @as(u3, @intCast(slot_index % 8)); // TODO cast should be unnecessary
             used_bits_byte.* |= (@as(u8, 1) << used_bit_index);
             bucket.used_count += 1;
             bucket.captureStackTrace(trace_addr, size_class, slot_index, .alloc);
@@ -667,8 +667,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             new_size: usize,
             ret_addr: usize,
         ) bool {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
-            const log2_old_align = @intCast(Allocator.Log2Align, log2_old_align_u8);
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            const log2_old_align = @as(Allocator.Log2Align, @intCast(log2_old_align_u8));
             self.mutex.lock();
             defer self.mutex.unlock();
 
@@ -704,11 +704,11 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 return self.resizeLarge(old_mem, log2_old_align, new_size, ret_addr);
             };
             const byte_offset = @intFromPtr(old_mem.ptr) - @intFromPtr(bucket.page);
-            const slot_index = @intCast(SlotIndex, byte_offset / size_class);
+            const slot_index = @as(SlotIndex, @intCast(byte_offset / size_class));
             const used_byte_index = slot_index / 8;
-            const used_bit_index = @intCast(u3, slot_index % 8);
+            const used_bit_index = @as(u3, @intCast(slot_index % 8));
             const used_byte = bucket.usedBits(used_byte_index);
-            const is_used = @truncate(u1, used_byte.* >> used_bit_index) != 0;
+            const is_used = @as(u1, @truncate(used_byte.* >> used_bit_index)) != 0;
             if (!is_used) {
                 if (config.safety) {
                     reportDoubleFree(ret_addr, bucketStackTrace(bucket, size_class, slot_index, .alloc), bucketStackTrace(bucket, size_class, slot_index, .free));
@@ -739,8 +739,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     }
                     if (log2_old_align != entry.value_ptr.log2_ptr_align) {
                         log.err("Allocation alignment {d} does not match resize alignment {d}. Allocation: {} Resize: {}", .{
-                            @as(usize, 1) << @intCast(math.Log2Int(usize), entry.value_ptr.log2_ptr_align),
-                            @as(usize, 1) << @intCast(math.Log2Int(usize), log2_old_align),
+                            @as(usize, 1) << @as(math.Log2Int(usize), @intCast(entry.value_ptr.log2_ptr_align)),
+                            @as(usize, 1) << @as(math.Log2Int(usize), @intCast(log2_old_align)),
                             bucketStackTrace(bucket, size_class, slot_index, .alloc),
                             free_stack_trace,
                         });
@@ -786,8 +786,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             log2_old_align_u8: u8,
             ret_addr: usize,
         ) void {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
-            const log2_old_align = @intCast(Allocator.Log2Align, log2_old_align_u8);
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            const log2_old_align = @as(Allocator.Log2Align, @intCast(log2_old_align_u8));
             self.mutex.lock();
             defer self.mutex.unlock();
 
@@ -825,11 +825,11 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 return;
             };
             const byte_offset = @intFromPtr(old_mem.ptr) - @intFromPtr(bucket.page);
-            const slot_index = @intCast(SlotIndex, byte_offset / size_class);
+            const slot_index = @as(SlotIndex, @intCast(byte_offset / size_class));
             const used_byte_index = slot_index / 8;
-            const used_bit_index = @intCast(u3, slot_index % 8);
+            const used_bit_index = @as(u3, @intCast(slot_index % 8));
             const used_byte = bucket.usedBits(used_byte_index);
-            const is_used = @truncate(u1, used_byte.* >> used_bit_index) != 0;
+            const is_used = @as(u1, @truncate(used_byte.* >> used_bit_index)) != 0;
             if (!is_used) {
                 if (config.safety) {
                     reportDoubleFree(ret_addr, bucketStackTrace(bucket, size_class, slot_index, .alloc), bucketStackTrace(bucket, size_class, slot_index, .free));
@@ -861,8 +861,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     }
                     if (log2_old_align != entry.value_ptr.log2_ptr_align) {
                         log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {} Free: {}", .{
-                            @as(usize, 1) << @intCast(math.Log2Int(usize), entry.value_ptr.log2_ptr_align),
-                            @as(usize, 1) << @intCast(math.Log2Int(usize), log2_old_align),
+                            @as(usize, 1) << @as(math.Log2Int(usize), @intCast(entry.value_ptr.log2_ptr_align)),
+                            @as(usize, 1) << @as(math.Log2Int(usize), @intCast(log2_old_align)),
                             bucketStackTrace(bucket, size_class, slot_index, .alloc),
                             free_stack_trace,
                         });
@@ -896,7 +896,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 } else {
                     // move alloc_cursor to end so we can tell size_class later
                     const slot_count = @divExact(page_size, size_class);
-                    bucket.alloc_cursor = @truncate(SlotIndex, slot_count);
+                    bucket.alloc_cursor = @as(SlotIndex, @truncate(slot_count));
                     if (self.empty_buckets) |prev_bucket| {
                         // empty_buckets is ordered newest to oldest through prev so that if
                         // config.never_unmap is false and backing_allocator reuses freed memory
@@ -936,11 +936,11 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         }
 
         fn alloc(ctx: *anyopaque, len: usize, log2_ptr_align: u8, ret_addr: usize) ?[*]u8 {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx));
             self.mutex.lock();
             defer self.mutex.unlock();
             if (!self.isAllocationAllowed(len)) return null;
-            return allocInner(self, len, @intCast(Allocator.Log2Align, log2_ptr_align), ret_addr) catch return null;
+            return allocInner(self, len, @as(Allocator.Log2Align, @intCast(log2_ptr_align)), ret_addr) catch return null;
         }
 
         fn allocInner(
@@ -949,7 +949,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             log2_ptr_align: Allocator.Log2Align,
             ret_addr: usize,
         ) Allocator.Error![*]u8 {
-            const new_aligned_size = @max(len, @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align));
+            const new_aligned_size = @max(len, @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align)));
             if (new_aligned_size > largest_bucket_object_size) {
                 try self.large_allocations.ensureUnusedCapacity(self.backing_allocator, 1);
                 const ptr = self.backing_allocator.rawAlloc(len, log2_ptr_align, ret_addr) orelse
@@ -1002,7 +1002,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             const bucket_size = bucketSize(size_class);
             const bucket_bytes = try self.backing_allocator.alignedAlloc(u8, @alignOf(BucketHeader), bucket_size);
-            const ptr = @ptrCast(*BucketHeader, bucket_bytes.ptr);
+            const ptr = @as(*BucketHeader, @ptrCast(bucket_bytes.ptr));
             ptr.* = BucketHeader{
                 .prev = ptr,
                 .next = ptr,

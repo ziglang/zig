@@ -11,11 +11,11 @@ comptime {
 }
 
 fn __subdf3(a: f64, b: f64) callconv(.C) f64 {
-    const neg_b = @bitCast(f64, @bitCast(u64, b) ^ (@as(u64, 1) << 63));
+    const neg_b = @as(f64, @bitCast(@as(u64, @bitCast(b)) ^ (@as(u64, 1) << 63)));
     return a + neg_b;
 }
 
 fn __aeabi_dsub(a: f64, b: f64) callconv(.AAPCS) f64 {
-    const neg_b = @bitCast(f64, @bitCast(u64, b) ^ (@as(u64, 1) << 63));
+    const neg_b = @as(f64, @bitCast(@as(u64, @bitCast(b)) ^ (@as(u64, 1) << 63)));
     return a + neg_b;
 }

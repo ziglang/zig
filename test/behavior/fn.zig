@@ -326,7 +326,7 @@ test "function pointers" {
         &fn4,
     };
     for (fns, 0..) |f, i| {
-        try expect(f() == @intCast(u32, i) + 5);
+        try expect(f() == @as(u32, @intCast(i)) + 5);
     }
 }
 fn fn1() u32 {
@@ -512,8 +512,8 @@ test "using @ptrCast on function pointers" {
 
         fn run() !void {
             const a = A{ .data = "abcd".* };
-            const casted_fn = @ptrCast(*const fn (*const anyopaque, usize) *const u8, &at);
-            const casted_impl = @ptrCast(*const anyopaque, &a);
+            const casted_fn = @as(*const fn (*const anyopaque, usize) *const u8, @ptrCast(&at));
+            const casted_impl = @as(*const anyopaque, @ptrCast(&a));
             const ptr = casted_fn(casted_impl, 2);
             try expect(ptr.* == 'c');
         }
@@ -575,7 +575,7 @@ test "lazy values passed to anytype parameter" {
     try B.foo(.{ .x = @sizeOf(B) });
 
     const C = struct {};
-    try expect(@truncate(u32, @sizeOf(C)) == 0);
+    try expect(@as(u32, @truncate(@sizeOf(C))) == 0);
 
     const D = struct {};
     try expect(@sizeOf(D) << 1 == 0);

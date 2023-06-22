@@ -5,7 +5,7 @@
 
 const std = @import("std");
 const math = std.math;
-const qnan128 = @bitCast(f128, @as(u128, 0x7fff800000000000) << 64);
+const qnan128 = @as(f128, @bitCast(@as(u128, 0x7fff800000000000) << 64));
 
 const __addtf3 = @import("addtf3.zig").__addtf3;
 const __addxf3 = @import("addxf3.zig").__addxf3;
@@ -14,9 +14,9 @@ const __subtf3 = @import("subtf3.zig").__subtf3;
 fn test__addtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) !void {
     const x = __addtf3(a, b);
 
-    const rep = @bitCast(u128, x);
-    const hi = @intCast(u64, rep >> 64);
-    const lo = @truncate(u64, rep);
+    const rep = @as(u128, @bitCast(x));
+    const hi = @as(u64, @intCast(rep >> 64));
+    const lo = @as(u64, @truncate(rep));
 
     if (hi == expected_hi and lo == expected_lo) {
         return;
@@ -37,7 +37,7 @@ test "addtf3" {
     try test__addtf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
     // NaN + any = NaN
-    try test__addtf3(@bitCast(f128, (@as(u128, 0x7fff000000000000) << 64) | @as(u128, 0x800030000000)), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
+    try test__addtf3(@as(f128, @bitCast((@as(u128, 0x7fff000000000000) << 64) | @as(u128, 0x800030000000))), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
     // inf + inf = inf
     try test__addtf3(math.inf(f128), math.inf(f128), 0x7fff000000000000, 0x0);
@@ -53,9 +53,9 @@ test "addtf3" {
 fn test__subtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) !void {
     const x = __subtf3(a, b);
 
-    const rep = @bitCast(u128, x);
-    const hi = @intCast(u64, rep >> 64);
-    const lo = @truncate(u64, rep);
+    const rep = @as(u128, @bitCast(x));
+    const hi = @as(u64, @intCast(rep >> 64));
+    const lo = @as(u64, @truncate(rep));
 
     if (hi == expected_hi and lo == expected_lo) {
         return;
@@ -77,7 +77,7 @@ test "subtf3" {
     try test__subtf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
     // NaN + any = NaN
-    try test__subtf3(@bitCast(f128, (@as(u128, 0x7fff000000000000) << 64) | @as(u128, 0x800030000000)), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
+    try test__subtf3(@as(f128, @bitCast((@as(u128, 0x7fff000000000000) << 64) | @as(u128, 0x800030000000))), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
     // inf - any = inf
     try test__subtf3(math.inf(f128), 0x1.23456789abcdefp+5, 0x7fff000000000000, 0x0);
@@ -87,16 +87,16 @@ test "subtf3" {
     try test__subtf3(0x1.ee9d7c52354a6936ab8d7654321fp-1, 0x1.234567829a3bcdef5678ade36734p+5, 0xc0041b8af1915166, 0xa44a7bca780a166c);
 }
 
-const qnan80 = @bitCast(f80, @bitCast(u80, math.nan(f80)) | (1 << (math.floatFractionalBits(f80) - 1)));
+const qnan80 = @as(f80, @bitCast(@as(u80, @bitCast(math.nan(f80))) | (1 << (math.floatFractionalBits(f80) - 1))));
 
 fn test__addxf3(a: f80, b: f80, expected: u80) !void {
     const x = __addxf3(a, b);
-    const rep = @bitCast(u80, x);
+    const rep = @as(u80, @bitCast(x));
 
     if (rep == expected)
         return;
 
-    if (math.isNan(@bitCast(f80, expected)) and math.isNan(x))
+    if (math.isNan(@as(f80, @bitCast(expected))) and math.isNan(x))
         return; // We don't currently test NaN payload propagation
 
     return error.TestFailed;
@@ -104,33 +104,33 @@ fn test__addxf3(a: f80, b: f80, expected: u80) !void {
 
 test "addxf3" {
     // NaN + any = NaN
-    try test__addxf3(qnan80, 0x1.23456789abcdefp+5, @bitCast(u80, qnan80));
-    try test__addxf3(@bitCast(f80, @as(u80, 0x7fff_8000_8000_3000_0000)), 0x1.23456789abcdefp+5, @bitCast(u80, qnan80));
+    try test__addxf3(qnan80, 0x1.23456789abcdefp+5, @as(u80, @bitCast(qnan80)));
+    try test__addxf3(@as(f80, @bitCast(@as(u80, 0x7fff_8000_8000_3000_0000))), 0x1.23456789abcdefp+5, @as(u80, @bitCast(qnan80)));
 
     // any + NaN = NaN
-    try test__addxf3(0x1.23456789abcdefp+5, qnan80, @bitCast(u80, qnan80));
-    try test__addxf3(0x1.23456789abcdefp+5, @bitCast(f80, @as(u80, 0x7fff_8000_8000_3000_0000)), @bitCast(u80, qnan80));
+    try test__addxf3(0x1.23456789abcdefp+5, qnan80, @as(u80, @bitCast(qnan80)));
+    try test__addxf3(0x1.23456789abcdefp+5, @as(f80, @bitCast(@as(u80, 0x7fff_8000_8000_3000_0000))), @as(u80, @bitCast(qnan80)));
 
     // NaN + inf = NaN
-    try test__addxf3(qnan80, math.inf(f80), @bitCast(u80, qnan80));
+    try test__addxf3(qnan80, math.inf(f80), @as(u80, @bitCast(qnan80)));
 
     // inf + NaN = NaN
-    try test__addxf3(math.inf(f80), qnan80, @bitCast(u80, qnan80));
+    try test__addxf3(math.inf(f80), qnan80, @as(u80, @bitCast(qnan80)));
 
     // inf + inf = inf
-    try test__addxf3(math.inf(f80), math.inf(f80), @bitCast(u80, math.inf(f80)));
+    try test__addxf3(math.inf(f80), math.inf(f80), @as(u80, @bitCast(math.inf(f80))));
 
     // inf + -inf = NaN
-    try test__addxf3(math.inf(f80), -math.inf(f80), @bitCast(u80, qnan80));
+    try test__addxf3(math.inf(f80), -math.inf(f80), @as(u80, @bitCast(qnan80)));
 
     // -inf + inf = NaN
-    try test__addxf3(-math.inf(f80), math.inf(f80), @bitCast(u80, qnan80));
+    try test__addxf3(-math.inf(f80), math.inf(f80), @as(u80, @bitCast(qnan80)));
 
     // inf + any = inf
-    try test__addxf3(math.inf(f80), 0x1.2335653452436234723489432abcdefp+5, @bitCast(u80, math.inf(f80)));
+    try test__addxf3(math.inf(f80), 0x1.2335653452436234723489432abcdefp+5, @as(u80, @bitCast(math.inf(f80))));
 
     // any + inf = inf
-    try test__addxf3(0x1.2335653452436234723489432abcdefp+5, math.inf(f80), @bitCast(u80, math.inf(f80)));
+    try test__addxf3(0x1.2335653452436234723489432abcdefp+5, math.inf(f80), @as(u80, @bitCast(math.inf(f80))));
 
     // any + any
     try test__addxf3(0x1.23456789abcdp+5, 0x1.dcba987654321p+5, 0x4005_BFFFFFFFFFFFC400);

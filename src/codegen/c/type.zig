@@ -138,7 +138,7 @@ pub const CType = extern union {
 
         pub fn toIndex(self: Tag) Index {
             assert(!self.hasPayload());
-            return @intCast(Index, @intFromEnum(self));
+            return @as(Index, @intCast(@intFromEnum(self)));
         }
 
         pub fn Type(comptime self: Tag) type {
@@ -330,7 +330,7 @@ pub const CType = extern union {
                 store: *const Set,
 
                 pub fn hash(self: @This(), cty: CType) Map.Hash {
-                    return @truncate(Map.Hash, cty.hash(self.store.*));
+                    return @as(Map.Hash, @truncate(cty.hash(self.store.*)));
                 }
                 pub fn eql(_: @This(), lhs: CType, rhs: CType, _: usize) bool {
                     return lhs.eql(rhs);
@@ -340,7 +340,7 @@ pub const CType = extern union {
             map: Map = .{},
 
             pub fn indexToCType(self: Set, index: Index) CType {
-                if (index < Tag.no_payload_count) return initTag(@enumFromInt(Tag, index));
+                if (index < Tag.no_payload_count) return initTag(@as(Tag, @enumFromInt(index)));
                 return self.map.keys()[index - Tag.no_payload_count];
             }
 
@@ -362,7 +362,7 @@ pub const CType = extern union {
                 return if (self.map.getIndexAdapted(
                     ty,
                     TypeAdapter32{ .kind = kind, .lookup = lookup, .convert = &convert },
-                )) |idx| @intCast(Index, Tag.no_payload_count + idx) else null;
+                )) |idx| @as(Index, @intCast(Tag.no_payload_count + idx)) else null;
             }
         };
 
@@ -376,7 +376,7 @@ pub const CType = extern union {
 
             pub fn cTypeToIndex(self: *Promoted, cty: CType) Allocator.Error!Index {
                 const t = cty.tag();
-                if (@intFromEnum(t) < Tag.no_payload_count) return @intCast(Index, @intFromEnum(t));
+                if (@intFromEnum(t) < Tag.no_payload_count) return @as(Index, @intCast(@intFromEnum(t)));
 
                 const gop = try self.set.map.getOrPutContext(self.gpa(), cty, .{ .store = &self.set });
                 if (!gop.found_existing) gop.key_ptr.* = cty;
@@ -386,7 +386,7 @@ pub const CType = extern union {
                     assert(cty.eql(key.*));
                     assert(cty.hash(self.set) == key.hash(self.set));
                 }
-                return @intCast(Index, Tag.no_payload_count + gop.index);
+                return @as(Index, @intCast(Tag.no_payload_count + gop.index));
             }
 
             pub fn typeToIndex(
@@ -424,7 +424,7 @@ pub const CType = extern union {
                     assert(adapter.eql(ty, cty.*));
                     assert(adapter.hash(ty) == cty.hash(self.set));
                 }
-                return @intCast(Index, Tag.no_payload_count + gop.index);
+                return @as(Index, @intCast(Tag.no_payload_count + gop.index));
             }
         };
 
@@ -1388,7 +1388,7 @@ pub const CType = extern union {
                                 .len = @divExact(abi_size, abi_align),
                                 .elem_type = tagFromIntInfo(.{
                                     .signedness = .unsigned,
-                                    .bits = @intCast(u16, abi_align * 8),
+                                    .bits = @as(u16, @intCast(abi_align * 8)),
                                 }).toIndex(),
                             } } };
                             self.value = .{ .cty = initPayload(&self.storage.seq) };
@@ -1492,7 +1492,7 @@ pub const CType = extern union {
                     if (mod.typeToStruct(ty)) |struct_obj| {
                         try self.initType(struct_obj.backing_int_ty, kind, lookup);
                     } else {
-                        const bits = @intCast(u16, ty.bitSize(mod));
+                        const bits = @as(u16, @intCast(ty.bitSize(mod)));
                         const int_ty = try mod.intType(.unsigned, bits);
                         try self.initType(int_ty, kind, lookup);
                     }
@@ -2299,7 +2299,7 @@ pub const CType = extern union {
         }
 
         pub fn hash(self: @This(), ty: Type) u32 {
-            return @truncate(u32, self.to64().hash(ty));
+            return @as(u32, @truncate(self.to64().hash(ty)));
         }
     };
 };

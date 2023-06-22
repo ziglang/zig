@@ -69,7 +69,7 @@ pub fn decodeFseTable(
 }
 
 fn buildFseTable(values: []const u16, entries: []Table.Fse) !void {
-    const total_probability = @intCast(u16, entries.len);
+    const total_probability = @as(u16, @intCast(entries.len));
     const accuracy_log = std.math.log2_int(u16, total_probability);
     assert(total_probability <= 1 << 9);
 
@@ -77,7 +77,7 @@ fn buildFseTable(values: []const u16, entries: []Table.Fse) !void {
     for (values, 0..) |value, i| {
         if (value == 0) {
             entries[entries.len - 1 - less_than_one_count] = Table.Fse{
-                .symbol = @intCast(u8, i),
+                .symbol = @as(u8, @intCast(i)),
                 .baseline = 0,
                 .bits = accuracy_log,
             };
@@ -99,7 +99,7 @@ fn buildFseTable(values: []const u16, entries: []Table.Fse) !void {
         const share_size_log = std.math.log2_int(u16, share_size);
 
         for (0..probability) |i| {
-            temp_states[i] = @intCast(u16, position);
+            temp_states[i] = @as(u16, @intCast(position));
             position += (entries.len >> 1) + (entries.len >> 3) + 3;
             position &= entries.len - 1;
             while (position >= entries.len - less_than_one_count) {
@@ -110,13 +110,13 @@ fn buildFseTable(values: []const u16, entries: []Table.Fse) !void {
         std.mem.sort(u16, temp_states[0..probability], {}, std.sort.asc(u16));
         for (0..probability) |i| {
             entries[temp_states[i]] = if (i < double_state_count) Table.Fse{
-                .symbol = @intCast(u8, symbol),
+                .symbol = @as(u8, @intCast(symbol)),
                 .bits = share_size_log + 1,
-                .baseline = single_state_count * share_size + @intCast(u16, i) * 2 * share_size,
+                .baseline = single_state_count * share_size + @as(u16, @intCast(i)) * 2 * share_size,
             } else Table.Fse{
-                .symbol = @intCast(u8, symbol),
+                .symbol = @as(u8, @intCast(symbol)),
                 .bits = share_size_log,
-                .baseline = (@intCast(u16, i) - double_state_count) * share_size,
+                .baseline = (@as(u16, @intCast(i)) - double_state_count) * share_size,
             };
         }
     }

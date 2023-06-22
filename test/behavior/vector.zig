@@ -1244,7 +1244,7 @@ test "@intCast to u0" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var zeros = @Vector(2, u32){ 0, 0 };
-    const casted = @intCast(@Vector(2, u0), zeros);
+    const casted = @as(@Vector(2, u0), @intCast(zeros));
 
     _ = casted[0];
 }

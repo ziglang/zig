@@ -292,7 +292,7 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     {
         var export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
         defer export_names.deinit(gpa);
-        try export_names.ensureTotalCapacity(gpa, @intCast(u32, module.decl_exports.entries.len));
+        try export_names.ensureTotalCapacity(gpa, @as(u32, @intCast(module.decl_exports.entries.len)));
         for (module.decl_exports.values()) |exports| for (exports.items) |@"export"|
             try export_names.put(gpa, @"export".opts.name, {});
 
@@ -426,7 +426,7 @@ fn flushCTypes(
                 return ctx.ctypes_map[idx - codegen.CType.Tag.no_payload_count];
             }
         };
-        const decl_idx = @intCast(codegen.CType.Index, codegen.CType.Tag.no_payload_count + decl_i);
+        const decl_idx = @as(codegen.CType.Index, @intCast(codegen.CType.Tag.no_payload_count + decl_i));
         const ctx = Context{
             .arena = global_ctypes.arena.allocator(),
             .ctypes_map = f.ctypes_map.items,
@@ -437,7 +437,7 @@ fn flushCTypes(
             .store = &global_ctypes.set,
         });
         const global_idx =
-            @intCast(codegen.CType.Index, codegen.CType.Tag.no_payload_count + gop.index);
+            @as(codegen.CType.Index, @intCast(codegen.CType.Tag.no_payload_count + gop.index));
         f.ctypes_map.appendAssumeCapacity(global_idx);
         if (!gop.found_existing) {
             errdefer _ = global_ctypes.set.map.pop();
@@ -538,7 +538,7 @@ fn flushLazyFn(self: *C, db: *DeclBlock, lazy_fn: codegen.LazyFnMap.Entry) Flush
 
 fn flushLazyFns(self: *C, f: *Flush, lazy_fns: codegen.LazyFnMap) FlushDeclError!void {
     const gpa = self.base.allocator;
-    try f.lazy_fns.ensureUnusedCapacity(gpa, @intCast(Flush.LazyFns.Size, lazy_fns.count()));
+    try f.lazy_fns.ensureUnusedCapacity(gpa, @as(Flush.LazyFns.Size, @intCast(lazy_fns.count())));
 
     var it = lazy_fns.iterator();
     while (it.next()) |entry| {

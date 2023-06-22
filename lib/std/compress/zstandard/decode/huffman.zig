@@ -109,8 +109,8 @@ fn decodeDirectHuffmanTree(source: anytype, encoded_symbol_count: usize, weights
     const weights_byte_count = (encoded_symbol_count + 1) / 2;
     for (0..weights_byte_count) |i| {
         const byte = try source.readByte();
-        weights[2 * i] = @intCast(u4, byte >> 4);
-        weights[2 * i + 1] = @intCast(u4, byte & 0xF);
+        weights[2 * i] = @as(u4, @intCast(byte >> 4));
+        weights[2 * i + 1] = @as(u4, @intCast(byte & 0xF));
     }
     return encoded_symbol_count + 1;
 }
@@ -118,7 +118,7 @@ fn decodeDirectHuffmanTree(source: anytype, encoded_symbol_count: usize, weights
 fn assignSymbols(weight_sorted_prefixed_symbols: []LiteralsSection.HuffmanTree.PrefixedSymbol, weights: [256]u4) usize {
     for (0..weight_sorted_prefixed_symbols.len) |i| {
         weight_sorted_prefixed_symbols[i] = .{
-            .symbol = @intCast(u8, i),
+            .symbol = @as(u8, @intCast(i)),
             .weight = undefined,
             .prefix = undefined,
         };
@@ -167,7 +167,7 @@ fn buildHuffmanTree(weights: *[256]u4, symbol_count: usize) error{MalformedHuffm
         weight_power_sum_big += (@as(u16, 1) << value) >> 1;
     }
     if (weight_power_sum_big >= 1 << 11) return error.MalformedHuffmanTree;
-    const weight_power_sum = @intCast(u16, weight_power_sum_big);
+    const weight_power_sum = @as(u16, @intCast(weight_power_sum_big));
 
     // advance to next power of two (even if weight_power_sum is a power of 2)
     // TODO: is it valid to have weight_power_sum == 0?
@@ -179,7 +179,7 @@ fn buildHuffmanTree(weights: *[256]u4, symbol_count: usize) error{MalformedHuffm
     const prefixed_symbol_count = assignSymbols(weight_sorted_prefixed_symbols[0..symbol_count], weights.*);
     const tree = LiteralsSection.HuffmanTree{
         .max_bit_count = max_number_of_bits,
-        .symbol_count_minus_one = @intCast(u8, prefixed_symbol_count - 1),
+        .symbol_count_minus_one = @as(u8, @intCast(prefixed_symbol_count - 1)),
         .nodes = weight_sorted_prefixed_symbols,
     };
     return tree;

@@ -41,8 +41,7 @@ pub const Random = struct {
         assert(@typeInfo(@typeInfo(Ptr).Pointer.child) == .Struct); // Must point to a struct
         const gen = struct {
             fn fill(ptr: *anyopaque, buf: []u8) void {
-                const alignment = @typeInfo(Ptr).Pointer.alignment;
-                const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
+                const self: Ptr = @ptrCast(@alignCast(ptr));
                 fillFn(self, buf);
             }
         };
@@ -97,7 +96,7 @@ pub const Random = struct {
             r.uintLessThan(Index, values.len);
 
         const MinInt = MinArrayIndex(Index);
-        return values[@intCast(MinInt, index)];
+        return values[@as(MinInt, @intCast(index))];
     }
 
     /// Returns a random int `i` such that `minInt(T) <= i <= maxInt(T)`.
@@ -114,8 +113,8 @@ pub const Random = struct {
         // TODO: endian portability is pointless if the underlying prng isn't endian portable.
         // TODO: document the endian portability of this library.
         const byte_aligned_result = mem.readIntSliceLittle(ByteAlignedT, &rand_bytes);
-        const unsigned_result = @truncate(UnsignedT, byte_aligned_result);
-        return @bitCast(T, unsigned_result);
+        const unsigned_result = @as(UnsignedT, @truncate(byte_aligned_result));
+        return @as(T, @bitCast(unsigned_result));
     }
 
     /// Constant-time implementation off `uintLessThan`.
@@ -126,9 +125,9 @@ pub const Random = struct {
         comptime assert(bits <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
         if (bits <= 32) {
-            return @intCast(T, limitRangeBiased(u32, r.int(u32), less_than));
+            return @as(T, @intCast(limitRangeBiased(u32, r.int(u32), less_than)));
         } else {
-            return @intCast(T, limitRangeBiased(u64, r.int(u64), less_than));
+            return @as(T, @intCast(limitRangeBiased(u64, r.int(u64), less_than)));
         }
     }
 
@@ -156,7 +155,7 @@ pub const Random = struct {
         //   "Lemire's (with an extra tweak from me)"
         var x: Small = r.int(Small);
         var m: Large = @as(Large, x) * @as(Large, less_than);
-        var l: Small = @truncate(Small, m);
+        var l: Small = @as(Small, @truncate(m));
         if (l < less_than) {
             var t: Small = -%less_than;
 
@@ -169,10 +168,10 @@ pub const Random = struct {
             while (l < t) {
                 x = r.int(Small);
                 m = @as(Large, x) * @as(Large, less_than);
-                l = @truncate(Small, m);
+                l = @as(Small, @truncate(m));
             }
         }
-        return @intCast(T, m >> small_bits);
+        return @as(T, @intCast(m >> small_bits));
     }
 
     /// Constant-time implementation off `uintAtMost`.
@@ -206,10 +205,10 @@ pub const Random = struct {
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
-            const lo = @bitCast(UnsignedT, at_least);
-            const hi = @bitCast(UnsignedT, less_than);
+            const lo = @as(UnsignedT, @bitCast(at_least));
+            const hi = @as(UnsignedT, @bitCast(less_than));
             const result = lo +% r.uintLessThanBiased(UnsignedT, hi -% lo);
-            return @bitCast(T, result);
+            return @as(T, @bitCast(result));
         } else {
             // The signed implementation would work fine, but we can use stricter arithmetic operators here.
             return at_least + r.uintLessThanBiased(T, less_than - at_least);
@@ -225,10 +224,10 @@ pub const Random = struct {
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
-            const lo = @bitCast(UnsignedT, at_least);
-            const hi = @bitCast(UnsignedT, less_than);
+            const lo = @as(UnsignedT, @bitCast(at_least));
+            const hi = @as(UnsignedT, @bitCast(less_than));
             const result = lo +% r.uintLessThan(UnsignedT, hi -% lo);
-            return @bitCast(T, result);
+            return @as(T, @bitCast(result));
         } else {
             // The signed implementation would work fine, but we can use stricter arithmetic operators here.
             return at_least + r.uintLessThan(T, less_than - at_least);
@@ -243,10 +242,10 @@ pub const Random = struct {
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
-            const lo = @bitCast(UnsignedT, at_least);
-            const hi = @bitCast(UnsignedT, at_most);
+            const lo = @as(UnsignedT, @bitCast(at_least));
+            const hi = @as(UnsignedT, @bitCast(at_most));
             const result = lo +% r.uintAtMostBiased(UnsignedT, hi -% lo);
-            return @bitCast(T, result);
+            return @as(T, @bitCast(result));
         } else {
             // The signed implementation would work fine, but we can use stricter arithmetic operators here.
             return at_least + r.uintAtMostBiased(T, at_most - at_least);
@@ -262,10 +261,10 @@ pub const Random = struct {
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
-            const lo = @bitCast(UnsignedT, at_least);
-            const hi = @bitCast(UnsignedT, at_most);
+            const lo = @as(UnsignedT, @bitCast(at_least));
+            const hi = @as(UnsignedT, @bitCast(at_most));
             const result = lo +% r.uintAtMost(UnsignedT, hi -% lo);
-            return @bitCast(T, result);
+            return @as(T, @bitCast(result));
         } else {
             // The signed implementation would work fine, but we can use stricter arithmetic operators here.
             return at_least + r.uintAtMost(T, at_most - at_least);
@@ -294,9 +293,9 @@ pub const Random = struct {
                         rand_lz += @clz(r.int(u32) | 0x7FF);
                     }
                 }
-                const mantissa = @truncate(u23, rand);
+                const mantissa = @as(u23, @truncate(rand));
                 const exponent = @as(u32, 126 - rand_lz) << 23;
-                return @bitCast(f32, exponent | mantissa);
+                return @as(f32, @bitCast(exponent | mantissa));
             },
             f64 => {
                 // Use 52 random bits for the mantissa, and the rest for the exponent.
@@ -321,7 +320,7 @@ pub const Random = struct {
                 }
                 const mantissa = rand & 0xFFFFFFFFFFFFF;
                 const exponent = (1022 - rand_lz) << 52;
-                return @bitCast(f64, exponent | mantissa);
+                return @as(f64, @bitCast(exponent | mantissa));
             },
             else => @compileError("unknown floating point type"),
         }
@@ -333,7 +332,7 @@ pub const Random = struct {
     pub fn floatNorm(r: Random, comptime T: type) T {
         const value = ziggurat.next_f64(r, ziggurat.NormDist);
         switch (T) {
-            f32 => return @floatCast(f32, value),
+            f32 => return @as(f32, @floatCast(value)),
             f64 => return value,
             else => @compileError("unknown floating point type"),
         }
@@ -345,7 +344,7 @@ pub const Random = struct {
     pub fn floatExp(r: Random, comptime T: type) T {
         const value = ziggurat.next_f64(r, ziggurat.ExpDist);
         switch (T) {
-            f32 => return @floatCast(f32, value),
+            f32 => return @as(f32, @floatCast(value)),
             f64 => return value,
             else => @compileError("unknown floating point type"),
         }
@@ -379,10 +378,10 @@ pub const Random = struct {
         }
 
         // `i <= j < max <= maxInt(MinInt)`
-        const max = @intCast(MinInt, buf.len);
+        const max = @as(MinInt, @intCast(buf.len));
         var i: MinInt = 0;
         while (i < max - 1) : (i += 1) {
-            const j = @intCast(MinInt, r.intRangeLessThan(Index, i, max));
+            const j = @as(MinInt, @intCast(r.intRangeLessThan(Index, i, max)));
             mem.swap(T, &buf[i], &buf[j]);
         }
     }
@@ -445,7 +444,7 @@ pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
     //   http://www.pcg-random.org/posts/bounded-rands.html
     //   "Integer Multiplication (Biased)"
     var m: T2 = @as(T2, random_int) * @as(T2, less_than);
-    return @intCast(T, m >> bits);
+    return @as(T, @intCast(m >> bits));
 }
 
 // Generator to extend 64-bit seed values into longer sequences.

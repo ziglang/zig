@@ -232,7 +232,7 @@ pub const Register = enum(u7) {
             else => unreachable,
             // zig fmt: on
         };
-        return @intCast(u6, @intFromEnum(reg) - base);
+        return @as(u6, @intCast(@intFromEnum(reg) - base));
     }
 
     pub fn bitSize(reg: Register) u64 {
@@ -291,11 +291,11 @@ pub const Register = enum(u7) {
             else => unreachable,
             // zig fmt: on
         };
-        return @truncate(u4, @intFromEnum(reg) - base);
+        return @as(u4, @truncate(@intFromEnum(reg) - base));
     }
 
     pub fn lowEnc(reg: Register) u3 {
-        return @truncate(u3, reg.enc());
+        return @as(u3, @truncate(reg.enc()));
     }
 
     pub fn toBitSize(reg: Register, bit_size: u64) Register {
@@ -325,19 +325,19 @@ pub const Register = enum(u7) {
     }
 
     pub fn to64(reg: Register) Register {
-        return @enumFromInt(Register, @intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.rax));
+        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.rax)));
     }
 
     pub fn to32(reg: Register) Register {
-        return @enumFromInt(Register, @intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.eax));
+        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.eax)));
     }
 
     pub fn to16(reg: Register) Register {
-        return @enumFromInt(Register, @intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.ax));
+        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.ax)));
     }
 
     pub fn to8(reg: Register) Register {
-        return @enumFromInt(Register, @intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.al));
+        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.al)));
     }
 
     fn sseBase(reg: Register) u7 {
@@ -350,11 +350,11 @@ pub const Register = enum(u7) {
     }
 
     pub fn to256(reg: Register) Register {
-        return @enumFromInt(Register, @intFromEnum(reg) - reg.sseBase() + @intFromEnum(Register.ymm0));
+        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.sseBase() + @intFromEnum(Register.ymm0)));
     }
 
     pub fn to128(reg: Register) Register {
-        return @enumFromInt(Register, @intFromEnum(reg) - reg.sseBase() + @intFromEnum(Register.xmm0));
+        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.sseBase() + @intFromEnum(Register.xmm0)));
     }
 
     /// DWARF register encoding
@@ -363,7 +363,7 @@ pub const Register = enum(u7) {
             .general_purpose => if (reg.isExtended())
                 reg.enc()
             else
-                @truncate(u3, @as(u24, 0o54673120) >> @as(u5, reg.enc()) * 3),
+                @as(u3, @truncate(@as(u24, 0o54673120) >> @as(u5, reg.enc()) * 3)),
             .sse => 17 + @as(u6, reg.enc()),
             .x87 => 33 + @as(u6, reg.enc()),
             .mmx => 41 + @as(u6, reg.enc()),
@@ -610,15 +610,15 @@ pub const Immediate = union(enum) {
     pub fn asUnsigned(imm: Immediate, bit_size: u64) u64 {
         return switch (imm) {
             .signed => |x| switch (bit_size) {
-                1, 8 => @bitCast(u8, @intCast(i8, x)),
-                16 => @bitCast(u16, @intCast(i16, x)),
-                32, 64 => @bitCast(u32, x),
+                1, 8 => @as(u8, @bitCast(@as(i8, @intCast(x)))),
+                16 => @as(u16, @bitCast(@as(i16, @intCast(x)))),
+                32, 64 => @as(u32, @bitCast(x)),
                 else => unreachable,
             },
             .unsigned => |x| switch (bit_size) {
-                1, 8 => @intCast(u8, x),
-                16 => @intCast(u16, x),
-                32 => @intCast(u32, x),
+                1, 8 => @as(u8, @intCast(x)),
+                16 => @as(u16, @intCast(x)),
+                32 => @as(u32, @intCast(x)),
                 64 => x,
                 else => unreachable,
             },

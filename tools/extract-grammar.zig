@@ -90,7 +90,7 @@ fn read(path: []const u8, allocator: mem.Allocator) ![:0]const u8 {
     const st = try f.stat();
     if (st.size > max_src_size) return error.FileTooBig;
 
-    const src = try allocator.allocSentinel(u8, @intCast(usize, st.size), 0);
+    const src = try allocator.allocSentinel(u8, @as(usize, @intCast(st.size)), 0);
     const n = try f.readAll(src);
     if (n != st.size) return error.UnexpectedEndOfFile;
 

@@ -6,7 +6,7 @@ const ptr_size = @sizeOf(usize);
 test "type pun signed and unsigned as single pointer" {
     comptime {
         var x: u32 = 0;
-        const y = @ptrCast(*i32, &x);
+        const y = @as(*i32, @ptrCast(&x));
         y.* = -1;
         try testing.expectEqual(@as(u32, 0xFFFFFFFF), x);
     }
@@ -15,7 +15,7 @@ test "type pun signed and unsigned as single pointer" {
 test "type pun signed and unsigned as many pointer" {
     comptime {
         var x: u32 = 0;
-        const y = @ptrCast([*]i32, &x);
+        const y = @as([*]i32, @ptrCast(&x));
         y[0] = -1;
         try testing.expectEqual(@as(u32, 0xFFFFFFFF), x);
     }
@@ -24,7 +24,7 @@ test "type pun signed and unsigned as many pointer" {
 test "type pun signed and unsigned as array pointer" {
     comptime {
         var x: u32 = 0;
-        const y = @ptrCast(*[1]i32, &x);
+        const y = @as(*[1]i32, @ptrCast(&x));
         y[0] = -1;
         try testing.expectEqual(@as(u32, 0xFFFFFFFF), x);
     }
@@ -38,7 +38,7 @@ test "type pun signed and unsigned as offset many pointer" {
 
     comptime {
         var x: u32 = 0;
-        var y = @ptrCast([*]i32, &x);
+        var y = @as([*]i32, @ptrCast(&x));
         y -= 10;
         y[10] = -1;
         try testing.expectEqual(@as(u32, 0xFFFFFFFF), x);
@@ -53,7 +53,7 @@ test "type pun signed and unsigned as array pointer with pointer arithemtic" {
 
     comptime {
         var x: u32 = 0;
-        const y = @ptrCast([*]i32, &x) - 10;
+        const y = @as([*]i32, @ptrCast(&x)) - 10;
         const z: *[15]i32 = y[0..15];
         z[10] = -1;
         try testing.expectEqual(@as(u32, 0xFFFFFFFF), x);
@@ -64,9 +64,9 @@ test "type pun value and struct" {
     comptime {
         const StructOfU32 = extern struct { x: u32 };
         var inst: StructOfU32 = .{ .x = 0 };
-        @ptrCast(*i32, &inst.x).* = -1;
+        @as(*i32, @ptrCast(&inst.x)).* = -1;
         try testing.expectEqual(@as(u32, 0xFFFFFFFF), inst.x);
-        @ptrCast(*i32, &inst).* = -2;
+        @as(*i32, @ptrCast(&inst)).* = -2;
         try testing.expectEqual(@as(u32, 0xFFFFFFFE), inst.x);
     }
 }
@@ -81,8 +81,8 @@ test "type pun endianness" {
     comptime {
         const StructOfBytes = extern struct { x: [4]u8 };
         var inst: StructOfBytes = .{ .x = [4]u8{ 0, 0, 0, 0 } };
-        const structPtr = @ptrCast(*align(1) u32, &inst);
-        const arrayPtr = @ptrCast(*align(1) u32, &inst.x);
+        const structPtr = @as(*align(1) u32, @ptrCast(&inst));
+        const arrayPtr = @as(*align(1) u32, @ptrCast(&inst.x));
         inst.x[0] = 0xFE;
         inst.x[2] = 0xBE;
         try testing.expectEqual(bigToNativeEndian(u32, 0xFE00BE00), structPtr.*);
@@ -124,8 +124,8 @@ fn shuffle(ptr: usize, comptime From: type, comptime To: type) usize {
         @compileError("Mismatched sizes! " ++ @typeName(From) ++ " and " ++ @typeName(To) ++ " must have the same size!");
     const array_len = @divExact(ptr_size, @sizeOf(From));
     var result: usize = 0;
-    const pSource = @ptrCast(*align(1) const [array_len]From, &ptr);
-    const pResult = @ptrCast(*align(1) [array_len]To, &result);
+    const pSource = @as(*align(1) const [array_len]From, @ptrCast(&ptr));
+    const pResult = @as(*align(1) [array_len]To, @ptrCast(&result));
     var i: usize = 0;
     while (i < array_len) : (i += 1) {
         inline for (@typeInfo(To).Struct.fields) |f| {
@@ -136,8 +136,8 @@ fn shuffle(ptr: usize, comptime From: type, comptime To: type) usize {
 }
 
 fn doTypePunBitsTest(as_bits: *Bits) !void {
-    const as_u32 = @ptrCast(*align(1) u32, as_bits);
-    const as_bytes = @ptrCast(*[4]u8, as_bits);
+    const as_u32 = @as(*align(1) u32, @ptrCast(as_bits));
+    const as_bytes = @as(*[4]u8, @ptrCast(as_bits));
     as_u32.* = bigToNativeEndian(u32, 0xB0A7DEED);
     try testing.expectEqual(@as(u1, 0x00), as_bits.p0);
     try testing.expectEqual(@as(u4, 0x08), as_bits.p1);
@@ -176,7 +176,7 @@ test "type pun bits" {
 
     comptime {
         var v: u32 = undefined;
-        try doTypePunBitsTest(@ptrCast(*Bits, &v));
+        try doTypePunBitsTest(@as(*Bits, @ptrCast(&v)));
     }
 }
 
@@ -194,7 +194,7 @@ test "basic pointer preservation" {
     comptime {
         const lazy_address = @intFromPtr(&imports.global_u32);
         try testing.expectEqual(@intFromPtr(&imports.global_u32), lazy_address);
-        try testing.expectEqual(&imports.global_u32, @ptrFromInt(*u32, lazy_address));
+        try testing.expectEqual(&imports.global_u32, @as(*u32, @ptrFromInt(lazy_address)));
     }
 }
 
@@ -207,8 +207,8 @@ test "byte copy preserves linker value" {
     const ct_value = comptime blk: {
         const lazy = &imports.global_u32;
         var result: *u32 = undefined;
-        const pSource = @ptrCast(*const [ptr_size]u8, &lazy);
-        const pResult = @ptrCast(*[ptr_size]u8, &result);
+        const pSource = @as(*const [ptr_size]u8, @ptrCast(&lazy));
+        const pResult = @as(*[ptr_size]u8, @ptrCast(&result));
         var i: usize = 0;
         while (i < ptr_size) : (i += 1) {
             pResult[i] = pSource[i];
@@ -230,8 +230,8 @@ test "unordered byte copy preserves linker value" {
     const ct_value = comptime blk: {
         const lazy = &imports.global_u32;
         var result: *u32 = undefined;
-        const pSource = @ptrCast(*const [ptr_size]u8, &lazy);
-        const pResult = @ptrCast(*[ptr_size]u8, &result);
+        const pSource = @as(*const [ptr_size]u8, @ptrCast(&lazy));
+        const pResult = @as(*[ptr_size]u8, @ptrCast(&result));
         if (ptr_size > 8) @compileError("This array needs to be expanded for platform with very big pointers");
         const shuffled_indices = [_]usize{ 4, 5, 2, 6, 1, 3, 0, 7 };
         for (shuffled_indices) |i| {
@@ -274,12 +274,12 @@ test "dance on linker values" {
         arr[0] = @intFromPtr(&imports.global_u32);
         arr[1] = @intFromPtr(&imports.global_u32);
 
-        const weird_ptr = @ptrCast([*]Bits, @ptrCast([*]u8, &arr) + @sizeOf(usize) - 3);
+        const weird_ptr = @as([*]Bits, @ptrCast(@as([*]u8, @ptrCast(&arr)) + @sizeOf(usize) - 3));
         try doTypePunBitsTest(&weird_ptr[0]);
         if (ptr_size > @sizeOf(Bits))
             try doTypePunBitsTest(&weird_ptr[1]);
 
-        var arr_bytes = @ptrCast(*[2][ptr_size]u8, &arr);
+        var arr_bytes = @as(*[2][ptr_size]u8, @ptrCast(&arr));
 
         var rebuilt_bytes: [ptr_size]u8 = undefined;
         var i: usize = 0;
@@ -290,7 +290,7 @@ test "dance on linker values" {
             rebuilt_bytes[i] = arr_bytes[1][i];
         }
 
-        try testing.expectEqual(&imports.global_u32, @ptrFromInt(*u32, @bitCast(usize, rebuilt_bytes)));
+        try testing.expectEqual(&imports.global_u32, @as(*u32, @ptrFromInt(@as(usize, @bitCast(rebuilt_bytes)))));
     }
 }
 
@@ -316,7 +316,7 @@ test "offset array ptr by element size" {
         try testing.expectEqual(@intFromPtr(&arr[2]), address + 2 * @sizeOf(VirtualStruct));
         try testing.expectEqual(@intFromPtr(&arr[3]), address + @sizeOf(VirtualStruct) * 3);
 
-        const secondElement = @ptrFromInt(*VirtualStruct, @intFromPtr(&arr[0]) + 2 * @sizeOf(VirtualStruct));
+        const secondElement = @as(*VirtualStruct, @ptrFromInt(@intFromPtr(&arr[0]) + 2 * @sizeOf(VirtualStruct)));
         try testing.expectEqual(bigToNativeEndian(u32, 0x02060a0e), secondElement.x);
     }
 }
@@ -334,15 +334,15 @@ test "offset instance by field size" {
         var ptr = @intFromPtr(&inst);
         ptr -= 4;
         ptr += @offsetOf(VirtualStruct, "x");
-        try testing.expectEqual(@as(u32, 0), @ptrFromInt([*]u32, ptr)[1]);
+        try testing.expectEqual(@as(u32, 0), @as([*]u32, @ptrFromInt(ptr))[1]);
         ptr -= @offsetOf(VirtualStruct, "x");
         ptr += @offsetOf(VirtualStruct, "y");
-        try testing.expectEqual(@as(u32, 1), @ptrFromInt([*]u32, ptr)[1]);
+        try testing.expectEqual(@as(u32, 1), @as([*]u32, @ptrFromInt(ptr))[1]);
         ptr = ptr - @offsetOf(VirtualStruct, "y") + @offsetOf(VirtualStruct, "z");
-        try testing.expectEqual(@as(u32, 2), @ptrFromInt([*]u32, ptr)[1]);
+        try testing.expectEqual(@as(u32, 2), @as([*]u32, @ptrFromInt(ptr))[1]);
         ptr = @intFromPtr(&inst.z) - 4 - @offsetOf(VirtualStruct, "z");
         ptr += @offsetOf(VirtualStruct, "w");
-        try testing.expectEqual(@as(u32, 3), @ptrFromInt(*u32, ptr + 4).*);
+        try testing.expectEqual(@as(u32, 3), @as(*u32, @ptrFromInt(ptr + 4)).*);
     }
 }
 
@@ -363,13 +363,13 @@ test "offset field ptr by enclosing array element size" {
 
         var i: usize = 0;
         while (i < 4) : (i += 1) {
-            var ptr: [*]u8 = @ptrCast([*]u8, &arr[0]);
+            var ptr: [*]u8 = @as([*]u8, @ptrCast(&arr[0]));
             ptr += i;
             ptr += @offsetOf(VirtualStruct, "x");
             var j: usize = 0;
             while (j < 4) : (j += 1) {
                 const base = ptr + j * @sizeOf(VirtualStruct);
-                try testing.expectEqual(@intCast(u8, i * 4 + j), base[0]);
+                try testing.expectEqual(@as(u8, @intCast(i * 4 + j)), base[0]);
             }
         }
     }
@@ -393,7 +393,7 @@ test "accessing reinterpreted memory of parent object" {
             .c = 2.6,
         };
         const ptr = &x.b[0];
-        const b = @ptrCast([*c]const u8, ptr)[5];
+        const b = @as([*c]const u8, @ptrCast(ptr))[5];
         try testing.expect(b == expected);
     }
 }
@@ -407,11 +407,11 @@ test "bitcast packed union to integer" {
     comptime {
         const a = U{ .x = 1 };
         const b = U{ .y = 2 };
-        const cast_a = @bitCast(u2, a);
-        const cast_b = @bitCast(u2, b);
+        const cast_a = @as(u2, @bitCast(a));
+        const cast_b = @as(u2, @bitCast(b));
 
         // truncated because the upper bit is garbage memory that we don't care about
-        try testing.expectEqual(@as(u1, 1), @truncate(u1, cast_a));
+        try testing.expectEqual(@as(u1, 1), @as(u1, @truncate(cast_a)));
         try testing.expectEqual(@as(u2, 2), cast_b);
     }
 }
@@ -435,6 +435,6 @@ test "dereference undefined pointer to zero-bit type" {
 test "type pun extern struct" {
     const S = extern struct { f: u8 };
     comptime var s = S{ .f = 123 };
-    @ptrCast(*u8, &s).* = 72;
+    @as(*u8, @ptrCast(&s)).* = 72;
     try testing.expectEqual(@as(u8, 72), s.f);
 }

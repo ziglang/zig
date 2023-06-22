@@ -8,7 +8,7 @@ const foo = Foo{
 };
 
 comptime {
-    const field_ptr = @ptrFromInt(*i32, 0x1234);
+    const field_ptr: *i32 = @ptrFromInt(0x1234);
     const another_foo_ptr = @fieldParentPtr(Foo, "b", field_ptr);
     _ = another_foo_ptr;
 }

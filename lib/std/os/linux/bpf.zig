@@ -643,7 +643,7 @@ pub const Insn = packed struct {
             .dst = @intFromEnum(dst),
             .src = @intFromEnum(src),
             .off = 0,
-            .imm = @intCast(i32, @truncate(u32, imm)),
+            .imm = @as(i32, @intCast(@as(u32, @truncate(imm)))),
         };
     }
 
@@ -653,7 +653,7 @@ pub const Insn = packed struct {
             .dst = 0,
             .src = 0,
             .off = 0,
-            .imm = @intCast(i32, @truncate(u32, imm >> 32)),
+            .imm = @as(i32, @intCast(@as(u32, @truncate(imm >> 32)))),
         };
     }
 
@@ -666,11 +666,11 @@ pub const Insn = packed struct {
     }
 
     pub fn ld_map_fd1(dst: Reg, map_fd: fd_t) Insn {
-        return ld_imm_impl1(dst, @enumFromInt(Reg, PSEUDO_MAP_FD), @intCast(u64, map_fd));
+        return ld_imm_impl1(dst, @as(Reg, @enumFromInt(PSEUDO_MAP_FD)), @as(u64, @intCast(map_fd)));
     }
 
     pub fn ld_map_fd2(map_fd: fd_t) Insn {
-        return ld_imm_impl2(@intCast(u64, map_fd));
+        return ld_imm_impl2(@as(u64, @intCast(map_fd)));
     }
 
     pub fn st(comptime size: Size, dst: Reg, off: i16, imm: i32) Insn {
@@ -786,17 +786,17 @@ test "opcodes" {
 
     // TODO: byteswap instructions
     try expect_opcode(0xd4, Insn.le(.half_word, .r1));
-    try expectEqual(@intCast(i32, 16), Insn.le(.half_word, .r1).imm);
+    try expectEqual(@as(i32, @intCast(16)), Insn.le(.half_word, .r1).imm);
     try expect_opcode(0xd4, Insn.le(.word, .r1));
-    try expectEqual(@intCast(i32, 32), Insn.le(.word, .r1).imm);
+    try expectEqual(@as(i32, @intCast(32)), Insn.le(.word, .r1).imm);
     try expect_opcode(0xd4, Insn.le(.double_word, .r1));
-    try expectEqual(@intCast(i32, 64), Insn.le(.double_word, .r1).imm);
+    try expectEqual(@as(i32, @intCast(64)), Insn.le(.double_word, .r1).imm);
     try expect_opcode(0xdc, Insn.be(.half_word, .r1));
-    try expectEqual(@intCast(i32, 16), Insn.be(.half_word, .r1).imm);
+    try expectEqual(@as(i32, @intCast(16)), Insn.be(.half_word, .r1).imm);
     try expect_opcode(0xdc, Insn.be(.word, .r1));
-    try expectEqual(@intCast(i32, 32), Insn.be(.word, .r1).imm);
+    try expectEqual(@as(i32, @intCast(32)), Insn.be(.word, .r1).imm);
     try expect_opcode(0xdc, Insn.be(.double_word, .r1));
-    try expectEqual(@intCast(i32, 64), Insn.be(.double_word, .r1).imm);
+    try expectEqual(@as(i32, @intCast(64)), Insn.be(.double_word, .r1).imm);
 
     // memory instructions
     try expect_opcode(0x18, Insn.ld_dw1(.r1, 0));
@@ -804,7 +804,7 @@ test "opcodes" {
 
     //   loading a map fd
     try expect_opcode(0x18, Insn.ld_map_fd1(.r1, 0));
-    try expectEqual(@intCast(u4, PSEUDO_MAP_FD), Insn.ld_map_fd1(.r1, 0).src);
+    try expectEqual(@as(u4, @intCast(PSEUDO_MAP_FD)), Insn.ld_map_fd1(.r1, 0).src);
     try expect_opcode(0x00, Insn.ld_map_fd2(0));
 
     try expect_opcode(0x38, Insn.ld_abs(.double_word, .r1, .r2, 0));
@@ -1518,7 +1518,7 @@ pub fn map_create(map_type: MapType, key_size: u32, value_size: u32, max_entries
 
     const rc = linux.bpf(.map_create, &attr, @sizeOf(MapCreateAttr));
     switch (errno(rc)) {
-        .SUCCESS => return @intCast(fd_t, rc),
+        .SUCCESS => return @as(fd_t, @intCast(rc)),
         .INVAL => return error.MapTypeOrAttrInvalid,
         .NOMEM => return error.SystemResources,
         .PERM => return error.AccessDenied,
@@ -1668,20 +1668,20 @@ pub fn prog_load(
 
     attr.prog_load.prog_type = @intFromEnum(prog_type);
     attr.prog_load.insns = @intFromPtr(insns.ptr);
-    attr.prog_load.insn_cnt = @intCast(u32, insns.len);
+    attr.prog_load.insn_cnt = @as(u32, @intCast(insns.len));
     attr.prog_load.license = @intFromPtr(license.ptr);
     attr.prog_load.kern_version = kern_version;
     attr.prog_load.prog_flags = flags;
 
     if (log) |l| {
         attr.prog_load.log_buf = @intFromPtr(l.buf.ptr);
-        attr.prog_load.log_size = @intCast(u32, l.buf.len);
+        attr.prog_load.log_size = @as(u32, @intCast(l.buf.len));
         attr.prog_load.log_level = l.level;
     }
 
     const rc = linux.bpf(.prog_load, &attr, @sizeOf(ProgLoadAttr));
     return switch (errno(rc)) {
-        .SUCCESS => @intCast(fd_t, rc),
+        .SUCCESS => @as(fd_t, @intCast(rc)),
         .ACCES => error.UnsafeProgram,
         .FAULT => unreachable,
         .INVAL => error.InvalidProgram,

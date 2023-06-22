@@ -1,5 +1,5 @@
 pub fn main() void {
-    const large_slice = @ptrFromInt([*]const u8, 1)[0..(0xffffffffffffffff >> 3)];
+    const large_slice = @as([*]const u8, @ptrFromInt(1))[0..(0xffffffffffffffff >> 3)];
     _ = large_slice;
 }
 

@@ -70,7 +70,7 @@ pub fn timestamp() i64 {
 /// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
 pub fn milliTimestamp() i64 {
-    return @intCast(i64, @divFloor(nanoTimestamp(), ns_per_ms));
+    return @as(i64, @intCast(@divFloor(nanoTimestamp(), ns_per_ms)));
 }
 
 /// Get a calendar timestamp, in microseconds, relative to UTC 1970-01-01.
@@ -79,7 +79,7 @@ pub fn milliTimestamp() i64 {
 /// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
 pub fn microTimestamp() i64 {
-    return @intCast(i64, @divFloor(nanoTimestamp(), ns_per_us));
+    return @as(i64, @intCast(@divFloor(nanoTimestamp(), ns_per_us)));
 }
 
 /// Get a calendar timestamp, in nanoseconds, relative to UTC 1970-01-01.
@@ -96,7 +96,7 @@ pub fn nanoTimestamp() i128 {
         var ft: os.windows.FILETIME = undefined;
         os.windows.kernel32.GetSystemTimeAsFileTime(&ft);
         const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-        return @as(i128, @bitCast(i64, ft64) + epoch_adj) * 100;
+        return @as(i128, @as(i64, @bitCast(ft64)) + epoch_adj) * 100;
     }
 
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -239,9 +239,9 @@ pub const Instant = struct {
             }
 
             // Convert to ns using fixed point.
-            const scale = @as(u64, std.time.ns_per_s << 32) / @intCast(u32, qpf);
+            const scale = @as(u64, std.time.ns_per_s << 32) / @as(u32, @intCast(qpf));
             const result = (@as(u96, qpc) * scale) >> 32;
-            return @truncate(u64, result);
+            return @as(u64, @truncate(result));
         }
 
         // WASI timestamps are directly in nanoseconds
@@ -250,9 +250,9 @@ pub const Instant = struct {
         }
 
         // Convert timespec diff to ns
-        const seconds = @intCast(u64, self.timestamp.tv_sec - earlier.timestamp.tv_sec);
-        const elapsed = (seconds * ns_per_s) + @intCast(u32, self.timestamp.tv_nsec);
-        return elapsed - @intCast(u32, earlier.timestamp.tv_nsec);
+        const seconds = @as(u64, @intCast(self.timestamp.tv_sec - earlier.timestamp.tv_sec));
+        const elapsed = (seconds * ns_per_s) + @as(u32, @intCast(self.timestamp.tv_nsec));
+        return elapsed - @as(u32, @intCast(earlier.timestamp.tv_nsec));
     }
 };
 

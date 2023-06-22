@@ -5,11 +5,11 @@ const testing = std.testing;
 const __divxf3 = @import("divxf3.zig").__divxf3;
 
 fn compareResult(result: f80, expected: u80) bool {
-    const rep = @bitCast(u80, result);
+    const rep = @as(u80, @bitCast(result));
 
     if (rep == expected) return true;
     // test other possible NaN representations (signal NaN)
-    if (math.isNan(result) and math.isNan(@bitCast(f80, expected))) return true;
+    if (math.isNan(result) and math.isNan(@as(f80, @bitCast(expected)))) return true;
 
     return false;
 }
@@ -25,9 +25,9 @@ fn test__divxf3(a: f80, b: f80) !void {
     const x = __divxf3(a, b);
 
     // Next float (assuming normal, non-zero result)
-    const x_plus_eps = @bitCast(f80, (@bitCast(u80, x) + 1) | integerBit);
+    const x_plus_eps = @as(f80, @bitCast((@as(u80, @bitCast(x)) + 1) | integerBit));
     // Prev float (assuming normal, non-zero result)
-    const x_minus_eps = @bitCast(f80, (@bitCast(u80, x) - 1) | integerBit);
+    const x_minus_eps = @as(f80, @bitCast((@as(u80, @bitCast(x)) - 1) | integerBit));
 
     // Make sure result is more accurate than the adjacent floats
     const err_x = @fabs(@mulAdd(f80, x, b, -a));

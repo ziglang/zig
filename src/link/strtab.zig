@@ -45,7 +45,7 @@ pub fn StringTable(comptime log_scope: @Type(.EnumLiteral)) type {
                 const off = entry.key_ptr.*;
                 const save = entry.value_ptr.*;
                 if (!save) continue;
-                const new_off = @intCast(u32, buffer.items.len);
+                const new_off = @as(u32, @intCast(buffer.items.len));
                 buffer.appendSliceAssumeCapacity(self.getAssumeExists(off));
                 idx_map.putAssumeCapacityNoClobber(off, new_off);
             }
@@ -73,7 +73,7 @@ pub fn StringTable(comptime log_scope: @Type(.EnumLiteral)) type {
             }
 
             try self.buffer.ensureUnusedCapacity(gpa, string.len + 1);
-            const new_off = @intCast(u32, self.buffer.items.len);
+            const new_off = @as(u32, @intCast(self.buffer.items.len));
 
             log.debug("writing new string '{s}' at offset 0x{x}", .{ string, new_off });
 
@@ -103,7 +103,7 @@ pub fn StringTable(comptime log_scope: @Type(.EnumLiteral)) type {
         pub fn get(self: Self, off: u32) ?[]const u8 {
             log.debug("getting string at 0x{x}", .{off});
             if (off >= self.buffer.items.len) return null;
-            return mem.sliceTo(@ptrCast([*:0]const u8, self.buffer.items.ptr + off), 0);
+            return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.buffer.items.ptr + off)), 0);
         }
 
         pub fn getAssumeExists(self: Self, off: u32) []const u8 {

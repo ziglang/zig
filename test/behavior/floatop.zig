@@ -94,7 +94,7 @@ test "negative f128 intFromFloat at compile-time" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const a: f128 = -2;
-    var b = @intFromFloat(i64, a);
+    var b = @as(i64, @intFromFloat(a));
     try expect(@as(i64, -2) == b);
 }
 
@@ -387,11 +387,11 @@ fn testLog() !void {
     }
     {
         var a: f32 = e;
-        try expect(@log(a) == 1 or @log(a) == @bitCast(f32, @as(u32, 0x3f7fffff)));
+        try expect(@log(a) == 1 or @log(a) == @as(f32, @bitCast(@as(u32, 0x3f7fffff))));
     }
     {
         var a: f64 = e;
-        try expect(@log(a) == 1 or @log(a) == @bitCast(f64, @as(u64, 0x3ff0000000000000)));
+        try expect(@log(a) == 1 or @log(a) == @as(f64, @bitCast(@as(u64, 0x3ff0000000000000))));
     }
     inline for ([_]type{ f16, f32, f64 }) |ty| {
         const eps = epsForType(ty);

@@ -7,7 +7,7 @@ const Small = enum(u2) {
 
 export fn entry() void {
     var y = @as(f32, 3);
-    var x = @enumFromInt(Small, y);
+    var x: Small = @enumFromInt(y);
     _ = x;
 }
 

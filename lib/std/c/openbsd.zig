@@ -449,7 +449,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0010;
@@ -488,7 +488,7 @@ pub const W = struct {
     pub const CONTINUED = 8;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, (s >> 8) & 0xff);
+        return @as(u8, @intCast((s >> 8) & 0xff));
     }
     pub fn TERMSIG(s: u32) u32 {
         return (s & 0x7f);
@@ -1000,11 +1000,11 @@ pub const winsize = extern struct {
 const NSIG = 33;
 
 pub const SIG = struct {
-    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
-    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
-    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
-    pub const CATCH = @ptrFromInt(?Sigaction.handler_fn, 2);
-    pub const HOLD = @ptrFromInt(?Sigaction.handler_fn, 3);
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const CATCH = @as(?Sigaction.handler_fn, @ptrFromInt(2));
+    pub const HOLD = @as(?Sigaction.handler_fn, @ptrFromInt(3));
 
     pub const HUP = 1;
     pub const INT = 2;

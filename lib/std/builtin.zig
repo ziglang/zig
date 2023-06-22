@@ -784,7 +784,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
 
                     exit_size.* = 256;
 
-                    return @ptrCast([*:0]u16, utf16.ptr);
+                    return @as([*:0]u16, @ptrCast(utf16.ptr));
                 }
             };
 

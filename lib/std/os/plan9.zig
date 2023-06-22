@@ -8,9 +8,9 @@ pub const syscall_bits = switch (builtin.cpu.arch) {
 pub const E = @import("plan9/errno.zig").E;
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) E {
-    const signed_r = @bitCast(isize, r);
+    const signed_r = @as(isize, @bitCast(r));
     const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
-    return @enumFromInt(E, int);
+    return @as(E, @enumFromInt(int));
 }
 pub const SIG = struct {
     /// hangup

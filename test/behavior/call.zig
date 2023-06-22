@@ -368,7 +368,7 @@ test "Enum constructed by @Type passed as generic argument" {
         }
     };
     inline for (@typeInfo(S.E).Enum.fields, 0..) |_, i| {
-        try S.foo(@enumFromInt(S.E, i), i);
+        try S.foo(@as(S.E, @enumFromInt(i)), i);
     }
 }
 

@@ -14,7 +14,7 @@ pub fn main() !void {
     return error.TestFailed;
 }
 fn shorten_cast(x: i32) i8 {
-    return @intCast(i8, x);
+    return @intCast(x);
 }
 // run
 // backend=llvm

@@ -591,7 +591,7 @@ pub fn main() anyerror!void {
 
         for (all_features, 0..) |feat, i| {
             const llvm_name = feat.llvm_name orelse continue;
-            const zig_feat = @enumFromInt(Feature, i);
+            const zig_feat = @as(Feature, @enumFromInt(i));
             const zig_name = @tagName(zig_feat);
             try llvm_to_zig_cpu_features.put(llvm_name, zig_name);
         }
@@ -790,7 +790,7 @@ const Syntax = union(enum) {
 };
 
 fn objSyntax(obj: *json.ObjectMap) ?Syntax {
-    const num_args = @intCast(u8, obj.get("NumArgs").?.integer);
+    const num_args = @as(u8, @intCast(obj.get("NumArgs").?.integer));
     for (obj.get("!superclasses").?.array.items) |superclass_json| {
         const superclass = superclass_json.string;
         if (std.mem.eql(u8, superclass, "Joined")) {

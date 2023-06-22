@@ -27,7 +27,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
             w.MEM_COMMIT | w.MEM_RESERVE,
             w.PAGE_READWRITE,
         ) catch return null;
-        return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, addr));
+        return @ptrCast(addr);
     }
 
     const hint = @atomicLoad(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, .Unordered);
@@ -40,7 +40,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
         0,
     ) catch return null;
     assert(mem.isAligned(@intFromPtr(slice.ptr), mem.page_size));
-    const new_hint = @alignCast(mem.page_size, slice.ptr + aligned_len);
+    const new_hint: [*]align(mem.page_size) u8 = @alignCast(slice.ptr + aligned_len);
     _ = @cmpxchgStrong(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, hint, new_hint, .Monotonic, .Monotonic);
     return slice.ptr;
 }
@@ -66,7 +66,7 @@ fn resize(
                 // For shrinking that is not releasing, we will only
                 // decommit the pages not needed anymore.
                 w.VirtualFree(
-                    @ptrFromInt(*anyopaque, new_addr_end),
+                    @as(*anyopaque, @ptrFromInt(new_addr_end)),
                     old_addr_end - new_addr_end,
                     w.MEM_DECOMMIT,
                 );
@@ -85,9 +85,9 @@ fn resize(
         return true;
 
     if (new_size_aligned < buf_aligned_len) {
-        const ptr = @alignCast(mem.page_size, buf_unaligned.ptr + new_size_aligned);
+        const ptr = buf_unaligned.ptr + new_size_aligned;
         // TODO: if the next_mmap_addr_hint is within the unmapped range, update it
-        os.munmap(ptr[0 .. buf_aligned_len - new_size_aligned]);
+        os.munmap(@alignCast(ptr[0 .. buf_aligned_len - new_size_aligned]));
         return true;
     }
 
@@ -104,7 +104,6 @@ fn free(_: *anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) v
         os.windows.VirtualFree(slice.ptr, 0, os.windows.MEM_RELEASE);
     } else {
         const buf_aligned_len = mem.alignForward(usize, slice.len, mem.page_size);
-        const ptr = @alignCast(mem.page_size, slice.ptr);
-        os.munmap(ptr[0..buf_aligned_len]);
+        os.munmap(@alignCast(slice.ptr[0..buf_aligned_len]));
     }
 }

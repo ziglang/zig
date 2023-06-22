@@ -111,10 +111,10 @@ pub const RTLD = struct {
     pub const FIRST = 0x02000;
     pub const CONFGEN = 0x10000;
 
-    pub const NEXT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -3)));
-    pub const PROBE = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -4)));
+    pub const NEXT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
+    pub const DEFAULT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -2)))));
+    pub const SELF = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -3)))));
+    pub const PROBE = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -4)))));
 };
 
 pub const Flock = extern struct {
@@ -524,7 +524,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const TYPE = 0x000f;
@@ -583,7 +583,7 @@ pub const W = struct {
     pub const NOWAIT = 0o200;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, (s >> 8) & 0xff);
+        return @as(u8, @intCast((s >> 8) & 0xff));
     }
     pub fn TERMSIG(s: u32) u32 {
         return s & 0x7f;
@@ -886,10 +886,10 @@ pub const winsize = extern struct {
 const NSIG = 75;
 
 pub const SIG = struct {
-    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
-    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
-    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
-    pub const HOLD = @ptrFromInt(?Sigaction.handler_fn, 2);
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const HOLD = @as(?Sigaction.handler_fn, @ptrFromInt(2));
 
     pub const WORDS = 4;
     pub const MAXSIG = 75;
@@ -1441,7 +1441,7 @@ pub const AT = struct {
     /// Magic value that specify the use of the current working directory
     /// to determine the target of relative file paths in the openat() and
     /// similar syscalls.
-    pub const FDCWD = @bitCast(fd_t, @as(u32, 0xffd19553));
+    pub const FDCWD = @as(fd_t, @bitCast(@as(u32, 0xffd19553)));
 
     /// Do not follow symbolic links
     pub const SYMLINK_NOFOLLOW = 0x1000;
@@ -1907,9 +1907,9 @@ const IoCtlCommand = enum(u32) {
 };
 
 fn ioImpl(cmd: IoCtlCommand, io_type: u8, nr: u8, comptime IOT: type) i32 {
-    const size = @intCast(u32, @truncate(u8, @sizeOf(IOT))) << 16;
-    const t = @intCast(u32, io_type) << 8;
-    return @bitCast(i32, @intFromEnum(cmd) | size | t | nr);
+    const size = @as(u32, @intCast(@as(u8, @truncate(@sizeOf(IOT))))) << 16;
+    const t = @as(u32, @intCast(io_type)) << 8;
+    return @as(i32, @bitCast(@intFromEnum(cmd) | size | t | nr));
 }
 
 pub fn IO(io_type: u8, nr: u8) i32 {

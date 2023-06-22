@@ -72,7 +72,7 @@ const CodeDirectory = struct {
                 .hashSize = hash_size,
                 .hashType = macho.CS_HASHTYPE_SHA256,
                 .platform = 0,
-                .pageSize = @truncate(u8, std.math.log2(page_size)),
+                .pageSize = @as(u8, @truncate(std.math.log2(page_size))),
                 .spare2 = 0,
                 .scatterOffset = 0,
                 .teamOffset = 0,
@@ -110,7 +110,7 @@ const CodeDirectory = struct {
     fn size(self: CodeDirectory) u32 {
         const code_slots = self.inner.nCodeSlots * hash_size;
         const special_slots = self.inner.nSpecialSlots * hash_size;
-        return @sizeOf(macho.CodeDirectory) + @intCast(u32, self.ident.len + 1 + special_slots + code_slots);
+        return @sizeOf(macho.CodeDirectory) + @as(u32, @intCast(self.ident.len + 1 + special_slots + code_slots));
     }
 
     fn write(self: CodeDirectory, writer: anytype) !void {
@@ -139,9 +139,9 @@ const CodeDirectory = struct {
         try writer.writeAll(self.ident);
         try writer.writeByte(0);
 
-        var i: isize = @intCast(isize, self.inner.nSpecialSlots);
+        var i: isize = @as(isize, @intCast(self.inner.nSpecialSlots));
         while (i > 0) : (i -= 1) {
-            try writer.writeAll(&self.special_slots[@intCast(usize, i - 1)]);
+            try writer.writeAll(&self.special_slots[@as(usize, @intCast(i - 1))]);
         }
 
         for (self.code_slots.items) |slot| {
@@ -186,7 +186,7 @@ const Entitlements = struct {
     }
 
     fn size(self: Entitlements) u32 {
-        return @intCast(u32, self.inner.len) + 2 * @sizeOf(u32);
+        return @as(u32, @intCast(self.inner.len)) + 2 * @sizeOf(u32);
     }
 
     fn write(self: Entitlements, writer: anytype) !void {
@@ -281,7 +281,7 @@ pub fn writeAdhocSignature(
     self.code_directory.inner.execSegFlags = if (opts.output_mode == .Exe) macho.CS_EXECSEG_MAIN_BINARY else 0;
     self.code_directory.inner.codeLimit = opts.file_size;
 
-    const total_pages = @intCast(u32, mem.alignForward(usize, opts.file_size, self.page_size) / self.page_size);
+    const total_pages = @as(u32, @intCast(mem.alignForward(usize, opts.file_size, self.page_size) / self.page_size));
 
     try self.code_directory.code_slots.ensureTotalCapacityPrecise(gpa, total_pages);
     self.code_directory.code_slots.items.len = total_pages;
@@ -331,7 +331,7 @@ pub fn writeAdhocSignature(
     }
 
     self.code_directory.inner.hashOffset =
-        @sizeOf(macho.CodeDirectory) + @intCast(u32, self.code_directory.ident.len + 1 + self.code_directory.inner.nSpecialSlots * hash_size);
+        @sizeOf(macho.CodeDirectory) + @as(u32, @intCast(self.code_directory.ident.len + 1 + self.code_directory.inner.nSpecialSlots * hash_size));
     self.code_directory.inner.length = self.code_directory.size();
     header.length += self.code_directory.size();
 
@@ -339,7 +339,7 @@ pub fn writeAdhocSignature(
     try writer.writeIntBig(u32, header.length);
     try writer.writeIntBig(u32, header.count);
 
-    var offset: u32 = @sizeOf(macho.SuperBlob) + @sizeOf(macho.BlobIndex) * @intCast(u32, blobs.items.len);
+    var offset: u32 = @sizeOf(macho.SuperBlob) + @sizeOf(macho.BlobIndex) * @as(u32, @intCast(blobs.items.len));
     for (blobs.items) |blob| {
         try writer.writeIntBig(u32, blob.slotType());
         try writer.writeIntBig(u32, offset);
@@ -383,7 +383,7 @@ pub fn estimateSize(self: CodeSignature, file_size: u64) u32 {
         ssize += @sizeOf(macho.BlobIndex) + sig.size();
     }
     ssize += n_special_slots * hash_size;
-    return @intCast(u32, mem.alignForward(u64, ssize, @sizeOf(u64)));
+    return @as(u32, @intCast(mem.alignForward(u64, ssize, @sizeOf(u64))));
 }
 
 pub fn clear(self: *CodeSignature, allocator: Allocator) void {

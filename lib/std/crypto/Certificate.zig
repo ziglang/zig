@@ -312,7 +312,7 @@ pub const Parsed = struct {
         while (name_i < general_names.slice.end) {
             const general_name = try der.Element.parse(subject_alt_name, name_i);
             name_i = general_name.slice.end;
-            switch (@enumFromInt(GeneralNameTag, @intFromEnum(general_name.identifier.tag))) {
+            switch (@as(GeneralNameTag, @enumFromInt(@intFromEnum(general_name.identifier.tag)))) {
                 .dNSName => {
                     const dns_name = subject_alt_name[general_name.slice.start..general_name.slice.end];
                     if (checkHostName(host_name, dns_name)) return;
@@ -379,7 +379,7 @@ pub fn parse(cert: Certificate) ParseError!Parsed {
     const tbs_certificate = try der.Element.parse(cert_bytes, certificate.slice.start);
     const version_elem = try der.Element.parse(cert_bytes, tbs_certificate.slice.start);
     const version = try parseVersion(cert_bytes, version_elem);
-    const serial_number = if (@bitCast(u8, version_elem.identifier) == 0xa0)
+    const serial_number = if (@as(u8, @bitCast(version_elem.identifier)) == 0xa0)
         try der.Element.parse(cert_bytes, version_elem.slice.end)
     else
         version_elem;
@@ -597,8 +597,8 @@ const Date = struct {
             var month: u4 = 1;
             while (month < date.month) : (month += 1) {
                 const days: u64 = std.time.epoch.getDaysInMonth(
-                    @enumFromInt(std.time.epoch.YearLeapKind, @intFromBool(is_leap)),
-                    @enumFromInt(std.time.epoch.Month, month),
+                    @as(std.time.epoch.YearLeapKind, @enumFromInt(@intFromBool(is_leap))),
+                    @as(std.time.epoch.Month, @enumFromInt(month)),
                 );
                 sec += days * std.time.epoch.secs_per_day;
             }
@@ -685,7 +685,7 @@ fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) ParseEnu
 pub const ParseVersionError = error{ UnsupportedCertificateVersion, CertificateFieldHasInvalidLength };
 
 pub fn parseVersion(bytes: []const u8, version_elem: der.Element) ParseVersionError!Version {
-    if (@bitCast(u8, version_elem.identifier) != 0xa0)
+    if (@as(u8, @bitCast(version_elem.identifier)) != 0xa0)
         return .v1;
 
     if (version_elem.slice.end - version_elem.slice.start != 3)
@@ -864,7 +864,7 @@ pub const der = struct {
 
         pub fn parse(bytes: []const u8, index: u32) ParseElementError!Element {
             var i = index;
-            const identifier = @bitCast(Identifier, bytes[i]);
+            const identifier = @as(Identifier, @bitCast(bytes[i]));
             i += 1;
             const size_byte = bytes[i];
             i += 1;
@@ -878,7 +878,7 @@ pub const der = struct {
                 };
             }
 
-            const len_size = @truncate(u7, size_byte);
+            const len_size = @as(u7, @truncate(size_byte));
             if (len_size > @sizeOf(u32)) {
                 return error.CertificateFieldHasInvalidLength;
             }
@@ -1042,10 +1042,10 @@ pub const rsa = struct {
             var hashed: [Hash.digest_length]u8 = undefined;
 
             while (idx < len) {
-                c[0] = @intCast(u8, (counter >> 24) & 0xFF);
-                c[1] = @intCast(u8, (counter >> 16) & 0xFF);
-                c[2] = @intCast(u8, (counter >> 8) & 0xFF);
-                c[3] = @intCast(u8, counter & 0xFF);
+                c[0] = @as(u8, @intCast((counter >> 24) & 0xFF));
+                c[1] = @as(u8, @intCast((counter >> 16) & 0xFF));
+                c[2] = @as(u8, @intCast((counter >> 8) & 0xFF));
+                c[3] = @as(u8, @intCast(counter & 0xFF));
 
                 std.mem.copyForwards(u8, hash[seed.len..], &c);
                 Hash.hash(&hash, &hashed, .{});

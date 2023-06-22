@@ -30,12 +30,12 @@ const __floatuntitf = @import("floatuntitf.zig").__floatuntitf;
 
 fn test__floatsisf(a: i32, expected: u32) !void {
     const r = __floatsisf(a);
-    try std.testing.expect(@bitCast(u32, r) == expected);
+    try std.testing.expect(@as(u32, @bitCast(r)) == expected);
 }
 
 fn test_one_floatunsisf(a: u32, expected: u32) !void {
     const r = __floatunsisf(a);
-    try std.testing.expect(@bitCast(u32, r) == expected);
+    try std.testing.expect(@as(u32, @bitCast(r)) == expected);
 }
 
 test "floatsisf" {
@@ -43,7 +43,7 @@ test "floatsisf" {
     try test__floatsisf(1, 0x3f800000);
     try test__floatsisf(-1, 0xbf800000);
     try test__floatsisf(0x7FFFFFFF, 0x4f000000);
-    try test__floatsisf(@bitCast(i32, @intCast(u32, 0x80000000)), 0xcf000000);
+    try test__floatsisf(@as(i32, @bitCast(@as(u32, @intCast(0x80000000)))), 0xcf000000);
 }
 
 test "floatunsisf" {
@@ -72,10 +72,10 @@ test "floatdisf" {
     try test__floatdisf(-2, -2.0);
     try test__floatdisf(0x7FFFFF8000000000, 0x1.FFFFFEp+62);
     try test__floatdisf(0x7FFFFF0000000000, 0x1.FFFFFCp+62);
-    try test__floatdisf(@bitCast(i64, @as(u64, 0x8000008000000000)), -0x1.FFFFFEp+62);
-    try test__floatdisf(@bitCast(i64, @as(u64, 0x8000010000000000)), -0x1.FFFFFCp+62);
-    try test__floatdisf(@bitCast(i64, @as(u64, 0x8000000000000000)), -0x1.000000p+63);
-    try test__floatdisf(@bitCast(i64, @as(u64, 0x8000000000000001)), -0x1.000000p+63);
+    try test__floatdisf(@as(i64, @bitCast(@as(u64, 0x8000008000000000))), -0x1.FFFFFEp+62);
+    try test__floatdisf(@as(i64, @bitCast(@as(u64, 0x8000010000000000))), -0x1.FFFFFCp+62);
+    try test__floatdisf(@as(i64, @bitCast(@as(u64, 0x8000000000000000))), -0x1.000000p+63);
+    try test__floatdisf(@as(i64, @bitCast(@as(u64, 0x8000000000000001))), -0x1.000000p+63);
     try test__floatdisf(0x0007FB72E8000000, 0x1.FEDCBAp+50);
     try test__floatdisf(0x0007FB72EA000000, 0x1.FEDCBAp+50);
     try test__floatdisf(0x0007FB72EB000000, 0x1.FEDCBAp+50);
@@ -228,17 +228,17 @@ test "floatuntisf" {
     try test__floatuntisf(make_uti(0x0000000000001FED, 0xCBE0000000000000), 0x1.FEDCBEp+76);
 
     // Test overflow to infinity
-    try test__floatuntisf(@as(u128, math.maxInt(u128)), @bitCast(f32, math.inf(f32)));
+    try test__floatuntisf(@as(u128, math.maxInt(u128)), @as(f32, @bitCast(math.inf(f32))));
 }
 
 fn test_one_floatsidf(a: i32, expected: u64) !void {
     const r = __floatsidf(a);
-    try std.testing.expect(@bitCast(u64, r) == expected);
+    try std.testing.expect(@as(u64, @bitCast(r)) == expected);
 }
 
 fn test_one_floatunsidf(a: u32, expected: u64) !void {
     const r = __floatunsidf(a);
-    try std.testing.expect(@bitCast(u64, r) == expected);
+    try std.testing.expect(@as(u64, @bitCast(r)) == expected);
 }
 
 test "floatsidf" {
@@ -246,15 +246,15 @@ test "floatsidf" {
     try test_one_floatsidf(1, 0x3ff0000000000000);
     try test_one_floatsidf(-1, 0xbff0000000000000);
     try test_one_floatsidf(0x7FFFFFFF, 0x41dfffffffc00000);
-    try test_one_floatsidf(@bitCast(i32, @intCast(u32, 0x80000000)), 0xc1e0000000000000);
+    try test_one_floatsidf(@as(i32, @bitCast(@as(u32, @intCast(0x80000000)))), 0xc1e0000000000000);
 }
 
 test "floatunsidf" {
     try test_one_floatunsidf(0, 0x0000000000000000);
     try test_one_floatunsidf(1, 0x3ff0000000000000);
     try test_one_floatunsidf(0x7FFFFFFF, 0x41dfffffffc00000);
-    try test_one_floatunsidf(@intCast(u32, 0x80000000), 0x41e0000000000000);
-    try test_one_floatunsidf(@intCast(u32, 0xFFFFFFFF), 0x41efffffffe00000);
+    try test_one_floatunsidf(@as(u32, @intCast(0x80000000)), 0x41e0000000000000);
+    try test_one_floatunsidf(@as(u32, @intCast(0xFFFFFFFF)), 0x41efffffffe00000);
 }
 
 fn test__floatdidf(a: i64, expected: f64) !void {
@@ -279,12 +279,12 @@ test "floatdidf" {
     try test__floatdidf(0x7FFFFFFFFFFFF800, 0x1.FFFFFFFFFFFFEp+62);
     try test__floatdidf(0x7FFFFF0000000000, 0x1.FFFFFCp+62);
     try test__floatdidf(0x7FFFFFFFFFFFF000, 0x1.FFFFFFFFFFFFCp+62);
-    try test__floatdidf(@bitCast(i64, @intCast(u64, 0x8000008000000000)), -0x1.FFFFFEp+62);
-    try test__floatdidf(@bitCast(i64, @intCast(u64, 0x8000000000000800)), -0x1.FFFFFFFFFFFFEp+62);
-    try test__floatdidf(@bitCast(i64, @intCast(u64, 0x8000010000000000)), -0x1.FFFFFCp+62);
-    try test__floatdidf(@bitCast(i64, @intCast(u64, 0x8000000000001000)), -0x1.FFFFFFFFFFFFCp+62);
-    try test__floatdidf(@bitCast(i64, @intCast(u64, 0x8000000000000000)), -0x1.000000p+63);
-    try test__floatdidf(@bitCast(i64, @intCast(u64, 0x8000000000000001)), -0x1.000000p+63); // 0x8000000000000001
+    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000008000000000)))), -0x1.FFFFFEp+62);
+    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000000000000800)))), -0x1.FFFFFFFFFFFFEp+62);
+    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000010000000000)))), -0x1.FFFFFCp+62);
+    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000000000001000)))), -0x1.FFFFFFFFFFFFCp+62);
+    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000000000000000)))), -0x1.000000p+63);
+    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000000000000001)))), -0x1.000000p+63); // 0x8000000000000001
     try test__floatdidf(0x0007FB72E8000000, 0x1.FEDCBAp+50);
     try test__floatdidf(0x0007FB72EA000000, 0x1.FEDCBA8p+50);
     try test__floatdidf(0x0007FB72EB000000, 0x1.FEDCBACp+50);
@@ -505,7 +505,7 @@ test "floatuntidf" {
 
 fn test__floatsitf(a: i32, expected: u128) !void {
     const r = __floatsitf(a);
-    try std.testing.expect(@bitCast(u128, r) == expected);
+    try std.testing.expect(@as(u128, @bitCast(r)) == expected);
 }
 
 test "floatsitf" {
@@ -513,16 +513,16 @@ test "floatsitf" {
     try test__floatsitf(0x7FFFFFFF, 0x401dfffffffc00000000000000000000);
     try test__floatsitf(0x12345678, 0x401b2345678000000000000000000000);
     try test__floatsitf(-0x12345678, 0xc01b2345678000000000000000000000);
-    try test__floatsitf(@bitCast(i32, @intCast(u32, 0xffffffff)), 0xbfff0000000000000000000000000000);
-    try test__floatsitf(@bitCast(i32, @intCast(u32, 0x80000000)), 0xc01e0000000000000000000000000000);
+    try test__floatsitf(@as(i32, @bitCast(@as(u32, @intCast(0xffffffff)))), 0xbfff0000000000000000000000000000);
+    try test__floatsitf(@as(i32, @bitCast(@as(u32, @intCast(0x80000000)))), 0xc01e0000000000000000000000000000);
 }
 
 fn test__floatunsitf(a: u32, expected_hi: u64, expected_lo: u64) !void {
     const x = __floatunsitf(a);
 
-    const x_repr = @bitCast(u128, x);
-    const x_hi = @intCast(u64, x_repr >> 64);
-    const x_lo = @truncate(u64, x_repr);
+    const x_repr = @as(u128, @bitCast(x));
+    const x_hi = @as(u64, @intCast(x_repr >> 64));
+    const x_lo = @as(u64, @truncate(x_repr));
 
     if (x_hi == expected_hi and x_lo == expected_lo) {
         return;
@@ -552,9 +552,9 @@ fn test__floatditf(a: i64, expected: f128) !void {
 fn test__floatunditf(a: u64, expected_hi: u64, expected_lo: u64) !void {
     const x = __floatunditf(a);
 
-    const x_repr = @bitCast(u128, x);
-    const x_hi = @intCast(u64, x_repr >> 64);
-    const x_lo = @truncate(u64, x_repr);
+    const x_repr = @as(u128, @bitCast(x));
+    const x_hi = @as(u64, @intCast(x_repr >> 64));
+    const x_lo = @as(u64, @truncate(x_repr));
 
     if (x_hi == expected_hi and x_lo == expected_lo) {
         return;
@@ -575,10 +575,10 @@ test "floatditf" {
     try test__floatditf(0x2, make_tf(0x4000000000000000, 0x0));
     try test__floatditf(0x1, make_tf(0x3fff000000000000, 0x0));
     try test__floatditf(0x0, make_tf(0x0, 0x0));
-    try test__floatditf(@bitCast(i64, @as(u64, 0xffffffffffffffff)), make_tf(0xbfff000000000000, 0x0));
-    try test__floatditf(@bitCast(i64, @as(u64, 0xfffffffffffffffe)), make_tf(0xc000000000000000, 0x0));
+    try test__floatditf(@as(i64, @bitCast(@as(u64, 0xffffffffffffffff))), make_tf(0xbfff000000000000, 0x0));
+    try test__floatditf(@as(i64, @bitCast(@as(u64, 0xfffffffffffffffe))), make_tf(0xc000000000000000, 0x0));
     try test__floatditf(-0x123456789abcdef1, make_tf(0xc03b23456789abcd, 0xef10000000000000));
-    try test__floatditf(@bitCast(i64, @as(u64, 0x8000000000000000)), make_tf(0xc03e000000000000, 0x0));
+    try test__floatditf(@as(i64, @bitCast(@as(u64, 0x8000000000000000))), make_tf(0xc03e000000000000, 0x0));
 }
 
 test "floatunditf" {
@@ -773,7 +773,7 @@ fn make_ti(high: u64, low: u64) i128 {
     var result: u128 = high;
     result <<= 64;
     result |= low;
-    return @bitCast(i128, result);
+    return @as(i128, @bitCast(result));
 }
 
 fn make_uti(high: u64, low: u64) u128 {
@@ -787,7 +787,7 @@ fn make_tf(high: u64, low: u64) f128 {
     var result: u128 = high;
     result <<= 64;
     result |= low;
-    return @bitCast(f128, result);
+    return @as(f128, @bitCast(result));
 }
 
 test "conversion to f16" {
@@ -815,22 +815,22 @@ test "conversion to f80" {
     const floatFromInt = @import("./float_from_int.zig").floatFromInt;
 
     try testing.expect(floatFromInt(f80, @as(i80, -12)) == -12);
-    try testing.expect(@intFromFloat(u80, floatFromInt(f80, @as(u64, math.maxInt(u64)) + 0)) == math.maxInt(u64) + 0);
-    try testing.expect(@intFromFloat(u80, floatFromInt(f80, @as(u80, math.maxInt(u64)) + 1)) == math.maxInt(u64) + 1);
+    try testing.expect(@as(u80, @intFromFloat(floatFromInt(f80, @as(u64, math.maxInt(u64)) + 0))) == math.maxInt(u64) + 0);
+    try testing.expect(@as(u80, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u64)) + 1))) == math.maxInt(u64) + 1);
 
     try testing.expect(floatFromInt(f80, @as(u32, 0)) == 0.0);
     try testing.expect(floatFromInt(f80, @as(u32, 1)) == 1.0);
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u32, math.maxInt(u24)) + 0)) == math.maxInt(u24));
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u80, math.maxInt(u64)) + 0)) == math.maxInt(u64));
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u80, math.maxInt(u64)) + 1)) == math.maxInt(u64) + 1); // Exact
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u80, math.maxInt(u64)) + 2)) == math.maxInt(u64) + 1); // Rounds down
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u80, math.maxInt(u64)) + 3)) == math.maxInt(u64) + 3); // Tie - Exact
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u80, math.maxInt(u64)) + 4)) == math.maxInt(u64) + 5); // Rounds up
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u32, math.maxInt(u24)) + 0))) == math.maxInt(u24));
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u64)) + 0))) == math.maxInt(u64));
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u64)) + 1))) == math.maxInt(u64) + 1); // Exact
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u64)) + 2))) == math.maxInt(u64) + 1); // Rounds down
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u64)) + 3))) == math.maxInt(u64) + 3); // Tie - Exact
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u64)) + 4))) == math.maxInt(u64) + 5); // Rounds up
 
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u80, math.maxInt(u65)) + 0)) == math.maxInt(u65) + 1); // Rounds up
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u80, math.maxInt(u65)) + 1)) == math.maxInt(u65) + 1); // Exact
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u80, math.maxInt(u65)) + 2)) == math.maxInt(u65) + 1); // Rounds down
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u80, math.maxInt(u65)) + 3)) == math.maxInt(u65) + 1); // Tie - Rounds down
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u80, math.maxInt(u65)) + 4)) == math.maxInt(u65) + 5); // Rounds up
-    try testing.expect(@intFromFloat(u128, floatFromInt(f80, @as(u80, math.maxInt(u65)) + 5)) == math.maxInt(u65) + 5); // Exact
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u65)) + 0))) == math.maxInt(u65) + 1); // Rounds up
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u65)) + 1))) == math.maxInt(u65) + 1); // Exact
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u65)) + 2))) == math.maxInt(u65) + 1); // Rounds down
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u65)) + 3))) == math.maxInt(u65) + 1); // Tie - Rounds down
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u65)) + 4))) == math.maxInt(u65) + 5); // Rounds up
+    try testing.expect(@as(u128, @intFromFloat(floatFromInt(f80, @as(u80, math.maxInt(u65)) + 5))) == math.maxInt(u65) + 5); // Exact
 }

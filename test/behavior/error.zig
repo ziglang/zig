@@ -234,9 +234,9 @@ const Set1 = error{ A, B };
 const Set2 = error{ A, C };
 
 fn testExplicitErrorSetCast(set1: Set1) !void {
-    var x = @errSetCast(Set2, set1);
+    var x = @as(Set2, @errSetCast(set1));
     try expect(@TypeOf(x) == Set2);
-    var y = @errSetCast(Set1, x);
+    var y = @as(Set1, @errSetCast(x));
     try expect(@TypeOf(y) == Set1);
     try expect(y == error.A);
 }

@@ -32,9 +32,9 @@ comptime {
 
 inline fn clzXi2(comptime T: type, a: T) i32 {
     var x = switch (@bitSizeOf(T)) {
-        32 => @bitCast(u32, a),
-        64 => @bitCast(u64, a),
-        128 => @bitCast(u128, a),
+        32 => @as(u32, @bitCast(a)),
+        64 => @as(u64, @bitCast(a)),
+        128 => @as(u128, @bitCast(a)),
         else => unreachable,
     };
     var n: T = @bitSizeOf(T);
@@ -49,7 +49,7 @@ inline fn clzXi2(comptime T: type, a: T) i32 {
             x = y;
         }
     }
-    return @intCast(i32, n - @bitCast(T, x));
+    return @as(i32, @intCast(n - @as(T, @bitCast(x))));
 }
 
 fn __clzsi2_thumb1() callconv(.Naked) void {
@@ -169,9 +169,9 @@ pub fn __clzti2(a: i128) callconv(.C) i32 {
 
 inline fn ctzXi2(comptime T: type, a: T) i32 {
     var x = switch (@bitSizeOf(T)) {
-        32 => @bitCast(u32, a),
-        64 => @bitCast(u64, a),
-        128 => @bitCast(u128, a),
+        32 => @as(u32, @bitCast(a)),
+        64 => @as(u64, @bitCast(a)),
+        128 => @as(u128, @bitCast(a)),
         else => unreachable,
     };
     var n: T = 1;
@@ -187,7 +187,7 @@ inline fn ctzXi2(comptime T: type, a: T) i32 {
             x = x >> shift;
         }
     }
-    return @intCast(i32, n - @bitCast(T, (x & 1)));
+    return @as(i32, @intCast(n - @as(T, @bitCast((x & 1)))));
 }
 
 pub fn __ctzsi2(a: i32) callconv(.C) i32 {
@@ -204,9 +204,9 @@ pub fn __ctzti2(a: i128) callconv(.C) i32 {
 
 inline fn ffsXi2(comptime T: type, a: T) i32 {
     var x = switch (@bitSizeOf(T)) {
-        32 => @bitCast(u32, a),
-        64 => @bitCast(u64, a),
-        128 => @bitCast(u128, a),
+        32 => @as(u32, @bitCast(a)),
+        64 => @as(u64, @bitCast(a)),
+        128 => @as(u128, @bitCast(a)),
         else => unreachable,
     };
     var n: T = 1;
@@ -224,7 +224,7 @@ inline fn ffsXi2(comptime T: type, a: T) i32 {
         }
     }
     // return ctz + 1
-    return @intCast(i32, n - @bitCast(T, (x & 1))) + @as(i32, 1);
+    return @as(i32, @intCast(n - @as(T, @bitCast((x & 1))))) + @as(i32, 1);
 }
 
 pub fn __ffssi2(a: i32) callconv(.C) i32 {

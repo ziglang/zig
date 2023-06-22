@@ -33,7 +33,7 @@ pub fn KeccakF(comptime f: u11) type {
                 0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
             };
             var rc: [max_rounds]T = undefined;
-            for (&rc, RC64[0..max_rounds]) |*t, c| t.* = @truncate(T, c);
+            for (&rc, RC64[0..max_rounds]) |*t, c| t.* = @as(T, @truncate(c));
             break :rc rc;
         };
 
@@ -75,7 +75,7 @@ pub fn KeccakF(comptime f: u11) type {
 
         /// XOR a byte into the state at a given offset.
         pub fn addByte(self: *Self, byte: u8, offset: usize) void {
-            const z = @sizeOf(T) * @truncate(math.Log2Int(T), offset % @sizeOf(T));
+            const z = @sizeOf(T) * @as(math.Log2Int(T), @truncate(offset % @sizeOf(T)));
             self.st[offset / @sizeOf(T)] ^= @as(T, byte) << z;
         }
 

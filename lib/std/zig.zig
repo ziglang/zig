@@ -36,7 +36,7 @@ pub fn hashSrc(src: []const u8) SrcHash {
 }
 
 pub fn srcHashEql(a: SrcHash, b: SrcHash) bool {
-    return @bitCast(u128, a) == @bitCast(u128, b);
+    return @as(u128, @bitCast(a)) == @as(u128, @bitCast(b));
 }
 
 pub fn hashName(parent_hash: SrcHash, sep: []const u8, name: []const u8) SrcHash {

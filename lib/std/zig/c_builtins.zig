@@ -20,19 +20,19 @@ pub inline fn __builtin_signbitf(val: f32) c_int {
 pub inline fn __builtin_popcount(val: c_uint) c_int {
     // popcount of a c_uint will never exceed the capacity of a c_int
     @setRuntimeSafety(false);
-    return @bitCast(c_int, @as(c_uint, @popCount(val)));
+    return @as(c_int, @bitCast(@as(c_uint, @popCount(val))));
 }
 pub inline fn __builtin_ctz(val: c_uint) c_int {
     // Returns the number of trailing 0-bits in val, starting at the least significant bit position.
     // In C if `val` is 0, the result is undefined; in zig it's the number of bits in a c_uint
     @setRuntimeSafety(false);
-    return @bitCast(c_int, @as(c_uint, @ctz(val)));
+    return @as(c_int, @bitCast(@as(c_uint, @ctz(val))));
 }
 pub inline fn __builtin_clz(val: c_uint) c_int {
     // Returns the number of leading 0-bits in x, starting at the most significant bit position.
     // In C if `val` is 0, the result is undefined; in zig it's the number of bits in a c_uint
     @setRuntimeSafety(false);
-    return @bitCast(c_int, @as(c_uint, @clz(val)));
+    return @as(c_int, @bitCast(@as(c_uint, @clz(val))));
 }
 
 pub inline fn __builtin_sqrt(val: f64) f64 {
@@ -135,7 +135,7 @@ pub inline fn __builtin_object_size(ptr: ?*const anyopaque, ty: c_int) usize {
     // If it is not possible to determine which objects ptr points to at compile time,
     // __builtin_object_size should return (size_t) -1 for type 0 or 1 and (size_t) 0
     // for type 2 or 3.
-    if (ty == 0 or ty == 1) return @bitCast(usize, -@as(isize, 1));
+    if (ty == 0 or ty == 1) return @as(usize, @bitCast(-@as(isize, 1)));
     if (ty == 2 or ty == 3) return 0;
     unreachable;
 }
@@ -151,8 +151,8 @@ pub inline fn __builtin___memset_chk(
 }
 
 pub inline fn __builtin_memset(dst: ?*anyopaque, val: c_int, len: usize) ?*anyopaque {
-    const dst_cast = @ptrCast([*c]u8, dst);
-    @memset(dst_cast[0..len], @bitCast(u8, @truncate(i8, val)));
+    const dst_cast = @as([*c]u8, @ptrCast(dst));
+    @memset(dst_cast[0..len], @as(u8, @bitCast(@as(i8, @truncate(val)))));
     return dst;
 }
 
@@ -172,8 +172,8 @@ pub inline fn __builtin_memcpy(
     len: usize,
 ) ?*anyopaque {
     if (len > 0) @memcpy(
-        @ptrCast([*]u8, dst.?)[0..len],
-        @ptrCast([*]const u8, src.?),
+        @as([*]u8, @ptrCast(dst.?))[0..len],
+        @as([*]const u8, @ptrCast(src.?)),
     );
     return dst;
 }
@@ -202,8 +202,8 @@ pub inline fn __builtin_expect(expr: c_long, c: c_long) c_long {
 /// If tagp is empty, the function returns a NaN whose significand is zero.
 pub inline fn __builtin_nanf(tagp: []const u8) f32 {
     const parsed = std.fmt.parseUnsigned(c_ulong, tagp, 0) catch 0;
-    const bits = @truncate(u23, parsed); // single-precision float trailing significand is 23 bits
-    return @bitCast(f32, @as(u32, bits) | std.math.qnan_u32);
+    const bits = @as(u23, @truncate(parsed)); // single-precision float trailing significand is 23 bits
+    return @as(f32, @bitCast(@as(u32, bits) | std.math.qnan_u32));
 }
 
 pub inline fn __builtin_huge_valf() f32 {

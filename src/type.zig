@@ -807,7 +807,7 @@ pub const Type = struct {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_type| {
                 if (ptr_type.flags.alignment.toByteUnitsOptional()) |a| {
-                    return @intCast(u32, a);
+                    return @as(u32, @intCast(a));
                 } else if (opt_sema) |sema| {
                     const res = try ptr_type.child.toType().abiAlignmentAdvanced(mod, .{ .sema = sema });
                     return res.scalar;
@@ -886,7 +886,7 @@ pub const Type = struct {
                 },
                 .vector_type => |vector_type| {
                     const bits_u64 = try bitSizeAdvanced(vector_type.child.toType(), mod, opt_sema);
-                    const bits = @intCast(u32, bits_u64);
+                    const bits = @as(u32, @intCast(bits_u64));
                     const bytes = ((bits * vector_type.len) + 7) / 8;
                     const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
                     return AbiAlignmentAdvanced{ .scalar = alignment };
@@ -901,7 +901,7 @@ pub const Type = struct {
                 // represents machine code; not a pointer
                 .func_type => |func_type| return AbiAlignmentAdvanced{
                     .scalar = if (func_type.alignment.toByteUnitsOptional()) |a|
-                        @intCast(u32, a)
+                        @as(u32, @intCast(a))
                     else
                         target_util.defaultFunctionAlignment(target),
                 },
@@ -1015,7 +1015,7 @@ pub const Type = struct {
                             else => |e| return e,
                         })) continue;
 
-                        const field_align = @intCast(u32, field.abi_align.toByteUnitsOptional() orelse
+                        const field_align = @as(u32, @intCast(field.abi_align.toByteUnitsOptional() orelse
                             switch (try field.ty.abiAlignmentAdvanced(mod, strat)) {
                             .scalar => |a| a,
                             .val => switch (strat) {
@@ -1026,7 +1026,7 @@ pub const Type = struct {
                                     .storage = .{ .lazy_align = ty.toIntern() },
                                 } })).toValue() },
                             },
-                        });
+                        }));
                         big_align = @max(big_align, field_align);
 
                         // This logic is duplicated in Module.Struct.Field.alignment.
@@ -1221,7 +1221,7 @@ pub const Type = struct {
                 else => |e| return e,
             })) continue;
 
-            const field_align = @intCast(u32, field.abi_align.toByteUnitsOptional() orelse
+            const field_align = @as(u32, @intCast(field.abi_align.toByteUnitsOptional() orelse
                 switch (try field.ty.abiAlignmentAdvanced(mod, strat)) {
                 .scalar => |a| a,
                 .val => switch (strat) {
@@ -1232,7 +1232,7 @@ pub const Type = struct {
                         .storage = .{ .lazy_align = ty.toIntern() },
                     } })).toValue() },
                 },
-            });
+            }));
             max_align = @max(max_align, field_align);
         }
         return AbiAlignmentAdvanced{ .scalar = max_align };
@@ -1307,7 +1307,7 @@ pub const Type = struct {
                         } })).toValue() },
                     };
                     const elem_bits_u64 = try vector_type.child.toType().bitSizeAdvanced(mod, opt_sema);
-                    const elem_bits = @intCast(u32, elem_bits_u64);
+                    const elem_bits = @as(u32, @intCast(elem_bits_u64));
                     const total_bits = elem_bits * vector_type.len;
                     const total_bytes = (total_bits + 7) / 8;
                     const alignment = switch (try ty.abiAlignmentAdvanced(mod, strat)) {
@@ -1573,12 +1573,12 @@ pub const Type = struct {
 
     fn intAbiSize(bits: u16, target: Target) u64 {
         const alignment = intAbiAlignment(bits, target);
-        return std.mem.alignForward(u64, @intCast(u16, (@as(u17, bits) + 7) / 8), alignment);
+        return std.mem.alignForward(u64, @as(u16, @intCast((@as(u17, bits) + 7) / 8)), alignment);
     }
 
     fn intAbiAlignment(bits: u16, target: Target) u32 {
         return @min(
-            std.math.ceilPowerOfTwoPromote(u16, @intCast(u16, (@as(u17, bits) + 7) / 8)),
+            std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
             target.maxIntAlignment(),
         );
     }
@@ -2166,7 +2166,7 @@ pub const Type = struct {
     pub fn vectorLen(ty: Type, mod: *const Module) u32 {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .vector_type => |vector_type| vector_type.len,
-            .anon_struct_type => |tuple| @intCast(u32, tuple.types.len),
+            .anon_struct_type => |tuple| @as(u32, @intCast(tuple.types.len)),
             else => unreachable,
         };
     }
@@ -3124,7 +3124,7 @@ pub const Type = struct {
         for (struct_obj.fields.values(), 0..) |f, i| {
             if (!f.ty.hasRuntimeBits(mod)) continue;
 
-            const field_bits = @intCast(u16, f.ty.bitSize(mod));
+            const field_bits = @as(u16, @intCast(f.ty.bitSize(mod)));
             if (i == field_index) {
                 bit_offset = running_bits;
                 elem_size_bits = field_bits;
@@ -3385,8 +3385,8 @@ pub const Type = struct {
     pub fn smallestUnsignedBits(max: u64) u16 {
         if (max == 0) return 0;
         const base = std.math.log2(max);
-        const upper = (@as(u64, 1) << @intCast(u6, base)) - 1;
-        return @intCast(u16, base + @intFromBool(upper < max));
+        const upper = (@as(u64, 1) << @as(u6, @intCast(base))) - 1;
+        return @as(u16, @intCast(base + @intFromBool(upper < max)));
     }
 
     /// This is only used for comptime asserts. Bump this number when you make a change
