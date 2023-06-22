@@ -82,11 +82,11 @@ pub fn Atomic(comptime T: type) type {
         }
 
         pub inline fn store(self: *Self, value: T, comptime ordering: Ordering) void {
-            return switch (ordering) {
+            switch (ordering) {
                 .AcqRel => @compileError(@tagName(ordering) ++ " implies " ++ @tagName(Ordering.Acquire) ++ " which is only allowed on atomic loads"),
                 .Acquire => @compileError(@tagName(ordering) ++ " is only allowed on atomic loads"),
                 else => @atomicStore(T, &self.value, value, ordering),
-            };
+            }
         }
 
         pub inline fn swap(self: *Self, value: T, comptime ordering: Ordering) T {
