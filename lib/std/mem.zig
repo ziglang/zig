@@ -2861,7 +2861,11 @@ pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
         /// This method does not alter self.index.
         pub fn peek(self: *Self) ?[]const T {
             const start = self.index orelse return null;
-            const end = if (indexOfPos(T, self.buffer, start, self.delimiter)) |delim_start| delim_start else self.buffer.len;
+            const end = if (switch (delimiter_type) {
+                .sequence => indexOfPos(T, self.buffer, start, self.delimiter),
+                .any => indexOfAnyPos(T, self.buffer, start, self.delimiter),
+                .scalar => indexOfScalarPos(T, self.buffer, start, self.delimiter),
+            }) |delim_start| delim_start else self.buffer.len;
             return self.buffer[start..end];
         }
 
