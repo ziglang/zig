@@ -7,29 +7,34 @@ const native_os = builtin.os.tag;
 
 /// Detect suitable TTY configuration options for the given file (commonly stdout/stderr).
 /// This includes feature checks for ANSI escape codes and the Windows console API, as well as
-/// respecting the `NO_COLOR` environment variable.
+/// respecting the `NO_COLOR` and `YES_COLOR` environment variables to override the default.
 pub fn detectConfig(file: File) Config {
-    if (builtin.os.tag == .wasi) {
-        // Per https://github.com/WebAssembly/WASI/issues/162 ANSI codes
-        // aren't currently supported.
-        return .no_color;
-    } else if (process.hasEnvVarConstant("ZIG_DEBUG_COLOR")) {
-        return .escape_codes;
-    } else if (process.hasEnvVarConstant("NO_COLOR")) {
-        return .no_color;
-    } else if (file.supportsAnsiEscapeCodes()) {
-        return .escape_codes;
-    } else if (native_os == .windows and file.isTty()) {
+    const force_color: ?bool = if (builtin.os.tag == .wasi)
+        null // wasi does not support environment variables
+    else if (process.hasEnvVarConstant("NO_COLOR"))
+        false
+    else if (process.hasEnvVarConstant("YES_COLOR"))
+        true
+    else
+        null;
+
+    if (force_color == false) return .no_color;
+
+    if (native_os == .windows and file.isTty()) {
         var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
         if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
-            // TODO: Should this return an error instead?
-            return .no_color;
+            return if (force_color == true) .escape_codes else .no_color;
         }
         return .{ .windows_api = .{
             .handle = file.handle,
             .reset_attributes = info.wAttributes,
         } };
     }
+
+    if (force_color == true or file.supportsAnsiEscapeCodes()) {
+        return .escape_codes;
+    }
+
     return .no_color;
 }
 
