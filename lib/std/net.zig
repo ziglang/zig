@@ -1951,7 +1951,12 @@ pub const StreamServer = struct {
         }
     }
 
+    // This is the same as std.os.AcceptError except for WouldBlock
+    // and there is no error set subtraction operation.
     pub const AcceptError = error{
+        /// This syscall was interrupted by a signal. It is safe to retry.
+        Interrupted,
+
         ConnectionAborted,
 
         /// The per-process limit on the number of open file descriptors has been reached.

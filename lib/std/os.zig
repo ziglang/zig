@@ -3599,6 +3599,9 @@ pub fn listen(sock: socket_t, backlog: u31) ListenError!void {
 }
 
 pub const AcceptError = error{
+    /// This syscall was interrupted by a signal. It is safe to retry.
+    Interrupted,
+
     ConnectionAborted,
 
     /// The file descriptor sockfd does not refer to a socket.
@@ -3667,7 +3670,7 @@ pub fn accept(
     const have_accept4 = comptime !(builtin.target.isDarwin() or builtin.os.tag == .windows);
     assert(0 == (flags & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC))); // Unsupported flag(s)
 
-    const accepted_sock = while (true) {
+    const accepted_sock = blk: {
         const rc = if (have_accept4)
             system.accept4(sock, addr, addr_size, flags)
         else if (builtin.os.tag == .windows)
@@ -3690,14 +3693,14 @@ pub fn accept(
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
-                break rc;
+                break :blk rc;
             }
         } else {
             switch (errno(rc)) {
                 .SUCCESS => {
-                    break @intCast(socket_t, rc);
+                    break :blk @intCast(socket_t, rc);
                 },
-                .INTR => continue,
+                .INTR => return error.Interrupted,
                 .AGAIN => return error.WouldBlock,
                 .BADF => unreachable, // always a race condition
                 .CONNABORTED => return error.ConnectionAborted,
@@ -6034,6 +6037,7 @@ pub fn sendto(
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTCONN => return error.SocketNotConnected,
             .NETDOWN => return error.NetworkSubsystemFailed,
+            .CONNREFUSED => return 0, // This a unix domain socket and the other side has closed the connection
             else => |err| return unexpectedErrno(err),
         }
     }
