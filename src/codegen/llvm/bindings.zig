@@ -1681,7 +1681,7 @@ pub const DIBuilder = opaque {
         size_in_bits: u64,
         align_in_bits: u64,
         elem_type: *DIType,
-        elem_count: c_int,
+        elem_count: i64,
     ) *DIType;
 
     pub const createEnumerator = ZigLLVMCreateDebugEnumerator;

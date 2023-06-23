@@ -1719,7 +1719,7 @@ pub const Object = struct {
                     ty.abiSize(mod) * 8,
                     ty.abiAlignment(mod) * 8,
                     try o.lowerDebugType(ty.childType(mod), .full),
-                    @intCast(c_int, ty.arrayLen(mod)),
+                    @intCast(i64, ty.arrayLen(mod)),
                 );
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
                 try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(array_di_ty));
