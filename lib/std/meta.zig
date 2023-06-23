@@ -453,7 +453,7 @@ pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeIn
     .Enum => Type.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
-    return fields(T)[@enumToInt(field)];
+    return fields(T)[@intFromEnum(field)];
 }
 
 test "std.meta.fieldInfo" {
@@ -591,7 +591,7 @@ pub fn FieldEnum(comptime T: type) type {
     if (@typeInfo(T) == .Union) {
         if (@typeInfo(T).Union.tag_type) |tag_type| {
             for (std.enums.values(tag_type), 0..) |v, i| {
-                if (@enumToInt(v) != i) break; // enum values not consecutive
+                if (@intFromEnum(v) != i) break; // enum values not consecutive
                 if (!std.mem.eql(u8, @tagName(v), field_infos[i].name)) break; // fields out of order
             } else {
                 return tag_type;
@@ -929,8 +929,8 @@ test "intToEnum with error return" {
     try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
     try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
     try testing.expect(intToEnum(E3, zero) catch unreachable == E3.A);
-    try testing.expect(intToEnum(E3, 127) catch unreachable == @intToEnum(E3, 127));
-    try testing.expect(intToEnum(E3, -128) catch unreachable == @intToEnum(E3, -128));
+    try testing.expect(intToEnum(E3, 127) catch unreachable == @enumFromInt(E3, 127));
+    try testing.expect(intToEnum(E3, -128) catch unreachable == @enumFromInt(E3, -128));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E3, 128));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E3, -129));
@@ -943,14 +943,14 @@ pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTa
 
     if (!enum_info.is_exhaustive) {
         if (std.math.cast(enum_info.tag_type, tag_int)) |tag| {
-            return @intToEnum(EnumTag, tag);
+            return @enumFromInt(EnumTag, tag);
         }
         return error.InvalidEnumTag;
     }
 
     inline for (enum_info.fields) |f| {
         const this_tag_value = @field(EnumTag, f.name);
-        if (tag_int == @enumToInt(this_tag_value)) {
+        if (tag_int == @intFromEnum(this_tag_value)) {
             return this_tag_value;
         }
     }

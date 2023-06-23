@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const autoHash = std.hash.autoHash;
 const Target = std.Target;
 
+const Alignment = @import("../../InternPool.zig").Alignment;
 const Module = @import("../../Module.zig");
 const Type = @import("../../type.zig").Type;
 
@@ -129,15 +130,15 @@ pub const CType = extern union {
         varargs_function,
 
         pub const last_no_payload_tag = Tag.zig_c_longdouble;
-        pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
+        pub const no_payload_count = @intFromEnum(last_no_payload_tag) + 1;
 
         pub fn hasPayload(self: Tag) bool {
-            return @enumToInt(self) >= no_payload_count;
+            return @intFromEnum(self) >= no_payload_count;
         }
 
         pub fn toIndex(self: Tag) Index {
             assert(!self.hasPayload());
-            return @intCast(Index, @enumToInt(self));
+            return @intCast(Index, @intFromEnum(self));
         }
 
         pub fn Type(comptime self: Tag) type {
@@ -280,16 +281,15 @@ pub const CType = extern union {
     };
 
     pub const AlignAs = struct {
-        @"align": std.math.Log2Int(u32),
-        abi: std.math.Log2Int(u32),
+        @"align": Alignment,
+        abi: Alignment,
 
-        pub fn init(alignment: u32, abi_alignment: u32) AlignAs {
-            const actual_align = if (alignment != 0) alignment else abi_alignment;
-            assert(std.math.isPowerOfTwo(actual_align));
-            assert(std.math.isPowerOfTwo(abi_alignment));
+        pub fn init(alignment: u64, abi_alignment: u32) AlignAs {
+            const @"align" = Alignment.fromByteUnits(alignment);
+            const abi_align = Alignment.fromNonzeroByteUnits(abi_alignment);
             return .{
-                .@"align" = std.math.log2_int(u32, actual_align),
-                .abi = std.math.log2_int(u32, abi_alignment),
+                .@"align" = if (@"align" != .none) @"align" else abi_align,
+                .abi = abi_align,
             };
         }
         pub fn abiAlign(ty: Type, mod: *Module) AlignAs {
@@ -308,8 +308,14 @@ pub const CType = extern union {
             return init(union_payload_align, union_payload_align);
         }
 
-        pub fn getAlign(self: AlignAs) u32 {
-            return @as(u32, 1) << self.@"align";
+        pub fn order(lhs: AlignAs, rhs: AlignAs) std.math.Order {
+            return lhs.@"align".order(rhs.@"align");
+        }
+        pub fn abiOrder(self: AlignAs) std.math.Order {
+            return self.@"align".order(self.abi);
+        }
+        pub fn toByteUnits(self: AlignAs) u64 {
+            return self.@"align".toByteUnitsOptional().?;
         }
     };
 
@@ -334,7 +340,7 @@ pub const CType = extern union {
             map: Map = .{},
 
             pub fn indexToCType(self: Set, index: Index) CType {
-                if (index < Tag.no_payload_count) return initTag(@intToEnum(Tag, index));
+                if (index < Tag.no_payload_count) return initTag(@enumFromInt(Tag, index));
                 return self.map.keys()[index - Tag.no_payload_count];
             }
 
@@ -370,7 +376,7 @@ pub const CType = extern union {
 
             pub fn cTypeToIndex(self: *Promoted, cty: CType) Allocator.Error!Index {
                 const t = cty.tag();
-                if (@enumToInt(t) < Tag.no_payload_count) return @intCast(Index, @enumToInt(t));
+                if (@intFromEnum(t) < Tag.no_payload_count) return @intCast(Index, @intFromEnum(t));
 
                 const gop = try self.set.map.getOrPutContext(self.gpa(), cty, .{ .store = &self.set });
                 if (!gop.found_existing) gop.key_ptr.* = cty;
@@ -537,9 +543,9 @@ pub const CType = extern union {
         };
     }
 
-    pub fn signedness(self: CType) ?std.builtin.Signedness {
+    pub fn signedness(self: CType, target: std.Target) std.builtin.Signedness {
         return switch (self.tag()) {
-            .char => null, // unknown signedness
+            .char => target.charSignedness(),
             .@"signed char",
             .short,
             .int,
@@ -1298,7 +1304,7 @@ pub const CType = extern union {
             const slice = self.storage.anon.fields[0..fields_len];
             mem.sort(Field, slice, {}, struct {
                 fn before(_: void, lhs: Field, rhs: Field) bool {
-                    return lhs.alignas.@"align" > rhs.alignas.@"align";
+                    return lhs.alignas.order(rhs.alignas).compare(.gt);
                 }
             }.before);
             return slice;
@@ -1424,7 +1430,7 @@ pub const CType = extern union {
 
                 .Pointer => {
                     const info = ty.ptrInfo(mod);
-                    switch (info.size) {
+                    switch (info.flags.size) {
                         .Slice => {
                             if (switch (kind) {
                                 .forward, .forward_parameter => @as(Index, undefined),
@@ -1454,27 +1460,24 @@ pub const CType = extern union {
                         },
 
                         .One, .Many, .C => {
-                            const t: Tag = switch (info.@"volatile") {
-                                false => switch (info.mutable) {
-                                    true => .pointer,
-                                    false => .pointer_const,
+                            const t: Tag = switch (info.flags.is_volatile) {
+                                false => switch (info.flags.is_const) {
+                                    false => .pointer,
+                                    true => .pointer_const,
                                 },
-                                true => switch (info.mutable) {
-                                    true => .pointer_volatile,
-                                    false => .pointer_const_volatile,
+                                true => switch (info.flags.is_const) {
+                                    false => .pointer_volatile,
+                                    true => .pointer_const_volatile,
                                 },
                             };
 
-                            const pointee_ty = if (info.host_size > 0 and info.vector_index == .none)
-                                try mod.intType(.unsigned, info.host_size * 8)
+                            const pointee_ty = if (info.packed_offset.host_size > 0 and
+                                info.flags.vector_index == .none)
+                                try mod.intType(.unsigned, info.packed_offset.host_size * 8)
                             else
-                                info.pointee_type;
+                                info.child.toType();
 
-                            if (if (info.size == .C and pointee_ty.ip_index == .u8_type)
-                                Tag.char.toIndex()
-                            else
-                                try lookup.typeToIndex(pointee_ty, .forward)) |child_idx|
-                            {
+                            if (try lookup.typeToIndex(pointee_ty, .forward)) |child_idx| {
                                 self.storage = .{ .child = .{
                                     .base = .{ .tag = t },
                                     .data = child_idx,
@@ -1586,7 +1589,7 @@ pub const CType = extern union {
                                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 const field_align = AlignAs.fieldAlign(ty, field_i, mod);
-                                if (field_align.@"align" < field_align.abi) {
+                                if (field_align.abiOrder().compare(.lt)) {
                                     is_packed = true;
                                     if (!lookup.isMutable()) break;
                                 }

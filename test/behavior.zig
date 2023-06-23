@@ -145,6 +145,7 @@ test {
     _ = @import("behavior/bugs/15778.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
+    _ = @import("behavior/c_char_signedness.zig");
     _ = @import("behavior/call.zig");
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/cast_int.zig");
@@ -174,7 +175,7 @@ test {
     _ = @import("behavior/inline_switch.zig");
     _ = @import("behavior/int128.zig");
     _ = @import("behavior/int_comparison_elision.zig");
-    _ = @import("behavior/inttoptr.zig");
+    _ = @import("behavior/ptrfromint.zig");
     _ = @import("behavior/ir_block_deps.zig");
     _ = @import("behavior/lower_strlit_to_vector.zig");
     _ = @import("behavior/math.zig");

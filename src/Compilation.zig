@@ -1050,7 +1050,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 const is_enabled = options.target.cpu.features.isEnabled(index);
 
                 if (feature.llvm_name) |llvm_name| {
-                    const plus_or_minus = "-+"[@boolToInt(is_enabled)];
+                    const plus_or_minus = "-+"[@intFromBool(is_enabled)];
                     try buf.ensureUnusedCapacity(2 + llvm_name.len);
                     buf.appendAssumeCapacity(plus_or_minus);
                     buf.appendSliceAssumeCapacity(llvm_name);
@@ -2506,7 +2506,7 @@ pub fn makeBinFileWritable(self: *Compilation) !void {
 /// This function is temporally single-threaded.
 pub fn totalErrorCount(self: *Compilation) u32 {
     var total: usize = self.failed_c_objects.count() + self.misc_failures.count() +
-        @boolToInt(self.alloc_failure_occurred) + self.lld_errors.items.len;
+        @intFromBool(self.alloc_failure_occurred) + self.lld_errors.items.len;
 
     if (self.bin_file.options.module) |module| {
         total += module.failed_exports.count();
@@ -2520,7 +2520,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
                 } else {
                     const file = entry.key_ptr.*;
                     assert(file.zir_loaded);
-                    const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
+                    const payload_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
                     assert(payload_index != 0);
                     const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
                     total += header.data.items_len;
@@ -2551,14 +2551,14 @@ pub fn totalErrorCount(self: *Compilation) u32 {
 
     // The "no entry point found" error only counts if there are no semantic analysis errors.
     if (total == 0) {
-        total += @boolToInt(self.link_error_flags.no_entry_point_found);
+        total += @intFromBool(self.link_error_flags.no_entry_point_found);
     }
-    total += @boolToInt(self.link_error_flags.missing_libc);
+    total += @intFromBool(self.link_error_flags.missing_libc);
 
     // Compile log errors only count if there are no other errors.
     if (total == 0) {
         if (self.bin_file.options.module) |module| {
-            total += @boolToInt(module.compile_log_decls.count() != 0);
+            total += @intFromBool(module.compile_log_decls.count() != 0);
         }
     }
 
@@ -2604,7 +2604,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         });
         const notes_start = try bundle.reserveNotes(notes_len);
         for (notes_start.., lld_error.context_lines) |note, context_line| {
-            bundle.extra.items[note] = @enumToInt(bundle.addErrorMessageAssumeCapacity(.{
+            bundle.extra.items[note] = @intFromEnum(bundle.addErrorMessageAssumeCapacity(.{
                 .msg = try bundle.addString(context_line),
             }));
         }
@@ -2697,10 +2697,10 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             .notes_len = 2,
         });
         const notes_start = try bundle.reserveNotes(2);
-        bundle.extra.items[notes_start + 0] = @enumToInt(try bundle.addErrorMessage(.{
+        bundle.extra.items[notes_start + 0] = @intFromEnum(try bundle.addErrorMessage(.{
             .msg = try bundle.addString("run 'zig libc -h' to learn about libc installations"),
         }));
-        bundle.extra.items[notes_start + 1] = @enumToInt(try bundle.addErrorMessage(.{
+        bundle.extra.items[notes_start + 1] = @intFromEnum(try bundle.addErrorMessage(.{
             .msg = try bundle.addString("run 'zig targets' to see the targets for which zig can always provide libc"),
         }));
     }
@@ -2895,7 +2895,7 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
     const notes_start = try eb.reserveNotes(notes_len);
 
     for (notes_start.., notes.keys()) |i, note| {
-        eb.extra.items[i] = @enumToInt(try eb.addErrorMessage(note));
+        eb.extra.items[i] = @intFromEnum(try eb.addErrorMessage(note));
     }
 }
 
@@ -2903,7 +2903,7 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
     assert(file.zir_loaded);
     assert(file.tree_loaded);
     assert(file.source_loaded);
-    const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
+    const payload_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
     assert(payload_index != 0);
     const gpa = eb.gpa;
 
@@ -2963,7 +2963,7 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
                 const src_path = try file.fullPath(gpa);
                 defer gpa.free(src_path);
 
-                eb.extra.items[note_i] = @enumToInt(try eb.addErrorMessage(.{
+                eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                     .msg = try eb.addString(msg),
                     .src_loc = try eb.addSourceLocation(.{
                         .src_path = try eb.addString(src_path),
@@ -3466,7 +3466,7 @@ fn workerAstGenFile(
     // If we experience an error preemptively fetching the
     // file, just ignore it and let it happen again later during Sema.
     assert(file.zir_loaded);
-    const imports_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.imports)];
+    const imports_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
         const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
         var import_i: u32 = 0;
@@ -4239,10 +4239,10 @@ pub fn addCCArgs(
         }
 
         try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
-            @enumToInt(comp.libcxx_abi_version),
+            @intFromEnum(comp.libcxx_abi_version),
         }));
         try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
-            @enumToInt(comp.libcxx_abi_version),
+            @intFromEnum(comp.libcxx_abi_version),
         }));
     }
 
@@ -4307,7 +4307,7 @@ pub fn addCCArgs(
 
                 if (feature.llvm_name) |llvm_name| {
                     argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang" });
-                    const plus_or_minus = "-+"[@boolToInt(is_enabled)];
+                    const plus_or_minus = "-+"[@intFromBool(is_enabled)];
                     const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
                     argv.appendAssumeCapacity(arg);
                 }
@@ -4918,7 +4918,7 @@ fn detectLibCFromBuilding(
             const generic_name = target_util.libCGenericName(target);
             // Some architectures are handled by the same set of headers.
             const arch_name = if (target.abi.isMusl())
-                musl.archName(target.cpu.arch)
+                musl.archNameHeaders(target.cpu.arch)
             else if (target.cpu.arch.isThumb())
                 // ARM headers are valid for Thumb too.
                 switch (target.cpu.arch) {

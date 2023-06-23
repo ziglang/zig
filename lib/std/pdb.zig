@@ -863,7 +863,7 @@ pub const Pdb = struct {
     }
 
     pub fn getStream(self: *Pdb, stream: StreamType) ?*MsfStream {
-        const id = @enumToInt(stream);
+        const id = @intFromEnum(stream);
         return self.getStreamById(id);
     }
 };

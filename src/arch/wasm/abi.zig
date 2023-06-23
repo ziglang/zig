@@ -34,8 +34,8 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
             if (ty.structFieldCount(mod) > 1) return memory;
             // When the struct's alignment is non-natural
             const field = ty.structFields(mod).values()[0];
-            if (field.abi_align != 0) {
-                if (field.abi_align > field.ty.abiAlignment(mod)) {
+            if (field.abi_align != .none) {
+                if (field.abi_align.toByteUnitsOptional().? > field.ty.abiAlignment(mod)) {
                     return memory;
                 }
             }

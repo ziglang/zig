@@ -107,6 +107,16 @@ _Noreturn void __pthread_exit(void *result)
 
 	/* At this point we are committed to thread termination. */
 
+	/* After the kernel thread exits, its tid may be reused. Clear it
+	 * to prevent inadvertent use and inform functions that would use
+	 * it that it's no longer available. At this point the killlock
+	 * may be released, since functions that use it will consistently
+	 * see the thread as having exited. Release it now so that no
+	 * remaining locks (except thread list) are held if we end up
+	 * resetting need_locks below. */
+	self->tid = 0;
+	UNLOCK(self->killlock);
+
 	/* Process robust list in userspace to handle non-pshared mutexes
 	 * and the detached thread case where the robust list head will
 	 * be invalid when the kernel would process it. */
@@ -158,12 +168,6 @@ _Noreturn void __pthread_exit(void *result)
 	/* Wake any joiner. */
 	a_store(&self->detach_state, DT_EXITED);
 	__wake(&self->detach_state, 1, 1);
-
-	/* After the kernel thread exits, its tid may be reused. Clear it
-	 * to prevent inadvertent use and inform functions that would use
-	 * it that it's no longer available. */
-	self->tid = 0;
-	UNLOCK(self->killlock);
 
 	for (;;) __syscall(SYS_exit, 0);
 }

@@ -39,7 +39,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
         -1,
         0,
     ) catch return null;
-    assert(mem.isAligned(@ptrToInt(slice.ptr), mem.page_size));
+    assert(mem.isAligned(@intFromPtr(slice.ptr), mem.page_size));
     const new_hint = @alignCast(mem.page_size, slice.ptr + aligned_len);
     _ = @cmpxchgStrong(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, hint, new_hint, .Monotonic, .Monotonic);
     return slice.ptr;
@@ -59,14 +59,14 @@ fn resize(
     if (builtin.os.tag == .windows) {
         const w = os.windows;
         if (new_size <= buf_unaligned.len) {
-            const base_addr = @ptrToInt(buf_unaligned.ptr);
+            const base_addr = @intFromPtr(buf_unaligned.ptr);
             const old_addr_end = base_addr + buf_unaligned.len;
             const new_addr_end = mem.alignForward(usize, base_addr + new_size, mem.page_size);
             if (old_addr_end > new_addr_end) {
                 // For shrinking that is not releasing, we will only
                 // decommit the pages not needed anymore.
                 w.VirtualFree(
-                    @intToPtr(*anyopaque, new_addr_end),
+                    @ptrFromInt(*anyopaque, new_addr_end),
                     old_addr_end - new_addr_end,
                     w.MEM_DECOMMIT,
                 );

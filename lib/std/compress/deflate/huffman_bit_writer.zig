@@ -527,7 +527,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             }
 
             // Huffman.
-            if (@ptrToInt(literal_encoding) == @ptrToInt(&self.fixed_literal_encoding)) {
+            if (@intFromPtr(literal_encoding) == @intFromPtr(&self.fixed_literal_encoding)) {
                 try self.writeFixedHeader(eof);
             } else {
                 try self.writeDynamicHeader(num_literals, num_offsets, num_codegens, eof);

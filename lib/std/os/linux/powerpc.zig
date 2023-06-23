@@ -20,7 +20,7 @@ pub fn syscall0(number: SYS) usize {
         \\ neg 3, 3
         \\ 1:
         : [ret] "={r3}" (-> usize),
-        : [number] "{r0}" (@enumToInt(number)),
+        : [number] "{r0}" (@intFromEnum(number)),
         : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
@@ -32,7 +32,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         \\ neg 3, 3
         \\ 1:
         : [ret] "={r3}" (-> usize),
-        : [number] "{r0}" (@enumToInt(number)),
+        : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
         : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
@@ -45,7 +45,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         \\ neg 3, 3
         \\ 1:
         : [ret] "={r3}" (-> usize),
-        : [number] "{r0}" (@enumToInt(number)),
+        : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
           [arg2] "{r4}" (arg2),
         : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
@@ -59,7 +59,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         \\ neg 3, 3
         \\ 1:
         : [ret] "={r3}" (-> usize),
-        : [number] "{r0}" (@enumToInt(number)),
+        : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
           [arg2] "{r4}" (arg2),
           [arg3] "{r5}" (arg3),
@@ -74,7 +74,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         \\ neg 3, 3
         \\ 1:
         : [ret] "={r3}" (-> usize),
-        : [number] "{r0}" (@enumToInt(number)),
+        : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
           [arg2] "{r4}" (arg2),
           [arg3] "{r5}" (arg3),
@@ -90,7 +90,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
         \\ neg 3, 3
         \\ 1:
         : [ret] "={r3}" (-> usize),
-        : [number] "{r0}" (@enumToInt(number)),
+        : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
           [arg2] "{r4}" (arg2),
           [arg3] "{r5}" (arg3),
@@ -115,7 +115,7 @@ pub fn syscall6(
         \\ neg 3, 3
         \\ 1:
         : [ret] "={r3}" (-> usize),
-        : [number] "{r0}" (@enumToInt(number)),
+        : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
           [arg2] "{r4}" (arg2),
           [arg3] "{r5}" (arg3),
@@ -136,7 +136,7 @@ pub const restore = restore_rt;
 pub fn restore_rt() callconv(.Naked) void {
     return asm volatile ("sc"
         :
-        : [number] "{r0}" (@enumToInt(SYS.rt_sigreturn)),
+        : [number] "{r0}" (@intFromEnum(SYS.rt_sigreturn)),
         : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }

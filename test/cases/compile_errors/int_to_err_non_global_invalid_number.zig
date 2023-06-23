@@ -7,8 +7,8 @@ const Set2 = error{
     C,
 };
 comptime {
-    var x = @errorToInt(Set1.B);
-    var y = @errSetCast(Set2, @intToError(x));
+    var x = @intFromError(Set1.B);
+    var y = @errSetCast(Set2, @errorFromInt(x));
     _ = y;
 }
 

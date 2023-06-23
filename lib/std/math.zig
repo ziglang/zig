@@ -1104,16 +1104,29 @@ pub const AlignCastError = error{UnalignedMemory};
 
 /// Align cast a pointer but return an error if it's the wrong alignment
 pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!@TypeOf(@alignCast(alignment, ptr)) {
-    const addr = @ptrToInt(ptr);
+    const addr = @intFromPtr(ptr);
     if (addr % alignment != 0) {
         return error.UnalignedMemory;
     }
     return @alignCast(alignment, ptr);
 }
 
-pub fn isPowerOfTwo(v: anytype) bool {
-    assert(v != 0);
-    return (v & (v - 1)) == 0;
+/// Asserts `int > 0`.
+pub fn isPowerOfTwo(int: anytype) bool {
+    assert(int > 0);
+    return (int & (int - 1)) == 0;
+}
+
+test isPowerOfTwo {
+    try testing.expect(isPowerOfTwo(@as(u8, 1)));
+    try testing.expect(isPowerOfTwo(2));
+    try testing.expect(!isPowerOfTwo(@as(i16, 3)));
+    try testing.expect(isPowerOfTwo(4));
+    try testing.expect(!isPowerOfTwo(@as(u32, 31)));
+    try testing.expect(isPowerOfTwo(32));
+    try testing.expect(!isPowerOfTwo(@as(i64, 63)));
+    try testing.expect(isPowerOfTwo(128));
+    try testing.expect(isPowerOfTwo(@as(u128, 256)));
 }
 
 /// Aligns the given integer type bit width to a width divisible by 8.
@@ -1298,7 +1311,7 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
     switch (@typeInfo(T)) {
         .Float => {
             switch (@typeInfo(@TypeOf(value))) {
-                .Int => return @intToFloat(T, value),
+                .Int => return @floatFromInt(T, value),
                 .Float => return @floatCast(T, value),
                 .ComptimeInt => return @as(T, value),
                 .ComptimeFloat => return @as(T, value),
@@ -1322,7 +1335,7 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
                     } else if (value <= minInt(T)) {
                         return @as(T, minInt(T));
                     } else {
-                        return @floatToInt(T, value);
+                        return @intFromFloat(T, value);
                     }
                 },
                 else => @compileError("bad type"),
@@ -1388,7 +1401,7 @@ pub fn maxInt(comptime T: type) comptime_int {
     const info = @typeInfo(T);
     const bit_count = info.Int.bits;
     if (bit_count == 0) return 0;
-    return (1 << (bit_count - @boolToInt(info.Int.signedness == .signed))) - 1;
+    return (1 << (bit_count - @intFromBool(info.Int.signedness == .signed))) - 1;
 }
 
 /// Returns the minimum value of integer type T.
@@ -1611,7 +1624,7 @@ test "order.compare" {
 
 test "compare.reverse" {
     inline for (@typeInfo(CompareOperator).Enum.fields) |op_field| {
-        const op = @intToEnum(CompareOperator, op_field.value);
+        const op = @enumFromInt(CompareOperator, op_field.value);
         try testing.expect(compare(2, op, 3) == compare(3, op.reverse(), 2));
         try testing.expect(compare(3, op, 3) == compare(3, op.reverse(), 3));
         try testing.expect(compare(4, op, 3) == compare(3, op.reverse(), 4));
@@ -1630,13 +1643,13 @@ pub inline fn boolMask(comptime MaskInt: type, value: bool) MaskInt {
 
     // The u1 and i1 cases tend to overflow,
     // so we special case them here.
-    if (MaskInt == u1) return @boolToInt(value);
+    if (MaskInt == u1) return @intFromBool(value);
     if (MaskInt == i1) {
         // The @as here is a workaround for #7950
-        return @bitCast(i1, @as(u1, @boolToInt(value)));
+        return @bitCast(i1, @as(u1, @intFromBool(value)));
     }
 
-    return -%@intCast(MaskInt, @boolToInt(value));
+    return -%@intCast(MaskInt, @intFromBool(value));
 }
 
 test "boolMask" {
@@ -1695,8 +1708,8 @@ pub fn break_f80(x: f80) F80 {
 pub inline fn sign(i: anytype) @TypeOf(i) {
     const T = @TypeOf(i);
     return switch (@typeInfo(T)) {
-        .Int, .ComptimeInt => @as(T, @boolToInt(i > 0)) - @as(T, @boolToInt(i < 0)),
-        .Float, .ComptimeFloat => @intToFloat(T, @boolToInt(i > 0)) - @intToFloat(T, @boolToInt(i < 0)),
+        .Int, .ComptimeInt => @as(T, @intFromBool(i > 0)) - @as(T, @intFromBool(i < 0)),
+        .Float, .ComptimeFloat => @floatFromInt(T, @intFromBool(i > 0)) - @floatFromInt(T, @intFromBool(i < 0)),
         .Vector => |vinfo| blk: {
             switch (@typeInfo(vinfo.child)) {
                 .Int, .Float => {

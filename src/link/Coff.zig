@@ -538,7 +538,7 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
     defer tracy.end();
 
     const atom = self.getAtom(atom_index);
-    const sect_id = @enumToInt(atom.getSymbol(self).section_number) - 1;
+    const sect_id = @intFromEnum(atom.getSymbol(self).section_number) - 1;
     const header = &self.sections.items(.header)[sect_id];
     const free_list = &self.sections.items(.free_list)[sect_id];
     const maybe_last_atom_index = &self.sections.items(.last_atom_index)[sect_id];
@@ -739,7 +739,7 @@ fn shrinkAtom(self: *Coff, atom_index: Atom.Index, new_block_size: u32) void {
 fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
-    const section = self.sections.get(@enumToInt(sym.section_number) - 1);
+    const section = self.sections.get(@intFromEnum(sym.section_number) - 1);
     const file_offset = section.header.pointer_to_raw_data + sym.value - section.header.virtual_address;
 
     log.debug("writing atom for symbol {s} at file offset 0x{x} to 0x{x}", .{
@@ -769,14 +769,14 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
 
     if (is_hot_update_compatible) {
         if (self.base.child_pid) |handle| {
-            const slide = @ptrToInt(self.hot_state.loaded_base_address.?);
+            const slide = @intFromPtr(self.hot_state.loaded_base_address.?);
 
             const mem_code = try gpa.dupe(u8, code);
             defer gpa.free(mem_code);
             self.resolveRelocs(atom_index, relocs.items, mem_code, slide);
 
             const vaddr = sym.value + slide;
-            const pvaddr = @intToPtr(*anyopaque, vaddr);
+            const pvaddr = @ptrFromInt(*anyopaque, vaddr);
 
             log.debug("writing to memory at address {x}", .{vaddr});
 
@@ -860,9 +860,9 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
     if (is_hot_update_compatible) {
         if (self.base.child_pid) |handle| {
             const gpa = self.base.allocator;
-            const slide = @ptrToInt(self.hot_state.loaded_base_address.?);
+            const slide = @intFromPtr(self.hot_state.loaded_base_address.?);
             const actual_vmaddr = vmaddr + slide;
-            const pvaddr = @intToPtr(*anyopaque, actual_vmaddr);
+            const pvaddr = @ptrFromInt(*anyopaque, actual_vmaddr);
             log.debug("writing GOT entry to memory at address {x}", .{actual_vmaddr});
             if (build_options.enable_logging) {
                 switch (self.ptr_width) {
@@ -970,7 +970,7 @@ fn freeAtom(self: *Coff, atom_index: Atom.Index) void {
 
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
-    const sect_id = @enumToInt(sym.section_number) - 1;
+    const sect_id = @intFromEnum(sym.section_number) - 1;
     const free_list = &self.sections.items(.free_list)[sect_id];
     var already_have_free_list_node = false;
     {
@@ -1107,7 +1107,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
         const atom = self.getAtom(atom_index);
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, sym_name);
-        sym.section_number = @intToEnum(coff.SectionNumber, self.rdata_section_index.? + 1);
+        sym.section_number = @enumFromInt(coff.SectionNumber, self.rdata_section_index.? + 1);
     }
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), tv, &code_buffer, .none, .{
@@ -1244,7 +1244,7 @@ fn updateLazySymbolAtom(
     const code_len = @intCast(u32, code.len);
     const symbol = atom.getSymbolPtr(self);
     try self.setSymbolName(symbol, name);
-    symbol.section_number = @intToEnum(coff.SectionNumber, section_index + 1);
+    symbol.section_number = @enumFromInt(coff.SectionNumber, section_index + 1);
     symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
 
     const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
@@ -1341,7 +1341,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, comple
     if (atom.size != 0) {
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, decl_name);
-        sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
+        sym.section_number = @enumFromInt(coff.SectionNumber, sect_index + 1);
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const capacity = atom.capacity(self);
@@ -1365,7 +1365,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, comple
     } else {
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, decl_name);
-        sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
+        sym.section_number = @enumFromInt(coff.SectionNumber, sect_index + 1);
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
@@ -1502,7 +1502,7 @@ pub fn updateDeclExports(
         const sym = self.getSymbolPtr(sym_loc);
         try self.setSymbolName(sym, mod.intern_pool.stringToSlice(exp.opts.name));
         sym.value = decl_sym.value;
-        sym.section_number = @intToEnum(coff.SectionNumber, self.text_section_index.? + 1);
+        sym.section_number = @enumFromInt(coff.SectionNumber, self.text_section_index.? + 1);
         sym.type = .{ .complex_type = .FUNCTION, .base_type = .NULL };
 
         switch (exp.opts.linkage) {
@@ -1668,7 +1668,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
         const atom = self.getAtom(atom_index);
         const sym = atom.getSymbol(self);
-        const section = self.sections.get(@enumToInt(sym.section_number) - 1).header;
+        const section = self.sections.get(@intFromEnum(sym.section_number) - 1).header;
         const file_offset = section.pointer_to_raw_data + sym.value - section.virtual_address;
 
         var code = std.ArrayList(u8).init(gpa);
@@ -1878,7 +1878,7 @@ fn writeBaseRelocations(self: *Coff) !void {
 
     try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
 
-    self.data_directories[@enumToInt(coff.DirectoryEntry.BASERELOC)] = .{
+    self.data_directories[@intFromEnum(coff.DirectoryEntry.BASERELOC)] = .{
         .virtual_address = header.virtual_address,
         .size = needed_size,
     };
@@ -2011,11 +2011,11 @@ fn writeImportTables(self: *Coff) !void {
 
     try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
 
-    self.data_directories[@enumToInt(coff.DirectoryEntry.IMPORT)] = .{
+    self.data_directories[@intFromEnum(coff.DirectoryEntry.IMPORT)] = .{
         .virtual_address = header.virtual_address + iat_size,
         .size = dir_table_size,
     };
-    self.data_directories[@enumToInt(coff.DirectoryEntry.IAT)] = .{
+    self.data_directories[@intFromEnum(coff.DirectoryEntry.IAT)] = .{
         .virtual_address = header.virtual_address,
         .size = iat_size,
     };
@@ -2469,7 +2469,7 @@ fn logSymtab(self: *Coff) void {
             .UNDEFINED => 0, // TODO
             .ABSOLUTE => unreachable, // TODO
             .DEBUG => unreachable, // TODO
-            else => @enumToInt(sym.section_number),
+            else => @intFromEnum(sym.section_number),
         };
         log.debug("    %{d}: {?s} @{x} in {s}({d}), {s}", .{
             sym_id,

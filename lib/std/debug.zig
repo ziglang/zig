@@ -461,7 +461,7 @@ pub const StackIterator = struct {
         if (native_os == .freestanding) return true;
 
         const aligned_address = address & ~@intCast(usize, (mem.page_size - 1));
-        const aligned_memory = @intToPtr([*]align(mem.page_size) u8, aligned_address)[0..mem.page_size];
+        const aligned_memory = @ptrFromInt([*]align(mem.page_size) u8, aligned_address)[0..mem.page_size];
 
         if (native_os != .windows) {
             if (native_os != .wasi) {
@@ -511,7 +511,7 @@ pub const StackIterator = struct {
         if (fp == 0 or !mem.isAligned(fp, @alignOf(usize)) or !isValidMemory(fp))
             return null;
 
-        const new_fp = math.add(usize, @intToPtr(*const usize, fp).*, fp_bias) catch return null;
+        const new_fp = math.add(usize, @ptrFromInt(*const usize, fp).*, fp_bias) catch return null;
 
         // Sanity check: the stack grows down thus all the parent frames must be
         // be at addresses that are greater (or equal) than the previous one.
@@ -520,7 +520,7 @@ pub const StackIterator = struct {
         if (new_fp != 0 and new_fp < self.fp)
             return null;
 
-        const new_pc = @intToPtr(
+        const new_pc = @ptrFromInt(
             *const usize,
             math.add(usize, fp, pc_offset) catch return null,
         ).*;
@@ -584,12 +584,12 @@ pub noinline fn walkStackWindows(addresses: []usize) usize {
             );
         } else {
             // leaf function
-            context.setIp(@intToPtr(*u64, current_regs.sp).*);
+            context.setIp(@ptrFromInt(*u64, current_regs.sp).*);
             context.setSp(current_regs.sp + @sizeOf(usize));
         }
 
         const next_regs = context.getRegs();
-        if (next_regs.sp < @ptrToInt(tib.StackLimit) or next_regs.sp > @ptrToInt(tib.StackBase)) {
+        if (next_regs.sp < @intFromPtr(tib.StackLimit) or next_regs.sp > @intFromPtr(tib.StackBase)) {
             break;
         }
 
@@ -1216,7 +1216,7 @@ pub const DebugInfo = struct {
             var module_valid = true;
             while (module_valid) {
                 const module_info = try debug_info.modules.addOne(allocator);
-                module_info.base_address = @ptrToInt(module_entry.modBaseAddr);
+                module_info.base_address = @intFromPtr(module_entry.modBaseAddr);
                 module_info.size = module_entry.modBaseSize;
                 module_info.name = allocator.dupe(u8, mem.sliceTo(&module_entry.szModule, 0)) catch &.{};
                 module_valid = windows.kernel32.Module32Next(handle, &module_entry) == 1;
@@ -1283,9 +1283,9 @@ pub const DebugInfo = struct {
 
             var it = macho.LoadCommandIterator{
                 .ncmds = header.ncmds,
-                .buffer = @alignCast(@alignOf(u64), @intToPtr(
+                .buffer = @alignCast(@alignOf(u64), @ptrFromInt(
                     [*]u8,
-                    @ptrToInt(header) + @sizeOf(macho.mach_header_64),
+                    @intFromPtr(header) + @sizeOf(macho.mach_header_64),
                 ))[0..header.sizeofcmds],
             };
             while (it.next()) |cmd| switch (cmd.cmd()) {
@@ -1332,7 +1332,7 @@ pub const DebugInfo = struct {
                     return obj_di;
                 }
 
-                const mapped_module = @intToPtr([*]const u8, module.base_address)[0..module.size];
+                const mapped_module = @ptrFromInt([*]const u8, module.base_address)[0..module.size];
                 const obj_di = try self.allocator.create(ModuleDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
 
@@ -1897,11 +1897,11 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     resetSegfaultHandler();
 
     const addr = switch (native_os) {
-        .linux => @ptrToInt(info.fields.sigfault.addr),
-        .freebsd, .macos => @ptrToInt(info.addr),
-        .netbsd => @ptrToInt(info.info.reason.fault.addr),
-        .openbsd => @ptrToInt(info.data.fault.addr),
-        .solaris => @ptrToInt(info.reason.fault.addr),
+        .linux => @intFromPtr(info.fields.sigfault.addr),
+        .freebsd, .macos => @intFromPtr(info.addr),
+        .netbsd => @intFromPtr(info.info.reason.fault.addr),
+        .openbsd => @intFromPtr(info.data.fault.addr),
+        .solaris => @intFromPtr(info.reason.fault.addr),
         else => unreachable,
     };
 
@@ -2008,7 +2008,7 @@ fn handleSegfaultWindowsExtra(
     msg: u8,
     label: ?[]const u8,
 ) noreturn {
-    const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
+    const exception_address = @intFromPtr(info.ExceptionRecord.ExceptionAddress);
     if (@hasDecl(windows, "CONTEXT")) {
         nosuspend switch (panic_stage) {
             0 => {

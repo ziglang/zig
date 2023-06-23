@@ -267,7 +267,7 @@ pub const Instruction = struct {
 
     fn encodeOpcode(inst: Instruction, encoder: anytype) !void {
         const opcode = inst.encoding.opcode();
-        const first = @boolToInt(inst.encoding.mandatoryPrefix() != null);
+        const first = @intFromBool(inst.encoding.mandatoryPrefix() != null);
         const final = opcode.len - 1;
         for (opcode[first..final]) |byte| try encoder.opcode_1byte(byte);
         switch (inst.encoding.data.op_en) {
@@ -647,25 +647,25 @@ fn Encoder(comptime T: type, comptime opts: Options) type {
                 try self.writer.writeByte(0b1100_0100);
 
                 try self.writer.writeByte(
-                    @as(u8, ~@boolToInt(fields.r)) << 7 |
-                        @as(u8, ~@boolToInt(fields.x)) << 6 |
-                        @as(u8, ~@boolToInt(fields.b)) << 5 |
-                        @as(u8, @enumToInt(fields.m)) << 0,
+                    @as(u8, ~@intFromBool(fields.r)) << 7 |
+                        @as(u8, ~@intFromBool(fields.x)) << 6 |
+                        @as(u8, ~@intFromBool(fields.b)) << 5 |
+                        @as(u8, @intFromEnum(fields.m)) << 0,
                 );
 
                 try self.writer.writeByte(
-                    @as(u8, @boolToInt(fields.w)) << 7 |
+                    @as(u8, @intFromBool(fields.w)) << 7 |
                         @as(u8, ~fields.v.enc()) << 3 |
-                        @as(u8, @boolToInt(fields.l)) << 2 |
-                        @as(u8, @enumToInt(fields.p)) << 0,
+                        @as(u8, @intFromBool(fields.l)) << 2 |
+                        @as(u8, @intFromEnum(fields.p)) << 0,
                 );
             } else {
                 try self.writer.writeByte(0b1100_0101);
                 try self.writer.writeByte(
-                    @as(u8, ~@boolToInt(fields.r)) << 7 |
+                    @as(u8, ~@intFromBool(fields.r)) << 7 |
                         @as(u8, ~fields.v.enc()) << 3 |
-                        @as(u8, @boolToInt(fields.l)) << 2 |
-                        @as(u8, @enumToInt(fields.p)) << 0,
+                        @as(u8, @intFromBool(fields.l)) << 2 |
+                        @as(u8, @intFromEnum(fields.p)) << 0,
                 );
             }
         }

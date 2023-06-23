@@ -1,4 +1,4 @@
-export fn foo(comptime x: anytype, y: i32) i32{
+export fn foo(comptime x: anytype, y: i32) i32 {
     return x + y;
 }
 

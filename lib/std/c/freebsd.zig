@@ -961,7 +961,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0010;
@@ -1086,9 +1086,9 @@ pub const SIG = struct {
     pub const UNBLOCK = 2;
     pub const SETMASK = 3;
 
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
+    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
+    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -2586,6 +2586,8 @@ pub const sigevent = extern struct {
     },
 };
 
+pub const timer_t = *opaque {};
+
 pub const MIN = struct {
     pub const INCORE = 0x1;
     pub const REFERENCED = 0x2;
@@ -2648,7 +2650,7 @@ const ioctl_cmd = enum(u32) {
 };
 
 fn ioImpl(cmd: ioctl_cmd, op: u8, nr: u8, comptime IT: type) u32 {
-    return @bitCast(u32, @enumToInt(cmd) | @intCast(u32, @truncate(u8, @sizeOf(IT))) << 16 | @intCast(u32, op) << 8 | nr);
+    return @bitCast(u32, @intFromEnum(cmd) | @intCast(u32, @truncate(u8, @sizeOf(IT))) << 16 | @intCast(u32, op) << 8 | nr);
 }
 
 pub fn IO(op: u8, nr: u8) u32 {

@@ -2,7 +2,7 @@ export fn entry() void {
     var a = &b;
     _ = a;
 }
-fn b() callconv(.Inline) void { }
+inline fn b() void {}
 
 // error
 // backend=stage2

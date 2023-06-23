@@ -1173,7 +1173,7 @@ test "byte vector initialized in inline function" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (comptime builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64 and
-        builtin.cpu.features.isEnabled(@enumToInt(std.Target.x86.Feature.avx512f)))
+        builtin.cpu.features.isEnabled(@intFromEnum(std.Target.x86.Feature.avx512f)))
     {
         // TODO https://github.com/ziglang/zig/issues/13279
         return error.SkipZigTest;

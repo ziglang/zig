@@ -1192,7 +1192,7 @@ pub fn writeSym(self: *Plan9, w: anytype, sym: aout.Sym) !void {
     } else {
         try w.writeIntBig(u64, sym.value);
     }
-    try w.writeByte(@enumToInt(sym.type));
+    try w.writeByte(@intFromEnum(sym.type));
     try w.writeAll(sym.name);
     try w.writeByte(0);
 }

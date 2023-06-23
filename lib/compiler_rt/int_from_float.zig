@@ -2,7 +2,7 @@ const Int = @import("std").meta.Int;
 const math = @import("std").math;
 const Log2Int = math.Log2Int;
 
-pub inline fn floatToInt(comptime I: type, a: anytype) I {
+pub inline fn intFromFloat(comptime I: type, a: anytype) I {
     const F = @TypeOf(a);
     const float_bits = @typeInfo(F).Float.bits;
     const int_bits = @typeInfo(I).Int.bits;
@@ -51,5 +51,5 @@ pub inline fn floatToInt(comptime I: type, a: anytype) I {
 }
 
 test {
-    _ = @import("float_to_int_test.zig");
+    _ = @import("int_from_float_test.zig");
 }

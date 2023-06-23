@@ -453,8 +453,8 @@ pub const Header = struct {
         };
 
         const machine = if (need_bswap) blk: {
-            const value = @enumToInt(hdr32.e_machine);
-            break :blk @intToEnum(EM, @byteSwap(value));
+            const value = @intFromEnum(hdr32.e_machine);
+            break :blk @enumFromInt(EM, @byteSwap(value));
         } else hdr32.e_machine;
 
         return @as(Header, .{
@@ -706,13 +706,13 @@ pub const Elf64_Shdr = extern struct {
     sh_entsize: Elf64_Xword,
 };
 pub const Elf32_Chdr = extern struct {
-    ch_type: Elf32_Word,
+    ch_type: COMPRESS,
     ch_size: Elf32_Word,
     ch_addralign: Elf32_Word,
 };
 pub const Elf64_Chdr = extern struct {
-    ch_type: Elf64_Word,
-    ch_reserved: Elf64_Word,
+    ch_type: COMPRESS,
+    ch_reserved: Elf64_Word = 0,
     ch_size: Elf64_Xword,
     ch_addralign: Elf64_Xword,
 };
@@ -1729,6 +1729,17 @@ pub const SHN_ABS = 0xfff1;
 pub const SHN_COMMON = 0xfff2;
 /// End of reserved indices
 pub const SHN_HIRESERVE = 0xffff;
+
+// Legal values for ch_type (compression algorithm).
+pub const COMPRESS = enum(u32) {
+    ZLIB = 1,
+    ZSTD = 2,
+    LOOS = 0x60000000,
+    HIOS = 0x6fffffff,
+    LOPROC = 0x70000000,
+    HIPROC = 0x7fffffff,
+    _,
+};
 
 /// AMD x86-64 relocations.
 /// No reloc

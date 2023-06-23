@@ -196,7 +196,7 @@ pub const Segment = struct {
     };
 
     pub fn isPassive(segment: Segment) bool {
-        return segment.flags & @enumToInt(Flag.WASM_DATA_SEGMENT_IS_PASSIVE) != 0;
+        return segment.flags & @intFromEnum(Flag.WASM_DATA_SEGMENT_IS_PASSIVE) != 0;
     }
 
     /// For a given segment, determines if it needs passive initialization
@@ -1094,14 +1094,14 @@ fn validateFeatures(
             const value = @intCast(u16, object_index) << 1 | @as(u1, 1);
             switch (feature.prefix) {
                 .used => {
-                    used[@enumToInt(feature.tag)] = value;
+                    used[@intFromEnum(feature.tag)] = value;
                 },
                 .disallowed => {
-                    disallowed[@enumToInt(feature.tag)] = value;
+                    disallowed[@intFromEnum(feature.tag)] = value;
                 },
                 .required => {
-                    required[@enumToInt(feature.tag)] = value;
-                    used[@enumToInt(feature.tag)] = value;
+                    required[@intFromEnum(feature.tag)] = value;
+                    used[@intFromEnum(feature.tag)] = value;
                 },
             }
         }
@@ -1120,9 +1120,9 @@ fn validateFeatures(
         const is_enabled = @truncate(u1, used_set) != 0;
         if (infer) {
             allowed[used_index] = is_enabled;
-            emit_features_count.* += @boolToInt(is_enabled);
+            emit_features_count.* += @intFromBool(is_enabled);
         } else if (is_enabled and !allowed[used_index]) {
-            log.err("feature '{}' not allowed, but used by linked object", .{@intToEnum(types.Feature.Tag, used_index)});
+            log.err("feature '{}' not allowed, but used by linked object", .{@enumFromInt(types.Feature.Tag, used_index)});
             log.err("  defined in '{s}'", .{wasm.objects.items[used_set >> 1].name});
             valid_feature_set = false;
         }
@@ -1133,7 +1133,7 @@ fn validateFeatures(
     }
 
     if (wasm.base.options.shared_memory) {
-        const disallowed_feature = disallowed[@enumToInt(types.Feature.Tag.shared_mem)];
+        const disallowed_feature = disallowed[@intFromEnum(types.Feature.Tag.shared_mem)];
         if (@truncate(u1, disallowed_feature) != 0) {
             log.err(
                 "shared-memory is disallowed by '{s}' because it wasn't compiled with 'atomics' and 'bulk-memory' features enabled",
@@ -1143,7 +1143,7 @@ fn validateFeatures(
         }
 
         for ([_]types.Feature.Tag{ .atomics, .bulk_memory }) |feature| {
-            if (!allowed[@enumToInt(feature)]) {
+            if (!allowed[@intFromEnum(feature)]) {
                 log.err("feature '{}' is not used but is required for shared-memory", .{feature});
             }
         }
@@ -1151,7 +1151,7 @@ fn validateFeatures(
 
     if (has_tls) {
         for ([_]types.Feature.Tag{ .atomics, .bulk_memory }) |feature| {
-            if (!allowed[@enumToInt(feature)]) {
+            if (!allowed[@intFromEnum(feature)]) {
                 log.err("feature '{}' is not used but is required for thread-local storage", .{feature});
             }
         }
@@ -1162,7 +1162,7 @@ fn validateFeatures(
         for (object.features) |feature| {
             if (feature.prefix == .disallowed) continue; // already defined in 'disallowed' set.
             // from here a feature is always used
-            const disallowed_feature = disallowed[@enumToInt(feature.tag)];
+            const disallowed_feature = disallowed[@intFromEnum(feature.tag)];
             if (@truncate(u1, disallowed_feature) != 0) {
                 log.err("feature '{}' is disallowed, but used by linked object", .{feature.tag});
                 log.err("  disallowed by '{s}'", .{wasm.objects.items[disallowed_feature >> 1].name});
@@ -1170,14 +1170,14 @@ fn validateFeatures(
                 valid_feature_set = false;
             }
 
-            object_used_features[@enumToInt(feature.tag)] = true;
+            object_used_features[@intFromEnum(feature.tag)] = true;
         }
 
         // validate the linked object file has each required feature
         for (required, 0..) |required_feature, feature_index| {
             const is_required = @truncate(u1, required_feature) != 0;
             if (is_required and !object_used_features[feature_index]) {
-                log.err("feature '{}' is required but not used in linked object", .{@intToEnum(types.Feature.Tag, feature_index)});
+                log.err("feature '{}' is required but not used in linked object", .{@enumFromInt(types.Feature.Tag, feature_index)});
                 log.err("  required by '{s}'", .{wasm.objects.items[required_feature >> 1].name});
                 log.err("  missing in '{s}'", .{object.name});
                 valid_feature_set = false;
@@ -1324,7 +1324,7 @@ pub fn allocateSymbol(wasm: *Wasm) !u32 {
     try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
     var symbol: Symbol = .{
         .name = undefined, // will be set after updateDecl
-        .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
+        .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
         .tag = undefined, // will be set after updateDecl
         .index = undefined, // will be set after updateDecl
         .virtual_address = undefined, // will be set during atom allocation
@@ -1487,7 +1487,7 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8
 
     atom.size = @intCast(u32, code.len);
     if (code.len == 0) return;
-    atom.alignment = decl.ty.abiAlignment(mod);
+    atom.alignment = decl.getAlignment(mod);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
@@ -1560,7 +1560,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
         atom.alignment = tv.ty.abiAlignment(mod);
         wasm.symbols.items[atom.sym_index] = .{
             .name = try wasm.string_table.put(wasm.base.allocator, name),
-            .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
+            .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
             .tag = .data,
             .index = undefined,
             .virtual_address = undefined,
@@ -2028,7 +2028,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
                 const index = @intCast(u32, wasm.segments.items.len);
                 var flags: u32 = 0;
                 if (wasm.base.options.shared_memory) {
-                    flags |= @enumToInt(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
+                    flags |= @intFromEnum(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
                 }
                 try wasm.segments.append(wasm.base.allocator, .{
                     .alignment = atom.alignment,
@@ -2868,7 +2868,7 @@ pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, relocatable_index: u32
                 result.value_ptr.* = index;
                 var flags: u32 = 0;
                 if (wasm.base.options.shared_memory) {
-                    flags |= @enumToInt(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
+                    flags |= @intFromEnum(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
                 }
                 try wasm.segments.append(wasm.base.allocator, .{
                     .alignment = 1,
@@ -3073,7 +3073,7 @@ pub fn createDebugSectionForIndex(wasm: *Wasm, index: *?u32, name: []const u8) !
         .tag = .section,
         .name = try wasm.string_table.put(wasm.base.allocator, name),
         .index = 0,
-        .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
+        .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
     };
 
     atom.alignment = 1; // debug sections are always 1-byte-aligned
@@ -3544,7 +3544,7 @@ fn writeToFile(
             header_offset,
             .import,
             @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.imports.count() + @boolToInt(import_memory)),
+            @intCast(u32, wasm.imports.count() + @intFromBool(import_memory)),
         );
         section_count += 1;
     }
@@ -3606,7 +3606,7 @@ fn writeToFile(
 
         for (wasm.wasm_globals.items) |global| {
             try binary_writer.writeByte(std.wasm.valtype(global.global_type.valtype));
-            try binary_writer.writeByte(@boolToInt(global.global_type.mutable));
+            try binary_writer.writeByte(@intFromBool(global.global_type.mutable));
             try emitInit(binary_writer, global.init);
         }
 
@@ -3628,7 +3628,7 @@ fn writeToFile(
             const name = wasm.string_table.get(exp.name);
             try leb.writeULEB128(binary_writer, @intCast(u32, name.len));
             try binary_writer.writeAll(name);
-            try leb.writeULEB128(binary_writer, @enumToInt(exp.kind));
+            try leb.writeULEB128(binary_writer, @intFromEnum(exp.kind));
             try leb.writeULEB128(binary_writer, exp.index);
         }
 
@@ -3644,7 +3644,7 @@ fn writeToFile(
             header_offset,
             .@"export",
             @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.exports.items.len) + @boolToInt(!import_memory),
+            @intCast(u32, wasm.exports.items.len) + @intFromBool(!import_memory),
         );
         section_count += 1;
     }
@@ -3682,7 +3682,7 @@ fn writeToFile(
     }
 
     // When the shared-memory option is enabled, we *must* emit the 'data count' section.
-    const data_segments_count = wasm.data_segments.count() - @boolToInt(wasm.data_segments.contains(".bss") and import_memory);
+    const data_segments_count = wasm.data_segments.count() - @intFromBool(wasm.data_segments.contains(".bss") and import_memory);
     if (data_segments_count != 0 and wasm.base.options.shared_memory) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
         try writeVecSectionHeader(
@@ -3760,7 +3760,7 @@ fn writeToFile(
             var atom_index = wasm.atoms.get(segment_index).?;
 
             try leb.writeULEB128(binary_writer, segment.flags);
-            if (segment.flags & @enumToInt(Wasm.Segment.Flag.WASM_DATA_SEGMENT_HAS_MEMINDEX) != 0) {
+            if (segment.flags & @intFromEnum(Wasm.Segment.Flag.WASM_DATA_SEGMENT_HAS_MEMINDEX) != 0) {
                 try leb.writeULEB128(binary_writer, @as(u32, 0)); // memory is always index 0 as we only have 1 memory entry
             }
             // when a segment is passive, it's initialized during runtime.
@@ -4030,8 +4030,8 @@ fn emitFeaturesSection(binary_bytes: *std.ArrayList(u8), enabled_features: []con
     try leb.writeULEB128(writer, features_count);
     for (enabled_features, 0..) |enabled, feature_index| {
         if (enabled) {
-            const feature: types.Feature = .{ .prefix = .used, .tag = @intToEnum(types.Feature.Tag, feature_index) };
-            try leb.writeULEB128(writer, @enumToInt(feature.prefix));
+            const feature: types.Feature = .{ .prefix = .used, .tag = @enumFromInt(types.Feature.Tag, feature_index) };
+            try leb.writeULEB128(writer, @intFromEnum(feature.prefix));
             var buf: [100]u8 = undefined;
             const string = try std.fmt.bufPrint(&buf, "{}", .{feature.tag});
             try leb.writeULEB128(writer, @intCast(u32, string.len));
@@ -4121,7 +4121,7 @@ fn emitNameSubsection(wasm: *Wasm, section_id: std.wasm.NameSubsection, names: a
     }
 
     // From now, write to the actual writer
-    try leb.writeULEB128(writer, @enumToInt(section_id));
+    try leb.writeULEB128(writer, @intFromEnum(section_id));
     try leb.writeULEB128(writer, @intCast(u32, section_list.items.len));
     try writer.writeAll(section_list.items);
 }
@@ -4169,12 +4169,12 @@ fn emitImport(wasm: *Wasm, writer: anytype, import: types.Import) !void {
     try leb.writeULEB128(writer, @intCast(u32, name.len));
     try writer.writeAll(name);
 
-    try writer.writeByte(@enumToInt(import.kind));
+    try writer.writeByte(@intFromEnum(import.kind));
     switch (import.kind) {
         .function => |type_index| try leb.writeULEB128(writer, type_index),
         .global => |global_type| {
             try leb.writeULEB128(writer, std.wasm.valtype(global_type.valtype));
-            try writer.writeByte(@boolToInt(global_type.mutable));
+            try writer.writeByte(@intFromBool(global_type.mutable));
         },
         .table => |table| {
             try leb.writeULEB128(writer, std.wasm.reftype(table.reftype));
@@ -4609,7 +4609,7 @@ fn reserveCustomSectionHeader(bytes: *std.ArrayList(u8)) !u32 {
 
 fn writeVecSectionHeader(buffer: []u8, offset: u32, section: std.wasm.Section, size: u32, items: u32) !void {
     var buf: [1 + 5 + 5]u8 = undefined;
-    buf[0] = @enumToInt(section);
+    buf[0] = @intFromEnum(section);
     leb.writeUnsignedFixed(5, buf[1..6], size);
     leb.writeUnsignedFixed(5, buf[6..], items);
     buffer[offset..][0..buf.len].* = buf;
@@ -4645,7 +4645,7 @@ fn emitLinkSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
 fn emitSymbolTable(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {
     const writer = binary_bytes.writer();
 
-    try leb.writeULEB128(writer, @enumToInt(types.SubsectionType.WASM_SYMBOL_TABLE));
+    try leb.writeULEB128(writer, @intFromEnum(types.SubsectionType.WASM_SYMBOL_TABLE));
     const table_offset = binary_bytes.items.len;
 
     var symbol_count: u32 = 0;
@@ -4655,7 +4655,7 @@ fn emitSymbolTable(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
         try symbol_table.putNoClobber(sym_loc, symbol_count);
         symbol_count += 1;
         log.debug("Emit symbol: {}", .{symbol});
-        try leb.writeULEB128(writer, @enumToInt(symbol.tag));
+        try leb.writeULEB128(writer, @intFromEnum(symbol.tag));
         try leb.writeULEB128(writer, symbol.flags);
 
         const sym_name = if (wasm.export_names.get(sym_loc)) |exp_name| wasm.string_table.get(exp_name) else sym_loc.getName(wasm);
@@ -4693,7 +4693,7 @@ fn emitSymbolTable(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
 
 fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
     const writer = binary_bytes.writer();
-    try leb.writeULEB128(writer, @enumToInt(types.SubsectionType.WASM_SEGMENT_INFO));
+    try leb.writeULEB128(writer, @intFromEnum(types.SubsectionType.WASM_SEGMENT_INFO));
     const segment_offset = binary_bytes.items.len;
 
     try leb.writeULEB128(writer, @intCast(u32, wasm.segment_info.count()));
@@ -4754,7 +4754,7 @@ fn emitCodeRelocations(
             count += 1;
             const sym_loc: SymbolLoc = .{ .file = atom.file, .index = relocation.index };
             const symbol_index = symbol_table.get(sym_loc).?;
-            try leb.writeULEB128(writer, @enumToInt(relocation.relocation_type));
+            try leb.writeULEB128(writer, @intFromEnum(relocation.relocation_type));
             const offset = atom.offset + relocation.offset + size_offset;
             try leb.writeULEB128(writer, offset);
             try leb.writeULEB128(writer, symbol_index);
@@ -4804,7 +4804,7 @@ fn emitDataRelocations(
                     .index = relocation.index,
                 };
                 const symbol_index = symbol_table.get(sym_loc).?;
-                try leb.writeULEB128(writer, @enumToInt(relocation.relocation_type));
+                try leb.writeULEB128(writer, @intFromEnum(relocation.relocation_type));
                 const offset = atom.offset + relocation.offset + size_offset;
                 try leb.writeULEB128(writer, offset);
                 try leb.writeULEB128(writer, symbol_index);

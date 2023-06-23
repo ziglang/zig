@@ -1054,14 +1054,14 @@ fn processOneTarget(job: Job) anyerror!void {
     var json_parse_progress = progress_node.start("parse JSON", 0);
     json_parse_progress.activate();
 
-    var parser = json.Parser.init(arena, .alloc_if_needed);
-    const tree = try parser.parse(json_text);
+    const parsed = try json.parseFromSlice(json.Value, arena, json_text, .{});
+    defer parsed.deinit();
+    const root_map = &parsed.value.object;
     json_parse_progress.end();
 
     var render_progress = progress_node.start("render zig code", 0);
     render_progress.activate();
 
-    const root_map = &tree.root.object;
     var features_table = std.StringHashMap(Feature).init(arena);
     var all_features = std.ArrayList(Feature).init(arena);
     var all_cpus = std.ArrayList(Cpu).init(arena);
@@ -1247,7 +1247,7 @@ fn processOneTarget(job: Job) anyerror!void {
     for (all_features.items) |feature| {
         if (feature.llvm_name) |llvm_name| {
             try w.print(
-                \\    result[@enumToInt(Feature.{})] = .{{
+                \\    result[@intFromEnum(Feature.{})] = .{{
                 \\        .llvm_name = "{}",
                 \\        .description = "{}",
                 \\        .dependencies = featureSet(&[_]Feature{{
@@ -1260,7 +1260,7 @@ fn processOneTarget(job: Job) anyerror!void {
             );
         } else {
             try w.print(
-                \\    result[@enumToInt(Feature.{})] = .{{
+                \\    result[@intFromEnum(Feature.{})] = .{{
                 \\        .llvm_name = null,
                 \\        .description = "{}",
                 \\        .dependencies = featureSet(&[_]Feature{{

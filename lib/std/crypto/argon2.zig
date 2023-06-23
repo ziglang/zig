@@ -115,7 +115,7 @@ fn initHash(
     mem.writeIntLittle(u32, parameters[8..12], params.m);
     mem.writeIntLittle(u32, parameters[12..16], params.t);
     mem.writeIntLittle(u32, parameters[16..20], version);
-    mem.writeIntLittle(u32, parameters[20..24], @enumToInt(mode));
+    mem.writeIntLittle(u32, parameters[20..24], @intFromEnum(mode));
     b2.update(&parameters);
     mem.writeIntLittle(u32, &tmp, @intCast(u32, password.len));
     b2.update(&tmp);
@@ -292,7 +292,7 @@ fn processSegment(
         in[2] = slice;
         in[3] = memory;
         in[4] = passes;
-        in[5] = @enumToInt(mode);
+        in[5] = @intFromEnum(mode);
     }
     var index: u32 = 0;
     if (n == 0 and slice == 0) {

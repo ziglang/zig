@@ -269,12 +269,12 @@ fn emitLocals(emit: *Emit) !void {
 }
 
 fn emitTag(emit: *Emit, tag: Mir.Inst.Tag) !void {
-    try emit.code.append(@enumToInt(tag));
+    try emit.code.append(@intFromEnum(tag));
 }
 
 fn emitBlock(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const block_type = emit.mir.instructions.items(.data)[inst].block_type;
-    try emit.code.append(@enumToInt(tag));
+    try emit.code.append(@intFromEnum(tag));
     try emit.code.append(block_type);
 }
 
@@ -293,13 +293,13 @@ fn emitBrTable(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn emitLabel(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const label = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(@enumToInt(tag));
+    try emit.code.append(@intFromEnum(tag));
     try leb128.writeULEB128(emit.code.writer(), label);
 }
 
 fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const label = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(@enumToInt(tag));
+    try emit.code.append(@intFromEnum(tag));
     var buf: [5]u8 = undefined;
     leb128.writeUnsignedFixed(5, &buf, label);
     const global_offset = emit.offset();
@@ -343,7 +343,7 @@ fn emitFloat64(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index).data;
-    try emit.code.append(@enumToInt(tag));
+    try emit.code.append(@intFromEnum(tag));
     try encodeMemArg(mem_arg, emit.code.writer());
 }
 
@@ -436,7 +436,7 @@ fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {
     const writer = emit.code.writer();
     try emit.code.append(std.wasm.opcode(.misc_prefix));
     try leb128.writeULEB128(writer, opcode);
-    switch (@intToEnum(std.wasm.MiscOpcode, opcode)) {
+    switch (@enumFromInt(std.wasm.MiscOpcode, opcode)) {
         // bulk-memory opcodes
         .data_drop => {
             const segment = emit.mir.extra[extra_index + 1];
@@ -475,7 +475,7 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
     const writer = emit.code.writer();
     try emit.code.append(std.wasm.opcode(.simd_prefix));
     try leb128.writeULEB128(writer, opcode);
-    switch (@intToEnum(std.wasm.SimdOpcode, opcode)) {
+    switch (@enumFromInt(std.wasm.SimdOpcode, opcode)) {
         .v128_store,
         .v128_load,
         .v128_load8_splat,
@@ -526,7 +526,7 @@ fn emitAtomic(emit: *Emit, inst: Mir.Inst.Index) !void {
     const writer = emit.code.writer();
     try emit.code.append(std.wasm.opcode(.atomics_prefix));
     try leb128.writeULEB128(writer, opcode);
-    switch (@intToEnum(std.wasm.AtomicsOpcode, opcode)) {
+    switch (@enumFromInt(std.wasm.AtomicsOpcode, opcode)) {
         .i32_atomic_load,
         .i64_atomic_load,
         .i32_atomic_load8_u,

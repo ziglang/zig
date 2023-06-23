@@ -112,7 +112,7 @@ pub const Value = struct {
             return self.castTag(T.base_tag);
         }
         inline for (@typeInfo(Tag).Enum.fields) |field| {
-            const t = @intToEnum(Tag, field.value);
+            const t = @enumFromInt(Tag, field.value);
             if (self.legacy.ptr_otherwise.tag == t) {
                 if (T == t.Type()) {
                     return @fieldParentPtr(T, "base", self.legacy.ptr_otherwise);
@@ -130,98 +130,6 @@ pub const Value = struct {
             return @fieldParentPtr(t.Type(), "base", self.legacy.ptr_otherwise);
 
         return null;
-    }
-
-    /// It's intentional that this function is not passed a corresponding Type, so that
-    /// a Value can be copied from a Sema to a Decl prior to resolving struct/union field types.
-    pub fn copy(self: Value, arena: Allocator) error{OutOfMemory}!Value {
-        if (self.ip_index != .none) {
-            return Value{ .ip_index = self.ip_index, .legacy = undefined };
-        }
-        switch (self.legacy.ptr_otherwise.tag) {
-            .bytes => {
-                const bytes = self.castTag(.bytes).?.data;
-                const new_payload = try arena.create(Payload.Bytes);
-                new_payload.* = .{
-                    .base = .{ .tag = .bytes },
-                    .data = try arena.dupe(u8, bytes),
-                };
-                return Value{
-                    .ip_index = .none,
-                    .legacy = .{ .ptr_otherwise = &new_payload.base },
-                };
-            },
-            .eu_payload,
-            .opt_payload,
-            .repeated,
-            => {
-                const payload = self.cast(Payload.SubValue).?;
-                const new_payload = try arena.create(Payload.SubValue);
-                new_payload.* = .{
-                    .base = payload.base,
-                    .data = try payload.data.copy(arena),
-                };
-                return Value{
-                    .ip_index = .none,
-                    .legacy = .{ .ptr_otherwise = &new_payload.base },
-                };
-            },
-            .slice => {
-                const payload = self.castTag(.slice).?;
-                const new_payload = try arena.create(Payload.Slice);
-                new_payload.* = .{
-                    .base = payload.base,
-                    .data = .{
-                        .ptr = try payload.data.ptr.copy(arena),
-                        .len = try payload.data.len.copy(arena),
-                    },
-                };
-                return Value{
-                    .ip_index = .none,
-                    .legacy = .{ .ptr_otherwise = &new_payload.base },
-                };
-            },
-            .aggregate => {
-                const payload = self.castTag(.aggregate).?;
-                const new_payload = try arena.create(Payload.Aggregate);
-                new_payload.* = .{
-                    .base = payload.base,
-                    .data = try arena.alloc(Value, payload.data.len),
-                };
-                for (new_payload.data, 0..) |*elem, i| {
-                    elem.* = try payload.data[i].copy(arena);
-                }
-                return Value{
-                    .ip_index = .none,
-                    .legacy = .{ .ptr_otherwise = &new_payload.base },
-                };
-            },
-            .@"union" => {
-                const tag_and_val = self.castTag(.@"union").?.data;
-                const new_payload = try arena.create(Payload.Union);
-                new_payload.* = .{
-                    .base = .{ .tag = .@"union" },
-                    .data = .{
-                        .tag = try tag_and_val.tag.copy(arena),
-                        .val = try tag_and_val.val.copy(arena),
-                    },
-                };
-                return Value{
-                    .ip_index = .none,
-                    .legacy = .{ .ptr_otherwise = &new_payload.base },
-                };
-            },
-        }
-    }
-
-    fn copyPayloadShallow(self: Value, arena: Allocator, comptime T: type) error{OutOfMemory}!Value {
-        const payload = self.cast(T).?;
-        const new_payload = try arena.create(T);
-        new_payload.* = payload.*;
-        return Value{
-            .ip_index = .none,
-            .legacy = .{ .ptr_otherwise = &new_payload.base },
-        };
     }
 
     pub fn format(val: Value, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -503,7 +411,7 @@ pub const Value = struct {
         return self.toIntern().toType();
     }
 
-    pub fn enumToInt(val: Value, ty: Type, mod: *Module) Allocator.Error!Value {
+    pub fn intFromEnum(val: Value, ty: Type, mod: *Module) Allocator.Error!Value {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ip.typeOf(val.toIntern()))) {
             // Assume it is already an integer and return it directly.
@@ -703,7 +611,7 @@ pub const Value = struct {
         switch (ty.zigTypeTag(mod)) {
             .Void => {},
             .Bool => {
-                buffer[0] = @boolToInt(val.toBool());
+                buffer[0] = @intFromBool(val.toBool());
             },
             .Int, .Enum => {
                 const int_info = ty.intInfo(mod);
@@ -745,7 +653,15 @@ pub const Value = struct {
                 .Extern => for (ty.structFields(mod).values(), 0..) |field, i| {
                     const off = @intCast(usize, ty.structFieldOffset(i, mod));
                     const field_val = switch (val.ip_index) {
-                        .none => val.castTag(.aggregate).?.data[i],
+                        .none => switch (val.tag()) {
+                            .bytes => {
+                                buffer[off] = val.castTag(.bytes).?.data[i];
+                                continue;
+                            },
+                            .aggregate => val.castTag(.aggregate).?.data[i],
+                            .repeated => val.castTag(.repeated).?.data,
+                            else => unreachable,
+                        },
                         else => switch (mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage) {
                             .bytes => |bytes| {
                                 buffer[off] = bytes[i];
@@ -836,7 +752,7 @@ pub const Value = struct {
                 const bits = ty.intInfo(mod).bits;
                 if (bits == 0) return;
 
-                switch (mod.intern_pool.indexToKey((try val.enumToInt(ty, mod)).toIntern()).int.storage) {
+                switch (mod.intern_pool.indexToKey((try val.intFromEnum(ty, mod)).toIntern()).int.storage) {
                     inline .u64, .i64 => |int| std.mem.writeVarPackedInt(buffer, bit_offset, bits, int, endian),
                     .big_int => |bigint| bigint.writePackedTwosComplement(buffer, bit_offset, bits, endian),
                     else => unreachable,
@@ -1170,10 +1086,10 @@ pub const Value = struct {
                     if (T == f80) {
                         @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
                     }
-                    return @intToFloat(T, x);
+                    return @floatFromInt(T, x);
                 },
-                .lazy_align => |ty| @intToFloat(T, ty.toType().abiAlignment(mod)),
-                .lazy_size => |ty| @intToFloat(T, ty.toType().abiSize(mod)),
+                .lazy_align => |ty| @floatFromInt(T, ty.toType().abiAlignment(mod)),
+                .lazy_size => |ty| @floatFromInt(T, ty.toType().abiSize(mod)),
             },
             .float => |float| switch (float.storage) {
                 inline else => |x| @floatCast(T, x),
@@ -1191,7 +1107,7 @@ pub const Value = struct {
         var i: usize = limbs.len;
         while (i != 0) {
             i -= 1;
-            const limb: f128 = @intToFloat(f128, limbs[i]);
+            const limb: f128 = @floatFromInt(f128, limbs[i]);
             result = @mulAdd(f128, base, result, limb);
         }
         if (positive) {
@@ -1486,193 +1402,9 @@ pub const Value = struct {
     }
 
     pub fn eql(a: Value, b: Value, ty: Type, mod: *Module) bool {
-        return eqlAdvanced(a, ty, b, ty, mod, null) catch unreachable;
-    }
-
-    /// This function is used by hash maps and so treats floating-point NaNs as equal
-    /// to each other, and not equal to other floating-point values.
-    /// Similarly, it treats `undef` as a distinct value from all other values.
-    /// This function has to be able to support implicit coercion of `a` to `ty`. That is,
-    /// `ty` will be an exactly correct Type for `b` but it may be a post-coerced Type
-    /// for `a`. This function must act *as if* `a` has been coerced to `ty`. This complication
-    /// is required in order to make generic function instantiation efficient - specifically
-    /// the insertion into the monomorphized function table.
-    /// If `null` is provided for `opt_sema` then it is guaranteed no error will be returned.
-    pub fn eqlAdvanced(
-        a: Value,
-        a_ty: Type,
-        b: Value,
-        ty: Type,
-        mod: *Module,
-        opt_sema: ?*Sema,
-    ) Module.CompileError!bool {
-        if (a.ip_index != .none or b.ip_index != .none) return a.ip_index == b.ip_index;
-
-        const target = mod.getTarget();
-        const a_tag = a.tag();
-        const b_tag = b.tag();
-        if (a_tag == b_tag) switch (a_tag) {
-            .aggregate => {
-                const a_field_vals = a.castTag(.aggregate).?.data;
-                const b_field_vals = b.castTag(.aggregate).?.data;
-                assert(a_field_vals.len == b_field_vals.len);
-
-                switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-                    .anon_struct_type => |anon_struct| {
-                        assert(anon_struct.types.len == a_field_vals.len);
-                        for (anon_struct.types, 0..) |field_ty, i| {
-                            if (!(try eqlAdvanced(a_field_vals[i], field_ty.toType(), b_field_vals[i], field_ty.toType(), mod, opt_sema))) {
-                                return false;
-                            }
-                        }
-                        return true;
-                    },
-                    .struct_type => |struct_type| {
-                        const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                        const fields = struct_obj.fields.values();
-                        assert(fields.len == a_field_vals.len);
-                        for (fields, 0..) |field, i| {
-                            if (!(try eqlAdvanced(a_field_vals[i], field.ty, b_field_vals[i], field.ty, mod, opt_sema))) {
-                                return false;
-                            }
-                        }
-                        return true;
-                    },
-                    else => {},
-                }
-
-                const elem_ty = ty.childType(mod);
-                for (a_field_vals, 0..) |a_elem, i| {
-                    const b_elem = b_field_vals[i];
-
-                    if (!(try eqlAdvanced(a_elem, elem_ty, b_elem, elem_ty, mod, opt_sema))) {
-                        return false;
-                    }
-                }
-                return true;
-            },
-            .@"union" => {
-                const a_union = a.castTag(.@"union").?.data;
-                const b_union = b.castTag(.@"union").?.data;
-                switch (ty.containerLayout(mod)) {
-                    .Packed, .Extern => {
-                        const tag_ty = ty.unionTagTypeHypothetical(mod);
-                        if (!(try eqlAdvanced(a_union.tag, tag_ty, b_union.tag, tag_ty, mod, opt_sema))) {
-                            // In this case, we must disregard mismatching tags and compare
-                            // based on the in-memory bytes of the payloads.
-                            @panic("TODO comptime comparison of extern union values with mismatching tags");
-                        }
-                    },
-                    .Auto => {
-                        const tag_ty = ty.unionTagTypeHypothetical(mod);
-                        if (!(try eqlAdvanced(a_union.tag, tag_ty, b_union.tag, tag_ty, mod, opt_sema))) {
-                            return false;
-                        }
-                    },
-                }
-                const active_field_ty = ty.unionFieldType(a_union.tag, mod);
-                return eqlAdvanced(a_union.val, active_field_ty, b_union.val, active_field_ty, mod, opt_sema);
-            },
-            else => {},
-        };
-
-        if (a.pointerDecl(mod)) |a_decl| {
-            if (b.pointerDecl(mod)) |b_decl| {
-                return a_decl == b_decl;
-            } else {
-                return false;
-            }
-        } else if (b.pointerDecl(mod)) |_| {
-            return false;
-        }
-
-        switch (ty.zigTypeTag(mod)) {
-            .Type => {
-                const a_type = a.toType();
-                const b_type = b.toType();
-                return a_type.eql(b_type, mod);
-            },
-            .Enum => {
-                const a_val = try a.enumToInt(ty, mod);
-                const b_val = try b.enumToInt(ty, mod);
-                const int_ty = ty.intTagType(mod);
-                return eqlAdvanced(a_val, int_ty, b_val, int_ty, mod, opt_sema);
-            },
-            .Array, .Vector => {
-                const len = ty.arrayLen(mod);
-                const elem_ty = ty.childType(mod);
-                var i: usize = 0;
-                while (i < len) : (i += 1) {
-                    const a_elem = try elemValue(a, mod, i);
-                    const b_elem = try elemValue(b, mod, i);
-                    if (!(try eqlAdvanced(a_elem, elem_ty, b_elem, elem_ty, mod, opt_sema))) {
-                        return false;
-                    }
-                }
-                return true;
-            },
-            .Pointer => switch (ty.ptrSize(mod)) {
-                .Slice => {
-                    const a_len = switch (a_ty.ptrSize(mod)) {
-                        .Slice => a.sliceLen(mod),
-                        .One => a_ty.childType(mod).arrayLen(mod),
-                        else => unreachable,
-                    };
-                    if (a_len != b.sliceLen(mod)) {
-                        return false;
-                    }
-
-                    const ptr_ty = ty.slicePtrFieldType(mod);
-                    const a_ptr = switch (a_ty.ptrSize(mod)) {
-                        .Slice => a.slicePtr(mod),
-                        .One => a,
-                        else => unreachable,
-                    };
-                    return try eqlAdvanced(a_ptr, ptr_ty, b.slicePtr(mod), ptr_ty, mod, opt_sema);
-                },
-                .Many, .C, .One => {},
-            },
-            .Struct => {
-                // A struct can be represented with one of:
-                //   .the_one_possible_value,
-                //   .aggregate,
-                // Note that we already checked above for matching tags, e.g. both .aggregate.
-                return (try ty.onePossibleValue(mod)) != null;
-            },
-            .Union => {
-                // Here we have to check for value equality, as-if `a` has been coerced to `ty`.
-                if ((try ty.onePossibleValue(mod)) != null) {
-                    return true;
-                }
-                return false;
-            },
-            .Float => {
-                switch (ty.floatBits(target)) {
-                    16 => return @bitCast(u16, a.toFloat(f16, mod)) == @bitCast(u16, b.toFloat(f16, mod)),
-                    32 => return @bitCast(u32, a.toFloat(f32, mod)) == @bitCast(u32, b.toFloat(f32, mod)),
-                    64 => return @bitCast(u64, a.toFloat(f64, mod)) == @bitCast(u64, b.toFloat(f64, mod)),
-                    80 => return @bitCast(u80, a.toFloat(f80, mod)) == @bitCast(u80, b.toFloat(f80, mod)),
-                    128 => return @bitCast(u128, a.toFloat(f128, mod)) == @bitCast(u128, b.toFloat(f128, mod)),
-                    else => unreachable,
-                }
-            },
-            .ComptimeFloat => {
-                const a_float = a.toFloat(f128, mod);
-                const b_float = b.toFloat(f128, mod);
-
-                const a_nan = std.math.isNan(a_float);
-                const b_nan = std.math.isNan(b_float);
-                if (a_nan != b_nan) return false;
-                if (std.math.signbit(a_float) != std.math.signbit(b_float)) return false;
-                if (a_nan) return true;
-                return a_float == b_float;
-            },
-            .Optional,
-            .ErrorUnion,
-            => unreachable, // handled by InternPool
-            else => {},
-        }
-        return (try orderAdvanced(a, b, mod, opt_sema)).compare(.eq);
+        assert(mod.intern_pool.typeOf(a.toIntern()) == ty.toIntern());
+        assert(mod.intern_pool.typeOf(b.toIntern()) == ty.toIntern());
+        return a.toIntern() == b.toIntern();
     }
 
     pub fn isComptimeMutablePtr(val: Value, mod: *Module) bool {
@@ -1726,15 +1458,6 @@ pub const Value = struct {
             },
             else => null,
         };
-    }
-
-    fn hashInt(int_val: Value, hasher: *std.hash.Wyhash, mod: *Module) void {
-        var buffer: BigIntSpace = undefined;
-        const big = int_val.toBigInt(&buffer, mod);
-        std.hash.autoHash(hasher, big.positive);
-        for (big.limbs) |limb| {
-            std.hash.autoHash(hasher, limb);
-        }
     }
 
     pub const slice_ptr_index = 0;
@@ -1823,7 +1546,7 @@ pub const Value = struct {
     }
 
     pub fn isRuntimeValue(val: Value, mod: *Module) bool {
-        return mod.intern_pool.indexToKey(val.toIntern()) == .runtime_value;
+        return mod.intern_pool.isRuntimeValue(val.toIntern());
     }
 
     /// Returns true if a Value is backed by a variable
@@ -1851,33 +1574,9 @@ pub const Value = struct {
     }
 
     pub fn isPtrToThreadLocal(val: Value, mod: *Module) bool {
-        return val.ip_index != .none and switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .variable => false,
-            else => val.isPtrToThreadLocalInner(mod),
-        };
-    }
-
-    pub fn isPtrToThreadLocalInner(val: Value, mod: *Module) bool {
-        return val.ip_index != .none and switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .variable => |variable| variable.is_threadlocal,
-            .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl_index| {
-                    const decl = mod.declPtr(decl_index);
-                    assert(decl.has_tv);
-                    return decl.val.isPtrToThreadLocalInner(mod);
-                },
-                .mut_decl => |mut_decl| {
-                    const decl = mod.declPtr(mut_decl.decl);
-                    assert(decl.has_tv);
-                    return decl.val.isPtrToThreadLocalInner(mod);
-                },
-                .int => false,
-                .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isPtrToThreadLocalInner(mod),
-                .comptime_field => |comptime_field| comptime_field.toValue().isPtrToThreadLocalInner(mod),
-                .elem, .field => |base_index| base_index.base.toValue().isPtrToThreadLocalInner(mod),
-            },
-            else => false,
-        };
+        const backing_decl = mod.intern_pool.getBackingDecl(val.toIntern()).unwrap() orelse return false;
+        const variable = mod.declPtr(backing_decl).getOwnedVariable(mod) orelse return false;
+        return variable.is_threadlocal;
     }
 
     // Asserts that the provided start/end are in-bounds.
@@ -2015,12 +1714,7 @@ pub const Value = struct {
     }
 
     pub fn isUndef(val: Value, mod: *Module) bool {
-        if (val.ip_index == .none) return false;
-        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .undef => true,
-            .simple_value => |v| v == .undefined,
-            else => false,
-        };
+        return val.ip_index != .none and mod.intern_pool.isUndef(val.toIntern());
     }
 
     /// TODO: check for cases such as array that is not marked undef but all the element
@@ -2124,30 +1818,30 @@ pub const Value = struct {
         };
     }
 
-    pub fn intToFloat(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module) !Value {
-        return intToFloatAdvanced(val, arena, int_ty, float_ty, mod, null) catch |err| switch (err) {
+    pub fn floatFromInt(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module) !Value {
+        return floatFromIntAdvanced(val, arena, int_ty, float_ty, mod, null) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => unreachable,
         };
     }
 
-    pub fn intToFloatAdvanced(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
+    pub fn floatFromIntAdvanced(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
         if (int_ty.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(InternPool.Index, int_ty.vectorLen(mod));
             const scalar_ty = float_ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try (try intToFloatScalar(elem_val, scalar_ty, mod, opt_sema)).intern(scalar_ty, mod);
+                scalar.* = try (try floatFromIntScalar(elem_val, scalar_ty, mod, opt_sema)).intern(scalar_ty, mod);
             }
             return (try mod.intern(.{ .aggregate = .{
                 .ty = float_ty.toIntern(),
                 .storage = .{ .elems = result_data },
             } })).toValue();
         }
-        return intToFloatScalar(val, float_ty, mod, opt_sema);
+        return floatFromIntScalar(val, float_ty, mod, opt_sema);
     }
 
-    pub fn intToFloatScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
+    pub fn floatFromIntScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef => (try mod.intern(.{ .undef = float_ty.toIntern() })).toValue(),
             .int => |int| switch (int.storage) {
@@ -2155,30 +1849,30 @@ pub const Value = struct {
                     const float = bigIntToFloat(big_int.limbs, big_int.positive);
                     return mod.floatValue(float_ty, float);
                 },
-                inline .u64, .i64 => |x| intToFloatInner(x, float_ty, mod),
+                inline .u64, .i64 => |x| floatFromIntInner(x, float_ty, mod),
                 .lazy_align => |ty| if (opt_sema) |sema| {
-                    return intToFloatInner((try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
+                    return floatFromIntInner((try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
                 } else {
-                    return intToFloatInner(ty.toType().abiAlignment(mod), float_ty, mod);
+                    return floatFromIntInner(ty.toType().abiAlignment(mod), float_ty, mod);
                 },
                 .lazy_size => |ty| if (opt_sema) |sema| {
-                    return intToFloatInner((try ty.toType().abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
+                    return floatFromIntInner((try ty.toType().abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
                 } else {
-                    return intToFloatInner(ty.toType().abiSize(mod), float_ty, mod);
+                    return floatFromIntInner(ty.toType().abiSize(mod), float_ty, mod);
                 },
             },
             else => unreachable,
         };
     }
 
-    fn intToFloatInner(x: anytype, dest_ty: Type, mod: *Module) !Value {
+    fn floatFromIntInner(x: anytype, dest_ty: Type, mod: *Module) !Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (dest_ty.floatBits(target)) {
-            16 => .{ .f16 = @intToFloat(f16, x) },
-            32 => .{ .f32 = @intToFloat(f32, x) },
-            64 => .{ .f64 = @intToFloat(f64, x) },
-            80 => .{ .f80 = @intToFloat(f80, x) },
-            128 => .{ .f128 = @intToFloat(f128, x) },
+            16 => .{ .f16 = @floatFromInt(f16, x) },
+            32 => .{ .f32 = @floatFromInt(f32, x) },
+            64 => .{ .f64 = @floatFromInt(f64, x) },
+            80 => .{ .f80 = @floatFromInt(f80, x) },
+            128 => .{ .f128 = @floatFromInt(f128, x) },
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
@@ -2193,7 +1887,7 @@ pub const Value = struct {
         }
 
         const w_value = @fabs(scalar);
-        return @divFloor(@floatToInt(std.math.big.Limb, std.math.log2(w_value)), @typeInfo(std.math.big.Limb).Int.bits) + 1;
+        return @divFloor(@intFromFloat(std.math.big.Limb, std.math.log2(w_value)), @typeInfo(std.math.big.Limb).Int.bits) + 1;
     }
 
     pub const OverflowArithmeticResult = struct {
@@ -2364,7 +2058,7 @@ pub const Value = struct {
         }
 
         return OverflowArithmeticResult{
-            .overflow_bit = try mod.intValue(Type.u1, @boolToInt(overflowed)),
+            .overflow_bit = try mod.intValue(Type.u1, @intFromBool(overflowed)),
             .wrapped_result = try mod.intValue_big(ty, result_bigint.toConst()),
         };
     }
@@ -3177,7 +2871,7 @@ pub const Value = struct {
             result_bigint.truncate(result_bigint.toConst(), info.signedness, info.bits);
         }
         return OverflowArithmeticResult{
-            .overflow_bit = try mod.intValue(Type.u1, @boolToInt(overflowed)),
+            .overflow_bit = try mod.intValue(Type.u1, @intFromBool(overflowed)),
             .wrapped_result = try mod.intValue_big(ty, result_bigint.toConst()),
         };
     }

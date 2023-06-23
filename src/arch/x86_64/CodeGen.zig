@@ -690,17 +690,17 @@ pub fn generate(
 
     try function.frame_allocs.resize(gpa, FrameIndex.named_count);
     function.frame_allocs.set(
-        @enumToInt(FrameIndex.stack_frame),
+        @intFromEnum(FrameIndex.stack_frame),
         FrameAlloc.init(.{
             .size = 0,
             .alignment = if (mod.align_stack_fns.get(module_fn_index)) |set_align_stack|
-                set_align_stack.alignment
+                @intCast(u32, set_align_stack.alignment.toByteUnitsOptional().?)
             else
                 1,
         }),
     );
     function.frame_allocs.set(
-        @enumToInt(FrameIndex.call_frame),
+        @intFromEnum(FrameIndex.call_frame),
         FrameAlloc.init(.{ .size = 0, .alignment = 1 }),
     );
 
@@ -721,16 +721,16 @@ pub fn generate(
 
     function.args = call_info.args;
     function.ret_mcv = call_info.return_value;
-    function.frame_allocs.set(@enumToInt(FrameIndex.ret_addr), FrameAlloc.init(.{
+    function.frame_allocs.set(@intFromEnum(FrameIndex.ret_addr), FrameAlloc.init(.{
         .size = Type.usize.abiSize(mod),
         .alignment = @min(Type.usize.abiAlignment(mod), call_info.stack_align),
     }));
-    function.frame_allocs.set(@enumToInt(FrameIndex.base_ptr), FrameAlloc.init(.{
+    function.frame_allocs.set(@intFromEnum(FrameIndex.base_ptr), FrameAlloc.init(.{
         .size = Type.usize.abiSize(mod),
         .alignment = @min(Type.usize.abiAlignment(mod) * 2, call_info.stack_align),
     }));
     function.frame_allocs.set(
-        @enumToInt(FrameIndex.args_frame),
+        @intFromEnum(FrameIndex.args_frame),
         FrameAlloc.init(.{ .size = call_info.stack_byte_count, .alignment = call_info.stack_align }),
     );
 
@@ -1835,7 +1835,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .fpext           => try self.airFpext(inst),
             .intcast         => try self.airIntCast(inst),
             .trunc           => try self.airTrunc(inst),
-            .bool_to_int     => try self.airBoolToInt(inst),
+            .int_from_bool     => try self.airIntFromBool(inst),
             .is_non_null     => try self.airIsNonNull(inst),
             .is_non_null_ptr => try self.airIsNonNullPtr(inst),
             .is_null         => try self.airIsNull(inst),
@@ -1846,7 +1846,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .is_err_ptr      => try self.airIsErrPtr(inst),
             .load            => try self.airLoad(inst),
             .loop            => try self.airLoop(inst),
-            .ptrtoint        => try self.airPtrToInt(inst),
+            .int_from_ptr        => try self.airIntFromPtr(inst),
             .ret             => try self.airRet(inst),
             .ret_load        => try self.airRetLoad(inst),
             .store           => try self.airStore(inst, false),
@@ -1854,8 +1854,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .struct_field_ptr=> try self.airStructFieldPtr(inst),
             .struct_field_val=> try self.airStructFieldVal(inst),
             .array_to_slice  => try self.airArrayToSlice(inst),
-            .int_to_float    => try self.airIntToFloat(inst),
-            .float_to_int    => try self.airFloatToInt(inst),
+            .float_from_int    => try self.airFloatFromInt(inst),
+            .int_from_float    => try self.airIntFromFloat(inst),
             .cmpxchg_strong  => try self.airCmpxchg(inst),
             .cmpxchg_weak    => try self.airCmpxchg(inst),
             .atomic_rmw      => try self.airAtomicRmw(inst),
@@ -1967,7 +1967,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .cmp_neq_optimized,
             .cmp_vector_optimized,
             .reduce_optimized,
-            .float_to_int_optimized,
+            .int_from_float_optimized,
             => return self.fail("TODO implement optimized float mode", .{}),
 
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
@@ -2147,7 +2147,7 @@ fn setFrameLoc(
     offset: *i32,
     comptime aligned: bool,
 ) void {
-    const frame_i = @enumToInt(frame_index);
+    const frame_i = @intFromEnum(frame_index);
     if (aligned) {
         const alignment = @as(i32, 1) << self.frame_allocs.items(.abi_align)[frame_i];
         offset.* = mem.alignForward(i32, offset.*, alignment);
@@ -2167,21 +2167,21 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
     const frame_offset = self.frame_locs.items(.disp);
 
     for (stack_frame_order, FrameIndex.named_count..) |*frame_order, frame_index|
-        frame_order.* = @intToEnum(FrameIndex, frame_index);
+        frame_order.* = @enumFromInt(FrameIndex, frame_index);
     {
         const SortContext = struct {
             frame_align: @TypeOf(frame_align),
             pub fn lessThan(context: @This(), lhs: FrameIndex, rhs: FrameIndex) bool {
-                return context.frame_align[@enumToInt(lhs)] > context.frame_align[@enumToInt(rhs)];
+                return context.frame_align[@intFromEnum(lhs)] > context.frame_align[@intFromEnum(rhs)];
             }
         };
         const sort_context = SortContext{ .frame_align = frame_align };
         mem.sort(FrameIndex, stack_frame_order, sort_context, SortContext.lessThan);
     }
 
-    const call_frame_align = frame_align[@enumToInt(FrameIndex.call_frame)];
-    const stack_frame_align = frame_align[@enumToInt(FrameIndex.stack_frame)];
-    const args_frame_align = frame_align[@enumToInt(FrameIndex.args_frame)];
+    const call_frame_align = frame_align[@intFromEnum(FrameIndex.call_frame)];
+    const stack_frame_align = frame_align[@intFromEnum(FrameIndex.stack_frame)];
+    const args_frame_align = frame_align[@intFromEnum(FrameIndex.args_frame)];
     const needed_align = @max(call_frame_align, stack_frame_align);
     const need_align_stack = needed_align > args_frame_align;
 
@@ -2200,7 +2200,7 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
     self.setFrameLoc(.ret_addr, .rbp, &rbp_offset, false);
     self.setFrameLoc(.args_frame, .rbp, &rbp_offset, false);
     const stack_frame_align_offset =
-        if (need_align_stack) 0 else frame_offset[@enumToInt(FrameIndex.args_frame)];
+        if (need_align_stack) 0 else frame_offset[@intFromEnum(FrameIndex.args_frame)];
 
     var rsp_offset: i32 = 0;
     self.setFrameLoc(.call_frame, .rsp, &rsp_offset, true);
@@ -2209,23 +2209,23 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
     rsp_offset += stack_frame_align_offset;
     rsp_offset = mem.alignForward(i32, rsp_offset, @as(i32, 1) << needed_align);
     rsp_offset -= stack_frame_align_offset;
-    frame_size[@enumToInt(FrameIndex.call_frame)] =
-        @intCast(u31, rsp_offset - frame_offset[@enumToInt(FrameIndex.stack_frame)]);
+    frame_size[@intFromEnum(FrameIndex.call_frame)] =
+        @intCast(u31, rsp_offset - frame_offset[@intFromEnum(FrameIndex.stack_frame)]);
 
     return .{
         .stack_mask = @as(u32, math.maxInt(u32)) << (if (need_align_stack) needed_align else 0),
-        .stack_adjust = @intCast(u32, rsp_offset - frame_offset[@enumToInt(FrameIndex.call_frame)]),
+        .stack_adjust = @intCast(u32, rsp_offset - frame_offset[@intFromEnum(FrameIndex.call_frame)]),
         .save_reg_list = save_reg_list,
     };
 }
 
 fn getFrameAddrAlignment(self: *Self, frame_addr: FrameAddr) u32 {
-    const alloc_align = @as(u32, 1) << self.frame_allocs.get(@enumToInt(frame_addr.index)).abi_align;
+    const alloc_align = @as(u32, 1) << self.frame_allocs.get(@intFromEnum(frame_addr.index)).abi_align;
     return @min(alloc_align, @bitCast(u32, frame_addr.off) & (alloc_align - 1));
 }
 
 fn getFrameAddrSize(self: *Self, frame_addr: FrameAddr) u32 {
-    return self.frame_allocs.get(@enumToInt(frame_addr.index)).abi_size - @intCast(u31, frame_addr.off);
+    return self.frame_allocs.get(@intFromEnum(frame_addr.index)).abi_size - @intCast(u31, frame_addr.off);
 }
 
 fn allocFrameIndex(self: *Self, alloc: FrameAlloc) !FrameIndex {
@@ -2233,19 +2233,19 @@ fn allocFrameIndex(self: *Self, alloc: FrameAlloc) !FrameIndex {
     const frame_size = frame_allocs_slice.items(.abi_size);
     const frame_align = frame_allocs_slice.items(.abi_align);
 
-    const stack_frame_align = &frame_align[@enumToInt(FrameIndex.stack_frame)];
+    const stack_frame_align = &frame_align[@intFromEnum(FrameIndex.stack_frame)];
     stack_frame_align.* = @max(stack_frame_align.*, alloc.abi_align);
 
     for (self.free_frame_indices.keys(), 0..) |frame_index, free_i| {
-        const abi_size = frame_size[@enumToInt(frame_index)];
+        const abi_size = frame_size[@intFromEnum(frame_index)];
         if (abi_size != alloc.abi_size) continue;
-        const abi_align = &frame_align[@enumToInt(frame_index)];
+        const abi_align = &frame_align[@intFromEnum(frame_index)];
         abi_align.* = @max(abi_align.*, alloc.abi_align);
 
         _ = self.free_frame_indices.swapRemoveAt(free_i);
         return frame_index;
     }
-    const frame_index = @intToEnum(FrameIndex, self.frame_allocs.len);
+    const frame_index = @enumFromInt(FrameIndex, self.frame_allocs.len);
     try self.frame_allocs.append(self.gpa, alloc);
     return frame_index;
 }
@@ -2806,7 +2806,7 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
+fn airIntFromBool(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ty = self.typeOfIndex(inst);
 
@@ -2876,7 +2876,7 @@ fn activeIntBits(self: *Self, dst_air: Air.Inst.Ref) u16 {
                 var space: Value.BigIntSpace = undefined;
                 const src_int = src_val.toBigInt(&space, mod);
                 return @intCast(u16, src_int.bitCountTwosComp()) +
-                    @boolToInt(src_int.positive and dst_info.signedness == .signed);
+                    @intFromBool(src_int.positive and dst_info.signedness == .signed);
             },
             .intcast => {
                 const src_ty = self.typeOf(air_data[inst].ty_op.operand);
@@ -5254,12 +5254,12 @@ fn packedLoad(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) Inn
     const mod = self.bin_file.options.module.?;
     const ptr_info = ptr_ty.ptrInfo(mod);
 
-    const val_ty = ptr_info.pointee_type;
+    const val_ty = ptr_info.child.toType();
     const val_abi_size = @intCast(u32, val_ty.abiSize(mod));
     const limb_abi_size: u32 = @min(val_abi_size, 8);
     const limb_abi_bits = limb_abi_size * 8;
-    const val_byte_off = @intCast(i32, ptr_info.bit_offset / limb_abi_bits * limb_abi_size);
-    const val_bit_off = ptr_info.bit_offset % limb_abi_bits;
+    const val_byte_off = @intCast(i32, ptr_info.packed_offset.bit_offset / limb_abi_bits * limb_abi_size);
+    const val_bit_off = ptr_info.packed_offset.bit_offset % limb_abi_bits;
     const val_extra_bits = self.regExtraBits(val_ty);
 
     if (val_abi_size > 8) return self.fail("TODO implement packed load of {}", .{
@@ -5385,7 +5385,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
         else
             try self.allocRegOrMem(inst, true);
 
-        if (ptr_ty.ptrInfo(mod).host_size > 0) {
+        if (ptr_ty.ptrInfo(mod).packed_offset.host_size > 0) {
             try self.packedLoad(dst_mcv, ptr_ty, ptr_mcv);
         } else {
             try self.load(dst_mcv, ptr_ty, ptr_mcv);
@@ -5400,12 +5400,12 @@ fn packedStore(self: *Self, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue) In
     const ptr_info = ptr_ty.ptrInfo(mod);
     const src_ty = ptr_ty.childType(mod);
 
-    const limb_abi_size: u16 = @min(ptr_info.host_size, 8);
+    const limb_abi_size: u16 = @min(ptr_info.packed_offset.host_size, 8);
     const limb_abi_bits = limb_abi_size * 8;
 
     const src_bit_size = src_ty.bitSize(mod);
-    const src_byte_off = @intCast(i32, ptr_info.bit_offset / limb_abi_bits * limb_abi_size);
-    const src_bit_off = ptr_info.bit_offset % limb_abi_bits;
+    const src_byte_off = @intCast(i32, ptr_info.packed_offset.bit_offset / limb_abi_bits * limb_abi_size);
+    const src_bit_off = ptr_info.packed_offset.bit_offset % limb_abi_bits;
 
     const ptr_reg = try self.copyToTmpRegister(ptr_ty, ptr_mcv);
     const ptr_lock = self.register_manager.lockRegAssumeUnused(ptr_reg);
@@ -5516,7 +5516,7 @@ fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     const ptr_mcv = try self.resolveInst(bin_op.lhs);
     const ptr_ty = self.typeOf(bin_op.lhs);
     const src_mcv = try self.resolveInst(bin_op.rhs);
-    if (ptr_ty.ptrInfo(mod).host_size > 0) {
+    if (ptr_ty.ptrInfo(mod).packed_offset.host_size > 0) {
         try self.packedStore(ptr_ty, ptr_mcv, src_mcv);
     } else {
         try self.store(ptr_ty, ptr_mcv, src_mcv);
@@ -5545,7 +5545,7 @@ fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32
     const field_offset = @intCast(i32, switch (container_ty.containerLayout(mod)) {
         .Auto, .Extern => container_ty.structFieldOffset(index, mod),
         .Packed => if (container_ty.zigTypeTag(mod) == .Struct and
-            ptr_field_ty.ptrInfo(mod).host_size == 0)
+            ptr_field_ty.ptrInfo(mod).packed_offset.host_size == 0)
             container_ty.packedStructFieldByteOffset(index, mod)
         else
             0,
@@ -8034,10 +8034,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             FrameAlloc.init(.{ .size = info.stack_byte_count, .alignment = info.stack_align });
         const frame_allocs_slice = self.frame_allocs.slice();
         const stack_frame_size =
-            &frame_allocs_slice.items(.abi_size)[@enumToInt(FrameIndex.call_frame)];
+            &frame_allocs_slice.items(.abi_size)[@intFromEnum(FrameIndex.call_frame)];
         stack_frame_size.* = @max(stack_frame_size.*, needed_call_frame.abi_size);
         const stack_frame_align =
-            &frame_allocs_slice.items(.abi_align)[@enumToInt(FrameIndex.call_frame)];
+            &frame_allocs_slice.items(.abi_align)[@intFromEnum(FrameIndex.call_frame)];
         stack_frame_align.* = @max(stack_frame_align.*, needed_call_frame.abi_align);
     }
 
@@ -10147,7 +10147,7 @@ fn genLazySymbolRef(
     }
 }
 
-fn airPtrToInt(self: *Self, inst: Air.Inst.Index) !void {
+fn airIntFromPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result = result: {
         // TODO: handle case where the operand is a slice not a raw pointer
@@ -10246,7 +10246,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
+fn airFloatFromInt(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
@@ -10260,7 +10260,7 @@ fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
         .signed => src_bits,
         .unsigned => src_bits + 1,
     }, 32), 8) catch unreachable;
-    if (src_size > 8) return self.fail("TODO implement airIntToFloat from {} to {}", .{
+    if (src_size > 8) return self.fail("TODO implement airFloatFromInt from {} to {}", .{
         src_ty.fmt(mod), dst_ty.fmt(mod),
     });
 
@@ -10287,7 +10287,7 @@ fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
             else => unreachable,
         },
         else => null,
-    })) |tag| tag else return self.fail("TODO implement airIntToFloat from {} to {}", .{
+    })) |tag| tag else return self.fail("TODO implement airFloatFromInt from {} to {}", .{
         src_ty.fmt(mod), dst_ty.fmt(mod),
     });
     const dst_alias = dst_reg.to128();
@@ -10300,7 +10300,7 @@ fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
-fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
+fn airIntFromFloat(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
@@ -10314,7 +10314,7 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
         .signed => dst_bits,
         .unsigned => dst_bits + 1,
     }, 32), 8) catch unreachable;
-    if (dst_size > 8) return self.fail("TODO implement airFloatToInt from {} to {}", .{
+    if (dst_size > 8) return self.fail("TODO implement airIntFromFloat from {} to {}", .{
         src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
     });
 
@@ -10340,7 +10340,7 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
                 else => unreachable,
             },
             else => null,
-        })) |tag| tag else return self.fail("TODO implement airFloatToInt from {} to {}", .{
+        })) |tag| tag else return self.fail("TODO implement airIntFromFloat from {} to {}", .{
             src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
         }),
         registerAlias(dst_reg, dst_size),
@@ -10915,10 +10915,10 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
         });
         const frame_allocs_slice = self.frame_allocs.slice();
         const stack_frame_size =
-            &frame_allocs_slice.items(.abi_size)[@enumToInt(FrameIndex.call_frame)];
+            &frame_allocs_slice.items(.abi_size)[@intFromEnum(FrameIndex.call_frame)];
         stack_frame_size.* = @max(stack_frame_size.*, needed_call_frame.abi_size);
         const stack_frame_align =
-            &frame_allocs_slice.items(.abi_align)[@enumToInt(FrameIndex.call_frame)];
+            &frame_allocs_slice.items(.abi_align)[@intFromEnum(FrameIndex.call_frame)];
         stack_frame_align.* = @max(stack_frame_align.*, needed_call_frame.abi_align);
     }
 
@@ -11413,7 +11413,7 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
         const tag_ty = union_obj.tag_ty;
         const field_index = tag_ty.enumFieldIndex(field_name, mod).?;
         const tag_val = try mod.enumValueFieldIndex(tag_ty, field_index);
-        const tag_int_val = try tag_val.enumToInt(tag_ty, mod);
+        const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);
         const tag_int = tag_int_val.toUnsignedInt(mod);
         const tag_off = if (layout.tag_align < layout.payload_align)
             @intCast(i32, layout.payload_size)
@@ -11637,7 +11637,7 @@ fn limitImmediateType(self: *Self, operand: Air.Inst.Ref, comptime T: type) !MCV
     switch (mcv) {
         .immediate => |imm| {
             // This immediate is unsigned.
-            const U = std.meta.Int(.unsigned, ti.bits - @boolToInt(ti.signedness == .signed));
+            const U = std.meta.Int(.unsigned, ti.bits - @intFromBool(ti.signedness == .signed));
             if (imm >= math.maxInt(U)) {
                 return MCValue{ .register = try self.copyToTmpRegister(Type.usize, mcv) };
             }
@@ -11782,17 +11782,17 @@ fn resolveCallingConventionValues(
                     },
                     .float, .sse => switch (self.target.os.tag) {
                         .windows => if (param_reg_i < 4) {
-                            arg.* = .{ .register = @intToEnum(
+                            arg.* = .{ .register = @enumFromInt(
                                 Register,
-                                @enumToInt(Register.xmm0) + param_reg_i,
+                                @intFromEnum(Register.xmm0) + param_reg_i,
                             ) };
                             param_reg_i += 1;
                             continue;
                         },
                         else => if (param_sse_reg_i < 8) {
-                            arg.* = .{ .register = @intToEnum(
+                            arg.* = .{ .register = @enumFromInt(
                                 Register,
-                                @enumToInt(Register.xmm0) + param_sse_reg_i,
+                                @intFromEnum(Register.xmm0) + param_sse_reg_i,
                             ) };
                             param_sse_reg_i += 1;
                             continue;

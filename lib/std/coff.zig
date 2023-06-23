@@ -1105,7 +1105,7 @@ pub const Coff = struct {
         assert(self.is_image);
 
         const data_dirs = self.getDataDirectories();
-        const debug_dir = data_dirs[@enumToInt(DirectoryEntry.DEBUG)];
+        const debug_dir = data_dirs[@intFromEnum(DirectoryEntry.DEBUG)];
 
         var stream = std.io.fixedBufferStream(self.data);
         const reader = stream.reader();
@@ -1303,9 +1303,9 @@ pub const Symtab = struct {
         return .{
             .name = raw[0..8].*,
             .value = mem.readIntLittle(u32, raw[8..12]),
-            .section_number = @intToEnum(SectionNumber, mem.readIntLittle(u16, raw[12..14])),
+            .section_number = @enumFromInt(SectionNumber, mem.readIntLittle(u16, raw[12..14])),
             .type = @bitCast(SymType, mem.readIntLittle(u16, raw[14..16])),
-            .storage_class = @intToEnum(StorageClass, raw[16]),
+            .storage_class = @enumFromInt(StorageClass, raw[16]),
             .number_of_aux_symbols = raw[17],
         };
     }
@@ -1333,7 +1333,7 @@ pub const Symtab = struct {
     fn asWeakExtDef(raw: []const u8) WeakExternalDefinition {
         return .{
             .tag_index = mem.readIntLittle(u32, raw[0..4]),
-            .flag = @intToEnum(WeakExternalFlag, mem.readIntLittle(u32, raw[4..8])),
+            .flag = @enumFromInt(WeakExternalFlag, mem.readIntLittle(u32, raw[4..8])),
             .unused = raw[8..18].*,
         };
     }
@@ -1351,7 +1351,7 @@ pub const Symtab = struct {
             .number_of_linenumbers = mem.readIntLittle(u16, raw[6..8]),
             .checksum = mem.readIntLittle(u32, raw[8..12]),
             .number = mem.readIntLittle(u16, raw[12..14]),
-            .selection = @intToEnum(ComdatSelection, raw[14]),
+            .selection = @enumFromInt(ComdatSelection, raw[14]),
             .unused = raw[15..18].*,
         };
     }

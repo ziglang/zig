@@ -6,7 +6,6 @@ pub export fn entry() void {
 }
 fn sliceAsBytes(slice: anytype) std.meta.trait.isPtrTo(.Array)(@TypeOf(slice)) {}
 
-
 // error
 // backend=llvm
 // target=native

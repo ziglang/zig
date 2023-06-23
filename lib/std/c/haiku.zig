@@ -414,7 +414,7 @@ pub const CLOCK = struct {
 
 pub const MAP = struct {
     /// mmap() error return code
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
     /// changes are seen by others
     pub const SHARED = 0x01;
     /// changes are only seen by caller
@@ -481,9 +481,9 @@ pub const SA = struct {
 };
 
 pub const SIG = struct {
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
+    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
+    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
 
     pub const HUP = 1;
     pub const INT = 2;
@@ -1071,3 +1071,5 @@ pub const sigevent = extern struct {
 
 /// TODO refines if necessary
 pub const PTHREAD_STACK_MIN = 2 * 4096;
+
+pub extern "c" fn malloc_usable_size(?*anyopaque) usize;

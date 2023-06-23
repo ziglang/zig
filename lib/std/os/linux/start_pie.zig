@@ -78,7 +78,7 @@ pub fn relocate(phdrs: []elf.Phdr) void {
     const base_addr = base: {
         for (phdrs) |*phdr| {
             if (phdr.p_type != elf.PT_DYNAMIC) continue;
-            break :base @ptrToInt(dynv) - phdr.p_vaddr;
+            break :base @intFromPtr(dynv) - phdr.p_vaddr;
         }
         // This is not supposed to happen for well-formed binaries.
         std.os.abort();
@@ -103,17 +103,17 @@ pub fn relocate(phdrs: []elf.Phdr) void {
 
     // Apply the relocations.
     if (rel_addr != 0) {
-        const rel = std.mem.bytesAsSlice(elf.Rel, @intToPtr([*]u8, rel_addr)[0..rel_size]);
+        const rel = std.mem.bytesAsSlice(elf.Rel, @ptrFromInt([*]u8, rel_addr)[0..rel_size]);
         for (rel) |r| {
             if (r.r_type() != R_RELATIVE) continue;
-            @intToPtr(*usize, base_addr + r.r_offset).* += base_addr;
+            @ptrFromInt(*usize, base_addr + r.r_offset).* += base_addr;
         }
     }
     if (rela_addr != 0) {
-        const rela = std.mem.bytesAsSlice(elf.Rela, @intToPtr([*]u8, rela_addr)[0..rela_size]);
+        const rela = std.mem.bytesAsSlice(elf.Rela, @ptrFromInt([*]u8, rela_addr)[0..rela_size]);
         for (rela) |r| {
             if (r.r_type() != R_RELATIVE) continue;
-            @intToPtr(*usize, base_addr + r.r_offset).* += base_addr + @bitCast(usize, r.r_addend);
+            @ptrFromInt(*usize, base_addr + r.r_offset).* += base_addr + @bitCast(usize, r.r_addend);
         }
     }
 }

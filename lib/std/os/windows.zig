@@ -30,7 +30,7 @@ pub const gdi32 = @import("windows/gdi32.zig");
 pub const winmm = @import("windows/winmm.zig");
 pub const crypt32 = @import("windows/crypt32.zig");
 
-pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
+pub const self_process_handle = @ptrFromInt(HANDLE, maxInt(usize));
 
 const Self = @This();
 
@@ -242,7 +242,7 @@ pub fn DeviceIoControl(
 
 pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
     var bytes: DWORD = undefined;
-    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @boolToInt(wait)) == 0) {
+    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @intFromBool(wait)) == 0) {
         switch (kernel32.GetLastError()) {
             .IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
             else => |err| return unexpectedError(err),
@@ -294,7 +294,7 @@ pub fn WaitForSingleObject(handle: HANDLE, milliseconds: DWORD) WaitForSingleObj
 }
 
 pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: bool) WaitForSingleObjectError!void {
-    switch (kernel32.WaitForSingleObjectEx(handle, milliseconds, @boolToInt(alertable))) {
+    switch (kernel32.WaitForSingleObjectEx(handle, milliseconds, @intFromBool(alertable))) {
         WAIT_ABANDONED => return error.WaitAbandoned,
         WAIT_OBJECT_0 => return,
         WAIT_TIMEOUT => return error.WaitTimeOut,
@@ -311,9 +311,9 @@ pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, millisec
     switch (kernel32.WaitForMultipleObjectsEx(
         nCount,
         handles.ptr,
-        @boolToInt(waitAll),
+        @intFromBool(waitAll),
         milliseconds,
-        @boolToInt(alertable),
+        @intFromBool(alertable),
     )) {
         WAIT_OBJECT_0...WAIT_OBJECT_0 + MAXIMUM_WAIT_OBJECTS => |n| {
             const handle_index = n - WAIT_OBJECT_0;
@@ -422,7 +422,7 @@ pub fn GetQueuedCompletionStatusEx(
         @intCast(ULONG, completion_port_entries.len),
         &num_entries_removed,
         timeout_ms orelse INFINITE,
-        @boolToInt(alertable),
+        @intFromBool(alertable),
     );
 
     if (success == FALSE) {
@@ -1106,7 +1106,7 @@ test "QueryObjectName" {
     var out_buffer: [PATH_MAX_WIDE]u16 = undefined;
 
     var result_path = try QueryObjectName(handle, &out_buffer);
-    const required_len_in_u16 = result_path.len + @divExact(@ptrToInt(result_path.ptr) - @ptrToInt(&out_buffer), 2) + 1;
+    const required_len_in_u16 = result_path.len + @divExact(@intFromPtr(result_path.ptr) - @intFromPtr(&out_buffer), 2) + 1;
     //insufficient size
     try std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
     //exactly-sufficient size
@@ -1263,7 +1263,7 @@ test "GetFinalPathNameByHandle" {
     const nt_path = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, &buffer);
     _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, &buffer);
 
-    const required_len_in_u16 = nt_path.len + @divExact(@ptrToInt(nt_path.ptr) - @ptrToInt(&buffer), 2) + 1;
+    const required_len_in_u16 = nt_path.len + @divExact(@intFromPtr(nt_path.ptr) - @intFromPtr(&buffer), 2) + 1;
     //check with insufficient size
     try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. required_len_in_u16 - 1]));
     try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. required_len_in_u16 - 1]));
@@ -1313,7 +1313,7 @@ pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
     var wsadata: ws2_32.WSADATA = undefined;
     return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
         0 => wsadata,
-        else => |err_int| switch (@intToEnum(ws2_32.WinsockError, @intCast(u16, err_int))) {
+        else => |err_int| switch (@enumFromInt(ws2_32.WinsockError, @intCast(u16, err_int))) {
             .WSASYSNOTREADY => return error.SystemNotAvailable,
             .WSAVERNOTSUPPORTED => return error.VersionNotSupported,
             .WSAEINPROGRESS => return error.BlockingOperationInProgress,
@@ -2286,7 +2286,7 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
         ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
         @ptrCast(*const anyopaque, &guid),
         @sizeOf(GUID),
-        @intToPtr(?*anyopaque, @ptrToInt(&function)),
+        @ptrFromInt(?*anyopaque, @intFromPtr(&function)),
         @sizeOf(T),
         &num_bytes,
         null,
@@ -2325,21 +2325,21 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
             null,
         );
         _ = std.unicode.utf16leToUtf8(&buf_utf8, buf_wstr[0..len]) catch unreachable;
-        std.debug.print("error.Unexpected: GetLastError({}): {s}\n", .{ @enumToInt(err), buf_utf8[0..len] });
+        std.debug.print("error.Unexpected: GetLastError({}): {s}\n", .{ @intFromEnum(err), buf_utf8[0..len] });
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }
     return error.Unexpected;
 }
 
 pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
-    return unexpectedError(@intToEnum(Win32Error, @enumToInt(err)));
+    return unexpectedError(@enumFromInt(Win32Error, @intFromEnum(err)));
 }
 
 /// Call this when you made a windows NtDll call
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@enumToInt(status)});
+        std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@intFromEnum(status)});
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }
     return error.Unexpected;
@@ -2527,10 +2527,10 @@ pub fn CTL_CODE(deviceType: u16, function: u12, method: TransferType, access: u2
     return (@as(DWORD, deviceType) << 16) |
         (@as(DWORD, access) << 14) |
         (@as(DWORD, function) << 2) |
-        @enumToInt(method);
+        @intFromEnum(method);
 }
 
-pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
+pub const INVALID_HANDLE_VALUE = @ptrFromInt(HANDLE, maxInt(usize));
 
 pub const INVALID_FILE_ATTRIBUTES = @as(DWORD, maxInt(DWORD));
 
@@ -3221,7 +3221,7 @@ pub const LSTATUS = LONG;
 
 pub const HKEY = *opaque {};
 
-pub const HKEY_LOCAL_MACHINE: HKEY = @intToPtr(HKEY, 0x80000002);
+pub const HKEY_LOCAL_MACHINE: HKEY = @ptrFromInt(HKEY, 0x80000002);
 
 /// Combines the STANDARD_RIGHTS_REQUIRED, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_CREATE_SUB_KEY,
 /// KEY_ENUMERATE_SUB_KEYS, KEY_NOTIFY, and KEY_CREATE_LINK access rights.
@@ -3386,6 +3386,8 @@ pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
     srWindow: SMALL_RECT,
     dwMaximumWindowSize: COORD,
 };
+
+pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x4;
 
 pub const FOREGROUND_BLUE = 1;
 pub const FOREGROUND_GREEN = 2;
@@ -4683,11 +4685,11 @@ pub const KUSER_SHARED_DATA = extern struct {
 /// Read-only user-mode address for the shared data.
 /// https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
 /// https://msrc-blog.microsoft.com/2022/04/05/randomizing-the-kuser_shared_data-structure-on-windows/
-pub const SharedUserData: *const KUSER_SHARED_DATA = @intToPtr(*const KUSER_SHARED_DATA, 0x7FFE0000);
+pub const SharedUserData: *const KUSER_SHARED_DATA = @ptrFromInt(*const KUSER_SHARED_DATA, 0x7FFE0000);
 
 pub fn IsProcessorFeaturePresent(feature: PF) bool {
-    if (@enumToInt(feature) >= PROCESSOR_FEATURE_MAX) return false;
-    return SharedUserData.ProcessorFeatures[@enumToInt(feature)] == 1;
+    if (@intFromEnum(feature) >= PROCESSOR_FEATURE_MAX) return false;
+    return SharedUserData.ProcessorFeatures[@intFromEnum(feature)] == 1;
 }
 
 pub const TH32CS_SNAPHEAPLIST = 0x00000001;

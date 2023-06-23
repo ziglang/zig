@@ -16,8 +16,8 @@ fn expectError(expected_err: anyerror, observed_err_union: anytype) !void {
 }
 
 test "error values" {
-    const a = @errorToInt(error.err1);
-    const b = @errorToInt(error.err2);
+    const a = @intFromError(error.err1);
+    const b = @intFromError(error.err2);
     try expect(a != b);
 }
 
@@ -259,14 +259,14 @@ fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) !void {
 }
 
 test "comptime err to int of error set with only 1 possible value" {
-    testErrToIntWithOnePossibleValue(error.A, @errorToInt(error.A));
-    comptime testErrToIntWithOnePossibleValue(error.A, @errorToInt(error.A));
+    testErrToIntWithOnePossibleValue(error.A, @intFromError(error.A));
+    comptime testErrToIntWithOnePossibleValue(error.A, @intFromError(error.A));
 }
 fn testErrToIntWithOnePossibleValue(
     x: error{A},
     comptime value: u32,
 ) void {
-    if (@errorToInt(x) != value) {
+    if (@intFromError(x) != value) {
         @compileError("bad");
     }
 }

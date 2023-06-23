@@ -140,8 +140,8 @@ pub fn log(
     // Hide debug messages unless:
     // * logging enabled with `-Dlog`.
     // * the --debug-log arg for the scope has been provided
-    if (@enumToInt(level) > @enumToInt(std.options.log_level) or
-        @enumToInt(level) > @enumToInt(std.log.Level.info))
+    if (@intFromEnum(level) > @intFromEnum(std.options.log_level) or
+        @intFromEnum(level) > @intFromEnum(std.log.Level.info))
     {
         if (!build_options.enable_logging) return;
 
@@ -2424,8 +2424,8 @@ fn buildOutputType(
             fatal("shared memory is not allowed in object files", .{});
         }
 
-        if (!target_info.target.cpu.features.isEnabled(@enumToInt(std.Target.wasm.Feature.atomics)) or
-            !target_info.target.cpu.features.isEnabled(@enumToInt(std.Target.wasm.Feature.bulk_memory)))
+        if (!target_info.target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.atomics)) or
+            !target_info.target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.bulk_memory)))
         {
             fatal("'atomics' and 'bulk-memory' features must be enabled to use shared memory", .{});
         }
@@ -2640,7 +2640,7 @@ fn buildOutputType(
 
     if (output_mode == .Obj and (object_format == .coff or object_format == .macho)) {
         const total_obj_count = c_source_files.items.len +
-            @boolToInt(root_src_file != null) +
+            @intFromBool(root_src_file != null) +
             link_objects.items.len;
         if (total_obj_count > 1) {
             fatal("{s} does not support linking multiple objects into one", .{@tagName(object_format)});
@@ -3466,7 +3466,7 @@ fn serve(
                 }
             },
             else => {
-                fatal("unrecognized message from client: 0x{x}", .{@enumToInt(hdr.tag)});
+                fatal("unrecognized message from client: 0x{x}", .{@intFromEnum(hdr.tag)});
             },
         }
     }
@@ -4706,7 +4706,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
         defer gpa.free(formatted);
 
         if (check_flag) {
-            const code: u8 = @boolToInt(mem.eql(u8, formatted, source_code));
+            const code: u8 = @intFromBool(mem.eql(u8, formatted, source_code));
             process.exit(code);
         }
 
@@ -5080,7 +5080,7 @@ pub fn lldMain(
             unreachable;
         }
     };
-    return @boolToInt(!ok);
+    return @intFromBool(!ok);
 }
 
 const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments = true, .single_quotes = true });

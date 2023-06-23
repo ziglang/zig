@@ -2310,7 +2310,7 @@ pub fn getHashPtrAddrFn(comptime K: type, comptime Context: type) (fn (Context, 
     return struct {
         fn hash(ctx: Context, key: K) u32 {
             _ = ctx;
-            return getAutoHashFn(usize, void)({}, @ptrToInt(key));
+            return getAutoHashFn(usize, void)({}, @intFromPtr(key));
         }
     }.hash;
 }

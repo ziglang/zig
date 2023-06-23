@@ -73,7 +73,7 @@ pub fn ValidationAllocator(comptime T: type) type {
             const underlying = self.getUnderlyingAllocatorPtr();
             const result = underlying.rawAlloc(n, log2_ptr_align, ret_addr) orelse
                 return null;
-            assert(mem.isAlignedLog2(@ptrToInt(result), log2_ptr_align));
+            assert(mem.isAlignedLog2(@intFromPtr(result), log2_ptr_align));
             return result;
         }
 
@@ -185,7 +185,7 @@ test "Allocator.resize" {
         var values = try testing.allocator.alloc(T, 100);
         defer testing.allocator.free(values);
 
-        for (values, 0..) |*v, i| v.* = @intToFloat(T, i);
+        for (values, 0..) |*v, i| v.* = @floatFromInt(T, i);
         if (!testing.allocator.resize(values, values.len + 10)) return error.OutOfMemory;
         values = values.ptr[0 .. values.len + 10];
         try testing.expect(values.len == 110);
@@ -233,7 +233,7 @@ pub fn zeroes(comptime T: type) T {
             return @as(T, 0);
         },
         .Enum, .EnumLiteral => {
-            return @intToEnum(T, 0);
+            return @enumFromInt(T, 0);
         },
         .Void => {
             return {};
@@ -597,9 +597,8 @@ pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
 /// Compares two slices of numbers lexicographically. O(n).
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     const n = @min(lhs.len, rhs.len);
-    var i: usize = 0;
-    while (i < n) : (i += 1) {
-        switch (math.order(lhs[i], rhs[i])) {
+    for (lhs[0..n], rhs[0..n]) |lhs_elem, rhs_elem| {
+        switch (math.order(lhs_elem, rhs_elem)) {
             .eq => continue,
             .lt => return .lt,
             .gt => return .gt,
@@ -1375,7 +1374,7 @@ pub fn readVarPackedInt(
         const value = if (read_size == 1) b: {
             break :b @truncate(uN, read_bytes[0] >> bit_shift);
         } else b: {
-            const i: u1 = @boolToInt(endian == .Big);
+            const i: u1 = @intFromBool(endian == .Big);
             const head = @truncate(uN, read_bytes[i] >> bit_shift);
             const tail_shift = @intCast(Log2N, @as(u4, 8) - bit_shift);
             const tail = @truncate(uN, read_bytes[1 - i]);
@@ -3779,7 +3778,7 @@ pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
         return 0;
 
     // Calculate the aligned base address with an eye out for overflow.
-    const addr = @ptrToInt(ptr);
+    const addr = @intFromPtr(ptr);
     var ov = @addWithOverflow(addr, align_to - 1);
     if (ov[1] != 0) return null;
     ov[0] &= ~@as(usize, align_to - 1);
@@ -3801,16 +3800,16 @@ pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
 pub fn alignPointer(ptr: anytype, align_to: usize) ?@TypeOf(ptr) {
     const adjust_off = alignPointerOffset(ptr, align_to) orelse return null;
     const T = @TypeOf(ptr);
-    // Avoid the use of intToPtr to avoid losing the pointer provenance info.
+    // Avoid the use of ptrFromInt to avoid losing the pointer provenance info.
     return @alignCast(@typeInfo(T).Pointer.alignment, ptr + adjust_off);
 }
 
 test "alignPointer" {
     const S = struct {
         fn checkAlign(comptime T: type, base: usize, align_to: usize, expected: usize) !void {
-            var ptr = @intToPtr(T, base);
+            var ptr = @ptrFromInt(T, base);
             var aligned = alignPointer(ptr, align_to);
-            try testing.expectEqual(expected, @ptrToInt(aligned));
+            try testing.expectEqual(expected, @intFromPtr(aligned));
         }
     };
 
@@ -4237,8 +4236,8 @@ pub fn doNotOptimizeAway(val: anytype) void {
     const t = @typeInfo(@TypeOf(val));
     switch (t) {
         .Void, .Null, .ComptimeInt, .ComptimeFloat => return,
-        .Enum => doNotOptimizeAway(@enumToInt(val)),
-        .Bool => doNotOptimizeAway(@boolToInt(val)),
+        .Enum => doNotOptimizeAway(@intFromEnum(val)),
+        .Bool => doNotOptimizeAway(@intFromBool(val)),
         .Int => {
             const bits = t.Int.bits;
             if (bits <= max_gp_register_bits and builtin.zig_backend != .stage2_c) {
@@ -4426,7 +4425,7 @@ fn AlignedSlice(comptime AttributeSource: type, comptime new_alignment: usize) t
 /// Returns the largest slice in the given bytes that conforms to the new alignment,
 /// or `null` if the given bytes contain no conforming address.
 pub fn alignInBytes(bytes: []u8, comptime new_alignment: usize) ?[]align(new_alignment) u8 {
-    const begin_address = @ptrToInt(bytes.ptr);
+    const begin_address = @intFromPtr(bytes.ptr);
     const end_address = begin_address + bytes.len;
 
     const begin_address_aligned = mem.alignForward(usize, begin_address, new_alignment);

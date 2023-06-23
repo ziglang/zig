@@ -300,7 +300,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const FOO = (foo + @as(c_int, 2)).*;
         ,
-        \\pub const VALUE = ((((@as(c_int, 1) + (@as(c_int, 2) * @as(c_int, 3))) + (@as(c_int, 4) * @as(c_int, 5))) + @as(c_int, 6)) << @as(c_int, 7)) | @boolToInt(@as(c_int, 8) == @as(c_int, 9));
+        \\pub const VALUE = ((((@as(c_int, 1) + (@as(c_int, 2) * @as(c_int, 3))) + (@as(c_int, 4) * @as(c_int, 5))) + @as(c_int, 6)) << @as(c_int, 7)) | @intFromBool(@as(c_int, 8) == @as(c_int, 9));
         ,
         \\pub inline fn _AL_READ3BYTES(p: anytype) @TypeOf((@import("std").zig.c_translation.cast([*c]u8, p).* | ((@import("std").zig.c_translation.cast([*c]u8, p) + @as(c_int, 1)).* << @as(c_int, 8))) | ((@import("std").zig.c_translation.cast([*c]u8, p) + @as(c_int, 2)).* << @as(c_int, 16))) {
         \\    return (@import("std").zig.c_translation.cast([*c]u8, p).* | ((@import("std").zig.c_translation.cast([*c]u8, p) + @as(c_int, 1)).* << @as(c_int, 8))) | ((@import("std").zig.c_translation.cast([*c]u8, p) + @as(c_int, 2)).* << @as(c_int, 16));
@@ -439,8 +439,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(x) ((x >= 0) + (x >= 0))
         \\#define BAR 1 && 2 > 4
     , &[_][]const u8{
-        \\pub inline fn FOO(x: anytype) @TypeOf(@boolToInt(x >= @as(c_int, 0)) + @boolToInt(x >= @as(c_int, 0))) {
-        \\    return @boolToInt(x >= @as(c_int, 0)) + @boolToInt(x >= @as(c_int, 0));
+        \\pub inline fn FOO(x: anytype) @TypeOf(@intFromBool(x >= @as(c_int, 0)) + @intFromBool(x >= @as(c_int, 0))) {
+        \\    return @intFromBool(x >= @as(c_int, 0)) + @intFromBool(x >= @as(c_int, 0));
         \\}
         ,
         \\pub const BAR = (@as(c_int, 1) != 0) and (@as(c_int, 2) > @as(c_int, 4));
@@ -905,7 +905,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn foo() void;
         \\pub export fn bar() void {
         \\    var func_ptr: ?*anyopaque = @ptrCast(?*anyopaque, &foo);
-        \\    var typed_func_ptr: ?*const fn () callconv(.C) void = @intToPtr(?*const fn () callconv(.C) void, @intCast(c_ulong, @ptrToInt(func_ptr)));
+        \\    var typed_func_ptr: ?*const fn () callconv(.C) void = @ptrFromInt(?*const fn () callconv(.C) void, @intCast(c_ulong, @intFromPtr(func_ptr)));
         \\    _ = @TypeOf(typed_func_ptr);
         \\}
     });
@@ -1719,10 +1719,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a: c_int = undefined;
         \\    var b: f32 = undefined;
         \\    var c: ?*anyopaque = undefined;
-        \\    return @boolToInt(!(a == @as(c_int, 0)));
-        \\    return @boolToInt(!(a != 0));
-        \\    return @boolToInt(!(b != 0));
-        \\    return @boolToInt(!(c != null));
+        \\    return @intFromBool(!(a == @as(c_int, 0)));
+        \\    return @intFromBool(!(a != 0));
+        \\    return @intFromBool(!(b != 0));
+        \\    return @intFromBool(!(c != null));
         \\}
     });
 
@@ -2238,7 +2238,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export var a: f32 = @floatCast(f32, 3.1415);
         \\pub export var b: f64 = 3.1415;
-        \\pub export var c: c_int = @floatToInt(c_int, 3.1415);
+        \\pub export var c: c_int = @intFromFloat(c_int, 3.1415);
         \\pub export var d: f64 = 3;
     });
 
@@ -2417,13 +2417,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("c style cast",
-        \\int float_to_int(float a) {
+        \\int int_from_float(float a) {
         \\    return (int)a;
         \\}
     , &[_][]const u8{
-        \\pub export fn float_to_int(arg_a: f32) c_int {
+        \\pub export fn int_from_float(arg_a: f32) c_int {
         \\    var a = arg_a;
-        \\    return @floatToInt(c_int, a);
+        \\    return @intFromFloat(c_int, a);
         \\}
     });
 
@@ -2534,18 +2534,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\    var b = arg_b;
             \\    var c = arg_c;
             \\    var d: enum_Foo = @bitCast(c_uint, FooA);
-            \\    var e: c_int = @boolToInt((a != 0) and (b != 0));
-            \\    var f: c_int = @boolToInt((b != 0) and (c != null));
-            \\    var g: c_int = @boolToInt((a != 0) and (c != null));
-            \\    var h: c_int = @boolToInt((a != 0) or (b != 0));
-            \\    var i: c_int = @boolToInt((b != 0) or (c != null));
-            \\    var j: c_int = @boolToInt((a != 0) or (c != null));
-            \\    var k: c_int = @boolToInt((a != 0) or (@bitCast(c_int, d) != 0));
-            \\    var l: c_int = @boolToInt((@bitCast(c_int, d) != 0) and (b != 0));
-            \\    var m: c_int = @boolToInt((c != null) or (d != 0));
+            \\    var e: c_int = @intFromBool((a != 0) and (b != 0));
+            \\    var f: c_int = @intFromBool((b != 0) and (c != null));
+            \\    var g: c_int = @intFromBool((a != 0) and (c != null));
+            \\    var h: c_int = @intFromBool((a != 0) or (b != 0));
+            \\    var i: c_int = @intFromBool((b != 0) or (c != null));
+            \\    var j: c_int = @intFromBool((a != 0) or (c != null));
+            \\    var k: c_int = @intFromBool((a != 0) or (@bitCast(c_int, d) != 0));
+            \\    var l: c_int = @intFromBool((@bitCast(c_int, d) != 0) and (b != 0));
+            \\    var m: c_int = @intFromBool((c != null) or (d != 0));
             \\    var td: SomeTypedef = 44;
-            \\    var o: c_int = @boolToInt((td != 0) or (b != 0));
-            \\    var p: c_int = @boolToInt((c != null) and (td != 0));
+            \\    var o: c_int = @intFromBool((td != 0) or (b != 0));
+            \\    var p: c_int = @intFromBool((c != null) and (td != 0));
             \\    return (((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p;
             \\}
         ,
@@ -2605,13 +2605,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn test_comparisons(arg_a: c_int, arg_b: c_int) c_int {
         \\    var a = arg_a;
         \\    var b = arg_b;
-        \\    var c: c_int = @boolToInt(a < b);
-        \\    var d: c_int = @boolToInt(a > b);
-        \\    var e: c_int = @boolToInt(a <= b);
-        \\    var f: c_int = @boolToInt(a >= b);
-        \\    var g: c_int = @boolToInt(c < d);
-        \\    var h: c_int = @boolToInt(e < f);
-        \\    var i: c_int = @boolToInt(g < h);
+        \\    var c: c_int = @intFromBool(a < b);
+        \\    var d: c_int = @intFromBool(a > b);
+        \\    var e: c_int = @intFromBool(a <= b);
+        \\    var f: c_int = @intFromBool(a >= b);
+        \\    var g: c_int = @intFromBool(c < d);
+        \\    var h: c_int = @intFromBool(e < f);
+        \\    var i: c_int = @intFromBool(g < h);
         \\    return i;
         \\}
     });
@@ -3258,11 +3258,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn fn_bool(x: bool) void;
         \\pub extern fn fn_ptr(x: ?*anyopaque) void;
         \\pub export fn call() void {
-        \\    fn_int(@floatToInt(c_int, 3.0));
-        \\    fn_int(@floatToInt(c_int, 3.0));
+        \\    fn_int(@intFromFloat(c_int, 3.0));
+        \\    fn_int(@intFromFloat(c_int, 3.0));
         \\    fn_int(@as(c_int, 1094861636));
-        \\    fn_f32(@intToFloat(f32, @as(c_int, 3)));
-        \\    fn_f64(@intToFloat(f64, @as(c_int, 3)));
+        \\    fn_f32(@floatFromInt(f32, @as(c_int, 3)));
+        \\    fn_f64(@floatFromInt(f64, @as(c_int, 3)));
         \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '3'))));
         \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '\x01'))));
         \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, 0))));
@@ -3270,9 +3270,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fn_f64(3.0);
         \\    fn_bool(@as(c_int, 123) != 0);
         \\    fn_bool(@as(c_int, 0) != 0);
-        \\    fn_bool(@ptrToInt(&fn_int) != 0);
-        \\    fn_int(@intCast(c_int, @ptrToInt(&fn_int)));
-        \\    fn_ptr(@intToPtr(?*anyopaque, @as(c_int, 42)));
+        \\    fn_bool(@intFromPtr(&fn_int) != 0);
+        \\    fn_int(@intCast(c_int, @intFromPtr(&fn_int)));
+        \\    fn_ptr(@ptrFromInt(?*anyopaque, @as(c_int, 42)));
         \\}
     });
 
@@ -3473,11 +3473,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
         \\pub export fn bar(arg_a: [*c]const c_int) void {
         \\    var a = arg_a;
-        \\    foo(@intToPtr([*c]c_int, @ptrToInt(a)));
+        \\    foo(@ptrFromInt([*c]c_int, @intFromPtr(a)));
         \\}
         \\pub export fn baz(arg_a: [*c]volatile c_int) void {
         \\    var a = arg_a;
-        \\    foo(@intToPtr([*c]c_int, @ptrToInt(a)));
+        \\    foo(@ptrFromInt([*c]c_int, @intFromPtr(a)));
         \\}
     });
 
@@ -3491,10 +3491,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo(arg_x: bool) bool {
         \\    var x = arg_x;
-        \\    var a: bool = @as(c_int, @boolToInt(x)) != @as(c_int, 1);
-        \\    var b: bool = @as(c_int, @boolToInt(a)) != @as(c_int, 0);
-        \\    var c: bool = @ptrToInt(&foo) != 0;
-        \\    return foo(@as(c_int, @boolToInt(c)) != @as(c_int, @boolToInt(b)));
+        \\    var a: bool = @as(c_int, @intFromBool(x)) != @as(c_int, 1);
+        \\    var b: bool = @as(c_int, @intFromBool(a)) != @as(c_int, 0);
+        \\    var c: bool = @intFromPtr(&foo) != 0;
+        \\    return foo(@as(c_int, @intFromBool(c)) != @as(c_int, @intFromBool(b)));
         \\}
     });
 
@@ -3910,7 +3910,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    var a: c_int = undefined;
         \\    if ((blk: {
-        \\        const tmp = @boolToInt(@as(c_int, 1) > @as(c_int, 0));
+        \\        const tmp = @intFromBool(@as(c_int, 1) > @as(c_int, 0));
         \\        a = tmp;
         \\        break :blk tmp;
         \\    }) != 0) {}
@@ -3928,7 +3928,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\pub export fn foo() void {
             \\    var a: S = undefined;
             \\    var b: S = undefined;
-            \\    var c: c_longlong = @divExact(@bitCast(c_longlong, @ptrToInt(a) -% @ptrToInt(b)), @sizeOf(u8));
+            \\    var c: c_longlong = @divExact(@bitCast(c_longlong, @intFromPtr(a) -% @intFromPtr(b)), @sizeOf(u8));
             \\    _ = @TypeOf(c);
             \\}
         });
@@ -3943,7 +3943,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\pub export fn foo() void {
             \\    var a: S = undefined;
             \\    var b: S = undefined;
-            \\    var c: c_long = @divExact(@bitCast(c_long, @ptrToInt(a) -% @ptrToInt(b)), @sizeOf(u8));
+            \\    var c: c_long = @divExact(@bitCast(c_long, @intFromPtr(a) -% @intFromPtr(b)), @sizeOf(u8));
             \\    _ = @TypeOf(c);
             \\}
         });

@@ -472,10 +472,10 @@ pub const Insn = packed struct {
 
         return Insn{
             .code = code | src_type,
-            .dst = @enumToInt(dst),
+            .dst = @intFromEnum(dst),
             .src = switch (imm_or_reg) {
                 .imm => 0,
-                .reg => |r| @enumToInt(r),
+                .reg => |r| @intFromEnum(r),
             },
             .off = off,
             .imm = switch (imm_or_reg) {
@@ -492,7 +492,7 @@ pub const Insn = packed struct {
             else => @compileError("width must be 32 or 64"),
         };
 
-        return imm_reg(width_bitfield | @enumToInt(op), dst, src, 0);
+        return imm_reg(width_bitfield | @intFromEnum(op), dst, src, 0);
     }
 
     pub fn mov(dst: Reg, src: anytype) Insn {
@@ -548,7 +548,7 @@ pub const Insn = packed struct {
     }
 
     pub fn jmp(op: JmpOp, dst: Reg, src: anytype, off: i16) Insn {
-        return imm_reg(JMP | @enumToInt(op), dst, src, off);
+        return imm_reg(JMP | @intFromEnum(op), dst, src, off);
     }
 
     pub fn ja(off: i16) Insn {
@@ -602,8 +602,8 @@ pub const Insn = packed struct {
     pub fn xadd(dst: Reg, src: Reg) Insn {
         return Insn{
             .code = STX | XADD | DW,
-            .dst = @enumToInt(dst),
-            .src = @enumToInt(src),
+            .dst = @intFromEnum(dst),
+            .src = @intFromEnum(src),
             .off = 0,
             .imm = 0,
         };
@@ -611,9 +611,9 @@ pub const Insn = packed struct {
 
     fn ld(mode: Mode, size: Size, dst: Reg, src: Reg, imm: i32) Insn {
         return Insn{
-            .code = @enumToInt(mode) | @enumToInt(size) | LD,
-            .dst = @enumToInt(dst),
-            .src = @enumToInt(src),
+            .code = @intFromEnum(mode) | @intFromEnum(size) | LD,
+            .dst = @intFromEnum(dst),
+            .src = @intFromEnum(src),
             .off = 0,
             .imm = imm,
         };
@@ -629,9 +629,9 @@ pub const Insn = packed struct {
 
     pub fn ldx(size: Size, dst: Reg, src: Reg, off: i16) Insn {
         return Insn{
-            .code = MEM | @enumToInt(size) | LDX,
-            .dst = @enumToInt(dst),
-            .src = @enumToInt(src),
+            .code = MEM | @intFromEnum(size) | LDX,
+            .dst = @intFromEnum(dst),
+            .src = @intFromEnum(src),
             .off = off,
             .imm = 0,
         };
@@ -640,8 +640,8 @@ pub const Insn = packed struct {
     fn ld_imm_impl1(dst: Reg, src: Reg, imm: u64) Insn {
         return Insn{
             .code = LD | DW | IMM,
-            .dst = @enumToInt(dst),
-            .src = @enumToInt(src),
+            .dst = @intFromEnum(dst),
+            .src = @intFromEnum(src),
             .off = 0,
             .imm = @intCast(i32, @truncate(u32, imm)),
         };
@@ -666,7 +666,7 @@ pub const Insn = packed struct {
     }
 
     pub fn ld_map_fd1(dst: Reg, map_fd: fd_t) Insn {
-        return ld_imm_impl1(dst, @intToEnum(Reg, PSEUDO_MAP_FD), @intCast(u64, map_fd));
+        return ld_imm_impl1(dst, @enumFromInt(Reg, PSEUDO_MAP_FD), @intCast(u64, map_fd));
     }
 
     pub fn ld_map_fd2(map_fd: fd_t) Insn {
@@ -675,8 +675,8 @@ pub const Insn = packed struct {
 
     pub fn st(comptime size: Size, dst: Reg, off: i16, imm: i32) Insn {
         return Insn{
-            .code = MEM | @enumToInt(size) | ST,
-            .dst = @enumToInt(dst),
+            .code = MEM | @intFromEnum(size) | ST,
+            .dst = @intFromEnum(dst),
             .src = 0,
             .off = off,
             .imm = imm,
@@ -685,9 +685,9 @@ pub const Insn = packed struct {
 
     pub fn stx(size: Size, dst: Reg, off: i16, src: Reg) Insn {
         return Insn{
-            .code = MEM | @enumToInt(size) | STX,
-            .dst = @enumToInt(dst),
-            .src = @enumToInt(src),
+            .code = MEM | @intFromEnum(size) | STX,
+            .dst = @intFromEnum(dst),
+            .src = @intFromEnum(src),
             .off = off,
             .imm = 0,
         };
@@ -699,7 +699,7 @@ pub const Insn = packed struct {
                 .Big => 0xdc,
                 .Little => 0xd4,
             },
-            .dst = @enumToInt(dst),
+            .dst = @intFromEnum(dst),
             .src = 0,
             .off = 0,
             .imm = switch (size) {
@@ -725,7 +725,7 @@ pub const Insn = packed struct {
             .dst = 0,
             .src = 0,
             .off = 0,
-            .imm = @enumToInt(helper),
+            .imm = @intFromEnum(helper),
         };
     }
 
@@ -1511,7 +1511,7 @@ pub fn map_create(map_type: MapType, key_size: u32, value_size: u32, max_entries
         .map_create = std.mem.zeroes(MapCreateAttr),
     };
 
-    attr.map_create.map_type = @enumToInt(map_type);
+    attr.map_create.map_type = @intFromEnum(map_type);
     attr.map_create.key_size = key_size;
     attr.map_create.value_size = value_size;
     attr.map_create.max_entries = max_entries;
@@ -1537,8 +1537,8 @@ pub fn map_lookup_elem(fd: fd_t, key: []const u8, value: []u8) !void {
     };
 
     attr.map_elem.map_fd = fd;
-    attr.map_elem.key = @ptrToInt(key.ptr);
-    attr.map_elem.result.value = @ptrToInt(value.ptr);
+    attr.map_elem.key = @intFromPtr(key.ptr);
+    attr.map_elem.result.value = @intFromPtr(value.ptr);
 
     const rc = linux.bpf(.map_lookup_elem, &attr, @sizeOf(MapElemAttr));
     switch (errno(rc)) {
@@ -1558,8 +1558,8 @@ pub fn map_update_elem(fd: fd_t, key: []const u8, value: []const u8, flags: u64)
     };
 
     attr.map_elem.map_fd = fd;
-    attr.map_elem.key = @ptrToInt(key.ptr);
-    attr.map_elem.result = .{ .value = @ptrToInt(value.ptr) };
+    attr.map_elem.key = @intFromPtr(key.ptr);
+    attr.map_elem.result = .{ .value = @intFromPtr(value.ptr) };
     attr.map_elem.flags = flags;
 
     const rc = linux.bpf(.map_update_elem, &attr, @sizeOf(MapElemAttr));
@@ -1581,7 +1581,7 @@ pub fn map_delete_elem(fd: fd_t, key: []const u8) !void {
     };
 
     attr.map_elem.map_fd = fd;
-    attr.map_elem.key = @ptrToInt(key.ptr);
+    attr.map_elem.key = @intFromPtr(key.ptr);
 
     const rc = linux.bpf(.map_delete_elem, &attr, @sizeOf(MapElemAttr));
     switch (errno(rc)) {
@@ -1601,8 +1601,8 @@ pub fn map_get_next_key(fd: fd_t, key: []const u8, next_key: []u8) !bool {
     };
 
     attr.map_elem.map_fd = fd;
-    attr.map_elem.key = @ptrToInt(key.ptr);
-    attr.map_elem.result.next_key = @ptrToInt(next_key.ptr);
+    attr.map_elem.key = @intFromPtr(key.ptr);
+    attr.map_elem.result.next_key = @intFromPtr(next_key.ptr);
 
     const rc = linux.bpf(.map_get_next_key, &attr, @sizeOf(MapElemAttr));
     switch (errno(rc)) {
@@ -1666,15 +1666,15 @@ pub fn prog_load(
         .prog_load = std.mem.zeroes(ProgLoadAttr),
     };
 
-    attr.prog_load.prog_type = @enumToInt(prog_type);
-    attr.prog_load.insns = @ptrToInt(insns.ptr);
+    attr.prog_load.prog_type = @intFromEnum(prog_type);
+    attr.prog_load.insns = @intFromPtr(insns.ptr);
     attr.prog_load.insn_cnt = @intCast(u32, insns.len);
-    attr.prog_load.license = @ptrToInt(license.ptr);
+    attr.prog_load.license = @intFromPtr(license.ptr);
     attr.prog_load.kern_version = kern_version;
     attr.prog_load.prog_flags = flags;
 
     if (log) |l| {
-        attr.prog_load.log_buf = @ptrToInt(l.buf.ptr);
+        attr.prog_load.log_buf = @intFromPtr(l.buf.ptr);
         attr.prog_load.log_size = @intCast(u32, l.buf.len);
         attr.prog_load.log_level = l.level;
     }

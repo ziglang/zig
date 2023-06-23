@@ -375,7 +375,7 @@ test "load pointer from packed struct" {
     }
 }
 
-test "@ptrToInt on a packed struct field" {
+test "@intFromPtr on a packed struct field" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -394,7 +394,7 @@ test "@ptrToInt on a packed struct field" {
             .z = 0,
         };
     };
-    try expect(@ptrToInt(&S.p0.z) - @ptrToInt(&S.p0.x) == 2);
+    try expect(@intFromPtr(&S.p0.z) - @intFromPtr(&S.p0.x) == 2);
 }
 
 test "optional pointer in packed struct" {

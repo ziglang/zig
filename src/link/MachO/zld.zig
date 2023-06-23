@@ -9,14 +9,15 @@ const math = std.math;
 const mem = std.mem;
 
 const aarch64 = @import("../../arch/aarch64/bits.zig");
+const calcUuid = @import("uuid.zig").calcUuid;
 const dead_strip = @import("dead_strip.zig");
 const eh_frame = @import("eh_frame.zig");
 const fat = @import("fat.zig");
 const link = @import("../../link.zig");
 const load_commands = @import("load_commands.zig");
+const stub_helpers = @import("stubs.zig");
 const thunks = @import("thunks.zig");
 const trace = @import("../../tracy.zig").trace;
-const stub_helpers = @import("stubs.zig");
 
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
@@ -1819,12 +1820,12 @@ pub const Zld = struct {
                     for (relocs) |rel| {
                         switch (cpu_arch) {
                             .aarch64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+                                const rel_type = @enumFromInt(macho.reloc_type_arm64, rel.r_type);
                                 if (rel_type != .ARM64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
                             .x86_64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
+                                const rel_type = @enumFromInt(macho.reloc_type_x86_64, rel.r_type);
                                 if (rel_type != .X86_64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
@@ -1958,12 +1959,12 @@ pub const Zld = struct {
                     for (relocs) |rel| {
                         switch (cpu_arch) {
                             .aarch64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+                                const rel_type = @enumFromInt(macho.reloc_type_arm64, rel.r_type);
                                 if (rel_type != .ARM64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
                             .x86_64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
+                                const rel_type = @enumFromInt(macho.reloc_type_x86_64, rel.r_type);
                                 if (rel_type != .X86_64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
@@ -2575,150 +2576,14 @@ pub const Zld = struct {
         self.dysymtab_cmd.nindirectsyms = nindirectsyms;
     }
 
-    fn writeUuid(self: *Zld, comp: *const Compilation, args: struct {
-        linkedit_cmd_offset: u32,
-        symtab_cmd_offset: u32,
-        uuid_cmd_offset: u32,
-        codesig_cmd_offset: ?u32,
-    }) !void {
-        _ = comp;
-        switch (self.options.optimize_mode) {
-            .Debug => {
-                // In Debug we don't really care about reproducibility, so put in a random value
-                // and be done with it.
-                std.crypto.random.bytes(&self.uuid_cmd.uuid);
-                Md5.hash(&self.uuid_cmd.uuid, &self.uuid_cmd.uuid, .{});
-                conformUuid(&self.uuid_cmd.uuid);
-            },
-            else => {
-                // We set the max file size to the actual strtab buffer length to exclude any strtab padding.
-                const max_file_end = @intCast(u32, self.symtab_cmd.stroff + self.strtab.buffer.items.len);
-
-                const FileSubsection = struct {
-                    start: u32,
-                    end: u32,
-                };
-
-                var subsections: [5]FileSubsection = undefined;
-                var count: usize = 0;
-
-                // Exclude LINKEDIT segment command as it contains file size that includes stabs contribution
-                // and code signature.
-                subsections[count] = .{
-                    .start = 0,
-                    .end = args.linkedit_cmd_offset,
-                };
-                count += 1;
-
-                // Exclude SYMTAB and DYSYMTAB commands for the same reason.
-                subsections[count] = .{
-                    .start = subsections[count - 1].end + @sizeOf(macho.segment_command_64),
-                    .end = args.symtab_cmd_offset,
-                };
-                count += 1;
-
-                // Exclude CODE_SIGNATURE command (if present).
-                if (args.codesig_cmd_offset) |offset| {
-                    subsections[count] = .{
-                        .start = subsections[count - 1].end + @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command),
-                        .end = offset,
-                    };
-                    count += 1;
-                }
-
-                if (!self.options.strip) {
-                    // Exclude region comprising all symbol stabs.
-                    const nlocals = self.dysymtab_cmd.nlocalsym;
-
-                    const locals = try self.gpa.alloc(macho.nlist_64, nlocals);
-                    defer self.gpa.free(locals);
-
-                    const locals_buf = @ptrCast([*]u8, locals.ptr)[0 .. @sizeOf(macho.nlist_64) * nlocals];
-                    const amt = try self.file.preadAll(locals_buf, self.symtab_cmd.symoff);
-                    if (amt != locals_buf.len) return error.InputOutput;
-
-                    const istab: usize = for (locals, 0..) |local, i| {
-                        if (local.stab()) break i;
-                    } else locals.len;
-                    const nstabs = locals.len - istab;
-
-                    if (nstabs == 0) {
-                        subsections[count] = .{
-                            .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
-                                @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
-                            else
-                                @sizeOf(macho.linkedit_data_command),
-                            .end = max_file_end,
-                        };
-                        count += 1;
-                    } else {
-                        // Exclude a subsection of the strtab with names of the stabs.
-                        // We do not care about anything succeeding strtab as it is the code signature data which is
-                        // not part of the UUID calculation anyway.
-                        const stab_stroff = locals[istab].n_strx;
-
-                        subsections[count] = .{
-                            .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
-                                @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
-                            else
-                                @sizeOf(macho.linkedit_data_command),
-                            .end = @intCast(u32, self.symtab_cmd.symoff + istab * @sizeOf(macho.nlist_64)),
-                        };
-                        count += 1;
-
-                        subsections[count] = .{
-                            .start = subsections[count - 1].end + @intCast(u32, nstabs * @sizeOf(macho.nlist_64)),
-                            .end = self.symtab_cmd.stroff + stab_stroff,
-                        };
-                        count += 1;
-                    }
-                } else {
-                    subsections[count] = .{
-                        .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
-                            @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
-                        else
-                            @sizeOf(macho.linkedit_data_command),
-                        .end = max_file_end,
-                    };
-                    count += 1;
-                }
-
-                const chunk_size = 0x4000;
-
-                var hasher = Md5.init(.{});
-                var buffer: [chunk_size]u8 = undefined;
-
-                for (subsections[0..count]) |cut| {
-                    const size = cut.end - cut.start;
-                    const num_chunks = mem.alignForward(usize, size, chunk_size) / chunk_size;
-
-                    var i: usize = 0;
-                    while (i < num_chunks) : (i += 1) {
-                        const fstart = cut.start + i * chunk_size;
-                        const fsize = if (fstart + chunk_size > cut.end)
-                            cut.end - fstart
-                        else
-                            chunk_size;
-                        const amt = try self.file.preadAll(buffer[0..fsize], fstart);
-                        if (amt != fsize) return error.InputOutput;
-
-                        hasher.update(buffer[0..fsize]);
-                    }
-                }
-
-                hasher.final(&self.uuid_cmd.uuid);
-                conformUuid(&self.uuid_cmd.uuid);
-            },
-        }
-
-        const in_file = args.uuid_cmd_offset + @sizeOf(macho.load_command);
-        try self.file.pwriteAll(&self.uuid_cmd.uuid, in_file);
-    }
-
-    inline fn conformUuid(out: *[Md5.digest_length]u8) void {
-        // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
-        out[6] = (out[6] & 0x0F) | (3 << 4);
-        out[8] = (out[8] & 0x3F) | 0x80;
+    fn writeUuid(self: *Zld, comp: *const Compilation, uuid_cmd_offset: u32, has_codesig: bool) !void {
+        const file_size = if (!has_codesig) blk: {
+            const seg = self.getLinkeditSegmentPtr();
+            break :blk seg.fileoff + seg.filesize;
+        } else self.codesig_cmd.dataoff;
+        try calcUuid(comp, self.file, file_size, &self.uuid_cmd.uuid);
+        const offset = uuid_cmd_offset + @sizeOf(macho.load_command);
+        try self.file.pwriteAll(&self.uuid_cmd.uuid, offset);
     }
 
     fn writeCodeSignaturePadding(self: *Zld, code_sig: *CodeSignature) !void {
@@ -4041,16 +3906,11 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         const lc_writer = lc_buffer.writer();
 
         try zld.writeSegmentHeaders(lc_writer);
-        const linkedit_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len - @sizeOf(macho.segment_command_64));
-
         try lc_writer.writeStruct(zld.dyld_info_cmd);
         try lc_writer.writeStruct(zld.function_starts_cmd);
         try lc_writer.writeStruct(zld.data_in_code_cmd);
-
-        const symtab_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
         try lc_writer.writeStruct(zld.symtab_cmd);
         try lc_writer.writeStruct(zld.dysymtab_cmd);
-
         try load_commands.writeDylinkerLC(lc_writer);
 
         if (zld.options.output_mode == .Exe) {
@@ -4088,22 +3948,14 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
 
         try load_commands.writeLoadDylibLCs(zld.dylibs.items, zld.referenced_dylibs.keys(), lc_writer);
 
-        var codesig_cmd_offset: ?u32 = null;
         if (requires_codesig) {
-            codesig_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
             try lc_writer.writeStruct(zld.codesig_cmd);
         }
 
         const ncmds = load_commands.calcNumOfLCs(lc_buffer.items);
         try zld.file.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64));
         try zld.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len));
-
-        try zld.writeUuid(comp, .{
-            .linkedit_cmd_offset = linkedit_cmd_offset,
-            .symtab_cmd_offset = symtab_cmd_offset,
-            .uuid_cmd_offset = uuid_cmd_offset,
-            .codesig_cmd_offset = codesig_cmd_offset,
-        });
+        try zld.writeUuid(comp, uuid_cmd_offset, requires_codesig);
 
         if (codesig) |*csig| {
             try zld.writeCodeSignature(comp, csig); // code signing always comes last

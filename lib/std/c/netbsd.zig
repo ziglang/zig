@@ -172,9 +172,9 @@ pub const RTLD = struct {
     pub const NODELETE = 0x01000;
     pub const NOLOAD = 0x02000;
 
-    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
+    pub const NEXT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -1)));
+    pub const DEFAULT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -2)));
+    pub const SELF = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -3)));
 };
 
 pub const dl_phdr_info = extern struct {
@@ -579,6 +579,12 @@ pub const PROT = struct {
     pub const READ = 1;
     pub const WRITE = 2;
     pub const EXEC = 4;
+    pub fn MPROTECT(flag: u32) u32 {
+        return flag << 3;
+    }
+    pub fn MPROTECT_EXTRACT(flag: u32) u32 {
+        return (flag >> 3) & 0x7;
+    }
 };
 
 pub const CLOCK = struct {
@@ -591,7 +597,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const REMAPDUP = 0x0004;
@@ -619,6 +625,16 @@ pub const MAP = struct {
     pub const ALIGNMENT_1TB = MAP.ALIGNED(40);
     pub const ALIGNMENT_256TB = MAP.ALIGNED(48);
     pub const ALIGNMENT_64PB = MAP.ALIGNED(56);
+};
+
+pub const MADV = struct {
+    pub const NORMAL = 0;
+    pub const RANDOM = 1;
+    pub const SEQUENTIAL = 2;
+    pub const WILLNEED = 3;
+    pub const DONTNEED = 4;
+    pub const SPACEAVAIL = 5;
+    pub const FREE = 6;
 };
 
 pub const MSF = struct {
@@ -1090,9 +1106,9 @@ pub const winsize = extern struct {
 const NSIG = 32;
 
 pub const SIG = struct {
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
+    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
+    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -1723,3 +1739,5 @@ pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: ?*anyopaque, data: c_
 
 /// TODO refines if necessary
 pub const PTHREAD_STACK_MIN = 16 * 1024;
+
+pub const timer_t = *opaque {};

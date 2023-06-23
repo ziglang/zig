@@ -1,7 +1,7 @@
 const Int = @import("std").meta.Int;
 const math = @import("std").math;
 
-pub fn intToFloat(comptime T: type, x: anytype) T {
+pub fn floatFromInt(comptime T: type, x: anytype) T {
     if (x == 0) return 0;
 
     // Various constants whose values follow from the type parameters.
@@ -38,7 +38,7 @@ pub fn intToFloat(comptime T: type, x: anytype) T {
         result = @intCast(uT, (abs_val >> (shift_amt - 1))) ^ (implicit_bit << 1);
 
         // Round result, including round-to-even for exact ties
-        result = ((result + 1) >> 1) & ~@as(uT, @boolToInt(exact_tie));
+        result = ((result + 1) >> 1) & ~@as(uT, @intFromBool(exact_tie));
     }
 
     // Compute exponent
@@ -54,5 +54,5 @@ pub fn intToFloat(comptime T: type, x: anytype) T {
 }
 
 test {
-    _ = @import("int_to_float_test.zig");
+    _ = @import("float_from_int_test.zig");
 }

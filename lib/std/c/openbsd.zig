@@ -449,7 +449,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0010;
@@ -464,6 +464,16 @@ pub const MAP = struct {
     pub const ANONYMOUS = ANON;
     pub const STACK = 0x4000;
     pub const CONCEAL = 0x8000;
+};
+
+pub const MADV = struct {
+    pub const NORMAL = 0;
+    pub const RANDOM = 1;
+    pub const SEQUENTIAL = 2;
+    pub const WILLNEED = 3;
+    pub const DONTNEED = 4;
+    pub const SPACEAVAIL = 5;
+    pub const FREE = 6;
 };
 
 pub const MSF = struct {
@@ -990,11 +1000,11 @@ pub const winsize = extern struct {
 const NSIG = 33;
 
 pub const SIG = struct {
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
-    pub const CATCH = @intToPtr(?Sigaction.handler_fn, 2);
-    pub const HOLD = @intToPtr(?Sigaction.handler_fn, 3);
+    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
+    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
+    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
+    pub const CATCH = @ptrFromInt(?Sigaction.handler_fn, 2);
+    pub const HOLD = @ptrFromInt(?Sigaction.handler_fn, 3);
 
     pub const HUP = 1;
     pub const INT = 2;

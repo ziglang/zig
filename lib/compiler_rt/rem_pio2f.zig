@@ -37,7 +37,7 @@ pub fn rem_pio2f(x: f32, y: *f64) i32 {
     if (ix < 0x4dc90fdb) { // |x| ~< 2^28*(pi/2), medium size
         // Use a specialized rint() to get fn.
         @"fn" = @floatCast(f64, x) * invpio2 + toint - toint;
-        n = @floatToInt(i32, @"fn");
+        n = @intFromFloat(i32, @"fn");
         y.* = x - @"fn" * pio2_1 - @"fn" * pio2_1t;
         // Matters with directed rounding.
         if (y.* < -pio4) {

@@ -409,15 +409,15 @@ pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @T
         .Pointer => |info| {
             try writer.writeAll(@typeName(info.child) ++ "@");
             if (info.size == .Slice)
-                try formatInt(@ptrToInt(value.ptr), 16, .lower, FormatOptions{}, writer)
+                try formatInt(@intFromPtr(value.ptr), 16, .lower, FormatOptions{}, writer)
             else
-                try formatInt(@ptrToInt(value), 16, .lower, FormatOptions{}, writer);
+                try formatInt(@intFromPtr(value), 16, .lower, FormatOptions{}, writer);
             return;
         },
         .Optional => |info| {
             if (@typeInfo(info.child) == .Pointer) {
                 try writer.writeAll(@typeName(info.child) ++ "@");
-                try formatInt(@ptrToInt(value), 16, .lower, FormatOptions{}, writer);
+                try formatInt(@intFromPtr(value), 16, .lower, FormatOptions{}, writer);
                 return;
             }
         },
@@ -531,7 +531,7 @@ pub fn formatType(
             // Use @tagName only if value is one of known fields
             @setEvalBranchQuota(3 * enumInfo.fields.len);
             inline for (enumInfo.fields) |enumField| {
-                if (@enumToInt(value) == enumField.value) {
+                if (@intFromEnum(value) == enumField.value) {
                     try writer.writeAll(".");
                     try writer.writeAll(@tagName(value));
                     return;
@@ -539,7 +539,7 @@ pub fn formatType(
             }
 
             try writer.writeAll("(");
-            try formatType(@enumToInt(value), actual_fmt, options, writer, max_depth);
+            try formatType(@intFromEnum(value), actual_fmt, options, writer, max_depth);
             try writer.writeAll(")");
         },
         .Union => |info| {
@@ -559,7 +559,7 @@ pub fn formatType(
                 }
                 try writer.writeAll(" }");
             } else {
-                try format(writer, "@{x}", .{@ptrToInt(&value)});
+                try format(writer, "@{x}", .{@intFromPtr(&value)});
             }
         },
         .Struct => |info| {
@@ -624,7 +624,7 @@ pub fn formatType(
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, actual_fmt, options, writer, max_depth);
                 },
-                else => return format(writer, "{s}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value) }),
+                else => return format(writer, "{s}@{x}", .{ @typeName(ptr_info.child), @intFromPtr(value) }),
             },
             .Many, .C => {
                 if (actual_fmt.len == 0)
@@ -1213,7 +1213,7 @@ pub fn formatFloatHexadecimal(
                 extra_bits -= 1;
             }
             // Round to nearest, tie to even.
-            mantissa |= @boolToInt(mantissa & 0b100 != 0);
+            mantissa |= @intFromBool(mantissa & 0b100 != 0);
             mantissa += 1;
             // Drop the excess bits.
             mantissa >>= 2;
@@ -1488,7 +1488,7 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
     var fbs = std.io.fixedBufferStream(&buf);
     var buf_writer = fbs.writer();
     if (data.negative) {
-        try buf_writer.writeByte('-');
+        buf_writer.writeByte('-') catch unreachable;
     }
 
     var ns_remaining = data.ns;
@@ -1501,8 +1501,8 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
     }) |unit| {
         if (ns_remaining >= unit.ns) {
             const units = ns_remaining / unit.ns;
-            try formatInt(units, 10, .lower, .{}, buf_writer);
-            try buf_writer.writeByte(unit.sep);
+            formatInt(units, 10, .lower, .{}, buf_writer) catch unreachable;
+            buf_writer.writeByte(unit.sep) catch unreachable;
             ns_remaining -= units * unit.ns;
             if (ns_remaining == 0)
                 return formatBuf(fbs.getWritten(), options, writer);
@@ -1516,7 +1516,7 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
     }) |unit| {
         const kunits = ns_remaining * 1000 / unit.ns;
         if (kunits >= 1000) {
-            try formatInt(kunits / 1000, 10, .lower, .{}, buf_writer);
+            formatInt(kunits / 1000, 10, .lower, .{}, buf_writer) catch unreachable;
             const frac = kunits % 1000;
             if (frac > 0) {
                 // Write up to 3 decimal places
@@ -1526,15 +1526,15 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
                 while (end > 1) : (end -= 1) {
                     if (decimal_buf[end - 1] != '0') break;
                 }
-                try buf_writer.writeAll(decimal_buf[0..end]);
+                buf_writer.writeAll(decimal_buf[0..end]) catch unreachable;
             }
-            try buf_writer.writeAll(unit.sep);
+            buf_writer.writeAll(unit.sep) catch unreachable;
             return formatBuf(fbs.getWritten(), options, writer);
         }
     }
 
-    try formatInt(ns_remaining, 10, .lower, .{}, buf_writer);
-    try buf_writer.writeAll("ns");
+    formatInt(ns_remaining, 10, .lower, .{}, buf_writer) catch unreachable;
+    buf_writer.writeAll("ns") catch unreachable;
     return formatBuf(fbs.getWritten(), options, writer);
 }
 
@@ -2099,7 +2099,7 @@ test "optional" {
         try expectFmt("optional: null\n", "optional: {?}\n", .{value});
     }
     {
-        const value = @intToPtr(?*i32, 0xf000d000);
+        const value = @ptrFromInt(?*i32, 0xf000d000);
         try expectFmt("optional: *i32@f000d000\n", "optional: {*}\n", .{value});
     }
 }
@@ -2204,7 +2204,7 @@ test "array" {
 
         var buf: [100]u8 = undefined;
         try expectFmt(
-            try bufPrint(buf[0..], "array: [3]u8@{x}\n", .{@ptrToInt(&value)}),
+            try bufPrint(buf[0..], "array: [3]u8@{x}\n", .{@intFromPtr(&value)}),
             "array: {*}\n",
             .{&value},
         );
@@ -2218,7 +2218,7 @@ test "slice" {
     }
     {
         var runtime_zero: usize = 0;
-        const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[runtime_zero..runtime_zero];
+        const value = @ptrFromInt([*]align(1) const []const u8, 0xdeadbeef)[runtime_zero..runtime_zero];
         try expectFmt("slice: []const u8@deadbeef\n", "slice: {*}\n", .{value});
     }
     {
@@ -2248,17 +2248,17 @@ test "escape non-printable" {
 
 test "pointer" {
     {
-        const value = @intToPtr(*align(1) i32, 0xdeadbeef);
+        const value = @ptrFromInt(*align(1) i32, 0xdeadbeef);
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
     }
     const FnPtr = *align(1) const fn () void;
     {
-        const value = @intToPtr(FnPtr, 0xdeadbeef);
+        const value = @ptrFromInt(FnPtr, 0xdeadbeef);
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
     {
-        const value = @intToPtr(FnPtr, 0xdeadbeef);
+        const value = @ptrFromInt(FnPtr, 0xdeadbeef);
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
 }
@@ -2360,11 +2360,11 @@ test "non-exhaustive enum" {
     };
     try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.One\n", "enum: {}\n", .{Enum.One});
     try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {}\n", .{Enum.Two});
-    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(4660)\n", "enum: {}\n", .{@enumFromInt(Enum, 0x1234)});
     try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.One\n", "enum: {x}\n", .{Enum.One});
     try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {x}\n", .{Enum.Two});
     try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {X}\n", .{Enum.Two});
-    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(1234)\n", "enum: {x}\n", .{@enumFromInt(Enum, 0x1234)});
 }
 
 test "float.scientific" {

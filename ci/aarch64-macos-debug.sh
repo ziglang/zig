@@ -3,19 +3,14 @@
 set -x
 set -e
 
+# Script assumes the presence of the following:
+# s3cmd
+
 ZIGDIR="$(pwd)"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
 CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.2441+eb19f73af"
 PREFIX="$HOME/$CACHE_BASENAME"
-JOBS="-j3"
-
-rm -rf $PREFIX
-cd $HOME
-
-curl -L -O "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
-tar xf "$CACHE_BASENAME.tar.xz"
-
 ZIG="$PREFIX/bin/zig"
 
 cd $ZIGDIR
@@ -26,7 +21,6 @@ git config core.abbrev 9
 git fetch --unshallow || true
 git fetch --tags
 
-rm -rf build
 mkdir build
 cd build
 
@@ -36,18 +30,20 @@ cd build
 export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
 
-cmake .. \
+PATH="$HOME/local/bin:$PATH" cmake .. \
+  -DCMAKE_INSTALL_PREFIX="stage3-debug" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER="$ZIG;cc;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-target;$TARGET;-mcpu=$MCPU" \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON
+  -DZIG_STATIC=ON \
+  -GNinja
 
-make $JOBS install
+$HOME/local/bin/ninja install
 
-stage3/bin/zig build test docs \
+stage3-debug/bin/zig build test docs \
   --zig-lib-dir "$(pwd)/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \
@@ -55,4 +51,4 @@ stage3/bin/zig build test docs \
   --search-prefix "$PREFIX"
 
 # Produce the experimental std lib documentation.
-stage3/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib
+stage3-debug/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib

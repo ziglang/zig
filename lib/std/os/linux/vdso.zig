@@ -8,7 +8,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     const vdso_addr = std.os.system.getauxval(std.elf.AT_SYSINFO_EHDR);
     if (vdso_addr == 0) return 0;
 
-    const eh = @intToPtr(*elf.Ehdr, vdso_addr);
+    const eh = @ptrFromInt(*elf.Ehdr, vdso_addr);
     var ph_addr: usize = vdso_addr + eh.e_phoff;
 
     var maybe_dynv: ?[*]usize = null;
@@ -19,14 +19,14 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
             i += 1;
             ph_addr += eh.e_phentsize;
         }) {
-            const this_ph = @intToPtr(*elf.Phdr, ph_addr);
+            const this_ph = @ptrFromInt(*elf.Phdr, ph_addr);
             switch (this_ph.p_type) {
                 // On WSL1 as well as older kernels, the VDSO ELF image is pre-linked in the upper half
                 // of the memory space (e.g. p_vaddr = 0xffffffffff700000 on WSL1).
                 // Wrapping operations are used on this line as well as subsequent calculations relative to base
                 // (lines 47, 78) to ensure no overflow check is tripped.
                 elf.PT_LOAD => base = vdso_addr +% this_ph.p_offset -% this_ph.p_vaddr,
-                elf.PT_DYNAMIC => maybe_dynv = @intToPtr([*]usize, vdso_addr + this_ph.p_offset),
+                elf.PT_DYNAMIC => maybe_dynv = @ptrFromInt([*]usize, vdso_addr + this_ph.p_offset),
                 else => {},
             }
         }
@@ -45,11 +45,11 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         while (dynv[i] != 0) : (i += 2) {
             const p = base +% dynv[i + 1];
             switch (dynv[i]) {
-                elf.DT_STRTAB => maybe_strings = @intToPtr([*]u8, p),
-                elf.DT_SYMTAB => maybe_syms = @intToPtr([*]elf.Sym, p),
-                elf.DT_HASH => maybe_hashtab = @intToPtr([*]linux.Elf_Symndx, p),
-                elf.DT_VERSYM => maybe_versym = @intToPtr([*]u16, p),
-                elf.DT_VERDEF => maybe_verdef = @intToPtr(*elf.Verdef, p),
+                elf.DT_STRTAB => maybe_strings = @ptrFromInt([*]u8, p),
+                elf.DT_SYMTAB => maybe_syms = @ptrFromInt([*]elf.Sym, p),
+                elf.DT_HASH => maybe_hashtab = @ptrFromInt([*]linux.Elf_Symndx, p),
+                elf.DT_VERSYM => maybe_versym = @ptrFromInt([*]u16, p),
+                elf.DT_VERDEF => maybe_verdef = @ptrFromInt(*elf.Verdef, p),
                 else => {},
             }
         }
@@ -88,9 +88,9 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
             break;
         if (def.vd_next == 0)
             return false;
-        def = @intToPtr(*elf.Verdef, @ptrToInt(def) + def.vd_next);
+        def = @ptrFromInt(*elf.Verdef, @intFromPtr(def) + def.vd_next);
     }
-    const aux = @intToPtr(*elf.Verdaux, @ptrToInt(def) + def.vd_aux);
+    const aux = @ptrFromInt(*elf.Verdaux, @intFromPtr(def) + def.vd_aux);
     const vda_name = @ptrCast([*:0]u8, strings + aux.vda_name);
     return mem.eql(u8, vername, mem.sliceTo(vda_name, 0));
 }

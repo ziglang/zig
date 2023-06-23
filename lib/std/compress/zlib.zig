@@ -126,7 +126,7 @@ pub fn CompressStream(comptime WriterType: type) type {
             var header = ZLibHeader{
                 .compression_info = ZLibHeader.WINDOW_32K,
                 .compression_method = ZLibHeader.DEFLATE,
-                .compression_level = @enumToInt(options.level),
+                .compression_level = @intFromEnum(options.level),
                 .preset_dict = 0,
                 .checksum = 0,
             };

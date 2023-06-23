@@ -1,4 +1,4 @@
-const TestEnum = enum{ T1, T2 };
+const TestEnum = enum { T1, T2 };
 
 fn err(x: u8) TestEnum {
     switch (x) {
@@ -15,7 +15,9 @@ fn foo(x: u8) void {
     }
 }
 
-export fn entry() usize { return @sizeOf(@TypeOf(&foo)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(&foo));
+}
 
 // error
 // backend=llvm

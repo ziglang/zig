@@ -247,7 +247,7 @@ pub fn Channel(comptime T: type) type {
                     // All the "get or null" functions should resume now.
                     var remove_count: usize = 0;
                     while (self.or_null_queue.get()) |or_null_node| {
-                        remove_count += @boolToInt(self.getters.remove(or_null_node.data));
+                        remove_count += @intFromBool(self.getters.remove(or_null_node.data));
                         global_event_loop.onNextTick(or_null_node.data.data.tick_node);
                     }
                     if (remove_count != 0) {

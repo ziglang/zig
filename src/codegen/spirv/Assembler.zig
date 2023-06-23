@@ -306,7 +306,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
         },
         .OpTypePointer => try self.spv.ptrType(
             try self.resolveTypeRef(operands[2].ref_id),
-            @intToEnum(spec.StorageClass, operands[1].value),
+            @enumFromInt(spec.StorageClass, operands[1].value),
         ),
         .OpTypeFunction => blk: {
             const param_operands = operands[2..];
@@ -340,7 +340,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
         else => switch (self.inst.opcode) {
             .OpEntryPoint => unreachable,
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
-            .OpVariable => switch (@intToEnum(spec.StorageClass, operands[2].value)) {
+            .OpVariable => switch (@enumFromInt(spec.StorageClass, operands[2].value)) {
                 .Function => &self.func.prologue,
                 else => {
                     // This is currently disabled because global variables are required to be
@@ -391,7 +391,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
     }
 
     const actual_word_count = section.instructions.items.len - first_word;
-    section.instructions.items[first_word] |= @as(u32, @intCast(u16, actual_word_count)) << 16 | @enumToInt(self.inst.opcode);
+    section.instructions.items[first_word] |= @as(u32, @intCast(u16, actual_word_count)) << 16 | @intFromEnum(self.inst.opcode);
 
     if (maybe_result_id) |result| {
         return AsmValue{ .value = result };
@@ -695,7 +695,7 @@ fn parseContextDependentInt(self: *Assembler, signedness: std.builtin.Signedness
             .unsigned => 0,
             .signed => -(@as(i128, 1) << (@intCast(u7, width) - 1)),
         };
-        const max = (@as(i128, 1) << (@intCast(u7, width) - @boolToInt(signedness == .signed))) - 1;
+        const max = (@as(i128, 1) << (@intCast(u7, width) - @intFromBool(signedness == .signed))) - 1;
         if (int < min or int > max) {
             break :invalid;
         }

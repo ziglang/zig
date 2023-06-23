@@ -89,12 +89,12 @@ fn testDifferentSizedFloatComparisons() !void {
 //    }
 //}
 
-test "negative f128 floatToInt at compile-time" {
+test "negative f128 intFromFloat at compile-time" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const a: f128 = -2;
-    var b = @floatToInt(i64, a);
+    var b = @intFromFloat(i64, a);
     try expect(@as(i64, -2) == b);
 }
 

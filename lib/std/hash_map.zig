@@ -1442,7 +1442,7 @@ pub fn HashMapUnmanaged(
             // map, which is assumed to exist as keyPtr must be valid.  This
             // item must be at index 0.
             const idx = if (@sizeOf(K) > 0)
-                (@ptrToInt(keyPtr) - @ptrToInt(self.keys())) / @sizeOf(K)
+                (@intFromPtr(keyPtr) - @intFromPtr(self.keys())) / @sizeOf(K)
             else
                 0;
 
@@ -1554,19 +1554,19 @@ pub fn HashMapUnmanaged(
             const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
             const slice = try allocator.alignedAlloc(u8, max_align, total_size);
-            const ptr = @ptrToInt(slice.ptr);
+            const ptr = @intFromPtr(slice.ptr);
 
             const metadata = ptr + @sizeOf(Header);
 
-            const hdr = @intToPtr(*Header, ptr);
+            const hdr = @ptrFromInt(*Header, ptr);
             if (@sizeOf([*]V) != 0) {
-                hdr.values = @intToPtr([*]V, ptr + vals_start);
+                hdr.values = @ptrFromInt([*]V, ptr + vals_start);
             }
             if (@sizeOf([*]K) != 0) {
-                hdr.keys = @intToPtr([*]K, ptr + keys_start);
+                hdr.keys = @ptrFromInt([*]K, ptr + keys_start);
             }
             hdr.capacity = new_capacity;
-            self.metadata = @intToPtr([*]Metadata, metadata);
+            self.metadata = @ptrFromInt([*]Metadata, metadata);
         }
 
         fn deallocate(self: *Self, allocator: Allocator) void {
@@ -1589,7 +1589,7 @@ pub fn HashMapUnmanaged(
 
             const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
-            const slice = @intToPtr([*]align(max_align) u8, @ptrToInt(self.header()))[0..total_size];
+            const slice = @ptrFromInt([*]align(max_align) u8, @intFromPtr(self.header()))[0..total_size];
             allocator.free(slice);
 
             self.metadata = null;

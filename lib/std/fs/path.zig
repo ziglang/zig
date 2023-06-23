@@ -67,7 +67,7 @@ fn joinSepMaybeZ(allocator: Allocator, separator: u8, comptime sepPredicate: fn 
             if (this_path.len == 0) continue;
             const prev_sep = sepPredicate(prev_path[prev_path.len - 1]);
             const this_sep = sepPredicate(this_path[0]);
-            sum += @boolToInt(!prev_sep and !this_sep);
+            sum += @intFromBool(!prev_sep and !this_sep);
             sum += if (prev_sep and this_sep) this_path.len - 1 else this_path.len;
             prev_path = this_path;
         }
@@ -663,7 +663,7 @@ pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.E
                 continue;
             } else if (mem.eql(u8, component, "..")) {
                 if (result.items.len == 0) {
-                    negative_count += @boolToInt(!is_abs);
+                    negative_count += @intFromBool(!is_abs);
                     continue;
                 }
                 while (true) {
@@ -1092,7 +1092,7 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
         while (from_it.next()) |_| {
             up_index_end += "\\..".len;
         }
-        const result = try allocator.alloc(u8, up_index_end + @boolToInt(to_rest.len > 0) + to_rest.len);
+        const result = try allocator.alloc(u8, up_index_end + @intFromBool(to_rest.len > 0) + to_rest.len);
         errdefer allocator.free(result);
 
         result[0..2].* = "..".*;

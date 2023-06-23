@@ -258,7 +258,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
     }
 }
 
-pub fn archName(arch: std.Target.Cpu.Arch) [:0]const u8 {
+fn archName(arch: std.Target.Cpu.Arch) [:0]const u8 {
     switch (arch) {
         .aarch64, .aarch64_be => return "aarch64",
         .arm, .armeb, .thumb, .thumbeb => return "arm",
@@ -273,6 +273,13 @@ pub fn archName(arch: std.Target.Cpu.Arch) [:0]const u8 {
         .x86_64 => return "x86_64",
         else => unreachable,
     }
+}
+
+pub fn archNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
+    return switch (arch) {
+        .x86 => return "x86",
+        else => archName(arch),
+    };
 }
 
 // Return true if musl has arch-specific crti/crtn sources.
@@ -361,7 +368,9 @@ fn addCcArgs(
     const target = comp.getTarget();
     const arch_name = archName(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
-    const triple = try std.fmt.allocPrint(arena, "{s}-{s}-musl", .{ arch_name, os_name });
+    const triple = try std.fmt.allocPrint(arena, "{s}-{s}-musl", .{
+        archNameHeaders(target.cpu.arch), os_name,
+    });
     const o_arg = if (want_O3) "-O3" else "-Os";
 
     try args.appendSlice(&[_][]const u8{
@@ -1457,6 +1466,7 @@ const src_files = [_][]const u8{
     "musl/src/prng/seed48.c",
     "musl/src/prng/srand48.c",
     "musl/src/process/_Fork.c",
+    "musl/src/process/aarch64/vfork.s",
     "musl/src/process/arm/vfork.s",
     "musl/src/process/execl.c",
     "musl/src/process/execle.c",
@@ -1487,6 +1497,7 @@ const src_files = [_][]const u8{
     "musl/src/process/posix_spawnattr_setsigdefault.c",
     "musl/src/process/posix_spawnattr_setsigmask.c",
     "musl/src/process/posix_spawnp.c",
+    "musl/src/process/riscv64/vfork.s",
     "musl/src/process/s390x/vfork.s",
     "musl/src/process/sh/vfork.s",
     "musl/src/process/system.c",
@@ -1570,11 +1581,8 @@ const src_files = [_][]const u8{
     "musl/src/signal/m68k/sigsetjmp.s",
     "musl/src/signal/microblaze/restore.s",
     "musl/src/signal/microblaze/sigsetjmp.s",
-    "musl/src/signal/mips/restore.s",
     "musl/src/signal/mips/sigsetjmp.s",
-    "musl/src/signal/mips64/restore.s",
     "musl/src/signal/mips64/sigsetjmp.s",
-    "musl/src/signal/mipsn32/restore.s",
     "musl/src/signal/mipsn32/sigsetjmp.s",
     "musl/src/signal/or1k/sigsetjmp.s",
     "musl/src/signal/powerpc/restore.s",

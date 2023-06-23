@@ -7,5 +7,3 @@ int ftw(const char *path, int (*fn)(const char *, const struct stat *, int), int
 	 * actually undefined, but works on all real-world machines. */
 	return nftw(path, (int (*)())fn, fd_limit, FTW_PHYS);
 }
-
-weak_alias(ftw, ftw64);

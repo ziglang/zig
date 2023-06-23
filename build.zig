@@ -487,7 +487,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
     };
-    target.cpu_features_add.addFeature(@enumToInt(std.Target.wasm.Feature.bulk_memory));
+    target.cpu_features_add.addFeature(@intFromEnum(std.Target.wasm.Feature.bulk_memory));
 
     const exe = addCompilerStep(b, .ReleaseSmall, target);
 

@@ -5,8 +5,7 @@ export fn entry() void {
     _ = llamas2;
 }
 
-fn makeLlamas(count: usize) [count]u8 {
-}
+fn makeLlamas(count: usize) [count]u8 {}
 
 // error
 // target=native

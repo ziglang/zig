@@ -31,6 +31,8 @@ static int do_nftw(char *path, int (*fn)(const char *, const struct stat *, int,
 	int err;
 	struct FTW lev;
 
+	st.st_dev = st.st_ino = 0;
+
 	if ((flags & FTW_PHYS) ? lstat(path, &st) : stat(path, &st) < 0) {
 		if (!(flags & FTW_PHYS) && errno==ENOENT && !lstat(path, &st))
 			type = FTW_SLN;
@@ -46,7 +48,7 @@ static int do_nftw(char *path, int (*fn)(const char *, const struct stat *, int,
 		type = FTW_F;
 	}
 
-	if ((flags & FTW_MOUNT) && h && st.st_dev != h->dev)
+	if ((flags & FTW_MOUNT) && h && type != FTW_NS && st.st_dev != h->dev)
 		return 0;
 	
 	new.chain = h;
@@ -138,5 +140,3 @@ int nftw(const char *path, int (*fn)(const char *, const struct stat *, int, str
 	pthread_setcancelstate(cs, 0);
 	return r;
 }
-
-weak_alias(nftw, nftw64);

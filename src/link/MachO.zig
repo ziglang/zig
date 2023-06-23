@@ -13,6 +13,7 @@ const mem = std.mem;
 const meta = std.meta;
 
 const aarch64 = @import("../arch/aarch64/bits.zig");
+const calcUuid = @import("MachO/uuid.zig").calcUuid;
 const codegen = @import("../codegen.zig");
 const dead_strip = @import("MachO/dead_strip.zig");
 const fat = @import("MachO/fat.zig");
@@ -756,11 +757,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     });
     try load_commands.writeBuildVersionLC(&self.base.options, lc_writer);
 
-    if (self.cold_start) {
-        std.crypto.random.bytes(&self.uuid_cmd.uuid);
-        Md5.hash(&self.uuid_cmd.uuid, &self.uuid_cmd.uuid, .{});
-        conformUuid(&self.uuid_cmd.uuid);
-    }
+    const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
     try lc_writer.writeStruct(self.uuid_cmd);
 
     try load_commands.writeLoadDylibLCs(self.dylibs.items, self.referenced_dylibs.keys(), lc_writer);
@@ -769,10 +766,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         try lc_writer.writeStruct(self.codesig_cmd);
     }
 
-    try self.base.file.?.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64));
-
     const ncmds = load_commands.calcNumOfLCs(lc_buffer.items);
+    try self.base.file.?.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64));
     try self.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len));
+    try self.writeUuid(comp, uuid_cmd_offset, requires_codesig);
 
     if (codesig) |*csig| {
         try self.writeCodeSignature(comp, csig); // code signing always comes last
@@ -3508,6 +3505,16 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     self.dysymtab_cmd.nundefsym = ctx.nundefsym;
     self.dysymtab_cmd.indirectsymoff = @intCast(u32, offset);
     self.dysymtab_cmd.nindirectsyms = nindirectsyms;
+}
+
+fn writeUuid(self: *MachO, comp: *const Compilation, uuid_cmd_offset: u32, has_codesig: bool) !void {
+    const file_size = if (!has_codesig) blk: {
+        const seg = self.getLinkeditSegmentPtr();
+        break :blk seg.fileoff + seg.filesize;
+    } else self.codesig_cmd.dataoff;
+    try calcUuid(comp, self.base.file.?, file_size, &self.uuid_cmd.uuid);
+    const offset = uuid_cmd_offset + @sizeOf(macho.load_command);
+    try self.base.file.?.pwriteAll(&self.uuid_cmd.uuid, offset);
 }
 
 fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {

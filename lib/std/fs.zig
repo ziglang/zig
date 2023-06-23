@@ -1268,8 +1268,8 @@ pub const Dir = struct {
             &range_off,
             &range_len,
             null,
-            @boolToInt(flags.lock_nonblocking),
-            @boolToInt(exclusive),
+            @intFromBool(flags.lock_nonblocking),
+            @intFromBool(exclusive),
         );
         return file;
     }
@@ -1429,8 +1429,8 @@ pub const Dir = struct {
             &range_off,
             &range_len,
             null,
-            @boolToInt(flags.lock_nonblocking),
-            @boolToInt(exclusive),
+            @intFromBool(flags.lock_nonblocking),
+            @intFromBool(exclusive),
         );
         return file;
     }

@@ -1035,9 +1035,9 @@ fn evalZigTest(
 
                 const TrHdr = std.zig.Server.Message.TestResults;
                 const tr_hdr = @ptrCast(*align(1) const TrHdr, body);
-                fail_count += @boolToInt(tr_hdr.flags.fail);
-                skip_count += @boolToInt(tr_hdr.flags.skip);
-                leak_count += @boolToInt(tr_hdr.flags.leak);
+                fail_count += @intFromBool(tr_hdr.flags.fail);
+                skip_count += @intFromBool(tr_hdr.flags.skip);
+                leak_count += @intFromBool(tr_hdr.flags.leak);
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);

@@ -363,8 +363,8 @@ test "Type.Enum" {
         },
     });
     try testing.expectEqual(true, @typeInfo(Foo).Enum.is_exhaustive);
-    try testing.expectEqual(@as(u8, 1), @enumToInt(Foo.a));
-    try testing.expectEqual(@as(u8, 5), @enumToInt(Foo.b));
+    try testing.expectEqual(@as(u8, 1), @intFromEnum(Foo.a));
+    try testing.expectEqual(@as(u8, 5), @intFromEnum(Foo.b));
     const Bar = @Type(.{
         .Enum = .{
             .tag_type = u32,
@@ -377,9 +377,9 @@ test "Type.Enum" {
         },
     });
     try testing.expectEqual(false, @typeInfo(Bar).Enum.is_exhaustive);
-    try testing.expectEqual(@as(u32, 1), @enumToInt(Bar.a));
-    try testing.expectEqual(@as(u32, 5), @enumToInt(Bar.b));
-    try testing.expectEqual(@as(u32, 6), @enumToInt(@intToEnum(Bar, 6)));
+    try testing.expectEqual(@as(u32, 1), @intFromEnum(Bar.a));
+    try testing.expectEqual(@as(u32, 5), @intFromEnum(Bar.b));
+    try testing.expectEqual(@as(u32, 6), @intFromEnum(@enumFromInt(Bar, 6)));
 }
 
 test "Type.Union" {
