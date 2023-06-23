@@ -581,7 +581,7 @@ pub const HeadersParser = struct {
                         const nread = @min(conn.peek().len, data_avail);
                         conn.drop(@intCast(u16, nread));
                         r.next_chunk_length -= nread;
-                    } else {
+                    } else if (out_avail > 0) {
                         const can_read = @intCast(usize, @min(data_avail, out_avail));
                         const nread = try conn.read(buffer[out_index..][0..can_read]);
                         r.next_chunk_length -= nread;

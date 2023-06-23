@@ -470,8 +470,8 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
-        // I observed a value of 3932766208 on the M1 CI.
-        .max_rss = 4080218931,
+        // I observed a value of 4572626944 on the M2 CI.
+        .max_rss = 5029889638,
     }));
 
     try addWasiUpdateStep(b, version);
