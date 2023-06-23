@@ -179,7 +179,7 @@ ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugBasicType(struct ZigLLVMDIB
 
 ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugArrayType(struct ZigLLVMDIBuilder *dibuilder,
         uint64_t size_in_bits, uint64_t align_in_bits, struct ZigLLVMDIType *elem_type,
-        int elem_count);
+        int64_t elem_count);
 
 ZIG_EXTERN_C struct ZigLLVMDIEnumerator *ZigLLVMCreateDebugEnumerator(struct ZigLLVMDIBuilder *dibuilder,
         const char *name, uint64_t val, bool isUnsigned);

@@ -601,7 +601,7 @@ struct ZigLLVMDIType *ZigLLVMDIBuilderCreateVectorType(struct ZigLLVMDIBuilder *
 }
 
 ZigLLVMDIType *ZigLLVMCreateDebugArrayType(ZigLLVMDIBuilder *dibuilder, uint64_t size_in_bits,
-        uint64_t align_in_bits, ZigLLVMDIType *elem_type, int elem_count)
+        uint64_t align_in_bits, ZigLLVMDIType *elem_type, int64_t elem_count)
 {
     SmallVector<Metadata *, 1> subrange;
     subrange.push_back(reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateSubrange(0, elem_count));
