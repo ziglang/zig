@@ -691,7 +691,7 @@ pub const DwarfInfo = struct {
     is_macho: bool,
 
     pub fn section(di: DwarfInfo, dwarf_section: DwarfSection) ?[]const u8 {
-        return if (di.sections[@enumToInt(dwarf_section)]) |s| s.data else null;
+        return if (di.sections[@intFromEnum(dwarf_section)]) |s| s.data else null;
     }
 
     pub fn deinit(di: *DwarfInfo, allocator: mem.Allocator) void {
@@ -1506,12 +1506,12 @@ pub const DwarfInfo = struct {
             if (table_enc == EH.PE.omit) break :blk;
 
             const eh_frame_ptr = std.math.cast(usize, try readEhPointer(reader, eh_frame_ptr_enc, @sizeOf(usize), .{
-                .pc_rel_base = @ptrToInt(&eh_frame_hdr[stream.pos]),
+                .pc_rel_base = @intFromPtr(&eh_frame_hdr[stream.pos]),
                 .follow_indirect = true,
             }, builtin.cpu.arch.endian()) orelse return badDwarf()) orelse return badDwarf();
 
             const fde_count = std.math.cast(usize, try readEhPointer(reader, fde_count_enc, @sizeOf(usize), .{
-                .pc_rel_base = @ptrToInt(&eh_frame_hdr[stream.pos]),
+                .pc_rel_base = @intFromPtr(&eh_frame_hdr[stream.pos]),
                 .follow_indirect = true,
             }, builtin.cpu.arch.endian()) orelse return badDwarf()) orelse return badDwarf();
 
@@ -1538,7 +1538,7 @@ pub const DwarfInfo = struct {
                     .cie => {
                         const cie = try CommonInformationEntry.parse(
                             entry_header.entry_bytes,
-                            -@intCast(isize, @ptrToInt(binary_mem.ptr)),
+                            -@intCast(isize, @intFromPtr(binary_mem.ptr)),
                             //@ptrToInt(eh_frame.ptr),
                             //@ptrToInt(eh_frame.ptr) - @ptrToInt(binary_mem.ptr),
                             true,
@@ -1552,7 +1552,7 @@ pub const DwarfInfo = struct {
                         const cie = di.cie_map.get(cie_offset) orelse return badDwarf();
                         const fde = try FrameDescriptionEntry.parse(
                             entry_header.entry_bytes,
-                            -@intCast(isize, @ptrToInt(binary_mem.ptr)),
+                            -@intCast(isize, @intFromPtr(binary_mem.ptr)),
                             //@ptrToInt(eh_frame.ptr),
                             //@ptrToInt(eh_frame.ptr) - @ptrToInt(binary_mem.ptr),
                             true,
@@ -1594,7 +1594,7 @@ pub const DwarfInfo = struct {
 
         if (di.eh_frame_hdr) |header| {
             mapped_pc = context.pc;
-            try header.findEntry(context.isValidMemory, @ptrToInt(di.section(.eh_frame_hdr).?.ptr), mapped_pc, &cie, &fde);
+            try header.findEntry(context.isValidMemory, @intFromPtr(di.section(.eh_frame_hdr).?.ptr), mapped_pc, &cie, &fde);
         } else {
             mapped_pc = context.pc - module_base_address;
             const index = std.sort.binarySearch(FrameDescriptionEntry, mapped_pc, di.fde_list.items, {}, struct {
@@ -1790,7 +1790,7 @@ fn readEhPointer(reader: anytype, enc: u8, addr_size_bytes: u8, ctx: EhPointerCo
 
         const native_ptr = math.cast(usize, ptr) orelse return error.PointerOverflow;
         return switch (addr_size_bytes) {
-            2, 4, 8 => return @intToPtr(*const usize, native_ptr).*,
+            2, 4, 8 => return @ptrFromInt(*const usize, native_ptr).*,
             else => return error.UnsupportedAddrSize,
         };
     } else {
@@ -1842,7 +1842,7 @@ pub const ExceptionFrameHeader = struct {
 
             try stream.seekTo(mid * entry_size);
             const pc_begin = try readEhPointer(reader, self.table_enc, @sizeOf(usize), .{
-                .pc_rel_base = @ptrToInt(&self.entries[stream.pos]),
+                .pc_rel_base = @intFromPtr(&self.entries[stream.pos]),
                 .follow_indirect = true,
                 .data_rel_base = eh_frame_hdr_ptr,
             }, builtin.cpu.arch.endian()) orelse return badDwarf();
@@ -1857,13 +1857,13 @@ pub const ExceptionFrameHeader = struct {
 
         // Read past pc_begin
         _ = try readEhPointer(reader, self.table_enc, @sizeOf(usize), .{
-            .pc_rel_base = @ptrToInt(&self.entries[stream.pos]),
+            .pc_rel_base = @intFromPtr(&self.entries[stream.pos]),
             .follow_indirect = true,
             .data_rel_base = eh_frame_hdr_ptr,
         }, builtin.cpu.arch.endian()) orelse return badDwarf();
 
         const fde_ptr = math.cast(usize, try readEhPointer(reader, self.table_enc, @sizeOf(usize), .{
-            .pc_rel_base = @ptrToInt(&self.entries[stream.pos]),
+            .pc_rel_base = @intFromPtr(&self.entries[stream.pos]),
             .follow_indirect = true,
             .data_rel_base = eh_frame_hdr_ptr,
         }, builtin.cpu.arch.endian()) orelse return badDwarf()) orelse return badDwarf();
@@ -1872,20 +1872,20 @@ pub const ExceptionFrameHeader = struct {
 
         // The length of the .eh_frame section is unknown at this point, since .eh_frame_hdr only provides the start
         if (!isValidMemory(fde_ptr) or fde_ptr < self.eh_frame_ptr) return badDwarf();
-        const eh_frame = @intToPtr([*]const u8, self.eh_frame_ptr)[0..math.maxInt(usize)];
+        const eh_frame = @ptrFromInt([*]const u8, self.eh_frame_ptr)[0..math.maxInt(usize)];
         const fde_offset = fde_ptr - self.eh_frame_ptr;
 
         var eh_frame_stream = io.fixedBufferStream(eh_frame);
         try eh_frame_stream.seekTo(fde_offset);
 
         const fde_entry_header = try EntryHeader.read(&eh_frame_stream, builtin.cpu.arch.endian());
-        if (!isValidMemory(@ptrToInt(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]))) return badDwarf();
+        if (!isValidMemory(@intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]))) return badDwarf();
         if (fde_entry_header.type != .fde) return badDwarf();
 
         const cie_offset = fde_entry_header.type.fde;
         try eh_frame_stream.seekTo(cie_offset);
         const cie_entry_header = try EntryHeader.read(&eh_frame_stream, builtin.cpu.arch.endian());
-        if (!isValidMemory(@ptrToInt(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]))) return badDwarf();
+        if (!isValidMemory(@intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]))) return badDwarf();
         if (cie_entry_header.type != .cie) return badDwarf();
 
         cie.* = try CommonInformationEntry.parse(
@@ -2083,7 +2083,7 @@ pub const CommonInformationEntry = struct {
                             personality_enc.?,
                             addr_size_bytes,
                             .{
-                                .pc_rel_base = try pcRelBase(@ptrToInt(&cie_bytes[stream.pos]), pc_rel_offset),
+                                .pc_rel_base = try pcRelBase(@intFromPtr(&cie_bytes[stream.pos]), pc_rel_offset),
                                 .follow_indirect = is_runtime,
                             },
                             endian,
@@ -2161,7 +2161,7 @@ pub const FrameDescriptionEntry = struct {
             cie.fde_pointer_enc,
             addr_size_bytes,
             .{
-                .pc_rel_base = try pcRelBase(@ptrToInt(&fde_bytes[stream.pos]), pc_rel_offset),
+                .pc_rel_base = try pcRelBase(@intFromPtr(&fde_bytes[stream.pos]), pc_rel_offset),
                 .follow_indirect = is_runtime,
             },
             endian,
@@ -2190,7 +2190,7 @@ pub const FrameDescriptionEntry = struct {
                     cie.lsda_pointer_enc,
                     addr_size_bytes,
                     .{
-                        .pc_rel_base = try pcRelBase(@ptrToInt(&fde_bytes[stream.pos]), pc_rel_offset),
+                        .pc_rel_base = try pcRelBase(@intFromPtr(&fde_bytes[stream.pos]), pc_rel_offset),
                         .follow_indirect = is_runtime,
                     },
                     endian,

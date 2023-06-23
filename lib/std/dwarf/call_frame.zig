@@ -38,12 +38,12 @@ const Opcode = enum(u8) {
     val_expression = 0x16,
 
     // These opcodes encode an operand in the lower 6 bits of the opcode itself
-    pub const lo_inline = @enumToInt(Opcode.advance_loc);
-    pub const hi_inline = @enumToInt(Opcode.restore) | 0b111111;
+    pub const lo_inline = @intFromEnum(Opcode.advance_loc);
+    pub const hi_inline = @intFromEnum(Opcode.restore) | 0b111111;
 
     // These opcodes are trailed by zero or more operands
-    pub const lo_reserved = @enumToInt(Opcode.nop);
-    pub const hi_reserved = @enumToInt(Opcode.val_expression);
+    pub const lo_reserved = @intFromEnum(Opcode.nop);
+    pub const hi_reserved = @intFromEnum(Opcode.val_expression);
 
     // Vendor-specific opcodes
     pub const lo_user = 0x1c;
@@ -206,13 +206,13 @@ pub const Instruction = union(Opcode) {
     ) !Instruction {
         return switch (try stream.reader().readByte()) {
             inline Opcode.lo_inline...Opcode.hi_inline => |opcode| blk: {
-                const e = @intToEnum(Opcode, opcode & 0b11000000);
+                const e = @enumFromInt(Opcode, opcode & 0b11000000);
                 var result = @unionInit(Instruction, @tagName(e), undefined);
                 try result.readOperands(stream, @intCast(u6, opcode & 0b111111), addr_size_bytes, endian);
                 break :blk result;
             },
             inline Opcode.lo_reserved...Opcode.hi_reserved => |opcode| blk: {
-                const e = @intToEnum(Opcode, opcode);
+                const e = @enumFromInt(Opcode, opcode);
                 var result = @unionInit(Instruction, @tagName(e), undefined);
                 try result.readOperands(stream, null, addr_size_bytes, endian);
                 break :blk result;
@@ -304,7 +304,7 @@ pub const VirtualMachine = struct {
                 .same_value => {},
                 .offset => |offset| {
                     if (context.cfa) |cfa| {
-                        const ptr = @intToPtr(*const usize, try applyOffset(cfa, offset));
+                        const ptr = @ptrFromInt(*const usize, try applyOffset(cfa, offset));
 
                         // TODO: context.isValidMemory(ptr)
                         mem.writeIntSliceNative(usize, out, ptr.*);

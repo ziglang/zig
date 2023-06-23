@@ -988,7 +988,7 @@ pub fn readElfDebugInfo(
             if (mem.eql(u8, name, ".gnu_debuglink")) {
                 const gnu_debuglink = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
                 const debug_filename = mem.sliceTo(@ptrCast([*:0]const u8, gnu_debuglink.ptr), 0);
-                const crc_offset = mem.alignForward(@ptrToInt(&debug_filename[debug_filename.len]) + 1, 4) - @ptrToInt(gnu_debuglink.ptr);
+                const crc_offset = mem.alignForward(usize, @intFromPtr(&debug_filename[debug_filename.len]) + 1, 4) - @intFromPtr(gnu_debuglink.ptr);
                 const crc_bytes = gnu_debuglink[crc_offset .. crc_offset + 4];
                 separate_debug_crc = mem.readIntSliceNative(u32, crc_bytes);
                 separate_debug_filename = debug_filename;
@@ -1007,11 +1007,9 @@ pub fn readElfDebugInfo(
                 var section_stream = io.fixedBufferStream(section_bytes);
                 var section_reader = section_stream.reader();
                 const chdr = section_reader.readStruct(elf.Chdr) catch continue;
-
-                // TODO: Support ZSTD
                 if (chdr.ch_type != .ZLIB) continue;
 
-                var zlib_stream = std.compress.zlib.zlibStream(allocator, section_stream.reader()) catch continue;
+                var zlib_stream = std.compress.zlib.decompressStream(allocator, section_stream.reader()) catch continue;
                 defer zlib_stream.deinit();
 
                 var decompressed_section = try allocator.alloc(u8, chdr.ch_size);
@@ -1031,10 +1029,10 @@ pub fn readElfDebugInfo(
         }
 
         const missing_debug_info =
-            sections[@enumToInt(DW.DwarfSection.debug_info)] == null or
-            sections[@enumToInt(DW.DwarfSection.debug_abbrev)] == null or
-            sections[@enumToInt(DW.DwarfSection.debug_str)] == null or
-            sections[@enumToInt(DW.DwarfSection.debug_line)] == null;
+            sections[@intFromEnum(DW.DwarfSection.debug_info)] == null or
+            sections[@intFromEnum(DW.DwarfSection.debug_abbrev)] == null or
+            sections[@intFromEnum(DW.DwarfSection.debug_str)] == null or
+            sections[@intFromEnum(DW.DwarfSection.debug_line)] == null;
 
         // Attempt to load debug info from an external file
         // See: https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
@@ -1537,7 +1535,7 @@ pub const DebugInfo = struct {
                     switch (phdr.p_type) {
                         elf.PT_NOTE => {
                             // Look for .note.gnu.build-id
-                            const note_bytes = @intToPtr([*]const u8, info.dlpi_addr + phdr.p_vaddr)[0..phdr.p_memsz];
+                            const note_bytes = @ptrFromInt([*]const u8, info.dlpi_addr + phdr.p_vaddr)[0..phdr.p_memsz];
                             const name_size = mem.readIntSliceNative(u32, note_bytes[0..4]);
                             if (name_size != 4) continue;
                             const desc_size = mem.readIntSliceNative(u32, note_bytes[4..8]);
@@ -1547,7 +1545,7 @@ pub const DebugInfo = struct {
                             context.build_id = note_bytes[16..][0..desc_size];
                         },
                         elf.PT_GNU_EH_FRAME => {
-                            context.gnu_eh_frame = @intToPtr([*]const u8, info.dlpi_addr + phdr.p_vaddr)[0..phdr.p_memsz];
+                            context.gnu_eh_frame = @ptrFromInt([*]const u8, info.dlpi_addr + phdr.p_vaddr)[0..phdr.p_memsz];
                         },
                         else => {},
                     }
@@ -1575,7 +1573,7 @@ pub const DebugInfo = struct {
             // are encoded relative to its base address, so we must use the
             // version that is already memory mapped, and not the one that
             // will be mapped separately from the ELF file.
-            sections[@enumToInt(DW.DwarfSection.eh_frame_hdr)] = .{
+            sections[@intFromEnum(DW.DwarfSection.eh_frame_hdr)] = .{
                 .data = eh_frame_hdr,
                 .owned = false,
             };
@@ -1689,10 +1687,10 @@ pub const ModuleDebugInfo = switch (native_os) {
             }
 
             const missing_debug_info =
-                sections[@enumToInt(DW.DwarfSection.debug_info)] == null or
-                sections[@enumToInt(DW.DwarfSection.debug_abbrev)] == null or
-                sections[@enumToInt(DW.DwarfSection.debug_str)] == null or
-                sections[@enumToInt(DW.DwarfSection.debug_line)] == null;
+                sections[@intFromEnum(DW.DwarfSection.debug_info)] == null or
+                sections[@intFromEnum(DW.DwarfSection.debug_abbrev)] == null or
+                sections[@intFromEnum(DW.DwarfSection.debug_str)] == null or
+                sections[@intFromEnum(DW.DwarfSection.debug_line)] == null;
             if (missing_debug_info) return error.MissingDebugInfo;
 
             var di = DW.DwarfInfo{
