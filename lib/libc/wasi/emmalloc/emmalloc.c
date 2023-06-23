@@ -303,10 +303,13 @@ static int compute_free_list_bucket(size_t allocSize)
   return bucketIndex;
 }
 
+#define MEMORY_BARRIER __asm__ __volatile__("":::"memory")
+
 #define DECODE_CEILING_SIZE(size) ((size_t)((size) & ~FREE_REGION_FLAG))
 
 static Region *prev_region(Region *region)
 {
+  MEMORY_BARRIER;
   size_t prevRegionSize = ((size_t*)region)[-1];
   prevRegionSize = DECODE_CEILING_SIZE(prevRegionSize);
   return (Region*)((uint8_t*)region - prevRegionSize);
@@ -319,6 +322,7 @@ static Region *next_region(Region *region)
 
 static size_t region_ceiling_size(Region *region)
 {
+  MEMORY_BARRIER;
   return ((size_t*)((uint8_t*)region + region->size))[-1];
 }
 
@@ -364,6 +368,7 @@ static void create_used_region(void *ptr, size_t size)
   assert(size >= sizeof(Region));
   *(size_t*)ptr = size;
   ((size_t*)ptr)[(size/sizeof(size_t))-1] = size;
+  MEMORY_BARRIER;
 }
 
 static void create_free_region(void *ptr, size_t size)
@@ -375,6 +380,7 @@ static void create_free_region(void *ptr, size_t size)
   Region *freeRegion = (Region*)ptr;
   freeRegion->size = size;
   ((size_t*)ptr)[(size/sizeof(size_t))-1] = size | FREE_REGION_FLAG;
+  MEMORY_BARRIER;
 }
 
 static void prepend_to_free_list(Region *region, Region *prependTo)
@@ -716,6 +722,7 @@ static void *attempt_allocate(Region *freeRegion, size_t alignment, size_t size)
     // region as used memory, not leaving a free memory region behind.
     // Initialize the free region as used by resetting the ceiling size to the same value as the size at bottom.
     ((size_t*)((uint8_t*)freeRegion + freeRegion->size))[-1] = freeRegion->size;
+    MEMORY_BARRIER;
   }
 
 #ifdef __EMSCRIPTEN_TRACING__
@@ -990,6 +997,7 @@ void emmalloc_free(void *ptr)
 #endif
 
   // Check merging with left side
+  MEMORY_BARRIER;
   size_t prevRegionSizeField = ((size_t*)region)[-1];
   size_t prevRegionSize = prevRegionSizeField & ~FREE_REGION_FLAG;
   if (prevRegionSizeField != prevRegionSize) // Previous region is free?
@@ -1042,6 +1050,7 @@ static int attempt_region_resize(Region *region, size_t size)
   // is a free region.
   Region *nextRegion = next_region(region);
   uint8_t *nextRegionEndPtr = (uint8_t*)nextRegion + nextRegion->size;
+  MEMORY_BARRIER;
   size_t sizeAtCeiling = ((size_t*)nextRegionEndPtr)[-1];
   if (nextRegion->size != sizeAtCeiling) // Next region is free?
   {
@@ -1396,6 +1405,7 @@ static int trim_dynamic_heap_reservation(size_t pad)
     return 0; // emmalloc is not controlling any dynamic memory at all - cannot release memory.
   uint8_t *previousSbrkEndAddress = listOfAllRegions->endPtr;
   assert(sbrk(0) == previousSbrkEndAddress);
+  MEMORY_BARRIER;
   size_t lastMemoryRegionSize = ((size_t*)previousSbrkEndAddress)[-1];
   assert(lastMemoryRegionSize == 16); // // The last memory region should be a sentinel node of exactly 16 bytes in size.
   Region *endSentinelRegion = (Region*)(previousSbrkEndAddress - sizeof(Region));
