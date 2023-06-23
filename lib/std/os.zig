@@ -6001,7 +6001,6 @@ pub fn sendto(
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTCONN => return error.SocketNotConnected,
             .NETDOWN => return error.NetworkSubsystemFailed,
-            .CONNREFUSED => return 0, // This a unix domain socket and the other side has closed the connection
             else => |err| return unexpectedErrno(err),
         }
     }
