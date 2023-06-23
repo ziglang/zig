@@ -3,7 +3,7 @@ const FloatInt = extern union {
     Int: i32,
 };
 export fn entry() void {
-    var fi = FloatInt{.Float = 123.45};
+    var fi = FloatInt{ .Float = 123.45 };
     var tagName = @tagName(fi);
     _ = tagName;
 }

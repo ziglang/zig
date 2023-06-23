@@ -34,4 +34,7 @@ int main() {
     printf("address to res_nquery: %p\n", res_nquery);
     printf("address to res_querydomain: %p\n", res_querydomain);
     printf("address to res_nquerydomain: %p\n", res_nquerydomain);
+    printf("address to dn_skipname: %p\n", dn_skipname);
+    printf("address to dn_comp: %p\n", dn_comp);
+    printf("address to dn_expand: %p\n", dn_expand);
 }

@@ -1,8 +1,12 @@
 fn foo(...) void {}
 fn bar(a: anytype, ...) callconv(a) void {}
 
-comptime { _ = foo; }
-comptime { _ = bar; }
+comptime {
+    _ = foo;
+}
+comptime {
+    _ = bar;
+}
 
 // error
 // backend=stage2

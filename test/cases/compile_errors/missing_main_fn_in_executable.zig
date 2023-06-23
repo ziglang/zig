@@ -1,5 +1,3 @@
-
-
 // error
 // backend=llvm
 // target=x86_64-linux

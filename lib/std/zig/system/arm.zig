@@ -135,7 +135,7 @@ pub const cpu_models = struct {
 
 pub const aarch64 = struct {
     fn setFeature(cpu: *Target.Cpu, feature: Target.aarch64.Feature, enabled: bool) void {
-        const idx = @as(Target.Cpu.Feature.Set.Index, @enumToInt(feature));
+        const idx = @as(Target.Cpu.Feature.Set.Index, @intFromEnum(feature));
 
         if (enabled) cpu.features.addFeature(idx) else cpu.features.removeFeature(idx);
     }

@@ -30,7 +30,7 @@ pub fn log(comptime T: type, base: T, x: T) T {
         // TODO implement integer log without using float math
         .Int => |IntType| switch (IntType.signedness) {
             .signed => @compileError("log not implemented for signed integers"),
-            .unsigned => return @floatToInt(T, @floor(@log(@intToFloat(f64, x)) / @log(float_base))),
+            .unsigned => return @intFromFloat(T, @floor(@log(@floatFromInt(f64, x)) / @log(float_base))),
         },
 
         .Float => {

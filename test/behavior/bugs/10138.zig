@@ -5,6 +5,7 @@ test "registers get overwritten when ignoring return" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.cpu.arch != .x86_64 or builtin.os.tag != .linux) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const fd = open();
     _ = write(fd, "a", 1);
@@ -16,7 +17,7 @@ fn open() usize {
 }
 
 fn write(fd: usize, a: [*]const u8, len: usize) usize {
-    return syscall4(.WRITE, fd, @ptrToInt(a), len);
+    return syscall4(.WRITE, fd, @intFromPtr(a), len);
 }
 
 fn syscall4(n: enum { WRITE }, a: usize, b: usize, c: usize) usize {

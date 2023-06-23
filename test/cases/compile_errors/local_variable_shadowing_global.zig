@@ -2,7 +2,7 @@ const Foo = struct {};
 const Bar = struct {};
 
 export fn entry() void {
-    var Bar : i32 = undefined;
+    var Bar: i32 = undefined;
     _ = Bar;
 }
 

@@ -1,4 +1,4 @@
-extern fn Text(str: []const u8, num: i32) callconv(.C) void; 
+extern fn Text(str: []const u8, num: i32) callconv(.C) void;
 export fn entry() void {
     _ = Text;
 }

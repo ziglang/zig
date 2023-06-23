@@ -1,7 +1,9 @@
 fn f() i32 {
     return @as(i32, return 1);
 }
-export fn entry() void { _ = f(); }
+export fn entry() void {
+    _ = f();
+}
 
 // error
 // backend=stage2

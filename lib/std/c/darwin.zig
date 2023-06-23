@@ -51,19 +51,19 @@ pub const EXC = enum(exception_type_t) {
 
 pub const EXC_SOFT_SIGNAL = 0x10003;
 
-pub const EXC_MASK_BAD_ACCESS = 1 << @enumToInt(EXC.BAD_ACCESS);
-pub const EXC_MASK_BAD_INSTRUCTION = 1 << @enumToInt(EXC.BAD_INSTRUCTION);
-pub const EXC_MASK_ARITHMETIC = 1 << @enumToInt(EXC.ARITHMETIC);
-pub const EXC_MASK_EMULATION = 1 << @enumToInt(EXC.EMULATION);
-pub const EXC_MASK_SOFTWARE = 1 << @enumToInt(EXC.SOFTWARE);
-pub const EXC_MASK_BREAKPOINT = 1 << @enumToInt(EXC.BREAKPOINT);
-pub const EXC_MASK_SYSCALL = 1 << @enumToInt(EXC.SYSCALL);
-pub const EXC_MASK_MACH_SYSCALL = 1 << @enumToInt(EXC.MACH_SYSCALL);
-pub const EXC_MASK_RPC_ALERT = 1 << @enumToInt(EXC.RPC_ALERT);
-pub const EXC_MASK_CRASH = 1 << @enumToInt(EXC.CRASH);
-pub const EXC_MASK_RESOURCE = 1 << @enumToInt(EXC.RESOURCE);
-pub const EXC_MASK_GUARD = 1 << @enumToInt(EXC.GUARD);
-pub const EXC_MASK_CORPSE_NOTIFY = 1 << @enumToInt(EXC.CORPSE_NOTIFY);
+pub const EXC_MASK_BAD_ACCESS = 1 << @intFromEnum(EXC.BAD_ACCESS);
+pub const EXC_MASK_BAD_INSTRUCTION = 1 << @intFromEnum(EXC.BAD_INSTRUCTION);
+pub const EXC_MASK_ARITHMETIC = 1 << @intFromEnum(EXC.ARITHMETIC);
+pub const EXC_MASK_EMULATION = 1 << @intFromEnum(EXC.EMULATION);
+pub const EXC_MASK_SOFTWARE = 1 << @intFromEnum(EXC.SOFTWARE);
+pub const EXC_MASK_BREAKPOINT = 1 << @intFromEnum(EXC.BREAKPOINT);
+pub const EXC_MASK_SYSCALL = 1 << @intFromEnum(EXC.SYSCALL);
+pub const EXC_MASK_MACH_SYSCALL = 1 << @intFromEnum(EXC.MACH_SYSCALL);
+pub const EXC_MASK_RPC_ALERT = 1 << @intFromEnum(EXC.RPC_ALERT);
+pub const EXC_MASK_CRASH = 1 << @intFromEnum(EXC.CRASH);
+pub const EXC_MASK_RESOURCE = 1 << @intFromEnum(EXC.RESOURCE);
+pub const EXC_MASK_GUARD = 1 << @intFromEnum(EXC.GUARD);
+pub const EXC_MASK_CORPSE_NOTIFY = 1 << @intFromEnum(EXC.CORPSE_NOTIFY);
 pub const EXC_MASK_MACHINE = arch_bits.EXC_MASK_MACHINE;
 
 pub const EXC_MASK_ALL = EXC_MASK_BAD_ACCESS |
@@ -163,13 +163,67 @@ pub extern "c" fn _dyld_get_image_header(image_index: u32) ?*mach_header;
 pub extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) usize;
 pub extern "c" fn _dyld_get_image_name(image_index: u32) [*:0]const u8;
 
-pub const COPYFILE_ACL = 1 << 0;
-pub const COPYFILE_STAT = 1 << 1;
-pub const COPYFILE_XATTR = 1 << 2;
-pub const COPYFILE_DATA = 1 << 3;
+pub const COPYFILE = struct {
+    pub const ACL = 1 << 0;
+    pub const STAT = 1 << 1;
+    pub const XATTR = 1 << 2;
+    pub const DATA = 1 << 3;
+    pub const SECURITY = COPYFILE.STAT | COPYFILE.ACL;
+    pub const METADATA = COPYFILE.SECURITY | COPYFILE.XATTR;
+    pub const ALL = COPYFILE.METADATA | COPYFILE.DATA;
+    pub const RECURSIVE = 1 << 15;
+    pub const CHECK = 1 << 16;
+    pub const EXCL = 1 << 17;
+    pub const NOFOLLOW_SRC = 1 << 18;
+    pub const NOFOLLOW_DST = 1 << 19;
+    pub const MOVE = 1 << 20;
+    pub const UNLINK = 1 << 21;
+    pub const NOFOLLOW = COPYFILE.NOFOLLOW_SRC | NOFOLLOW_DST;
+    pub const PACK = 1 << 22;
+    pub const UNPACK = 1 << 23;
+    pub const CLONE = 1 << 24;
+    pub const CLONE_FORCE = 1 << 25;
+    pub const RUN_IN_PLACE = 1 << 26;
+    pub const DATA_SPARSE = 1 << 27;
+    pub const PRESERVE_DST_TRACKED = 1 << 28;
+    pub const VERBOSE = 1 << 30;
+    pub const RECURSE_ERROR = 0;
+    pub const RECURSE_FILE = 1;
+    pub const RECURSE_DIR = 2;
+    pub const RECURSE_DIR_CLEANUP = 3;
+    pub const COPY_DATA = 4;
+    pub const COPY_XATTR = 5;
+    pub const START = 1;
+    pub const FINISH = 2;
+    pub const ERR = 3;
+    pub const PROGRESS = 4;
+    pub const CONTINUE = 0;
+    pub const SKIP = 1;
+    pub const QUIT = 2;
+    pub const STATE_SRC_FD = 1;
+    pub const STATE_SRC_FILENAME = 2;
+    pub const STATE_DST_FD = 3;
+    pub const STATE_DST_FILENAME = 4;
+    pub const STATE_QUARANTINE = 5;
+    pub const STATE_STATUS_CB = 6;
+    pub const STATE_STATUS_CTX = 7;
+    pub const STATE_COPIED = 8;
+    pub const STATE_XATTRNAME = 9;
+    pub const STATE_WAS_CLONED = 10;
+    pub const STATE_SRC_BSIZE = 11;
+    pub const STATE_DST_BSIZE = 12;
+    pub const STATE_BSIZE = 13;
+    pub const DISABLE_VAR: [*]u8 = "COPYFILE_DISABLE";
+};
 
 pub const copyfile_state_t = *opaque {};
-pub extern "c" fn fcopyfile(from: fd_t, to: fd_t, state: ?copyfile_state_t, flags: u32) c_int;
+pub const copyfile_flags_t = u32;
+pub extern "c" fn fcopyfile(from: fd_t, to: fd_t, state: ?copyfile_state_t, flags: copyfile_flags_t) c_int;
+pub extern "c" fn copyfile(from: [*:0]u8, to: [*:0]u8, state: ?copyfile_state_t, flags: copyfile_flags_t) c_int;
+pub extern "c" fn copyfile_state_alloc() copyfile_state_t;
+pub extern "c" fn copyfile_state_free(state: copyfile_state_t) void;
+pub extern "c" fn copyfile_state_get(s: copyfile_state_t, flag: u32, dst: ?*anyopaque) c_int;
+pub extern "c" fn copyfile_state_set(s: copyfile_state_t, flag: u32, dst: ?*const anyopaque) c_int;
 
 pub extern "c" fn @"realpath$DARWIN_EXTSN"(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
 pub const realpath = @"realpath$DARWIN_EXTSN";
@@ -1123,10 +1177,10 @@ pub const sigset_t = u32;
 pub const empty_sigset: sigset_t = 0;
 
 pub const SIG = struct {
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const HOLD = @intToPtr(?Sigaction.handler_fn, 5);
+    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
+    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
+    pub const HOLD = @ptrFromInt(?Sigaction.handler_fn, 5);
 
     /// block specified signal set
     pub const _BLOCK = 1;
@@ -1357,7 +1411,7 @@ pub const MAP = struct {
     pub const NOCACHE = 0x0400;
     /// don't reserve needed swap area
     pub const NORESERVE = 0x0040;
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
 };
 
 pub const MSF = struct {
@@ -2409,7 +2463,7 @@ pub const KernE = enum(u32) {
 pub const mach_msg_return_t = kern_return_t;
 
 pub fn getMachMsgError(err: mach_msg_return_t) MachMsgE {
-    return @intToEnum(MachMsgE, @truncate(u32, @intCast(usize, err)));
+    return @enumFromInt(MachMsgE, @truncate(u32, @intCast(usize, err)));
 }
 
 /// All special error code bits defined below.
@@ -2611,10 +2665,10 @@ pub const RTLD = struct {
     pub const NODELETE = 0x80;
     pub const FIRST = 0x100;
 
-    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
-    pub const MAIN_ONLY = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -5)));
+    pub const NEXT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -1)));
+    pub const DEFAULT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -2)));
+    pub const SELF = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -3)));
+    pub const MAIN_ONLY = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -5)));
 };
 
 pub const F = struct {
@@ -3364,12 +3418,12 @@ pub const PosixSpawn = struct {
 };
 
 pub fn getKernError(err: kern_return_t) KernE {
-    return @intToEnum(KernE, @truncate(u32, @intCast(usize, err)));
+    return @enumFromInt(KernE, @truncate(u32, @intCast(usize, err)));
 }
 
 pub fn unexpectedKernError(err: KernE) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.print("unexpected error: {d}\n", .{@enumToInt(err)});
+        std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
@@ -3401,7 +3455,7 @@ pub const MachTask = extern struct {
         var out_port: mach_port_name_t = undefined;
         switch (getKernError(mach_port_allocate(
             self.port,
-            @enumToInt(right),
+            @intFromEnum(right),
             &out_port,
         ))) {
             .SUCCESS => return .{ .port = out_port },
@@ -3419,7 +3473,7 @@ pub const MachTask = extern struct {
             self.port,
             port.port,
             port.port,
-            @enumToInt(msg),
+            @intFromEnum(msg),
         ))) {
             .SUCCESS => return,
             .FAILURE => return error.PermissionDenied,
@@ -3611,7 +3665,7 @@ pub const MachTask = extern struct {
     }
 
     fn setProtectionImpl(task: MachTask, address: u64, len: usize, set_max: bool, prot: vm_prot_t) MachError!void {
-        switch (getKernError(mach_vm_protect(task.port, address, len, @boolToInt(set_max), prot))) {
+        switch (getKernError(mach_vm_protect(task.port, address, len, @intFromBool(set_max), prot))) {
             .SUCCESS => return,
             .FAILURE => return error.PermissionDenied,
             else => |err| return unexpectedKernError(err),
@@ -3646,7 +3700,7 @@ pub const MachTask = extern struct {
             switch (getKernError(mach_vm_write(
                 task.port,
                 curr_addr,
-                @ptrToInt(out_buf.ptr),
+                @intFromPtr(out_buf.ptr),
                 @intCast(mach_msg_type_number_t, curr_size),
             ))) {
                 .SUCCESS => {},
@@ -3698,7 +3752,7 @@ pub const MachTask = extern struct {
                 else => |err| return unexpectedKernError(err),
             }
 
-            @memcpy(out_buf[0..curr_bytes_read], @intToPtr([*]const u8, vm_memory));
+            @memcpy(out_buf[0..curr_bytes_read], @ptrFromInt([*]const u8, vm_memory));
             _ = vm_deallocate(mach_task_self(), vm_memory, curr_bytes_read);
 
             out_buf = out_buf[curr_bytes_read..];
@@ -3777,7 +3831,7 @@ pub const MachTask = extern struct {
             const self_task = machTaskForSelf();
             _ = vm_deallocate(
                 self_task.port,
-                @ptrToInt(list.buf.ptr),
+                @intFromPtr(list.buf.ptr),
                 @intCast(vm_size_t, list.buf.len * @sizeOf(mach_port_t)),
             );
         }
@@ -3922,6 +3976,7 @@ pub const cpu_subtype_t = integer_t;
 pub const cpu_threadtype_t = integer_t;
 pub const host_flavor_t = integer_t;
 pub const host_info_t = *integer_t;
+pub const host_info64_t = *integer_t;
 pub const host_can_has_debugger_info = extern struct {
     can_has_debugger: boolean_t,
 };
@@ -3985,6 +4040,10 @@ pub const host_preferred_user_arch = extern struct {
 pub const host_preferred_user_arch_data_t = host_preferred_user_arch;
 pub const host_preferred_user_arch_t = *host_preferred_user_arch;
 
+fn HostCount(comptime HT: type) mach_msg_type_number_t {
+    return @intCast(mach_msg_type_number_t, @sizeOf(HT) / @sizeOf(integer_t));
+}
+
 pub const HOST = struct {
     pub const BASIC_INFO = 1;
     pub const SCHED_INFO = 3;
@@ -3996,13 +4055,22 @@ pub const HOST = struct {
     pub const DEBUG_INFO_INTERNAL = 10;
     pub const CAN_HAS_DEBUGGER = 11;
     pub const PREFERRED_USER_ARCH = 12;
-    pub const CAN_HAS_DEBUGGER_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_can_has_debugger_info_data_t) / @sizeOf(integer_t));
-    pub const SCHED_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_sched_info_data_t) / @sizeOf(integer_t));
-    pub const RESOURCES_SIZES_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(kernel_resource_sizes_data_t) / @sizeOf(integer_t));
-    pub const PRIORITY_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_priority_info_data_t) / @sizeOf(integer_t));
-    pub const CPU_LOAD_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_cpu_load_info_data_t) / @sizeOf(integer_t));
-    pub const LOAD_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_load_info_data_t) / @sizeOf(integer_t));
-    pub const PREFERRED_USER_ARCH_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_preferred_user_arch_data_t) / @sizeOf(integer_t));
+    pub const LOAD_INFO = 1;
+    pub const VM_INFO = 2;
+    pub const CPU_LOAD_INFO = 3;
+    pub const VM_INFO64 = 4;
+    pub const EXTMOD_INFO64 = 5;
+    pub const EXPIRED_TASK_INFO = 6;
+    pub const CAN_HAS_DEBUGGER_COUNT = HostCount(host_can_has_debugger_info_data_t);
+    pub const SCHED_INFO_COUNT = HostCount(host_sched_info_data_t);
+    pub const RESOURCES_SIZES_COUNT = HostCount(kernel_resource_sizes_data_t);
+    pub const PRIORITY_INFO_COUNT = HostCount(host_priority_info_data_t);
+    pub const CPU_LOAD_INFO_COUNT = HostCount(host_cpu_load_info_data_t);
+    pub const LOAD_INFO_COUNT = HostCount(host_load_info_data_t);
+    pub const PREFERRED_USER_ARCH_COUNT = HostCount(host_preferred_user_arch_data_t);
+    pub const VM_INFO_COUNT = HostCount(vm_statistics_data_t);
+    pub const VM_INFO64_COUNT = HostCount(vm_statistics64_data_t);
+    pub const EXTMOD_INFO64_COUNT = HostCount(vm_extmod_statistics_data_t);
 };
 
 pub const host_basic_info = packed struct(u32) {
@@ -4020,3 +4088,88 @@ pub const host_basic_info = packed struct(u32) {
 };
 
 pub extern "c" fn host_info(host: host_t, flavor: host_flavor_t, info_out: host_info_t, info_outCnt: [*]mach_msg_type_number_t) kern_return_t;
+pub extern "c" fn host_statistics(priv: host_t, flavor: host_flavor_t, info_out: host_info_t, info_outCnt: [*]mach_msg_type_number_t) kern_return_t;
+pub extern "c" fn host_statistics64(priv: host_t, flavor: host_flavor_t, info_out: host_info64_t, info64_outCnt: [*]mach_msg_type_number_t) kern_return_t;
+
+pub const vm_statistics = extern struct {
+    free_count: natural_t,
+    active_count: natural_t,
+    inactive_count: natural_t,
+    wire_count: natural_t,
+    zero_fill_count: natural_t,
+    reactivations: natural_t,
+    pageins: natural_t,
+    pageouts: natural_t,
+    faults: natural_t,
+    cow_faults: natural_t,
+    lookups: natural_t,
+    hits: natural_t,
+    purgeable_count: natural_t,
+    purges: natural_t,
+    speculative_count: natural_t,
+};
+
+pub const vm_statistics_t = *vm_statistics;
+pub const vm_statistics_data_t = vm_statistics;
+
+pub const vm_statistics64 align(8) = extern struct {
+    free_count: natural_t,
+    active_count: natural_t,
+    inactive_count: natural_t,
+    wire_count: natural_t,
+    zero_fill_count: u64,
+    reactivations: u64,
+    pageins: u64,
+    pageouts: u64,
+    faults: u64,
+    cow_faults: u64,
+    lookups: u64,
+    hits: u64,
+    purges: u64,
+    purgeable_count: natural_t,
+    speculative_count: natural_t,
+    decompressions: u64,
+    compressions: u64,
+    swapins: u64,
+    swapouts: u64,
+    compressor_page_count: natural_t,
+    throttled_count: natural_t,
+    external_page_count: natural_t,
+    internal_page_count: natural_t,
+    total_uncompressed_pages_in_compressor: u64,
+};
+
+pub const vm_statistics64_t = *vm_statistics64;
+pub const vm_statistics64_data_t = vm_statistics64;
+
+pub const vm_extmod_statistics align(8) = extern struct {
+    task_for_pid_count: i64,
+    task_for_pid_caller_count: i64,
+    thread_creation_count: i64,
+    thread_creation_caller_count: i64,
+    thread_set_state_count: i64,
+    thread_set_state_caller_count: i64,
+};
+
+pub const vm_extmod_statistics_t = *vm_extmod_statistics;
+pub const vm_extmod_statistics_data_t = vm_extmod_statistics;
+
+pub extern "c" fn vm_stats(info: ?*anyopaque, count: *c_uint) kern_return_t;
+
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
+    .arm, .aarch64 => 16 * 1024,
+    else => 8 * 1024,
+};
+
+pub const _SYS_NAMELEN = 256;
+
+pub const utsname = extern struct {
+    sysname: [255:0]u8,
+    nodename: [255:0]u8,
+    release: [255:0]u8,
+    version: [255:0]u8,
+    machine: [255:0]u8,
+};
+
+pub extern "c" fn uname(u: *utsname) c_int;

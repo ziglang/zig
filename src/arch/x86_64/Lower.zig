@@ -9,18 +9,32 @@ result_insts_len: u8 = undefined,
 result_relocs_len: u8 = undefined,
 result_insts: [
     std.mem.max(usize, &.{
+        1, // non-pseudo instructions
         2, // cmovcc: cmovcc \ cmovcc
         3, // setcc: setcc \ setcc \ logicop
         2, // jcc: jcc \ jcc
+        pseudo_probe_align_insts,
+        pseudo_probe_adjust_unrolled_max_insts,
+        pseudo_probe_adjust_setup_insts,
+        pseudo_probe_adjust_loop_insts,
         abi.Win64.callee_preserved_regs.len, // push_regs/pop_regs
         abi.SysV.callee_preserved_regs.len, // push_regs/pop_regs
     })
 ]Instruction = undefined,
 result_relocs: [
     std.mem.max(usize, &.{
+        1, // jmp/jcc/call/mov/lea: jmp/jcc/call/mov/lea
         2, // jcc: jcc \ jcc
+        2, // test \ jcc \ probe \ sub \ jmp
+        1, // probe \ sub \ jcc
     })
 ]Reloc = undefined,
+
+pub const pseudo_probe_align_insts = 5; // test \ jcc \ probe \ sub \ jmp
+pub const pseudo_probe_adjust_unrolled_max_insts =
+    pseudo_probe_adjust_setup_insts + pseudo_probe_adjust_loop_insts;
+pub const pseudo_probe_adjust_setup_insts = 2; // mov \ sub
+pub const pseudo_probe_adjust_loop_insts = 3; // probe \ sub \ jcc
 
 pub const Error = error{
     OutOfMemory,
@@ -62,6 +76,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
         else => try lower.generic(inst),
         .pseudo => switch (inst.ops) {
             .pseudo_cmov_z_and_np_rr => {
+                assert(inst.data.rr.fixes == ._);
                 try lower.emit(.none, .cmovnz, &.{
                     .{ .reg = inst.data.rr.r2 },
                     .{ .reg = inst.data.rr.r1 },
@@ -72,6 +87,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 });
             },
             .pseudo_cmov_nz_or_p_rr => {
+                assert(inst.data.rr.fixes == ._);
                 try lower.emit(.none, .cmovnz, &.{
                     .{ .reg = inst.data.rr.r1 },
                     .{ .reg = inst.data.rr.r2 },
@@ -84,6 +100,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_cmov_nz_or_p_rm_sib,
             .pseudo_cmov_nz_or_p_rm_rip,
             => {
+                assert(inst.data.rx.fixes == ._);
                 try lower.emit(.none, .cmovnz, &.{
                     .{ .reg = inst.data.rx.r1 },
                     .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
@@ -94,58 +111,63 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 });
             },
             .pseudo_set_z_and_np_r => {
+                assert(inst.data.rr.fixes == ._);
                 try lower.emit(.none, .setz, &.{
-                    .{ .reg = inst.data.r_scratch.r1 },
+                    .{ .reg = inst.data.rr.r1 },
                 });
                 try lower.emit(.none, .setnp, &.{
-                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                    .{ .reg = inst.data.rr.r2 },
                 });
                 try lower.emit(.none, .@"and", &.{
-                    .{ .reg = inst.data.r_scratch.r1 },
-                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                    .{ .reg = inst.data.rr.r1 },
+                    .{ .reg = inst.data.rr.r2 },
                 });
             },
             .pseudo_set_z_and_np_m_sib,
             .pseudo_set_z_and_np_m_rip,
             => {
+                assert(inst.data.rx.fixes == ._);
                 try lower.emit(.none, .setz, &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
+                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
                 });
                 try lower.emit(.none, .setnp, &.{
-                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                    .{ .reg = inst.data.rx.r1 },
                 });
                 try lower.emit(.none, .@"and", &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
-                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                    .{ .reg = inst.data.rx.r1 },
                 });
             },
             .pseudo_set_nz_or_p_r => {
+                assert(inst.data.rr.fixes == ._);
                 try lower.emit(.none, .setnz, &.{
-                    .{ .reg = inst.data.r_scratch.r1 },
+                    .{ .reg = inst.data.rr.r1 },
                 });
                 try lower.emit(.none, .setp, &.{
-                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                    .{ .reg = inst.data.rr.r2 },
                 });
                 try lower.emit(.none, .@"or", &.{
-                    .{ .reg = inst.data.r_scratch.r1 },
-                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                    .{ .reg = inst.data.rr.r1 },
+                    .{ .reg = inst.data.rr.r2 },
                 });
             },
             .pseudo_set_nz_or_p_m_sib,
             .pseudo_set_nz_or_p_m_rip,
             => {
+                assert(inst.data.rx.fixes == ._);
                 try lower.emit(.none, .setnz, &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
+                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
                 });
                 try lower.emit(.none, .setp, &.{
-                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                    .{ .reg = inst.data.rx.r1 },
                 });
                 try lower.emit(.none, .@"or", &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
-                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                    .{ .reg = inst.data.rx.r1 },
                 });
             },
             .pseudo_j_z_and_np_inst => {
+                assert(inst.data.inst.fixes == ._);
                 try lower.emit(.none, .jnz, &.{
                     .{ .imm = lower.reloc(.{ .inst = index + 1 }) },
                 });
@@ -154,6 +176,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 });
             },
             .pseudo_j_nz_or_p_inst => {
+                assert(inst.data.inst.fixes == ._);
                 try lower.emit(.none, .jnz, &.{
                     .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }) },
                 });
@@ -162,6 +185,78 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 });
             },
 
+            .pseudo_probe_align_ri_s => {
+                try lower.emit(.none, .@"test", &.{
+                    .{ .reg = inst.data.ri.r1 },
+                    .{ .imm = Immediate.s(@bitCast(i32, inst.data.ri.i)) },
+                });
+                try lower.emit(.none, .jz, &.{
+                    .{ .imm = lower.reloc(.{ .inst = index + 1 }) },
+                });
+                try lower.emit(.none, .lea, &.{
+                    .{ .reg = inst.data.ri.r1 },
+                    .{ .mem = Memory.sib(.qword, .{
+                        .base = .{ .reg = inst.data.ri.r1 },
+                        .disp = -page_size,
+                    }) },
+                });
+                try lower.emit(.none, .@"test", &.{
+                    .{ .mem = Memory.sib(.dword, .{
+                        .base = .{ .reg = inst.data.ri.r1 },
+                    }) },
+                    .{ .reg = inst.data.ri.r1.to32() },
+                });
+                try lower.emit(.none, .jmp, &.{
+                    .{ .imm = lower.reloc(.{ .inst = index }) },
+                });
+                assert(lower.result_insts_len == pseudo_probe_align_insts);
+            },
+            .pseudo_probe_adjust_unrolled_ri_s => {
+                var offset = page_size;
+                while (offset < @bitCast(i32, inst.data.ri.i)) : (offset += page_size) {
+                    try lower.emit(.none, .@"test", &.{
+                        .{ .mem = Memory.sib(.dword, .{
+                            .base = .{ .reg = inst.data.ri.r1 },
+                            .disp = -offset,
+                        }) },
+                        .{ .reg = inst.data.ri.r1.to32() },
+                    });
+                }
+                try lower.emit(.none, .sub, &.{
+                    .{ .reg = inst.data.ri.r1 },
+                    .{ .imm = Immediate.s(@bitCast(i32, inst.data.ri.i)) },
+                });
+                assert(lower.result_insts_len <= pseudo_probe_adjust_unrolled_max_insts);
+            },
+            .pseudo_probe_adjust_setup_rri_s => {
+                try lower.emit(.none, .mov, &.{
+                    .{ .reg = inst.data.rri.r2.to32() },
+                    .{ .imm = Immediate.s(@bitCast(i32, inst.data.rri.i)) },
+                });
+                try lower.emit(.none, .sub, &.{
+                    .{ .reg = inst.data.rri.r1 },
+                    .{ .reg = inst.data.rri.r2 },
+                });
+                assert(lower.result_insts_len == pseudo_probe_adjust_setup_insts);
+            },
+            .pseudo_probe_adjust_loop_rr => {
+                try lower.emit(.none, .@"test", &.{
+                    .{ .mem = Memory.sib(.dword, .{
+                        .base = .{ .reg = inst.data.rr.r1 },
+                        .scale_index = .{ .scale = 1, .index = inst.data.rr.r2 },
+                        .disp = -page_size,
+                    }) },
+                    .{ .reg = inst.data.rr.r1.to32() },
+                });
+                try lower.emit(.none, .sub, &.{
+                    .{ .reg = inst.data.rr.r2 },
+                    .{ .imm = Immediate.s(page_size) },
+                });
+                try lower.emit(.none, .jae, &.{
+                    .{ .imm = lower.reloc(.{ .inst = index }) },
+                });
+                assert(lower.result_insts_len == pseudo_probe_adjust_loop_insts);
+            },
             .pseudo_push_reg_list => try lower.pushPopRegList(.push, inst),
             .pseudo_pop_reg_list => try lower.pushPopRegList(.pop, inst),
 
@@ -282,6 +377,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .r => inst.data.r.fixes,
         .rr => inst.data.rr.fixes,
         .rrr => inst.data.rrr.fixes,
+        .rrrr => inst.data.rrrr.fixes,
         .rrri => inst.data.rrri.fixes,
         .rri_s, .rri_u => inst.data.rri.fixes,
         .ri_s, .ri_u => inst.data.ri.fixes,
@@ -300,6 +396,8 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         else
             .none,
     }, mnemonic: {
+        @setEvalBranchQuota(2_000);
+
         comptime var max_len = 0;
         inline for (@typeInfo(Mnemonic).Enum.fields) |field| max_len = @max(field.name.len, max_len);
         var buf: [max_len]u8 = undefined;
@@ -332,6 +430,12 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.rrr.r1 },
             .{ .reg = inst.data.rrr.r2 },
             .{ .reg = inst.data.rrr.r3 },
+        },
+        .rrrr => &.{
+            .{ .reg = inst.data.rrrr.r1 },
+            .{ .reg = inst.data.rrrr.r2 },
+            .{ .reg = inst.data.rrrr.r3 },
+            .{ .reg = inst.data.rrrr.r4 },
         },
         .rrri => &.{
             .{ .reg = inst.data.rrri.r1 },
@@ -437,6 +541,8 @@ fn pushPopRegList(lower: *Lower, comptime mnemonic: Mnemonic, inst: Mir.Inst) Er
         .reg = callee_preserved_regs[i],
     }});
 }
+
+const page_size: i32 = 1 << 12;
 
 const abi = @import("abi.zig");
 const assert = std.debug.assert;

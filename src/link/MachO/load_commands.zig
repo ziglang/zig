@@ -17,7 +17,7 @@ pub const default_dyld_path: [*:0]const u8 = "/usr/lib/dyld";
 fn calcInstallNameLen(cmd_size: u64, name: []const u8, assume_max_path_len: bool) u64 {
     const darwin_path_max = 1024;
     const name_len = if (assume_max_path_len) darwin_path_max else name.len + 1;
-    return mem.alignForwardGeneric(u64, cmd_size + name_len, @alignOf(u64));
+    return mem.alignForward(u64, cmd_size + name_len, @alignOf(u64));
 }
 
 const CalcLCsSizeCtx = struct {
@@ -149,7 +149,7 @@ pub fn calcNumOfLCs(lc_buffer: []const u8) u32 {
 
 pub fn writeDylinkerLC(lc_writer: anytype) !void {
     const name_len = mem.sliceTo(default_dyld_path, 0).len;
-    const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+    const cmdsize = @intCast(u32, mem.alignForward(
         u64,
         @sizeOf(macho.dylinker_command) + name_len,
         @sizeOf(u64),
@@ -176,7 +176,7 @@ const WriteDylibLCCtx = struct {
 
 fn writeDylibLC(ctx: WriteDylibLCCtx, lc_writer: anytype) !void {
     const name_len = ctx.name.len + 1;
-    const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+    const cmdsize = @intCast(u32, mem.alignForward(
         u64,
         @sizeOf(macho.dylib_command) + name_len,
         @sizeOf(u64),
@@ -204,12 +204,12 @@ pub fn writeDylibIdLC(gpa: Allocator, options: *const link.Options, lc_writer: a
     const emit = options.emit.?;
     const install_name = options.install_name orelse try emit.directory.join(gpa, &.{emit.sub_path});
     defer if (options.install_name == null) gpa.free(install_name);
-    const curr = options.version orelse std.builtin.Version{
+    const curr = options.version orelse std.SemanticVersion{
         .major = 1,
         .minor = 0,
         .patch = 0,
     };
-    const compat = options.compatibility_version orelse std.builtin.Version{
+    const compat = options.compatibility_version orelse std.SemanticVersion{
         .major = 1,
         .minor = 0,
         .patch = 0,
@@ -217,8 +217,8 @@ pub fn writeDylibIdLC(gpa: Allocator, options: *const link.Options, lc_writer: a
     try writeDylibLC(.{
         .cmd = .ID_DYLIB,
         .name = install_name,
-        .current_version = curr.major << 16 | curr.minor << 8 | curr.patch,
-        .compatibility_version = compat.major << 16 | compat.minor << 8 | compat.patch,
+        .current_version = @intCast(u32, curr.major << 16 | curr.minor << 8 | curr.patch),
+        .compatibility_version = @intCast(u32, compat.major << 16 | compat.minor << 8 | compat.patch),
     }, lc_writer);
 }
 
@@ -253,7 +253,7 @@ pub fn writeRpathLCs(gpa: Allocator, options: *const link.Options, lc_writer: an
 
     while (try it.next()) |rpath| {
         const rpath_len = rpath.len + 1;
-        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+        const cmdsize = @intCast(u32, mem.alignForward(
             u64,
             @sizeOf(macho.rpath_command) + rpath_len,
             @sizeOf(u64),
@@ -275,12 +275,12 @@ pub fn writeBuildVersionLC(options: *const link.Options, lc_writer: anytype) !vo
     const cmdsize = @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
     const platform_version = blk: {
         const ver = options.target.os.version_range.semver.min;
-        const platform_version = ver.major << 16 | ver.minor << 8;
+        const platform_version = @intCast(u32, ver.major << 16 | ver.minor << 8);
         break :blk platform_version;
     };
     const sdk_version = if (options.native_darwin_sdk) |sdk| blk: {
         const ver = sdk.version;
-        const sdk_version = ver.major << 16 | ver.minor << 8;
+        const sdk_version = @intCast(u32, ver.major << 16 | ver.minor << 8);
         break :blk sdk_version;
     } else platform_version;
     const is_simulator_abi = options.target.abi == .simulator;

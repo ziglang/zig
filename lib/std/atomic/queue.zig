@@ -135,7 +135,7 @@ pub fn Queue(comptime T: type) type {
                 ) !void {
                     try s.writeByteNTimes(' ', indent);
                     if (optional_node) |node| {
-                        try s.print("0x{x}={}\n", .{ @ptrToInt(node), node.data });
+                        try s.print("0x{x}={}\n", .{ @intFromPtr(node), node.data });
                         if (depth == 0) {
                             try s.print("(max depth)\n", .{});
                             return;
@@ -387,7 +387,7 @@ test "std.atomic.Queue dump" {
         \\tail: 0x{x}=1
         \\ (null)
         \\
-    , .{ @ptrToInt(queue.head), @ptrToInt(queue.tail) });
+    , .{ @intFromPtr(queue.head), @intFromPtr(queue.tail) });
     try expect(mem.eql(u8, buffer[0..fbs.pos], expected));
 
     // Test a stream with two elements
@@ -408,6 +408,6 @@ test "std.atomic.Queue dump" {
         \\tail: 0x{x}=2
         \\ (null)
         \\
-    , .{ @ptrToInt(queue.head), @ptrToInt(queue.head.?.next), @ptrToInt(queue.tail) });
+    , .{ @intFromPtr(queue.head), @intFromPtr(queue.head.?.next), @intFromPtr(queue.tail) });
     try expect(mem.eql(u8, buffer[0..fbs.pos], expected));
 }

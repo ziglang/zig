@@ -7,6 +7,7 @@ const expectEqualStrings = testing.expectEqualStrings;
 test "tuple declaration type info" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         const T = struct { comptime u32 align(2) = 1, []const u8 };
@@ -56,6 +57,7 @@ test "tuple declaration type info" {
 test "Tuple declaration usage" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const T = struct { u32, []const u8 };
     var t: T = .{ 1, "foo" };

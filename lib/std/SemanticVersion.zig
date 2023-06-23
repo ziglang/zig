@@ -1,4 +1,4 @@
-//! A software version formatted according to the Semantic Version 2 specification.
+//! A software version formatted according to the Semantic Versioning 2.0.0 specification.
 //!
 //! See: https://semver.org
 
@@ -42,8 +42,8 @@ pub fn order(lhs: Version, rhs: Version) std.math.Order {
     if (lhs.pre == null and rhs.pre != null) return .gt;
 
     // Iterate over pre-release identifiers until a difference is found.
-    var lhs_pre_it = std.mem.split(u8, lhs.pre.?, ".");
-    var rhs_pre_it = std.mem.split(u8, rhs.pre.?, ".");
+    var lhs_pre_it = std.mem.splitScalar(u8, lhs.pre.?, '.');
+    var rhs_pre_it = std.mem.splitScalar(u8, rhs.pre.?, '.');
     while (true) {
         const next_lid = lhs_pre_it.next();
         const next_rid = rhs_pre_it.next();
@@ -86,7 +86,7 @@ pub fn parse(text: []const u8) !Version {
     // Parse the required major, minor, and patch numbers.
     const extra_index = std.mem.indexOfAny(u8, text, "-+");
     const required = text[0..(extra_index orelse text.len)];
-    var it = std.mem.split(u8, required, ".");
+    var it = std.mem.splitScalar(u8, required, '.');
     var ver = Version{
         .major = try parseNum(it.first()),
         .minor = try parseNum(it.next() orelse return error.InvalidVersion),
@@ -108,7 +108,7 @@ pub fn parse(text: []const u8) !Version {
     // Check validity of optional pre-release identifiers.
     // See: https://semver.org/#spec-item-9
     if (ver.pre) |pre| {
-        it = std.mem.split(u8, pre, ".");
+        it = std.mem.splitScalar(u8, pre, '.');
         while (it.next()) |id| {
             // Identifiers MUST NOT be empty.
             if (id.len == 0) return error.InvalidVersion;
@@ -127,7 +127,7 @@ pub fn parse(text: []const u8) !Version {
     // Check validity of optional build metadata identifiers.
     // See: https://semver.org/#spec-item-10
     if (ver.build) |build| {
-        it = std.mem.split(u8, build, ".");
+        it = std.mem.splitScalar(u8, build, '.');
         while (it.next()) |id| {
             // Identifiers MUST NOT be empty.
             if (id.len == 0) return error.InvalidVersion;
@@ -167,7 +167,7 @@ const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 
 test "SemanticVersion format" {
-    // Test vectors are from https://github.com/semver/semver.org/issues/59#issuecomment-390854010.
+    // Many of these test strings are from https://github.com/semver/semver.org/issues/59#issuecomment-390854010.
 
     // Valid version strings should be accepted.
     for ([_][]const u8{
@@ -200,6 +200,8 @@ test "SemanticVersion format" {
         "1.2.3----R-S.12.9.1--.12+meta",
         "1.2.3----RC-SNAPSHOT.12.9.1--.12",
         "1.0.0+0.build.1-rc.10000aaa-kk-0.1",
+        "5.4.0-1018-raspi",
+        "5.7.123",
     }) |valid| try std.testing.expectFmt(valid, "{}", .{try parse(valid)});
 
     // Invalid version strings should be rejected.
@@ -244,6 +246,24 @@ test "SemanticVersion format" {
         "+justmeta",
         "9.8.7+meta+meta",
         "9.8.7-whatever+meta+meta",
+        "2.6.32.11-svn21605",
+        "2.11.2(0.329/5/3)",
+        "2.13-DEVELOPMENT",
+        "2.3-35",
+        "1a.4",
+        "3.b1.0",
+        "1.4beta",
+        "2.7.pre",
+        "0..3",
+        "8.008.",
+        "01...",
+        "55",
+        "foobar",
+        "",
+        "-1",
+        "+4",
+        ".",
+        "....3",
     }) |invalid| try expectError(error.InvalidVersion, parse(invalid));
 
     // Valid version string that may overflow.

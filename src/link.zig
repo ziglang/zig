@@ -10,6 +10,7 @@ const wasi_libc = @import("wasi_libc.zig");
 
 const Air = @import("Air.zig");
 const Allocator = std.mem.Allocator;
+const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
@@ -157,7 +158,7 @@ pub const Options = struct {
     skip_linker_dependencies: bool,
     parent_compilation_link_libc: bool,
     each_lib_rpath: bool,
-    build_id: bool,
+    build_id: BuildId,
     disable_lld_caching: bool,
     is_test: bool,
     hash_style: HashStyle,
@@ -196,8 +197,8 @@ pub const Options = struct {
     /// __real_symbol.
     symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
 
-    version: ?std.builtin.Version,
-    compatibility_version: ?std.builtin.Version,
+    version: ?std.SemanticVersion,
+    compatibility_version: ?std.SemanticVersion,
     libc_installation: ?*const LibCInstallation,
 
     dwarf_format: ?std.dwarf.Format,
@@ -501,8 +502,6 @@ pub const File = struct {
     /// of the final binary.
     pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl_index: Module.Decl.Index) UpdateDeclError!u32 {
         if (build_options.only_c) @compileError("unreachable");
-        const decl = base.options.module.?.declPtr(decl_index);
-        log.debug("lowerUnnamedConst {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
             // zig fmt: off
             .coff  => return @fieldParentPtr(Coff,  "base", base).lowerUnnamedConst(tv, decl_index),
@@ -542,7 +541,6 @@ pub const File = struct {
     /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
-        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmt(module) });
         assert(decl.has_tv);
         if (build_options.only_c) {
             assert(base.tag == .c);
@@ -563,34 +561,27 @@ pub const File = struct {
     }
 
     /// May be called before or after updateDeclExports for any given Decl.
-    pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
-        const owner_decl = module.declPtr(func.owner_decl);
-        log.debug("updateFunc {*} ({s}), type={}", .{
-            owner_decl, owner_decl.name, owner_decl.ty.fmt(module),
-        });
+    pub fn updateFunc(base: *File, module: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) UpdateDeclError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
-            return @fieldParentPtr(C, "base", base).updateFunc(module, func, air, liveness);
+            return @fieldParentPtr(C, "base", base).updateFunc(module, func_index, air, liveness);
         }
         switch (base.tag) {
             // zig fmt: off
-            .coff  => return @fieldParentPtr(Coff,  "base", base).updateFunc(module, func, air, liveness),
-            .elf   => return @fieldParentPtr(Elf,   "base", base).updateFunc(module, func, air, liveness),
-            .macho => return @fieldParentPtr(MachO, "base", base).updateFunc(module, func, air, liveness),
-            .c     => return @fieldParentPtr(C,     "base", base).updateFunc(module, func, air, liveness),
-            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateFunc(module, func, air, liveness),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).updateFunc(module, func, air, liveness),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateFunc(module, func, air, liveness),
-            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateFunc(module, func, air, liveness),
+            .coff  => return @fieldParentPtr(Coff,  "base", base).updateFunc(module, func_index, air, liveness),
+            .elf   => return @fieldParentPtr(Elf,   "base", base).updateFunc(module, func_index, air, liveness),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateFunc(module, func_index, air, liveness),
+            .c     => return @fieldParentPtr(C,     "base", base).updateFunc(module, func_index, air, liveness),
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateFunc(module, func_index, air, liveness),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).updateFunc(module, func_index, air, liveness),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateFunc(module, func_index, air, liveness),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateFunc(module, func_index, air, liveness),
             // zig fmt: on
         }
     }
 
     pub fn updateDeclLineNumber(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
-        log.debug("updateDeclLineNumber {*} ({s}), line={}", .{
-            decl, decl.name, decl.src_line + 1,
-        });
         assert(decl.has_tv);
         if (build_options.only_c) {
             assert(base.tag == .c);
@@ -866,7 +857,6 @@ pub const File = struct {
         exports: []const *Module.Export,
     ) UpdateDeclExportsError!void {
         const decl = module.declPtr(decl_index);
-        log.debug("updateDeclExports {*} ({s})", .{ decl, decl.name });
         assert(decl.has_tv);
         if (build_options.only_c) {
             assert(base.tag == .c);
@@ -1019,6 +1009,7 @@ pub const File = struct {
             for (base.options.objects) |obj| {
                 _ = try man.addFile(obj.path, null);
                 man.hash.add(obj.must_link);
+                man.hash.add(obj.loption);
             }
             for (comp.c_object_table.keys()) |key| {
                 _ = try man.addFile(key.status.success.object_path, null);
@@ -1122,13 +1113,13 @@ pub const File = struct {
 
         pub fn initDecl(kind: Kind, decl: ?Module.Decl.Index, mod: *Module) LazySymbol {
             return .{ .kind = kind, .ty = if (decl) |decl_index|
-                mod.declPtr(decl_index).val.castTag(.ty).?.data
+                mod.declPtr(decl_index).val.toType()
             else
                 Type.anyerror };
         }
 
-        pub fn getDecl(self: LazySymbol) Module.Decl.OptionalIndex {
-            return Module.Decl.OptionalIndex.init(self.ty.getOwnerDeclOrNull());
+        pub fn getDecl(self: LazySymbol, mod: *Module) Module.Decl.OptionalIndex {
+            return Module.Decl.OptionalIndex.init(self.ty.getOwnerDeclOrNull(mod));
         }
     };
 

@@ -1,9 +1,13 @@
 fn f(b: bool) void {
-    const x : i32 = if (b) h: { break :h 1; };
+    const x: i32 = if (b) h: {
+        break :h 1;
+    };
     _ = x;
 }
 fn g(b: bool) void {
-    const y = if (b) h: { break :h @as(i32, 1); };
+    const y = if (b) h: {
+        break :h @as(i32, 1);
+    };
     _ = y;
 }
 fn h() void {
@@ -30,10 +34,10 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :2:21: error: incompatible types: 'i32' and 'void'
-// :2:31: note: type 'i32' here
-// :6:15: error: incompatible types: 'i32' and 'void'
-// :6:25: note: type 'i32' here
-// :12:16: error: expected type 'tmp.h.T', found 'void'
-// :11:15: note: struct declared here
-// :18:9: error: incompatible types: 'void' and 'tmp.k.T'
+// :2:20: error: incompatible types: 'i32' and 'void'
+// :2:30: note: type 'i32' here
+// :8:15: error: incompatible types: 'i32' and 'void'
+// :8:25: note: type 'i32' here
+// :16:16: error: expected type 'tmp.h.T', found 'void'
+// :15:15: note: struct declared here
+// :22:9: error: incompatible types: 'void' and 'tmp.k.T'

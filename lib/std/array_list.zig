@@ -459,6 +459,28 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return self.items[prev_len..][0..n];
         }
 
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the newly allocated elements.
+        /// The returned pointer becomes invalid when the list is resized.
+        /// Resizes list if `self.capacity` is not large enough.
+        pub fn addManyAsSlice(self: *Self, n: usize) Allocator.Error![]T {
+            const prev_len = self.items.len;
+            try self.resize(self.items.len + n);
+            return self.items[prev_len..][0..n];
+        }
+
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the newly allocated elements.
+        /// Asserts that there is already space for the new item without allocating more.
+        /// **Does not** invalidate element pointers.
+        /// The returned pointer becomes invalid when the list is resized.
+        pub fn addManyAsSliceAssumeCapacity(self: *Self, n: usize) []T {
+            assert(self.items.len + n <= self.capacity);
+            const prev_len = self.items.len;
+            self.items.len += n;
+            return self.items[prev_len..][0..n];
+        }
+
         /// Remove and return the last element from the list.
         /// Asserts the list has at least one item.
         /// Invalidates pointers to the removed element.
@@ -943,6 +965,28 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// **Does not** invalidate pointers.
         /// The returned pointer becomes invalid when the list is resized.
         pub fn addManyAsArrayAssumeCapacity(self: *Self, comptime n: usize) *[n]T {
+            assert(self.items.len + n <= self.capacity);
+            const prev_len = self.items.len;
+            self.items.len += n;
+            return self.items[prev_len..][0..n];
+        }
+
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the newly allocated elements.
+        /// The returned pointer becomes invalid when the list is resized.
+        /// Resizes list if `self.capacity` is not large enough.
+        pub fn addManyAsSlice(self: *Self, allocator: Allocator, n: usize) Allocator.Error![]T {
+            const prev_len = self.items.len;
+            try self.resize(allocator, self.items.len + n);
+            return self.items[prev_len..][0..n];
+        }
+
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the newly allocated elements.
+        /// Asserts that there is already space for the new item without allocating more.
+        /// **Does not** invalidate element pointers.
+        /// The returned pointer becomes invalid when the list is resized.
+        pub fn addManyAsSliceAssumeCapacity(self: *Self, n: usize) []T {
             assert(self.items.len + n <= self.capacity);
             const prev_len = self.items.len;
             self.items.len += n;

@@ -98,17 +98,17 @@ pub fn getMessages(eb: ErrorBundle) []const MessageIndex {
 }
 
 pub fn getErrorMessage(eb: ErrorBundle, index: MessageIndex) ErrorMessage {
-    return eb.extraData(ErrorMessage, @enumToInt(index)).data;
+    return eb.extraData(ErrorMessage, @intFromEnum(index)).data;
 }
 
 pub fn getSourceLocation(eb: ErrorBundle, index: SourceLocationIndex) SourceLocation {
     assert(index != .none);
-    return eb.extraData(SourceLocation, @enumToInt(index)).data;
+    return eb.extraData(SourceLocation, @intFromEnum(index)).data;
 }
 
 pub fn getNotes(eb: ErrorBundle, index: MessageIndex) []const MessageIndex {
     const notes_len = eb.getErrorMessage(index).notes_len;
-    const start = @enumToInt(index) + @typeInfo(ErrorMessage).Struct.fields.len;
+    const start = @intFromEnum(index) + @typeInfo(ErrorMessage).Struct.fields.len;
     return @ptrCast([]const MessageIndex, eb.extra[start..][0..notes_len]);
 }
 
@@ -125,8 +125,8 @@ fn extraData(eb: ErrorBundle, comptime T: type, index: usize) struct { data: T, 
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => eb.extra[i],
-            MessageIndex => @intToEnum(MessageIndex, eb.extra[i]),
-            SourceLocationIndex => @intToEnum(SourceLocationIndex, eb.extra[i]),
+            MessageIndex => @enumFromInt(MessageIndex, eb.extra[i]),
+            SourceLocationIndex => @enumFromInt(SourceLocationIndex, eb.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -148,7 +148,7 @@ pub fn nullTerminatedString(eb: ErrorBundle, index: usize) [:0]const u8 {
 }
 
 pub const RenderOptions = struct {
-    ttyconf: std.debug.TTY.Config,
+    ttyconf: std.io.tty.Config,
     include_reference_trace: bool = true,
     include_source_line: bool = true,
     include_log_text: bool = true,
@@ -163,7 +163,7 @@ pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
 
 pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, writer: anytype) anyerror!void {
     for (eb.getMessages()) |err_msg| {
-        try renderErrorMessageToWriter(eb, options, err_msg, writer, "error", .Red, 0);
+        try renderErrorMessageToWriter(eb, options, err_msg, writer, "error", .red, 0);
     }
 
     if (options.include_log_text) {
@@ -181,7 +181,7 @@ fn renderErrorMessageToWriter(
     err_msg_index: MessageIndex,
     stderr: anytype,
     kind: []const u8,
-    color: std.debug.TTY.Color,
+    color: std.io.tty.Color,
     indent: usize,
 ) anyerror!void {
     const ttyconf = options.ttyconf;
@@ -189,9 +189,9 @@ fn renderErrorMessageToWriter(
     const counting_stderr = counting_writer.writer();
     const err_msg = eb.getErrorMessage(err_msg_index);
     if (err_msg.src_loc != .none) {
-        const src = eb.extraData(SourceLocation, @enumToInt(err_msg.src_loc));
+        const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
         try counting_stderr.writeByteNTimes(' ', indent);
-        try ttyconf.setColor(stderr, .Bold);
+        try ttyconf.setColor(stderr, .bold);
         try counting_stderr.print("{s}:{d}:{d}: ", .{
             eb.nullTerminatedString(src.data.src_path),
             src.data.line + 1,
@@ -203,17 +203,17 @@ fn renderErrorMessageToWriter(
         // This is the length of the part before the error message:
         // e.g. "file.zig:4:5: error: "
         const prefix_len = @intCast(usize, counting_stderr.context.bytes_written);
-        try ttyconf.setColor(stderr, .Reset);
-        try ttyconf.setColor(stderr, .Bold);
+        try ttyconf.setColor(stderr, .reset);
+        try ttyconf.setColor(stderr, .bold);
         if (err_msg.count == 1) {
             try writeMsg(eb, err_msg, stderr, prefix_len);
             try stderr.writeByte('\n');
         } else {
             try writeMsg(eb, err_msg, stderr, prefix_len);
-            try ttyconf.setColor(stderr, .Dim);
+            try ttyconf.setColor(stderr, .dim);
             try stderr.print(" ({d} times)\n", .{err_msg.count});
         }
-        try ttyconf.setColor(stderr, .Reset);
+        try ttyconf.setColor(stderr, .reset);
         if (src.data.source_line != 0 and options.include_source_line) {
             const line = eb.nullTerminatedString(src.data.source_line);
             for (line) |b| switch (b) {
@@ -226,19 +226,19 @@ fn renderErrorMessageToWriter(
             // -1 since span.main includes the caret
             const after_caret = src.data.span_end - src.data.span_main -| 1;
             try stderr.writeByteNTimes(' ', src.data.column - before_caret);
-            try ttyconf.setColor(stderr, .Green);
+            try ttyconf.setColor(stderr, .green);
             try stderr.writeByteNTimes('~', before_caret);
             try stderr.writeByte('^');
             try stderr.writeByteNTimes('~', after_caret);
             try stderr.writeByte('\n');
-            try ttyconf.setColor(stderr, .Reset);
+            try ttyconf.setColor(stderr, .reset);
         }
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, stderr, "note", .Cyan, indent);
+            try renderErrorMessageToWriter(eb, options, note, stderr, "note", .cyan, indent);
         }
         if (src.data.reference_trace_len > 0 and options.include_reference_trace) {
-            try ttyconf.setColor(stderr, .Reset);
-            try ttyconf.setColor(stderr, .Dim);
+            try ttyconf.setColor(stderr, .reset);
+            try ttyconf.setColor(stderr, .dim);
             try stderr.print("referenced by:\n", .{});
             var ref_index = src.end;
             for (0..src.data.reference_trace_len) |_| {
@@ -266,25 +266,25 @@ fn renderErrorMessageToWriter(
                 }
             }
             try stderr.writeByte('\n');
-            try ttyconf.setColor(stderr, .Reset);
+            try ttyconf.setColor(stderr, .reset);
         }
     } else {
         try ttyconf.setColor(stderr, color);
         try stderr.writeByteNTimes(' ', indent);
         try stderr.writeAll(kind);
         try stderr.writeAll(": ");
-        try ttyconf.setColor(stderr, .Reset);
+        try ttyconf.setColor(stderr, .reset);
         const msg = eb.nullTerminatedString(err_msg.msg);
         if (err_msg.count == 1) {
             try stderr.print("{s}\n", .{msg});
         } else {
             try stderr.print("{s}", .{msg});
-            try ttyconf.setColor(stderr, .Dim);
+            try ttyconf.setColor(stderr, .dim);
             try stderr.print(" ({d} times)\n", .{err_msg.count});
         }
-        try ttyconf.setColor(stderr, .Reset);
+        try ttyconf.setColor(stderr, .reset);
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, stderr, "note", .Cyan, indent + 4);
+            try renderErrorMessageToWriter(eb, options, note, stderr, "note", .cyan, indent + 4);
         }
     }
 }
@@ -294,7 +294,7 @@ fn renderErrorMessageToWriter(
 ///
 /// This is used to split the message in `@compileError("hello\nworld")` for example.
 fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, stderr: anytype, indent: usize) !void {
-    var lines = std.mem.split(u8, eb.nullTerminatedString(err_msg.msg), "\n");
+    var lines = std.mem.splitScalar(u8, eb.nullTerminatedString(err_msg.msg), '\n');
     while (lines.next()) |line| {
         try stderr.writeAll(line);
         if (lines.index == null) break;
@@ -407,15 +407,15 @@ pub const Wip = struct {
     }
 
     pub fn addErrorMessage(wip: *Wip, em: ErrorMessage) !MessageIndex {
-        return @intToEnum(MessageIndex, try addExtra(wip, em));
+        return @enumFromInt(MessageIndex, try addExtra(wip, em));
     }
 
     pub fn addErrorMessageAssumeCapacity(wip: *Wip, em: ErrorMessage) MessageIndex {
-        return @intToEnum(MessageIndex, addExtraAssumeCapacity(wip, em));
+        return @enumFromInt(MessageIndex, addExtraAssumeCapacity(wip, em));
     }
 
     pub fn addSourceLocation(wip: *Wip, sl: SourceLocation) !SourceLocationIndex {
-        return @intToEnum(SourceLocationIndex, try addExtra(wip, sl));
+        return @enumFromInt(SourceLocationIndex, try addExtra(wip, sl));
     }
 
     pub fn addReferenceTrace(wip: *Wip, rt: ReferenceTrace) !void {
@@ -433,7 +433,7 @@ pub const Wip = struct {
         // The ensureUnusedCapacity call above guarantees this.
         const notes_start = wip.reserveNotes(@intCast(u32, other_list.len)) catch unreachable;
         for (notes_start.., other_list) |note, message| {
-            wip.extra.items[note] = @enumToInt(wip.addOtherMessage(other, message) catch unreachable);
+            wip.extra.items[note] = @intFromEnum(wip.addOtherMessage(other, message) catch unreachable);
         }
     }
 
@@ -455,7 +455,7 @@ pub const Wip = struct {
         });
         const notes_start = try wip.reserveNotes(other_msg.notes_len);
         for (notes_start.., other.getNotes(msg_index)) |note, other_note| {
-            wip.extra.items[note] = @enumToInt(try wip.addOtherMessage(other, other_note));
+            wip.extra.items[note] = @intFromEnum(try wip.addOtherMessage(other, other_note));
         }
         return msg;
     }
@@ -505,8 +505,8 @@ pub const Wip = struct {
         inline for (fields) |field| {
             wip.extra.items[i] = switch (field.type) {
                 u32 => @field(extra, field.name),
-                MessageIndex => @enumToInt(@field(extra, field.name)),
-                SourceLocationIndex => @enumToInt(@field(extra, field.name)),
+                MessageIndex => @intFromEnum(@field(extra, field.name)),
+                SourceLocationIndex => @intFromEnum(@field(extra, field.name)),
                 else => @compileError("bad field type"),
             };
             i += 1;

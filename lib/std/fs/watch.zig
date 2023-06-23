@@ -285,7 +285,7 @@ pub fn Watch(comptime V: type) type {
                         os.NOTE_WRITE | os.NOTE_DELETE | os.NOTE_REVOKE,
                     .fflags = 0,
                     .data = 0,
-                    .udata = @ptrToInt(&resume_node.base),
+                    .udata = @intFromPtr(&resume_node.base),
                 };
                 suspend {
                     global_event_loop.beginOneEvent();
@@ -486,7 +486,7 @@ pub fn Watch(comptime V: type) type {
                 } else {
                     var ptr: [*]u8 = &event_buf;
                     const end_ptr = ptr + bytes_transferred;
-                    while (@ptrToInt(ptr) < @ptrToInt(end_ptr)) {
+                    while (@intFromPtr(ptr) < @intFromPtr(end_ptr)) {
                         const ev = @ptrCast(*const windows.FILE_NOTIFY_INFORMATION, ptr);
                         const emit = switch (ev.Action) {
                             windows.FILE_ACTION_REMOVED => WatchEventId.Delete,
@@ -585,7 +585,7 @@ pub fn Watch(comptime V: type) type {
 
                 var ptr: [*]u8 = &event_buf;
                 const end_ptr = ptr + bytes_read;
-                while (@ptrToInt(ptr) < @ptrToInt(end_ptr)) {
+                while (@intFromPtr(ptr) < @intFromPtr(end_ptr)) {
                     const ev = @ptrCast(*const os.linux.inotify_event, ptr);
                     if (ev.mask & os.linux.IN_CLOSE_WRITE == os.linux.IN_CLOSE_WRITE) {
                         const basename_ptr = ptr + @sizeOf(os.linux.inotify_event);

@@ -21,7 +21,7 @@ pub const MemCheckClientRequest = enum(usize) {
 };
 
 fn doMemCheckClientRequestExpr(default: usize, request: MemCheckClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) usize {
-    return valgrind.doClientRequest(default, @intCast(usize, @enumToInt(request)), a1, a2, a3, a4, a5);
+    return valgrind.doClientRequest(default, @intCast(usize, @intFromEnum(request)), a1, a2, a3, a4, a5);
 }
 
 fn doMemCheckClientRequestStmt(request: MemCheckClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) void {
@@ -32,7 +32,7 @@ fn doMemCheckClientRequestStmt(request: MemCheckClientRequest, a1: usize, a2: us
 /// This returns -1 when run on Valgrind and 0 otherwise.
 pub fn makeMemNoAccess(qzz: []u8) i1 {
     return @intCast(i1, doMemCheckClientRequestExpr(0, // default return
-        .MakeMemNoAccess, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0));
+        .MakeMemNoAccess, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0));
 }
 
 /// Similarly, mark memory at qzz.ptr as addressable but undefined
@@ -40,7 +40,7 @@ pub fn makeMemNoAccess(qzz: []u8) i1 {
 /// This returns -1 when run on Valgrind and 0 otherwise.
 pub fn makeMemUndefined(qzz: []u8) i1 {
     return @intCast(i1, doMemCheckClientRequestExpr(0, // default return
-        .MakeMemUndefined, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0));
+        .MakeMemUndefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0));
 }
 
 /// Similarly, mark memory at qzz.ptr as addressable and defined
@@ -48,7 +48,7 @@ pub fn makeMemUndefined(qzz: []u8) i1 {
 pub fn makeMemDefined(qzz: []u8) i1 {
     // This returns -1 when run on Valgrind and 0 otherwise.
     return @intCast(i1, doMemCheckClientRequestExpr(0, // default return
-        .MakeMemDefined, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0));
+        .MakeMemDefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0));
 }
 
 /// Similar to makeMemDefined except that addressability is
@@ -57,7 +57,7 @@ pub fn makeMemDefined(qzz: []u8) i1 {
 /// This returns -1 when run on Valgrind and 0 otherwise.
 pub fn makeMemDefinedIfAddressable(qzz: []u8) i1 {
     return @intCast(i1, doMemCheckClientRequestExpr(0, // default return
-        .MakeMemDefinedIfAddressable, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0));
+        .MakeMemDefinedIfAddressable, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0));
 }
 
 /// Create a block-description handle.  The description is an ascii
@@ -66,7 +66,7 @@ pub fn makeMemDefinedIfAddressable(qzz: []u8) i1 {
 /// properties of the memory range.
 pub fn createBlock(qzz: []u8, desc: [*]u8) usize {
     return doMemCheckClientRequestExpr(0, // default return
-        .CreateBlock, @ptrToInt(qzz.ptr), qzz.len, @ptrToInt(desc), 0, 0);
+        .CreateBlock, @intFromPtr(qzz.ptr), qzz.len, @intFromPtr(desc), 0, 0);
 }
 
 /// Discard a block-description-handle. Returns 1 for an
@@ -81,7 +81,7 @@ pub fn discard(blkindex: usize) bool {
 /// error message and returns the address of the first offending byte.
 /// Otherwise it returns zero.
 pub fn checkMemIsAddressable(qzz: []u8) usize {
-    return doMemCheckClientRequestExpr(0, .CheckMemIsAddressable, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0);
+    return doMemCheckClientRequestExpr(0, .CheckMemIsAddressable, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
 /// Check that memory at qzz.ptr is addressable and defined for
@@ -89,7 +89,7 @@ pub fn checkMemIsAddressable(qzz: []u8) usize {
 /// established, Valgrind prints an error message and returns the
 /// address of the first offending byte.  Otherwise it returns zero.
 pub fn checkMemIsDefined(qzz: []u8) usize {
-    return doMemCheckClientRequestExpr(0, .CheckMemIsDefined, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0);
+    return doMemCheckClientRequestExpr(0, .CheckMemIsDefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
 /// Do a full memory leak check (like --leak-check=full) mid-execution.
@@ -134,10 +134,10 @@ pub fn countLeaks() CountResult {
     };
     doMemCheckClientRequestStmt(
         .CountLeaks,
-        @ptrToInt(&res.leaked),
-        @ptrToInt(&res.dubious),
-        @ptrToInt(&res.reachable),
-        @ptrToInt(&res.suppressed),
+        @intFromPtr(&res.leaked),
+        @intFromPtr(&res.dubious),
+        @intFromPtr(&res.reachable),
+        @intFromPtr(&res.suppressed),
         0,
     );
     return res;
@@ -164,10 +164,10 @@ pub fn countLeakBlocks() CountResult {
     };
     doMemCheckClientRequestStmt(
         .CountLeakBlocks,
-        @ptrToInt(&res.leaked),
-        @ptrToInt(&res.dubious),
-        @ptrToInt(&res.reachable),
-        @ptrToInt(&res.suppressed),
+        @intFromPtr(&res.leaked),
+        @intFromPtr(&res.dubious),
+        @intFromPtr(&res.reachable),
+        @intFromPtr(&res.suppressed),
         0,
     );
     return res;
@@ -195,7 +195,7 @@ test "countLeakBlocks" {
 /// impossible to segfault your system by using this call.
 pub fn getVbits(zza: []u8, zzvbits: []u8) u2 {
     std.debug.assert(zzvbits.len >= zza.len / 8);
-    return @intCast(u2, doMemCheckClientRequestExpr(0, .GetVbits, @ptrToInt(zza.ptr), @ptrToInt(zzvbits), zza.len, 0, 0));
+    return @intCast(u2, doMemCheckClientRequestExpr(0, .GetVbits, @intFromPtr(zza.ptr), @intFromPtr(zzvbits), zza.len, 0, 0));
 }
 
 /// Set the validity data for addresses zza, copying it
@@ -208,17 +208,17 @@ pub fn getVbits(zza: []u8, zzvbits: []u8) u2 {
 /// impossible to segfault your system by using this call.
 pub fn setVbits(zzvbits: []u8, zza: []u8) u2 {
     std.debug.assert(zzvbits.len >= zza.len / 8);
-    return @intCast(u2, doMemCheckClientRequestExpr(0, .SetVbits, @ptrToInt(zza.ptr), @ptrToInt(zzvbits), zza.len, 0, 0));
+    return @intCast(u2, doMemCheckClientRequestExpr(0, .SetVbits, @intFromPtr(zza.ptr), @intFromPtr(zzvbits), zza.len, 0, 0));
 }
 
 /// Disable and re-enable reporting of addressing errors in the
 /// specified address range.
 pub fn disableAddrErrorReportingInRange(qzz: []u8) usize {
     return doMemCheckClientRequestExpr(0, // default return
-        .DisableAddrErrorReportingInRange, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0);
+        .DisableAddrErrorReportingInRange, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
 pub fn enableAddrErrorReportingInRange(qzz: []u8) usize {
     return doMemCheckClientRequestExpr(0, // default return
-        .EnableAddrErrorReportingInRange, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0);
+        .EnableAddrErrorReportingInRange, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }

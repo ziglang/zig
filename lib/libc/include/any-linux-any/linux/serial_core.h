@@ -68,6 +68,9 @@
 /* NVIDIA Tegra Combined UART */
 #define PORT_TEGRA_TCU	41
 
+/* ASPEED AST2x00 virtual UART */
+#define PORT_ASPEED_VUART	42
+
 /* Intel EG20 */
 #define PORT_PCH_8LINE	44
 #define PORT_PCH_2LINE	45
@@ -120,10 +123,6 @@
 
 /* TXX9 type number */
 #define PORT_TXX9	64
-
-/* NEC VR4100 series SIU/DSIU */
-#define PORT_VR41XX_SIU		65
-#define PORT_VR41XX_DSIU	66
 
 /* Samsung S3C2400 SoC */
 #define PORT_S3C2400	67
@@ -208,6 +207,9 @@
 /* Atheros AR933X SoC */
 #define PORT_AR933X	99
 
+/* MCHP 16550A UART with 256 byte FIFOs */
+#define PORT_MCHP16550A	100
+
 /* ARC (Synopsys) on-chip UART */
 #define PORT_ARC       101
 
@@ -273,5 +275,8 @@
 
 /* Freescale LINFlexD UART */
 #define PORT_LINFLEXUART	122
+
+/* Sunplus UART */
+#define PORT_SUNPLUS	123
 
 #endif /* LINUX_SERIAL_CORE_H */

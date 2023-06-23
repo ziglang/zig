@@ -32,8 +32,8 @@ fn benchmarkCodepointCount(buf: []const u8) !ResultCount {
     }
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, @intToFloat(f64, bytes) / elapsed_s);
+    const elapsed_s = @floatFromInt(f64, end - start) / time.ns_per_s;
+    const throughput = @intFromFloat(u64, @floatFromInt(f64, bytes) / elapsed_s);
 
     return ResultCount{ .count = r, .throughput = throughput };
 }

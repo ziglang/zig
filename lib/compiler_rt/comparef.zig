@@ -77,7 +77,7 @@ pub inline fn cmp_f80(comptime RT: type, a: f80, b: f80) RT {
     if ((a_rep.fraction | b_rep.fraction) | ((a_rep.exp | b_rep.exp) & special_exp) == 0)
         return .Equal;
 
-    if (@boolToInt(a_rep.exp == b_rep.exp) & @boolToInt(a_rep.fraction == b_rep.fraction) != 0) {
+    if (@intFromBool(a_rep.exp == b_rep.exp) & @intFromBool(a_rep.fraction == b_rep.fraction) != 0) {
         return .Equal;
     } else if (a_rep.exp & sign_bit != b_rep.exp & sign_bit) {
         // signs are different
@@ -109,7 +109,7 @@ pub inline fn unordcmp(comptime T: type, a: T, b: T) i32 {
     const aAbs: rep_t = @bitCast(rep_t, a) & absMask;
     const bAbs: rep_t = @bitCast(rep_t, b) & absMask;
 
-    return @boolToInt(aAbs > infRep or bAbs > infRep);
+    return @intFromBool(aAbs > infRep or bAbs > infRep);
 }
 
 test {

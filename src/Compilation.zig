@@ -29,6 +29,7 @@ const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
 const Module = @import("Module.zig");
+const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const translate_c = @import("translate_c.zig");
 const clang = @import("clang.zig");
@@ -86,6 +87,7 @@ clang_preprocessor_mode: ClangPreprocessorMode,
 /// Whether to print clang argvs to stdout.
 verbose_cc: bool,
 verbose_air: bool,
+verbose_intern_pool: bool,
 verbose_llvm_ir: ?[]const u8,
 verbose_llvm_bc: ?[]const u8,
 verbose_cimport: bool,
@@ -225,7 +227,7 @@ const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
     codegen_decl: Module.Decl.Index,
     /// Write the machine code for a function to the output file.
-    codegen_func: *Module.Fn,
+    codegen_func: Module.Fn.Index,
     /// Render the .h file snippet for the Decl.
     emit_h_decl: Module.Decl.Index,
     /// The Decl needs to be analyzed and possibly export itself.
@@ -450,6 +452,11 @@ pub const CacheMode = link.CacheMode;
 pub const LinkObject = struct {
     path: []const u8,
     must_link: bool = false,
+    // When the library is passed via a positional argument, it will be
+    // added as a full path. If it's `-l<lib>`, then just the basename.
+    //
+    // Consistent with `withLOption` variable name in lld ELF driver.
+    loption: bool = false,
 };
 
 pub const InitOptions = struct {
@@ -563,7 +570,7 @@ pub const InitOptions = struct {
     linker_print_map: bool = false,
     linker_opt_bisect_limit: i32 = -1,
     each_lib_rpath: ?bool = null,
-    build_id: ?bool = null,
+    build_id: ?BuildId = null,
     disable_c_depfile: bool = false,
     linker_z_nodelete: bool = false,
     linker_z_notext: bool = false,
@@ -587,6 +594,7 @@ pub const InitOptions = struct {
     verbose_cc: bool = false,
     verbose_link: bool = false,
     verbose_air: bool = false,
+    verbose_intern_pool: bool = false,
     verbose_llvm_ir: ?[]const u8 = null,
     verbose_llvm_bc: ?[]const u8 = null,
     verbose_cimport: bool = false,
@@ -607,8 +615,8 @@ pub const InitOptions = struct {
     stack_size_override: ?u64 = null,
     image_base_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
-    version: ?std.builtin.Version = null,
-    compatibility_version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
+    compatibility_version: ?std.SemanticVersion = null,
     libc_installation: ?*const LibCInstallation = null,
     machine_code_model: std.builtin.CodeModel = .default,
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
@@ -671,7 +679,7 @@ fn addPackageTableToCacheHash(
         }
     }
     // Sort the slice by package name
-    std.sort.sort(Package.Table.KV, packages, {}, struct {
+    mem.sort(Package.Table.KV, packages, {}, struct {
         fn lessThan(_: void, lhs: Package.Table.KV, rhs: Package.Table.KV) bool {
             return std.mem.lessThan(u8, lhs.key, rhs.key);
         }
@@ -797,7 +805,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const unwind_tables = options.want_unwind_tables orelse
             (link_libunwind or target_util.needUnwindTables(options.target));
         const link_eh_frame_hdr = options.link_eh_frame_hdr or unwind_tables;
-        const build_id = options.build_id orelse false;
+        const build_id = options.build_id orelse .none;
 
         // Make a decision on whether to use LLD or our own linker.
         const use_lld = options.use_lld orelse blk: {
@@ -828,7 +836,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 options.output_mode == .Lib or
                 options.linker_script != null or options.version_script != null or
                 options.emit_implib != null or
-                build_id or
+                build_id != .none or
                 options.symbol_wrap_set.count() > 0)
             {
                 break :blk true;
@@ -1042,7 +1050,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 const is_enabled = options.target.cpu.features.isEnabled(index);
 
                 if (feature.llvm_name) |llvm_name| {
-                    const plus_or_minus = "-+"[@boolToInt(is_enabled)];
+                    const plus_or_minus = "-+"[@intFromBool(is_enabled)];
                     try buf.ensureUnusedCapacity(2 + llvm_name.len);
                     buf.appendAssumeCapacity(plus_or_minus);
                     buf.appendSliceAssumeCapacity(llvm_name);
@@ -1309,9 +1317,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .global_zir_cache = global_zir_cache,
                 .local_zir_cache = local_zir_cache,
                 .emit_h = emit_h,
-                .error_name_list = .{},
+                .tmp_hack_arena = std.heap.ArenaAllocator.init(gpa),
             };
-            try module.error_name_list.append(gpa, "(no error)");
+            try module.init();
 
             break :blk module;
         } else blk: {
@@ -1513,7 +1521,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .llvm_cpu_features = llvm_cpu_features,
             .skip_linker_dependencies = options.skip_linker_dependencies,
             .parent_compilation_link_libc = options.parent_compilation_link_libc,
-            .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
+            .each_lib_rpath = options.each_lib_rpath orelse false,
             .build_id = build_id,
             .cache_mode = cache_mode,
             .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
@@ -1568,6 +1576,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .clang_preprocessor_mode = options.clang_preprocessor_mode,
             .verbose_cc = options.verbose_cc,
             .verbose_air = options.verbose_air,
+            .verbose_intern_pool = options.verbose_intern_pool,
             .verbose_llvm_ir = options.verbose_llvm_ir,
             .verbose_llvm_bc = options.verbose_llvm_bc,
             .verbose_cimport = options.verbose_cimport,
@@ -2020,6 +2029,13 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     try comp.performAllTheWork(main_progress_node);
 
     if (comp.bin_file.options.module) |module| {
+        if (builtin.mode == .Debug and comp.verbose_intern_pool) {
+            std.debug.print("intern pool stats for '{s}':\n", .{
+                comp.bin_file.options.root_name,
+            });
+            module.intern_pool.dump();
+        }
+
         if (comp.bin_file.options.is_test and comp.totalErrorCount() == 0) {
             // The `test_functions` decl has been intentionally postponed until now,
             // at which point we must populate it with the list of test functions that
@@ -2036,7 +2052,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             assert(decl.deletion_flag);
             assert(decl.dependants.count() == 0);
             const is_anon = if (decl.zir_decl_index == 0) blk: {
-                break :blk decl.src_namespace.anon_decls.swapRemove(decl_index);
+                break :blk module.namespacePtr(decl.src_namespace).anon_decls.swapRemove(decl_index);
             } else false;
 
             try module.clearDecl(decl_index, null);
@@ -2055,7 +2071,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         return;
     }
 
-    if (!build_options.only_c and !build_options.omit_pkg_fetching_code) {
+    if (!build_options.only_c and !build_options.only_core_functionality) {
         if (comp.emit_docs) |doc_location| {
             if (comp.bin_file.options.module) |module| {
                 var autodoc = Autodoc.init(module, doc_location);
@@ -2195,7 +2211,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 8;
+pub const link_hash_implementation_version = 9;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2205,7 +2221,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 8);
+    comptime assert(link_hash_implementation_version == 9);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2243,6 +2259,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     for (comp.bin_file.options.objects) |obj| {
         _ = try man.addFile(obj.path, null);
         man.hash.add(obj.must_link);
+        man.hash.add(obj.loption);
     }
 
     for (comp.c_object_table.keys()) |key| {
@@ -2489,7 +2506,7 @@ pub fn makeBinFileWritable(self: *Compilation) !void {
 /// This function is temporally single-threaded.
 pub fn totalErrorCount(self: *Compilation) u32 {
     var total: usize = self.failed_c_objects.count() + self.misc_failures.count() +
-        @boolToInt(self.alloc_failure_occurred) + self.lld_errors.items.len;
+        @intFromBool(self.alloc_failure_occurred) + self.lld_errors.items.len;
 
     if (self.bin_file.options.module) |module| {
         total += module.failed_exports.count();
@@ -2503,7 +2520,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
                 } else {
                     const file = entry.key_ptr.*;
                     assert(file.zir_loaded);
-                    const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
+                    const payload_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
                     assert(payload_index != 0);
                     const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
                     total += header.data.items_len;
@@ -2516,8 +2533,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (module.failed_decls.keys()) |key| {
-            const decl = module.declPtr(key);
-            if (decl.getFileScope().okToReportErrors()) {
+            if (module.declFileScope(key).okToReportErrors()) {
                 total += 1;
                 if (module.cimport_errors.get(key)) |errors| {
                     total += errors.len;
@@ -2526,8 +2542,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
         }
         if (module.emit_h) |emit_h| {
             for (emit_h.failed_decls.keys()) |key| {
-                const decl = module.declPtr(key);
-                if (decl.getFileScope().okToReportErrors()) {
+                if (module.declFileScope(key).okToReportErrors()) {
                     total += 1;
                 }
             }
@@ -2536,14 +2551,14 @@ pub fn totalErrorCount(self: *Compilation) u32 {
 
     // The "no entry point found" error only counts if there are no semantic analysis errors.
     if (total == 0) {
-        total += @boolToInt(self.link_error_flags.no_entry_point_found);
+        total += @intFromBool(self.link_error_flags.no_entry_point_found);
     }
-    total += @boolToInt(self.link_error_flags.missing_libc);
+    total += @intFromBool(self.link_error_flags.missing_libc);
 
     // Compile log errors only count if there are no other errors.
     if (total == 0) {
         if (self.bin_file.options.module) |module| {
-            total += @boolToInt(module.compile_log_decls.count() != 0);
+            total += @intFromBool(module.compile_log_decls.count() != 0);
         }
     }
 
@@ -2589,7 +2604,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         });
         const notes_start = try bundle.reserveNotes(notes_len);
         for (notes_start.., lld_error.context_lines) |note, context_line| {
-            bundle.extra.items[note] = @enumToInt(bundle.addErrorMessageAssumeCapacity(.{
+            bundle.extra.items[note] = @intFromEnum(bundle.addErrorMessageAssumeCapacity(.{
                 .msg = try bundle.addString(context_line),
             }));
         }
@@ -2611,7 +2626,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             var it = module.failed_files.iterator();
             while (it.next()) |entry| {
                 if (entry.value_ptr.*) |msg| {
-                    try addModuleErrorMsg(&bundle, msg.*);
+                    try addModuleErrorMsg(module, &bundle, msg.*);
                 } else {
                     // Must be ZIR errors. Note that this may include AST errors.
                     // addZirErrorMessages asserts that the tree is loaded.
@@ -2624,17 +2639,17 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             var it = module.failed_embed_files.iterator();
             while (it.next()) |entry| {
                 const msg = entry.value_ptr.*;
-                try addModuleErrorMsg(&bundle, msg.*);
+                try addModuleErrorMsg(module, &bundle, msg.*);
             }
         }
         {
             var it = module.failed_decls.iterator();
             while (it.next()) |entry| {
-                const decl = module.declPtr(entry.key_ptr.*);
+                const decl_index = entry.key_ptr.*;
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (decl.getFileScope().okToReportErrors()) {
-                    try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
+                if (module.declFileScope(decl_index).okToReportErrors()) {
+                    try addModuleErrorMsg(module, &bundle, entry.value_ptr.*.*);
                     if (module.cimport_errors.get(entry.key_ptr.*)) |cimport_errors| for (cimport_errors) |c_error| {
                         try bundle.addRootErrorMessage(.{
                             .msg = try bundle.addString(std.mem.span(c_error.msg)),
@@ -2655,16 +2670,16 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         if (module.emit_h) |emit_h| {
             var it = emit_h.failed_decls.iterator();
             while (it.next()) |entry| {
-                const decl = module.declPtr(entry.key_ptr.*);
+                const decl_index = entry.key_ptr.*;
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (decl.getFileScope().okToReportErrors()) {
-                    try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
+                if (module.declFileScope(decl_index).okToReportErrors()) {
+                    try addModuleErrorMsg(module, &bundle, entry.value_ptr.*.*);
                 }
             }
         }
         for (module.failed_exports.values()) |value| {
-            try addModuleErrorMsg(&bundle, value.*);
+            try addModuleErrorMsg(module, &bundle, value.*);
         }
     }
 
@@ -2682,10 +2697,10 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             .notes_len = 2,
         });
         const notes_start = try bundle.reserveNotes(2);
-        bundle.extra.items[notes_start + 0] = @enumToInt(try bundle.addErrorMessage(.{
+        bundle.extra.items[notes_start + 0] = @intFromEnum(try bundle.addErrorMessage(.{
             .msg = try bundle.addString("run 'zig libc -h' to learn about libc installations"),
         }));
-        bundle.extra.items[notes_start + 1] = @enumToInt(try bundle.addErrorMessage(.{
+        bundle.extra.items[notes_start + 1] = @intFromEnum(try bundle.addErrorMessage(.{
             .msg = try bundle.addString("run 'zig targets' to see the targets for which zig can always provide libc"),
         }));
     }
@@ -2696,7 +2711,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             const values = module.compile_log_decls.values();
             // First one will be the error; subsequent ones will be notes.
             const err_decl = module.declPtr(keys[0]);
-            const src_loc = err_decl.nodeOffsetSrcLoc(values[0]);
+            const src_loc = err_decl.nodeOffsetSrcLoc(values[0], module);
             const err_msg = Module.ErrorMsg{
                 .src_loc = src_loc,
                 .msg = "found compile log statement",
@@ -2707,12 +2722,12 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             for (keys[1..], 0..) |key, i| {
                 const note_decl = module.declPtr(key);
                 err_msg.notes[i] = .{
-                    .src_loc = note_decl.nodeOffsetSrcLoc(values[i + 1]),
+                    .src_loc = note_decl.nodeOffsetSrcLoc(values[i + 1], module),
                     .msg = "also here",
                 };
             }
 
-            try addModuleErrorMsg(&bundle, err_msg);
+            try addModuleErrorMsg(module, &bundle, err_msg);
         }
     }
 
@@ -2768,8 +2783,9 @@ pub const ErrorNoteHashContext = struct {
     }
 };
 
-pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) !void {
+pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) !void {
     const gpa = eb.gpa;
+    const ip = &mod.intern_pool;
     const err_source = module_err_msg.src_loc.file_scope.getSource(gpa) catch |err| {
         const file_path = try module_err_msg.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(file_path);
@@ -2795,7 +2811,7 @@ pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) 
                 .src_loc = .none,
             });
             break;
-        } else if (module_reference.decl == null) {
+        } else if (module_reference.decl == .none) {
             try ref_traces.append(gpa, .{
                 .decl_name = 0,
                 .src_loc = .none,
@@ -2808,7 +2824,7 @@ pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) 
         const rt_file_path = try module_reference.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(rt_file_path);
         try ref_traces.append(gpa, .{
-            .decl_name = try eb.addString(std.mem.sliceTo(module_reference.decl.?, 0)),
+            .decl_name = try eb.addString(ip.stringToSliceUnwrap(module_reference.decl).?),
             .src_loc = try eb.addSourceLocation(.{
                 .src_path = try eb.addString(rt_file_path),
                 .span_start = span.start,
@@ -2879,7 +2895,7 @@ pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) 
     const notes_start = try eb.reserveNotes(notes_len);
 
     for (notes_start.., notes.keys()) |i, note| {
-        eb.extra.items[i] = @enumToInt(try eb.addErrorMessage(note));
+        eb.extra.items[i] = @intFromEnum(try eb.addErrorMessage(note));
     }
 }
 
@@ -2887,7 +2903,7 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
     assert(file.zir_loaded);
     assert(file.tree_loaded);
     assert(file.source_loaded);
-    const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
+    const payload_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
     assert(payload_index != 0);
     const gpa = eb.gpa;
 
@@ -2947,7 +2963,7 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
                 const src_path = try file.fullPath(gpa);
                 defer gpa.free(src_path);
 
-                eb.extra.items[note_i] = @enumToInt(try eb.addErrorMessage(.{
+                eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                     .msg = try eb.addString(msg),
                     .src_loc = try eb.addSourceLocation(.{
                         .src_path = try eb.addString(src_path),
@@ -3192,6 +3208,14 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
+            const decl = module.declPtr(decl_index);
+            if (decl.kind == .@"test" and comp.bin_file.options.is_test) {
+                // Tests are always emitted in test binaries. The decl_refs are created by
+                // Module.populateTestFunctions, but this will not queue body analysis, so do
+                // that now.
+                const func_index = module.intern_pool.indexToFunc(decl.val.ip_index).unwrap().?;
+                try module.ensureFuncBodyAnalysisQueued(func_index);
+            }
         },
         .update_embed_file => |embed_file| {
             const named_frame = tracy.namedFrame("update_embed_file");
@@ -3214,7 +3238,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                 try module.failed_decls.ensureUnusedCapacity(gpa, 1);
                 module.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(),
+                    decl.srcLoc(module),
                     "unable to update line number: {s}",
                     .{@errorName(err)},
                 ));
@@ -3442,7 +3466,7 @@ fn workerAstGenFile(
     // If we experience an error preemptively fetching the
     // file, just ignore it and let it happen again later during Sema.
     assert(file.zir_loaded);
-    const imports_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.imports)];
+    const imports_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
         const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
         var import_i: u32 = 0;
@@ -3827,7 +3851,7 @@ fn reportRetryableEmbedFileError(
     const mod = comp.bin_file.options.module.?;
     const gpa = mod.gpa;
 
-    const src_loc: Module.SrcLoc = mod.declPtr(embed_file.owner_decl).srcLoc();
+    const src_loc: Module.SrcLoc = mod.declPtr(embed_file.owner_decl).srcLoc(mod);
 
     const err_msg = if (embed_file.pkg.root_src_directory.path) |dir_path|
         try Module.ErrorMsg.create(
@@ -4215,10 +4239,10 @@ pub fn addCCArgs(
         }
 
         try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
-            @enumToInt(comp.libcxx_abi_version),
+            @intFromEnum(comp.libcxx_abi_version),
         }));
         try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
-            @enumToInt(comp.libcxx_abi_version),
+            @intFromEnum(comp.libcxx_abi_version),
         }));
     }
 
@@ -4283,7 +4307,7 @@ pub fn addCCArgs(
 
                 if (feature.llvm_name) |llvm_name| {
                     argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang" });
-                    const plus_or_minus = "-+"[@boolToInt(is_enabled)];
+                    const plus_or_minus = "-+"[@intFromBool(is_enabled)];
                     const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
                     argv.appendAssumeCapacity(arg);
                 }
@@ -4597,6 +4621,27 @@ pub const FileExt = enum {
             => false,
         };
     }
+
+    pub fn canonicalName(ext: FileExt, target: Target) [:0]const u8 {
+        return switch (ext) {
+            .c => ".c",
+            .cpp => ".cpp",
+            .cu => ".cu",
+            .h => ".h",
+            .m => ".m",
+            .mm => ".mm",
+            .ll => ".ll",
+            .bc => ".bc",
+            .assembly => ".s",
+            .assembly_with_cpp => ".S",
+            .shared_library => target.dynamicLibSuffix(),
+            .object => target.ofmt.fileExt(target.cpu.arch),
+            .static_library => target.staticLibSuffix(),
+            .zig => ".zig",
+            .def => ".def",
+            .unknown => "",
+        };
+    }
 };
 
 pub fn hasObjectExt(filename: []const u8) bool {
@@ -4636,7 +4681,7 @@ pub fn hasSharedLibraryExt(filename: []const u8) bool {
         return true;
     }
     // Look for .so.X, .so.X.Y, .so.X.Y.Z
-    var it = mem.split(u8, filename, ".");
+    var it = mem.splitScalar(u8, filename, '.');
     _ = it.first();
     var so_txt = it.next() orelse return false;
     while (!mem.eql(u8, so_txt, "so")) {
@@ -4873,7 +4918,7 @@ fn detectLibCFromBuilding(
             const generic_name = target_util.libCGenericName(target);
             // Some architectures are handled by the same set of headers.
             const arch_name = if (target.abi.isMusl())
-                musl.archName(target.cpu.arch)
+                musl.archNameHeaders(target.cpu.arch)
             else if (target.cpu.arch.isThumb())
                 // ARM headers are valid for Thumb too.
                 switch (target.cpu.arch) {
@@ -5016,14 +5061,14 @@ fn parseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []con
     defer context_lines.deinit();
 
     var current_err: ?*LldError = null;
-    var lines = mem.split(u8, stderr, std.cstr.line_sep);
+    var lines = mem.splitSequence(u8, stderr, std.cstr.line_sep);
     while (lines.next()) |line| {
         if (mem.startsWith(u8, line, prefix ++ ":")) {
             if (current_err) |err| {
                 err.context_lines = try context_lines.toOwnedSlice();
             }
 
-            var split = std.mem.split(u8, line, "error: ");
+            var split = std.mem.splitSequence(u8, line, "error: ");
             _ = split.first();
 
             const duped_msg = try std.fmt.allocPrint(comp.gpa, "{s}: {s}", .{ prefix, split.rest() });
@@ -5076,6 +5121,7 @@ pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
         .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
+        .spirv64 => .stage2_spirv64,
         else => .other,
     };
 }
@@ -5381,6 +5427,7 @@ fn buildOutputFromZig(
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
         .verbose_air = comp.verbose_air,
+        .verbose_intern_pool = comp.verbose_intern_pool,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,
@@ -5459,6 +5506,7 @@ pub fn build_crt_file(
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
         .verbose_air = comp.verbose_air,
+        .verbose_intern_pool = comp.verbose_intern_pool,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,

@@ -7,7 +7,7 @@ const builtin = @import("builtin");
 
 // can't really run this test but we can make sure it has no compile error
 // and generates code
-const vram = @intToPtr([*]volatile u8, 0x20000000)[0..0x8000];
+const vram = @ptrFromInt([*]volatile u8, 0x20000000)[0..0x8000];
 export fn writeToVRam() void {
     vram[0] = 'X';
 }

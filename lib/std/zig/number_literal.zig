@@ -141,7 +141,7 @@ pub fn parseNumberLiteral(bytes: []const u8) Result {
             'a'...'z' => c - 'a' + 10,
             else => return .{ .failure = .{ .invalid_character = i } },
         };
-        if (digit >= base) return .{ .failure = .{ .invalid_digit = .{ .i = i, .base = @intToEnum(Base, base) } } };
+        if (digit >= base) return .{ .failure = .{ .invalid_digit = .{ .i = i, .base = @enumFromInt(Base, base) } } };
         if (exponent and digit >= 10) return .{ .failure = .{ .invalid_digit_exponent = i } };
         underscore = false;
         special = 0;
@@ -159,7 +159,7 @@ pub fn parseNumberLiteral(bytes: []const u8) Result {
     if (underscore) return .{ .failure = .{ .trailing_underscore = bytes.len - 1 } };
     if (special != 0) return .{ .failure = .{ .trailing_special = bytes.len - 1 } };
 
-    if (float) return .{ .float = @intToEnum(FloatBase, base) };
-    if (overflow) return .{ .big_int = @intToEnum(Base, base) };
+    if (float) return .{ .float = @enumFromInt(FloatBase, base) };
+    if (overflow) return .{ .big_int = @enumFromInt(Base, base) };
     return .{ .int = x };
 }

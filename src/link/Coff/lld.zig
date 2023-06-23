@@ -63,7 +63,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 8);
+        comptime assert(Compilation.link_hash_implementation_version == 9);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -199,7 +199,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         } else if (target.cpu.arch == .x86_64) {
             try argv.append("-MACHINE:X64");
         } else if (target.cpu.arch.isARM()) {
-            if (target.cpu.arch.ptrBitWidth() == 32) {
+            if (target.ptrBitWidth() == 32) {
                 try argv.append("-MACHINE:ARM");
             } else {
                 try argv.append("-MACHINE:ARM64");

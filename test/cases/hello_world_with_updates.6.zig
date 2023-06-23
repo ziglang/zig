@@ -8,7 +8,7 @@ pub fn main() void {
 }
 
 fn print() void {
-    const msg = @ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n");
+    const msg = @intFromPtr("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n");
     const len = 104;
     _ = write(1, msg, len);
 }

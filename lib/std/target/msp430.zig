@@ -20,22 +20,22 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
-    result[@enumToInt(Feature.ext)] = .{
+    result[@intFromEnum(Feature.ext)] = .{
         .llvm_name = "ext",
         .description = "Enable MSP430-X extensions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.hwmult16)] = .{
+    result[@intFromEnum(Feature.hwmult16)] = .{
         .llvm_name = "hwmult16",
         .description = "Enable 16-bit hardware multiplier",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.hwmult32)] = .{
+    result[@intFromEnum(Feature.hwmult32)] = .{
         .llvm_name = "hwmult32",
         .description = "Enable 32-bit hardware multiplier",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.hwmultf5)] = .{
+    result[@intFromEnum(Feature.hwmultf5)] = .{
         .llvm_name = "hwmultf5",
         .description = "Enable F5 series hardware multiplier",
         .dependencies = featureSet(&[_]Feature{}),

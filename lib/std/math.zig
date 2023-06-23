@@ -48,43 +48,41 @@ pub const floatMax = @import("math/float.zig").floatMax;
 pub const floatEps = @import("math/float.zig").floatEps;
 pub const inf = @import("math/float.zig").inf;
 
-// TODO Replace with @compileError("deprecated for foobar") after 0.10.0 is released.
-pub const f16_true_min: comptime_float = floatTrueMin(f16); // prev: 0.000000059604644775390625
-pub const f32_true_min: comptime_float = floatTrueMin(f32); // prev: 1.40129846432481707092e-45
-pub const f64_true_min: comptime_float = floatTrueMin(f64); // prev: 4.94065645841246544177e-324
-pub const f80_true_min = floatTrueMin(f80); // prev: make_f80(.{ .fraction = 1, .exp = 0 })
-pub const f128_true_min = floatTrueMin(f128); // prev: @bitCast(f128, @as(u128, 0x00000000000000000000000000000001))
-pub const f16_min: comptime_float = floatMin(f16); // prev: 0.00006103515625
-pub const f32_min: comptime_float = floatMin(f32); // prev: 1.17549435082228750797e-38
-pub const f64_min: comptime_float = floatMin(f64); // prev: 2.2250738585072014e-308
-pub const f80_min = floatMin(f80); // prev: make_f80(.{ .fraction = 0x8000000000000000, .exp = 1 })
-pub const f128_min = floatMin(f128); // prev: @bitCast(f128, @as(u128, 0x00010000000000000000000000000000))
-pub const f16_max: comptime_float = floatMax(f16); // prev: 65504
-pub const f32_max: comptime_float = floatMax(f32); // prev: 3.40282346638528859812e+38
-pub const f64_max: comptime_float = floatMax(f64); // prev: 1.79769313486231570815e+308
-pub const f80_max = floatMax(f80); // prev: make_f80(.{ .fraction = 0xFFFFFFFFFFFFFFFF, .exp = 0x7FFE })
-pub const f128_max = floatMax(f128); // prev: @bitCast(f128, @as(u128, 0x7FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF))
-pub const f16_epsilon: comptime_float = floatEps(f16); // prev: 0.0009765625
-pub const f32_epsilon: comptime_float = floatEps(f32); // prev: 1.1920928955078125e-07
-pub const f64_epsilon: comptime_float = floatEps(f64); // prev: 2.22044604925031308085e-16
-pub const f80_epsilon = floatEps(f80); // prev: make_f80(.{ .fraction = 0x8000000000000000, .exp = 0x3FC0 })
-pub const f128_epsilon = floatEps(f128); // prev: @bitCast(f128, @as(u128, 0x3F8F0000000000000000000000000000))
-pub const f16_toint: comptime_float = 1.0 / f16_epsilon; // same as before
-pub const f32_toint: comptime_float = 1.0 / f32_epsilon; // same as before
-pub const f64_toint: comptime_float = 1.0 / f64_epsilon; // same as before
-pub const f80_toint = 1.0 / f80_epsilon; // same as before
-pub const f128_toint = 1.0 / f128_epsilon; // same as before
-pub const inf_u16 = @bitCast(u16, inf_f16); // prev: @as(u16, 0x7C00)
-pub const inf_f16 = inf(f16); // prev: @bitCast(f16, inf_u16)
-pub const inf_u32 = @bitCast(u32, inf_f32); // prev: @as(u32, 0x7F800000)
-pub const inf_f32 = inf(f32); // prev: @bitCast(f32, inf_u32)
-pub const inf_u64 = @bitCast(u64, inf_f64); // prev: @as(u64, 0x7FF << 52)
-pub const inf_f64 = inf(f64); // prev: @bitCast(f64, inf_u64)
-pub const inf_f80 = inf(f80); // prev: make_f80(F80{ .fraction = 0x8000000000000000, .exp = 0x7fff })
-pub const inf_u128 = @bitCast(u128, inf_f128); // prev: @as(u128, 0x7fff0000000000000000000000000000)
-pub const inf_f128 = inf(f128); // prev: @bitCast(f128, inf_u128)
-pub const epsilon = floatEps;
-// End of "soft deprecated" section
+pub const f16_true_min = @compileError("Deprecated: use `floatTrueMin(f16)` instead");
+pub const f32_true_min = @compileError("Deprecated: use `floatTrueMin(f32)` instead");
+pub const f64_true_min = @compileError("Deprecated: use `floatTrueMin(f64)` instead");
+pub const f80_true_min = @compileError("Deprecated: use `floatTrueMin(f80)` instead");
+pub const f128_true_min = @compileError("Deprecated: use `floatTrueMin(f128)` instead");
+pub const f16_min = @compileError("Deprecated: use `floatMin(f16)` instead");
+pub const f32_min = @compileError("Deprecated: use `floatMin(f32)` instead");
+pub const f64_min = @compileError("Deprecated: use `floatMin(f64)` instead");
+pub const f80_min = @compileError("Deprecated: use `floatMin(f80)` instead");
+pub const f128_min = @compileError("Deprecated: use `floatMin(f128)` instead");
+pub const f16_max = @compileError("Deprecated: use `floatMax(f16)` instead");
+pub const f32_max = @compileError("Deprecated: use `floatMax(f32)` instead");
+pub const f64_max = @compileError("Deprecated: use `floatMax(f64)` instead");
+pub const f80_max = @compileError("Deprecated: use `floatMax(f80)` instead");
+pub const f128_max = @compileError("Deprecated: use `floatMax(f128)` instead");
+pub const f16_epsilon = @compileError("Deprecated: use `floatEps(f16)` instead");
+pub const f32_epsilon = @compileError("Deprecated: use `floatEps(f32)` instead");
+pub const f64_epsilon = @compileError("Deprecated: use `floatEps(f64)` instead");
+pub const f80_epsilon = @compileError("Deprecated: use `floatEps(f80)` instead");
+pub const f128_epsilon = @compileError("Deprecated: use `floatEps(f128)` instead");
+pub const f16_toint = @compileError("Deprecated: use `1.0 / floatEps(f16)` instead");
+pub const f32_toint = @compileError("Deprecated: use `1.0 / floatEps(f32)` instead");
+pub const f64_toint = @compileError("Deprecated: use `1.0 / floatEps(f64)` instead");
+pub const f80_toint = @compileError("Deprecated: use `1.0 / floatEps(f80)` instead");
+pub const f128_toint = @compileError("Deprecated: use `1.0 / floatEps(f128)` instead");
+pub const inf_u16 = @compileError("Deprecated: use `@bitCast(u16, inf(f16))` instead");
+pub const inf_f16 = @compileError("Deprecated: use `inf(f16)` instead");
+pub const inf_u32 = @compileError("Deprecated: use `@bitCast(u32, inf(f32))` instead");
+pub const inf_f32 = @compileError("Deprecated: use `inf(f32)` instead");
+pub const inf_u64 = @compileError("Deprecated: use `@bitCast(u64, inf(f64))` instead");
+pub const inf_f64 = @compileError("Deprecated: use `inf(f64)` instead");
+pub const inf_f80 = @compileError("Deprecated: use `inf(f80)` instead");
+pub const inf_u128 = @compileError("Deprecated: use `@bitCast(u128, inf(f128))` instead");
+pub const inf_f128 = @compileError("Deprecated: use `inf(f128)` instead");
+pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
 
 pub const nan_u16 = @as(u16, 0x7C01);
 pub const nan_f16 = @bitCast(f16, nan_u16);
@@ -167,7 +165,7 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     if (isNan(x) or isNan(y))
         return false;
 
-    return @fabs(x - y) <= max(@fabs(x), @fabs(y)) * tolerance;
+    return @fabs(x - y) <= @max(@fabs(x), @fabs(y)) * tolerance;
 }
 
 test "approxEqAbs and approxEqRel" {
@@ -329,7 +327,92 @@ pub const Complex = complex.Complex;
 pub const big = @import("math/big.zig");
 
 test {
-    std.testing.refAllDecls(@This());
+    _ = floatExponentBits;
+    _ = floatMantissaBits;
+    _ = floatFractionalBits;
+    _ = floatExponentMin;
+    _ = floatExponentMax;
+    _ = floatTrueMin;
+    _ = floatMin;
+    _ = floatMax;
+    _ = floatEps;
+    _ = inf;
+
+    _ = nan_u16;
+    _ = nan_f16;
+
+    _ = qnan_u16;
+    _ = qnan_f16;
+
+    _ = nan_u32;
+    _ = nan_f32;
+
+    _ = qnan_u32;
+    _ = qnan_f32;
+
+    _ = nan_u64;
+    _ = nan_f64;
+
+    _ = qnan_u64;
+    _ = qnan_f64;
+
+    _ = nan_f80;
+    _ = qnan_f80;
+
+    _ = nan_u128;
+    _ = nan_f128;
+
+    _ = qnan_u128;
+    _ = qnan_f128;
+
+    _ = nan;
+    _ = snan;
+
+    _ = isNan;
+    _ = isSignalNan;
+    _ = frexp;
+    _ = Frexp;
+    _ = modf;
+    _ = modf32_result;
+    _ = modf64_result;
+    _ = copysign;
+    _ = isFinite;
+    _ = isInf;
+    _ = isPositiveInf;
+    _ = isNegativeInf;
+    _ = isNormal;
+    _ = signbit;
+    _ = scalbn;
+    _ = ldexp;
+    _ = pow;
+    _ = powi;
+    _ = sqrt;
+    _ = cbrt;
+    _ = acos;
+    _ = asin;
+    _ = atan;
+    _ = atan2;
+    _ = hypot;
+    _ = expm1;
+    _ = ilogb;
+    _ = ln;
+    _ = log;
+    _ = log2;
+    _ = log10;
+    _ = log10_int;
+    _ = log1p;
+    _ = asinh;
+    _ = acosh;
+    _ = atanh;
+    _ = sinh;
+    _ = cosh;
+    _ = tanh;
+    _ = gcd;
+
+    _ = complex;
+    _ = Complex;
+
+    _ = big;
 }
 
 /// Given two types, returns the smallest one which is capable of holding the
@@ -351,104 +434,15 @@ pub fn Min(comptime A: type, comptime B: type) type {
     return @TypeOf(@as(A, 0) + @as(B, 0));
 }
 
-/// Returns the smaller number. When one parameter's type's full range
-/// fits in the other, the return type is the smaller type.
-pub fn min(x: anytype, y: anytype) Min(@TypeOf(x), @TypeOf(y)) {
-    const Result = Min(@TypeOf(x), @TypeOf(y));
-    if (x < y) {
-        // TODO Zig should allow this as an implicit cast because x is
-        // immutable and in this scope it is known to fit in the
-        // return type.
-        switch (@typeInfo(Result)) {
-            .Int => return @intCast(Result, x),
-            else => return x,
-        }
-    } else {
-        // TODO Zig should allow this as an implicit cast because y is
-        // immutable and in this scope it is known to fit in the
-        // return type.
-        switch (@typeInfo(Result)) {
-            .Int => return @intCast(Result, y),
-            else => return y,
-        }
-    }
-}
-
-test "min" {
-    try testing.expect(min(@as(i32, -1), @as(i32, 2)) == -1);
-    {
-        var a: u16 = 999;
-        var b: u32 = 10;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == u16);
-        try testing.expect(result == 10);
-    }
-    {
-        var a: f64 = 10.34;
-        var b: f32 = 999.12;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == f64);
-        try testing.expect(result == 10.34);
-    }
-    {
-        var a: i8 = -127;
-        var b: i16 = -200;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == i16);
-        try testing.expect(result == -200);
-    }
-    {
-        const a = 10.34;
-        var b: f32 = 999.12;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == f32);
-        try testing.expect(result == 10.34);
-    }
-}
-
-/// Finds the minimum of three numbers.
-pub fn min3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
-    return min(x, min(y, z));
-}
-
-test "min3" {
-    try testing.expect(min3(@as(i32, 0), @as(i32, 1), @as(i32, 2)) == 0);
-    try testing.expect(min3(@as(i32, 0), @as(i32, 2), @as(i32, 1)) == 0);
-    try testing.expect(min3(@as(i32, 1), @as(i32, 0), @as(i32, 2)) == 0);
-    try testing.expect(min3(@as(i32, 1), @as(i32, 2), @as(i32, 0)) == 0);
-    try testing.expect(min3(@as(i32, 2), @as(i32, 0), @as(i32, 1)) == 0);
-    try testing.expect(min3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 0);
-}
-
-/// Returns the maximum of two numbers. Return type is the one with the
-/// larger range.
-pub fn max(x: anytype, y: anytype) @TypeOf(x, y) {
-    return if (x > y) x else y;
-}
-
-test "max" {
-    try testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
-    try testing.expect(max(@as(i32, 2), @as(i32, -1)) == 2);
-}
-
-/// Finds the maximum of three numbers.
-pub fn max3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
-    return max(x, max(y, z));
-}
-
-test "max3" {
-    try testing.expect(max3(@as(i32, 0), @as(i32, 1), @as(i32, 2)) == 2);
-    try testing.expect(max3(@as(i32, 0), @as(i32, 2), @as(i32, 1)) == 2);
-    try testing.expect(max3(@as(i32, 1), @as(i32, 0), @as(i32, 2)) == 2);
-    try testing.expect(max3(@as(i32, 1), @as(i32, 2), @as(i32, 0)) == 2);
-    try testing.expect(max3(@as(i32, 2), @as(i32, 0), @as(i32, 1)) == 2);
-    try testing.expect(max3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 2);
-}
+pub const min = @compileError("deprecated; use @min instead");
+pub const max = @compileError("deprecated; use @max instead");
+pub const min3 = @compileError("deprecated; use @min instead");
+pub const max3 = @compileError("deprecated; use @max instead");
 
 /// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
     assert(lower <= upper);
-    return max(lower, min(val, upper));
+    return @max(lower, @min(val, upper));
 }
 test "clamp" {
     // Within range
@@ -712,7 +706,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
         return u0;
     }
     const signedness: std.builtin.Signedness = if (from < 0) .signed else .unsigned;
-    const largest_positive_integer = max(if (from < 0) (-from) - 1 else from, to); // two's complement
+    const largest_positive_integer = @max(if (from < 0) (-from) - 1 else from, to); // two's complement
     const base = log2(largest_positive_integer);
     const upper = (1 << base) - 1;
     var magnitude_bits = if (upper >= largest_positive_integer) base else base + 1;
@@ -771,7 +765,7 @@ test "IntFittingRange" {
 
 test "overflow functions" {
     try testOverflow();
-    comptime try testOverflow();
+    try comptime testOverflow();
 }
 
 fn testOverflow() !void {
@@ -815,7 +809,7 @@ pub fn absInt(x: anytype) !@TypeOf(x) {
 
 test "absInt" {
     try testAbsInt();
-    comptime try testAbsInt();
+    try comptime testAbsInt();
 }
 fn testAbsInt() !void {
     try testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
@@ -837,7 +831,7 @@ pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
 
 test "divTrunc" {
     try testDivTrunc();
-    comptime try testDivTrunc();
+    try comptime testDivTrunc();
 }
 fn testDivTrunc() !void {
     try testing.expect((divTrunc(i32, 5, 3) catch unreachable) == 1);
@@ -861,7 +855,7 @@ pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
 
 test "divFloor" {
     try testDivFloor();
-    comptime try testDivFloor();
+    try comptime testDivFloor();
 }
 fn testDivFloor() !void {
     try testing.expect((divFloor(i32, 5, 3) catch unreachable) == 1);
@@ -898,7 +892,7 @@ pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
 
 test "divCeil" {
     try testDivCeil();
-    comptime try testDivCeil();
+    try comptime testDivCeil();
 }
 fn testDivCeil() !void {
     try testing.expectEqual(@as(i32, 2), divCeil(i32, 5, 3) catch unreachable);
@@ -942,7 +936,7 @@ pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
 
 test "divExact" {
     try testDivExact();
-    comptime try testDivExact();
+    try comptime testDivExact();
 }
 fn testDivExact() !void {
     try testing.expect((divExact(i32, 10, 5) catch unreachable) == 2);
@@ -968,7 +962,7 @@ pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
 
 test "mod" {
     try testMod();
-    comptime try testMod();
+    try comptime testMod();
 }
 fn testMod() !void {
     try testing.expect((mod(i32, -5, 3) catch unreachable) == 1);
@@ -994,7 +988,7 @@ pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
 
 test "rem" {
     try testRem();
-    comptime try testRem();
+    try comptime testRem();
 }
 fn testRem() !void {
     try testing.expect((rem(i32, -5, 3) catch unreachable) == -2);
@@ -1110,16 +1104,46 @@ pub const AlignCastError = error{UnalignedMemory};
 
 /// Align cast a pointer but return an error if it's the wrong alignment
 pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!@TypeOf(@alignCast(alignment, ptr)) {
-    const addr = @ptrToInt(ptr);
+    const addr = @intFromPtr(ptr);
     if (addr % alignment != 0) {
         return error.UnalignedMemory;
     }
     return @alignCast(alignment, ptr);
 }
 
-pub fn isPowerOfTwo(v: anytype) bool {
-    assert(v != 0);
-    return (v & (v - 1)) == 0;
+/// Asserts `int > 0`.
+pub fn isPowerOfTwo(int: anytype) bool {
+    assert(int > 0);
+    return (int & (int - 1)) == 0;
+}
+
+test isPowerOfTwo {
+    try testing.expect(isPowerOfTwo(@as(u8, 1)));
+    try testing.expect(isPowerOfTwo(2));
+    try testing.expect(!isPowerOfTwo(@as(i16, 3)));
+    try testing.expect(isPowerOfTwo(4));
+    try testing.expect(!isPowerOfTwo(@as(u32, 31)));
+    try testing.expect(isPowerOfTwo(32));
+    try testing.expect(!isPowerOfTwo(@as(i64, 63)));
+    try testing.expect(isPowerOfTwo(128));
+    try testing.expect(isPowerOfTwo(@as(u128, 256)));
+}
+
+/// Aligns the given integer type bit width to a width divisible by 8.
+pub fn ByteAlignedInt(comptime T: type) type {
+    const info = @typeInfo(T).Int;
+    const bits = (info.bits + 7) / 8 * 8;
+    const extended_type = std.meta.Int(info.signedness, bits);
+    return extended_type;
+}
+
+test "ByteAlignedInt" {
+    try testing.expect(ByteAlignedInt(u0) == u0);
+    try testing.expect(ByteAlignedInt(i0) == i0);
+    try testing.expect(ByteAlignedInt(u3) == u8);
+    try testing.expect(ByteAlignedInt(u8) == u8);
+    try testing.expect(ByteAlignedInt(i111) == i112);
+    try testing.expect(ByteAlignedInt(u129) == u136);
 }
 
 /// Rounds the given floating point number to an integer, away from zero.
@@ -1153,7 +1177,7 @@ pub fn floorPowerOfTwo(comptime T: type, value: T) T {
 
 test "floorPowerOfTwo" {
     try testFloorPowerOfTwo();
-    comptime try testFloorPowerOfTwo();
+    try comptime testFloorPowerOfTwo();
 }
 
 fn testFloorPowerOfTwo() !void {
@@ -1215,7 +1239,7 @@ pub fn ceilPowerOfTwoAssert(comptime T: type, value: T) T {
 
 test "ceilPowerOfTwoPromote" {
     try testCeilPowerOfTwoPromote();
-    comptime try testCeilPowerOfTwoPromote();
+    try comptime testCeilPowerOfTwoPromote();
 }
 
 fn testCeilPowerOfTwoPromote() !void {
@@ -1232,7 +1256,7 @@ fn testCeilPowerOfTwoPromote() !void {
 
 test "ceilPowerOfTwo" {
     try testCeilPowerOfTwo();
-    comptime try testCeilPowerOfTwo();
+    try comptime testCeilPowerOfTwo();
 }
 
 fn testCeilPowerOfTwo() !void {
@@ -1287,7 +1311,7 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
     switch (@typeInfo(T)) {
         .Float => {
             switch (@typeInfo(@TypeOf(value))) {
-                .Int => return @intToFloat(T, value),
+                .Int => return @floatFromInt(T, value),
                 .Float => return @floatCast(T, value),
                 .ComptimeInt => return @as(T, value),
                 .ComptimeFloat => return @as(T, value),
@@ -1311,7 +1335,7 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
                     } else if (value <= minInt(T)) {
                         return @as(T, minInt(T));
                     } else {
-                        return @floatToInt(T, value);
+                        return @intFromFloat(T, value);
                     }
                 },
                 else => @compileError("bad type"),
@@ -1377,7 +1401,7 @@ pub fn maxInt(comptime T: type) comptime_int {
     const info = @typeInfo(T);
     const bit_count = info.Int.bits;
     if (bit_count == 0) return 0;
-    return (1 << (bit_count - @boolToInt(info.Int.signedness == .signed))) - 1;
+    return (1 << (bit_count - @intFromBool(info.Int.signedness == .signed))) - 1;
 }
 
 /// Returns the minimum value of integer type T.
@@ -1600,7 +1624,7 @@ test "order.compare" {
 
 test "compare.reverse" {
     inline for (@typeInfo(CompareOperator).Enum.fields) |op_field| {
-        const op = @intToEnum(CompareOperator, op_field.value);
+        const op = @enumFromInt(CompareOperator, op_field.value);
         try testing.expect(compare(2, op, 3) == compare(3, op.reverse(), 2));
         try testing.expect(compare(3, op, 3) == compare(3, op.reverse(), 3));
         try testing.expect(compare(4, op, 3) == compare(3, op.reverse(), 4));
@@ -1619,13 +1643,13 @@ pub inline fn boolMask(comptime MaskInt: type, value: bool) MaskInt {
 
     // The u1 and i1 cases tend to overflow,
     // so we special case them here.
-    if (MaskInt == u1) return @boolToInt(value);
+    if (MaskInt == u1) return @intFromBool(value);
     if (MaskInt == i1) {
         // The @as here is a workaround for #7950
-        return @bitCast(i1, @as(u1, @boolToInt(value)));
+        return @bitCast(i1, @as(u1, @intFromBool(value)));
     }
 
-    return -%@intCast(MaskInt, @boolToInt(value));
+    return -%@intCast(MaskInt, @intFromBool(value));
 }
 
 test "boolMask" {
@@ -1651,7 +1675,7 @@ test "boolMask" {
         }
     }.runTest;
     try runTest();
-    comptime try runTest();
+    try comptime runTest();
 }
 
 /// Return the mod of `num` with the smallest integer type
@@ -1684,8 +1708,8 @@ pub fn break_f80(x: f80) F80 {
 pub inline fn sign(i: anytype) @TypeOf(i) {
     const T = @TypeOf(i);
     return switch (@typeInfo(T)) {
-        .Int, .ComptimeInt => @as(T, @boolToInt(i > 0)) - @boolToInt(i < 0),
-        .Float, .ComptimeFloat => @intToFloat(T, @boolToInt(i > 0)) - @intToFloat(T, @boolToInt(i < 0)),
+        .Int, .ComptimeInt => @as(T, @intFromBool(i > 0)) - @as(T, @intFromBool(i < 0)),
+        .Float, .ComptimeFloat => @floatFromInt(T, @intFromBool(i > 0)) - @floatFromInt(T, @intFromBool(i < 0)),
         .Vector => |vinfo| blk: {
             switch (@typeInfo(vinfo.child)) {
                 .Int, .Float => {
@@ -1782,5 +1806,5 @@ test "sign" {
         return error.SkipZigTest;
     }
     try testSign();
-    comptime try testSign();
+    try comptime testSign();
 }

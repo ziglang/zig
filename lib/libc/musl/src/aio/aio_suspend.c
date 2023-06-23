@@ -9,7 +9,7 @@ int aio_suspend(const struct aiocb *const cbs[], int cnt, const struct timespec 
 {
 	int i, tid = 0, ret, expect = 0;
 	struct timespec at;
-	volatile int dummy_fut, *pfut;
+	volatile int dummy_fut = 0, *pfut;
 	int nzcnt = 0;
 	const struct aiocb *cb = 0;
 
@@ -73,7 +73,3 @@ int aio_suspend(const struct aiocb *const cbs[], int cnt, const struct timespec 
 		}
 	}
 }
-
-#if !_REDIR_TIME64
-weak_alias(aio_suspend, aio_suspend64);
-#endif

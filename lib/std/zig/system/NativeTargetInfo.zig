@@ -43,24 +43,22 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
                 const release = mem.sliceTo(&uts.release, 0);
                 // The release field sometimes has a weird format,
                 // `Version.parse` will attempt to find some meaningful interpretation.
-                if (std.builtin.Version.parse(release)) |ver| {
+                if (std.SemanticVersion.parse(release)) |ver| {
                     os.version_range.linux.range.min = ver;
                     os.version_range.linux.range.max = ver;
                 } else |err| switch (err) {
                     error.Overflow => {},
-                    error.InvalidCharacter => {},
                     error.InvalidVersion => {},
                 }
             },
             .solaris => {
                 const uts = std.os.uname();
                 const release = mem.sliceTo(&uts.release, 0);
-                if (std.builtin.Version.parse(release)) |ver| {
+                if (std.SemanticVersion.parse(release)) |ver| {
                     os.version_range.semver.min = ver;
                     os.version_range.semver.max = ver;
                 } else |err| switch (err) {
                     error.Overflow => {},
-                    error.InvalidCharacter => {},
                     error.InvalidVersion => {},
                 }
             },
@@ -144,7 +142,7 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
                     error.Unexpected => return error.OSVersionDetectionFail,
                 };
 
-                if (std.builtin.Version.parse(buf[0 .. len - 1])) |ver| {
+                if (std.SemanticVersion.parse(buf[0 .. len - 1])) |ver| {
                     os.version_range.semver.min = ver;
                     os.version_range.semver.max = ver;
                 } else |_| {
@@ -209,10 +207,10 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
             })) {
                 switch (result.target.abi) {
                     .code16 => result.target.cpu.features.addFeature(
-                        @enumToInt(std.Target.x86.Feature.@"16bit_mode"),
+                        @intFromEnum(std.Target.x86.Feature.@"16bit_mode"),
                     ),
                     else => result.target.cpu.features.addFeature(
-                        @enumToInt(std.Target.x86.Feature.@"32bit_mode"),
+                        @intFromEnum(std.Target.x86.Feature.@"32bit_mode"),
                     ),
                 }
             }
@@ -223,7 +221,7 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
         },
         .thumb, .thumbeb => {
             result.target.cpu.features.addFeature(
-                @enumToInt(std.Target.arm.Feature.thumb_mode),
+                @intFromEnum(std.Target.arm.Feature.thumb_mode),
             );
         },
         else => {},
@@ -270,7 +268,7 @@ fn detectAbiAndDynamicLinker(
     // and supported by Zig. But that means that we must detect the system ABI here rather than
     // relying on `builtin.target`.
     const all_abis = comptime blk: {
-        assert(@enumToInt(Target.Abi.none) == 0);
+        assert(@intFromEnum(Target.Abi.none) == 0);
         const fields = std.meta.fields(Target.Abi)[1..];
         var array: [fields.len]Target.Abi = undefined;
         inline for (fields, 0..) |field, i| {
@@ -354,7 +352,7 @@ fn detectAbiAndDynamicLinker(
             const newline = mem.indexOfScalar(u8, buffer[0..len], '\n') orelse break :blk file;
             const line = buffer[0..newline];
             if (!mem.startsWith(u8, line, "#!")) break :blk file;
-            var it = mem.tokenize(u8, line[2..], " ");
+            var it = mem.tokenizeScalar(u8, line[2..], ' ');
             file_name = it.next() orelse return defaultAbiAndDynamicLinker(cpu, os, cross_target);
             file.close();
         }
@@ -390,7 +388,7 @@ fn detectAbiAndDynamicLinker(
     };
 }
 
-fn glibcVerFromRPath(rpath: []const u8) !std.builtin.Version {
+fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
     var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
         error.NameTooLong => unreachable,
         error.InvalidUtf8 => unreachable,
@@ -471,7 +469,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.builtin.Version {
     };
 }
 
-fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
+fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;
     _ = try preadMin(file, &hdr_buf, 0, hdr_buf.len);
     const hdr32 = @ptrCast(*elf.Elf32_Ehdr, &hdr_buf);
@@ -503,7 +501,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
     const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
     const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
     var strtab_buf: [4096:0]u8 = undefined;
-    const shstrtab_len = std.math.min(shstrtab_size, strtab_buf.len);
+    const shstrtab_len = @min(shstrtab_size, strtab_buf.len);
     const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
     const shstrtab = strtab_buf[0..shstrtab_read_len];
     const shnum = elfInt(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum);
@@ -556,14 +554,13 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
     const dynstr_size = @intCast(usize, dynstr.size);
     const dynstr_bytes = buf[0..dynstr_size];
     _ = try preadMin(file, dynstr_bytes, dynstr.offset, dynstr_bytes.len);
-    var it = mem.split(u8, dynstr_bytes, &.{0});
-    var max_ver: std.builtin.Version = .{ .major = 2, .minor = 2, .patch = 5 };
+    var it = mem.splitScalar(u8, dynstr_bytes, 0);
+    var max_ver: std.SemanticVersion = .{ .major = 2, .minor = 2, .patch = 5 };
     while (it.next()) |s| {
         if (mem.startsWith(u8, s, "GLIBC_2.")) {
             const chopped = s["GLIBC_".len..];
-            const ver = std.builtin.Version.parse(chopped) catch |err| switch (err) {
+            const ver = std.SemanticVersion.parse(chopped) catch |err| switch (err) {
                 error.Overflow => return error.InvalidGnuLibCVersion,
-                error.InvalidCharacter => return error.InvalidGnuLibCVersion,
                 error.InvalidVersion => return error.InvalidGnuLibCVersion,
             };
             switch (ver.order(max_ver)) {
@@ -575,7 +572,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
     return max_ver;
 }
 
-fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) !std.builtin.Version {
+fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) !std.SemanticVersion {
     // example: "libc-2.3.4.so"
     // example: "libc-2.27.so"
     // example: "ld-2.33.so"
@@ -585,9 +582,8 @@ fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) !std.builtin.
     }
     // chop off "libc-" and ".so"
     const link_name_chopped = link_name[prefix.len .. link_name.len - suffix.len];
-    return std.builtin.Version.parse(link_name_chopped) catch |err| switch (err) {
+    return std.SemanticVersion.parse(link_name_chopped) catch |err| switch (err) {
         error.Overflow => return error.InvalidGnuLibCVersion,
-        error.InvalidCharacter => return error.InvalidGnuLibCVersion,
         error.InvalidVersion => return error.InvalidGnuLibCVersion,
     };
 }
@@ -757,7 +753,7 @@ pub fn abiAndDynamicLinkerFromFile(
         const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
         const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
         var strtab_buf: [4096:0]u8 = undefined;
-        const shstrtab_len = std.math.min(shstrtab_size, strtab_buf.len);
+        const shstrtab_len = @min(shstrtab_size, strtab_buf.len);
         const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
         const shstrtab = strtab_buf[0..shstrtab_read_len];
 
@@ -806,12 +802,12 @@ pub fn abiAndDynamicLinkerFromFile(
                 const rpoff_file = ds.offset + rpoff_usize;
                 const rp_max_size = ds.size - rpoff_usize;
 
-                const strtab_len = std.math.min(rp_max_size, strtab_buf.len);
+                const strtab_len = @min(rp_max_size, strtab_buf.len);
                 const strtab_read_len = try preadMin(file, &strtab_buf, rpoff_file, strtab_len);
                 const strtab = strtab_buf[0..strtab_read_len];
 
                 const rpath_list = mem.sliceTo(strtab, 0);
-                var it = mem.tokenize(u8, rpath_list, ":");
+                var it = mem.tokenizeScalar(u8, rpath_list, ':');
                 while (it.next()) |rpath| {
                     if (glibcVerFromRPath(rpath)) |ver| {
                         result.target.os.version_range.linux.glibc = ver;
@@ -1095,7 +1091,7 @@ pub fn getExternalExecutor(
                 if (candidate.target.cpu.arch != builtin.cpu.arch) {
                     return bad_result;
                 }
-                switch (candidate.target.cpu.arch.ptrBitWidth()) {
+                switch (candidate.target.ptrBitWidth()) {
                     32 => return Executor{ .wine = "wine" },
                     64 => return Executor{ .wine = "wine64" },
                     else => return bad_result,
@@ -1105,7 +1101,7 @@ pub fn getExternalExecutor(
         },
         .wasi => {
             if (options.allow_wasmtime) {
-                switch (candidate.target.cpu.arch.ptrBitWidth()) {
+                switch (candidate.target.ptrBitWidth()) {
                     32 => return Executor{ .wasmtime = "wasmtime" },
                     else => return bad_result,
                 }

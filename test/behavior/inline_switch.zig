@@ -47,6 +47,7 @@ test "inline switch unions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: U = .a;
     switch (x) {
@@ -72,6 +73,7 @@ test "inline switch unions" {
 test "inline else bool" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a = true;
     switch (a) {
@@ -83,6 +85,7 @@ test "inline else bool" {
 test "inline else error" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Err = error{ a, b, c };
     var a = Err.a;
@@ -100,7 +103,7 @@ test "inline else enum" {
     var a: E2 = .a;
     switch (a) {
         .a, .b => {},
-        inline else => |val| comptime if (@enumToInt(val) < 4) @compileError("bad"),
+        inline else => |val| comptime if (@intFromEnum(val) < 4) @compileError("bad"),
     }
 }
 
@@ -138,6 +141,8 @@ test "inline else int all values" {
 }
 
 test "inline switch capture is set when switch operand is comptime known" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const U2 = union(enum) {
         a: u32,
     };

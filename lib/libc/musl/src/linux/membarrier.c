@@ -35,7 +35,7 @@ int __membarrier(int cmd, int flags)
 		__tl_lock();
 		sem_init(&barrier_sem, 0, 0);
 		struct sigaction sa = {
-			.sa_flags = SA_RESTART,
+			.sa_flags = SA_RESTART | SA_ONSTACK,
 			.sa_handler = bcast_barrier
 		};
 		memset(&sa.sa_mask, -1, sizeof sa.sa_mask);

@@ -25,7 +25,7 @@ pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) 
 
     switch (info.Pointer.size) {
         .One => switch (strat) {
-            .Shallow => hash(hasher, @ptrToInt(key), .Shallow),
+            .Shallow => hash(hasher, @intFromPtr(key), .Shallow),
             .Deep => hash(hasher, key.*, .Shallow),
             .DeepRecursive => hash(hasher, key.*, .DeepRecursive),
         },
@@ -44,7 +44,7 @@ pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) 
         .Many,
         .C,
         => switch (strat) {
-            .Shallow => hash(hasher, @ptrToInt(key), .Shallow),
+            .Shallow => hash(hasher, @intFromPtr(key), .Shallow),
             else => @compileError(
                 \\ unknown-length pointers and C pointers cannot be hashed deeply.
                 \\ Consider providing your own hash function.
@@ -64,9 +64,13 @@ pub fn hashArray(hasher: anytype, key: anytype, comptime strat: HashStrategy) vo
 /// Strategy is provided to determine if pointers should be followed or not.
 pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     const Key = @TypeOf(key);
+    const Hasher = switch (@typeInfo(@TypeOf(hasher))) {
+        .Pointer => |ptr| ptr.child,
+        else => @TypeOf(hasher),
+    };
 
     if (strat == .Shallow and comptime meta.trait.hasUniqueRepresentation(Key)) {
-        @call(.always_inline, hasher.update, .{mem.asBytes(&key)});
+        @call(.always_inline, Hasher.update, .{ hasher, mem.asBytes(&key) });
         return;
     }
 
@@ -87,21 +91,27 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.
-        .Int => {
-            if (comptime meta.trait.hasUniqueRepresentation(Key)) {
-                @call(.always_inline, hasher.update, .{std.mem.asBytes(&key)});
-            } else {
-                // Take only the part containing the key value, the remaining
-                // bytes are undefined and must not be hashed!
-                const byte_size = comptime std.math.divCeil(comptime_int, @bitSizeOf(Key), 8) catch unreachable;
-                @call(.always_inline, hasher.update, .{std.mem.asBytes(&key)[0..byte_size]});
-            }
+        .Int => |int| switch (int.signedness) {
+            .signed => hash(hasher, @bitCast(@Type(.{ .Int = .{
+                .bits = int.bits,
+                .signedness = .unsigned,
+            } }), key), strat),
+            .unsigned => {
+                if (comptime meta.trait.hasUniqueRepresentation(Key)) {
+                    @call(.always_inline, Hasher.update, .{ hasher, std.mem.asBytes(&key) });
+                } else {
+                    // Take only the part containing the key value, the remaining
+                    // bytes are undefined and must not be hashed!
+                    const byte_size = comptime std.math.divCeil(comptime_int, @bitSizeOf(Key), 8) catch unreachable;
+                    @call(.always_inline, Hasher.update, .{ hasher, std.mem.asBytes(&key)[0..byte_size] });
+                }
+            },
         },
 
-        .Bool => hash(hasher, @boolToInt(key), strat),
-        .Enum => hash(hasher, @enumToInt(key), strat),
-        .ErrorSet => hash(hasher, @errorToInt(key), strat),
-        .AnyFrame, .Fn => hash(hasher, @ptrToInt(key), strat),
+        .Bool => hash(hasher, @intFromBool(key), strat),
+        .Enum => hash(hasher, @intFromEnum(key), strat),
+        .ErrorSet => hash(hasher, @intFromError(key), strat),
+        .AnyFrame, .Fn => hash(hasher, @intFromPtr(key), strat),
 
         .Pointer => @call(.always_inline, hashPointer, .{ hasher, key, strat }),
 
@@ -339,7 +349,7 @@ test "testHash optional" {
     const b: ?u32 = null;
     try testing.expectEqual(testHash(a), testHash(@as(u32, 123)));
     try testing.expect(testHash(a) != testHash(b));
-    try testing.expectEqual(testHash(b), 0);
+    try testing.expectEqual(testHash(b), 0x409638ee2bde459); // wyhash empty input hash
 }
 
 test "testHash array" {
@@ -398,13 +408,13 @@ test "testHash union" {
 }
 
 test "testHash vector" {
-    const a: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
-    const b: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
+    const a: @Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
+    const b: @Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
     try testing.expect(testHash(a) == testHash(a));
     try testing.expect(testHash(a) != testHash(b));
 
-    const c: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
-    const d: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
+    const c: @Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
+    const d: @Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
     try testing.expect(testHash(c) == testHash(c));
     try testing.expect(testHash(c) != testHash(d));
 }

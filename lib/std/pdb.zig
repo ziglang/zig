@@ -863,7 +863,7 @@ pub const Pdb = struct {
     }
 
     pub fn getStream(self: *Pdb, stream: StreamType) ?*MsfStream {
-        const id = @enumToInt(stream);
+        const id = @intFromEnum(stream);
         return self.getStreamById(id);
     }
 };
@@ -1049,7 +1049,7 @@ const MsfStream = struct {
         var size: usize = 0;
         var rem_buffer = buffer;
         while (size < buffer.len) {
-            const size_to_read = math.min(self.block_size - offset, rem_buffer.len);
+            const size_to_read = @min(self.block_size - offset, rem_buffer.len);
             size += try in.read(rem_buffer[0..size_to_read]);
             rem_buffer = buffer[size..];
             offset += size_to_read;

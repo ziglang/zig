@@ -1,4 +1,6 @@
-const foo = @compileError("aoeu",);
+const foo = @compileError(
+    "aoeu",
+);
 
 const bar = baz + foo;
 const baz = 1;

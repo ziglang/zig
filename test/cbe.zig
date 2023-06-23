@@ -71,22 +71,22 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("intToError", .{});
+        var case = ctx.exeFromCompiledC("errorFromInt", .{});
 
         case.addCompareOutput(
             \\pub export fn main() c_int {
             \\    // comptime checks
             \\    const a = error.A;
             \\    const b = error.B;
-            \\    const c = @intToError(2);
-            \\    const d = @intToError(1);
+            \\    const c = @errorFromInt(2);
+            \\    const d = @errorFromInt(1);
             \\    if (!(c == b)) unreachable;
             \\    if (!(a == d)) unreachable;
             \\    // runtime checks
             \\    var x = error.A;
             \\    var y = error.B;
-            \\    var z = @intToError(2);
-            \\    var f = @intToError(1);
+            \\    var z = @errorFromInt(2);
+            \\    var f = @errorFromInt(1);
             \\    if (!(y == z)) unreachable;
             \\    if (!(x == f)) unreachable;
             \\    return 0;
@@ -94,13 +94,13 @@ pub fn addCases(ctx: *Cases) !void {
         , "");
         case.addError(
             \\pub export fn main() c_int {
-            \\    _ = @intToError(0);
+            \\    _ = @errorFromInt(0);
             \\    return 0;
             \\}
         , &.{":2:21: error: integer value '0' represents no error"});
         case.addError(
             \\pub export fn main() c_int {
-            \\    _ = @intToError(3);
+            \\    _ = @errorFromInt(3);
             \\    return 0;
             \\}
         , &.{":2:21: error: integer value '3' represents no error"});
@@ -635,19 +635,19 @@ pub fn addCases(ctx: *Cases) !void {
             ":6:12: note: consider 'union(enum)' here to make it a tagged union",
         });
 
-        // @enumToInt, @intToEnum, enum literal coercion, field access syntax, comparison, switch
+        // @intFromEnum, @enumFromInt, enum literal coercion, field access syntax, comparison, switch
         case.addCompareOutput(
             \\const Number = enum { One, Two, Three };
             \\
             \\pub export fn main() c_int {
             \\    var number1 = Number.One;
             \\    var number2: Number = .Two;
-            \\    const number3 = @intToEnum(Number, 2);
+            \\    const number3 = @enumFromInt(Number, 2);
             \\    if (number1 == number2) return 1;
             \\    if (number2 == number3) return 1;
-            \\    if (@enumToInt(number1) != 0) return 1;
-            \\    if (@enumToInt(number2) != 1) return 1;
-            \\    if (@enumToInt(number3) != 2) return 1;
+            \\    if (@intFromEnum(number1) != 0) return 1;
+            \\    if (@intFromEnum(number2) != 1) return 1;
+            \\    if (@intFromEnum(number3) != 2) return 1;
             \\    var x: Number = .Two;
             \\    if (number2 != x) return 1;
             \\    switch (x) {
@@ -728,7 +728,7 @@ pub fn addCases(ctx: *Cases) !void {
         case.addError(
             \\pub export fn main() c_int {
             \\    const a = true;
-            \\    _ = @enumToInt(a);
+            \\    _ = @intFromEnum(a);
             \\}
         , &.{
             ":3:20: error: expected enum or tagged union, found 'bool'",
@@ -737,7 +737,7 @@ pub fn addCases(ctx: *Cases) !void {
         case.addError(
             \\pub export fn main() c_int {
             \\    const a = 1;
-            \\    _ = @intToEnum(bool, a);
+            \\    _ = @enumFromInt(bool, a);
             \\}
         , &.{
             ":3:20: error: expected enum, found 'bool'",
@@ -746,7 +746,7 @@ pub fn addCases(ctx: *Cases) !void {
         case.addError(
             \\const E = enum { a, b, c };
             \\pub export fn main() c_int {
-            \\    _ = @intToEnum(E, 3);
+            \\    _ = @enumFromInt(E, 3);
             \\}
         , &.{
             ":3:9: error: enum 'tmp.E' has no tag with value '3'",

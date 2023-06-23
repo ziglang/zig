@@ -18,7 +18,6 @@ const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 // Until then, we have simplified logic here for self-hosted. TODO remove this once
 // self-hosted is capable enough to handle all of the real start.zig logic.
 pub const simplified_logic =
-    (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .plan9) or
     builtin.zig_backend == .stage2_x86 or
     builtin.zig_backend == .stage2_aarch64 or
     builtin.zig_backend == .stage2_arm or
@@ -249,7 +248,7 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
             return root.main();
         },
         uefi.Status => {
-            return @enumToInt(root.main());
+            return @intFromEnum(root.main());
         },
         else => @compileError("expected return type of main to be 'void', 'noreturn', 'usize', or 'std.os.uefi.Status'"),
     }
@@ -420,7 +419,7 @@ fn posixCallMainAndExit() callconv(.C) noreturn {
                     else => continue,
                 }
             }
-            break :init @intToPtr([*]elf.Phdr, at_phdr)[0..at_phnum];
+            break :init @ptrFromInt([*]elf.Phdr, at_phdr)[0..at_phnum];
         };
 
         // Apply the initial relocations as early as possible in the startup
@@ -501,7 +500,7 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
     if (builtin.os.tag == .linux) {
         const at_phdr = std.c.getauxval(elf.AT_PHDR);
         const at_phnum = std.c.getauxval(elf.AT_PHNUM);
-        const phdrs = (@intToPtr([*]elf.Phdr, at_phdr))[0..at_phnum];
+        const phdrs = (@ptrFromInt([*]elf.Phdr, at_phdr))[0..at_phnum];
         expandStackSize(phdrs);
     }
 

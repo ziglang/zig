@@ -13,6 +13,8 @@ comptime {
     @export(__powihf2, .{ .name = "__powihf2", .linkage = common.linkage, .visibility = common.visibility });
     @export(__powisf2, .{ .name = "__powisf2", .linkage = common.linkage, .visibility = common.visibility });
     @export(__powidf2, .{ .name = "__powidf2", .linkage = common.linkage, .visibility = common.visibility });
+    if (common.want_ppc_abi)
+        @export(__powitf2, .{ .name = "__powikf2", .linkage = common.linkage, .visibility = common.visibility });
     @export(__powitf2, .{ .name = "__powitf2", .linkage = common.linkage, .visibility = common.visibility });
     @export(__powixf2, .{ .name = "__powixf2", .linkage = common.linkage, .visibility = common.visibility });
 }

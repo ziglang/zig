@@ -3,7 +3,9 @@ fn sub(a: u16, b: u16) u16 {
     return a - b;
 }
 
-export fn entry() usize { return @sizeOf(@TypeOf(&y)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(&y));
+}
 
 // error
 // backend=stage2

@@ -124,12 +124,12 @@ pub fn Decoder(comptime ReaderType: type) type {
                     _,
                 };
 
-                const filter_id = @intToEnum(
+                const filter_id = @enumFromInt(
                     FilterId,
                     try std.leb.readULEB128(u64, header_reader),
                 );
 
-                if (@enumToInt(filter_id) >= 0x4000_0000_0000_0000)
+                if (@intFromEnum(filter_id) >= 0x4000_0000_0000_0000)
                     return error.CorruptInput;
 
                 if (filter_id != .lzma2)

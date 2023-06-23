@@ -8,7 +8,6 @@ const elf = std.elf;
 const windows = std.os.windows;
 const system = std.os.system;
 const maxInt = std.math.maxInt;
-const max = std.math.max;
 
 pub const DynLib = switch (builtin.os.tag) {
     .linux => if (builtin.link_libc) DlDynlib else ElfDynLib,
@@ -72,18 +71,18 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
         while (_DYNAMIC[i].d_tag != elf.DT_NULL) : (i += 1) {
             switch (_DYNAMIC[i].d_tag) {
                 elf.DT_DEBUG => {
-                    const ptr = @intToPtr(?*RDebug, _DYNAMIC[i].d_val);
+                    const ptr = @ptrFromInt(?*RDebug, _DYNAMIC[i].d_val);
                     if (ptr) |r_debug| {
                         if (r_debug.r_version != 1) return error.InvalidExe;
                         break :init r_debug.r_map;
                     }
                 },
                 elf.DT_PLTGOT => {
-                    const ptr = @intToPtr(?[*]usize, _DYNAMIC[i].d_val);
+                    const ptr = @ptrFromInt(?[*]usize, _DYNAMIC[i].d_val);
                     if (ptr) |got_table| {
                         // The address to the link_map structure is stored in
                         // the second slot
-                        break :init @intToPtr(?*LinkMap, got_table[1]);
+                        break :init @ptrFromInt(?*LinkMap, got_table[1]);
                     }
                 },
                 else => {},
@@ -125,7 +124,7 @@ pub const ElfDynLib = struct {
         // corresponding to the actual LOAD sections.
         const file_bytes = try os.mmap(
             null,
-            mem.alignForward(size, mem.page_size),
+            mem.alignForward(usize, size, mem.page_size),
             os.PROT.READ,
             os.MAP.PRIVATE,
             fd,
@@ -137,7 +136,7 @@ pub const ElfDynLib = struct {
         if (!mem.eql(u8, eh.e_ident[0..4], elf.MAGIC)) return error.NotElfFile;
         if (eh.e_type != elf.ET.DYN) return error.NotDynamicLibrary;
 
-        const elf_addr = @ptrToInt(file_bytes.ptr);
+        const elf_addr = @intFromPtr(file_bytes.ptr);
 
         // Iterate over the program header entries to find out the
         // dynamic vector as well as the total size of the virtual memory.
@@ -150,10 +149,10 @@ pub const ElfDynLib = struct {
                 i += 1;
                 ph_addr += eh.e_phentsize;
             }) {
-                const ph = @intToPtr(*elf.Phdr, ph_addr);
+                const ph = @ptrFromInt(*elf.Phdr, ph_addr);
                 switch (ph.p_type) {
-                    elf.PT_LOAD => virt_addr_end = max(virt_addr_end, ph.p_vaddr + ph.p_memsz),
-                    elf.PT_DYNAMIC => maybe_dynv = @intToPtr([*]usize, elf_addr + ph.p_offset),
+                    elf.PT_LOAD => virt_addr_end = @max(virt_addr_end, ph.p_vaddr + ph.p_memsz),
+                    elf.PT_DYNAMIC => maybe_dynv = @ptrFromInt([*]usize, elf_addr + ph.p_offset),
                     else => {},
                 }
             }
@@ -171,7 +170,7 @@ pub const ElfDynLib = struct {
         );
         errdefer os.munmap(all_loaded_mem);
 
-        const base = @ptrToInt(all_loaded_mem.ptr);
+        const base = @intFromPtr(all_loaded_mem.ptr);
 
         // Now iterate again and actually load all the program sections.
         {
@@ -181,15 +180,15 @@ pub const ElfDynLib = struct {
                 i += 1;
                 ph_addr += eh.e_phentsize;
             }) {
-                const ph = @intToPtr(*elf.Phdr, ph_addr);
+                const ph = @ptrFromInt(*elf.Phdr, ph_addr);
                 switch (ph.p_type) {
                     elf.PT_LOAD => {
                         // The VirtAddr may not be page-aligned; in such case there will be
                         // extra nonsense mapped before/after the VirtAddr,MemSiz
                         const aligned_addr = (base + ph.p_vaddr) & ~(@as(usize, mem.page_size) - 1);
                         const extra_bytes = (base + ph.p_vaddr) - aligned_addr;
-                        const extended_memsz = mem.alignForward(ph.p_memsz + extra_bytes, mem.page_size);
-                        const ptr = @intToPtr([*]align(mem.page_size) u8, aligned_addr);
+                        const extended_memsz = mem.alignForward(usize, ph.p_memsz + extra_bytes, mem.page_size);
+                        const ptr = @ptrFromInt([*]align(mem.page_size) u8, aligned_addr);
                         const prot = elfToMmapProt(ph.p_flags);
                         if ((ph.p_flags & elf.PF_W) == 0) {
                             // If it does not need write access, it can be mapped from the fd.
@@ -229,11 +228,11 @@ pub const ElfDynLib = struct {
             while (dynv[i] != 0) : (i += 2) {
                 const p = base + dynv[i + 1];
                 switch (dynv[i]) {
-                    elf.DT_STRTAB => maybe_strings = @intToPtr([*:0]u8, p),
-                    elf.DT_SYMTAB => maybe_syms = @intToPtr([*]elf.Sym, p),
-                    elf.DT_HASH => maybe_hashtab = @intToPtr([*]os.Elf_Symndx, p),
-                    elf.DT_VERSYM => maybe_versym = @intToPtr([*]u16, p),
-                    elf.DT_VERDEF => maybe_verdef = @intToPtr(*elf.Verdef, p),
+                    elf.DT_STRTAB => maybe_strings = @ptrFromInt([*:0]u8, p),
+                    elf.DT_SYMTAB => maybe_syms = @ptrFromInt([*]elf.Sym, p),
+                    elf.DT_HASH => maybe_hashtab = @ptrFromInt([*]os.Elf_Symndx, p),
+                    elf.DT_VERSYM => maybe_versym = @ptrFromInt([*]u16, p),
+                    elf.DT_VERDEF => maybe_verdef = @ptrFromInt(*elf.Verdef, p),
                     else => {},
                 }
             }
@@ -262,7 +261,7 @@ pub const ElfDynLib = struct {
 
     pub fn lookup(self: *ElfDynLib, comptime T: type, name: [:0]const u8) ?T {
         if (self.lookupAddress("", name)) |symbol| {
-            return @intToPtr(T, symbol);
+            return @ptrFromInt(T, symbol);
         } else {
             return null;
         }
@@ -285,7 +284,7 @@ pub const ElfDynLib = struct {
                 if (!checkver(self.verdef.?, versym[i], vername, self.strings))
                     continue;
             }
-            return @ptrToInt(self.memory.ptr) + self.syms[i].st_value;
+            return @intFromPtr(self.memory.ptr) + self.syms[i].st_value;
         }
 
         return null;
@@ -308,9 +307,9 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
             break;
         if (def.vd_next == 0)
             return false;
-        def = @intToPtr(*elf.Verdef, @ptrToInt(def) + def.vd_next);
+        def = @ptrFromInt(*elf.Verdef, @intFromPtr(def) + def.vd_next);
     }
-    const aux = @intToPtr(*elf.Verdaux, @ptrToInt(def) + def.vd_aux);
+    const aux = @ptrFromInt(*elf.Verdaux, @intFromPtr(def) + def.vd_aux);
     return mem.eql(u8, vername, mem.sliceTo(strings + aux.vda_name, 0));
 }
 

@@ -250,14 +250,14 @@ fn render_autoconf(
 
     var any_errors = false;
     var line_index: u32 = 0;
-    var line_it = std.mem.split(u8, contents, "\n");
+    var line_it = std.mem.splitScalar(u8, contents, '\n');
     while (line_it.next()) |line| : (line_index += 1) {
         if (!std.mem.startsWith(u8, line, "#")) {
             try output.appendSlice(line);
             try output.appendSlice("\n");
             continue;
         }
-        var it = std.mem.tokenize(u8, line[1..], " \t\r");
+        var it = std.mem.tokenizeAny(u8, line[1..], " \t\r");
         const undef = it.next().?;
         if (!std.mem.eql(u8, undef, "undef")) {
             try output.appendSlice(line);
@@ -297,14 +297,14 @@ fn render_cmake(
 
     var any_errors = false;
     var line_index: u32 = 0;
-    var line_it = std.mem.split(u8, contents, "\n");
+    var line_it = std.mem.splitScalar(u8, contents, '\n');
     while (line_it.next()) |line| : (line_index += 1) {
         if (!std.mem.startsWith(u8, line, "#")) {
             try output.appendSlice(line);
             try output.appendSlice("\n");
             continue;
         }
-        var it = std.mem.tokenize(u8, line[1..], " \t\r");
+        var it = std.mem.tokenizeAny(u8, line[1..], " \t\r");
         const cmakedefine = it.next().?;
         if (!std.mem.eql(u8, cmakedefine, "cmakedefine") and
             !std.mem.eql(u8, cmakedefine, "cmakedefine01"))

@@ -108,7 +108,7 @@ pub fn convertFast(comptime T: type, n: Number(T)) ?T {
     var value: T = 0;
     if (n.exponent <= info.max_exponent_fast_path) {
         // normal fast path
-        value = @intToFloat(T, n.mantissa);
+        value = @floatFromInt(T, n.mantissa);
         value = if (n.exponent < 0)
             value / fastPow10(T, @intCast(usize, -n.exponent))
         else
@@ -120,7 +120,7 @@ pub fn convertFast(comptime T: type, n: Number(T)) ?T {
         if (mantissa > info.max_mantissa_fast_path) {
             return null;
         }
-        value = @intToFloat(T, mantissa) * fastPow10(T, info.max_exponent_fast_path);
+        value = @floatFromInt(T, mantissa) * fastPow10(T, info.max_exponent_fast_path);
     }
 
     if (n.negative) {

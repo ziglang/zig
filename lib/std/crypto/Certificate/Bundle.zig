@@ -169,7 +169,7 @@ pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir
     var it = iterable_dir.iterate();
     while (try it.next()) |entry| {
         switch (entry.kind) {
-            .File, .SymLink => {},
+            .file, .sym_link => {},
             else => continue,
         }
 
@@ -244,10 +244,16 @@ pub fn parseCert(cb: *Bundle, gpa: Allocator, decoded_start: u32, now_sec: i64) 
     // the subject name, we pre-parse all of them to make sure and only
     // include in the bundle ones that we know will parse. This way we can
     // use `catch unreachable` later.
-    const parsed_cert = try Certificate.parse(.{
+    const parsed_cert = Certificate.parse(.{
         .buffer = cb.bytes.items,
         .index = decoded_start,
-    });
+    }) catch |err| switch (err) {
+        error.CertificateHasUnrecognizedObjectId => {
+            cb.bytes.items.len = decoded_start;
+            return;
+        },
+        else => |e| return e,
+    };
     if (now_sec > parsed_cert.validity.not_after) {
         // Ignore expired cert.
         cb.bytes.items.len = decoded_start;

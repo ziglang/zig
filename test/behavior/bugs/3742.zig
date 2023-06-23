@@ -40,5 +40,7 @@ test "fixed" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_llvm and
         builtin.cpu.arch == .aarch64 and builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     ArgSerializer.serializeCommand(GET.init("banana"));
 }

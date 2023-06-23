@@ -47,8 +47,9 @@ fn testUnwindInfo(
     check.checkInSymtab();
     check.checkNext("{*} (__TEXT,__text) external ___gxx_personality_v0");
 
-    const run_cmd = check.runAndCompare();
-    run_cmd.expectStdOutEqual(
+    const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
+    run.expectStdOutEqual(
         \\Constructed: a
         \\Constructed: b
         \\About to destroy: b
@@ -57,7 +58,7 @@ fn testUnwindInfo(
         \\
     );
 
-    test_step.dependOn(&run_cmd.step);
+    test_step.dependOn(&run.step);
 }
 
 fn createScenario(

@@ -1,14 +1,19 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
+const StringifyOptions = @import("./stringify.zig").StringifyOptions;
+const jsonStringify = @import("./stringify.zig").stringify;
+
+const Value = @import("./dynamic.zig").Value;
+
 const State = enum {
-    Complete,
-    Value,
-    ArrayStart,
-    Array,
-    ObjectStart,
-    Object,
+    complete,
+    value,
+    array_start,
+    array,
+    object_start,
+    object,
 };
 
 /// Writes JSON ([RFC8259](https://tools.ietf.org/html/rfc8259)) formatted data
@@ -21,9 +26,9 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         pub const Stream = OutStream;
 
-        whitespace: std.json.StringifyOptions.Whitespace = std.json.StringifyOptions.Whitespace{
+        whitespace: StringifyOptions.Whitespace = StringifyOptions.Whitespace{
             .indent_level = 0,
-            .indent = .{ .Space = 1 },
+            .indent = .{ .space = 1 },
         },
 
         stream: OutStream,
@@ -36,38 +41,38 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                 .state_index = 1,
                 .state = undefined,
             };
-            self.state[0] = .Complete;
-            self.state[1] = .Value;
+            self.state[0] = .complete;
+            self.state[1] = .value;
             return self;
         }
 
         pub fn beginArray(self: *Self) !void {
-            assert(self.state[self.state_index] == State.Value); // need to call arrayElem or objectField
+            assert(self.state[self.state_index] == State.value); // need to call arrayElem or objectField
             try self.stream.writeByte('[');
-            self.state[self.state_index] = State.ArrayStart;
+            self.state[self.state_index] = State.array_start;
             self.whitespace.indent_level += 1;
         }
 
         pub fn beginObject(self: *Self) !void {
-            assert(self.state[self.state_index] == State.Value); // need to call arrayElem or objectField
+            assert(self.state[self.state_index] == State.value); // need to call arrayElem or objectField
             try self.stream.writeByte('{');
-            self.state[self.state_index] = State.ObjectStart;
+            self.state[self.state_index] = State.object_start;
             self.whitespace.indent_level += 1;
         }
 
         pub fn arrayElem(self: *Self) !void {
             const state = self.state[self.state_index];
             switch (state) {
-                .Complete => unreachable,
-                .Value => unreachable,
-                .ObjectStart => unreachable,
-                .Object => unreachable,
-                .Array, .ArrayStart => {
-                    if (state == .Array) {
+                .complete => unreachable,
+                .value => unreachable,
+                .object_start => unreachable,
+                .object => unreachable,
+                .array, .array_start => {
+                    if (state == .array) {
                         try self.stream.writeByte(',');
                     }
-                    self.state[self.state_index] = .Array;
-                    self.pushState(.Value);
+                    self.state[self.state_index] = .array;
+                    self.pushState(.value);
                     try self.indent();
                 },
             }
@@ -76,16 +81,16 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         pub fn objectField(self: *Self, name: []const u8) !void {
             const state = self.state[self.state_index];
             switch (state) {
-                .Complete => unreachable,
-                .Value => unreachable,
-                .ArrayStart => unreachable,
-                .Array => unreachable,
-                .Object, .ObjectStart => {
-                    if (state == .Object) {
+                .complete => unreachable,
+                .value => unreachable,
+                .array_start => unreachable,
+                .array => unreachable,
+                .object, .object_start => {
+                    if (state == .object) {
                         try self.stream.writeByte(',');
                     }
-                    self.state[self.state_index] = .Object;
-                    self.pushState(.Value);
+                    self.state[self.state_index] = .object;
+                    self.pushState(.value);
                     try self.indent();
                     try self.writeEscapedString(name);
                     try self.stream.writeByte(':');
@@ -98,16 +103,16 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         pub fn endArray(self: *Self) !void {
             switch (self.state[self.state_index]) {
-                .Complete => unreachable,
-                .Value => unreachable,
-                .ObjectStart => unreachable,
-                .Object => unreachable,
-                .ArrayStart => {
+                .complete => unreachable,
+                .value => unreachable,
+                .object_start => unreachable,
+                .object => unreachable,
+                .array_start => {
                     self.whitespace.indent_level -= 1;
                     try self.stream.writeByte(']');
                     self.popState();
                 },
-                .Array => {
+                .array => {
                     self.whitespace.indent_level -= 1;
                     try self.indent();
                     self.popState();
@@ -118,16 +123,16 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         pub fn endObject(self: *Self) !void {
             switch (self.state[self.state_index]) {
-                .Complete => unreachable,
-                .Value => unreachable,
-                .ArrayStart => unreachable,
-                .Array => unreachable,
-                .ObjectStart => {
+                .complete => unreachable,
+                .value => unreachable,
+                .array_start => unreachable,
+                .array => unreachable,
+                .object_start => {
                     self.whitespace.indent_level -= 1;
                     try self.stream.writeByte('}');
                     self.popState();
                 },
-                .Object => {
+                .object => {
                     self.whitespace.indent_level -= 1;
                     try self.indent();
                     self.popState();
@@ -137,13 +142,13 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         }
 
         pub fn emitNull(self: *Self) !void {
-            assert(self.state[self.state_index] == State.Value);
+            assert(self.state[self.state_index] == State.value);
             try self.stringify(null);
             self.popState();
         }
 
         pub fn emitBool(self: *Self, value: bool) !void {
-            assert(self.state[self.state_index] == State.Value);
+            assert(self.state[self.state_index] == State.value);
             try self.stringify(value);
             self.popState();
         }
@@ -154,7 +159,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
             /// in a IEEE 754 double float, otherwise emitted as a string to the full precision.
             value: anytype,
         ) !void {
-            assert(self.state[self.state_index] == State.Value);
+            assert(self.state[self.state_index] == State.value);
             switch (@typeInfo(@TypeOf(value))) {
                 .Int => |info| {
                     if (info.bits < 53) {
@@ -183,7 +188,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         }
 
         pub fn emitString(self: *Self, string: []const u8) !void {
-            assert(self.state[self.state_index] == State.Value);
+            assert(self.state[self.state_index] == State.value);
             try self.writeEscapedString(string);
             self.popState();
         }
@@ -194,9 +199,9 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         }
 
         /// Writes the complete json into the output stream
-        pub fn emitJson(self: *Self, json: std.json.Value) Stream.Error!void {
-            assert(self.state[self.state_index] == State.Value);
-            try self.stringify(json);
+        pub fn emitJson(self: *Self, value: Value) Stream.Error!void {
+            assert(self.state[self.state_index] == State.value);
+            try self.stringify(value);
             self.popState();
         }
 
@@ -215,7 +220,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         }
 
         fn stringify(self: *Self, value: anytype) !void {
-            try std.json.stringify(value, std.json.StringifyOptions{
+            try jsonStringify(value, StringifyOptions{
                 .whitespace = self.whitespace,
             }, self.stream);
         }
@@ -229,6 +234,8 @@ pub fn writeStream(
     return WriteStream(@TypeOf(out_stream), max_depth).init(out_stream);
 }
 
+const ObjectMap = @import("./dynamic.zig").ObjectMap;
+
 test "json write stream" {
     var out_buf: [1024]u8 = undefined;
     var slice_stream = std.io.fixedBufferStream(&out_buf);
@@ -237,7 +244,7 @@ test "json write stream" {
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
 
-    var w = std.json.writeStream(out, 10);
+    var w = writeStream(out, 10);
 
     try w.beginObject();
 
@@ -285,9 +292,9 @@ test "json write stream" {
     try std.testing.expect(std.mem.eql(u8, expected, result));
 }
 
-fn getJsonObject(allocator: std.mem.Allocator) !std.json.Value {
-    var value = std.json.Value{ .Object = std.json.ObjectMap.init(allocator) };
-    try value.Object.put("one", std.json.Value{ .Integer = @intCast(i64, 1) });
-    try value.Object.put("two", std.json.Value{ .Float = 2.0 });
+fn getJsonObject(allocator: std.mem.Allocator) !Value {
+    var value = Value{ .object = ObjectMap.init(allocator) };
+    try value.object.put("one", Value{ .integer = @intCast(i64, 1) });
+    try value.object.put("two", Value{ .float = 2.0 });
     return value;
 }

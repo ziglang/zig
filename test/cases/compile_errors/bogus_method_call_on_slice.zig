@@ -2,7 +2,9 @@ var self = "aoeu";
 fn f(m: []const u8) void {
     m.copy(u8, self[0..], m);
 }
-export fn entry() usize { return @sizeOf(@TypeOf(&f)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(&f));
+}
 pub export fn entry1() void {
     .{}.bar();
 }
@@ -14,6 +16,6 @@ pub export fn entry2() void {
 // backend=stage2
 // target=native
 //
-// :7:8: error: no field or member function named 'bar' in '@TypeOf(.{})'
-// :10:18: error: no field or member function named 'bar' in 'struct{comptime foo: comptime_int = 1}'
+// :9:8: error: no field or member function named 'bar' in '@TypeOf(.{})'
+// :12:18: error: no field or member function named 'bar' in 'struct{comptime foo: comptime_int = 1}'
 // :3:6: error: no field or member function named 'copy' in '[]const u8'

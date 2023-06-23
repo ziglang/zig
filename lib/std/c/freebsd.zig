@@ -18,8 +18,39 @@ fn __BIT_COUNT(bits: []const c_long) c_long {
     return count;
 }
 
+fn __BIT_MASK(s: usize) c_long {
+    var x = s % CPU_SETSIZE;
+    return @bitCast(c_long, @intCast(c_ulong, 1) << @intCast(u6, x));
+}
+
 pub fn CPU_COUNT(set: cpuset_t) c_int {
     return @intCast(c_int, __BIT_COUNT(set.__bits[0..]));
+}
+
+pub fn CPU_ZERO(set: *cpuset_t) void {
+    @memset((set.*).__bits[0..], 0);
+}
+
+pub fn CPU_SET(cpu: usize, set: *cpuset_t) void {
+    const x = cpu / @sizeOf(c_long);
+    if (x < @sizeOf(cpuset_t)) {
+        (set.*).__bits[x] |= __BIT_MASK(x);
+    }
+}
+
+pub fn CPU_ISSET(cpu: usize, set: cpuset_t) bool {
+    const x = cpu / @sizeOf(c_long);
+    if (x < @sizeOf(cpuset_t)) {
+        return set.__bits[x] & __BIT_MASK(x) != 0;
+    }
+    return false;
+}
+
+pub fn CPU_CLR(cpu: usize, set: *cpuset_t) void {
+    const x = cpu / @sizeOf(c_long);
+    if (x < @sizeOf(cpuset_t)) {
+        (set.*).__bits[x] &= !__BIT_MASK(x);
+    }
 }
 
 pub const cpulevel_t = c_int;
@@ -44,7 +75,7 @@ pub const _errno = __error;
 
 pub extern "c" var malloc_options: [*:0]const u8;
 
-pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
+pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) isize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn getentropy(buf_ptr: [*]u8, buf_len: usize) c_int;
@@ -291,7 +322,7 @@ pub const RTLD = struct {
 
 pub const dl_phdr_info = extern struct {
     /// Module relocation base.
-    dlpi_addr: if (builtin.cpu.arch.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
+    dlpi_addr: if (builtin.target.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
     /// Module name.
     dlpi_name: ?[*:0]const u8,
     /// Pointer to module's phdr.
@@ -930,7 +961,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0010;
@@ -1055,9 +1086,9 @@ pub const SIG = struct {
     pub const UNBLOCK = 2;
     pub const SETMASK = 3;
 
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
+    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
+    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -2555,6 +2586,8 @@ pub const sigevent = extern struct {
     },
 };
 
+pub const timer_t = *opaque {};
+
 pub const MIN = struct {
     pub const INCORE = 0x1;
     pub const REFERENCED = 0x2;
@@ -2617,7 +2650,7 @@ const ioctl_cmd = enum(u32) {
 };
 
 fn ioImpl(cmd: ioctl_cmd, op: u8, nr: u8, comptime IT: type) u32 {
-    return @bitCast(u32, @enumToInt(cmd) | @intCast(u32, @truncate(u8, @sizeOf(IT))) << 16 | @intCast(u32, op) << 8 | nr);
+    return @bitCast(u32, @intFromEnum(cmd) | @intCast(u32, @truncate(u8, @sizeOf(IT))) << 16 | @intCast(u32, op) << 8 | nr);
 }
 
 pub fn IO(op: u8, nr: u8) u32 {
@@ -2635,3 +2668,173 @@ pub fn IOW(op: u8, nr: u8, comptime IT: type) u32 {
 pub fn IOWR(op: u8, nr: u8, comptime IT: type) u32 {
     return ioImpl(ioctl_cmd.INOUT, op, nr, @sizeOf(IT));
 }
+
+pub const RF = struct {
+    pub const NAMEG = 1 << 0;
+    pub const ENVG = 1 << 1;
+    /// copy file descriptors table
+    pub const FDG = 1 << 2;
+    pub const NOTEG = 1 << 3;
+    /// creates a new process
+    pub const PROC = 1 << 4;
+    /// shares address space
+    pub const MEM = 1 << 5;
+    /// detaches the child
+    pub const NOWAIT = 1 << 6;
+    pub const CNAMEG = 1 << 10;
+    pub const CENVG = 1 << 11;
+    /// distinct file descriptor table
+    pub const CFDG = 1 << 12;
+    /// thread support
+    pub const THREAD = 1 << 13;
+    /// shares signal handlers
+    pub const SIGSHARE = 1 << 14;
+    /// emits SIGUSR1 on exit
+    pub const LINUXTHPN = 1 << 16;
+    /// child in stopped state
+    pub const STOPPED = 1 << 17;
+    /// use high pid id
+    pub const HIGHPID = 1 << 18;
+    /// selects signal flag for parent notification
+    pub const SIGSZMB = 1 << 19;
+    pub fn SIGNUM(f: u32) u32 {
+        return f >> 20;
+    }
+    pub fn SIGFLAGS(f: u32) u32 {
+        return f << 20;
+    }
+};
+
+pub extern "c" fn rfork(flags: c_int) c_int;
+
+pub const PTRACE = struct {
+    pub const EXC = 0x0001;
+    pub const SCE = 0x0002;
+    pub const SCX = 0x0004;
+    pub const SYSCALL = (PTRACE.SCE | PTRACE.SCX);
+    pub const FORK = 0x0008;
+    pub const LWP = 0x0010;
+    pub const VFORK = 0x0020;
+    pub const DEFAULT = PTRACE.EXEC;
+};
+
+pub const PT = struct {
+    pub const TRACE_ME = 0;
+    pub const READ_I = 1;
+    pub const READ_D = 2;
+    pub const WRITE_I = 4;
+    pub const WRITE_D = 5;
+    pub const CONTINUE = 7;
+    pub const KILL = 8;
+    pub const STEP = 9;
+    pub const ATTACH = 10;
+    pub const DETACH = 11;
+    pub const IO = 12;
+    pub const LWPINFO = 13;
+    pub const GETNUMLWPS = 14;
+    pub const GETLWPLIST = 15;
+    pub const CLEARSTEP = 16;
+    pub const SETSTEP = 17;
+    pub const SUSPEND = 18;
+    pub const RESUME = 19;
+    pub const TO_SCE = 20;
+    pub const TO_SCX = 21;
+    pub const SYSCALL = 22;
+    pub const FOLLOW_FORK = 23;
+    pub const LWP_EVENTS = 24;
+    pub const GET_EVENT_MASK = 25;
+    pub const SET_EVENT_MASK = 26;
+    pub const GET_SC_ARGS = 27;
+    pub const GET_SC_RET = 28;
+    pub const COREDUMP = 29;
+    pub const GETREGS = 33;
+    pub const SETREGS = 34;
+    pub const GETFPREGS = 35;
+    pub const SETFPREGS = 36;
+    pub const GETDBREGS = 37;
+    pub const SETDBREGS = 38;
+    pub const VM_TIMESTAMP = 40;
+    pub const VM_ENTRY = 41;
+    pub const GETREGSET = 42;
+    pub const SETREGSET = 43;
+    pub const SC_REMOTE = 44;
+    pub const FIRSTMACH = 64;
+};
+
+pub const ptrace_io_desc = extern struct {
+    op: c_int,
+    offs: ?*anyopaque,
+    addr: ?*anyopaque,
+    len: usize,
+};
+
+pub const PIOD = struct {
+    pub const READ_D = 1;
+    pub const WRITE_D = 2;
+    pub const READ_I = 3;
+    pub const WRITE_I = 4;
+};
+
+pub const ptrace_lwpinfo = extern struct {
+    lwpid: lwpid_t,
+    event: c_int,
+    flags: c_int,
+    sigmask: sigset_t,
+    siglist: sigset_t,
+    siginfo: siginfo_t,
+    tdname: [MAXCOMLEN + 1]u8,
+    child_pid: pid_t,
+    syscall_code: c_uint,
+    syscall_narg: c_uint,
+};
+
+pub const ptrace_sc_ret = extern struct {
+    retval: [2]isize,
+    err: c_int,
+};
+
+pub const ptrace_vm_entry = extern struct {
+    entry: c_int,
+    timestamp: c_int,
+    start: c_ulong,
+    end: c_ulong,
+    offset: c_ulong,
+    prot: c_uint,
+    pathlen: c_uint,
+    fileid: c_long,
+    fsid: u32,
+    pve_path: ?[*:0]u8,
+};
+
+pub const ptrace_coredump = extern struct {
+    fd: c_int,
+    flags: u32,
+    limit: isize,
+};
+
+pub const ptrace_cs_remote = extern struct {
+    ret: ptrace_sc_ret,
+    syscall: c_uint,
+    nargs: c_uint,
+    args: *isize,
+};
+
+pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: [*:0]u8, data: c_int) c_int;
+
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
+    .x86, .powerpc => 4 * 512,
+    else => 4 * 1024,
+};
+
+pub const SYS_NMLN = 256;
+
+pub const utsname = extern struct {
+    sysname: [255:0]u8,
+    nodename: [255:0]u8,
+    release: [255:0]u8,
+    version: [255:0]u8,
+    machine: [255:0]u8,
+};
+
+pub extern "c" fn uname(u: *utsname) c_int;

@@ -203,6 +203,7 @@ test "Type.Opaque" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Opaque = @Type(.{
         .Opaque = .{
@@ -257,10 +258,10 @@ test "Type.ErrorSet" {
 }
 
 test "Type.Struct" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = @Type(@typeInfo(struct { x: u8, y: u32 }));
     const infoA = @typeInfo(A).Struct;
@@ -348,6 +349,7 @@ test "Type.Struct" {
 test "Type.Enum" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Foo = @Type(.{
         .Enum = .{
@@ -361,8 +363,8 @@ test "Type.Enum" {
         },
     });
     try testing.expectEqual(true, @typeInfo(Foo).Enum.is_exhaustive);
-    try testing.expectEqual(@as(u8, 1), @enumToInt(Foo.a));
-    try testing.expectEqual(@as(u8, 5), @enumToInt(Foo.b));
+    try testing.expectEqual(@as(u8, 1), @intFromEnum(Foo.a));
+    try testing.expectEqual(@as(u8, 5), @intFromEnum(Foo.b));
     const Bar = @Type(.{
         .Enum = .{
             .tag_type = u32,
@@ -375,15 +377,16 @@ test "Type.Enum" {
         },
     });
     try testing.expectEqual(false, @typeInfo(Bar).Enum.is_exhaustive);
-    try testing.expectEqual(@as(u32, 1), @enumToInt(Bar.a));
-    try testing.expectEqual(@as(u32, 5), @enumToInt(Bar.b));
-    try testing.expectEqual(@as(u32, 6), @enumToInt(@intToEnum(Bar, 6)));
+    try testing.expectEqual(@as(u32, 1), @intFromEnum(Bar.a));
+    try testing.expectEqual(@as(u32, 5), @intFromEnum(Bar.b));
+    try testing.expectEqual(@as(u32, 6), @intFromEnum(@enumFromInt(Bar, 6)));
 }
 
 test "Type.Union" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Untagged = @Type(.{
         .Union = .{
@@ -484,7 +487,6 @@ test "Type.Union from regular enum" {
 }
 
 test "Type.Fn" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 

@@ -1,5 +1,5 @@
 pub fn main() void {
-    _ = @intToPtr(*u8, 0);
+    _ = @ptrFromInt(*u8, 0);
 }
 
 // error

@@ -256,7 +256,7 @@ fn addCCArgs(
     want_O3: bool,
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();
-    const arch_name = musl.archName(target.cpu.arch);
+    const arch_name = musl.archNameHeaders(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
     const triple = try std.fmt.allocPrint(arena, "{s}-{s}-musl", .{ arch_name, os_name });
     const o_arg = if (want_O3) "-O3" else "-Os";
@@ -459,6 +459,7 @@ const libc_bottom_half_src_files = [_][]const u8{
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/unlinkat.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/usleep.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/write.c",
+    "wasi/libc-bottom-half/sources/__errno_location.c",
     "wasi/libc-bottom-half/sources/__main_void.c",
     "wasi/libc-bottom-half/sources/__wasilibc_dt.c",
     "wasi/libc-bottom-half/sources/__wasilibc_environ.c",

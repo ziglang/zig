@@ -3,7 +3,9 @@ const Foo = struct {
     B: f32,
     C: bool,
 };
-export fn entry(foo: Foo) void { _ = foo; }
+export fn entry(foo: Foo) void {
+    _ = foo;
+}
 
 // error
 // backend=stage2

@@ -23,7 +23,7 @@ pub const DevicePathProtocol = extern struct {
 
     /// Returns the next DevicePathProtocol node in the sequence, if any.
     pub fn next(self: *DevicePathProtocol) ?*DevicePathProtocol {
-        if (self.type == .End and @intToEnum(EndDevicePath.Subtype, self.subtype) == .EndEntire)
+        if (self.type == .End and @enumFromInt(EndDevicePath.Subtype, self.subtype) == .EndEntire)
             return null;
 
         return @ptrCast(*DevicePathProtocol, @ptrCast([*]u8, self) + self.length);
@@ -37,7 +37,7 @@ pub const DevicePathProtocol = extern struct {
             node = next_node;
         }
 
-        return (@ptrToInt(node) + node.length) - @ptrToInt(self);
+        return (@intFromPtr(node) + node.length) - @intFromPtr(self);
     }
 
     /// Creates a file device path from the existing device path and a file path.
@@ -99,7 +99,7 @@ pub const DevicePathProtocol = extern struct {
 
         inline for (type_info.fields) |subtype| {
             // The tag names match the union names, so just grab that off the enum
-            const tag_val: u8 = @enumToInt(@field(TTag, subtype.name));
+            const tag_val: u8 = @intFromEnum(@field(TTag, subtype.name));
 
             if (self.subtype == tag_val) {
                 // e.g. expr = .{ .Pci = @ptrCast(...) }

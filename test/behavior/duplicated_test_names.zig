@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 const Namespace = struct {
     test "thingy" {}
 };

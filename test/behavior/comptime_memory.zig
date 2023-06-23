@@ -192,9 +192,9 @@ test "basic pointer preservation" {
     }
 
     comptime {
-        const lazy_address = @ptrToInt(&imports.global_u32);
-        try testing.expectEqual(@ptrToInt(&imports.global_u32), lazy_address);
-        try testing.expectEqual(&imports.global_u32, @intToPtr(*u32, lazy_address));
+        const lazy_address = @intFromPtr(&imports.global_u32);
+        try testing.expectEqual(@intFromPtr(&imports.global_u32), lazy_address);
+        try testing.expectEqual(&imports.global_u32, @ptrFromInt(*u32, lazy_address));
     }
 }
 
@@ -251,15 +251,15 @@ test "shuffle chunks of linker value" {
         return error.SkipZigTest;
     }
 
-    const lazy_address = @ptrToInt(&imports.global_u32);
+    const lazy_address = @intFromPtr(&imports.global_u32);
     const shuffled1_rt = shuffle(lazy_address, Bits, ShuffledBits);
     const unshuffled1_rt = shuffle(shuffled1_rt, ShuffledBits, Bits);
     try testing.expectEqual(lazy_address, unshuffled1_rt);
     const shuffled1_ct = comptime shuffle(lazy_address, Bits, ShuffledBits);
     const shuffled1_ct_2 = comptime shuffle(lazy_address, Bits, ShuffledBits);
-    comptime try testing.expectEqual(shuffled1_ct, shuffled1_ct_2);
+    try comptime testing.expectEqual(shuffled1_ct, shuffled1_ct_2);
     const unshuffled1_ct = comptime shuffle(shuffled1_ct, ShuffledBits, Bits);
-    comptime try testing.expectEqual(lazy_address, unshuffled1_ct);
+    try comptime testing.expectEqual(lazy_address, unshuffled1_ct);
     try testing.expectEqual(shuffled1_ct, shuffled1_rt);
 }
 
@@ -271,8 +271,8 @@ test "dance on linker values" {
 
     comptime {
         var arr: [2]usize = undefined;
-        arr[0] = @ptrToInt(&imports.global_u32);
-        arr[1] = @ptrToInt(&imports.global_u32);
+        arr[0] = @intFromPtr(&imports.global_u32);
+        arr[1] = @intFromPtr(&imports.global_u32);
 
         const weird_ptr = @ptrCast([*]Bits, @ptrCast([*]u8, &arr) + @sizeOf(usize) - 3);
         try doTypePunBitsTest(&weird_ptr[0]);
@@ -290,7 +290,7 @@ test "dance on linker values" {
             rebuilt_bytes[i] = arr_bytes[1][i];
         }
 
-        try testing.expectEqual(&imports.global_u32, @intToPtr(*u32, @bitCast(usize, rebuilt_bytes)));
+        try testing.expectEqual(&imports.global_u32, @ptrFromInt(*u32, @bitCast(usize, rebuilt_bytes)));
     }
 }
 
@@ -309,14 +309,14 @@ test "offset array ptr by element size" {
             .{ .x = bigToNativeEndian(u32, 0x03070b0f) },
         };
 
-        const address = @ptrToInt(&arr);
-        try testing.expectEqual(@ptrToInt(&arr[0]), address);
-        try testing.expectEqual(@ptrToInt(&arr[0]) + 10, address + 10);
-        try testing.expectEqual(@ptrToInt(&arr[1]), address + @sizeOf(VirtualStruct));
-        try testing.expectEqual(@ptrToInt(&arr[2]), address + 2 * @sizeOf(VirtualStruct));
-        try testing.expectEqual(@ptrToInt(&arr[3]), address + @sizeOf(VirtualStruct) * 3);
+        const address = @intFromPtr(&arr);
+        try testing.expectEqual(@intFromPtr(&arr[0]), address);
+        try testing.expectEqual(@intFromPtr(&arr[0]) + 10, address + 10);
+        try testing.expectEqual(@intFromPtr(&arr[1]), address + @sizeOf(VirtualStruct));
+        try testing.expectEqual(@intFromPtr(&arr[2]), address + 2 * @sizeOf(VirtualStruct));
+        try testing.expectEqual(@intFromPtr(&arr[3]), address + @sizeOf(VirtualStruct) * 3);
 
-        const secondElement = @intToPtr(*VirtualStruct, @ptrToInt(&arr[0]) + 2 * @sizeOf(VirtualStruct));
+        const secondElement = @ptrFromInt(*VirtualStruct, @intFromPtr(&arr[0]) + 2 * @sizeOf(VirtualStruct));
         try testing.expectEqual(bigToNativeEndian(u32, 0x02060a0e), secondElement.x);
     }
 }
@@ -331,18 +331,18 @@ test "offset instance by field size" {
         const VirtualStruct = struct { x: u32, y: u32, z: u32, w: u32 };
         var inst = VirtualStruct{ .x = 0, .y = 1, .z = 2, .w = 3 };
 
-        var ptr = @ptrToInt(&inst);
+        var ptr = @intFromPtr(&inst);
         ptr -= 4;
         ptr += @offsetOf(VirtualStruct, "x");
-        try testing.expectEqual(@as(u32, 0), @intToPtr([*]u32, ptr)[1]);
+        try testing.expectEqual(@as(u32, 0), @ptrFromInt([*]u32, ptr)[1]);
         ptr -= @offsetOf(VirtualStruct, "x");
         ptr += @offsetOf(VirtualStruct, "y");
-        try testing.expectEqual(@as(u32, 1), @intToPtr([*]u32, ptr)[1]);
+        try testing.expectEqual(@as(u32, 1), @ptrFromInt([*]u32, ptr)[1]);
         ptr = ptr - @offsetOf(VirtualStruct, "y") + @offsetOf(VirtualStruct, "z");
-        try testing.expectEqual(@as(u32, 2), @intToPtr([*]u32, ptr)[1]);
-        ptr = @ptrToInt(&inst.z) - 4 - @offsetOf(VirtualStruct, "z");
+        try testing.expectEqual(@as(u32, 2), @ptrFromInt([*]u32, ptr)[1]);
+        ptr = @intFromPtr(&inst.z) - 4 - @offsetOf(VirtualStruct, "z");
         ptr += @offsetOf(VirtualStruct, "w");
-        try testing.expectEqual(@as(u32, 3), @intToPtr(*u32, ptr + 4).*);
+        try testing.expectEqual(@as(u32, 3), @ptrFromInt(*u32, ptr + 4).*);
     }
 }
 
@@ -430,4 +430,11 @@ test "dereference undefined pointer to zero-bit type" {
 
     const p1: *[0]u32 = undefined;
     try testing.expect(p1.*.len == 0);
+}
+
+test "type pun extern struct" {
+    const S = extern struct { f: u8 };
+    comptime var s = S{ .f = 123 };
+    @ptrCast(*u8, &s).* = 72;
+    try testing.expectEqual(@as(u8, 72), s.f);
 }

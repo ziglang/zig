@@ -18,7 +18,7 @@ class TypePrinter:
         'many_mut_pointer': 'Type.Payload.ElemType',
         'c_const_pointer': 'Type.Payload.ElemType',
         'c_mut_pointer': 'Type.Payload.ElemType',
-        'const_slice': 'Type.Payload.ElemType',
+        'slice_const': 'Type.Payload.ElemType',
         'mut_slice': 'Type.Payload.ElemType',
         'optional': 'Type.Payload.ElemType',
         'optional_single_mut_pointer': 'Type.Payload.ElemType',
