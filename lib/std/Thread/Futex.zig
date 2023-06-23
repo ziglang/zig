@@ -453,7 +453,7 @@ const WasmImpl = struct {
         if (!comptime std.Target.wasm.featureSetHas(builtin.target.cpu.features, .atomics)) {
             @compileError("WASI target missing cpu feature 'atomics'");
         }
-        const to: i64 = if (timeout) |to| @intCast(i64, to) else -1;
+        const to: i64 = if (timeout) |to| @intCast(to) else -1;
         const result = asm (
             \\local.get %[ptr]
             \\local.get %[expected]
@@ -462,7 +462,7 @@ const WasmImpl = struct {
             \\local.set %[ret]
             : [ret] "=r" (-> u32),
             : [ptr] "r" (&ptr.value),
-              [expected] "r" (@bitCast(i32, expect)),
+              [expected] "r" (@as(i32, @bitCast(expect))),
               [timeout] "r" (to),
         );
         switch (result) {
