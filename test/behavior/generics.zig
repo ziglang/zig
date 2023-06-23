@@ -22,11 +22,7 @@ test "simple generic fn" {
 
     try expect(max(i32, 3, -1) == 3);
     try expect(max(u8, 1, 100) == 100);
-    if (false) {
-        // TODO: zig is incorrectly emitting the following:
-        // error: cast of value 1.23e-01 to type 'f32' loses information
-        try expect(max(f32, 0.123, 0.456) == 0.456);
-    }
+    try expect(max(f32, 0.123, 0.456) == 0.456);
     try expect(add(2, 3) == 5);
 }
 
@@ -271,7 +267,7 @@ test "generic function instantiation turns into comptime call" {
             .Enum => std.builtin.Type.EnumField,
             else => void,
         } {
-            return @typeInfo(T).Enum.fields[@enumToInt(field)];
+            return @typeInfo(T).Enum.fields[@intFromEnum(field)];
         }
 
         pub fn FieldEnum(comptime T: type) type {
@@ -429,10 +425,10 @@ test "null sentinel pointer passed as generic argument" {
 
     const S = struct {
         fn doTheTest(a: anytype) !void {
-            try std.testing.expect(@ptrToInt(a) == 8);
+            try std.testing.expect(@intFromPtr(a) == 8);
         }
     };
-    try S.doTheTest((@intToPtr([*:null]const [*c]const u8, 8)));
+    try S.doTheTest((@ptrFromInt([*:null]const [*c]const u8, 8)));
 }
 
 test "generic function passed as comptime argument" {

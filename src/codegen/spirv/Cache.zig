@@ -411,7 +411,7 @@ pub const Key = union(enum) {
 
         pub fn eql(ctx: @This(), a: Key, b_void: void, b_index: usize) bool {
             _ = b_void;
-            return ctx.self.lookup(@intToEnum(Ref, b_index)).eql(a);
+            return ctx.self.lookup(@enumFromInt(Ref, b_index)).eql(a);
         }
 
         pub fn hash(ctx: @This(), a: Key) u32 {
@@ -445,7 +445,7 @@ pub fn materialize(self: *const Self, spv: *Module) !Section {
     var section = Section{};
     errdefer section.deinit(spv.gpa);
     for (self.items.items(.result_id), 0..) |result_id, index| {
-        try self.emit(spv, result_id, @intToEnum(Ref, index), &section);
+        try self.emit(spv, result_id, @enumFromInt(Ref, index), &section);
     }
     return section;
 }
@@ -603,14 +603,14 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
     const adapter: Key.Adapter = .{ .self = self };
     const entry = try self.map.getOrPutAdapted(spv.gpa, key, adapter);
     if (entry.found_existing) {
-        return @intToEnum(Ref, entry.index);
+        return @enumFromInt(Ref, entry.index);
     }
     const result_id = spv.allocId();
     const item: Item = switch (key) {
         inline .void_type, .bool_type => .{
             .tag = .type_simple,
             .result_id = result_id,
-            .data = @enumToInt(key.toSimpleType()),
+            .data = @intFromEnum(key.toSimpleType()),
         },
         .int_type => |int| blk: {
             const t: Tag = switch (int.signedness) {
@@ -654,17 +654,17 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
             .Generic => Item{
                 .tag = .type_ptr_generic,
                 .result_id = result_id,
-                .data = @enumToInt(ptr.child_type),
+                .data = @intFromEnum(ptr.child_type),
             },
             .CrossWorkgroup => Item{
                 .tag = .type_ptr_crosswgp,
                 .result_id = result_id,
-                .data = @enumToInt(ptr.child_type),
+                .data = @intFromEnum(ptr.child_type),
             },
             .Function => Item{
                 .tag = .type_ptr_function,
                 .result_id = result_id,
-                .data = @enumToInt(ptr.child_type),
+                .data = @intFromEnum(ptr.child_type),
             },
             else => |storage_class| Item{
                 .tag = .type_ptr_simple,
@@ -770,12 +770,12 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
         .undef => |undef| .{
             .tag = .undef,
             .result_id = result_id,
-            .data = @enumToInt(undef.ty),
+            .data = @intFromEnum(undef.ty),
         },
         .null => |null_info| .{
             .tag = .null,
             .result_id = result_id,
-            .data = @enumToInt(null_info.ty),
+            .data = @intFromEnum(null_info.ty),
         },
         .bool => |bool_info| .{
             .tag = switch (bool_info.value) {
@@ -783,21 +783,21 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
                 false => Tag.bool_false,
             },
             .result_id = result_id,
-            .data = @enumToInt(bool_info.ty),
+            .data = @intFromEnum(bool_info.ty),
         },
     };
     try self.items.append(spv.gpa, item);
 
-    return @intToEnum(Ref, entry.index);
+    return @enumFromInt(Ref, entry.index);
 }
 
 /// Turn a Ref back into a Key.
 /// The Key is valid until the next call to resolve().
 pub fn lookup(self: *const Self, ref: Ref) Key {
-    const item = self.items.get(@enumToInt(ref));
+    const item = self.items.get(@intFromEnum(ref));
     const data = item.data;
     return switch (item.tag) {
-        .type_simple => switch (@intToEnum(Tag.SimpleType, data)) {
+        .type_simple => switch (@enumFromInt(Tag.SimpleType, data)) {
             .void => .void_type,
             .bool => .bool_type,
         },
@@ -826,19 +826,19 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
         .type_ptr_generic => .{
             .ptr_type = .{
                 .storage_class = .Generic,
-                .child_type = @intToEnum(Ref, data),
+                .child_type = @enumFromInt(Ref, data),
             },
         },
         .type_ptr_crosswgp => .{
             .ptr_type = .{
                 .storage_class = .CrossWorkgroup,
-                .child_type = @intToEnum(Ref, data),
+                .child_type = @enumFromInt(Ref, data),
             },
         },
         .type_ptr_function => .{
             .ptr_type = .{
                 .storage_class = .Function,
-                .child_type = @intToEnum(Ref, data),
+                .child_type = @enumFromInt(Ref, data),
             },
         },
         .type_ptr_simple => {
@@ -923,17 +923,17 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
             } };
         },
         .undef => .{ .undef = .{
-            .ty = @intToEnum(Ref, data),
+            .ty = @enumFromInt(Ref, data),
         } },
         .null => .{ .null = .{
-            .ty = @intToEnum(Ref, data),
+            .ty = @enumFromInt(Ref, data),
         } },
         .bool_true => .{ .bool = .{
-            .ty = @intToEnum(Ref, data),
+            .ty = @enumFromInt(Ref, data),
             .value = true,
         } },
         .bool_false => .{ .bool = .{
-            .ty = @intToEnum(Ref, data),
+            .ty = @enumFromInt(Ref, data),
             .value = false,
         } },
     };
@@ -942,14 +942,14 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
 /// Look op the result-id that corresponds to a particular
 /// ref.
 pub fn resultId(self: Self, ref: Ref) IdResult {
-    return self.items.items(.result_id)[@enumToInt(ref)];
+    return self.items.items(.result_id)[@intFromEnum(ref)];
 }
 
 /// Get the ref for a key that has already been added to the cache.
 fn get(self: *const Self, key: Key) Ref {
     const adapter: Key.Adapter = .{ .self = self };
     const index = self.map.getIndexAdapted(key, adapter).?;
-    return @intToEnum(Ref, index);
+    return @enumFromInt(Ref, index);
 }
 
 fn addExtra(self: *Self, spv: *Module, extra: anytype) !u32 {
@@ -965,9 +965,9 @@ fn addExtraAssumeCapacity(self: *Self, extra: anytype) !u32 {
         const word = switch (field.type) {
             u32 => field_val,
             i32 => @bitCast(u32, field_val),
-            Ref => @enumToInt(field_val),
-            StorageClass => @enumToInt(field_val),
-            String => @enumToInt(field_val),
+            Ref => @intFromEnum(field_val),
+            StorageClass => @intFromEnum(field_val),
+            String => @intFromEnum(field_val),
             else => @compileError("Invalid type: " ++ @typeName(field.type)),
         };
         self.extra.appendAssumeCapacity(word);
@@ -987,9 +987,9 @@ fn extraDataTrail(self: Self, comptime T: type, offset: u32) struct { data: T, t
         @field(result, field.name) = switch (field.type) {
             u32 => word,
             i32 => @bitCast(i32, word),
-            Ref => @intToEnum(Ref, word),
-            StorageClass => @intToEnum(StorageClass, word),
-            String => @intToEnum(String, word),
+            Ref => @enumFromInt(Ref, word),
+            StorageClass => @enumFromInt(StorageClass, word),
+            String => @enumFromInt(String, word),
             else => @compileError("Invalid type: " ++ @typeName(field.type)),
         };
     }
@@ -1035,12 +1035,12 @@ pub fn addString(self: *Self, spv: *Module, str: []const u8) !String {
         entry.value_ptr.* = @intCast(u32, offset);
     }
 
-    return @intToEnum(String, entry.index);
+    return @enumFromInt(String, entry.index);
 }
 
 pub fn getString(self: *const Self, ref: String) ?[]const u8 {
     return switch (ref) {
         .none => null,
-        else => std.mem.sliceTo(self.string_bytes.items[self.strings.values()[@enumToInt(ref)]..], 0),
+        else => std.mem.sliceTo(self.string_bytes.items[self.strings.values()[@intFromEnum(ref)]..], 0),
     };
 }

@@ -33,6 +33,7 @@ const Liveness = @import("Liveness.zig");
 const isUpDir = @import("introspect.zig").isUpDir;
 const clang = @import("clang.zig");
 const InternPool = @import("InternPool.zig");
+const Alignment = InternPool.Alignment;
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -223,7 +224,7 @@ pub const MonomorphedFuncsContext = struct {
 
     pub fn hash(ctx: @This(), key: MonomorphedFuncKey) u64 {
         const key_args = ctx.mod.monomorphed_func_keys.items[key.args_index..][0..key.args_len];
-        return std.hash.Wyhash.hash(@enumToInt(key.func), std.mem.sliceAsBytes(key_args));
+        return std.hash.Wyhash.hash(@intFromEnum(key.func), std.mem.sliceAsBytes(key_args));
     }
 };
 
@@ -236,12 +237,12 @@ pub const MonomorphedFuncsAdaptedContext = struct {
     }
 
     pub fn hash(_: @This(), adapted_key: MonomorphedFuncAdaptedKey) u64 {
-        return std.hash.Wyhash.hash(@enumToInt(adapted_key.func), std.mem.sliceAsBytes(adapted_key.args));
+        return std.hash.Wyhash.hash(@intFromEnum(adapted_key.func), std.mem.sliceAsBytes(adapted_key.args));
     }
 };
 
 pub const SetAlignStack = struct {
-    alignment: u32,
+    alignment: Alignment,
     /// TODO: This needs to store a non-lazy source location for the case of an inline function
     /// which does `@setAlignStack` (applying it to the caller).
     src: LazySrcLoc,
@@ -263,7 +264,7 @@ pub const GlobalEmitH = struct {
     allocated_emit_h: std.SegmentedList(EmitH, 0) = .{},
 
     pub fn declPtr(global_emit_h: *GlobalEmitH, decl_index: Decl.Index) *EmitH {
-        return global_emit_h.allocated_emit_h.at(@enumToInt(decl_index));
+        return global_emit_h.allocated_emit_h.at(@intFromEnum(decl_index));
     }
 };
 
@@ -432,7 +433,7 @@ pub const Decl = struct {
     /// Populated when `has_tv`.
     @"linksection": InternPool.OptionalNullTerminatedString,
     /// Populated when `has_tv`.
-    @"align": u32,
+    alignment: Alignment,
     /// Populated when `has_tv`.
     @"addrspace": std.builtin.AddressSpace,
     /// The direct parent namespace of the Decl.
@@ -553,7 +554,7 @@ pub const Decl = struct {
         _,
 
         pub fn toOptional(i: Index) OptionalIndex {
-            return @intToEnum(OptionalIndex, @enumToInt(i));
+            return @enumFromInt(OptionalIndex, @intFromEnum(i));
         }
     };
 
@@ -562,12 +563,12 @@ pub const Decl = struct {
         _,
 
         pub fn init(oi: ?Index) OptionalIndex {
-            return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
+            return @enumFromInt(OptionalIndex, @intFromEnum(oi orelse return .none));
         }
 
         pub fn unwrap(oi: OptionalIndex) ?Index {
             if (oi == .none) return null;
-            return @intToEnum(Index, @enumToInt(oi));
+            return @enumFromInt(Index, @intFromEnum(oi));
         }
     };
 
@@ -632,23 +633,23 @@ pub const Decl = struct {
         if (!decl.has_align) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope(mod).zir;
-        return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 8]);
+        return @enumFromInt(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 8]);
     }
 
     pub fn zirLinksectionRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope(mod).zir;
-        const extra_index = decl.zir_decl_index + 8 + @boolToInt(decl.has_align);
-        return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+        const extra_index = decl.zir_decl_index + 8 + @intFromBool(decl.has_align);
+        return @enumFromInt(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
     pub fn zirAddrspaceRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope(mod).zir;
-        const extra_index = decl.zir_decl_index + 8 + @boolToInt(decl.has_align) + 1;
-        return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+        const extra_index = decl.zir_decl_index + 8 + @intFromBool(decl.has_align) + 1;
+        return @enumFromInt(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
     pub fn relativeToLine(decl: Decl, offset: u32) u32 {
@@ -831,7 +832,7 @@ pub const Decl = struct {
             decl.scope.sub_file_path,
             loc.line + 1,
             loc.column + 1,
-            @enumToInt(decl.name),
+            @intFromEnum(decl.name),
             @tagName(decl.analysis),
         });
         if (decl.has_tv) {
@@ -863,13 +864,7 @@ pub const Decl = struct {
 
     pub fn getAlignment(decl: Decl, mod: *Module) u32 {
         assert(decl.has_tv);
-        if (decl.@"align" != 0) {
-            // Explicit alignment.
-            return decl.@"align";
-        } else {
-            // Natural alignment.
-            return decl.ty.abiAlignment(mod);
-        }
+        return @intCast(u32, decl.alignment.toByteUnitsOptional() orelse decl.ty.abiAlignment(mod));
     }
 
     pub fn intern(decl: *Decl, mod: *Module) Allocator.Error!void {
@@ -927,7 +922,7 @@ pub const Struct = struct {
         _,
 
         pub fn toOptional(i: Index) OptionalIndex {
-            return @intToEnum(OptionalIndex, @enumToInt(i));
+            return @enumFromInt(OptionalIndex, @intFromEnum(i));
         }
     };
 
@@ -936,12 +931,12 @@ pub const Struct = struct {
         _,
 
         pub fn init(oi: ?Index) OptionalIndex {
-            return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
+            return @enumFromInt(OptionalIndex, @intFromEnum(oi orelse return .none));
         }
 
         pub fn unwrap(oi: OptionalIndex) ?Index {
             if (oi == .none) return null;
-            return @intToEnum(Index, @enumToInt(oi));
+            return @enumFromInt(Index, @intFromEnum(oi));
         }
     };
 
@@ -955,7 +950,7 @@ pub const Struct = struct {
         /// Uses `none` to indicate no default.
         default_val: InternPool.Index,
         /// Zero means to use the ABI alignment of the type.
-        abi_align: u32,
+        abi_align: Alignment,
         /// undefined until `status` is `have_layout`.
         offset: u32,
         /// If true then `default_val` is the comptime field value.
@@ -967,9 +962,9 @@ pub const Struct = struct {
             mod: *Module,
             layout: std.builtin.Type.ContainerLayout,
         ) u32 {
-            if (field.abi_align != 0) {
+            if (field.abi_align.toByteUnitsOptional()) |abi_align| {
                 assert(layout != .Packed);
-                return field.abi_align;
+                return @intCast(u32, abi_align);
             }
 
             const target = mod.getTarget();
@@ -1128,7 +1123,7 @@ pub const Union = struct {
         _,
 
         pub fn toOptional(i: Index) OptionalIndex {
-            return @intToEnum(OptionalIndex, @enumToInt(i));
+            return @enumFromInt(OptionalIndex, @intFromEnum(i));
         }
     };
 
@@ -1137,12 +1132,12 @@ pub const Union = struct {
         _,
 
         pub fn init(oi: ?Index) OptionalIndex {
-            return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
+            return @enumFromInt(OptionalIndex, @intFromEnum(oi orelse return .none));
         }
 
         pub fn unwrap(oi: OptionalIndex) ?Index {
             if (oi == .none) return null;
-            return @intToEnum(Index, @enumToInt(oi));
+            return @enumFromInt(Index, @intFromEnum(oi));
         }
     };
 
@@ -1150,17 +1145,13 @@ pub const Union = struct {
         /// undefined until `status` is `have_field_types` or `have_layout`.
         ty: Type,
         /// 0 means the ABI alignment of the type.
-        abi_align: u32,
+        abi_align: Alignment,
 
         /// Returns the field alignment, assuming the union is not packed.
         /// Keep implementation in sync with `Sema.unionFieldAlignment`.
         /// Prefer to call that function instead of this one during Sema.
         pub fn normalAlignment(field: Field, mod: *Module) u32 {
-            if (field.abi_align == 0) {
-                return field.ty.abiAlignment(mod);
-            } else {
-                return field.abi_align;
-            }
+            return @intCast(u32, field.abi_align.toByteUnitsOptional() orelse field.ty.abiAlignment(mod));
         }
     };
 
@@ -1272,20 +1263,14 @@ pub const Union = struct {
         for (fields, 0..) |field, i| {
             if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-            const field_align = a: {
-                if (field.abi_align == 0) {
-                    break :a field.ty.abiAlignment(mod);
-                } else {
-                    break :a field.abi_align;
-                }
-            };
+            const field_align = field.abi_align.toByteUnitsOptional() orelse field.ty.abiAlignment(mod);
             const field_size = field.ty.abiSize(mod);
             if (field_size > payload_size) {
                 payload_size = field_size;
                 biggest_field = @intCast(u32, i);
             }
             if (field_align > payload_align) {
-                payload_align = field_align;
+                payload_align = @intCast(u32, field_align);
                 most_aligned_field = @intCast(u32, i);
                 most_aligned_field_size = field_size;
             }
@@ -1293,7 +1278,7 @@ pub const Union = struct {
         payload_align = @max(payload_align, 1);
         if (!have_tag or !u.tag_ty.hasRuntimeBits(mod)) {
             return .{
-                .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
+                .abi_size = std.mem.alignForward(u64, payload_size, payload_align),
                 .abi_align = payload_align,
                 .most_aligned_field = most_aligned_field,
                 .most_aligned_field_size = most_aligned_field_size,
@@ -1314,18 +1299,18 @@ pub const Union = struct {
         if (tag_align >= payload_align) {
             // {Tag, Payload}
             size += tag_size;
-            size = std.mem.alignForwardGeneric(u64, size, payload_align);
+            size = std.mem.alignForward(u64, size, payload_align);
             size += payload_size;
             const prev_size = size;
-            size = std.mem.alignForwardGeneric(u64, size, tag_align);
+            size = std.mem.alignForward(u64, size, tag_align);
             padding = @intCast(u32, size - prev_size);
         } else {
             // {Payload, Tag}
             size += payload_size;
-            size = std.mem.alignForwardGeneric(u64, size, tag_align);
+            size = std.mem.alignForward(u64, size, tag_align);
             size += tag_size;
             const prev_size = size;
-            size = std.mem.alignForwardGeneric(u64, size, payload_align);
+            size = std.mem.alignForward(u64, size, payload_align);
             padding = @intCast(u32, size - prev_size);
         }
         return .{
@@ -1424,7 +1409,7 @@ pub const Fn = struct {
         _,
 
         pub fn toOptional(i: Index) OptionalIndex {
-            return @intToEnum(OptionalIndex, @enumToInt(i));
+            return @enumFromInt(OptionalIndex, @intFromEnum(i));
         }
     };
 
@@ -1433,12 +1418,12 @@ pub const Fn = struct {
         _,
 
         pub fn init(oi: ?Index) OptionalIndex {
-            return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
+            return @enumFromInt(OptionalIndex, @intFromEnum(oi orelse return .none));
         }
 
         pub fn unwrap(oi: OptionalIndex) ?Index {
             if (oi == .none) return null;
-            return @intToEnum(Index, @enumToInt(oi));
+            return @enumFromInt(Index, @intFromEnum(oi));
         }
     };
 
@@ -1492,7 +1477,7 @@ pub const Fn = struct {
             _,
 
             pub fn toOptional(i: InferredErrorSet.Index) InferredErrorSet.OptionalIndex {
-                return @intToEnum(InferredErrorSet.OptionalIndex, @enumToInt(i));
+                return @enumFromInt(InferredErrorSet.OptionalIndex, @intFromEnum(i));
             }
         };
 
@@ -1501,12 +1486,12 @@ pub const Fn = struct {
             _,
 
             pub fn init(oi: ?InferredErrorSet.Index) InferredErrorSet.OptionalIndex {
-                return @intToEnum(InferredErrorSet.OptionalIndex, @enumToInt(oi orelse return .none));
+                return @enumFromInt(InferredErrorSet.OptionalIndex, @intFromEnum(oi orelse return .none));
             }
 
             pub fn unwrap(oi: InferredErrorSet.OptionalIndex) ?InferredErrorSet.Index {
                 if (oi == .none) return null;
-                return @intToEnum(InferredErrorSet.Index, @enumToInt(oi));
+                return @enumFromInt(InferredErrorSet.Index, @intFromEnum(oi));
             }
         };
 
@@ -1594,7 +1579,7 @@ pub const DeclAdapter = struct {
 
     pub fn hash(self: @This(), s: InternPool.NullTerminatedString) u32 {
         _ = self;
-        return std.hash.uint32(@enumToInt(s));
+        return std.hash.uint32(@intFromEnum(s));
     }
 
     pub fn eql(self: @This(), a: InternPool.NullTerminatedString, b_decl_index: Decl.Index, b_index: usize) bool {
@@ -1628,7 +1613,7 @@ pub const Namespace = struct {
         _,
 
         pub fn toOptional(i: Index) OptionalIndex {
-            return @intToEnum(OptionalIndex, @enumToInt(i));
+            return @enumFromInt(OptionalIndex, @intFromEnum(i));
         }
     };
 
@@ -1637,12 +1622,12 @@ pub const Namespace = struct {
         _,
 
         pub fn init(oi: ?Index) OptionalIndex {
-            return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
+            return @enumFromInt(OptionalIndex, @intFromEnum(oi orelse return .none));
         }
 
         pub fn unwrap(oi: OptionalIndex) ?Index {
             if (oi == .none) return null;
-            return @intToEnum(Index, @enumToInt(oi));
+            return @enumFromInt(Index, @intFromEnum(oi));
         }
     };
 
@@ -1651,7 +1636,7 @@ pub const Namespace = struct {
 
         pub fn hash(ctx: @This(), decl_index: Decl.Index) u32 {
             const decl = ctx.module.declPtr(decl_index);
-            return std.hash.uint32(@enumToInt(decl.name));
+            return std.hash.uint32(@intFromEnum(decl.name));
         }
 
         pub fn eql(ctx: @This(), a_decl_index: Decl.Index, b_decl_index: Decl.Index, b_index: usize) bool {
@@ -2006,7 +1991,7 @@ pub const File = struct {
         // be the case if there were other astgen failures in this file
         if (!file.zir_loaded) return;
 
-        const imports_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.imports)];
+        const imports_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
         if (imports_index == 0) return;
         const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
 
@@ -3360,11 +3345,11 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
 }
 
 pub fn declPtr(mod: *Module, index: Decl.Index) *Decl {
-    return mod.allocated_decls.at(@enumToInt(index));
+    return mod.allocated_decls.at(@intFromEnum(index));
 }
 
 pub fn namespacePtr(mod: *Module, index: Namespace.Index) *Namespace {
-    return mod.allocated_namespaces.at(@enumToInt(index));
+    return mod.allocated_namespaces.at(@intFromEnum(index));
 }
 
 pub fn unionPtr(mod: *Module, index: Union.Index) *Union {
@@ -3767,10 +3752,10 @@ fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File)
     if (data_has_safety_tag) {
         const tags = zir.instructions.items(.tag);
         for (zir.instructions.items(.data), 0..) |*data, i| {
-            const union_tag = Zir.Inst.Tag.data_tags[@enumToInt(tags[i])];
+            const union_tag = Zir.Inst.Tag.data_tags[@intFromEnum(tags[i])];
             const as_struct = @ptrCast(*HackDataLayout, data);
             as_struct.* = .{
-                .safety_tag = @enumToInt(union_tag),
+                .safety_tag = @intFromEnum(union_tag),
                 .data = safety_buffer[i],
             };
         }
@@ -4101,7 +4086,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
         const update_level: Decl.DepType = if (!type_changed and decl.ty.zigTypeTag(mod) == .Fn) .function_body else .normal;
 
         for (decl.dependants.keys(), decl.dependants.values()) |dep_index, dep_type| {
-            if (@enumToInt(dep_type) < @enumToInt(update_level)) continue;
+            if (@intFromEnum(dep_type) < @intFromEnum(update_level)) continue;
 
             const dep = mod.declPtr(dep_index);
             switch (dep.analysis) {
@@ -4394,7 +4379,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.has_linksection_or_addrspace = false;
     new_decl.ty = Type.type;
     new_decl.val = struct_ty.toValue();
-    new_decl.@"align" = 0;
+    new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
@@ -4584,7 +4569,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
         decl.ty = InternPool.Index.type_type.toType();
         decl.val = ty.toValue();
-        decl.@"align" = 0;
+        decl.alignment = .none;
         decl.@"linksection" = .none;
         decl.has_tv = true;
         decl.owns_tv = false;
@@ -4621,7 +4606,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
             const is_inline = decl.ty.fnCallingConvention(mod) == .Inline;
             if (decl.is_exported) {
-                const export_src: LazySrcLoc = .{ .token_offset = @boolToInt(decl.is_pub) };
+                const export_src: LazySrcLoc = .{ .token_offset = @intFromBool(decl.is_pub) };
                 if (is_inline) {
                     return sema.fail(&block_scope, export_src, "export of inline function", .{});
                 }
@@ -4665,9 +4650,9 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
     decl.ty = decl_tv.ty;
     decl.val = (try decl_tv.val.intern(decl_tv.ty, mod)).toValue();
-    decl.@"align" = blk: {
+    decl.alignment = blk: {
         const align_ref = decl.zirAlignRef(mod);
-        if (align_ref == .none) break :blk 0;
+        if (align_ref == .none) break :blk .none;
         break :blk try sema.resolveAlign(&block_scope, align_src, align_ref);
     };
     decl.@"linksection" = blk: {
@@ -4721,7 +4706,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     }
 
     if (decl.is_exported) {
-        const export_src: LazySrcLoc = .{ .token_offset = @boolToInt(decl.is_pub) };
+        const export_src: LazySrcLoc = .{ .token_offset = @intFromBool(decl.is_pub) };
         // The scope needs to have the decl in it.
         try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
     }
@@ -4742,7 +4727,7 @@ pub fn declareDeclDependencyType(mod: *Module, depender_index: Decl.Index, depen
     const dependee = mod.declPtr(dependee_index);
 
     if (depender.dependencies.get(dependee_index)) |cur_type| {
-        if (@enumToInt(cur_type) >= @enumToInt(dep_type)) {
+        if (@intFromEnum(cur_type) >= @intFromEnum(dep_type)) {
             // We already have this dependency (or stricter) marked
             return;
         }
@@ -5611,7 +5596,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
         .body_len = @intCast(u32, inner_block.instructions.items.len),
     });
     sema.air_extra.appendSliceAssumeCapacity(inner_block.instructions.items);
-    sema.air_extra.items[@enumToInt(Air.ExtraIndex.main_block)] = main_block_index;
+    sema.air_extra.items[@intFromEnum(Air.ExtraIndex.main_block)] = main_block_index;
 
     func.state = .success;
 
@@ -5681,12 +5666,12 @@ fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
 
 pub fn createNamespace(mod: *Module, initialization: Namespace) !Namespace.Index {
     if (mod.namespaces_free_list.popOrNull()) |index| {
-        mod.allocated_namespaces.at(@enumToInt(index)).* = initialization;
+        mod.allocated_namespaces.at(@intFromEnum(index)).* = initialization;
         return index;
     }
     const ptr = try mod.allocated_namespaces.addOne(mod.gpa);
     ptr.* = initialization;
-    return @intToEnum(Namespace.Index, mod.allocated_namespaces.len - 1);
+    return @enumFromInt(Namespace.Index, mod.allocated_namespaces.len - 1);
 }
 
 pub fn destroyNamespace(mod: *Module, index: Namespace.Index) void {
@@ -5744,7 +5729,7 @@ pub fn allocateNewDecl(
         }
         break :d .{
             .new_decl = decl,
-            .decl_index = @intToEnum(Decl.Index, mod.allocated_decls.len - 1),
+            .decl_index = @enumFromInt(Decl.Index, mod.allocated_decls.len - 1),
         };
     };
 
@@ -5758,7 +5743,7 @@ pub fn allocateNewDecl(
         .owns_tv = false,
         .ty = undefined,
         .val = undefined,
-        .@"align" = undefined,
+        .alignment = undefined,
         .@"linksection" = .none,
         .@"addrspace" = .generic,
         .analysis = .unreferenced,
@@ -5808,7 +5793,7 @@ pub fn createAnonymousDeclFromDecl(
     const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
     errdefer mod.destroyDecl(new_decl_index);
     const name = try mod.intern_pool.getOrPutStringFmt(mod.gpa, "{}__anon_{d}", .{
-        src_decl.name.fmt(&mod.intern_pool), @enumToInt(new_decl_index),
+        src_decl.name.fmt(&mod.intern_pool), @intFromEnum(new_decl_index),
     });
     try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, tv, name);
     return new_decl_index;
@@ -5830,7 +5815,7 @@ pub fn initNewAnonDecl(
     new_decl.src_line = src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
-    new_decl.@"align" = 0;
+    new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
@@ -6172,7 +6157,7 @@ pub fn argSrc(
     @setCold(true);
     const gpa = mod.gpa;
     if (start_arg_i == 0 and bound_arg_src != null) return bound_arg_src.?;
-    const arg_i = start_arg_i - @boolToInt(bound_arg_src != null);
+    const arg_i = start_arg_i - @intFromBool(bound_arg_src != null);
     const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
         // In this case we emit a warning + a less precise source location.
         log.warn("unable to load {s}: {s}", .{
@@ -6636,12 +6621,14 @@ fn markDeclIndexAlive(mod: *Module, decl_index: Decl.Index) Allocator.Error!void
 }
 
 pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u8) !void {
-    try mod.global_assembly.ensureUnusedCapacity(mod.gpa, 1);
-
-    const duped_source = try mod.gpa.dupe(u8, source);
-    errdefer mod.gpa.free(duped_source);
-
-    mod.global_assembly.putAssumeCapacityNoClobber(decl_index, duped_source);
+    const gop = try mod.global_assembly.getOrPut(mod.gpa, decl_index);
+    if (gop.found_existing) {
+        const new_value = try std.fmt.allocPrint(mod.gpa, "{s}\n{s}", .{ gop.value_ptr.*, source });
+        mod.gpa.free(gop.value_ptr.*);
+        gop.value_ptr.* = new_value;
+    } else {
+        gop.value_ptr.* = try mod.gpa.dupe(u8, source);
+    }
 }
 
 pub fn wantDllExports(mod: Module) bool {
@@ -6741,7 +6728,7 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
             }
         },
         .runtime => {},
-        _ => assert(@enumToInt(info.flags.vector_index) < info.packed_offset.host_size),
+        _ => assert(@intFromEnum(info.flags.vector_index) < info.packed_offset.host_size),
     }
 
     return (try intern(mod, .{ .ptr_type = canon_info })).toType();
@@ -6771,13 +6758,9 @@ pub fn manyConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
 }
 
 pub fn adjustPtrTypeChild(mod: *Module, ptr_ty: Type, new_child: Type) Allocator.Error!Type {
-    const info = Type.ptrInfoIp(&mod.intern_pool, ptr_ty.toIntern());
-    return mod.ptrType(.{
-        .child = new_child.toIntern(),
-        .sentinel = info.sentinel,
-        .flags = info.flags,
-        .packed_offset = info.packed_offset,
-    });
+    var info = ptr_ty.ptrInfo(mod);
+    info.child = new_child.toIntern();
+    return mod.ptrType(info);
 }
 
 pub fn funcType(mod: *Module, info: InternPool.Key.FuncType) Allocator.Error!Type {
@@ -6817,17 +6800,12 @@ pub fn errorSetFromUnsortedNames(
     return new_ty.toType();
 }
 
-/// Supports optionals in addition to pointers.
+/// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
-    return mod.getCoerced(try mod.intValue_u64(Type.usize, x), ty);
-}
-
-/// Supports only pointers. See `ptrIntValue` for pointer-like optional support.
-pub fn ptrIntValue_ptronly(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
     assert(ty.zigTypeTag(mod) == .Pointer);
     const i = try intern(mod, .{ .ptr = .{
         .ty = ty.toIntern(),
-        .addr = .{ .int = try mod.intValue_u64(Type.usize, x) },
+        .addr = .{ .int = (try mod.intValue_u64(Type.usize, x)).toIntern() },
     } });
     return i.toValue();
 }
@@ -6974,17 +6952,17 @@ pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
     const key = mod.intern_pool.indexToKey(val.toIntern());
     switch (key.int.storage) {
         .i64 => |x| {
-            if (std.math.cast(u64, x)) |casted| return Type.smallestUnsignedBits(casted) + @boolToInt(sign);
+            if (std.math.cast(u64, x)) |casted| return Type.smallestUnsignedBits(casted) + @intFromBool(sign);
             assert(sign);
             // Protect against overflow in the following negation.
             if (x == std.math.minInt(i64)) return 64;
-            return Type.smallestUnsignedBits(@intCast(u64, -x - 1)) + 1;
+            return Type.smallestUnsignedBits(@intCast(u64, -(x + 1))) + 1;
         },
         .u64 => |x| {
-            return Type.smallestUnsignedBits(x) + @boolToInt(sign);
+            return Type.smallestUnsignedBits(x) + @intFromBool(sign);
         },
         .big_int => |big| {
-            if (big.positive) return @intCast(u16, big.bitCountAbs() + @boolToInt(sign));
+            if (big.positive) return @intCast(u16, big.bitCountAbs() + @intFromBool(sign));
 
             // Zero is still a possibility, in which case unsigned is fine
             if (big.eqZero()) return 0;
@@ -6992,10 +6970,10 @@ pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
             return @intCast(u16, big.bitCountTwosComp());
         },
         .lazy_align => |lazy_ty| {
-            return Type.smallestUnsignedBits(lazy_ty.toType().abiAlignment(mod)) + @boolToInt(sign);
+            return Type.smallestUnsignedBits(lazy_ty.toType().abiAlignment(mod)) + @intFromBool(sign);
         },
         .lazy_size => |lazy_ty| {
-            return Type.smallestUnsignedBits(lazy_ty.toType().abiSize(mod)) + @boolToInt(sign);
+            return Type.smallestUnsignedBits(lazy_ty.toType().abiSize(mod)) + @intFromBool(sign);
         },
     }
 }
@@ -7021,7 +6999,7 @@ pub fn atomicPtrAlignment(
     mod: *Module,
     ty: Type,
     diags: *AtomicPtrAlignmentDiagnostics,
-) AtomicPtrAlignmentError!u32 {
+) AtomicPtrAlignmentError!Alignment {
     const target = mod.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
         .avr,
@@ -7107,11 +7085,11 @@ pub fn atomicPtrAlignment(
                 };
                 return error.FloatTooBig;
             }
-            return 0;
+            return .none;
         },
-        .Bool => return 0,
+        .Bool => return .none,
         else => {
-            if (ty.isPtrAtRuntime(mod)) return 0;
+            if (ty.isPtrAtRuntime(mod)) return .none;
             return error.BadType;
         },
     };
@@ -7125,7 +7103,7 @@ pub fn atomicPtrAlignment(
         return error.IntTooBig;
     }
 
-    return 0;
+    return .none;
 }
 
 pub fn opaqueSrcLoc(mod: *Module, opaque_type: InternPool.Key.OpaqueType) SrcLoc {

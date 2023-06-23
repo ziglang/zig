@@ -312,7 +312,7 @@ pub const Parsed = struct {
         while (name_i < general_names.slice.end) {
             const general_name = try der.Element.parse(subject_alt_name, name_i);
             name_i = general_name.slice.end;
-            switch (@intToEnum(GeneralNameTag, @enumToInt(general_name.identifier.tag))) {
+            switch (@enumFromInt(GeneralNameTag, @intFromEnum(general_name.identifier.tag))) {
                 .dNSName => {
                     const dns_name = subject_alt_name[general_name.slice.start..general_name.slice.end];
                     if (checkHostName(host_name, dns_name)) return;
@@ -597,8 +597,8 @@ const Date = struct {
             var month: u4 = 1;
             while (month < date.month) : (month += 1) {
                 const days: u64 = std.time.epoch.getDaysInMonth(
-                    @intToEnum(std.time.epoch.YearLeapKind, @boolToInt(is_leap)),
-                    @intToEnum(std.time.epoch.Month, month),
+                    @enumFromInt(std.time.epoch.YearLeapKind, @intFromBool(is_leap)),
+                    @enumFromInt(std.time.epoch.Month, month),
                 );
                 sec += days * std.time.epoch.secs_per_day;
             }

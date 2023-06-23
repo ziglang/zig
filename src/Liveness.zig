@@ -371,9 +371,9 @@ pub fn categorizeOperand(
         .struct_field_ptr_index_2,
         .struct_field_ptr_index_3,
         .array_to_slice,
-        .float_to_int,
-        .float_to_int_optimized,
-        .int_to_float,
+        .int_from_float,
+        .int_from_float_optimized,
+        .float_from_int,
         .get_union_tag,
         .clz,
         .ctz,
@@ -407,8 +407,8 @@ pub fn categorizeOperand(
         .is_non_err,
         .is_err_ptr,
         .is_non_err_ptr,
-        .ptrtoint,
-        .bool_to_int,
+        .int_from_ptr,
+        .int_from_bool,
         .is_named_enum_value,
         .tag_name,
         .error_name,
@@ -1007,9 +1007,9 @@ fn analyzeInst(
         .struct_field_ptr_index_2,
         .struct_field_ptr_index_3,
         .array_to_slice,
-        .float_to_int,
-        .float_to_int_optimized,
-        .int_to_float,
+        .int_from_float,
+        .int_from_float_optimized,
+        .float_from_int,
         .get_union_tag,
         .clz,
         .ctz,
@@ -1034,8 +1034,8 @@ fn analyzeInst(
         .is_non_err,
         .is_err_ptr,
         .is_non_err_ptr,
-        .ptrtoint,
-        .bool_to_int,
+        .int_from_ptr,
+        .int_from_bool,
         .is_named_enum_value,
         .tag_name,
         .error_name,
@@ -1286,7 +1286,7 @@ fn analyzeOperands(
                 break :blk true;
             };
 
-            var tomb_bits: Bpi = @as(Bpi, @boolToInt(immediate_death)) << (bpi - 1);
+            var tomb_bits: Bpi = @as(Bpi, @intFromBool(immediate_death)) << (bpi - 1);
 
             // If our result is unused and the instruction doesn't need to be lowered, backends will
             // skip the lowering of this instruction, so we don't want to record uses of operands.

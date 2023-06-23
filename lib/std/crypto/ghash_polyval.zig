@@ -363,7 +363,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
             var mb = m;
 
             if (st.leftover > 0) {
-                const want = math.min(block_length - st.leftover, mb.len);
+                const want = @min(block_length - st.leftover, mb.len);
                 const mc = mb[0..want];
                 for (mc, 0..) |x, i| {
                     st.buf[st.leftover + i] = x;

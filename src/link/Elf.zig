@@ -341,6 +341,7 @@ pub fn deinit(self: *Elf) void {
 
     self.atoms.deinit(gpa);
     self.atom_by_index_table.deinit(gpa);
+    self.lazy_syms.deinit(gpa);
 
     {
         var it = self.unnamed_const_atoms.valueIterator();
@@ -438,7 +439,7 @@ pub fn allocatedSize(self: *Elf, start: u64) u64 {
 pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u32) u64 {
     var start: u64 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
-        start = mem.alignForwardGeneric(u64, item_end, min_alignment);
+        start = mem.alignForward(u64, item_end, min_alignment);
     }
     return start;
 }
@@ -1172,7 +1173,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             phdr_table.p_offset = self.findFreeSpace(needed_size, @intCast(u32, phdr_table.p_align));
         }
 
-        phdr_table_load.p_offset = mem.alignBackwardGeneric(u64, phdr_table.p_offset, phdr_table_load.p_align);
+        phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
         const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
         phdr_table_load.p_filesz = load_align_offset + needed_size;
         phdr_table_load.p_memsz = load_align_offset + needed_size;
@@ -1666,10 +1667,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-pie");
         }
 
-        if (self.base.options.link_mode == .Dynamic and target.os.tag == .netbsd) {
+        if (is_dyn_lib and target.os.tag == .netbsd) {
             // Add options to produce shared objects with only 2 PT_LOAD segments.
             // NetBSD expects 2 PT_LOAD segments in a shared object, otherwise
-            // ld.elf_so fails to load, emitting a general "not found" error.
+            // ld.elf_so fails loading dynamic libraries with "not found" error.
             // See https://github.com/ziglang/zig/issues/9109 .
             try argv.append("--no-rosegment");
             try argv.append("-znorelro");
@@ -1825,7 +1826,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
             for (system_libs, 0..) |link_lib, i| {
                 const lib_as_needed = !system_libs_values[i].needed;
-                switch ((@as(u2, @boolToInt(lib_as_needed)) << 1) | @boolToInt(as_needed)) {
+                switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
                     0b00, 0b11 => {},
                     0b01 => {
                         argv.appendAssumeCapacity("--no-as-needed");
@@ -2047,11 +2048,11 @@ fn writeElfHeader(self: *Elf) !void {
             .Dynamic => elf.ET.DYN,
         },
     };
-    mem.writeInt(u16, hdr_buf[index..][0..2], @enumToInt(elf_type), endian);
+    mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(elf_type), endian);
     index += 2;
 
     const machine = self.base.options.target.cpu.arch.toElfMachine();
-    mem.writeInt(u16, hdr_buf[index..][0..2], @enumToInt(machine), endian);
+    mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(machine), endian);
     index += 2;
 
     // ELF Version, again
@@ -2214,7 +2215,7 @@ fn shrinkAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64) void {
 fn growAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignment: u64) !u64 {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
-    const align_ok = mem.alignBackwardGeneric(u64, sym.st_value, alignment) == sym.st_value;
+    const align_ok = mem.alignBackward(u64, sym.st_value, alignment) == sym.st_value;
     const need_realloc = !align_ok or new_block_size > atom.capacity(self);
     if (!need_realloc) return sym.st_value;
     return self.allocateAtom(atom_index, new_block_size, alignment);
@@ -2268,7 +2269,7 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
             const ideal_capacity_end_vaddr = std.math.add(u64, big_atom_sym.st_value, ideal_capacity) catch ideal_capacity;
             const capacity_end_vaddr = big_atom_sym.st_value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
-            const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
+            const new_start_vaddr = mem.alignBackward(u64, new_start_vaddr_unaligned, alignment);
             if (new_start_vaddr < ideal_capacity_end_vaddr) {
                 // Additional bookkeeping here to notice if this free list node
                 // should be deleted because the block that it points to has grown to take up
@@ -2297,7 +2298,7 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
             const last_sym = last.getSymbol(self);
             const ideal_capacity = padToIdeal(last_sym.st_size);
             const ideal_capacity_end_vaddr = last_sym.st_value + ideal_capacity;
-            const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
+            const new_start_vaddr = mem.alignForward(u64, ideal_capacity_end_vaddr, alignment);
             // Set up the metadata to be updated, after errors are no longer possible.
             atom_placement = last_index;
             break :blk new_start_vaddr;
@@ -2326,7 +2327,7 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
             self.debug_aranges_section_dirty = true;
         }
     }
-    shdr.sh_addralign = math.max(shdr.sh_addralign, alignment);
+    shdr.sh_addralign = @max(shdr.sh_addralign, alignment);
 
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before
@@ -2556,7 +2557,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
                     .iov_len = code.len,
                 }};
                 var remote_vec: [1]std.os.iovec_const = .{.{
-                    .iov_base = @intToPtr([*]u8, @intCast(usize, local_sym.st_value)),
+                    .iov_base = @ptrFromInt([*]u8, @intCast(usize, local_sym.st_value)),
                     .iov_len = code.len,
                 }};
                 const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
@@ -3050,7 +3051,7 @@ fn writeOffsetTableEntry(self: *Elf, index: @TypeOf(self.got_table).Index) !void
                             .iov_len = buf.len,
                         }};
                         var remote_vec: [1]std.os.iovec_const = .{.{
-                            .iov_base = @intToPtr([*]u8, @intCast(usize, vaddr)),
+                            .iov_base = @ptrFromInt([*]u8, @intCast(usize, vaddr)),
                             .iov_len = buf.len,
                         }};
                         const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
@@ -3413,7 +3414,7 @@ const CsuObjects = struct {
                     if (result.crtn) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
 
                     var gccv: []const u8 = undefined;
-                    if (link_options.target.os.version_range.semver.isAtLeast(.{ .major = 5, .minor = 4 }) orelse true) {
+                    if (link_options.target.os.version_range.semver.isAtLeast(.{ .major = 5, .minor = 4, .patch = 0 }) orelse true) {
                         gccv = "gcc80";
                     } else {
                         gccv = "gcc54";

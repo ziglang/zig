@@ -1,6 +1,8 @@
 fn a() void {}
 fn a() void {}
-export fn entry() void { a(); }
+export fn entry() void {
+    a();
+}
 
 // error
 // backend=stage2

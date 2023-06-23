@@ -9,7 +9,6 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_ppc_abi) {
-        // TODO: why did this not error?
         @export(__divtf3, .{ .name = "__divkf3", .linkage = common.linkage, .visibility = common.visibility });
     } else if (common.want_sparc_abi) {
         @export(_Qp_div, .{ .name = "_Qp_div", .linkage = common.linkage, .visibility = common.visibility });
@@ -215,7 +214,7 @@ inline fn div(a: f128, b: f128) f128 {
     } else if (writtenExponent < 1) {
         if (writtenExponent == 0) {
             // Check whether the rounded result is normal.
-            const round = @boolToInt((residual << 1) > bSignificand);
+            const round = @intFromBool((residual << 1) > bSignificand);
             // Clear the implicit bit.
             var absResult = quotient & significandMask;
             // Round.
@@ -229,7 +228,7 @@ inline fn div(a: f128, b: f128) f128 {
         // code to round them correctly.
         return @bitCast(f128, quotientSign);
     } else {
-        const round = @boolToInt((residual << 1) >= bSignificand);
+        const round = @intFromBool((residual << 1) >= bSignificand);
         // Clear the implicit bit
         var absResult = quotient & significandMask;
         // Insert the exponent

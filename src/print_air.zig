@@ -183,8 +183,8 @@ const Writer = struct {
             .is_non_err,
             .is_err_ptr,
             .is_non_err_ptr,
-            .ptrtoint,
-            .bool_to_int,
+            .int_from_ptr,
+            .int_from_bool,
             .ret,
             .ret_load,
             .is_named_enum_value,
@@ -254,10 +254,10 @@ const Writer = struct {
             .struct_field_ptr_index_2,
             .struct_field_ptr_index_3,
             .array_to_slice,
-            .int_to_float,
+            .float_from_int,
             .splat,
-            .float_to_int,
-            .float_to_int_optimized,
+            .int_from_float,
+            .int_from_float_optimized,
             .get_union_tag,
             .clz,
             .ctz,
@@ -956,7 +956,7 @@ const Writer = struct {
         operand: Air.Inst.Ref,
         dies: bool,
     ) @TypeOf(s).Error!void {
-        const i = @enumToInt(operand);
+        const i = @intFromEnum(operand);
 
         if (i < InternPool.static_len) {
             return s.print("@{}", .{operand});

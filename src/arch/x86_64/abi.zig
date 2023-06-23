@@ -223,8 +223,8 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             var byte_i: usize = 0; // out of 8
             const fields = ty.structFields(mod);
             for (fields.values()) |field| {
-                if (field.abi_align != 0) {
-                    if (field.abi_align < field.ty.abiAlignment(mod)) {
+                if (field.abi_align != .none) {
+                    if (field.abi_align.toByteUnitsOptional().? < field.ty.abiAlignment(mod)) {
                         return memory_class;
                     }
                 }
@@ -340,8 +340,8 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
 
             const fields = ty.unionFields(mod);
             for (fields.values()) |field| {
-                if (field.abi_align != 0) {
-                    if (field.abi_align < field.ty.abiAlignment(mod)) {
+                if (field.abi_align != .none) {
+                    if (field.abi_align.toByteUnitsOptional().? < field.ty.abiAlignment(mod)) {
                         return memory_class;
                     }
                 }

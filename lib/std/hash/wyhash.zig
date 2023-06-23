@@ -68,18 +68,20 @@ pub const Wyhash = struct {
         if (self.total_len <= 16) {
             newSelf.smallKey(input);
         } else {
+            var offset: usize = 0;
             if (self.buf_len < 16) {
                 var scratch: [16]u8 = undefined;
                 const rem = 16 - self.buf_len;
                 @memcpy(scratch[0..rem], self.buf[self.buf.len - rem ..][0..rem]);
                 @memcpy(scratch[rem..][0..self.buf_len], self.buf[0..self.buf_len]);
 
-                // Same as input with lookbehind to pad to 16-bytes
-                input = scratch[rem..];
+                // Same as input but with additional bytes preceeding start in case of a short buffer
+                input = &scratch;
+                offset = rem;
             }
 
             newSelf.final0();
-            newSelf.final1(input);
+            newSelf.final1(input, offset);
         }
 
         return newSelf.final2();
@@ -145,19 +147,21 @@ pub const Wyhash = struct {
         self.state[0] ^= self.state[1] ^ self.state[2];
     }
 
-    // Input must reside in a 16-byte buffer. The input slice passed be offset into it in which
-    // case this function will index in front of the slice.
-    inline fn final1(self: *Wyhash, input: []const u8) void {
-        std.debug.assert(input.len <= 48);
+    // input_lb must be at least 16-bytes long (in shorter key cases the smallKey function will be
+    // used instead). We use an index into a slice to for comptime processing as opposed to if we
+    // used pointers.
+    inline fn final1(self: *Wyhash, input_lb: []const u8, start_pos: usize) void {
+        std.debug.assert(input_lb.len >= 16);
+        std.debug.assert(input_lb.len - start_pos <= 48);
+        const input = input_lb[start_pos..];
 
         var i: usize = 0;
         while (i + 16 < input.len) : (i += 16) {
             self.state[0] = mix(read(8, input[i..]) ^ secret[1], read(8, input[i + 8 ..]) ^ self.state[0]);
         }
 
-        // Possible lookbehind past pointer start.
-        self.a = read(8, (input.ptr + input.len - 16)[0..8]);
-        self.b = read(8, (input.ptr + input.len - 8)[0..8]);
+        self.a = read(8, input_lb[input_lb.len - 16 ..][0..8]);
+        self.b = read(8, input_lb[input_lb.len - 8 ..][0..8]);
     }
 
     inline fn final2(self: *Wyhash) u64 {
@@ -180,7 +184,7 @@ pub const Wyhash = struct {
                 }
                 self.final0();
             }
-            self.final1(input[i..]);
+            self.final1(input, i);
         }
 
         self.total_len = input.len;
@@ -210,6 +214,14 @@ const vectors = [_]TestVector{
 test "test vectors" {
     for (vectors) |e| {
         try expectEqual(e.expected, Wyhash.hash(e.seed, e.input));
+    }
+}
+
+test "test vectors at comptime" {
+    comptime {
+        inline for (vectors) |e| {
+            try expectEqual(e.expected, Wyhash.hash(e.seed, e.input));
+        }
     }
 }
 
@@ -252,7 +264,7 @@ test "iterative non-divisible update" {
         var wy = Wyhash.init(seed);
         var i: usize = 0;
         while (i < end) : (i += 33) {
-            wy.update(buf[i..std.math.min(i + 33, end)]);
+            wy.update(buf[i..@min(i + 33, end)]);
         }
         const iterative_hash = wy.final();
 

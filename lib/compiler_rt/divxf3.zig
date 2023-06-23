@@ -195,7 +195,7 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
         // code to round them correctly.
         return @bitCast(T, quotientSign);
     } else {
-        const round = @boolToInt(residual > (bSignificand >> 1));
+        const round = @intFromBool(residual > (bSignificand >> 1));
         // Insert the exponent
         var absResult = quotient | (@intCast(Z, writtenExponent) << significandBits);
         // Round

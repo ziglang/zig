@@ -590,7 +590,7 @@ pub fn block(
                     // whenever we leave an A block behind, we'll need to merge the previous A block with any B blocks that follow it, so track that information as well
                     var lastA = firstA;
                     var lastB = Range.init(0, 0);
-                    var blockB = Range.init(B.start, B.start + math.min(block_size, B.length()));
+                    var blockB = Range.init(B.start, B.start + @min(block_size, B.length()));
                     blockA.start += firstA.length();
                     indexA = buffer1.start;
 
@@ -849,7 +849,7 @@ fn findFirstForward(
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) usize {
     if (range.length() == 0) return range.start;
-    const skip = math.max(range.length() / unique, @as(usize, 1));
+    const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.start + skip;
     while (lessThan(context, items[index - 1], value)) : (index += skip) {
@@ -871,7 +871,7 @@ fn findFirstBackward(
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) usize {
     if (range.length() == 0) return range.start;
-    const skip = math.max(range.length() / unique, @as(usize, 1));
+    const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.end - skip;
     while (index > range.start and !lessThan(context, items[index - 1], value)) : (index -= skip) {
@@ -893,7 +893,7 @@ fn findLastForward(
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) usize {
     if (range.length() == 0) return range.start;
-    const skip = math.max(range.length() / unique, @as(usize, 1));
+    const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.start + skip;
     while (!lessThan(context, value, items[index - 1])) : (index += skip) {
@@ -915,7 +915,7 @@ fn findLastBackward(
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) usize {
     if (range.length() == 0) return range.start;
-    const skip = math.max(range.length() / unique, @as(usize, 1));
+    const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.end - skip;
     while (index > range.start and lessThan(context, value, items[index - 1])) : (index -= skip) {

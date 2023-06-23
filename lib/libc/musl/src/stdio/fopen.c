@@ -29,5 +29,3 @@ FILE *fopen(const char *restrict filename, const char *restrict mode)
 	__syscall(SYS_close, fd);
 	return 0;
 }
-
-weak_alias(fopen, fopen64);

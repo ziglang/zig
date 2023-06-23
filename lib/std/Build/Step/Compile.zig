@@ -32,7 +32,7 @@ linker_script: ?FileSource = null,
 version_script: ?[]const u8 = null,
 out_filename: []const u8,
 linkage: ?Linkage = null,
-version: ?std.builtin.Version,
+version: ?std.SemanticVersion,
 kind: Kind,
 major_only_filename: ?[]const u8,
 name_only_filename: ?[]const u8,
@@ -278,7 +278,7 @@ pub const Options = struct {
     optimize: std.builtin.Mode,
     kind: Kind,
     linkage: ?Linkage = null,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filter: ?[]const u8 = null,
     test_runner: ?[]const u8 = null,
@@ -1031,11 +1031,6 @@ pub fn addObject(self: *Compile, obj: *Compile) void {
     assert(obj.kind == .obj);
     self.linkLibraryOrObject(obj);
 }
-
-pub const addSystemIncludeDir = @compileError("deprecated; use addSystemIncludePath");
-pub const addIncludeDir = @compileError("deprecated; use addIncludePath");
-pub const addLibPath = @compileError("deprecated, use addLibraryPath");
-pub const addFrameworkDir = @compileError("deprecated, use addFrameworkPath");
 
 pub fn addSystemIncludePath(self: *Compile, path: []const u8) void {
     const b = self.step.owner;

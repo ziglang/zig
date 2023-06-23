@@ -81,7 +81,7 @@ pub inline fn truncf(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
         if (shift > srcSigBits) {
             absResult = 0;
         } else {
-            const sticky: src_rep_t = @boolToInt(significand << @intCast(SrcShift, srcBits - shift) != 0);
+            const sticky: src_rep_t = @intFromBool(significand << @intCast(SrcShift, srcBits - shift) != 0);
             const denormalizedSignificand: src_rep_t = significand >> @intCast(SrcShift, shift) | sticky;
             absResult = @intCast(dst_rep_t, denormalizedSignificand >> (srcSigBits - dstSigBits));
             const roundBits: src_rep_t = denormalizedSignificand & roundMask;
@@ -164,7 +164,7 @@ pub inline fn trunc_f80(comptime dst_t: type, a: f80) dst_t {
         if (shift > src_sig_bits) {
             abs_result = 0;
         } else {
-            const sticky = @boolToInt(a_rep.fraction << @intCast(u6, shift) != 0);
+            const sticky = @intFromBool(a_rep.fraction << @intCast(u6, shift) != 0);
             const denormalized_significand = a_rep.fraction >> @intCast(u6, shift) | sticky;
             abs_result = @intCast(dst_rep_t, denormalized_significand >> (src_sig_bits - dst_sig_bits));
             const round_bits = denormalized_significand & round_mask;

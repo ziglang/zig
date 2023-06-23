@@ -212,7 +212,7 @@ pub const HashHelper = struct {
     /// Convert the input value into bytes and record it as a dependency of the process being cached.
     pub fn add(hh: *HashHelper, x: anytype) void {
         switch (@TypeOf(x)) {
-            std.builtin.Version => {
+            std.SemanticVersion => {
                 hh.add(x.major);
                 hh.add(x.minor);
                 hh.add(x.patch);

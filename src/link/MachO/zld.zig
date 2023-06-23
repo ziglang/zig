@@ -9,14 +9,15 @@ const math = std.math;
 const mem = std.mem;
 
 const aarch64 = @import("../../arch/aarch64/bits.zig");
+const calcUuid = @import("uuid.zig").calcUuid;
 const dead_strip = @import("dead_strip.zig");
 const eh_frame = @import("eh_frame.zig");
 const fat = @import("fat.zig");
 const link = @import("../../link.zig");
 const load_commands = @import("load_commands.zig");
+const stub_helpers = @import("stubs.zig");
 const thunks = @import("thunks.zig");
 const trace = @import("../../tracy.zig").trace;
-const stub_helpers = @import("stubs.zig");
 
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
@@ -1207,7 +1208,7 @@ pub const Zld = struct {
 
     fn createSegments(self: *Zld) !void {
         const pagezero_vmsize = self.options.pagezero_size orelse MachO.default_pagezero_vmsize;
-        const aligned_pagezero_vmsize = mem.alignBackwardGeneric(u64, pagezero_vmsize, self.page_size);
+        const aligned_pagezero_vmsize = mem.alignBackward(u64, pagezero_vmsize, self.page_size);
         if (self.options.output_mode != .Lib and aligned_pagezero_vmsize > 0) {
             if (aligned_pagezero_vmsize != pagezero_vmsize) {
                 log.warn("requested __PAGEZERO size (0x{x}) is not page aligned", .{pagezero_vmsize});
@@ -1466,7 +1467,7 @@ pub const Zld = struct {
             while (true) {
                 const atom = self.getAtom(atom_index);
                 const atom_alignment = try math.powi(u32, 2, atom.alignment);
-                const atom_offset = mem.alignForwardGeneric(u64, header.size, atom_alignment);
+                const atom_offset = mem.alignForward(u64, header.size, atom_alignment);
                 const padding = atom_offset - header.size;
 
                 const sym = self.getSymbolPtr(atom.getSymbolWithLoc());
@@ -1534,7 +1535,7 @@ pub const Zld = struct {
         const slice = self.sections.slice();
         for (slice.items(.header)[indexes.start..indexes.end], 0..) |*header, sect_id| {
             const alignment = try math.powi(u32, 2, header.@"align");
-            const start_aligned = mem.alignForwardGeneric(u64, start, alignment);
+            const start_aligned = mem.alignForward(u64, start, alignment);
             const n_sect = @intCast(u8, indexes.start + sect_id + 1);
 
             header.offset = if (header.isZerofill())
@@ -1598,8 +1599,8 @@ pub const Zld = struct {
             segment.vmsize = start;
         }
 
-        segment.filesize = mem.alignForwardGeneric(u64, segment.filesize, self.page_size);
-        segment.vmsize = mem.alignForwardGeneric(u64, segment.vmsize, self.page_size);
+        segment.filesize = mem.alignForward(u64, segment.filesize, self.page_size);
+        segment.vmsize = mem.alignForward(u64, segment.vmsize, self.page_size);
     }
 
     const InitSectionOpts = struct {
@@ -1709,7 +1710,7 @@ pub const Zld = struct {
         try self.writeSymtabs();
 
         const seg = self.getLinkeditSegmentPtr();
-        seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
+        seg.vmsize = mem.alignForward(u64, seg.filesize, self.page_size);
     }
 
     fn collectRebaseDataFromContainer(
@@ -1819,12 +1820,12 @@ pub const Zld = struct {
                     for (relocs) |rel| {
                         switch (cpu_arch) {
                             .aarch64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+                                const rel_type = @enumFromInt(macho.reloc_type_arm64, rel.r_type);
                                 if (rel_type != .ARM64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
                             .x86_64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
+                                const rel_type = @enumFromInt(macho.reloc_type_x86_64, rel.r_type);
                                 if (rel_type != .X86_64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
@@ -1958,12 +1959,12 @@ pub const Zld = struct {
                     for (relocs) |rel| {
                         switch (cpu_arch) {
                             .aarch64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+                                const rel_type = @enumFromInt(macho.reloc_type_arm64, rel.r_type);
                                 if (rel_type != .ARM64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
                             .x86_64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
+                                const rel_type = @enumFromInt(macho.reloc_type_x86_64, rel.r_type);
                                 if (rel_type != .X86_64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
@@ -2112,17 +2113,17 @@ pub const Zld = struct {
         assert(mem.isAlignedGeneric(u64, link_seg.fileoff, @alignOf(u64)));
         const rebase_off = link_seg.fileoff;
         const rebase_size = rebase.size();
-        const rebase_size_aligned = mem.alignForwardGeneric(u64, rebase_size, @alignOf(u64));
+        const rebase_size_aligned = mem.alignForward(u64, rebase_size, @alignOf(u64));
         log.debug("writing rebase info from 0x{x} to 0x{x}", .{ rebase_off, rebase_off + rebase_size_aligned });
 
         const bind_off = rebase_off + rebase_size_aligned;
         const bind_size = bind.size();
-        const bind_size_aligned = mem.alignForwardGeneric(u64, bind_size, @alignOf(u64));
+        const bind_size_aligned = mem.alignForward(u64, bind_size, @alignOf(u64));
         log.debug("writing bind info from 0x{x} to 0x{x}", .{ bind_off, bind_off + bind_size_aligned });
 
         const lazy_bind_off = bind_off + bind_size_aligned;
         const lazy_bind_size = lazy_bind.size();
-        const lazy_bind_size_aligned = mem.alignForwardGeneric(u64, lazy_bind_size, @alignOf(u64));
+        const lazy_bind_size_aligned = mem.alignForward(u64, lazy_bind_size, @alignOf(u64));
         log.debug("writing lazy bind info from 0x{x} to 0x{x}", .{
             lazy_bind_off,
             lazy_bind_off + lazy_bind_size_aligned,
@@ -2130,7 +2131,7 @@ pub const Zld = struct {
 
         const export_off = lazy_bind_off + lazy_bind_size_aligned;
         const export_size = trie.size;
-        const export_size_aligned = mem.alignForwardGeneric(u64, export_size, @alignOf(u64));
+        const export_size_aligned = mem.alignForward(u64, export_size, @alignOf(u64));
         log.debug("writing export trie from 0x{x} to 0x{x}", .{ export_off, export_off + export_size_aligned });
 
         const needed_size = math.cast(usize, export_off + export_size_aligned - rebase_off) orelse
@@ -2268,7 +2269,7 @@ pub const Zld = struct {
         const offset = link_seg.fileoff + link_seg.filesize;
         assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
         const needed_size = buffer.items.len;
-        const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+        const needed_size_aligned = mem.alignForward(u64, needed_size, @alignOf(u64));
         const padding = math.cast(usize, needed_size_aligned - needed_size) orelse return error.Overflow;
         if (padding > 0) {
             try buffer.ensureUnusedCapacity(padding);
@@ -2347,7 +2348,7 @@ pub const Zld = struct {
         const offset = seg.fileoff + seg.filesize;
         assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
         const needed_size = out_dice.items.len * @sizeOf(macho.data_in_code_entry);
-        const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+        const needed_size_aligned = mem.alignForward(u64, needed_size, @alignOf(u64));
         seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
         const buffer = try self.gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
@@ -2480,7 +2481,7 @@ pub const Zld = struct {
         const offset = seg.fileoff + seg.filesize;
         assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
         const needed_size = self.strtab.buffer.items.len;
-        const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+        const needed_size_aligned = mem.alignForward(u64, needed_size, @alignOf(u64));
         seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
         log.debug("writing string table from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
@@ -2515,7 +2516,7 @@ pub const Zld = struct {
         const offset = seg.fileoff + seg.filesize;
         assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
         const needed_size = nindirectsyms * @sizeOf(u32);
-        const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+        const needed_size_aligned = mem.alignForward(u64, needed_size, @alignOf(u64));
         seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
         log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
@@ -2575,160 +2576,24 @@ pub const Zld = struct {
         self.dysymtab_cmd.nindirectsyms = nindirectsyms;
     }
 
-    fn writeUuid(self: *Zld, comp: *const Compilation, args: struct {
-        linkedit_cmd_offset: u32,
-        symtab_cmd_offset: u32,
-        uuid_cmd_offset: u32,
-        codesig_cmd_offset: ?u32,
-    }) !void {
-        _ = comp;
-        switch (self.options.optimize_mode) {
-            .Debug => {
-                // In Debug we don't really care about reproducibility, so put in a random value
-                // and be done with it.
-                std.crypto.random.bytes(&self.uuid_cmd.uuid);
-                Md5.hash(&self.uuid_cmd.uuid, &self.uuid_cmd.uuid, .{});
-                conformUuid(&self.uuid_cmd.uuid);
-            },
-            else => {
-                // We set the max file size to the actual strtab buffer length to exclude any strtab padding.
-                const max_file_end = @intCast(u32, self.symtab_cmd.stroff + self.strtab.buffer.items.len);
-
-                const FileSubsection = struct {
-                    start: u32,
-                    end: u32,
-                };
-
-                var subsections: [5]FileSubsection = undefined;
-                var count: usize = 0;
-
-                // Exclude LINKEDIT segment command as it contains file size that includes stabs contribution
-                // and code signature.
-                subsections[count] = .{
-                    .start = 0,
-                    .end = args.linkedit_cmd_offset,
-                };
-                count += 1;
-
-                // Exclude SYMTAB and DYSYMTAB commands for the same reason.
-                subsections[count] = .{
-                    .start = subsections[count - 1].end + @sizeOf(macho.segment_command_64),
-                    .end = args.symtab_cmd_offset,
-                };
-                count += 1;
-
-                // Exclude CODE_SIGNATURE command (if present).
-                if (args.codesig_cmd_offset) |offset| {
-                    subsections[count] = .{
-                        .start = subsections[count - 1].end + @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command),
-                        .end = offset,
-                    };
-                    count += 1;
-                }
-
-                if (!self.options.strip) {
-                    // Exclude region comprising all symbol stabs.
-                    const nlocals = self.dysymtab_cmd.nlocalsym;
-
-                    const locals = try self.gpa.alloc(macho.nlist_64, nlocals);
-                    defer self.gpa.free(locals);
-
-                    const locals_buf = @ptrCast([*]u8, locals.ptr)[0 .. @sizeOf(macho.nlist_64) * nlocals];
-                    const amt = try self.file.preadAll(locals_buf, self.symtab_cmd.symoff);
-                    if (amt != locals_buf.len) return error.InputOutput;
-
-                    const istab: usize = for (locals, 0..) |local, i| {
-                        if (local.stab()) break i;
-                    } else locals.len;
-                    const nstabs = locals.len - istab;
-
-                    if (nstabs == 0) {
-                        subsections[count] = .{
-                            .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
-                                @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
-                            else
-                                @sizeOf(macho.linkedit_data_command),
-                            .end = max_file_end,
-                        };
-                        count += 1;
-                    } else {
-                        // Exclude a subsection of the strtab with names of the stabs.
-                        // We do not care about anything succeeding strtab as it is the code signature data which is
-                        // not part of the UUID calculation anyway.
-                        const stab_stroff = locals[istab].n_strx;
-
-                        subsections[count] = .{
-                            .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
-                                @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
-                            else
-                                @sizeOf(macho.linkedit_data_command),
-                            .end = @intCast(u32, self.symtab_cmd.symoff + istab * @sizeOf(macho.nlist_64)),
-                        };
-                        count += 1;
-
-                        subsections[count] = .{
-                            .start = subsections[count - 1].end + @intCast(u32, nstabs * @sizeOf(macho.nlist_64)),
-                            .end = self.symtab_cmd.stroff + stab_stroff,
-                        };
-                        count += 1;
-                    }
-                } else {
-                    subsections[count] = .{
-                        .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
-                            @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
-                        else
-                            @sizeOf(macho.linkedit_data_command),
-                        .end = max_file_end,
-                    };
-                    count += 1;
-                }
-
-                const chunk_size = 0x4000;
-
-                var hasher = Md5.init(.{});
-                var buffer: [chunk_size]u8 = undefined;
-
-                for (subsections[0..count]) |cut| {
-                    const size = cut.end - cut.start;
-                    const num_chunks = mem.alignForward(size, chunk_size) / chunk_size;
-
-                    var i: usize = 0;
-                    while (i < num_chunks) : (i += 1) {
-                        const fstart = cut.start + i * chunk_size;
-                        const fsize = if (fstart + chunk_size > cut.end)
-                            cut.end - fstart
-                        else
-                            chunk_size;
-                        const amt = try self.file.preadAll(buffer[0..fsize], fstart);
-                        if (amt != fsize) return error.InputOutput;
-
-                        hasher.update(buffer[0..fsize]);
-                    }
-                }
-
-                hasher.final(&self.uuid_cmd.uuid);
-                conformUuid(&self.uuid_cmd.uuid);
-            },
-        }
-
-        const in_file = args.uuid_cmd_offset + @sizeOf(macho.load_command);
-        try self.file.pwriteAll(&self.uuid_cmd.uuid, in_file);
-    }
-
-    inline fn conformUuid(out: *[Md5.digest_length]u8) void {
-        // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
-        out[6] = (out[6] & 0x0F) | (3 << 4);
-        out[8] = (out[8] & 0x3F) | 0x80;
+    fn writeUuid(self: *Zld, comp: *const Compilation, uuid_cmd_offset: u32, has_codesig: bool) !void {
+        const file_size = if (!has_codesig) blk: {
+            const seg = self.getLinkeditSegmentPtr();
+            break :blk seg.fileoff + seg.filesize;
+        } else self.codesig_cmd.dataoff;
+        try calcUuid(comp, self.file, file_size, &self.uuid_cmd.uuid);
+        const offset = uuid_cmd_offset + @sizeOf(macho.load_command);
+        try self.file.pwriteAll(&self.uuid_cmd.uuid, offset);
     }
 
     fn writeCodeSignaturePadding(self: *Zld, code_sig: *CodeSignature) !void {
         const seg = self.getLinkeditSegmentPtr();
         // Code signature data has to be 16-bytes aligned for Apple tools to recognize the file
         // https://github.com/opensource-apple/cctools/blob/fdb4825f303fd5c0751be524babd32958181b3ed/libstuff/checkout.c#L271
-        const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, 16);
+        const offset = mem.alignForward(u64, seg.fileoff + seg.filesize, 16);
         const needed_size = code_sig.estimateSize(offset);
         seg.filesize = offset + needed_size - seg.fileoff;
-        seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
+        seg.vmsize = mem.alignForward(u64, seg.filesize, self.page_size);
         log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
         // Pad out the space. We need to do this to calculate valid hashes for everything in the file
         // except for code signature data.
@@ -4041,16 +3906,11 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         const lc_writer = lc_buffer.writer();
 
         try zld.writeSegmentHeaders(lc_writer);
-        const linkedit_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len - @sizeOf(macho.segment_command_64));
-
         try lc_writer.writeStruct(zld.dyld_info_cmd);
         try lc_writer.writeStruct(zld.function_starts_cmd);
         try lc_writer.writeStruct(zld.data_in_code_cmd);
-
-        const symtab_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
         try lc_writer.writeStruct(zld.symtab_cmd);
         try lc_writer.writeStruct(zld.dysymtab_cmd);
-
         try load_commands.writeDylinkerLC(lc_writer);
 
         if (zld.options.output_mode == .Exe) {
@@ -4088,22 +3948,14 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
 
         try load_commands.writeLoadDylibLCs(zld.dylibs.items, zld.referenced_dylibs.keys(), lc_writer);
 
-        var codesig_cmd_offset: ?u32 = null;
         if (requires_codesig) {
-            codesig_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
             try lc_writer.writeStruct(zld.codesig_cmd);
         }
 
         const ncmds = load_commands.calcNumOfLCs(lc_buffer.items);
         try zld.file.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64));
         try zld.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len));
-
-        try zld.writeUuid(comp, .{
-            .linkedit_cmd_offset = linkedit_cmd_offset,
-            .symtab_cmd_offset = symtab_cmd_offset,
-            .uuid_cmd_offset = uuid_cmd_offset,
-            .codesig_cmd_offset = codesig_cmd_offset,
-        });
+        try zld.writeUuid(comp, uuid_cmd_offset, requires_codesig);
 
         if (codesig) |*csig| {
             try zld.writeCodeSignature(comp, csig); // code signing always comes last

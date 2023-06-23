@@ -17,7 +17,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const lib = b.addSharedLibrary(.{
         .name = "a",
-        .version = .{ .major = 1, .minor = 0 },
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .optimize = optimize,
         .target = target,
     });

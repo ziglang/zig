@@ -68,7 +68,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols) !void {
 
         const off = @intCast(u64, self.page_size);
         const ideal_size: u16 = 200 + 128 + 160 + 250;
-        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
+        const needed_size = mem.alignForward(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __DWARF segment free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
@@ -213,7 +213,7 @@ fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) u64 
     const segment = self.getDwarfSegmentPtr();
     var offset: u64 = segment.fileoff;
     while (self.detectAllocCollision(offset, object_size)) |item_end| {
-        offset = mem.alignForwardGeneric(u64, item_end, min_alignment);
+        offset = mem.alignForward(u64, item_end, min_alignment);
     }
     return offset;
 }
@@ -355,18 +355,18 @@ fn finalizeDwarfSegment(self: *DebugSymbols, macho_file: *MachO) void {
         file_size = @max(file_size, header.offset + header.size);
     }
 
-    const aligned_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
+    const aligned_size = mem.alignForward(u64, file_size, self.page_size);
     dwarf_segment.vmaddr = base_vmaddr;
     dwarf_segment.filesize = aligned_size;
     dwarf_segment.vmsize = aligned_size;
 
     const linkedit = self.getLinkeditSegmentPtr();
-    linkedit.vmaddr = mem.alignForwardGeneric(
+    linkedit.vmaddr = mem.alignForward(
         u64,
         dwarf_segment.vmaddr + aligned_size,
         self.page_size,
     );
-    linkedit.fileoff = mem.alignForwardGeneric(
+    linkedit.fileoff = mem.alignForward(
         u64,
         dwarf_segment.fileoff + aligned_size,
         self.page_size,
@@ -458,7 +458,7 @@ fn writeLinkeditSegmentData(self: *DebugSymbols, macho_file: *MachO) !void {
     try self.writeStrtab();
 
     const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
-    const aligned_size = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
+    const aligned_size = mem.alignForward(u64, seg.filesize, self.page_size);
     seg.vmsize = aligned_size;
 }
 
@@ -497,7 +497,7 @@ fn writeSymtab(self: *DebugSymbols, macho_file: *MachO) !void {
     const nsyms = nlocals + nexports;
 
     const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
-    const offset = mem.alignForwardGeneric(u64, seg.fileoff, @alignOf(macho.nlist_64));
+    const offset = mem.alignForward(u64, seg.fileoff, @alignOf(macho.nlist_64));
     const needed_size = nsyms * @sizeOf(macho.nlist_64);
     seg.filesize = offset + needed_size - seg.fileoff;
 
@@ -522,8 +522,8 @@ fn writeStrtab(self: *DebugSymbols) !void {
 
     const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
     const symtab_size = @intCast(u32, self.symtab_cmd.nsyms * @sizeOf(macho.nlist_64));
-    const offset = mem.alignForwardGeneric(u64, self.symtab_cmd.symoff + symtab_size, @alignOf(u64));
-    const needed_size = mem.alignForwardGeneric(u64, self.strtab.buffer.items.len, @alignOf(u64));
+    const offset = mem.alignForward(u64, self.symtab_cmd.symoff + symtab_size, @alignOf(u64));
+    const needed_size = mem.alignForward(u64, self.strtab.buffer.items.len, @alignOf(u64));
 
     seg.filesize = offset + needed_size - seg.fileoff;
     self.symtab_cmd.stroff = @intCast(u32, offset);

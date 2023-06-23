@@ -41,7 +41,7 @@ test "@shuffle int" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@shuffle bool 1" {
@@ -62,7 +62,7 @@ test "@shuffle bool 1" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@shuffle bool 2" {
@@ -88,5 +88,5 @@ test "@shuffle bool 2" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }

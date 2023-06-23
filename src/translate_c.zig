@@ -110,7 +110,7 @@ const Scope = struct {
             if (self.base.parent.?.id == .do_loop) {
                 // We reserve 1 extra statement if the parent is a do_loop. This is in case of
                 // do while, we want to put `if (cond) break;` at the end.
-                const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .do_loop);
+                const alloc_len = self.statements.items.len + @intFromBool(self.base.parent.?.id == .do_loop);
                 var stmts = try c.arena.alloc(Node, alloc_len);
                 stmts.len = self.statements.items.len;
                 @memcpy(stmts[0..self.statements.items.len], self.statements.items);
@@ -507,14 +507,14 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
                     const enum_decl = enum_ty.getDecl();
                     // check if this decl is unnamed
                     if (@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin()[0] != 0) return;
-                    break @ptrToInt(enum_decl.getCanonicalDecl());
+                    break @intFromPtr(enum_decl.getCanonicalDecl());
                 },
                 .Record => {
                     const record_ty = @ptrCast(*const clang.RecordType, child_ty);
                     const record_decl = record_ty.getDecl();
                     // check if this decl is unnamed
                     if (@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin()[0] != 0) return;
-                    break @ptrToInt(record_decl.getCanonicalDecl());
+                    break @intFromPtr(record_decl.getCanonicalDecl());
                 },
                 .Elaborated => {
                     const elaborated_ty = @ptrCast(*const clang.ElaboratedType, child_ty);
@@ -543,7 +543,7 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
             }
             result.value_ptr.* = decl_name;
             // Put this typedef in the decl_table to avoid redefinitions.
-            try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), decl_name);
+            try c.decl_table.putNoClobber(c.gpa, @intFromPtr(typedef_decl.getCanonicalDecl()), decl_name);
             try c.typedefs.put(c.gpa, decl_name, {});
         }
     }
@@ -845,7 +845,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
                 error.OutOfMemory => |e| return e,
             };
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node.?)) {
-                init_node = try Tag.bool_to_int.create(c.arena, init_node.?);
+                init_node = try Tag.int_from_bool.create(c.arena, init_node.?);
             } else if (init_node.?.tag() == .string_literal and qualTypeIsCharStar(qual_type)) {
                 init_node = try stringLiteralToCharStar(c, init_node.?);
             }
@@ -913,7 +913,7 @@ const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
 });
 
 fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNameDecl) Error!void {
-    if (c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl()))) |_|
+    if (c.decl_table.get(@intFromPtr(typedef_decl.getCanonicalDecl()))) |_|
         return; // Avoid processing this decl twice
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
@@ -922,10 +922,10 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
     try c.typedefs.put(c.gpa, name, {});
 
     if (builtin_typedef_map.get(name)) |builtin| {
-        return c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), builtin);
+        return c.decl_table.putNoClobber(c.gpa, @intFromPtr(typedef_decl.getCanonicalDecl()), builtin);
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
-    try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
+    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(typedef_decl.getCanonicalDecl()), name);
 
     const child_qt = typedef_decl.getUnderlyingType();
     const typedef_loc = typedef_decl.getLocation();
@@ -938,7 +938,7 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
 
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
-        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@boolToInt(toplevel)] },
+        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@intFromBool(toplevel)] },
         .data = .{
             .name = name,
             .init = init_node,
@@ -1063,7 +1063,7 @@ fn hasFlexibleArrayField(c: *Context, record_def: *const clang.RecordDecl) bool 
 }
 
 fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordDecl) Error!void {
-    if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |_|
+    if (c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl()))) |_|
         return; // Avoid processing this decl twice
     const record_loc = record_decl.getLocation();
     const toplevel = scope.id == .root;
@@ -1079,13 +1079,13 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
     } else if (record_decl.isStruct()) {
         container_kind_name = "struct";
     } else {
-        try c.decl_table.putNoClobber(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), bare_name);
+        try c.decl_table.putNoClobber(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), bare_name);
         return failDecl(c, record_loc, bare_name, "record {s} is not a struct or union", .{bare_name});
     }
 
     var is_unnamed = false;
     var name = bare_name;
-    if (c.unnamed_typedefs.get(@ptrToInt(record_decl.getCanonicalDecl()))) |typedef_name| {
+    if (c.unnamed_typedefs.get(@intFromPtr(record_decl.getCanonicalDecl()))) |typedef_name| {
         bare_name = typedef_name;
         name = typedef_name;
     } else {
@@ -1098,12 +1098,12 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
-    try c.decl_table.putNoClobber(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), name);
+    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), name);
 
     const is_pub = toplevel and !is_unnamed;
     const init_node = blk: {
         const record_def = record_decl.getDefinition() orelse {
-            try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+            try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), {});
             break :blk Tag.opaque_literal.init();
         };
 
@@ -1126,7 +1126,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             const field_qt = field_decl.getType();
 
             if (field_decl.isBitField()) {
-                try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), {});
                 try warn(c, scope, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
                 break :blk Tag.opaque_literal.init();
             }
@@ -1142,7 +1142,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             if (isFlexibleArrayFieldDecl(c, field_decl)) {
                 const flexible_array_fn = buildFlexibleArrayFn(c, scope, layout, field_name, field_decl) catch |err| switch (err) {
                     error.UnsupportedType => {
-                        try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                        try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), {});
                         try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of flexible array field {s}", .{ container_kind_name, field_name });
                         break :blk Tag.opaque_literal.init();
                     },
@@ -1153,7 +1153,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             }
             const field_type = transQualType(c, scope, field_qt, field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
-                    try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                    try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), {});
                     try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, field_name });
                     break :blk Tag.opaque_literal.init();
                 },
@@ -1166,7 +1166,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 ClangAlignment.forField(c, field_decl, record_def).zigAlignment();
 
             if (is_anon) {
-                try c.decl_table.putNoClobber(c.gpa, @ptrToInt(field_decl.getCanonicalDecl()), field_name);
+                try c.decl_table.putNoClobber(c.gpa, @intFromPtr(field_decl.getCanonicalDecl()), field_name);
             }
 
             try fields.append(.{
@@ -1178,7 +1178,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
 
         const record_payload = try c.arena.create(ast.Payload.Record);
         record_payload.* = .{
-            .base = .{ .tag = ([2]Tag{ .@"struct", .@"union" })[@boolToInt(is_union)] },
+            .base = .{ .tag = ([2]Tag{ .@"struct", .@"union" })[@intFromBool(is_union)] },
             .data = .{
                 .layout = .@"extern",
                 .fields = try c.arena.dupe(ast.Payload.Record.Field, fields.items),
@@ -1191,7 +1191,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
 
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
-        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
+        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@intFromBool(is_pub)] },
         .data = .{
             .name = name,
             .init = init_node,
@@ -1211,7 +1211,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
 }
 
 fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) Error!void {
-    if (c.decl_table.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |_|
+    if (c.decl_table.get(@intFromPtr(enum_decl.getCanonicalDecl()))) |_|
         return; // Avoid processing this decl twice
     const enum_loc = enum_decl.getLocation();
     const toplevel = scope.id == .root;
@@ -1220,7 +1220,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
     var is_unnamed = false;
     var bare_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
     var name = bare_name;
-    if (c.unnamed_typedefs.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |typedef_name| {
+    if (c.unnamed_typedefs.get(@intFromPtr(enum_decl.getCanonicalDecl()))) |typedef_name| {
         bare_name = typedef_name;
         name = typedef_name;
     } else {
@@ -1231,7 +1231,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
         name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
-    try c.decl_table.putNoClobber(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), name);
+    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(enum_decl.getCanonicalDecl()), name);
 
     const enum_type_node = if (enum_decl.getDefinition()) |enum_def| blk: {
         var it = enum_def.enumerator_begin();
@@ -1280,14 +1280,14 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
         else
             try Tag.type.create(c.arena, "c_int");
     } else blk: {
-        try c.opaque_demotes.put(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), {});
+        try c.opaque_demotes.put(c.gpa, @intFromPtr(enum_decl.getCanonicalDecl()), {});
         break :blk Tag.opaque_literal.init();
     };
 
     const is_pub = toplevel and !is_unnamed;
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
-        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
+        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@intFromBool(is_pub)] },
         .data = .{
             .init = enum_type_node,
             .name = name,
@@ -1536,7 +1536,7 @@ fn transSimpleOffsetOfExpr(c: *Context, expr: *const clang.OffsetOfExpr) TransEr
     if (component.getKind() == .Field) {
         const field_decl = component.getField();
         if (field_decl.getParent()) |record_decl| {
-            if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |type_name| {
+            if (c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl()))) |type_name| {
                 const type_node = try Tag.type.create(c.arena, type_name);
 
                 var raw_field_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
@@ -1753,22 +1753,22 @@ fn transBinaryOperator(
     const rhs_uncasted = try transExpr(c, scope, stmt.getRHS(), .used);
 
     const lhs = if (isBoolRes(lhs_uncasted))
-        try Tag.bool_to_int.create(c.arena, lhs_uncasted)
+        try Tag.int_from_bool.create(c.arena, lhs_uncasted)
     else if (isPointerDiffExpr)
-        try Tag.ptr_to_int.create(c.arena, lhs_uncasted)
+        try Tag.int_from_ptr.create(c.arena, lhs_uncasted)
     else
         lhs_uncasted;
 
     const rhs = if (isBoolRes(rhs_uncasted))
-        try Tag.bool_to_int.create(c.arena, rhs_uncasted)
+        try Tag.int_from_bool.create(c.arena, rhs_uncasted)
     else if (isPointerDiffExpr)
-        try Tag.ptr_to_int.create(c.arena, rhs_uncasted)
+        try Tag.int_from_ptr.create(c.arena, rhs_uncasted)
     else
         rhs_uncasted;
 
     const infixOpNode = try transCreateNodeInfixOp(c, op_id, lhs, rhs, result_used);
     if (isPointerDiffExpr) {
-        // @divExact(@bitCast(<platform-ptrdiff_t>, @ptrToInt(lhs) -% @ptrToInt(rhs)), @sizeOf(<lhs target type>))
+        // @divExact(@bitCast(<platform-ptrdiff_t>, @intFromPtr(lhs) -% @intFromPtr(rhs)), @sizeOf(<lhs target type>))
         const ptrdiff_type = try transQualTypeIntWidthOf(c, qt, true);
 
         // C standard requires that pointer subtraction operands are of the same type,
@@ -1944,7 +1944,7 @@ fn transDeclStmtOne(
             else
                 Tag.undefined_literal.init();
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
-                init_node = try Tag.bool_to_int.create(c.arena, init_node);
+                init_node = try Tag.int_from_bool.create(c.arena, init_node);
             } else if (init_node.tag() == .string_literal and qualTypeIsCharStar(qual_type)) {
                 const dst_type_node = try transQualType(c, scope, qual_type, loc);
                 init_node = try removeCVQualifiers(c, dst_type_node, init_node);
@@ -2074,11 +2074,11 @@ fn transImplicitCastExpr(
             return Tag.null_literal.init();
         },
         .PointerToBoolean => {
-            // @ptrToInt(val) != 0
+            // @intFromPtr(val) != 0
             const ptr_node = try transExpr(c, scope, sub_expr, .used);
-            const ptr_to_int = try Tag.ptr_to_int.create(c.arena, ptr_node);
+            const int_from_ptr = try Tag.int_from_ptr.create(c.arena, ptr_node);
 
-            const ne = try Tag.not_equal.create(c.arena, .{ .lhs = ptr_to_int, .rhs = Tag.zero_literal.init() });
+            const ne = try Tag.not_equal.create(c.arena, .{ .lhs = int_from_ptr, .rhs = Tag.zero_literal.init() });
             return maybeSuppressResult(c, result_used, ne);
         },
         .IntegralToBoolean, .FloatingToBoolean => {
@@ -2138,7 +2138,7 @@ fn transBoolExpr(
             return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid integer literal", .{});
         }
         const is_zero = signum == 0;
-        return Node{ .tag_if_small_enough = @enumToInt(([2]Tag{ .true_literal, .false_literal })[@boolToInt(is_zero)]) };
+        return Node{ .tag_if_small_enough = @intFromEnum(([2]Tag{ .true_literal, .false_literal })[@intFromBool(is_zero)]) };
     }
 
     var res = try transExpr(c, scope, expr, used);
@@ -2334,7 +2334,7 @@ fn transReturnStmt(
     var rhs = try transExprCoercing(c, scope, val_expr, .used);
     const return_qt = scope.findBlockReturnType();
     if (isBoolRes(rhs) and !qualTypeIsBoolean(return_qt)) {
-        rhs = try Tag.bool_to_int.create(c.arena, rhs);
+        rhs = try Tag.int_from_bool.create(c.arena, rhs);
     }
     return Tag.@"return".create(c.arena, rhs);
 }
@@ -2400,7 +2400,7 @@ fn transStringLiteralInitializer(
 
     if (array_size == 0) return Tag.empty_array.create(c.arena, elem_type);
 
-    const num_inits = math.min(str_length, array_size);
+    const num_inits = @min(str_length, array_size);
     const init_node = if (num_inits > 0) blk: {
         if (is_narrow) {
             // "string literal".* or string literal"[0..num_inits].*
@@ -2493,7 +2493,7 @@ fn transCCast(
         var src_int_expr = expr;
 
         if (isBoolRes(src_int_expr)) {
-            src_int_expr = try Tag.bool_to_int.create(c.arena, src_int_expr);
+            src_int_expr = try Tag.int_from_bool.create(c.arena, src_int_expr);
             return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = src_int_expr });
         }
 
@@ -2521,34 +2521,34 @@ fn transCCast(
         return Tag.bit_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsInteger(dst_type) and qualTypeIsPtr(src_type)) {
-        // @intCast(dest_type, @ptrToInt(val))
-        const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
-        return Tag.int_cast.create(c.arena, .{ .lhs = dst_node, .rhs = ptr_to_int });
+        // @intCast(dest_type, @intFromPtr(val))
+        const int_from_ptr = try Tag.int_from_ptr.create(c.arena, expr);
+        return Tag.int_cast.create(c.arena, .{ .lhs = dst_node, .rhs = int_from_ptr });
     }
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
-        // @intToPtr(dest_type, val)
-        return Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @ptrFromInt(dest_type, val)
+        return Tag.ptr_from_int.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsFloating(src_type) and cIsFloating(dst_type)) {
         // @floatCast(dest_type, val)
         return Tag.float_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsFloating(src_type) and !cIsFloating(dst_type)) {
-        // @floatToInt(dest_type, val)
-        return Tag.float_to_int.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @intFromFloat(dest_type, val)
+        return Tag.int_from_float.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (!cIsFloating(src_type) and cIsFloating(dst_type)) {
         var rhs = expr;
-        if (qualTypeIsBoolean(src_type)) rhs = try Tag.bool_to_int.create(c.arena, expr);
-        // @intToFloat(dest_type, val)
-        return Tag.int_to_float.create(c.arena, .{ .lhs = dst_node, .rhs = rhs });
+        if (qualTypeIsBoolean(src_type)) rhs = try Tag.int_from_bool.create(c.arena, expr);
+        // @floatFromInt(dest_type, val)
+        return Tag.float_from_int.create(c.arena, .{ .lhs = dst_node, .rhs = rhs });
     }
     if (qualTypeIsBoolean(src_type) and !qualTypeIsBoolean(dst_type)) {
-        // @boolToInt returns either a comptime_int or a u1
+        // @intFromBool returns a u1
         // TODO: if dst_type is 1 bit & signed (bitfield) we need @bitCast
         // instead of @as
-        const bool_to_int = try Tag.bool_to_int.create(c.arena, expr);
-        return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = bool_to_int });
+        const int_from_bool = try Tag.int_from_bool.create(c.arena, expr);
+        return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = int_from_bool });
     }
     // @as(dest_type, val)
     return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
@@ -2599,7 +2599,7 @@ fn literalFitsInType(c: *Context, expr: *const clang.Expr, qt: clang.QualType) b
     var width = qualTypeIntBitWidth(c, qt) catch 8;
     if (width == 0) width = 8; // Byte is the smallest type.
     const is_signed = cIsSignedInteger(qt);
-    const width_max_int = (@as(u64, 1) << math.lossyCast(u6, width - @boolToInt(is_signed))) - 1;
+    const width_max_int = (@as(u64, 1) << math.lossyCast(u6, width - @intFromBool(is_signed))) - 1;
 
     switch (@ptrCast(*const clang.Stmt, expr).getStmtClass()) {
         .CharacterLiteralClass => {
@@ -2664,7 +2664,7 @@ fn transInitListExprRecord(
         //     .field_name = expr
         var raw_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
         if (field_decl.isAnonymousStructOrUnion()) {
-            const name = c.decl_table.get(@ptrToInt(field_decl.getCanonicalDecl())).?;
+            const name = c.decl_table.get(@intFromPtr(field_decl.getCanonicalDecl())).?;
             raw_name = try c.arena.dupe(u8, name);
         }
 
@@ -3442,7 +3442,7 @@ fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, re
         if (decl_kind == .Field) {
             const field_decl = @ptrCast(*const clang.FieldDecl, member_decl);
             if (field_decl.isAnonymousStructOrUnion()) {
-                const name = c.decl_table.get(@ptrToInt(field_decl.getCanonicalDecl())).?;
+                const name = c.decl_table.get(@intFromPtr(field_decl.getCanonicalDecl())).?;
                 break :blk try c.arena.dupe(u8, name);
             }
         }
@@ -3642,7 +3642,7 @@ fn transCallExpr(c: *Context, scope: *Scope, stmt: *const clang.CallExpr, result
                     if (i < param_count) {
                         const param_qt = fn_proto.getParamType(@intCast(c_uint, i));
                         if (isBoolRes(arg) and cIsNativeInt(param_qt)) {
-                            arg = try Tag.bool_to_int.create(c.arena, arg);
+                            arg = try Tag.int_from_bool.create(c.arena, arg);
                         } else if (arg.tag() == .string_literal and qualTypeIsCharStar(param_qt)) {
                             const loc = @ptrCast(*const clang.Stmt, stmt).getBeginLoc();
                             const dst_type_node = try transQualType(c, scope, param_qt, loc);
@@ -3774,7 +3774,7 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
                 const sub_expr_node = try transExpr(c, scope, op_expr, .used);
                 const to_negate = if (isBoolRes(sub_expr_node)) blk: {
                     const ty_node = try Tag.type.create(c.arena, "c_int");
-                    const int_node = try Tag.bool_to_int.create(c.arena, sub_expr_node);
+                    const int_node = try Tag.int_from_bool.create(c.arena, sub_expr_node);
                     break :blk try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = int_node });
                 } else sub_expr_node;
                 return Tag.negate.create(c.arena, to_negate);
@@ -4026,10 +4026,10 @@ fn transCreateCompoundAssign(
     return block_scope.complete(c);
 }
 
-// Casting away const or volatile requires us to use @intToPtr
+// Casting away const or volatile requires us to use @ptrFromInt
 fn removeCVQualifiers(c: *Context, dst_type_node: Node, expr: Node) Error!Node {
-    const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
-    return Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_type_node, .rhs = ptr_to_int });
+    const int_from_ptr = try Tag.int_from_ptr.create(c.arena, expr);
+    return Tag.ptr_from_int.create(c.arena, .{ .lhs = dst_type_node, .rhs = int_from_ptr });
 }
 
 fn transCPtrCast(
@@ -4132,12 +4132,12 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
     const cond_node = try finishBoolExpr(c, &cond_scope.base, cond_expr.getBeginLoc(), ty, cond_ident, .used);
     var then_body = cond_ident;
     if (!res_is_bool and isBoolRes(init_node)) {
-        then_body = try Tag.bool_to_int.create(c.arena, then_body);
+        then_body = try Tag.int_from_bool.create(c.arena, then_body);
     }
 
     var else_body = try transExpr(c, &block_scope.base, false_expr, .used);
     if (!res_is_bool and isBoolRes(else_body)) {
-        else_body = try Tag.bool_to_int.create(c.arena, else_body);
+        else_body = try Tag.int_from_bool.create(c.arena, else_body);
     }
     const if_node = try Tag.@"if".create(c.arena, .{
         .cond = cond_node,
@@ -4173,12 +4173,12 @@ fn transConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.Condi
 
     var then_body = try transExpr(c, scope, true_expr, used);
     if (!res_is_bool and isBoolRes(then_body)) {
-        then_body = try Tag.bool_to_int.create(c.arena, then_body);
+        then_body = try Tag.int_from_bool.create(c.arena, then_body);
     }
 
     var else_body = try transExpr(c, scope, false_expr, used);
     if (!res_is_bool and isBoolRes(else_body)) {
-        else_body = try Tag.bool_to_int.create(c.arena, else_body);
+        else_body = try Tag.int_from_bool.create(c.arena, else_body);
     }
 
     const if_node = try Tag.@"if".create(c.arena, .{
@@ -4556,7 +4556,7 @@ fn transCreateNodeAssign(
         const lhs_node = try transExpr(c, scope, lhs, .used);
         var rhs_node = try transExprCoercing(c, scope, rhs, .used);
         if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
-            rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
+            rhs_node = try Tag.int_from_bool.create(c.arena, rhs_node);
         }
         return transCreateNodeInfixOp(c, .assign, lhs_node, rhs_node, .used);
     }
@@ -4574,7 +4574,7 @@ fn transCreateNodeAssign(
     const tmp = try block_scope.reserveMangledName(c, "tmp");
     var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
     if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
-        rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
+        rhs_node = try Tag.int_from_bool.create(c.arena, rhs_node);
     }
 
     const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = rhs_node });
@@ -4835,7 +4835,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
                 if (builtin_typedef_map.get(decl_name)) |builtin| return Tag.type.create(c.arena, builtin);
             }
             try transTypeDef(c, trans_scope, typedef_decl);
-            const name = c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl())).?;
+            const name = c.decl_table.get(@intFromPtr(typedef_decl.getCanonicalDecl())).?;
             return Tag.identifier.create(c.arena, name);
         },
         .Record => {
@@ -4848,7 +4848,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
                 if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
             }
             try transRecordDecl(c, trans_scope, record_decl);
-            const name = c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl())).?;
+            const name = c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl())).?;
             return Tag.identifier.create(c.arena, name);
         },
         .Enum => {
@@ -4861,7 +4861,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
                 if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
             }
             try transEnumDecl(c, trans_scope, enum_decl);
-            const name = c.decl_table.get(@ptrToInt(enum_decl.getCanonicalDecl())).?;
+            const name = c.decl_table.get(@intFromPtr(enum_decl.getCanonicalDecl())).?;
             return Tag.identifier.create(c.arena, name);
         },
         .Elaborated => {
@@ -4928,7 +4928,7 @@ fn qualTypeWasDemotedToOpaque(c: *Context, qt: clang.QualType) bool {
             const record_ty = @ptrCast(*const clang.RecordType, ty);
 
             const record_decl = record_ty.getDecl();
-            const canonical = @ptrToInt(record_decl.getCanonicalDecl());
+            const canonical = @intFromPtr(record_decl.getCanonicalDecl());
             if (c.opaque_demotes.contains(canonical)) return true;
 
             // check all childern for opaque types.
@@ -4944,7 +4944,7 @@ fn qualTypeWasDemotedToOpaque(c: *Context, qt: clang.QualType) bool {
             const enum_ty = @ptrCast(*const clang.EnumType, ty);
 
             const enum_decl = enum_ty.getDecl();
-            const canonical = @ptrToInt(enum_decl.getCanonicalDecl());
+            const canonical = @intFromPtr(enum_decl.getCanonicalDecl());
             return c.opaque_demotes.contains(canonical);
         },
         .Elaborated => {
@@ -5533,7 +5533,7 @@ fn getMacroText(unit: *const clang.ASTUnit, c: *const Context, macro: *const cla
 
     const begin_c = c.source_manager.getCharacterData(begin_loc);
     const end_c = c.source_manager.getCharacterData(end_loc);
-    const slice_len = @ptrToInt(end_c) - @ptrToInt(begin_c);
+    const slice_len = @intFromPtr(end_c) - @intFromPtr(begin_c);
     return begin_c[0..slice_len];
 }
 
@@ -6087,12 +6087,12 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     return node;
 }
 
-fn macroBoolToInt(c: *Context, node: Node) !Node {
+fn macroIntFromBool(c: *Context, node: Node) !Node {
     if (!isBoolRes(node)) {
         return node;
     }
 
-    return Tag.bool_to_int.create(c.arena, node);
+    return Tag.int_from_bool.create(c.arena, node);
 }
 
 fn macroIntToBool(c: *Context, node: Node) !Node {
@@ -6141,8 +6141,8 @@ fn parseCAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 fn parseCBitOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCBitXorExpr(c, m, scope);
     while (m.next().? == .Pipe) {
-        const lhs = try macroBoolToInt(c, node);
-        const rhs = try macroBoolToInt(c, try parseCBitXorExpr(c, m, scope));
+        const lhs = try macroIntFromBool(c, node);
+        const rhs = try macroIntFromBool(c, try parseCBitXorExpr(c, m, scope));
         node = try Tag.bit_or.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
@@ -6152,8 +6152,8 @@ fn parseCBitOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 fn parseCBitXorExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCBitAndExpr(c, m, scope);
     while (m.next().? == .Caret) {
-        const lhs = try macroBoolToInt(c, node);
-        const rhs = try macroBoolToInt(c, try parseCBitAndExpr(c, m, scope));
+        const lhs = try macroIntFromBool(c, node);
+        const rhs = try macroIntFromBool(c, try parseCBitAndExpr(c, m, scope));
         node = try Tag.bit_xor.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
@@ -6163,8 +6163,8 @@ fn parseCBitXorExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 fn parseCBitAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCEqExpr(c, m, scope);
     while (m.next().? == .Ampersand) {
-        const lhs = try macroBoolToInt(c, node);
-        const rhs = try macroBoolToInt(c, try parseCEqExpr(c, m, scope));
+        const lhs = try macroIntFromBool(c, node);
+        const rhs = try macroIntFromBool(c, try parseCEqExpr(c, m, scope));
         node = try Tag.bit_and.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
@@ -6177,14 +6177,14 @@ fn parseCEqExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         switch (m.peek().?) {
             .BangEqual => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCRelExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCRelExpr(c, m, scope));
                 node = try Tag.not_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .EqualEqual => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCRelExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCRelExpr(c, m, scope));
                 node = try Tag.equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
@@ -6198,26 +6198,26 @@ fn parseCRelExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         switch (m.peek().?) {
             .AngleBracketRight => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
                 node = try Tag.greater_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketRightEqual => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
                 node = try Tag.greater_than_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketLeft => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
                 node = try Tag.less_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketLeftEqual => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
                 node = try Tag.less_than_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
@@ -6231,14 +6231,14 @@ fn parseCShiftExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         switch (m.peek().?) {
             .AngleBracketAngleBracketLeft => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCAddSubExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCAddSubExpr(c, m, scope));
                 node = try Tag.shl.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketAngleBracketRight => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCAddSubExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCAddSubExpr(c, m, scope));
                 node = try Tag.shr.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
@@ -6252,14 +6252,14 @@ fn parseCAddSubExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         switch (m.peek().?) {
             .Plus => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCMulExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCMulExpr(c, m, scope));
                 node = try Tag.add.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .Minus => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCMulExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCMulExpr(c, m, scope));
                 node = try Tag.sub.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
@@ -6272,18 +6272,18 @@ fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     while (true) {
         switch (m.next().?) {
             .Asterisk => {
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
                 node = try Tag.mul.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .Slash => {
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
                 node = try Tag.macro_arithmetic.create(c.arena, .{ .op = .div, .lhs = lhs, .rhs = rhs });
             },
             .Percent => {
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
                 node = try Tag.macro_arithmetic.create(c.arena, .{ .op = .rem, .lhs = lhs, .rhs = rhs });
             },
             else => {
@@ -6512,7 +6512,7 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
                 node = try Tag.field_access.create(c.arena, .{ .lhs = deref, .field_name = m.slice() });
             },
             .LBracket => {
-                const index_val = try macroBoolToInt(c, try parseCExpr(c, m, scope));
+                const index_val = try macroIntFromBool(c, try parseCExpr(c, m, scope));
                 const index = try Tag.int_cast.create(c.arena, .{
                     .lhs = try Tag.type.create(c.arena, "usize"),
                     .rhs = index_val,
@@ -6610,12 +6610,12 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             return Tag.not.create(c.arena, operand);
         },
         .Minus => {
-            const operand = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
+            const operand = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
             return Tag.negate.create(c.arena, operand);
         },
         .Plus => return try parseCCastExpr(c, m, scope),
         .Tilde => {
-            const operand = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
+            const operand = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
             return Tag.bit_not.create(c.arena, operand);
         },
         .Asterisk => {

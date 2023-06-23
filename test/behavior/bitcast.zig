@@ -14,7 +14,7 @@ test "@bitCast iX -> uX (32, 64)" {
 
     inline for (bit_values) |bits| {
         try testBitCast(bits);
-        comptime try testBitCast(bits);
+        try comptime testBitCast(bits);
     }
 }
 
@@ -28,7 +28,7 @@ test "@bitCast iX -> uX (8, 16, 128)" {
 
     inline for (bit_values) |bits| {
         try testBitCast(bits);
-        comptime try testBitCast(bits);
+        try comptime testBitCast(bits);
     }
 }
 
@@ -43,7 +43,7 @@ test "@bitCast iX -> uX exotic integers" {
 
     inline for (bit_values) |bits| {
         try testBitCast(bits);
-        comptime try testBitCast(bits);
+        try comptime testBitCast(bits);
     }
 }
 
@@ -88,7 +88,7 @@ test "bitcast uX to bytes" {
     const bit_values = [_]usize{ 1, 48, 27, 512, 493, 293, 125, 204, 112 };
     inline for (bit_values) |bits| {
         try testBitCast(bits);
-        comptime try testBitCast(bits);
+        try comptime testBitCast(bits);
     }
 }
 
@@ -141,7 +141,7 @@ test "nested bitcast" {
     };
 
     try S.foo(42);
-    comptime try S.foo(42);
+    try comptime S.foo(42);
 }
 
 // issue #3010: compiler segfault
@@ -182,7 +182,7 @@ test "@bitCast packed structs at runtime and comptime" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@bitCast extern structs at runtime and comptime" {
@@ -214,7 +214,7 @@ test "@bitCast extern structs at runtime and comptime" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "bitcast packed struct to integer and back" {
@@ -237,7 +237,7 @@ test "bitcast packed struct to integer and back" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "implicit cast to error union by returning" {
@@ -254,7 +254,7 @@ test "implicit cast to error union by returning" {
         }
     };
     try S.entry();
-    comptime try S.entry();
+    try comptime S.entry();
 }
 
 test "bitcast packed struct literal to byte" {
@@ -275,7 +275,7 @@ test "comptime bitcast used in expression has the correct type" {
 test "bitcast passed as tuple element" {
     const S = struct {
         fn foo(args: anytype) !void {
-            comptime try expect(@TypeOf(args[0]) == f32);
+            try comptime expect(@TypeOf(args[0]) == f32);
             try expect(args[0] == 12.34);
         }
     };
@@ -285,7 +285,7 @@ test "bitcast passed as tuple element" {
 test "triple level result location with bitcast sandwich passed as tuple element" {
     const S = struct {
         fn foo(args: anytype) !void {
-            comptime try expect(@TypeOf(args[0]) == f64);
+            try comptime expect(@TypeOf(args[0]) == f64);
             try expect(args[0] > 12.33 and args[0] < 12.35);
         }
     };
@@ -326,7 +326,7 @@ test "@bitCast packed struct of floats" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "comptime @bitCast packed struct to int and back" {

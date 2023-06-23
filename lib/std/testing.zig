@@ -263,7 +263,7 @@ pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance
 
 test "expectApproxEqRel" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const eps_value = comptime math.epsilon(T);
+        const eps_value = comptime math.floatEps(T);
         const sqrt_eps_value = comptime @sqrt(eps_value);
 
         const pos_x: T = 12.0;
@@ -305,7 +305,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     var window_start: usize = 0;
     if (@max(actual.len, expected.len) > max_window_size) {
         const alignment = if (T == u8) 16 else 2;
-        window_start = std.mem.alignBackward(diff_index - @min(diff_index, alignment), alignment);
+        window_start = std.mem.alignBackward(usize, diff_index - @min(diff_index, alignment), alignment);
     }
     const expected_window = expected[window_start..@min(expected.len, window_start + max_window_size)];
     const expected_truncated = window_start + expected_window.len < expected.len;

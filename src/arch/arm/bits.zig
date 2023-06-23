@@ -159,7 +159,7 @@ pub const Register = enum(u5) {
     /// Returns the unique 4-bit ID of this register which is used in
     /// the machine code
     pub fn id(self: Register) u4 {
-        return @truncate(u4, @enumToInt(self));
+        return @truncate(u4, @intFromEnum(self));
     }
 
     pub fn dwarfLocOp(self: Register) u8 {
@@ -408,7 +408,7 @@ pub const Instruction = union(enum) {
                 return Shift{
                     .register = .{
                         .rs = rs.id(),
-                        .typ = @enumToInt(typ),
+                        .typ = @intFromEnum(typ),
                     },
                 };
             }
@@ -417,7 +417,7 @@ pub const Instruction = union(enum) {
                 return Shift{
                     .immediate = .{
                         .amount = amount,
-                        .typ = @enumToInt(typ),
+                        .typ = @intFromEnum(typ),
                     },
                 };
             }
@@ -633,9 +633,9 @@ pub const Instruction = union(enum) {
     ) Instruction {
         return Instruction{
             .data_processing = .{
-                .cond = @enumToInt(cond),
-                .i = @boolToInt(op2 == .immediate),
-                .opcode = @enumToInt(opcode),
+                .cond = @intFromEnum(cond),
+                .i = @intFromBool(op2 == .immediate),
+                .opcode = @intFromEnum(opcode),
                 .s = s,
                 .rn = rn.id(),
                 .rd = rd.id(),
@@ -652,7 +652,7 @@ pub const Instruction = union(enum) {
     ) Instruction {
         return Instruction{
             .data_processing = .{
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
                 .i = 1,
                 .opcode = if (top) 0b1010 else 0b1000,
                 .s = 0,
@@ -673,8 +673,8 @@ pub const Instruction = union(enum) {
     ) Instruction {
         return Instruction{
             .multiply = .{
-                .cond = @enumToInt(cond),
-                .accumulate = @boolToInt(ra != null),
+                .cond = @intFromEnum(cond),
+                .accumulate = @intFromBool(ra != null),
                 .set_cond = set_cond,
                 .rd = rd.id(),
                 .rn = rn.id(),
@@ -696,7 +696,7 @@ pub const Instruction = union(enum) {
     ) Instruction {
         return Instruction{
             .multiply_long = .{
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
                 .unsigned = signed,
                 .accumulate = accumulate,
                 .set_cond = set_cond,
@@ -723,7 +723,7 @@ pub const Instruction = union(enum) {
                 .m = m,
                 .rm = rm.id(),
                 .rd = rd.id(),
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
             },
         };
     }
@@ -741,7 +741,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.id(),
                 .rn = rn.id(),
                 .opc = opc,
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
             },
         };
     }
@@ -762,7 +762,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.id(),
                 .widthm1 = @intCast(u5, width - 1),
                 .unsigned = unsigned,
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
             },
         };
     }
@@ -779,7 +779,7 @@ pub const Instruction = union(enum) {
     ) Instruction {
         return Instruction{
             .single_data_transfer = .{
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
                 .rn = rn.id(),
                 .rd = rd.id(),
                 .offset = offset.toU12(),
@@ -789,12 +789,12 @@ pub const Instruction = union(enum) {
                     .pre_index, .post_index => 0b1,
                 },
                 .byte_word = byte_word,
-                .up_down = @boolToInt(positive),
+                .up_down = @intFromBool(positive),
                 .pre_post = switch (mode) {
                     .offset, .pre_index => 0b1,
                     .post_index => 0b0,
                 },
-                .imm = @boolToInt(offset != .immediate),
+                .imm = @intFromBool(offset != .immediate),
             },
         };
     }
@@ -830,13 +830,13 @@ pub const Instruction = union(enum) {
                     .offset => 0b0,
                     .pre_index, .post_index => 0b1,
                 },
-                .imm = @boolToInt(offset == .immediate),
-                .up_down = @boolToInt(positive),
+                .imm = @intFromBool(offset == .immediate),
+                .up_down = @intFromBool(positive),
                 .pre_index = switch (mode) {
                     .offset, .pre_index => 0b1,
                     .post_index => 0b0,
                 },
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
             },
         };
     }
@@ -856,11 +856,11 @@ pub const Instruction = union(enum) {
                 .register_list = @bitCast(u16, reg_list),
                 .rn = rn.id(),
                 .load_store = load_store,
-                .write_back = @boolToInt(write_back),
+                .write_back = @intFromBool(write_back),
                 .psr_or_user = psr_or_user,
                 .up_down = up_down,
                 .pre_post = pre_post,
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
             },
         };
     }
@@ -868,7 +868,7 @@ pub const Instruction = union(enum) {
     fn branch(cond: Condition, offset: i26, link: u1) Instruction {
         return Instruction{
             .branch = .{
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
                 .link = link,
                 .offset = @bitCast(u24, @intCast(i24, offset >> 2)),
             },
@@ -878,7 +878,7 @@ pub const Instruction = union(enum) {
     fn branchExchange(cond: Condition, rn: Register, link: u1) Instruction {
         return Instruction{
             .branch_exchange = .{
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
                 .link = link,
                 .rn = rn.id(),
             },
@@ -888,7 +888,7 @@ pub const Instruction = union(enum) {
     fn supervisorCall(cond: Condition, comment: u24) Instruction {
         return Instruction{
             .supervisor_call = .{
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
                 .comment = comment,
             },
         };
@@ -1060,7 +1060,7 @@ pub const Instruction = union(enum) {
     pub fn mrs(cond: Condition, rd: Register, psr: Psr) Instruction {
         return Instruction{
             .data_processing = .{
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
                 .i = 0,
                 .opcode = if (psr == .spsr) 0b1010 else 0b1000,
                 .s = 0,
@@ -1074,7 +1074,7 @@ pub const Instruction = union(enum) {
     pub fn msr(cond: Condition, psr: Psr, op: Operand) Instruction {
         return Instruction{
             .data_processing = .{
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
                 .i = 0,
                 .opcode = if (psr == .spsr) 0b1011 else 0b1001,
                 .s = 0,

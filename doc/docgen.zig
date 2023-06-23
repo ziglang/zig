@@ -276,7 +276,7 @@ fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, arg
             }
         }
         {
-            const caret_count = std.math.min(token.end, loc.line_end) - token.start;
+            const caret_count = @min(token.end, loc.line_end) - token.start;
             var i: usize = 0;
             while (i < caret_count) : (i += 1) {
                 print("~", .{});
@@ -796,28 +796,37 @@ fn writeEscaped(out: anytype, input: []const u8) !void {
     }
 }
 
-//#define VT_RED "\x1b[31;1m"
-//#define VT_GREEN "\x1b[32;1m"
-//#define VT_CYAN "\x1b[36;1m"
-//#define VT_WHITE "\x1b[37;1m"
-//#define VT_BOLD "\x1b[0;1m"
-//#define VT_RESET "\x1b[0m"
-
-test "term color" {
-    const input_bytes = "A\x1b[32;1mgreen\x1b[0mB";
-    const result = try termColor(std.testing.allocator, input_bytes);
-    defer std.testing.allocator.free(result);
-    try testing.expectEqualSlices(u8, "A<span class=\"t32_1\">green</span>B", result);
+// Returns true if number is in slice.
+fn in(slice: []const u8, number: u8) bool {
+    for (slice) |n| {
+        if (number == n) return true;
+    }
+    return false;
 }
 
 fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
+    // The SRG sequences generates by the Zig compiler are in the format:
+    //   ESC [ <foreground-color> ; <n> m
+    // or
+    //   ESC [ <n> m
+    //
+    // where
+    //   foreground-color is 31 (red), 32 (green), 36 (cyan)
+    //   n is 0 (reset), 1 (bold), 2 (dim)
+    //
+    //   Note that 37 (white) is currently not used by the compiler.
+    //
+    // See std.debug.TTY.Color.
+    const supported_sgr_colors = [_]u8{ 31, 32, 36 };
+    const supported_sgr_numbers = [_]u8{ 0, 1, 2 };
+
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
     var out = buf.writer();
-    var number_start_index: usize = undefined;
-    var first_number: usize = undefined;
-    var second_number: usize = undefined;
+    var sgr_param_start_index: usize = undefined;
+    var sgr_num: u8 = undefined;
+    var sgr_color: u8 = undefined;
     var i: usize = 0;
     var state: enum {
         start,
@@ -848,7 +857,7 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             },
             .lbracket => switch (c) {
                 '0'...'9' => {
-                    number_start_index = i;
+                    sgr_param_start_index = i;
                     state = .number;
                 },
                 else => return error.UnsupportedEscape,
@@ -856,13 +865,12 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             .number => switch (c) {
                 '0'...'9' => {},
                 else => {
-                    first_number = std.fmt.parseInt(usize, input[number_start_index..i], 10) catch unreachable;
-                    second_number = 0;
+                    sgr_num = try std.fmt.parseInt(u8, input[sgr_param_start_index..i], 10);
+                    sgr_color = 0;
                     state = .after_number;
                     i -= 1;
                 },
             },
-
             .after_number => switch (c) {
                 ';' => state = .arg,
                 'D' => state = .start,
@@ -877,7 +885,7 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             },
             .arg => switch (c) {
                 '0'...'9' => {
-                    number_start_index = i;
+                    sgr_param_start_index = i;
                     state = .arg_number;
                 },
                 else => return error.UnsupportedEscape,
@@ -885,7 +893,15 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             .arg_number => switch (c) {
                 '0'...'9' => {},
                 else => {
-                    second_number = std.fmt.parseInt(usize, input[number_start_index..i], 10) catch unreachable;
+                    // Keep the sequence consistent, foreground color first.
+                    // 32;1m is equivalent to 1;32m, but the latter will
+                    // generate an incorrect HTML class without notice.
+                    sgr_color = sgr_num;
+                    if (!in(&supported_sgr_colors, sgr_color)) return error.UnsupportedForegroundColor;
+
+                    sgr_num = try std.fmt.parseInt(u8, input[sgr_param_start_index..i], 10);
+                    if (!in(&supported_sgr_numbers, sgr_num)) return error.UnsupportedNumber;
+
                     state = .expect_end;
                     i -= 1;
                 },
@@ -896,10 +912,16 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
                     while (open_span_count != 0) : (open_span_count -= 1) {
                         try out.writeAll("</span>");
                     }
-                    if (first_number != 0 or second_number != 0) {
-                        try out.print("<span class=\"t{d}_{d}\">", .{ first_number, second_number });
-                        open_span_count += 1;
+                    if (sgr_num == 0) {
+                        if (sgr_color != 0) return error.UnsupportedColor;
+                        continue;
                     }
+                    if (sgr_color != 0) {
+                        try out.print("<span class=\"sgr-{d}_{d}m\">", .{ sgr_color, sgr_num });
+                    } else {
+                        try out.print("<span class=\"sgr-{d}m\">", .{sgr_num});
+                    }
+                    open_span_count += 1;
                 },
                 else => return error.UnsupportedEscape,
             },
@@ -1227,41 +1249,39 @@ fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
     while (iter.next()) |orig_line| {
         const line = mem.trimRight(u8, orig_line, " ");
         if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] != '\\') {
-            try out.writeAll(start_line ++ "$ <kbd>");
+            try out.writeAll("$ <kbd>");
             const s = std.mem.trimLeft(u8, line[1..], " ");
             if (escape) {
                 try writeEscaped(out, s);
             } else {
                 try out.writeAll(s);
             }
-            try out.writeAll("</kbd>" ++ end_line ++ "\n");
+            try out.writeAll("</kbd>" ++ "\n");
         } else if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] == '\\') {
-            try out.writeAll(start_line ++ "$ <kbd>");
+            try out.writeAll("$ <kbd>");
             const s = std.mem.trimLeft(u8, line[1..], " ");
             if (escape) {
                 try writeEscaped(out, s);
             } else {
                 try out.writeAll(s);
             }
-            try out.writeAll(end_line ++ "\n");
+            try out.writeAll("\n");
             cmd_cont = true;
         } else if (line.len > 0 and line[line.len - 1] != '\\' and cmd_cont) {
-            try out.writeAll(start_line);
             if (escape) {
                 try writeEscaped(out, line);
             } else {
                 try out.writeAll(line);
             }
-            try out.writeAll("</kbd>" ++ end_line ++ "\n");
+            try out.writeAll("</kbd>" ++ "\n");
             cmd_cont = false;
         } else {
-            try out.writeAll(start_line);
             if (escape) {
                 try writeEscaped(out, line);
             } else {
                 try out.writeAll(line);
             }
-            try out.writeAll(end_line ++ "\n");
+            try out.writeAll("\n");
         }
     }
 
@@ -1285,7 +1305,7 @@ fn genHtml(
     defer root_node.end();
 
     var env_map = try process.getEnvMap(allocator);
-    try env_map.put("ZIG_DEBUG_COLOR", "1");
+    try env_map.put("YES_COLOR", "1");
 
     const host = try std.zig.system.NativeTargetInfo.detect(.{});
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe, opt_zig_lib_dir);
@@ -1507,7 +1527,7 @@ fn genHtml(
                         const colored_stderr = try termColor(allocator, escaped_stderr);
                         const colored_stdout = try termColor(allocator, escaped_stdout);
 
-                        try shell_out.print("\n$ ./{s}\n{s}{s}", .{ code.name, colored_stdout, colored_stderr });
+                        try shell_out.print("$ ./{s}\n{s}{s}", .{ code.name, colored_stdout, colored_stderr });
                         if (exited_with_signal) {
                             try shell_out.print("(process terminated by signal)", .{});
                         }
@@ -1877,7 +1897,193 @@ fn dumpArgs(args: []const []const u8) void {
         print("\n", .{});
 }
 
-test "shell parsed" {
+test "term supported colors" {
+    const test_allocator = testing.allocator;
+
+    {
+        const input = "A\x1b[31;1mred\x1b[0mB";
+        const expect = "A<span class=\"sgr-31_1m\">red</span>B";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        const input = "A\x1b[32;1mgreen\x1b[0mB";
+        const expect = "A<span class=\"sgr-32_1m\">green</span>B";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        const input = "A\x1b[36;1mcyan\x1b[0mB";
+        const expect = "A<span class=\"sgr-36_1m\">cyan</span>B";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        const input = "A\x1b[1mbold\x1b[0mB";
+        const expect = "A<span class=\"sgr-1m\">bold</span>B";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        const input = "A\x1b[2mdim\x1b[0mB";
+        const expect = "A<span class=\"sgr-2m\">dim</span>B";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+}
+
+test "term output from zig" {
+    // Use data generated by https://github.com/perillo/zig-tty-test-data,
+    // with zig version 0.11.0-dev.1898+36d47dd19.
+    const test_allocator = testing.allocator;
+
+    {
+        // 1.1-with-build-progress.out
+        const input = "Semantic Analysis [1324] \x1b[25D\x1b[0KLLVM Emit Object... \x1b[20D\x1b[0KLLVM Emit Object... \x1b[20D\x1b[0KLLD Link... \x1b[12D\x1b[0K";
+        const expect = "";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        // 2.1-with-reference-traces.out
+        const input = "\x1b[1msrc/2.1-with-reference-traces.zig:3:7: \x1b[31;1merror: \x1b[0m\x1b[1mcannot assign to constant\n\x1b[0m    x += 1;\n    \x1b[32;1m~~^~~~\n\x1b[0m\x1b[0m\x1b[2mreferenced by:\n    main: src/2.1-with-reference-traces.zig:7:5\n    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17\n    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n\n\x1b[0m";
+        const expect =
+            \\<span class="sgr-1m">src/2.1-with-reference-traces.zig:3:7: </span><span class="sgr-31_1m">error: </span><span class="sgr-1m">cannot assign to constant
+            \\</span>    x += 1;
+            \\    <span class="sgr-32_1m">~~^~~~
+            \\</span><span class="sgr-2m">referenced by:
+            \\    main: src/2.1-with-reference-traces.zig:7:5
+            \\    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17
+            \\    remaining reference traces hidden; use '-freference-trace' to see all reference traces
+            \\
+            \\</span>
+        ;
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        // 2.2-without-reference-traces.out
+        const input = "\x1b[1m/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:128:29: \x1b[31;1merror: \x1b[0m\x1b[1minvalid type given to fixedBufferStream\n\x1b[0m                    else => @compileError(\"invalid type given to fixedBufferStream\"),\n                            \x1b[32;1m^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\x1b[0m\x1b[1m/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:116:66: \x1b[36;1mnote: \x1b[0m\x1b[1mcalled from here\n\x1b[0mpub fn fixedBufferStream(buffer: anytype) FixedBufferStream(Slice(@TypeOf(buffer))) {\n;                                                            \x1b[32;1m~~~~~^~~~~~~~~~~~~~~~~\n\x1b[0m";
+        const expect =
+            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:128:29: </span><span class="sgr-31_1m">error: </span><span class="sgr-1m">invalid type given to fixedBufferStream
+            \\</span>                    else => @compileError("invalid type given to fixedBufferStream"),
+            \\                            <span class="sgr-32_1m">^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            \\</span><span class="sgr-1m">/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:116:66: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">called from here
+            \\</span>pub fn fixedBufferStream(buffer: anytype) FixedBufferStream(Slice(@TypeOf(buffer))) {
+            \\;                                                            <span class="sgr-32_1m">~~~~~^~~~~~~~~~~~~~~~~
+            \\</span>
+        ;
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        // 2.3-with-notes.out
+        const input = "\x1b[1msrc/2.3-with-notes.zig:6:9: \x1b[31;1merror: \x1b[0m\x1b[1mexpected type '*2.3-with-notes.Derp', found '*2.3-with-notes.Wat'\n\x1b[0m    bar(w);\n        \x1b[32;1m^\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:6:9: \x1b[36;1mnote: \x1b[0m\x1b[1mpointer type child '2.3-with-notes.Wat' cannot cast into pointer type child '2.3-with-notes.Derp'\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:2:13: \x1b[36;1mnote: \x1b[0m\x1b[1mopaque declared here\n\x1b[0mconst Wat = opaque {};\n            \x1b[32;1m^~~~~~~~~\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:1:14: \x1b[36;1mnote: \x1b[0m\x1b[1mopaque declared here\n\x1b[0mconst Derp = opaque {};\n             \x1b[32;1m^~~~~~~~~\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:4:18: \x1b[36;1mnote: \x1b[0m\x1b[1mparameter type declared here\n\x1b[0mextern fn bar(d: *Derp) void;\n                 \x1b[32;1m^~~~~\n\x1b[0m\x1b[0m\x1b[2mreferenced by:\n    main: src/2.3-with-notes.zig:10:5\n    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17\n    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n\n\x1b[0m";
+        const expect =
+            \\<span class="sgr-1m">src/2.3-with-notes.zig:6:9: </span><span class="sgr-31_1m">error: </span><span class="sgr-1m">expected type '*2.3-with-notes.Derp', found '*2.3-with-notes.Wat'
+            \\</span>    bar(w);
+            \\        <span class="sgr-32_1m">^
+            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:6:9: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">pointer type child '2.3-with-notes.Wat' cannot cast into pointer type child '2.3-with-notes.Derp'
+            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:2:13: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">opaque declared here
+            \\</span>const Wat = opaque {};
+            \\            <span class="sgr-32_1m">^~~~~~~~~
+            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:1:14: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">opaque declared here
+            \\</span>const Derp = opaque {};
+            \\             <span class="sgr-32_1m">^~~~~~~~~
+            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:4:18: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">parameter type declared here
+            \\</span>extern fn bar(d: *Derp) void;
+            \\                 <span class="sgr-32_1m">^~~~~
+            \\</span><span class="sgr-2m">referenced by:
+            \\    main: src/2.3-with-notes.zig:10:5
+            \\    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17
+            \\    remaining reference traces hidden; use '-freference-trace' to see all reference traces
+            \\
+            \\</span>
+        ;
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        // 3.1-with-error-return-traces.out
+
+        const input = "error: Error\n\x1b[1m/home/zig/src/3.1-with-error-return-traces.zig:5:5\x1b[0m: \x1b[2m0x20b008 in callee (3.1-with-error-return-traces)\x1b[0m\n    return error.Error;\n    \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.1-with-error-return-traces.zig:9:5\x1b[0m: \x1b[2m0x20b113 in caller (3.1-with-error-return-traces)\x1b[0m\n    try callee();\n    \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.1-with-error-return-traces.zig:13:5\x1b[0m: \x1b[2m0x20b153 in main (3.1-with-error-return-traces)\x1b[0m\n    try caller();\n    \x1b[32;1m^\x1b[0m\n";
+        const expect =
+            \\error: Error
+            \\<span class="sgr-1m">/home/zig/src/3.1-with-error-return-traces.zig:5:5</span>: <span class="sgr-2m">0x20b008 in callee (3.1-with-error-return-traces)</span>
+            \\    return error.Error;
+            \\    <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/home/zig/src/3.1-with-error-return-traces.zig:9:5</span>: <span class="sgr-2m">0x20b113 in caller (3.1-with-error-return-traces)</span>
+            \\    try callee();
+            \\    <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/home/zig/src/3.1-with-error-return-traces.zig:13:5</span>: <span class="sgr-2m">0x20b153 in main (3.1-with-error-return-traces)</span>
+            \\    try caller();
+            \\    <span class="sgr-32_1m">^</span>
+            \\
+        ;
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        // 3.2-with-stack-trace.out
+        const input = "\x1b[1m/usr/local/lib/zig/lib/std/debug.zig:561:19\x1b[0m: \x1b[2m0x22a107 in writeCurrentStackTrace__anon_5898 (3.2-with-stack-trace)\x1b[0m\n    while (it.next()) |return_address| {\n                  \x1b[32;1m^\x1b[0m\n\x1b[1m/usr/local/lib/zig/lib/std/debug.zig:157:80\x1b[0m: \x1b[2m0x20bb23 in dumpCurrentStackTrace (3.2-with-stack-trace)\x1b[0m\n        writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(io.getStdErr()), start_addr) catch |err| {\n                                                                               \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.2-with-stack-trace.zig:5:36\x1b[0m: \x1b[2m0x20d3b2 in foo (3.2-with-stack-trace)\x1b[0m\n    std.debug.dumpCurrentStackTrace(null);\n                                   \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.2-with-stack-trace.zig:9:8\x1b[0m: \x1b[2m0x20b458 in main (3.2-with-stack-trace)\x1b[0m\n    foo();\n       \x1b[32;1m^\x1b[0m\n\x1b[1m/usr/local/lib/zig/lib/std/start.zig:607:22\x1b[0m: \x1b[2m0x20a965 in posixCallMainAndExit (3.2-with-stack-trace)\x1b[0m\n            root.main();\n                     \x1b[32;1m^\x1b[0m\n\x1b[1m/usr/local/lib/zig/lib/std/start.zig:376:5\x1b[0m: \x1b[2m0x20a411 in _start (3.2-with-stack-trace)\x1b[0m\n    @call(.never_inline, posixCallMainAndExit, .{});\n    \x1b[32;1m^\x1b[0m\n";
+        const expect =
+            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/debug.zig:561:19</span>: <span class="sgr-2m">0x22a107 in writeCurrentStackTrace__anon_5898 (3.2-with-stack-trace)</span>
+            \\    while (it.next()) |return_address| {
+            \\                  <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/debug.zig:157:80</span>: <span class="sgr-2m">0x20bb23 in dumpCurrentStackTrace (3.2-with-stack-trace)</span>
+            \\        writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(io.getStdErr()), start_addr) catch |err| {
+            \\                                                                               <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/home/zig/src/3.2-with-stack-trace.zig:5:36</span>: <span class="sgr-2m">0x20d3b2 in foo (3.2-with-stack-trace)</span>
+            \\    std.debug.dumpCurrentStackTrace(null);
+            \\                                   <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/home/zig/src/3.2-with-stack-trace.zig:9:8</span>: <span class="sgr-2m">0x20b458 in main (3.2-with-stack-trace)</span>
+            \\    foo();
+            \\       <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/start.zig:607:22</span>: <span class="sgr-2m">0x20a965 in posixCallMainAndExit (3.2-with-stack-trace)</span>
+            \\            root.main();
+            \\                     <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/start.zig:376:5</span>: <span class="sgr-2m">0x20a411 in _start (3.2-with-stack-trace)</span>
+            \\    @call(.never_inline, posixCallMainAndExit, .{});
+            \\    <span class="sgr-32_1m">^</span>
+            \\
+        ;
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+}
+
+test "printShell" {
     const test_allocator = std.testing.allocator;
 
     {
@@ -1885,7 +2091,7 @@ test "shell parsed" {
             \\$ zig build test.zig
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
             \\</samp></pre></figure>
         ;
 
@@ -1893,7 +2099,6 @@ test "shell parsed" {
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
-        std.log.emerg("{s}", .{buffer.items});
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -1902,8 +2107,8 @@ test "shell parsed" {
             \\build output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
-            \\<span class="line">build output</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\build output
             \\</samp></pre></figure>
         ;
 
@@ -1920,9 +2125,9 @@ test "shell parsed" {
             \\$ ./test
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
-            \\<span class="line">build output</span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\build output
+            \\$ <kbd>./test</kbd>
             \\</samp></pre></figure>
         ;
 
@@ -1940,10 +2145,10 @@ test "shell parsed" {
             \\output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
-            \\<span class="line"></span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
-            \\<span class="line">output</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\
+            \\$ <kbd>./test</kbd>
+            \\output
             \\</samp></pre></figure>
         ;
 
@@ -1960,9 +2165,9 @@ test "shell parsed" {
             \\output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
-            \\<span class="line">output</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\$ <kbd>./test</kbd>
+            \\output
             \\</samp></pre></figure>
         ;
 
@@ -1981,11 +2186,11 @@ test "shell parsed" {
             \\output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig \</span>
-            \\<span class="line"> --build-option</kbd></span>
-            \\<span class="line">build output</span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
-            \\<span class="line">output</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
+            \\ --build-option</kbd>
+            \\build output
+            \\$ <kbd>./test</kbd>
+            \\output
             \\</samp></pre></figure>
         ;
 
@@ -1999,15 +2204,15 @@ test "shell parsed" {
         // intentional space after "--build-option1 \"
         const shell_out =
             \\$ zig build test.zig \
-            \\ --build-option1 \
+            \\ --build-option1 \ 
             \\ --build-option2
             \\$ ./test
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig \</span>
-            \\<span class="line"> --build-option1 \</span>
-            \\<span class="line"> --build-option2</kbd></span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
+            \\ --build-option1 \
+            \\ --build-option2</kbd>
+            \\$ <kbd>./test</kbd>
             \\</samp></pre></figure>
         ;
 
@@ -2023,8 +2228,8 @@ test "shell parsed" {
             \\$ ./test
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig \</span>
-            \\<span class="line">$ ./test</kbd></span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
+            \\$ ./test</kbd>
             \\</samp></pre></figure>
         ;
 
@@ -2041,9 +2246,9 @@ test "shell parsed" {
             \\$1
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
-            \\<span class="line">$1</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\$ <kbd>./test</kbd>
+            \\$1
             \\</samp></pre></figure>
         ;
 
@@ -2058,7 +2263,7 @@ test "shell parsed" {
             \\$zig build test.zig
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$zig build test.zig</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$zig build test.zig
             \\</samp></pre></figure>
         ;
 

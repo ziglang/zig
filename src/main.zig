@@ -140,8 +140,8 @@ pub fn log(
     // Hide debug messages unless:
     // * logging enabled with `-Dlog`.
     // * the --debug-log arg for the scope has been provided
-    if (@enumToInt(level) > @enumToInt(std.options.log_level) or
-        @enumToInt(level) > @enumToInt(std.log.Level.info))
+    if (@intFromEnum(level) > @intFromEnum(std.options.log_level) or
+        @intFromEnum(level) > @intFromEnum(std.log.Level.info))
     {
         if (!build_options.enable_logging) return;
 
@@ -724,9 +724,9 @@ fn buildOutputType(
     var dll_export_fns: ?bool = null;
     var single_threaded: ?bool = null;
     var root_src_file: ?[]const u8 = null;
-    var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
+    var version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 };
     var have_version = false;
-    var compatibility_version: ?std.builtin.Version = null;
+    var compatibility_version: ?std.SemanticVersion = null;
     var strip: ?bool = null;
     var formatted_panics: ?bool = null;
     var function_sections = false;
@@ -1121,7 +1121,7 @@ fn buildOutputType(
                         try cssan.addIncludePath(.iframework, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "--version")) {
                         const next_arg = args_iter.nextOrFatal();
-                        version = std.builtin.Version.parse(next_arg) catch |err| {
+                        version = std.SemanticVersion.parse(next_arg) catch |err| {
                             fatal("unable to parse --version '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                         have_version = true;
@@ -2152,12 +2152,12 @@ fn buildOutputType(
                     try system_libs.put(linker_args_it.nextOrFatal(), .{ .weak = true });
                 } else if (mem.eql(u8, arg, "-compatibility_version")) {
                     const compat_version = linker_args_it.nextOrFatal();
-                    compatibility_version = std.builtin.Version.parse(compat_version) catch |err| {
+                    compatibility_version = std.SemanticVersion.parse(compat_version) catch |err| {
                         fatal("unable to parse -compatibility_version '{s}': {s}", .{ compat_version, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-current_version")) {
                     const curr_version = linker_args_it.nextOrFatal();
-                    version = std.builtin.Version.parse(curr_version) catch |err| {
+                    version = std.SemanticVersion.parse(curr_version) catch |err| {
                         fatal("unable to parse -current_version '{s}': {s}", .{ curr_version, @errorName(err) });
                     };
                     have_version = true;
@@ -2207,10 +2207,9 @@ fn buildOutputType(
                 } else if (mem.startsWith(u8, arg, "/version:")) {
                     var split_it = mem.splitBackwardsScalar(u8, arg, ':');
                     const version_arg = split_it.first();
-                    version = std.builtin.Version.parse(version_arg) catch |err| {
+                    version = std.SemanticVersion.parse(version_arg) catch |err| {
                         fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
                     };
-
                     have_version = true;
                 } else {
                     fatal("unsupported linker arg: {s}", .{arg});
@@ -2425,8 +2424,8 @@ fn buildOutputType(
             fatal("shared memory is not allowed in object files", .{});
         }
 
-        if (!target_info.target.cpu.features.isEnabled(@enumToInt(std.Target.wasm.Feature.atomics)) or
-            !target_info.target.cpu.features.isEnabled(@enumToInt(std.Target.wasm.Feature.bulk_memory)))
+        if (!target_info.target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.atomics)) or
+            !target_info.target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.bulk_memory)))
         {
             fatal("'atomics' and 'bulk-memory' features must be enabled to use shared memory", .{});
         }
@@ -2641,7 +2640,7 @@ fn buildOutputType(
 
     if (output_mode == .Obj and (object_format == .coff or object_format == .macho)) {
         const total_obj_count = c_source_files.items.len +
-            @boolToInt(root_src_file != null) +
+            @intFromBool(root_src_file != null) +
             link_objects.items.len;
         if (total_obj_count > 1) {
             fatal("{s} does not support linking multiple objects into one", .{@tagName(object_format)});
@@ -3467,7 +3466,7 @@ fn serve(
                 }
             },
             else => {
-                fatal("unrecognized message from client: 0x{x}", .{@enumToInt(hdr.tag)});
+                fatal("unrecognized message from client: 0x{x}", .{@intFromEnum(hdr.tag)});
             },
         }
     }
@@ -4000,8 +3999,8 @@ pub const usage_libc =
     \\    Parse a libc installation text file and validate it.
     \\
     \\Options:
-    \\    -h, --help             Print this help and exit
-    \\    -target [name]         <arch><sub>-<os>-<abi> see the targets command
+    \\  -h, --help             Print this help and exit
+    \\  -target [name]         <arch><sub>-<os>-<abi> see the targets command
     \\
 ;
 
@@ -4068,7 +4067,7 @@ pub const usage_init =
     \\   directory.
     \\
     \\Options:
-    \\   -h, --help             Print this help and exit
+    \\  -h, --help             Print this help and exit
     \\
     \\
 ;
@@ -4166,16 +4165,18 @@ pub const usage_build =
     \\   Build a project from build.zig.
     \\
     \\Options:
-    \\   -freference-trace[=num]       How many lines of reference trace should be shown per compile error
-    \\   -fno-reference-trace          Disable reference trace
-    \\   -fsummary                     Print the build summary, even on success
-    \\   -fno-summary                  Omit the build summary, even on failure
-    \\   --build-file [file]           Override path to build.zig
-    \\   --cache-dir [path]            Override path to local Zig cache directory
-    \\   --global-cache-dir [path]     Override path to global Zig cache directory
-    \\   --zig-lib-dir [arg]           Override path to Zig lib directory
-    \\   --build-runner [file]         Override path to build runner
-    \\   -h, --help                    Print this help and exit
+    \\  -freference-trace[=num]       How many lines of reference trace should be shown per compile error
+    \\  -fno-reference-trace          Disable reference trace
+    \\  --summary [mode]              Control the printing of the build summary
+    \\    all                         Print the build summary in its entirety
+    \\    failures                    (Default) Only print failed steps
+    \\    none                        Do not print the build summary
+    \\  --build-file [file]           Override path to build.zig
+    \\  --cache-dir [path]            Override path to local Zig cache directory
+    \\  --global-cache-dir [path]     Override path to global Zig cache directory
+    \\  --zig-lib-dir [arg]           Override path to Zig lib directory
+    \\  --build-runner [file]         Override path to build runner
+    \\  -h, --help                    Print this help and exit
     \\
 ;
 
@@ -4576,13 +4577,13 @@ pub const usage_fmt =
     \\   recursively.
     \\
     \\Options:
-    \\   -h, --help             Print this help and exit
-    \\   --color [auto|off|on]  Enable or disable colored error messages
-    \\   --stdin                Format code from stdin; output to stdout
-    \\   --check                List non-conforming files and exit with an error
-    \\                          if the list is non-empty
-    \\   --ast-check            Run zig ast-check on every file
-    \\   --exclude [file]       Exclude file or directory from formatting
+    \\  -h, --help             Print this help and exit
+    \\  --color [auto|off|on]  Enable or disable colored error messages
+    \\  --stdin                Format code from stdin; output to stdout
+    \\  --check                List non-conforming files and exit with an error
+    \\                         if the list is non-empty
+    \\  --ast-check            Run zig ast-check on every file
+    \\  --exclude [file]       Exclude file or directory from formatting
     \\
     \\
 ;
@@ -4705,7 +4706,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
         defer gpa.free(formatted);
 
         if (check_flag) {
-            const code: u8 = @boolToInt(mem.eql(u8, formatted, source_code));
+            const code: u8 = @intFromBool(mem.eql(u8, formatted, source_code));
             process.exit(code);
         }
 
@@ -5079,7 +5080,7 @@ pub fn lldMain(
             unreachable;
         }
     };
-    return @boolToInt(!ok);
+    return @intFromBool(!ok);
 }
 
 const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments = true, .single_quotes = true });
@@ -5391,7 +5392,7 @@ fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
         //   setrlimit() now returns with errno set to EINVAL in places that historically succeeded.
         //   It no longer accepts "rlim_cur = RLIM.INFINITY" for RLIM.NOFILE.
         //   Use "rlim_cur = min(OPEN_MAX, rlim_max)".
-        lim.max = std.math.min(std.os.darwin.OPEN_MAX, lim.max);
+        lim.max = @min(std.os.darwin.OPEN_MAX, lim.max);
     }
     if (lim.cur == lim.max) return;
 

@@ -41,7 +41,7 @@ fn medium(ix: u32, x: f64, y: *[2]f64) i32 {
 
     // rint(x/(pi/2))
     @"fn" = x * invpio2 + toint - toint;
-    n = @floatToInt(i32, @"fn");
+    n = @intFromFloat(i32, @"fn");
     r = x - @"fn" * pio2_1;
     w = @"fn" * pio2_1t; // 1st round, good to 85 bits
     // Matters with directed rounding.
@@ -178,7 +178,7 @@ pub fn rem_pio2(x: f64, y: *[2]f64) i32 {
 
     i = 0;
     while (i < 2) : (i += 1) {
-        tx[U(i)] = @intToFloat(f64, @floatToInt(i32, z));
+        tx[U(i)] = @floatFromInt(f64, @intFromFloat(i32, z));
         z = (z - tx[U(i)]) * 0x1p24;
     }
     tx[U(i)] = z;

@@ -129,6 +129,15 @@ fn handleRequest(res: *Server.Response) !void {
         try res.writeAll("Hello, ");
         try res.writeAll("Redirected!\n");
         try res.finish();
+    } else if (mem.eql(u8, res.request.target, "/redirect/invalid")) {
+        const invalid_port = try getUnusedTcpPort();
+        const location = try std.fmt.allocPrint(salloc, "http://127.0.0.1:{d}", .{invalid_port});
+        defer salloc.free(location);
+
+        res.status = .found;
+        try res.headers.append("location", location);
+        try res.do();
+        try res.finish();
     } else {
         res.status = .not_found;
         try res.do();
@@ -178,6 +187,14 @@ fn killServer(addr: std.net.Address) void {
 
     const conn = std.net.tcpConnectToAddress(addr) catch return;
     conn.close();
+}
+
+fn getUnusedTcpPort() !u16 {
+    const addr = try std.net.Address.parseIp("127.0.0.1", 0);
+    var s = std.net.StreamServer.init(.{});
+    defer s.deinit();
+    try s.listen(addr);
+    return s.listen_address.in.getPort();
 }
 
 pub fn main() !void {
@@ -528,6 +545,27 @@ pub fn main() !void {
             error.TooManyHttpRedirects => {},
             else => return err,
         };
+    }
+
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
+
+    { // check client without segfault by connection error after redirection
+        var h = http.Headers{ .allocator = calloc };
+        defer h.deinit();
+
+        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/redirect/invalid", .{port});
+        defer calloc.free(location);
+        const uri = try std.Uri.parse(location);
+
+        log.info("{s}", .{location});
+        var req = try client.request(.GET, uri, h, .{});
+        defer req.deinit();
+
+        try req.start();
+        const result = req.wait();
+
+        try testing.expectError(error.ConnectionRefused, result); // expects not segfault but the regular error
     }
 
     // connection has been kept alive

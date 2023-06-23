@@ -14,7 +14,7 @@ pub fn LimitedReader(comptime ReaderType: type) type {
         const Self = @This();
 
         pub fn read(self: *Self, dest: []u8) Error!usize {
-            const max_read = std.math.min(self.bytes_left, dest.len);
+            const max_read = @min(self.bytes_left, dest.len);
             const n = try self.inner_reader.read(dest[0..max_read]);
             self.bytes_left -= n;
             return n;

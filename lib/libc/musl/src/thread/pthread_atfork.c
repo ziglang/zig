@@ -1,6 +1,12 @@
 #include <pthread.h>
+#include <errno.h>
 #include "libc.h"
 #include "lock.h"
+
+#define malloc __libc_malloc
+#define calloc undef
+#define realloc undef
+#define free undef
 
 static struct atfork_funcs {
 	void (*prepare)(void);
@@ -34,7 +40,7 @@ void __fork_handler(int who)
 int pthread_atfork(void (*prepare)(void), void (*parent)(void), void (*child)(void))
 {
 	struct atfork_funcs *new = malloc(sizeof *new);
-	if (!new) return -1;
+	if (!new) return ENOMEM;
 
 	LOCK(lock);
 	new->next = funcs;

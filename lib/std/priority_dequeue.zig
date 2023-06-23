@@ -69,9 +69,7 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             // The first element is on a min layer;
             // next two are on a max layer;
             // next four are on a min layer, and so on.
-            const leading_zeros = @clz(index + 1);
-            const highest_set_bit = @bitSizeOf(usize) - 1 - leading_zeros;
-            return (highest_set_bit & 1) == 0;
+            return 1 == @clz(index +% 1) & 1;
         }
 
         fn nextIsMinLayer(self: Self) bool {
@@ -232,7 +230,7 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
                 } else {
                     // The children or grandchildren are the last layer
                     const first_child_index = firstChildIndex(index);
-                    if (first_child_index > self.len) return;
+                    if (first_child_index >= self.len) return;
 
                     const best_descendent = self.bestDescendent(first_child_index, first_grandchild_index, target_order);
 
@@ -1003,4 +1001,26 @@ test "std.PriorityDequeue: add and remove" {
     try expectEqual(@as(usize, 4), queue.removeMin());
     try expectEqual(@as(usize, 2), queue.removeMax());
     try expectEqual(@as(usize, 1), queue.removeMin());
+}
+
+var all_cmps_unique = true;
+
+test "std.PriorityDeque: don't compare a value to a copy of itself" {
+    var depq = PriorityDequeue(u32, void, struct {
+        fn uniqueLessThan(_: void, a: u32, b: u32) Order {
+            all_cmps_unique = all_cmps_unique and (a != b);
+            return std.math.order(a, b);
+        }
+    }.uniqueLessThan).init(testing.allocator, {});
+    defer depq.deinit();
+
+    try depq.add(1);
+    try depq.add(2);
+    try depq.add(3);
+    try depq.add(4);
+    try depq.add(5);
+    try depq.add(6);
+
+    _ = depq.removeIndex(2);
+    try expectEqual(all_cmps_unique, true);
 }

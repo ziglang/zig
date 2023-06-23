@@ -117,7 +117,7 @@ fn mainServer() !void {
             },
 
             else => {
-                std.debug.print("unsupported message: {x}", .{@enumToInt(hdr.tag)});
+                std.debug.print("unsupported message: {x}", .{@intFromEnum(hdr.tag)});
                 std.process.exit(1);
             },
         }
@@ -216,10 +216,10 @@ pub fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (@enumToInt(message_level) <= @enumToInt(std.log.Level.err)) {
+    if (@intFromEnum(message_level) <= @intFromEnum(std.log.Level.err)) {
         log_err_count += 1;
     }
-    if (@enumToInt(message_level) <= @enumToInt(std.testing.log_level)) {
+    if (@intFromEnum(message_level) <= @intFromEnum(std.testing.log_level)) {
         std.debug.print(
             "[" ++ @tagName(scope) ++ "] (" ++ @tagName(message_level) ++ "): " ++ format ++ "\n",
             args,

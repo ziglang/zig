@@ -760,14 +760,14 @@ pub const UnwindEncoding = struct {
     pub fn isDwarf(enc: macho.compact_unwind_encoding_t, cpu_arch: std.Target.Cpu.Arch) bool {
         const mode = getMode(enc);
         return switch (cpu_arch) {
-            .aarch64 => @intToEnum(macho.UNWIND_ARM64_MODE, mode) == .DWARF,
-            .x86_64 => @intToEnum(macho.UNWIND_X86_64_MODE, mode) == .DWARF,
+            .aarch64 => @enumFromInt(macho.UNWIND_ARM64_MODE, mode) == .DWARF,
+            .x86_64 => @enumFromInt(macho.UNWIND_X86_64_MODE, mode) == .DWARF,
             else => unreachable,
         };
     }
 
     pub fn setMode(enc: *macho.compact_unwind_encoding_t, mode: anytype) void {
-        enc.* |= @intCast(u32, @enumToInt(mode)) << 24;
+        enc.* |= @intCast(u32, @intFromEnum(mode)) << 24;
     }
 
     pub fn hasLsda(enc: macho.compact_unwind_encoding_t) bool {
@@ -776,7 +776,7 @@ pub const UnwindEncoding = struct {
     }
 
     pub fn setHasLsda(enc: *macho.compact_unwind_encoding_t, has_lsda: bool) void {
-        const mask = @intCast(u32, @boolToInt(has_lsda)) << 31;
+        const mask = @intCast(u32, @intFromBool(has_lsda)) << 31;
         enc.* |= mask;
     }
 

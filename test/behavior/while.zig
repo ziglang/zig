@@ -122,7 +122,7 @@ test "while copies its payload" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "continue and break" {
@@ -293,7 +293,7 @@ test "while bool 2 break statements and an else" {
         }
     };
     try S.entry(true, false);
-    comptime try S.entry(true, false);
+    try comptime S.entry(true, false);
 }
 
 test "while optional 2 break statements and an else" {
@@ -312,7 +312,7 @@ test "while optional 2 break statements and an else" {
         }
     };
     try S.entry(true, false);
-    comptime try S.entry(true, false);
+    try comptime S.entry(true, false);
 }
 
 test "while error 2 break statements and an else" {
@@ -332,7 +332,7 @@ test "while error 2 break statements and an else" {
         }
     };
     try S.entry(true, false);
-    comptime try S.entry(true, false);
+    try comptime S.entry(true, false);
 }
 
 test "continue inline while loop" {

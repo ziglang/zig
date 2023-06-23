@@ -13,6 +13,7 @@ const mem = std.mem;
 const meta = std.meta;
 
 const aarch64 = @import("../arch/aarch64/bits.zig");
+const calcUuid = @import("MachO/uuid.zig").calcUuid;
 const codegen = @import("../codegen.zig");
 const dead_strip = @import("MachO/dead_strip.zig");
 const fat = @import("MachO/fat.zig");
@@ -756,11 +757,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     });
     try load_commands.writeBuildVersionLC(&self.base.options, lc_writer);
 
-    if (self.cold_start) {
-        std.crypto.random.bytes(&self.uuid_cmd.uuid);
-        Md5.hash(&self.uuid_cmd.uuid, &self.uuid_cmd.uuid, .{});
-        conformUuid(&self.uuid_cmd.uuid);
-    }
+    const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
     try lc_writer.writeStruct(self.uuid_cmd);
 
     try load_commands.writeLoadDylibLCs(self.dylibs.items, self.referenced_dylibs.keys(), lc_writer);
@@ -769,10 +766,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         try lc_writer.writeStruct(self.codesig_cmd);
     }
 
-    try self.base.file.?.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64));
-
     const ncmds = load_commands.calcNumOfLCs(lc_buffer.items);
+    try self.base.file.?.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64));
     try self.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len));
+    try self.writeUuid(comp, uuid_cmd_offset, requires_codesig);
 
     if (codesig) |*csig| {
         try self.writeCodeSignature(comp, csig); // code signing always comes last
@@ -1777,7 +1774,7 @@ fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
 fn growAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignment: u64) !u64 {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
-    const align_ok = mem.alignBackwardGeneric(u64, sym.n_value, alignment) == sym.n_value;
+    const align_ok = mem.alignBackward(u64, sym.n_value, alignment) == sym.n_value;
     const need_realloc = !align_ok or new_atom_size > atom.capacity(self);
     if (!need_realloc) return sym.n_value;
     return self.allocateAtom(atom_index, new_atom_size, alignment);
@@ -2598,7 +2595,7 @@ fn populateMissingMetadata(self: *MachO) !void {
         // The first __TEXT segment is immovable and covers MachO header and load commands.
         self.header_segment_cmd_index = @intCast(u8, self.segments.items.len);
         const ideal_size = @max(self.base.options.headerpad_size orelse 0, default_headerpad_size);
-        const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
+        const needed_size = mem.alignForward(u64, padToIdeal(ideal_size), self.page_size);
 
         log.debug("found __TEXT segment (header-only) free space 0x{x} to 0x{x}", .{ 0, needed_size });
 
@@ -2735,7 +2732,7 @@ fn populateMissingMetadata(self: *MachO) !void {
 
 fn calcPagezeroSize(self: *MachO) u64 {
     const pagezero_vmsize = self.base.options.pagezero_size orelse default_pagezero_vmsize;
-    const aligned_pagezero_vmsize = mem.alignBackwardGeneric(u64, pagezero_vmsize, self.page_size);
+    const aligned_pagezero_vmsize = mem.alignBackward(u64, pagezero_vmsize, self.page_size);
     if (self.base.options.output_mode == .Lib) return 0;
     if (aligned_pagezero_vmsize == 0) return 0;
     if (aligned_pagezero_vmsize != pagezero_vmsize) {
@@ -2759,10 +2756,10 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
     const section_id = @intCast(u8, self.sections.slice().len);
     const vmaddr = blk: {
         const prev_segment = self.segments.items[segment_id - 1];
-        break :blk mem.alignForwardGeneric(u64, prev_segment.vmaddr + prev_segment.vmsize, self.page_size);
+        break :blk mem.alignForward(u64, prev_segment.vmaddr + prev_segment.vmsize, self.page_size);
     };
     // We commit more memory than needed upfront so that we don't have to reallocate too soon.
-    const vmsize = mem.alignForwardGeneric(u64, opts.size, self.page_size);
+    const vmsize = mem.alignForward(u64, opts.size, self.page_size);
     const off = self.findFreeSpace(opts.size, self.page_size);
 
     log.debug("found {s},{s} free space 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
@@ -2790,8 +2787,8 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
     var section = macho.section_64{
         .sectname = makeStaticString(sectname),
         .segname = makeStaticString(segname),
-        .addr = mem.alignForwardGeneric(u64, vmaddr, opts.alignment),
-        .offset = mem.alignForwardGeneric(u32, @intCast(u32, off), opts.alignment),
+        .addr = mem.alignForward(u64, vmaddr, opts.alignment),
+        .offset = mem.alignForward(u32, @intCast(u32, off), opts.alignment),
         .size = opts.size,
         .@"align" = math.log2(opts.alignment),
         .flags = opts.flags,
@@ -2846,8 +2843,8 @@ fn growSection(self: *MachO, sect_id: u8, needed_size: u64) !void {
     }
 
     header.size = needed_size;
-    segment.filesize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
-    segment.vmsize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
+    segment.filesize = mem.alignForward(u64, needed_size, self.page_size);
+    segment.vmsize = mem.alignForward(u64, needed_size, self.page_size);
 }
 
 fn growSectionVirtualMemory(self: *MachO, sect_id: u8, needed_size: u64) !void {
@@ -2855,7 +2852,7 @@ fn growSectionVirtualMemory(self: *MachO, sect_id: u8, needed_size: u64) !void {
     const segment = self.getSegmentPtr(sect_id);
     const increased_size = padToIdeal(needed_size);
     const old_aligned_end = segment.vmaddr + segment.vmsize;
-    const new_aligned_end = segment.vmaddr + mem.alignForwardGeneric(u64, increased_size, self.page_size);
+    const new_aligned_end = segment.vmaddr + mem.alignForward(u64, increased_size, self.page_size);
     const diff = new_aligned_end - old_aligned_end;
     log.debug("shifting every segment after {s},{s} in virtual memory by {x}", .{
         header.segName(),
@@ -2927,7 +2924,7 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
             const ideal_capacity_end_vaddr = math.add(u64, sym.n_value, ideal_capacity) catch ideal_capacity;
             const capacity_end_vaddr = sym.n_value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
-            const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
+            const new_start_vaddr = mem.alignBackward(u64, new_start_vaddr_unaligned, alignment);
             if (new_start_vaddr < ideal_capacity_end_vaddr) {
                 // Additional bookkeeping here to notice if this free list node
                 // should be deleted because the atom that it points to has grown to take up
@@ -2956,11 +2953,11 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
             const last_symbol = last.getSymbol(self);
             const ideal_capacity = if (requires_padding) padToIdeal(last.size) else last.size;
             const ideal_capacity_end_vaddr = last_symbol.n_value + ideal_capacity;
-            const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
+            const new_start_vaddr = mem.alignForward(u64, ideal_capacity_end_vaddr, alignment);
             atom_placement = last_index;
             break :blk new_start_vaddr;
         } else {
-            break :blk mem.alignForwardGeneric(u64, segment.vmaddr, alignment);
+            break :blk mem.alignForward(u64, segment.vmaddr, alignment);
         }
     };
 
@@ -3034,17 +3031,17 @@ fn writeLinkeditSegmentData(self: *MachO) !void {
     for (self.segments.items, 0..) |segment, id| {
         if (self.linkedit_segment_cmd_index.? == @intCast(u8, id)) continue;
         if (seg.vmaddr < segment.vmaddr + segment.vmsize) {
-            seg.vmaddr = mem.alignForwardGeneric(u64, segment.vmaddr + segment.vmsize, self.page_size);
+            seg.vmaddr = mem.alignForward(u64, segment.vmaddr + segment.vmsize, self.page_size);
         }
         if (seg.fileoff < segment.fileoff + segment.filesize) {
-            seg.fileoff = mem.alignForwardGeneric(u64, segment.fileoff + segment.filesize, self.page_size);
+            seg.fileoff = mem.alignForward(u64, segment.fileoff + segment.filesize, self.page_size);
         }
     }
 
     try self.writeDyldInfoData();
     try self.writeSymtabs();
 
-    seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
+    seg.vmsize = mem.alignForward(u64, seg.filesize, self.page_size);
 }
 
 fn collectRebaseDataFromTableSection(self: *MachO, sect_id: u8, rebase: *Rebase, table: anytype) !void {
@@ -3236,17 +3233,17 @@ fn writeDyldInfoData(self: *MachO) !void {
     assert(mem.isAlignedGeneric(u64, link_seg.fileoff, @alignOf(u64)));
     const rebase_off = link_seg.fileoff;
     const rebase_size = rebase.size();
-    const rebase_size_aligned = mem.alignForwardGeneric(u64, rebase_size, @alignOf(u64));
+    const rebase_size_aligned = mem.alignForward(u64, rebase_size, @alignOf(u64));
     log.debug("writing rebase info from 0x{x} to 0x{x}", .{ rebase_off, rebase_off + rebase_size_aligned });
 
     const bind_off = rebase_off + rebase_size_aligned;
     const bind_size = bind.size();
-    const bind_size_aligned = mem.alignForwardGeneric(u64, bind_size, @alignOf(u64));
+    const bind_size_aligned = mem.alignForward(u64, bind_size, @alignOf(u64));
     log.debug("writing bind info from 0x{x} to 0x{x}", .{ bind_off, bind_off + bind_size_aligned });
 
     const lazy_bind_off = bind_off + bind_size_aligned;
     const lazy_bind_size = lazy_bind.size();
-    const lazy_bind_size_aligned = mem.alignForwardGeneric(u64, lazy_bind_size, @alignOf(u64));
+    const lazy_bind_size_aligned = mem.alignForward(u64, lazy_bind_size, @alignOf(u64));
     log.debug("writing lazy bind info from 0x{x} to 0x{x}", .{
         lazy_bind_off,
         lazy_bind_off + lazy_bind_size_aligned,
@@ -3254,7 +3251,7 @@ fn writeDyldInfoData(self: *MachO) !void {
 
     const export_off = lazy_bind_off + lazy_bind_size_aligned;
     const export_size = trie.size;
-    const export_size_aligned = mem.alignForwardGeneric(u64, export_size, @alignOf(u64));
+    const export_size_aligned = mem.alignForward(u64, export_size, @alignOf(u64));
     log.debug("writing export trie from 0x{x} to 0x{x}", .{ export_off, export_off + export_size_aligned });
 
     const needed_size = math.cast(usize, export_off + export_size_aligned - rebase_off) orelse
@@ -3412,7 +3409,7 @@ fn writeStrtab(self: *MachO) !void {
     const offset = seg.fileoff + seg.filesize;
     assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
     const needed_size = self.strtab.buffer.items.len;
-    const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+    const needed_size_aligned = mem.alignForward(u64, needed_size, @alignOf(u64));
     seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
     log.debug("writing string table from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
@@ -3447,7 +3444,7 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     const offset = seg.fileoff + seg.filesize;
     assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
     const needed_size = nindirectsyms * @sizeOf(u32);
-    const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+    const needed_size_aligned = mem.alignForward(u64, needed_size, @alignOf(u64));
     seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
     log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
@@ -3510,14 +3507,24 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     self.dysymtab_cmd.nindirectsyms = nindirectsyms;
 }
 
+fn writeUuid(self: *MachO, comp: *const Compilation, uuid_cmd_offset: u32, has_codesig: bool) !void {
+    const file_size = if (!has_codesig) blk: {
+        const seg = self.getLinkeditSegmentPtr();
+        break :blk seg.fileoff + seg.filesize;
+    } else self.codesig_cmd.dataoff;
+    try calcUuid(comp, self.base.file.?, file_size, &self.uuid_cmd.uuid);
+    const offset = uuid_cmd_offset + @sizeOf(macho.load_command);
+    try self.base.file.?.pwriteAll(&self.uuid_cmd.uuid, offset);
+}
+
 fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
     const seg = self.getLinkeditSegmentPtr();
     // Code signature data has to be 16-bytes aligned for Apple tools to recognize the file
     // https://github.com/opensource-apple/cctools/blob/fdb4825f303fd5c0751be524babd32958181b3ed/libstuff/checkout.c#L271
-    const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, 16);
+    const offset = mem.alignForward(u64, seg.fileoff + seg.filesize, 16);
     const needed_size = code_sig.estimateSize(offset);
     seg.filesize = offset + needed_size - seg.fileoff;
-    seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
+    seg.vmsize = mem.alignForward(u64, seg.filesize, self.page_size);
     log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
     // Pad out the space. We need to do this to calculate valid hashes for everything in the file
     // except for code signature data.
@@ -3630,7 +3637,7 @@ fn allocatedSize(self: *MachO, start: u64) u64 {
 fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) u64 {
     var start: u64 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
-        start = mem.alignForwardGeneric(u64, item_end, min_alignment);
+        start = mem.alignForward(u64, item_end, min_alignment);
     }
     return start;
 }

@@ -41,8 +41,8 @@ pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash, mod: *Module) void {
     return tv.val.hash(tv.ty, hasher, mod);
 }
 
-pub fn enumToInt(tv: TypedValue, mod: *Module) Allocator.Error!Value {
-    return tv.val.enumToInt(tv.ty, mod);
+pub fn intFromEnum(tv: TypedValue, mod: *Module) Allocator.Error!Value {
+    return tv.val.intFromEnum(tv.ty, mod);
 }
 
 const max_aggregate_items = 100;
@@ -111,7 +111,7 @@ pub fn print(
                     .val = val.castTag(.repeated).?.data,
                 };
                 const len = ty.arrayLen(mod);
-                const max_len = std.math.min(len, max_aggregate_items);
+                const max_len = @min(len, max_aggregate_items);
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
                     try print(elem_tv, writer, level - 1, mod);
@@ -130,7 +130,7 @@ pub fn print(
                 const len = payload.len.toUnsignedInt(mod);
 
                 if (elem_ty.eql(Type.u8, mod)) str: {
-                    const max_len = @intCast(usize, std.math.min(len, max_string_len));
+                    const max_len: usize = @min(len, max_string_len);
                     var buf: [max_string_len]u8 = undefined;
 
                     var i: u32 = 0;
@@ -149,7 +149,7 @@ pub fn print(
 
                 try writer.writeAll(".{ ");
 
-                const max_len = std.math.min(len, max_aggregate_items);
+                const max_len = @min(len, max_aggregate_items);
                 var i: u32 = 0;
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
@@ -240,7 +240,7 @@ pub fn print(
                     try writer.print(".{i}", .{enum_type.names[tag_index].fmt(ip)});
                     return;
                 }
-                try writer.writeAll("@intToEnum(");
+                try writer.writeAll("@enumFromInt(");
                 try print(.{
                     .ty = Type.type,
                     .val = enum_tag.ty.toValue(),
@@ -345,12 +345,13 @@ pub fn print(
                         try writer.print("[{}]", .{elem.index});
                     },
                     .field => |field| {
-                        const container_ty = ip.typeOf(field.base).toType();
+                        const ptr_container_ty = ip.typeOf(field.base).toType();
                         try print(.{
-                            .ty = container_ty,
+                            .ty = ptr_container_ty,
                             .val = field.base.toValue(),
                         }, writer, level - 1, mod);
 
+                        const container_ty = ptr_container_ty.childType(mod);
                         switch (container_ty.zigTypeTag(mod)) {
                             .Struct => {
                                 if (container_ty.isTuple(mod)) {
@@ -375,6 +376,7 @@ pub fn print(
                         }
                     },
                 }
+                return;
             },
             .opt => |opt| switch (opt.val) {
                 .none => return writer.writeAll("null"),
@@ -453,7 +455,7 @@ fn printAggregate(
         const len = ty.arrayLen(mod);
 
         if (elem_ty.eql(Type.u8, mod)) str: {
-            const max_len = @intCast(usize, std.math.min(len, max_string_len));
+            const max_len: usize = @min(len, max_string_len);
             var buf: [max_string_len]u8 = undefined;
 
             var i: u32 = 0;
@@ -469,7 +471,7 @@ fn printAggregate(
 
         try writer.writeAll(".{ ");
 
-        const max_len = std.math.min(len, max_aggregate_items);
+        const max_len = @min(len, max_aggregate_items);
         var i: u32 = 0;
         while (i < max_len) : (i += 1) {
             if (i != 0) try writer.writeAll(", ");

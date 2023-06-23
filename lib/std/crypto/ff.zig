@@ -570,7 +570,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             var out = self.zero;
             var i = x.limbs_count() - 1;
             if (self.limbs_count() >= 2) {
-                const start = math.min(i, self.limbs_count() - 2);
+                const start = @min(i, self.limbs_count() - 2);
                 var j = start;
                 while (true) : (j -= 1) {
                     out.v.limbs.set(j, x.limbs.get(i));
@@ -637,7 +637,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             assert(x.limbs_count() == self.limbs_count());
             assert(y.limbs_count() == self.limbs_count());
             const overflow = self.montgomeryLoop(&d, x, y);
-            const underflow = 1 -% @boolToInt(ct.limbsCmpGeq(d.v, self.v));
+            const underflow = 1 -% @intFromBool(ct.limbsCmpGeq(d.v, self.v));
             const need_sub = ct.eql(overflow, underflow);
             _ = d.v.conditionalSubWithOverflow(need_sub, self.v);
             d.montgomery = x.montgomery == y.montgomery;
@@ -649,7 +649,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             var d = self.zero;
             assert(x.limbs_count() == self.limbs_count());
             const overflow = self.montgomeryLoop(&d, x, x);
-            const underflow = 1 -% @boolToInt(ct.limbsCmpGeq(d.v, self.v));
+            const underflow = 1 -% @intFromBool(ct.limbsCmpGeq(d.v, self.v));
             const need_sub = ct.eql(overflow, underflow);
             _ = d.v.conditionalSubWithOverflow(need_sub, self.v);
             d.montgomery = true;
@@ -763,7 +763,7 @@ const ct = if (std.options.side_channels_mitigations == .none) ct_unprotected el
 const ct_protected = struct {
     // Returns x if on is true, otherwise y.
     fn select(on: bool, x: Limb, y: Limb) Limb {
-        const mask = @as(Limb, 0) -% @boolToInt(on);
+        const mask = @as(Limb, 0) -% @intFromBool(on);
         return y ^ (mask & (y ^ x));
     }
 
@@ -789,7 +789,7 @@ const ct_protected = struct {
 
     // Compares two big integers in constant time, returning true if x >= y.
     fn limbsCmpGeq(x: anytype, y: @TypeOf(x)) bool {
-        return @bitCast(bool, 1 - @boolToInt(ct.limbsCmpLt(x, y)));
+        return @bitCast(bool, 1 - @intFromBool(ct.limbsCmpLt(x, y)));
     }
 
     // Multiplies two limbs and returns the result as a wide limb.

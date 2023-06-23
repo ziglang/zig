@@ -109,7 +109,7 @@ pub fn createThunks(zld: *Zld, sect_id: u8) !void {
 
         while (true) {
             const atom = zld.getAtom(group_end);
-            offset = mem.alignForwardGeneric(u64, offset, try math.powi(u32, 2, atom.alignment));
+            offset = mem.alignForward(u64, offset, try math.powi(u32, 2, atom.alignment));
 
             const sym = zld.getSymbolPtr(atom.getSymbolWithLoc());
             sym.n_value = offset;
@@ -153,7 +153,7 @@ pub fn createThunks(zld: *Zld, sect_id: u8) !void {
             } else break;
         }
 
-        offset = mem.alignForwardGeneric(u64, offset, Thunk.getAlignment());
+        offset = mem.alignForward(u64, offset, Thunk.getAlignment());
         allocateThunk(zld, thunk_index, offset, header);
         offset += zld.thunks.items[thunk_index].getSize();
 
@@ -193,7 +193,7 @@ fn allocateThunk(
     var offset = base_offset;
     while (true) {
         const atom = zld.getAtom(atom_index);
-        offset = mem.alignForwardGeneric(u64, offset, Thunk.getAlignment());
+        offset = mem.alignForward(u64, offset, Thunk.getAlignment());
 
         const sym = zld.getSymbolPtr(atom.getSymbolWithLoc());
         sym.n_value = offset;
@@ -289,7 +289,7 @@ fn scanRelocs(
 }
 
 inline fn relocNeedsThunk(rel: macho.relocation_info) bool {
-    const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+    const rel_type = @enumFromInt(macho.reloc_type_arm64, rel.r_type);
     return rel_type == .ARM64_RELOC_BRANCH26;
 }
 

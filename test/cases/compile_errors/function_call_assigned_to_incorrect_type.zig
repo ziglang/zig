@@ -3,7 +3,7 @@ export fn entry() void {
     arr = concat();
 }
 fn concat() [16]f32 {
-    return [1]f32{0}**16;
+    return [1]f32{0} ** 16;
 }
 
 // error

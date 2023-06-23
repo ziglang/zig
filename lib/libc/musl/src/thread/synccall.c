@@ -45,7 +45,7 @@ void __synccall(void (*func)(void *), void *ctx)
 {
 	sigset_t oldmask;
 	int cs, i, r;
-	struct sigaction sa = { .sa_flags = SA_RESTART, .sa_handler = handler };
+	struct sigaction sa = { .sa_flags = SA_RESTART | SA_ONSTACK, .sa_handler = handler };
 	pthread_t self = __pthread_self(), td;
 	int count = 0;
 

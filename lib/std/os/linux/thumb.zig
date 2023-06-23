@@ -10,7 +10,7 @@ const SYS = linux.SYS;
 pub fn syscall0(number: SYS) usize {
     @setRuntimeSafety(false);
 
-    var buf: [2]usize = .{ @enumToInt(number), undefined };
+    var buf: [2]usize = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -25,7 +25,7 @@ pub fn syscall0(number: SYS) usize {
 pub fn syscall1(number: SYS, arg1: usize) usize {
     @setRuntimeSafety(false);
 
-    var buf: [2]usize = .{ @enumToInt(number), undefined };
+    var buf: [2]usize = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -41,7 +41,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     @setRuntimeSafety(false);
 
-    var buf: [2]usize = .{ @enumToInt(number), undefined };
+    var buf: [2]usize = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -58,7 +58,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     @setRuntimeSafety(false);
 
-    var buf: [2]usize = .{ @enumToInt(number), undefined };
+    var buf: [2]usize = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -76,7 +76,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     @setRuntimeSafety(false);
 
-    var buf: [2]usize = .{ @enumToInt(number), undefined };
+    var buf: [2]usize = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -95,7 +95,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
     @setRuntimeSafety(false);
 
-    var buf: [2]usize = .{ @enumToInt(number), undefined };
+    var buf: [2]usize = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -123,7 +123,7 @@ pub fn syscall6(
 ) usize {
     @setRuntimeSafety(false);
 
-    var buf: [2]usize = .{ @enumToInt(number), undefined };
+    var buf: [2]usize = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -146,7 +146,7 @@ pub fn restore() callconv(.Naked) void {
         \\ mov r7, %[number]
         \\ svc #0
         :
-        : [number] "I" (@enumToInt(SYS.sigreturn)),
+        : [number] "I" (@intFromEnum(SYS.sigreturn)),
     );
 }
 
@@ -155,7 +155,7 @@ pub fn restore_rt() callconv(.Naked) void {
         \\ mov r7, %[number]
         \\ svc #0
         :
-        : [number] "I" (@enumToInt(SYS.rt_sigreturn)),
+        : [number] "I" (@intFromEnum(SYS.rt_sigreturn)),
         : "memory"
     );
 }

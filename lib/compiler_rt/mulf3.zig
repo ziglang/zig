@@ -126,7 +126,7 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
         // Otherwise, shift the significand of the result so that the round
         // bit is the high bit of productLo.
         const sticky = wideShrWithTruncation(ZSignificand, &productHi, &productLo, shift);
-        productLo |= @boolToInt(sticky);
+        productLo |= @intFromBool(sticky);
         result = productHi;
 
         // We include the integer bit so that rounding will carry to the exponent,

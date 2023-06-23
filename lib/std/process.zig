@@ -514,9 +514,9 @@ pub const ArgIteratorWasi = struct {
     /// Call to free the internal buffer of the iterator.
     pub fn deinit(self: *ArgIteratorWasi) void {
         const last_item = self.args[self.args.len - 1];
-        const last_byte_addr = @ptrToInt(last_item.ptr) + last_item.len + 1; // null terminated
+        const last_byte_addr = @intFromPtr(last_item.ptr) + last_item.len + 1; // null terminated
         const first_item_ptr = self.args[0].ptr;
-        const len = last_byte_addr - @ptrToInt(first_item_ptr);
+        const len = last_byte_addr - @intFromPtr(first_item_ptr);
         self.allocator.free(first_item_ptr[0..len]);
         self.allocator.free(self.args);
     }
@@ -1079,9 +1079,9 @@ pub fn getBaseAddress() usize {
             return phdr - @sizeOf(std.elf.Ehdr);
         },
         .macos, .freebsd, .netbsd => {
-            return @ptrToInt(&std.c._mh_execute_header);
+            return @intFromPtr(&std.c._mh_execute_header);
         },
-        .windows => return @ptrToInt(os.windows.kernel32.GetModuleHandleW(null)),
+        .windows => return @intFromPtr(os.windows.kernel32.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
     }
 }
@@ -1163,7 +1163,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
         .linux => {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
         },
-        .freebsd, .netbsd, .openbsd, .dragonfly, .macos => {
+        .freebsd, .netbsd, .dragonfly, .macos => {
             var physmem: c_ulong = undefined;
             var len: usize = @sizeOf(c_ulong);
             const name = switch (builtin.os.tag) {
@@ -1176,6 +1176,23 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
                 else => return error.UnknownTotalSystemMemory,
             };
             return @intCast(usize, physmem);
+        },
+        .openbsd => {
+            const mib: [2]c_int = [_]c_int{
+                std.os.CTL.HW,
+                std.os.HW.PHYSMEM64,
+            };
+            var physmem: i64 = undefined;
+            var len: usize = @sizeOf(@TypeOf(physmem));
+            std.os.sysctl(&mib, &physmem, &len, null, 0) catch |err| switch (err) {
+                error.NameTooLong => unreachable, // constant, known good value
+                error.PermissionDenied => unreachable, // only when setting values,
+                error.SystemResources => unreachable, // memory already on the stack
+                error.UnknownName => unreachable, // constant, known good value
+                else => return error.UnknownTotalSystemMemory,
+            };
+            assert(physmem >= 0);
+            return @bitCast(usize, physmem);
         },
         .windows => {
             var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;

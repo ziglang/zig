@@ -70,8 +70,8 @@ pub const Header = struct {
     }
 
     pub fn fileType(header: Header) FileType {
-        const result = @intToEnum(FileType, header.bytes[156]);
-        return if (result == @intToEnum(FileType, 0)) .normal else result;
+        const result = @enumFromInt(FileType, header.bytes[156]);
+        return if (result == @enumFromInt(FileType, 0)) .normal else result;
     }
 
     fn str(header: Header, start: usize, end: usize) []const u8 {
@@ -116,7 +116,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
         const header: Header = .{ .bytes = buffer[start..][0..512] };
         start += 512;
         const file_size = try header.fileSize();
-        const rounded_file_size = std.mem.alignForwardGeneric(u64, file_size, 512);
+        const rounded_file_size = std.mem.alignForward(u64, file_size, 512);
         const pad_len = @intCast(usize, rounded_file_size - file_size);
         const unstripped_file_name = try header.fullFileName(&file_name_buffer);
         switch (header.fileType()) {

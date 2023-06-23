@@ -1396,6 +1396,26 @@ fn renderBuiltinCall(
         try ais.writer().writeAll("@max");
     } else if (mem.eql(u8, slice, "@minimum")) {
         try ais.writer().writeAll("@min");
+    }
+    //
+    else if (mem.eql(u8, slice, "@boolToInt")) {
+        try ais.writer().writeAll("@intFromBool");
+    } else if (mem.eql(u8, slice, "@enumToInt")) {
+        try ais.writer().writeAll("@intFromEnum");
+    } else if (mem.eql(u8, slice, "@errorToInt")) {
+        try ais.writer().writeAll("@intFromError");
+    } else if (mem.eql(u8, slice, "@floatToInt")) {
+        try ais.writer().writeAll("@intFromFloat");
+    } else if (mem.eql(u8, slice, "@intToEnum")) {
+        try ais.writer().writeAll("@enumFromInt");
+    } else if (mem.eql(u8, slice, "@intToError")) {
+        try ais.writer().writeAll("@errorFromInt");
+    } else if (mem.eql(u8, slice, "@intToFloat")) {
+        try ais.writer().writeAll("@floatFromInt");
+    } else if (mem.eql(u8, slice, "@intToPtr")) {
+        try ais.writer().writeAll("@ptrFromInt");
+    } else if (mem.eql(u8, slice, "@ptrToInt")) {
+        try ais.writer().writeAll("@intFromPtr");
     } else {
         try renderToken(ais, tree, builtin_token, .none); // @name
     }
@@ -1703,7 +1723,7 @@ fn renderSwitchCase(
 
     if (switch_case.payload_token) |payload_token| {
         try renderToken(ais, tree, payload_token - 1, .none); // pipe
-        const ident = payload_token + @boolToInt(token_tags[payload_token] == .asterisk);
+        const ident = payload_token + @intFromBool(token_tags[payload_token] == .asterisk);
         if (token_tags[payload_token] == .asterisk) {
             try renderToken(ais, tree, payload_token, .none); // asterisk
         }
@@ -1960,7 +1980,7 @@ fn renderArrayInit(
 
                 if (!this_contains_newline) {
                     const column = column_counter % row_size;
-                    column_widths[column] = std.math.max(column_widths[column], width);
+                    column_widths[column] = @max(column_widths[column], width);
 
                     const expr_last_token = tree.lastToken(expr) + 1;
                     const next_expr = section_exprs[i + 1];
@@ -1980,7 +2000,7 @@ fn renderArrayInit(
 
                 if (!contains_newline) {
                     const column = column_counter % row_size;
-                    column_widths[column] = std.math.max(column_widths[column], width);
+                    column_widths[column] = @max(column_widths[column], width);
                 }
             }
         }

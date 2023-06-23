@@ -128,8 +128,8 @@ pub const Node = extern union {
         signed_remainder,
         /// @divTrunc(lhs, rhs)
         div_trunc,
-        /// @boolToInt(operand)
-        bool_to_int,
+        /// @intFromBool(operand)
+        int_from_bool,
         /// @as(lhs, rhs)
         as,
         /// @truncate(lhs, rhs)
@@ -138,14 +138,14 @@ pub const Node = extern union {
         bit_cast,
         /// @floatCast(lhs, rhs)
         float_cast,
-        /// @floatToInt(lhs, rhs)
-        float_to_int,
-        /// @intToFloat(lhs, rhs)
-        int_to_float,
-        /// @intToPtr(lhs, rhs)
-        int_to_ptr,
-        /// @ptrToInt(operand)
-        ptr_to_int,
+        /// @intFromFloat(lhs, rhs)
+        int_from_float,
+        /// @floatFromInt(lhs, rhs)
+        float_from_int,
+        /// @ptrFromInt(lhs, rhs)
+        ptr_from_int,
+        /// @intFromPtr(operand)
+        int_from_ptr,
         /// @alignCast(lhs, rhs)
         align_cast,
         /// @ptrCast(lhs, rhs)
@@ -228,7 +228,7 @@ pub const Node = extern union {
         array_filler,
 
         pub const last_no_payload_tag = Tag.@"break";
-        pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
+        pub const no_payload_count = @intFromEnum(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
@@ -263,7 +263,7 @@ pub const Node = extern union {
                 .address_of,
                 .unwrap,
                 .deref,
-                .ptr_to_int,
+                .int_from_ptr,
                 .empty_array,
                 .while_true,
                 .if_not_break,
@@ -271,7 +271,7 @@ pub const Node = extern union {
                 .block_single,
                 .helpers_sizeof,
                 .std_meta_alignment,
-                .bool_to_int,
+                .int_from_bool,
                 .sizeof,
                 .alignof,
                 .typeof,
@@ -319,9 +319,9 @@ pub const Node = extern union {
                 .truncate,
                 .bit_cast,
                 .float_cast,
-                .float_to_int,
-                .int_to_float,
-                .int_to_ptr,
+                .int_from_float,
+                .float_from_int,
+                .ptr_from_int,
                 .array_cat,
                 .ellipsis3,
                 .assign,
@@ -381,8 +381,8 @@ pub const Node = extern union {
         }
 
         pub fn init(comptime t: Tag) Node {
-            comptime std.debug.assert(@enumToInt(t) < Tag.no_payload_count);
-            return .{ .tag_if_small_enough = @enumToInt(t) };
+            comptime std.debug.assert(@intFromEnum(t) < Tag.no_payload_count);
+            return .{ .tag_if_small_enough = @intFromEnum(t) };
         }
 
         pub fn create(comptime t: Tag, ally: Allocator, data: Data(t)) error{OutOfMemory}!Node {
@@ -401,7 +401,7 @@ pub const Node = extern union {
 
     pub fn tag(self: Node) Tag {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
-            return @intToEnum(Tag, @intCast(std.meta.Tag(Tag), self.tag_if_small_enough));
+            return @enumFromInt(Tag, @intCast(std.meta.Tag(Tag), self.tag_if_small_enough));
         } else {
             return self.ptr_otherwise.tag;
         }
@@ -418,7 +418,7 @@ pub const Node = extern union {
     }
 
     pub fn initPayload(payload: *Payload) Node {
-        std.debug.assert(@enumToInt(payload.tag) >= Tag.no_payload_count);
+        std.debug.assert(@intFromEnum(payload.tag) >= Tag.no_payload_count);
         return .{ .ptr_otherwise = payload };
     }
 
@@ -1355,9 +1355,9 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.div_trunc).?.data;
             return renderBuiltinCall(c, "@divTrunc", &.{ payload.lhs, payload.rhs });
         },
-        .bool_to_int => {
-            const payload = node.castTag(.bool_to_int).?.data;
-            return renderBuiltinCall(c, "@boolToInt", &.{payload});
+        .int_from_bool => {
+            const payload = node.castTag(.int_from_bool).?.data;
+            return renderBuiltinCall(c, "@intFromBool", &.{payload});
         },
         .as => {
             const payload = node.castTag(.as).?.data;
@@ -1375,21 +1375,21 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.float_cast).?.data;
             return renderBuiltinCall(c, "@floatCast", &.{ payload.lhs, payload.rhs });
         },
-        .float_to_int => {
-            const payload = node.castTag(.float_to_int).?.data;
-            return renderBuiltinCall(c, "@floatToInt", &.{ payload.lhs, payload.rhs });
+        .int_from_float => {
+            const payload = node.castTag(.int_from_float).?.data;
+            return renderBuiltinCall(c, "@intFromFloat", &.{ payload.lhs, payload.rhs });
         },
-        .int_to_float => {
-            const payload = node.castTag(.int_to_float).?.data;
-            return renderBuiltinCall(c, "@intToFloat", &.{ payload.lhs, payload.rhs });
+        .float_from_int => {
+            const payload = node.castTag(.float_from_int).?.data;
+            return renderBuiltinCall(c, "@floatFromInt", &.{ payload.lhs, payload.rhs });
         },
-        .int_to_ptr => {
-            const payload = node.castTag(.int_to_ptr).?.data;
-            return renderBuiltinCall(c, "@intToPtr", &.{ payload.lhs, payload.rhs });
+        .ptr_from_int => {
+            const payload = node.castTag(.ptr_from_int).?.data;
+            return renderBuiltinCall(c, "@ptrFromInt", &.{ payload.lhs, payload.rhs });
         },
-        .ptr_to_int => {
-            const payload = node.castTag(.ptr_to_int).?.data;
-            return renderBuiltinCall(c, "@ptrToInt", &.{payload});
+        .int_from_ptr => {
+            const payload = node.castTag(.int_from_ptr).?.data;
+            return renderBuiltinCall(c, "@intFromPtr", &.{payload});
         },
         .align_cast => {
             const payload = node.castTag(.align_cast).?.data;
@@ -1824,7 +1824,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .switch_prong => {
             const payload = node.castTag(.switch_prong).?.data;
-            var items = try c.gpa.alloc(NodeIndex, std.math.max(payload.cases.len, 1));
+            var items = try c.gpa.alloc(NodeIndex, @max(payload.cases.len, 1));
             defer c.gpa.free(items);
             items[0] = 0;
             for (payload.cases, 0..) |item, i| {
@@ -1973,7 +1973,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.tuple).?.data;
             _ = try c.addToken(.period, ".");
             const l_brace = try c.addToken(.l_brace, "{");
-            var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.len, 2));
+            var inits = try c.gpa.alloc(NodeIndex, @max(payload.len, 2));
             defer c.gpa.free(inits);
             inits[0] = 0;
             inits[1] = 0;
@@ -2007,7 +2007,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.container_init_dot).?.data;
             _ = try c.addToken(.period, ".");
             const l_brace = try c.addToken(.l_brace, "{");
-            var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.len, 2));
+            var inits = try c.gpa.alloc(NodeIndex, @max(payload.len, 2));
             defer c.gpa.free(inits);
             inits[0] = 0;
             inits[1] = 0;
@@ -2046,7 +2046,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const lhs = try renderNode(c, payload.lhs);
 
             const l_brace = try c.addToken(.l_brace, "{");
-            var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.inits.len, 1));
+            var inits = try c.gpa.alloc(NodeIndex, @max(payload.inits.len, 1));
             defer c.gpa.free(inits);
             inits[0] = 0;
             for (payload.inits, 0..) |init, i| {
@@ -2102,7 +2102,7 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
     const num_vars = payload.variables.len;
     const num_funcs = payload.functions.len;
     const total_members = payload.fields.len + num_vars + num_funcs;
-    const members = try c.gpa.alloc(NodeIndex, std.math.max(total_members, 2));
+    const members = try c.gpa.alloc(NodeIndex, @max(total_members, 2));
     defer c.gpa.free(members);
     members[0] = 0;
     members[1] = 0;
@@ -2195,7 +2195,7 @@ fn renderFieldAccess(c: *Context, lhs: NodeIndex, field_name: []const u8) !NodeI
 
 fn renderArrayInit(c: *Context, lhs: NodeIndex, inits: []const Node) !NodeIndex {
     const l_brace = try c.addToken(.l_brace, "{");
-    var rendered = try c.gpa.alloc(NodeIndex, std.math.max(inits.len, 1));
+    var rendered = try c.gpa.alloc(NodeIndex, @max(inits.len, 1));
     defer c.gpa.free(rendered);
     rendered[0] = 0;
     for (inits, 0..) |init, i| {
@@ -2326,13 +2326,13 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .truncate,
         .bit_cast,
         .float_cast,
-        .float_to_int,
-        .int_to_float,
-        .int_to_ptr,
+        .int_from_float,
+        .float_from_int,
+        .ptr_from_int,
         .std_mem_zeroes,
         .std_math_Log2Int,
         .log2_int_type,
-        .ptr_to_int,
+        .int_from_ptr,
         .sizeof,
         .alignof,
         .typeof,
@@ -2371,7 +2371,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .call,
         .array_type,
         .null_sentinel_array_type,
-        .bool_to_int,
+        .int_from_bool,
         .div_exact,
         .offset_of,
         .shuffle,
@@ -2904,7 +2904,7 @@ fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
 
 fn renderParams(c: *Context, params: []Payload.Param, is_var_args: bool) !std.ArrayList(NodeIndex) {
     _ = try c.addToken(.l_paren, "(");
-    var rendered = try std.ArrayList(NodeIndex).initCapacity(c.gpa, std.math.max(params.len, 1));
+    var rendered = try std.ArrayList(NodeIndex).initCapacity(c.gpa, @max(params.len, 1));
     errdefer rendered.deinit();
 
     for (params, 0..) |param, i| {

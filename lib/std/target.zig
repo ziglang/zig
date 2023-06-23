@@ -1,7 +1,7 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
-const Version = std.builtin.Version;
+const Version = std.SemanticVersion;
 
 /// TODO Nearly all the functions in this namespace would be
 /// better off if https://github.com/ziglang/zig/issues/425
@@ -139,7 +139,7 @@ pub const Target = struct {
 
             /// Returns whether the first version `self` is newer (greater) than or equal to the second version `ver`.
             pub fn isAtLeast(self: WindowsVersion, ver: WindowsVersion) bool {
-                return @enumToInt(self) >= @enumToInt(ver);
+                return @intFromEnum(self) >= @intFromEnum(ver);
             }
 
             pub const Range = struct {
@@ -147,14 +147,14 @@ pub const Target = struct {
                 max: WindowsVersion,
 
                 pub fn includesVersion(self: Range, ver: WindowsVersion) bool {
-                    return @enumToInt(ver) >= @enumToInt(self.min) and @enumToInt(ver) <= @enumToInt(self.max);
+                    return @intFromEnum(ver) >= @intFromEnum(self.min) and @intFromEnum(ver) <= @intFromEnum(self.max);
                 }
 
                 /// Checks if system is guaranteed to be at least `version` or older than `version`.
                 /// Returns `null` if a runtime check is required.
                 pub fn isAtLeast(self: Range, ver: WindowsVersion) ?bool {
-                    if (@enumToInt(self.min) >= @enumToInt(ver)) return true;
-                    if (@enumToInt(self.max) < @enumToInt(ver)) return false;
+                    if (@intFromEnum(self.min) >= @intFromEnum(ver)) return true;
+                    if (@intFromEnum(self.max) < @intFromEnum(ver)) return false;
                     return null;
                 }
             };
@@ -168,17 +168,17 @@ pub const Target = struct {
                 out_stream: anytype,
             ) !void {
                 if (comptime std.mem.eql(u8, fmt, "s")) {
-                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
+                    if (@intFromEnum(self) >= @intFromEnum(WindowsVersion.nt4) and @intFromEnum(self) <= @intFromEnum(WindowsVersion.latest)) {
                         try std.fmt.format(out_stream, ".{s}", .{@tagName(self)});
                     } else {
                         // TODO this code path breaks zig triples, but it is used in `builtin`
-                        try std.fmt.format(out_stream, "@intToEnum(Target.Os.WindowsVersion, 0x{X:0>8})", .{@enumToInt(self)});
+                        try std.fmt.format(out_stream, "@enumFromInt(Target.Os.WindowsVersion, 0x{X:0>8})", .{@intFromEnum(self)});
                     }
                 } else if (fmt.len == 0) {
-                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
+                    if (@intFromEnum(self) >= @intFromEnum(WindowsVersion.nt4) and @intFromEnum(self) <= @intFromEnum(WindowsVersion.latest)) {
                         try std.fmt.format(out_stream, "WindowsVersion.{s}", .{@tagName(self)});
                     } else {
-                        try std.fmt.format(out_stream, "WindowsVersion(0x{X:0>8})", .{@enumToInt(self)});
+                        try std.fmt.format(out_stream, "WindowsVersion(0x{X:0>8})", .{@intFromEnum(self)});
                     }
                 } else {
                     std.fmt.invalidFmtError(fmt, self);
@@ -272,75 +272,75 @@ pub const Target = struct {
 
                     .freebsd => return .{
                         .semver = Version.Range{
-                            .min = .{ .major = 12, .minor = 0 },
-                            .max = .{ .major = 13, .minor = 1 },
+                            .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                            .max = .{ .major = 13, .minor = 1, .patch = 0 },
                         },
                     },
                     .macos => return switch (arch) {
                         .aarch64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3 },
+                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
                             },
                         },
                         .x86_64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3 },
+                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
                             },
                         },
                         else => unreachable,
                     },
                     .ios => return .{
                         .semver = .{
-                            .min = .{ .major = 12, .minor = 0 },
+                            .min = .{ .major = 12, .minor = 0, .patch = 0 },
                             .max = .{ .major = 13, .minor = 4, .patch = 0 },
                         },
                     },
                     .watchos => return .{
                         .semver = .{
-                            .min = .{ .major = 6, .minor = 0 },
+                            .min = .{ .major = 6, .minor = 0, .patch = 0 },
                             .max = .{ .major = 6, .minor = 2, .patch = 0 },
                         },
                     },
                     .tvos => return .{
                         .semver = .{
-                            .min = .{ .major = 13, .minor = 0 },
+                            .min = .{ .major = 13, .minor = 0, .patch = 0 },
                             .max = .{ .major = 13, .minor = 4, .patch = 0 },
                         },
                     },
                     .netbsd => return .{
                         .semver = .{
-                            .min = .{ .major = 8, .minor = 0 },
-                            .max = .{ .major = 10, .minor = 0 },
+                            .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                            .max = .{ .major = 10, .minor = 0, .patch = 0 },
                         },
                     },
                     .openbsd => return .{
                         .semver = .{
-                            .min = .{ .major = 6, .minor = 8 },
-                            .max = .{ .major = 7, .minor = 2 },
+                            .min = .{ .major = 6, .minor = 8, .patch = 0 },
+                            .max = .{ .major = 7, .minor = 2, .patch = 0 },
                         },
                     },
                     .dragonfly => return .{
                         .semver = .{
-                            .min = .{ .major = 5, .minor = 8 },
-                            .max = .{ .major = 6, .minor = 4 },
+                            .min = .{ .major = 5, .minor = 8, .patch = 0 },
+                            .max = .{ .major = 6, .minor = 4, .patch = 0 },
                         },
                     },
                     .solaris => return .{
                         .semver = .{
-                            .min = .{ .major = 5, .minor = 11 },
-                            .max = .{ .major = 5, .minor = 11 },
+                            .min = .{ .major = 5, .minor = 11, .patch = 0 },
+                            .max = .{ .major = 5, .minor = 11, .patch = 0 },
                         },
                     },
 
                     .linux => return .{
                         .linux = .{
                             .range = .{
-                                .min = .{ .major = 3, .minor = 16 },
+                                .min = .{ .major = 3, .minor = 16, .patch = 0 },
                                 .max = .{ .major = 5, .minor = 10, .patch = 81 },
                             },
-                            .glibc = .{ .major = 2, .minor = 19 },
+                            .glibc = .{ .major = 2, .minor = 19, .patch = 0 },
                         },
                     },
 
@@ -778,21 +778,21 @@ pub const Target = struct {
                     pub fn featureSet(features: []const F) Set {
                         var x = Set.empty;
                         for (features) |feature| {
-                            x.addFeature(@enumToInt(feature));
+                            x.addFeature(@intFromEnum(feature));
                         }
                         return x;
                     }
 
                     /// Returns true if the specified feature is enabled.
                     pub fn featureSetHas(set: Set, feature: F) bool {
-                        return set.isEnabled(@enumToInt(feature));
+                        return set.isEnabled(@intFromEnum(feature));
                     }
 
                     /// Returns true if any specified feature is enabled.
                     pub fn featureSetHasAny(set: Set, features: anytype) bool {
                         comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
                         inline for (features) |feature| {
-                            if (set.isEnabled(@enumToInt(@as(F, feature)))) return true;
+                            if (set.isEnabled(@intFromEnum(@as(F, feature)))) return true;
                         }
                         return false;
                     }
@@ -801,7 +801,7 @@ pub const Target = struct {
                     pub fn featureSetHasAll(set: Set, features: anytype) bool {
                         comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
                         inline for (features) |feature| {
-                            if (!set.isEnabled(@enumToInt(@as(F, feature)))) return false;
+                            if (!set.isEnabled(@intFromEnum(@as(F, feature)))) return false;
                         }
                         return true;
                     }
@@ -1910,6 +1910,32 @@ pub const Target = struct {
         }
     }
 
+    /// Default signedness of `char` for the native C compiler for this target
+    /// Note that char signedness is implementation-defined and many compilers provide
+    /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
+    pub fn charSignedness(target: Target) std.builtin.Signedness {
+        switch (target.cpu.arch) {
+            .aarch64,
+            .aarch64_32,
+            .aarch64_be,
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            => return if (target.os.tag.isDarwin() or target.os.tag == .windows) .signed else .unsigned,
+            .powerpc, .powerpc64 => return if (target.os.tag.isDarwin()) .signed else .unsigned,
+            .powerpc64le,
+            .s390x,
+            .xcore,
+            .arc,
+            .msp430,
+            .riscv32,
+            .riscv64,
+            => return .unsigned,
+            else => return .signed,
+        }
+    }
+
     pub const CType = enum {
         char,
         short,
@@ -1944,7 +1970,7 @@ pub const Target = struct {
                 16 => 2,
                 32 => 4,
                 64 => 8,
-                80 => @intCast(u16, mem.alignForward(10, c_type_alignment(t, .longdouble))),
+                80 => @intCast(u16, mem.alignForward(usize, 10, c_type_alignment(t, .longdouble))),
                 128 => 16,
                 else => unreachable,
             },
@@ -2236,6 +2262,15 @@ pub const Target = struct {
                 .longdouble => return 128,
             },
 
+            .ps4, .ps5 => switch (c_type) {
+                .char => return 8,
+                .short, .ushort => return 16,
+                .int, .uint, .float => return 32,
+                .long, .ulong => return 64,
+                .longlong, .ulonglong, .double => return 64,
+                .longdouble => return 80,
+            },
+
             .cloudabi,
             .kfreebsd,
             .lv2,
@@ -2243,8 +2278,6 @@ pub const Target = struct {
             .rtems,
             .nacl,
             .aix,
-            .ps4,
-            .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,

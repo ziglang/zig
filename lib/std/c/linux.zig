@@ -32,7 +32,7 @@ pub const MADV = linux.MADV;
 pub const MAP = struct {
     pub usingnamespace linux.MAP;
     /// Only used by libc to communicate failure.
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
 };
 pub const MSF = linux.MSF;
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;
@@ -100,6 +100,7 @@ pub const stack_t = linux.stack_t;
 pub const tcflag_t = linux.tcflag_t;
 pub const termios = linux.termios;
 pub const time_t = linux.time_t;
+pub const timer_t = linux.timer_t;
 pub const timespec = linux.timespec;
 pub const timeval = linux.timeval;
 pub const timezone = linux.timezone;

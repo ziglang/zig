@@ -74,12 +74,12 @@ pub fn expf(x_: f32) callconv(.C) f32 {
     if (hx > 0x3EB17218) {
         // |x| > 1.5 * ln2
         if (hx > 0x3F851592) {
-            k = @floatToInt(i32, invln2 * x + half[@intCast(usize, sign)]);
+            k = @intFromFloat(i32, invln2 * x + half[@intCast(usize, sign)]);
         } else {
             k = 1 - sign - sign;
         }
 
-        const fk = @intToFloat(f32, k);
+        const fk = @floatFromInt(f32, k);
         hi = x - fk * ln2hi;
         lo = fk * ln2lo;
         x = hi - lo;
@@ -157,12 +157,12 @@ pub fn exp(x_: f64) callconv(.C) f64 {
     if (hx > 0x3FD62E42) {
         // |x| >= 1.5 * ln2
         if (hx > 0x3FF0A2B2) {
-            k = @floatToInt(i32, invln2 * x + half[@intCast(usize, sign)]);
+            k = @intFromFloat(i32, invln2 * x + half[@intCast(usize, sign)]);
         } else {
             k = 1 - sign - sign;
         }
 
-        const dk = @intToFloat(f64, k);
+        const dk = @floatFromInt(f64, k);
         hi = x - dk * ln2hi;
         lo = dk * ln2lo;
         x = hi - lo;

@@ -146,7 +146,7 @@ test "std.meta.Child" {
     try testing.expect(Child(*u8) == u8);
     try testing.expect(Child([]u8) == u8);
     try testing.expect(Child(?u8) == u8);
-    try testing.expect(Child(Vector(2, u8)) == u8);
+    try testing.expect(Child(@Vector(2, u8)) == u8);
 }
 
 /// Given a "memory span" type (array, slice, vector, or pointer to such), returns the "element type".
@@ -173,8 +173,8 @@ test "std.meta.Elem" {
     try testing.expect(Elem([*]u8) == u8);
     try testing.expect(Elem([]u8) == u8);
     try testing.expect(Elem(*[10]u8) == u8);
-    try testing.expect(Elem(Vector(2, u8)) == u8);
-    try testing.expect(Elem(*Vector(2, u8)) == u8);
+    try testing.expect(Elem(@Vector(2, u8)) == u8);
+    try testing.expect(Elem(*@Vector(2, u8)) == u8);
     try testing.expect(Elem(?[*]u8) == u8);
 }
 
@@ -210,7 +210,7 @@ pub fn sentinel(comptime T: type) ?Elem(T) {
 
 test "std.meta.sentinel" {
     try testSentinel();
-    comptime try testSentinel();
+    try comptime testSentinel();
 }
 
 fn testSentinel() !void {
@@ -453,7 +453,7 @@ pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeIn
     .Enum => Type.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
-    return fields(T)[@enumToInt(field)];
+    return fields(T)[@intFromEnum(field)];
 }
 
 test "std.meta.fieldInfo" {
@@ -591,7 +591,7 @@ pub fn FieldEnum(comptime T: type) type {
     if (@typeInfo(T) == .Union) {
         if (@typeInfo(T).Union.tag_type) |tag_type| {
             for (std.enums.values(tag_type), 0..) |v, i| {
-                if (@enumToInt(v) != i) break; // enum values not consecutive
+                if (@intFromEnum(v) != i) break; // enum values not consecutive
                 if (!std.mem.eql(u8, @tagName(v), field_infos[i].name)) break; // fields out of order
             } else {
                 return tag_type;
@@ -710,8 +710,6 @@ test "std.meta.DeclEnum" {
     try expectEqualEnum(enum { a, b, c }, DeclEnum(B));
     try expectEqualEnum(enum { a, b, c }, DeclEnum(C));
 }
-
-pub const TagType = @compileError("deprecated; use Tag");
 
 pub fn Tag(comptime T: type) type {
     return switch (@typeInfo(T)) {
@@ -931,8 +929,8 @@ test "intToEnum with error return" {
     try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
     try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
     try testing.expect(intToEnum(E3, zero) catch unreachable == E3.A);
-    try testing.expect(intToEnum(E3, 127) catch unreachable == @intToEnum(E3, 127));
-    try testing.expect(intToEnum(E3, -128) catch unreachable == @intToEnum(E3, -128));
+    try testing.expect(intToEnum(E3, 127) catch unreachable == @enumFromInt(E3, 127));
+    try testing.expect(intToEnum(E3, -128) catch unreachable == @enumFromInt(E3, -128));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E3, 128));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E3, -129));
@@ -945,14 +943,14 @@ pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTa
 
     if (!enum_info.is_exhaustive) {
         if (std.math.cast(enum_info.tag_type, tag_int)) |tag| {
-            return @intToEnum(EnumTag, tag);
+            return @enumFromInt(EnumTag, tag);
         }
         return error.InvalidEnumTag;
     }
 
     inline for (enum_info.fields) |f| {
         const this_tag_value = @field(EnumTag, f.name);
-        if (tag_int == @enumToInt(this_tag_value)) {
+        if (tag_int == @intFromEnum(this_tag_value)) {
             return this_tag_value;
         }
     }
@@ -1012,16 +1010,6 @@ test "std.meta.Float" {
     try testing.expectEqual(f32, Float(32));
     try testing.expectEqual(f64, Float(64));
     try testing.expectEqual(f128, Float(128));
-}
-
-/// Deprecated. Use `@Vector`.
-pub fn Vector(comptime len: u32, comptime child: type) type {
-    return @Type(.{
-        .Vector = .{
-            .len = len,
-            .child = child,
-        },
-    });
 }
 
 /// For a given function type, returns a tuple type which fields will

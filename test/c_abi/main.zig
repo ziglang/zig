@@ -143,11 +143,11 @@ export fn zig_longdouble(x: c_longdouble) void {
 extern fn c_ptr(*anyopaque) void;
 
 test "C ABI pointer" {
-    c_ptr(@intToPtr(*anyopaque, 0xdeadbeef));
+    c_ptr(@ptrFromInt(*anyopaque, 0xdeadbeef));
 }
 
 export fn zig_ptr(x: *anyopaque) void {
-    expect(@ptrToInt(x) == 0xdeadbeef) catch @panic("test failure: zig_ptr");
+    expect(@intFromPtr(x) == 0xdeadbeef) catch @panic("test failure: zig_ptr");
 }
 
 extern fn c_bool(bool) void;
@@ -1058,14 +1058,14 @@ test "C function that takes byval struct called via function pointer" {
 
     var fn_ptr = &c_func_ptr_byval;
     fn_ptr(
-        @intToPtr(*anyopaque, 1),
-        @intToPtr(*anyopaque, 2),
+        @ptrFromInt(*anyopaque, 1),
+        @ptrFromInt(*anyopaque, 2),
         ByVal{
             .origin = .{ .x = 9, .y = 10, .z = 11 },
             .size = .{ .width = 12, .height = 13, .depth = 14 },
         },
         @as(c_ulong, 3),
-        @intToPtr(*anyopaque, 4),
+        @ptrFromInt(*anyopaque, 4),
         @as(c_ulong, 5),
     );
 }

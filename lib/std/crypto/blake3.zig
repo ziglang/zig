@@ -20,7 +20,7 @@ const ChunkIterator = struct {
     }
 
     fn next(self: *ChunkIterator) ?[]u8 {
-        const next_chunk = self.slice[0..math.min(self.chunk_len, self.slice.len)];
+        const next_chunk = self.slice[0..@min(self.chunk_len, self.slice.len)];
         self.slice = self.slice[next_chunk.len..];
         return if (next_chunk.len > 0) next_chunk else null;
     }
@@ -283,7 +283,7 @@ const ChunkState = struct {
 
     fn fillBlockBuf(self: *ChunkState, input: []const u8) []const u8 {
         const want = BLOCK_LEN - self.block_len;
-        const take = math.min(want, input.len);
+        const take = @min(want, input.len);
         @memcpy(self.block[self.block_len..][0..take], input[0..take]);
         self.block_len += @truncate(u8, take);
         return input[take..];
@@ -450,7 +450,7 @@ pub const Blake3 = struct {
 
             // Compress input bytes into the current chunk state.
             const want = CHUNK_LEN - self.chunk_state.len();
-            const take = math.min(want, input.len);
+            const take = @min(want, input.len);
             self.chunk_state.update(input[0..take]);
             input = input[take..];
         }
@@ -663,7 +663,7 @@ fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) !void {
     // Write repeating input pattern to hasher
     var input_counter = input_len;
     while (input_counter > 0) {
-        const update_len = math.min(input_counter, input_pattern.len);
+        const update_len = @min(input_counter, input_pattern.len);
         hasher.update(input_pattern[0..update_len]);
         input_counter -= update_len;
     }

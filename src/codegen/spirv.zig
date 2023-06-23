@@ -387,7 +387,7 @@ pub const DeclGen = struct {
         switch (repr) {
             .indirect => {
                 const int_ty_ref = try self.intType(.unsigned, 1);
-                return self.spv.constInt(int_ty_ref, @boolToInt(value));
+                return self.spv.constInt(int_ty_ref, @intFromBool(value));
             },
             .direct => {
                 const bool_ty_ref = try self.resolveType(Type.bool, .direct);
@@ -472,12 +472,12 @@ pub const DeclGen = struct {
             try self.initializers.append(result_id);
 
             self.partial_word.len = 0;
-            self.size = std.mem.alignForwardGeneric(u32, self.size, @sizeOf(Word));
+            self.size = std.mem.alignForward(u32, self.size, @sizeOf(Word));
         }
 
         /// Fill the buffer with undefined values until the size is aligned to `align`.
         fn fillToAlign(self: *@This(), alignment: u32) !void {
-            const target_size = std.mem.alignForwardGeneric(u32, self.size, alignment);
+            const target_size = std.mem.alignForward(u32, self.size, alignment);
             try self.addUndef(target_size - self.size);
         }
 
@@ -532,7 +532,7 @@ pub const DeclGen = struct {
         }
 
         fn addConstBool(self: *@This(), value: bool) !void {
-            try self.addByte(@boolToInt(value)); // TODO: Keep in sync with something?
+            try self.addByte(@intFromBool(value)); // TODO: Keep in sync with something?
         }
 
         fn addInt(self: *@This(), ty: Type, val: Value) !void {
@@ -697,7 +697,7 @@ pub const DeclGen = struct {
                     try self.addUndef(padding);
                 },
                 .enum_tag => {
-                    const int_val = try val.enumToInt(ty, mod);
+                    const int_val = try val.intFromEnum(ty, mod);
 
                     const int_ty = ty.intTagType(mod);
 
@@ -873,7 +873,7 @@ pub const DeclGen = struct {
         assert(storage_class != .Generic and storage_class != .Function);
 
         const var_id = self.spv.allocId();
-        log.debug("lowerIndirectConstant: id = {}, index = {}, ty = {}, val = {}", .{ var_id.id, @enumToInt(spv_decl_index), ty.fmt(self.module), val.fmtDebug() });
+        log.debug("lowerIndirectConstant: id = {}, index = {}, ty = {}, val = {}", .{ var_id.id, @intFromEnum(spv_decl_index), ty.fmt(self.module), val.fmtDebug() });
 
         const section = &self.spv.globals.section;
 
@@ -1010,7 +1010,7 @@ pub const DeclGen = struct {
                     false,
                     alignment,
                 );
-                log.debug("indirect constant: index = {}", .{@enumToInt(spv_decl_index)});
+                log.debug("indirect constant: index = {}", .{@intFromEnum(spv_decl_index)});
                 try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
 
                 try self.func.body.emit(self.spv.gpa, .OpLoad, .{
@@ -1210,13 +1210,13 @@ pub const DeclGen = struct {
             .Pointer => {
                 const ptr_info = ty.ptrInfo(mod);
 
-                const storage_class = spvStorageClass(ptr_info.@"addrspace");
-                const child_ty_ref = try self.resolveType(ptr_info.pointee_type, .indirect);
+                const storage_class = spvStorageClass(ptr_info.flags.address_space);
+                const child_ty_ref = try self.resolveType(ptr_info.child.toType(), .indirect);
                 const ptr_ty_ref = try self.spv.resolve(.{ .ptr_type = .{
                     .storage_class = storage_class,
                     .child_type = child_ty_ref,
                 } });
-                if (ptr_info.size != .Slice) {
+                if (ptr_info.flags.size != .Slice) {
                     return ptr_ty_ref;
                 }
 
@@ -1573,12 +1573,12 @@ pub const DeclGen = struct {
                 init_val,
                 actual_storage_class,
                 final_storage_class == .Generic,
-                decl.@"align",
+                @intCast(u32, decl.alignment.toByteUnits(0)),
             );
         }
     }
 
-    fn boolToInt(self: *DeclGen, result_ty_ref: CacheRef, condition_id: IdRef) !IdRef {
+    fn intFromBool(self: *DeclGen, result_ty_ref: CacheRef, condition_id: IdRef) !IdRef {
         const zero_id = try self.spv.constInt(result_ty_ref, 0);
         const one_id = try self.spv.constInt(result_ty_ref, 1);
         const result_id = self.spv.allocId();
@@ -1621,7 +1621,7 @@ pub const DeclGen = struct {
         return switch (ty.zigTypeTag(mod)) {
             .Bool => blk: {
                 const indirect_bool_ty_ref = try self.resolveType(ty, .indirect);
-                break :blk self.boolToInt(indirect_bool_ty_ref, operand_id);
+                break :blk self.intFromBool(indirect_bool_ty_ref, operand_id);
             },
             else => operand_id,
         };
@@ -1721,9 +1721,9 @@ pub const DeclGen = struct {
 
             .bitcast         => try self.airBitCast(inst),
             .intcast, .trunc => try self.airIntCast(inst),
-            .ptrtoint        => try self.airPtrToInt(inst),
-            .int_to_float    => try self.airIntToFloat(inst),
-            .float_to_int    => try self.airFloatToInt(inst),
+            .int_from_ptr        => try self.airIntFromPtr(inst),
+            .float_from_int    => try self.airFloatFromInt(inst),
+            .int_from_float    => try self.airIntFromFloat(inst),
             .not             => try self.airNot(inst),
 
             .slice_ptr      => try self.airSliceField(inst, 0),
@@ -2011,7 +2011,7 @@ pub const DeclGen = struct {
 
         // Construct the struct that Zig wants as result.
         // The value should already be the correct type.
-        const ov_id = try self.boolToInt(ov_ty_ref, overflowed_id);
+        const ov_id = try self.intFromBool(ov_ty_ref, overflowed_id);
         const result_ty_ref = try self.resolveType(result_ty, .direct);
         return try self.constructStruct(result_ty_ref, &.{
             value_id,
@@ -2329,7 +2329,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn airPtrToInt(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+    fn airIntFromPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
         const un_op = self.air.instructions.items(.data)[inst].un_op;
@@ -2345,7 +2345,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn airIntToFloat(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+    fn airFloatFromInt(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -2371,7 +2371,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn airFloatToInt(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+    fn airIntFromFloat(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -2515,7 +2515,7 @@ pub const DeclGen = struct {
         if (layout.payload_size == 0) return union_handle;
 
         const tag_ty = un_ty.unionTagTypeSafety().?;
-        const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
+        const tag_index = @intFromBool(layout.tag_align < layout.payload_align);
         return try self.extractField(tag_ty, union_handle, tag_index);
     }
 
@@ -3105,7 +3105,7 @@ pub const DeclGen = struct {
                         .Int => if (cond_ty.isSignedInt(mod)) @bitCast(u64, value.toSignedInt(mod)) else value.toUnsignedInt(mod),
                         .Enum => blk: {
                             // TODO: figure out of cond_ty is correct (something with enum literals)
-                            break :blk (try value.enumToInt(cond_ty, mod)).toUnsignedInt(mod); // TODO: composite integer constants
+                            break :blk (try value.intFromEnum(cond_ty, mod)).toUnsignedInt(mod); // TODO: composite integer constants
                         },
                         else => unreachable,
                     };

@@ -38,11 +38,11 @@ pub const Edwards25519 = struct {
         const vxx = x.sq().mul(v);
         const has_m_root = vxx.sub(u).isZero();
         const has_p_root = vxx.add(u).isZero();
-        if ((@boolToInt(has_m_root) | @boolToInt(has_p_root)) == 0) { // best-effort to avoid two conditional branches
+        if ((@intFromBool(has_m_root) | @intFromBool(has_p_root)) == 0) { // best-effort to avoid two conditional branches
             return error.InvalidEncoding;
         }
-        x.cMov(x.mul(Fe.sqrtm1), 1 - @boolToInt(has_m_root));
-        x.cMov(x.neg(), @boolToInt(x.isNegative()) ^ (s[31] >> 7));
+        x.cMov(x.mul(Fe.sqrtm1), 1 - @intFromBool(has_m_root));
+        x.cMov(x.neg(), @intFromBool(x.isNegative()) ^ (s[31] >> 7));
         const t = x.mul(y);
         return Edwards25519{ .x = x, .y = y, .z = z, .t = t };
     }
@@ -51,7 +51,7 @@ pub const Edwards25519 = struct {
     pub fn toBytes(p: Edwards25519) [encoded_length]u8 {
         const zi = p.z.invert();
         var s = p.y.mul(zi).toBytes();
-        s[31] ^= @as(u8, @boolToInt(p.x.mul(zi).isNegative())) << 7;
+        s[31] ^= @as(u8, @intFromBool(p.x.mul(zi).isNegative())) << 7;
         return s;
     }
 
@@ -369,7 +369,7 @@ pub const Edwards25519 = struct {
 
         // yed = (x-1)/(x+1) or 1 if the denominator is 0
         var yed = x_plus_one_y_inv.mul(y).mul(x_minus_one);
-        yed.cMov(Fe.one, @boolToInt(x_plus_one_y_inv.isZero()));
+        yed.cMov(Fe.one, @intFromBool(x_plus_one_y_inv.isZero()));
 
         return Edwards25519{
             .x = xed,
@@ -390,9 +390,9 @@ pub const Edwards25519 = struct {
         const not_square = !gx1.isSquare();
 
         // gx1 not a square => x = -x1-A
-        x.cMov(x.neg(), @boolToInt(not_square));
+        x.cMov(x.neg(), @intFromBool(not_square));
         x2 = Fe.zero;
-        x2.cMov(Fe.edwards25519a, @boolToInt(not_square));
+        x2.cMov(Fe.edwards25519a, @intFromBool(not_square));
         x = x.sub(x2);
 
         // We have y = sqrt(gx1) or sqrt(gx2) with gx2 = gx1*(A+x1)/(-x1)
@@ -408,7 +408,7 @@ pub const Edwards25519 = struct {
 
         const y_sign = !elr.not_square;
         const y_neg = elr.y.neg();
-        elr.y.cMov(y_neg, @boolToInt(elr.y.isNegative()) ^ @boolToInt(y_sign));
+        elr.y.cMov(y_neg, @intFromBool(elr.y.isNegative()) ^ @intFromBool(y_sign));
         return montToEd(elr.x, elr.y).clearCofactor();
     }
 
@@ -486,7 +486,7 @@ pub const Edwards25519 = struct {
         const elr = elligator2(Fe.fromBytes(s));
         var p = montToEd(elr.x, elr.y);
         const p_neg = p.neg();
-        p.cMov(p_neg, @boolToInt(p.x.isNegative()) ^ x_sign);
+        p.cMov(p_neg, @intFromBool(p.x.isNegative()) ^ x_sign);
         return p.clearCofactor();
     }
 };

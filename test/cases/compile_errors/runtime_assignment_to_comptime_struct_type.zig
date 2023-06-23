@@ -4,7 +4,7 @@ const Foo = struct {
 };
 export fn f() void {
     var x: u8 = 0;
-    const foo = Foo { .Bar = x, .Baz = u8 };
+    const foo = Foo{ .Bar = x, .Baz = u8 };
     _ = foo;
 }
 
@@ -12,5 +12,5 @@ export fn f() void {
 // backend=stage2
 // target=native
 //
-// :7:30: error: unable to resolve comptime value
-// :7:30: note: initializer of comptime only struct must be comptime-known
+// :7:29: error: unable to resolve comptime value
+// :7:29: note: initializer of comptime only struct must be comptime-known

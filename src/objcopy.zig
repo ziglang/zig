@@ -27,6 +27,7 @@ pub fn cmdObjCopy(
     var strip_all: bool = false;
     var strip_debug: bool = false;
     var only_keep_debug: bool = false;
+    var compress_debug_sections: bool = false;
     var listen = false;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
@@ -65,7 +66,7 @@ pub fn cmdObjCopy(
         } else if (mem.eql(u8, arg, "--listen=-")) {
             listen = true;
         } else if (mem.startsWith(u8, arg, "--only-section=")) {
-            only_section = arg["--output-target=".len..];
+            only_section = arg["--only-section=".len..];
         } else if (mem.eql(u8, arg, "--pad-to")) {
             i += 1;
             if (i >= args.len) fatal("expected another argument after '{s}'", .{arg});
@@ -78,6 +79,8 @@ pub fn cmdObjCopy(
             strip_all = true;
         } else if (mem.eql(u8, arg, "--only-keep-debug")) {
             only_keep_debug = true;
+        } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
+            compress_debug_sections = true;
         } else if (mem.startsWith(u8, arg, "--add-gnu-debuglink=")) {
             opt_add_debuglink = arg["--add-gnu-debuglink=".len..];
         } else if (mem.eql(u8, arg, "--add-gnu-debuglink")) {
@@ -152,6 +155,7 @@ pub fn cmdObjCopy(
                 .only_keep_debug = only_keep_debug,
                 .add_debuglink = opt_add_debuglink,
                 .extract_to = opt_extract,
+                .compress_debug = compress_debug_sections,
             });
             return std.process.cleanExit();
         },
@@ -210,6 +214,7 @@ const usage =
     \\  --only-keep-debug           Strip a file, removing contents of any sections that would not be stripped by --strip-debug and leaving the debugging sections intact.
     \\  --add-gnu-debuglink=<file>  Creates a .gnu_debuglink section which contains a reference to <file> and adds it to the output file.
     \\  --extract-to <file>         Extract the removed sections into <file>, and add a .gnu-debuglink section.
+    \\  --compress-debug-sections   Compress DWARF debug sections with zlib
     \\
 ;
 
@@ -437,7 +442,7 @@ const BinaryElfOutput = struct {
     }
 
     fn sectionValidForOutput(shdr: anytype) bool {
-        return shdr.sh_size > 0 and shdr.sh_type != elf.SHT_NOBITS and
+        return shdr.sh_type != elf.SHT_NOBITS and
             ((shdr.sh_flags & elf.SHF_ALLOC) == elf.SHF_ALLOC);
     }
 
@@ -539,7 +544,7 @@ const HexWriter = struct {
             const parts = addressParts(self.address);
             sum +%= parts[0];
             sum +%= parts[1];
-            sum +%= @enumToInt(self.payload);
+            sum +%= @intFromEnum(self.payload);
             for (payload_bytes) |byte| {
                 sum +%= byte;
             }
@@ -557,7 +562,7 @@ const HexWriter = struct {
             const line = try std.fmt.bufPrint(&outbuf, ":{0X:0>2}{1X:0>4}{2X:0>2}{3s}{4X:0>2}" ++ linesep, .{
                 @intCast(u8, payload_bytes.len),
                 self.address,
-                @enumToInt(self.payload),
+                @intFromEnum(self.payload),
                 std.fmt.fmtSliceHexUpper(payload_bytes),
                 self.checksum(),
             });
@@ -660,6 +665,7 @@ const StripElfOptions = struct {
     strip_all: bool = false,
     strip_debug: bool = false,
     only_keep_debug: bool = false,
+    compress_debug: bool = false,
 };
 
 fn stripElf(
@@ -711,11 +717,11 @@ fn stripElf(
                 };
                 defer dbg_file.close();
 
-                try elf_file.emit(allocator, dbg_file, in_file, .{ .section_filter = flt });
+                try elf_file.emit(allocator, dbg_file, in_file, .{ .section_filter = flt, .compress_debug = options.compress_debug });
             }
 
             const debuglink: ?DebugLink = if (debuglink_path) |path| ElfFileHelper.createDebugLink(path) else null;
-            try elf_file.emit(allocator, out_file, in_file, .{ .section_filter = filter, .debuglink = debuglink });
+            try elf_file.emit(allocator, out_file, in_file, .{ .section_filter = filter, .debuglink = debuglink, .compress_debug = options.compress_debug });
         },
     }
 }
@@ -730,6 +736,7 @@ fn ElfFile(comptime is_64: bool) type {
     const Elf_Ehdr = if (is_64) elf.Elf64_Ehdr else elf.Elf32_Ehdr;
     const Elf_Phdr = if (is_64) elf.Elf64_Phdr else elf.Elf32_Phdr;
     const Elf_Shdr = if (is_64) elf.Elf64_Shdr else elf.Elf32_Shdr;
+    const Elf_Chdr = if (is_64) elf.Elf64_Chdr else elf.Elf32_Chdr;
     const Elf_Sym = if (is_64) elf.Elf64_Sym else elf.Elf32_Sym;
     const Elf_Verdef = if (is_64) elf.Elf64_Verdef else elf.Elf32_Verdef;
     const Elf_OffSize = if (is_64) elf.Elf64_Off else elf.Elf32_Off;
@@ -817,7 +824,7 @@ fn ElfFile(comptime is_64: bool) type {
             // fill-in sections info:
             //    resolve the name
             //    find if a program segment uses the section
-            //    categorise sections usage (used by program segments, debug datadase, common metadata, symbol table)
+            //    categorize sections usage (used by program segments, debug datadase, common metadata, symbol table)
             for (sections) |*section| {
                 section.segment = for (program_segments) |*seg| {
                     if (sectionWithinSegment(section.section, seg.*)) break seg;
@@ -836,8 +843,8 @@ fn ElfFile(comptime is_64: bool) type {
                         if (std.mem.eql(u8, section.name, ".gnu_debuglink")) break :cat .none;
                         break :cat category_from_program;
                     },
-                    elf.SHT_LOPROC...elf.SHT_HIPROC => .common, // don't strip unkonwn sections
-                    elf.SHT_LOUSER...elf.SHT_HIUSER => .common, // don't strip unkonwn sections
+                    elf.SHT_LOPROC...elf.SHT_HIPROC => .common, // don't strip unknown sections
+                    elf.SHT_LOUSER...elf.SHT_HIUSER => .common, // don't strip unknown sections
                     else => category_from_program,
                 };
             }
@@ -846,7 +853,7 @@ fn ElfFile(comptime is_64: bool) type {
             if (header.shstrndx != elf.SHN_UNDEF)
                 sections[header.shstrndx].category = .common; // string table for the headers
 
-            // recursive dependencies
+            // recursively propagate section categories to their linked sections, so that they are kept together
             var dirty: u1 = 1;
             while (dirty != 0) {
                 dirty = 0;
@@ -856,29 +863,6 @@ fn ElfFile(comptime is_64: bool) type {
                         dirty |= ElfFileHelper.propagateCategory(&sections[section.section.sh_link].category, section.category);
                     if ((section.section.sh_flags & elf.SHF_INFO_LINK) != 0 and section.section.sh_info != elf.SHN_UNDEF)
                         dirty |= ElfFileHelper.propagateCategory(&sections[section.section.sh_info].category, section.category);
-
-                    if (section.payload) |data| {
-                        switch (section.section.sh_type) {
-                            elf.DT_VERSYM => {
-                                assert(section.section.sh_entsize == @sizeOf(Elf_Verdef));
-                                const defs = @ptrCast([*]const Elf_Verdef, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(Elf_Verdef)];
-                                for (defs) |def| {
-                                    if (def.vd_ndx != elf.SHN_UNDEF)
-                                        dirty |= ElfFileHelper.propagateCategory(&sections[def.vd_ndx].category, section.category);
-                                }
-                            },
-                            elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
-                                assert(section.section.sh_entsize == @sizeOf(Elf_Sym));
-                                const syms = @ptrCast([*]const Elf_Sym, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(Elf_Sym)];
-
-                                for (syms) |sym| {
-                                    if (sym.st_shndx != elf.SHN_UNDEF and sym.st_shndx < elf.SHN_LORESERVE)
-                                        dirty |= ElfFileHelper.propagateCategory(&sections[sym.st_shndx].category, section.category);
-                                }
-                            },
-                            else => {},
-                        }
-                    }
                 }
             }
 
@@ -899,6 +883,7 @@ fn ElfFile(comptime is_64: bool) type {
         const EmitElfOptions = struct {
             section_filter: Filter = .all,
             debuglink: ?DebugLink = null,
+            compress_debug: bool = false,
         };
         fn emit(self: *const Self, gpa: Allocator, out_file: File, in_file: File, options: EmitElfOptions) !void {
             var arena = std.heap.ArenaAllocator.init(gpa);
@@ -962,6 +947,30 @@ fn ElfFile(comptime is_64: bool) type {
                 break :blk new_offset;
             };
 
+            // maybe compress .debug sections
+            if (options.compress_debug) {
+                for (self.sections[1..], sections_update[1..]) |section, *update| {
+                    if (update.action != .keep) continue;
+                    if (!std.mem.startsWith(u8, section.name, ".debug_")) continue;
+                    if ((section.section.sh_flags & elf.SHF_COMPRESSED) != 0) continue; // already compressed
+
+                    const chdr = Elf_Chdr{
+                        .ch_type = elf.COMPRESS.ZLIB,
+                        .ch_size = section.section.sh_size,
+                        .ch_addralign = section.section.sh_addralign,
+                    };
+
+                    const compressed_payload = try ElfFileHelper.tryCompressSection(allocator, in_file, section.section.sh_offset, section.section.sh_size, std.mem.asBytes(&chdr));
+                    if (compressed_payload) |payload| {
+                        update.payload = payload;
+                        update.section = section.section;
+                        update.section.?.sh_addralign = @alignOf(Elf_Chdr);
+                        update.section.?.sh_size = @intCast(Elf_OffSize, payload.len);
+                        update.section.?.sh_flags |= elf.SHF_COMPRESSED;
+                    }
+                }
+            }
+
             var cmdbuf = std.ArrayList(ElfFileHelper.WriteCmd).init(allocator);
             defer cmdbuf.deinit();
             try cmdbuf.ensureUnusedCapacity(3 + new_shnum);
@@ -994,6 +1003,8 @@ fn ElfFile(comptime is_64: bool) type {
                     // this code only supports when they are in increasing file order.
                     var offset: u64 = eof_offset;
                     for (self.sections[1..]) |section| {
+                        if (section.section.sh_type == elf.SHT_NOBITS)
+                            continue;
                         if (section.section.sh_offset < offset) {
                             fatal("zig objcopy: unsuported ELF file", .{});
                         }
@@ -1024,8 +1035,8 @@ fn ElfFile(comptime is_64: bool) type {
                         dest.sh_size = @intCast(Elf_OffSize, data.len);
 
                     const addralign = if (src.sh_addralign == 0 or dest.sh_type == elf.SHT_NOBITS) 1 else src.sh_addralign;
-                    dest.sh_offset = std.mem.alignForwardGeneric(Elf_OffSize, eof_offset, addralign);
-                    if (src.sh_offset != dest.sh_offset and section.segment != null and update.action != .empty and dest.sh_type != elf.SHT_NOTE) {
+                    dest.sh_offset = std.mem.alignForward(Elf_OffSize, eof_offset, addralign);
+                    if (src.sh_offset != dest.sh_offset and section.segment != null and update.action != .empty and dest.sh_type != elf.SHT_NOTE and dest.sh_type != elf.SHT_NOBITS) {
                         if (src.sh_offset > dest.sh_offset) {
                             dest.sh_offset = src.sh_offset; // add padding to avoid modifing the program segments
                         } else {
@@ -1085,7 +1096,7 @@ fn ElfFile(comptime is_64: bool) type {
                 // add a ".gnu_debuglink" section
                 if (options.debuglink) |link| {
                     const payload = payload: {
-                        const crc_offset = std.mem.alignForward(link.name.len + 1, 4);
+                        const crc_offset = std.mem.alignForward(usize, link.name.len + 1, 4);
                         const buf = try allocator.alignedAlloc(u8, 4, crc_offset + 4);
                         @memcpy(buf[0..link.name.len], link.name);
                         @memset(buf[link.name.len..crc_offset], 0);
@@ -1117,7 +1128,7 @@ fn ElfFile(comptime is_64: bool) type {
 
             // write the section header at the tail
             {
-                const offset = std.mem.alignForwardGeneric(Elf_OffSize, eof_offset, @alignOf(Elf_Shdr));
+                const offset = std.mem.alignForward(Elf_OffSize, eof_offset, @alignOf(Elf_Shdr));
 
                 const data = std.mem.sliceAsBytes(updated_section_header);
                 assert(data.len == @as(usize, updated_elf_header.e_shentsize) * new_shnum);
@@ -1266,6 +1277,49 @@ const ElfFileHelper = struct {
                 },
             }
         }
+    }
+
+    fn tryCompressSection(allocator: Allocator, in_file: File, offset: u64, size: u64, prefix: []const u8) !?[]align(8) const u8 {
+        if (size < prefix.len) return null;
+
+        try in_file.seekTo(offset);
+        var section_reader = std.io.limitedReader(in_file.reader(), size);
+
+        // allocate as large as decompressed data. if the compression doesn't fit, keep the data uncompressed.
+        const compressed_data = try allocator.alignedAlloc(u8, 8, @intCast(usize, size));
+        var compressed_stream = std.io.fixedBufferStream(compressed_data);
+
+        try compressed_stream.writer().writeAll(prefix);
+
+        {
+            var compressor = try std.compress.zlib.compressStream(allocator, compressed_stream.writer(), .{});
+            defer compressor.deinit();
+
+            var buf: [8000]u8 = undefined;
+            while (true) {
+                const bytes_read = try section_reader.read(&buf);
+                if (bytes_read == 0) break;
+                const bytes_written = compressor.write(buf[0..bytes_read]) catch |err| switch (err) {
+                    error.NoSpaceLeft => {
+                        allocator.free(compressed_data);
+                        return null;
+                    },
+                    else => return err,
+                };
+                std.debug.assert(bytes_written == bytes_read);
+            }
+            compressor.finish() catch |err| switch (err) {
+                error.NoSpaceLeft => {
+                    allocator.free(compressed_data);
+                    return null;
+                },
+                else => return err,
+            };
+        }
+
+        const compressed_len = @intCast(usize, compressed_stream.getPos() catch unreachable);
+        const data = allocator.realloc(compressed_data, compressed_len) catch compressed_data;
+        return data[0..compressed_len];
     }
 
     fn createDebugLink(path: []const u8) DebugLink {

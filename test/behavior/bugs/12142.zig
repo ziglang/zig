@@ -15,7 +15,7 @@ const Letter = enum(u8) {
 };
 
 fn letter(e: Letter) u8 {
-    return @enumToInt(e);
+    return @intFromEnum(e);
 }
 
 test {

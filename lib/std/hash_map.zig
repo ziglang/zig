@@ -1442,7 +1442,7 @@ pub fn HashMapUnmanaged(
             // map, which is assumed to exist as keyPtr must be valid.  This
             // item must be at index 0.
             const idx = if (@sizeOf(K) > 0)
-                (@ptrToInt(keyPtr) - @ptrToInt(self.keys())) / @sizeOf(K)
+                (@intFromPtr(keyPtr) - @intFromPtr(self.keys())) / @sizeOf(K)
             else
                 0;
 
@@ -1507,7 +1507,7 @@ pub fn HashMapUnmanaged(
 
         fn grow(self: *Self, allocator: Allocator, new_capacity: Size, ctx: Context) Allocator.Error!void {
             @setCold(true);
-            const new_cap = std.math.max(new_capacity, minimal_capacity);
+            const new_cap = @max(new_capacity, minimal_capacity);
             assert(new_cap > self.capacity());
             assert(std.math.isPowerOfTwo(new_cap));
 
@@ -1540,33 +1540,33 @@ pub fn HashMapUnmanaged(
             const header_align = @alignOf(Header);
             const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
             const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
-            const max_align = comptime math.max3(header_align, key_align, val_align);
+            const max_align = comptime @max(header_align, key_align, val_align);
 
             const meta_size = @sizeOf(Header) + new_capacity * @sizeOf(Metadata);
             comptime assert(@alignOf(Metadata) == 1);
 
-            const keys_start = std.mem.alignForward(meta_size, key_align);
+            const keys_start = std.mem.alignForward(usize, meta_size, key_align);
             const keys_end = keys_start + new_capacity * @sizeOf(K);
 
-            const vals_start = std.mem.alignForward(keys_end, val_align);
+            const vals_start = std.mem.alignForward(usize, keys_end, val_align);
             const vals_end = vals_start + new_capacity * @sizeOf(V);
 
-            const total_size = std.mem.alignForward(vals_end, max_align);
+            const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
             const slice = try allocator.alignedAlloc(u8, max_align, total_size);
-            const ptr = @ptrToInt(slice.ptr);
+            const ptr = @intFromPtr(slice.ptr);
 
             const metadata = ptr + @sizeOf(Header);
 
-            const hdr = @intToPtr(*Header, ptr);
+            const hdr = @ptrFromInt(*Header, ptr);
             if (@sizeOf([*]V) != 0) {
-                hdr.values = @intToPtr([*]V, ptr + vals_start);
+                hdr.values = @ptrFromInt([*]V, ptr + vals_start);
             }
             if (@sizeOf([*]K) != 0) {
-                hdr.keys = @intToPtr([*]K, ptr + keys_start);
+                hdr.keys = @ptrFromInt([*]K, ptr + keys_start);
             }
             hdr.capacity = new_capacity;
-            self.metadata = @intToPtr([*]Metadata, metadata);
+            self.metadata = @ptrFromInt([*]Metadata, metadata);
         }
 
         fn deallocate(self: *Self, allocator: Allocator) void {
@@ -1575,21 +1575,21 @@ pub fn HashMapUnmanaged(
             const header_align = @alignOf(Header);
             const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
             const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
-            const max_align = comptime math.max3(header_align, key_align, val_align);
+            const max_align = comptime @max(header_align, key_align, val_align);
 
             const cap = self.capacity();
             const meta_size = @sizeOf(Header) + cap * @sizeOf(Metadata);
             comptime assert(@alignOf(Metadata) == 1);
 
-            const keys_start = std.mem.alignForward(meta_size, key_align);
+            const keys_start = std.mem.alignForward(usize, meta_size, key_align);
             const keys_end = keys_start + cap * @sizeOf(K);
 
-            const vals_start = std.mem.alignForward(keys_end, val_align);
+            const vals_start = std.mem.alignForward(usize, keys_end, val_align);
             const vals_end = vals_start + cap * @sizeOf(V);
 
-            const total_size = std.mem.alignForward(vals_end, max_align);
+            const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
-            const slice = @intToPtr([*]align(max_align) u8, @ptrToInt(self.header()))[0..total_size];
+            const slice = @ptrFromInt([*]align(max_align) u8, @intFromPtr(self.header()))[0..total_size];
             allocator.free(slice);
 
             self.metadata = null;

@@ -5,7 +5,7 @@ const log = std.log;
 const fs = std.fs;
 const path = fs.path;
 const assert = std.debug.assert;
-const Version = std.builtin.Version;
+const Version = std.SemanticVersion;
 
 const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
@@ -172,7 +172,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
 
     const target = comp.getTarget();
     const target_ver = target.os.version_range.linux.glibc;
-    const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33 }) != .gt;
+    const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33, .patch = 0 }) != .gt;
 
     // In all cases in this function, we add the C compiler flags to
     // cache_exempt_flags rather than extra_flags, because these arguments

@@ -9,7 +9,7 @@ const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
 
-const zig_version = std.builtin.Version{ .major = 0, .minor = 11, .patch = 0 };
+const zig_version = std.SemanticVersion{ .major = 0, .minor = 11, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
@@ -242,7 +242,7 @@ pub fn build(b: *std.Build) !void {
                 const commit_height = it.next().?;
                 const commit_id = it.next().?;
 
-                const ancestor_ver = try std.builtin.Version.parse(tagged_ancestor);
+                const ancestor_ver = try std.SemanticVersion.parse(tagged_ancestor);
                 if (zig_version.order(ancestor_ver) != .gt) {
                     std.debug.print("Zig version '{}' must be greater than tagged ancestor '{}'\n", .{ zig_version, ancestor_ver });
                     std.process.exit(1);
@@ -470,8 +470,8 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
-        // I observed a value of 3932766208 on the M1 CI.
-        .max_rss = 4080218931,
+        // I observed a value of 4572626944 on the M2 CI.
+        .max_rss = 5029889638,
     }));
 
     try addWasiUpdateStep(b, version);
@@ -487,7 +487,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
     };
-    target.cpu_features_add.addFeature(@enumToInt(std.Target.wasm.Feature.bulk_memory));
+    target.cpu_features_add.addFeature(@intFromEnum(std.Target.wasm.Feature.bulk_memory));
 
     const exe = addCompilerStep(b, .ReleaseSmall, target);
 

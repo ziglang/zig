@@ -387,7 +387,7 @@ pub const Fe = struct {
     /// Return the absolute value of a field element
     pub fn abs(a: Fe) Fe {
         var r = a;
-        r.cMov(a.neg(), @boolToInt(a.isNegative()));
+        r.cMov(a.neg(), @intFromBool(a.isNegative()));
         return r;
     }
 
@@ -412,7 +412,7 @@ pub const Fe = struct {
         const m_root2 = m_root.sq();
         e = x2.sub(m_root2);
         var x = p_root;
-        x.cMov(m_root, @boolToInt(e.isZero()));
+        x.cMov(m_root, @intFromBool(e.isZero()));
         return x;
     }
 

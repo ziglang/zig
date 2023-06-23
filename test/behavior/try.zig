@@ -7,7 +7,7 @@ test "try on error union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try tryOnErrorUnionImpl();
-    comptime try tryOnErrorUnionImpl();
+    try comptime tryOnErrorUnionImpl();
 }
 
 fn tryOnErrorUnionImpl() !void {

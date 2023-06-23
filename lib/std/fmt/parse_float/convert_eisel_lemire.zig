@@ -74,7 +74,7 @@ pub fn convertEiselLemire(comptime T: type, q: i64, w_: u64) ?BiasedFp(f64) {
         mantissa = math.shr(u64, mantissa, -power2 + 1);
         mantissa += mantissa & 1;
         mantissa >>= 1;
-        power2 = @boolToInt(mantissa >= (1 << float_info.mantissa_explicit_bits));
+        power2 = @intFromBool(mantissa >= (1 << float_info.mantissa_explicit_bits));
         return BiasedFp(f64){ .f = mantissa, .e = power2 };
     }
 

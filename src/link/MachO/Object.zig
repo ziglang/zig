@@ -530,7 +530,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                     sect.addr + sect.size - addr;
 
                 const atom_align = if (addr > 0)
-                    math.min(@ctz(addr), sect.@"align")
+                    @min(@ctz(addr), sect.@"align")
                 else
                     sect.@"align";
 

@@ -290,7 +290,7 @@ pub fn generateSymbol(
                     .fail => |em| return .{ .fail = em },
                 }
                 const unpadded_end = code.items.len - begin;
-                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padded_end = mem.alignForward(u64, unpadded_end, abi_align);
                 const padding = math.cast(usize, padded_end - unpadded_end) orelse return error.Overflow;
 
                 if (padding > 0) {
@@ -303,7 +303,7 @@ pub fn generateSymbol(
                 const begin = code.items.len;
                 try code.writer().writeInt(u16, err_val, endian);
                 const unpadded_end = code.items.len - begin;
-                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padded_end = mem.alignForward(u64, unpadded_end, abi_align);
                 const padding = math.cast(usize, padded_end - unpadded_end) orelse return error.Overflow;
 
                 if (padding > 0) {
@@ -381,7 +381,7 @@ pub fn generateSymbol(
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
-                try code.writer().writeByte(@boolToInt(payload_val != null));
+                try code.writer().writeByte(@intFromBool(payload_val != null));
                 try code.writer().writeByteNTimes(0, padding);
             }
         },
@@ -391,7 +391,7 @@ pub fn generateSymbol(
                 .elems, .repeated_elem => {
                     var index: u64 = 0;
                     var len_including_sentinel =
-                        array_type.len + @boolToInt(array_type.sentinel != .none);
+                        array_type.len + @intFromBool(array_type.sentinel != .none);
                     while (index < len_including_sentinel) : (index += 1) {
                         switch (try generateSymbol(bin_file, src_loc, .{
                             .ty = array_type.child.toType(),
@@ -597,6 +597,10 @@ pub fn generateSymbol(
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
+            }
+
+            if (layout.padding > 0) {
+                try code.writer().writeByteNTimes(0, layout.padding);
             }
         },
         .memoized_call => unreachable,
@@ -852,10 +856,9 @@ fn genDeclRef(
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         return GenResult.mcv(.{ .load_got = sym_index });
     } else if (bin_file.cast(link.File.Plan9)) |p9| {
-        const decl_block_index = try p9.seeDecl(decl_index);
-        const decl_block = p9.getDeclBlock(decl_block_index);
-        const got_addr = p9.bases.data + decl_block.got_index.? * ptr_bytes;
-        return GenResult.mcv(.{ .memory = got_addr });
+        const atom_index = try p9.seeDecl(decl_index);
+        const atom = p9.getAtom(atom_index);
+        return GenResult.mcv(.{ .memory = atom.getOffsetTableAddress(p9) });
     } else {
         return GenResult.fail(bin_file.allocator, src_loc, "TODO genDeclRef for target {}", .{target});
     }
@@ -880,12 +883,9 @@ fn genUnnamedConst(
         return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Coff)) |_| {
         return GenResult.mcv(.{ .load_direct = local_sym_index });
-    } else if (bin_file.cast(link.File.Plan9)) |p9| {
-        const ptr_bits = target.ptrBitWidth();
-        const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-        const got_index = local_sym_index; // the plan9 backend returns the got_index
-        const got_addr = p9.bases.data + got_index * ptr_bytes;
-        return GenResult.mcv(.{ .memory = got_addr });
+    } else if (bin_file.cast(link.File.Plan9)) |_| {
+        const atom_index = local_sym_index; // plan9 returns the atom_index
+        return GenResult.mcv(.{ .load_direct = atom_index });
     } else {
         return GenResult.fail(bin_file.allocator, src_loc, "TODO genUnnamedConst for target {}", .{target});
     }
@@ -952,7 +952,7 @@ pub fn genTypedValue(
             }
         },
         .Bool => {
-            return GenResult.mcv(.{ .immediate = @boolToInt(typed_value.val.toBool()) });
+            return GenResult.mcv(.{ .immediate = @intFromBool(typed_value.val.toBool()) });
         },
         .Optional => {
             if (typed_value.ty.isPtrLikeOptional(mod)) {
@@ -961,7 +961,7 @@ pub fn genTypedValue(
                     .val = typed_value.val.optionalValue(mod) orelse return GenResult.mcv(.{ .immediate = 0 }),
                 }, owner_decl_index);
             } else if (typed_value.ty.abiSize(mod) == 1) {
-                return GenResult.mcv(.{ .immediate = @boolToInt(!typed_value.val.isNull(mod)) });
+                return GenResult.mcv(.{ .immediate = @intFromBool(!typed_value.val.isNull(mod)) });
             }
         },
         .Enum => {
@@ -1020,7 +1020,7 @@ pub fn errUnionPayloadOffset(payload_ty: Type, mod: *Module) u64 {
     if (payload_align >= error_align or !payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         return 0;
     } else {
-        return mem.alignForwardGeneric(u64, Type.anyerror.abiSize(mod), payload_align);
+        return mem.alignForward(u64, Type.anyerror.abiSize(mod), payload_align);
     }
 }
 
@@ -1029,7 +1029,7 @@ pub fn errUnionErrorOffset(payload_ty: Type, mod: *Module) u64 {
     const payload_align = payload_ty.abiAlignment(mod);
     const error_align = Type.anyerror.abiAlignment(mod);
     if (payload_align >= error_align and payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-        return mem.alignForwardGeneric(u64, payload_ty.abiSize(mod), error_align);
+        return mem.alignForward(u64, payload_ty.abiSize(mod), error_align);
     } else {
         return 0;
     }

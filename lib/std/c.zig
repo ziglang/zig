@@ -20,7 +20,7 @@ pub const Tokenizer = tokenizer.Tokenizer;
 /// If linking gnu libc (glibc), the `ok` value will be true if the target
 /// version is greater than or equal to `glibc_version`.
 /// If linking a libc other than these, returns `false`.
-pub fn versionCheck(comptime glibc_version: std.builtin.Version) type {
+pub fn versionCheck(comptime glibc_version: std.SemanticVersion) type {
     return struct {
         pub const ok = blk: {
             if (!builtin.link_libc) break :blk false;
@@ -113,7 +113,7 @@ pub usingnamespace switch (builtin.os.tag) {
 
 pub fn getErrno(rc: anytype) c.E {
     if (rc == -1) {
-        return @intToEnum(c.E, c._errno().*);
+        return @enumFromInt(c.E, c._errno().*);
     } else {
         return .SUCCESS;
     }
@@ -407,6 +407,11 @@ pub extern "c" fn closelog() void;
 pub extern "c" fn setlogmask(maskpri: c_int) c_int;
 
 pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
+
+pub extern "c" fn timer_create(clockid: c.clockid_t, sevp: *c.sigevent, timerid: *c.timer_t) c_int;
+pub extern "c" fn timer_delete(timerid: c.timer_t) c_int;
+pub extern "c" fn timer_settime(timerid: c.timer_t, flags: c_int, new_value: *const c.itimerspec, old_value: *c.itimerspec) c_int;
+pub extern "c" fn timer_gettime(timerid: c.timer_t, flags: c_int, curr_value: *c.itimerspec) c_int;
 
 pub const max_align_t = if (builtin.abi == .msvc)
     f64

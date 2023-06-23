@@ -18,6 +18,6 @@ test {
 
     var f1: *align(16) Foo = @alignCast(16, @ptrCast(*align(1) Foo, &buffer[0]));
     try expect(@typeInfo(@TypeOf(f1)).Pointer.alignment == 16);
-    try expect(@ptrToInt(f1) == @ptrToInt(&f1.a));
+    try expect(@intFromPtr(f1) == @intFromPtr(&f1.a));
     try expect(@typeInfo(@TypeOf(&f1.a)).Pointer.alignment == 16);
 }

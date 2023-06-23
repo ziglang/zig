@@ -11,6 +11,7 @@
 //! * One of the following, corresponding to the CPU architecture:
 //!   - `-DARCH_riscv64`
 //!   - `-DARCH_mips`
+//!   - `-DARCH_mips64`
 //!   - `-DARCH_i386`
 //!   - `-DARCH_x86_64`
 //!   - `-DARCH_powerpc`
@@ -28,9 +29,20 @@ const log = std.log;
 const elf = std.elf;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
-const arches: [7]std.Target.Cpu.Arch = blk: {
-    var result: [7]std.Target.Cpu.Arch = undefined;
-    for (.{ .riscv64, .mips, .x86, .x86_64, .powerpc, .powerpc64, .aarch64 }) |arch| {
+const inputs = .{
+    .riscv64,
+    .mips,
+    .mips64,
+    .x86,
+    .x86_64,
+    .powerpc,
+    .powerpc64,
+    .aarch64,
+};
+
+const arches: [inputs.len]std.Target.Cpu.Arch = blk: {
+    var result: [inputs.len]std.Target.Cpu.Arch = undefined;
+    for (inputs) |arch| {
         result[archIndex(arch)] = arch;
     }
     break :blk result;
@@ -56,6 +68,7 @@ const MultiSym = struct {
     fn is32Only(ms: MultiSym) bool {
         return ms.present[archIndex(.riscv64)] == false and
             ms.present[archIndex(.mips)] == true and
+            ms.present[archIndex(.mips64)] == false and
             ms.present[archIndex(.x86)] == true and
             ms.present[archIndex(.x86_64)] == false and
             ms.present[archIndex(.powerpc)] == true and
@@ -97,6 +110,7 @@ const MultiSym = struct {
         const map = .{
             .{ .riscv64, 8 },
             .{ .mips, 4 },
+            .{ .mips64, 8 },
             .{ .x86, 4 },
             .{ .x86_64, 8 },
             .{ .powerpc, 4 },
@@ -118,6 +132,7 @@ const MultiSym = struct {
         const map = .{
             .{ .riscv64, 16 },
             .{ .mips, 8 },
+            .{ .mips64, 16 },
             .{ .x86, 8 },
             .{ .x86_64, 16 },
             .{ .powerpc, 8 },
@@ -139,6 +154,7 @@ const MultiSym = struct {
         const map = .{
             .{ .riscv64, 2 },
             .{ .mips, 1 },
+            .{ .mips64, 2 },
             .{ .x86, 1 },
             .{ .x86_64, 2 },
             .{ .powerpc, 1 },
@@ -187,17 +203,23 @@ pub fn main() !void {
     }
 
     for (arches) |arch| {
-        const libc_so_path = try std.fmt.allocPrint(arena, "{s}/lib/libc.so", .{@tagName(arch)});
+        const libc_so_path = try std.fmt.allocPrint(arena, "{s}/lib/libc.so", .{
+            archMuslName(arch),
+        });
 
         // Read the ELF header.
-        const elf_bytes = try build_all_dir.readFileAllocOptions(
+        const elf_bytes = build_all_dir.readFileAllocOptions(
             arena,
             libc_so_path,
             100 * 1024 * 1024,
             1 * 1024 * 1024,
             @alignOf(elf.Elf64_Ehdr),
             null,
-        );
+        ) catch |err| {
+            std.debug.panic("unable to read '{s}/{s}': {s}", .{
+                build_all_path, libc_so_path, @errorName(err),
+            });
+        };
         const header = try elf.Header.parse(elf_bytes[0..@sizeOf(elf.Elf64_Ehdr)]);
 
         const parse: Parse = .{
@@ -437,14 +459,20 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
     const dynstr = elf_bytes[dynstr_offset..];
 
     // Sort the list by address, ascending.
-    mem.sort(Sym, @alignCast(8, dyn_syms), {}, S.symbolAddrLessThan);
+    // We need a copy to fix alignment.
+    const copied_dyn_syms = copy: {
+        const ptr = try arena.alloc(Sym, dyn_syms.len);
+        @memcpy(ptr, dyn_syms);
+        break :copy ptr;
+    };
+    mem.sort(Sym, copied_dyn_syms, {}, S.symbolAddrLessThan);
 
-    for (dyn_syms) |sym| {
+    for (copied_dyn_syms) |sym| {
         const this_section = s(sym.st_shndx);
         const name = try arena.dupe(u8, mem.sliceTo(dynstr[s(sym.st_name)..], 0));
         const ty = @truncate(u4, sym.st_info);
         const binding = @truncate(u4, sym.st_info >> 4);
-        const visib = @intToEnum(elf.STV, @truncate(u2, sym.st_other));
+        const visib = @enumFromInt(elf.STV, @truncate(u2, sym.st_other));
         const size = s(sym.st_size);
 
         if (parse.blacklist.contains(name)) continue;
@@ -555,19 +583,36 @@ fn archIndex(arch: std.Target.Cpu.Arch) u8 {
         // zig fmt: off
         .riscv64   => 0,
         .mips      => 1,
-        .x86      => 2,
-        .x86_64    => 3,
-        .powerpc   => 4,
-        .powerpc64 => 5,
-        .aarch64   => 6,
+        .mips64    => 2,
+        .x86       => 3,
+        .x86_64    => 4,
+        .powerpc   => 5,
+        .powerpc64 => 6,
+        .aarch64   => 7,
+        else       => unreachable,
+        // zig fmt: on
+    };
+}
+
+fn archMuslName(arch: std.Target.Cpu.Arch) []const u8 {
+    return switch (arch) {
+        // zig fmt: off
+        .riscv64   => "riscv64",
+        .mips      => "mips",
+        .mips64    => "mips64",
+        .x86       => "i386",
+        .x86_64    => "x86_64",
+        .powerpc   => "powerpc",
+        .powerpc64 => "powerpc64",
+        .aarch64   => "aarch64",
         else       => unreachable,
         // zig fmt: on
     };
 }
 
 fn archSetName(arch_set: [arches.len]bool) []const u8 {
-    for (arches, 0..) |arch, i| {
-        if (arch_set[i]) {
+    for (arches, arch_set) |arch, set_item| {
+        if (set_item) {
             return @tagName(arch);
         }
     }
@@ -703,6 +748,7 @@ const blacklisted_symbols = [_][]const u8{
     "__fixdfti",
     "__fixkfdi",
     "__fixkfsi",
+    "__fixkfti",
     "__fixsfdi",
     "__fixsfsi",
     "__fixsfti",
@@ -714,6 +760,7 @@ const blacklisted_symbols = [_][]const u8{
     "__fixunsdfti",
     "__fixunskfdi",
     "__fixunskfsi",
+    "__fixunskfti",
     "__fixunssfdi",
     "__fixunssfsi",
     "__fixunssfti",
@@ -737,6 +784,7 @@ const blacklisted_symbols = [_][]const u8{
     "__floatsitf",
     "__floatsixf",
     "__floattidf",
+    "__floattikf",
     "__floattisf",
     "__floattitf",
     "__floattixf",
@@ -802,6 +850,7 @@ const blacklisted_symbols = [_][]const u8{
     "__muldc3",
     "__muldf3",
     "__muldi3",
+    "__mulkc3",
     "__mulkf3",
     "__mulodi4",
     "__mulosi4",
@@ -835,6 +884,7 @@ const blacklisted_symbols = [_][]const u8{
     "__popcountti2",
     "__powidf2",
     "__powihf2",
+    "__powikf2",
     "__powisf2",
     "__powitf2",
     "__powixf2",
@@ -908,4 +958,162 @@ const blacklisted_symbols = [_][]const u8{
     "sinf128",
     "sqrtf128",
     "truncf128",
+    "__aarch64_cas16_acq",
+    "__aarch64_cas16_acq_rel",
+    "__aarch64_cas16_rel",
+    "__aarch64_cas16_relax",
+    "__aarch64_cas1_acq",
+    "__aarch64_cas1_acq_rel",
+    "__aarch64_cas1_rel",
+    "__aarch64_cas1_relax",
+    "__aarch64_cas2_acq",
+    "__aarch64_cas2_acq_rel",
+    "__aarch64_cas2_rel",
+    "__aarch64_cas2_relax",
+    "__aarch64_cas4_acq",
+    "__aarch64_cas4_acq_rel",
+    "__aarch64_cas4_rel",
+    "__aarch64_cas4_relax",
+    "__aarch64_cas8_acq",
+    "__aarch64_cas8_acq_rel",
+    "__aarch64_cas8_rel",
+    "__aarch64_cas8_relax",
+    "__aarch64_ldadd1_acq",
+    "__aarch64_ldadd1_acq_rel",
+    "__aarch64_ldadd1_rel",
+    "__aarch64_ldadd1_relax",
+    "__aarch64_ldadd2_acq",
+    "__aarch64_ldadd2_acq_rel",
+    "__aarch64_ldadd2_rel",
+    "__aarch64_ldadd2_relax",
+    "__aarch64_ldadd4_acq",
+    "__aarch64_ldadd4_acq_rel",
+    "__aarch64_ldadd4_rel",
+    "__aarch64_ldadd4_relax",
+    "__aarch64_ldadd8_acq",
+    "__aarch64_ldadd8_acq_rel",
+    "__aarch64_ldadd8_rel",
+    "__aarch64_ldadd8_relax",
+    "__aarch64_ldclr1_acq",
+    "__aarch64_ldclr1_acq_rel",
+    "__aarch64_ldclr1_rel",
+    "__aarch64_ldclr1_relax",
+    "__aarch64_ldclr2_acq",
+    "__aarch64_ldclr2_acq_rel",
+    "__aarch64_ldclr2_rel",
+    "__aarch64_ldclr2_relax",
+    "__aarch64_ldclr4_acq",
+    "__aarch64_ldclr4_acq_rel",
+    "__aarch64_ldclr4_rel",
+    "__aarch64_ldclr4_relax",
+    "__aarch64_ldclr8_acq",
+    "__aarch64_ldclr8_acq_rel",
+    "__aarch64_ldclr8_rel",
+    "__aarch64_ldclr8_relax",
+    "__aarch64_ldeor1_acq",
+    "__aarch64_ldeor1_acq_rel",
+    "__aarch64_ldeor1_rel",
+    "__aarch64_ldeor1_relax",
+    "__aarch64_ldeor2_acq",
+    "__aarch64_ldeor2_acq_rel",
+    "__aarch64_ldeor2_rel",
+    "__aarch64_ldeor2_relax",
+    "__aarch64_ldeor4_acq",
+    "__aarch64_ldeor4_acq_rel",
+    "__aarch64_ldeor4_rel",
+    "__aarch64_ldeor4_relax",
+    "__aarch64_ldeor8_acq",
+    "__aarch64_ldeor8_acq_rel",
+    "__aarch64_ldeor8_rel",
+    "__aarch64_ldeor8_relax",
+    "__aarch64_ldset1_acq",
+    "__aarch64_ldset1_acq_rel",
+    "__aarch64_ldset1_rel",
+    "__aarch64_ldset1_relax",
+    "__aarch64_ldset2_acq",
+    "__aarch64_ldset2_acq_rel",
+    "__aarch64_ldset2_rel",
+    "__aarch64_ldset2_relax",
+    "__aarch64_ldset4_acq",
+    "__aarch64_ldset4_acq_rel",
+    "__aarch64_ldset4_rel",
+    "__aarch64_ldset4_relax",
+    "__aarch64_ldset8_acq",
+    "__aarch64_ldset8_acq_rel",
+    "__aarch64_ldset8_rel",
+    "__aarch64_ldset8_relax",
+    "__aarch64_swp1_acq",
+    "__aarch64_swp1_acq_rel",
+    "__aarch64_swp1_rel",
+    "__aarch64_swp1_relax",
+    "__aarch64_swp2_acq",
+    "__aarch64_swp2_acq_rel",
+    "__aarch64_swp2_rel",
+    "__aarch64_swp2_relax",
+    "__aarch64_swp4_acq",
+    "__aarch64_swp4_acq_rel",
+    "__aarch64_swp4_rel",
+    "__aarch64_swp4_relax",
+    "__aarch64_swp8_acq",
+    "__aarch64_swp8_acq_rel",
+    "__aarch64_swp8_rel",
+    "__aarch64_swp8_relax",
+    "__addhf3",
+    "__atomic_compare_exchange_16",
+    "__atomic_exchange_16",
+    "__atomic_fetch_add_16",
+    "__atomic_fetch_and_16",
+    "__atomic_fetch_nand_16",
+    "__atomic_fetch_or_16",
+    "__atomic_fetch_sub_16",
+    "__atomic_fetch_umax_1",
+    "__atomic_fetch_umax_16",
+    "__atomic_fetch_umax_2",
+    "__atomic_fetch_umax_4",
+    "__atomic_fetch_umax_8",
+    "__atomic_fetch_umin_1",
+    "__atomic_fetch_umin_16",
+    "__atomic_fetch_umin_2",
+    "__atomic_fetch_umin_4",
+    "__atomic_fetch_umin_8",
+    "__atomic_fetch_xor_16",
+    "__atomic_load_16",
+    "__atomic_store_16",
+    "__cmphf2",
+    "__cmpxf2",
+    "__divdc3",
+    "__divhc3",
+    "__divhf3",
+    "__divkc3",
+    "__divsc3",
+    "__divtc3",
+    "__divxc3",
+    "__eqhf2",
+    "__extendhfdf2",
+    "__fixhfdi",
+    "__fixhfsi",
+    "__fixhfti",
+    "__fixunshfdi",
+    "__fixunshfsi",
+    "__fixunshfti",
+    "__floatdihf",
+    "__floatsihf",
+    "__floattihf",
+    "__floatundihf",
+    "__floatunsihf",
+    "__floatuntihf",
+    "__gehf2",
+    "__gthf2",
+    "__lehf2",
+    "__lthf2",
+    "__mulhc3",
+    "__mulhf3",
+    "__neghf2",
+    "__negkf2",
+    "__negtf2",
+    "__negxf2",
+    "__nehf2",
+    "__subhf3",
+    "__unordhf2",
+    "__unordxf2",
 };

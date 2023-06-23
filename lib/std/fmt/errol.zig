@@ -59,7 +59,7 @@ pub fn roundToPrecision(float_decimal: *FloatDecimal, precision: usize, mode: Ro
                 float_decimal.exp += 1;
 
                 // Re-size the buffer to use the reserved leading byte.
-                const one_before = @intToPtr([*]u8, @ptrToInt(&float_decimal.digits[0]) - 1);
+                const one_before = @ptrFromInt([*]u8, @intFromPtr(&float_decimal.digits[0]) - 1);
                 float_decimal.digits = one_before[0 .. float_decimal.digits.len + 1];
                 float_decimal.digits[0] = '1';
                 return;
@@ -113,7 +113,7 @@ fn errolSlow(val: f64, buffer: []u8) FloatDecimal {
     // normalize the midpoint
 
     const e = math.frexp(val).exponent;
-    var exp = @floatToInt(i16, @floor(307 + @intToFloat(f64, e) * 0.30103));
+    var exp = @intFromFloat(i16, @floor(307 + @floatFromInt(f64, e) * 0.30103));
     if (exp < 20) {
         exp = 20;
     } else if (@intCast(usize, exp) >= lookup_table.len) {
@@ -171,25 +171,25 @@ fn errolSlow(val: f64, buffer: []u8) FloatDecimal {
     var buf_index: usize = 0;
     const bound = buffer.len - 1;
     while (buf_index < bound) {
-        var hdig = @floatToInt(u8, @floor(high.val));
-        if ((high.val == @intToFloat(f64, hdig)) and (high.off < 0)) hdig -= 1;
+        var hdig = @intFromFloat(u8, @floor(high.val));
+        if ((high.val == @floatFromInt(f64, hdig)) and (high.off < 0)) hdig -= 1;
 
-        var ldig = @floatToInt(u8, @floor(low.val));
-        if ((low.val == @intToFloat(f64, ldig)) and (low.off < 0)) ldig -= 1;
+        var ldig = @intFromFloat(u8, @floor(low.val));
+        if ((low.val == @floatFromInt(f64, ldig)) and (low.off < 0)) ldig -= 1;
 
         if (ldig != hdig) break;
 
         buffer[buf_index] = hdig + '0';
         buf_index += 1;
-        high.val -= @intToFloat(f64, hdig);
-        low.val -= @intToFloat(f64, ldig);
+        high.val -= @floatFromInt(f64, hdig);
+        low.val -= @floatFromInt(f64, ldig);
         hpMul10(&high);
         hpMul10(&low);
     }
 
     const tmp = (high.val + low.val) / 2.0;
-    var mdig = @floatToInt(u8, @floor(tmp + 0.5));
-    if ((@intToFloat(f64, mdig) - tmp) == 0.5 and (mdig & 0x1) != 0) mdig -= 1;
+    var mdig = @intFromFloat(u8, @floor(tmp + 0.5));
+    if ((@floatFromInt(f64, mdig) - tmp) == 0.5 and (mdig & 0x1) != 0) mdig -= 1;
 
     buffer[buf_index] = mdig + '0';
     buf_index += 1;
@@ -303,7 +303,7 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
 
     assert((val > 9.007199254740992e15) and val < (3.40282366920938e38));
 
-    var mid = @floatToInt(u128, val);
+    var mid = @intFromFloat(u128, val);
     var low: u128 = mid - fpeint((fpnext(val) - val) / 2.0);
     var high: u128 = mid + fpeint((val - fpprev(val)) / 2.0);
 
@@ -328,7 +328,7 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
     var mi: i32 = mismatch10(l64, h64);
     var x: u64 = 1;
     {
-        var i: i32 = @boolToInt(lf == hf);
+        var i: i32 = @intFromBool(lf == hf);
         while (i < mi) : (i += 1) {
             x *= 10;
         }
@@ -342,7 +342,7 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
     if (mi != 0) {
         const round_up = buffer[buf_index] >= '5';
         if (buf_index == 0 or (round_up and buffer[buf_index - 1] == '9')) return errolSlow(val, buffer);
-        buffer[buf_index - 1] += @boolToInt(round_up);
+        buffer[buf_index - 1] += @intFromBool(round_up);
     } else {
         buf_index += 1;
     }
@@ -360,8 +360,8 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
 fn errolFixed(val: f64, buffer: []u8) FloatDecimal {
     assert((val >= 16.0) and (val < 9.007199254740992e15));
 
-    const u = @floatToInt(u64, val);
-    const n = @intToFloat(f64, u);
+    const u = @intFromFloat(u64, val);
+    const n = @floatFromInt(f64, u);
 
     var mid = val - n;
     var lo = ((fpprev(val) - n) + mid) / 2.0;
@@ -375,16 +375,16 @@ fn errolFixed(val: f64, buffer: []u8) FloatDecimal {
     if (mid != 0.0) {
         while (mid != 0.0) {
             lo *= 10.0;
-            const ldig = @floatToInt(i32, lo);
-            lo -= @intToFloat(f64, ldig);
+            const ldig = @intFromFloat(i32, lo);
+            lo -= @floatFromInt(f64, ldig);
 
             mid *= 10.0;
-            const mdig = @floatToInt(i32, mid);
-            mid -= @intToFloat(f64, mdig);
+            const mdig = @intFromFloat(i32, mid);
+            mid -= @floatFromInt(f64, mdig);
 
             hi *= 10.0;
-            const hdig = @floatToInt(i32, hi);
-            hi -= @intToFloat(f64, hdig);
+            const hdig = @intFromFloat(i32, hi);
+            hi -= @floatFromInt(f64, hdig);
 
             buffer[j] = @intCast(u8, mdig + '0');
             j += 1;

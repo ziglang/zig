@@ -449,7 +449,7 @@ pub const ChildProcess = struct {
                 // has a value greater than 0
                 if ((fd[0].revents & std.os.POLL.IN) != 0) {
                     const err_int = try readIntFd(err_pipe[0]);
-                    return @errSetCast(SpawnError, @intToError(err_int));
+                    return @errSetCast(SpawnError, @errorFromInt(err_int));
                 }
             } else {
                 // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
@@ -462,7 +462,7 @@ pub const ChildProcess = struct {
                 // Here we potentially return the fork child's error from the parent
                 // pid.
                 if (err_int != maxInt(ErrInt)) {
-                    return @errSetCast(SpawnError, @intToError(err_int));
+                    return @errSetCast(SpawnError, @errorFromInt(err_int));
                 }
             }
         }
@@ -1356,7 +1356,7 @@ fn destroyPipe(pipe: [2]os.fd_t) void {
 // Child of fork calls this to report an error to the fork parent.
 // Then the child exits.
 fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
-    writeIntFd(fd, @as(ErrInt, @errorToInt(err))) catch {};
+    writeIntFd(fd, @as(ErrInt, @intFromError(err))) catch {};
     // If we're linking libc, some naughty applications may have registered atexit handlers
     // which we really do not want to run in the fork child. I caught LLVM doing this and
     // it caused a deadlock instead of doing an exit syscall. In the words of Avril Lavigne,

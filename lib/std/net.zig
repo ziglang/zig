@@ -804,8 +804,8 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
         var first = true;
         while (true) {
             const rc = ws2_32.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res);
-            switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
-                @intToEnum(os.windows.ws2_32.WinsockError, 0) => break,
+            switch (@enumFromInt(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
+                @enumFromInt(os.windows.ws2_32.WinsockError, 0) => break,
                 .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
                 .WSANO_RECOVERY => return error.NameServerFailure,
                 .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
@@ -874,7 +874,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
         };
         var res: ?*os.addrinfo = null;
         switch (sys.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
-            @intToEnum(sys.EAI, 0) => {},
+            @enumFromInt(sys.EAI, 0) => {},
             .ADDRFAMILY => return error.HostLacksNetworkAddresses,
             .AGAIN => return error.TemporaryNameServerFailure,
             .BADFLAGS => unreachable, // Invalid hints
@@ -1482,11 +1482,11 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
                     error.InvalidCharacter => continue,
                 };
                 if (mem.eql(u8, name, "ndots")) {
-                    rc.ndots = std.math.min(value, 15);
+                    rc.ndots = @min(value, 15);
                 } else if (mem.eql(u8, name, "attempts")) {
-                    rc.attempts = std.math.min(value, 10);
+                    rc.attempts = @min(value, 10);
                 } else if (mem.eql(u8, name, "timeout")) {
-                    rc.timeout = std.math.min(value, 60);
+                    rc.timeout = @min(value, 60);
                 }
             }
         } else if (mem.eql(u8, token, "nameserver")) {
@@ -1615,7 +1615,7 @@ fn resMSendRc(
         }
 
         // Wait for a response, or until time to retry
-        const clamped_timeout = std.math.min(@as(u31, std.math.maxInt(u31)), t1 + retry_interval - t2);
+        const clamped_timeout = @min(@as(u31, std.math.maxInt(u31)), t1 + retry_interval - t2);
         const nevents = os.poll(&pfd, clamped_timeout) catch 0;
         if (nevents == 0) continue;
 
@@ -1688,19 +1688,19 @@ fn dnsParse(
     if (qdcount + ancount > 64) return error.InvalidDnsPacket;
     while (qdcount != 0) {
         qdcount -= 1;
-        while (@ptrToInt(p) - @ptrToInt(r.ptr) < r.len and p[0] -% 1 < 127) p += 1;
-        if (p[0] > 193 or (p[0] == 193 and p[1] > 254) or @ptrToInt(p) > @ptrToInt(r.ptr) + r.len - 6)
+        while (@intFromPtr(p) - @intFromPtr(r.ptr) < r.len and p[0] -% 1 < 127) p += 1;
+        if (p[0] > 193 or (p[0] == 193 and p[1] > 254) or @intFromPtr(p) > @intFromPtr(r.ptr) + r.len - 6)
             return error.InvalidDnsPacket;
-        p += @as(usize, 5) + @boolToInt(p[0] != 0);
+        p += @as(usize, 5) + @intFromBool(p[0] != 0);
     }
     while (ancount != 0) {
         ancount -= 1;
-        while (@ptrToInt(p) - @ptrToInt(r.ptr) < r.len and p[0] -% 1 < 127) p += 1;
-        if (p[0] > 193 or (p[0] == 193 and p[1] > 254) or @ptrToInt(p) > @ptrToInt(r.ptr) + r.len - 6)
+        while (@intFromPtr(p) - @intFromPtr(r.ptr) < r.len and p[0] -% 1 < 127) p += 1;
+        if (p[0] > 193 or (p[0] == 193 and p[1] > 254) or @intFromPtr(p) > @intFromPtr(r.ptr) + r.len - 6)
             return error.InvalidDnsPacket;
-        p += @as(usize, 1) + @boolToInt(p[0] != 0);
+        p += @as(usize, 1) + @intFromBool(p[0] != 0);
         const len = p[8] * @as(usize, 256) + p[9];
-        if (@ptrToInt(p) + len > @ptrToInt(r.ptr) + r.len) return error.InvalidDnsPacket;
+        if (@intFromPtr(p) + len > @intFromPtr(r.ptr) + r.len) return error.InvalidDnsPacket;
         try callback(ctx, p[1], p[10..][0..len], r);
         p += 10 + len;
     }

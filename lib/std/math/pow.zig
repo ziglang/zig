@@ -144,7 +144,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     var xe = r2.exponent;
     var x1 = r2.significand;
 
-    var i = @floatToInt(std.meta.Int(.signed, @typeInfo(T).Float.bits), yi);
+    var i = @intFromFloat(std.meta.Int(.signed, @typeInfo(T).Float.bits), yi);
     while (i != 0) : (i >>= 1) {
         const overflow_shift = math.floatExponentBits(T) + 1;
         if (xe < -(1 << overflow_shift) or (1 << overflow_shift) < xe) {
@@ -179,7 +179,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
 
 fn isOddInteger(x: f64) bool {
     const r = math.modf(x);
-    return r.fpart == 0.0 and @floatToInt(i64, r.ipart) & 1 == 1;
+    return r.fpart == 0.0 and @intFromFloat(i64, r.ipart) & 1 == 1;
 }
 
 test "math.pow" {

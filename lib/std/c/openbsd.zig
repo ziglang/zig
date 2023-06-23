@@ -16,7 +16,7 @@ pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 pub extern "c" fn getthrid() pid_t;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 
-pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
+pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
 pub const pthread_mutex_t = extern struct {
@@ -449,7 +449,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0010;
@@ -464,6 +464,16 @@ pub const MAP = struct {
     pub const ANONYMOUS = ANON;
     pub const STACK = 0x4000;
     pub const CONCEAL = 0x8000;
+};
+
+pub const MADV = struct {
+    pub const NORMAL = 0;
+    pub const RANDOM = 1;
+    pub const SEQUENTIAL = 2;
+    pub const WILLNEED = 3;
+    pub const DONTNEED = 4;
+    pub const SPACEAVAIL = 5;
+    pub const FREE = 6;
 };
 
 pub const MSF = struct {
@@ -990,11 +1000,11 @@ pub const winsize = extern struct {
 const NSIG = 33;
 
 pub const SIG = struct {
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
-    pub const CATCH = @intToPtr(?Sigaction.handler_fn, 2);
-    pub const HOLD = @intToPtr(?Sigaction.handler_fn, 3);
+    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
+    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
+    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
+    pub const CATCH = @ptrFromInt(?Sigaction.handler_fn, 2);
+    pub const HOLD = @ptrFromInt(?Sigaction.handler_fn, 3);
 
     pub const HUP = 1;
     pub const INT = 2;
@@ -1606,31 +1616,34 @@ pub const KERN = struct {
     pub const PROC_NENV = 4;
 };
 
-pub const HW_MACHINE = 1;
-pub const HW_MODEL = 2;
-pub const HW_NCPU = 3;
-pub const HW_BYTEORDER = 4;
-pub const HW_PHYSMEM = 5;
-pub const HW_USERMEM = 6;
-pub const HW_PAGESIZE = 7;
-pub const HW_DISKNAMES = 8;
-pub const HW_DISKSTATS = 9;
-pub const HW_DISKCOUNT = 10;
-pub const HW_SENSORS = 11;
-pub const HW_CPUSPEED = 12;
-pub const HW_SETPERF = 13;
-pub const HW_VENDOR = 14;
-pub const HW_PRODUCT = 15;
-pub const HW_VERSION = 16;
-pub const HW_SERIALNO = 17;
-pub const HW_UUID = 18;
-pub const HW_PHYSMEM64 = 19;
-pub const HW_USERMEM64 = 20;
-pub const HW_NCPUFOUND = 21;
-pub const HW_ALLOWPOWERDOWN = 22;
-pub const HW_PERFPOLICY = 23;
-pub const HW_SMT = 24;
-pub const HW_NCPUONLINE = 25;
+pub const HW = struct {
+    pub const MACHINE = 1;
+    pub const MODEL = 2;
+    pub const NCPU = 3;
+    pub const BYTEORDER = 4;
+    pub const PHYSMEM = 5;
+    pub const USERMEM = 6;
+    pub const PAGESIZE = 7;
+    pub const DISKNAMES = 8;
+    pub const DISKSTATS = 9;
+    pub const DISKCOUNT = 10;
+    pub const SENSORS = 11;
+    pub const CPUSPEED = 12;
+    pub const SETPERF = 13;
+    pub const VENDOR = 14;
+    pub const PRODUCT = 15;
+    pub const VERSION = 16;
+    pub const SERIALNO = 17;
+    pub const UUID = 18;
+    pub const PHYSMEM64 = 19;
+    pub const USERMEM64 = 20;
+    pub const NCPUFOUND = 21;
+    pub const ALLOWPOWERDOWN = 22;
+    pub const PERFPOLICY = 23;
+    pub const SMT = 24;
+    pub const NCPUONLINE = 25;
+    pub const POWER = 26;
+};
 
 /// TODO refines if necessary
 pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {

@@ -62,84 +62,84 @@ pub const Register = enum(u8) {
     // zig fmt: on
 
     pub fn class(self: Register) RegisterClass {
-        return switch (@enumToInt(self)) {
-            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => .general_purpose,
-            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => .general_purpose,
+        return switch (@intFromEnum(self)) {
+            @intFromEnum(Register.x0)...@intFromEnum(Register.xzr) => .general_purpose,
+            @intFromEnum(Register.w0)...@intFromEnum(Register.wzr) => .general_purpose,
 
-            @enumToInt(Register.sp) => .stack_pointer,
-            @enumToInt(Register.wsp) => .stack_pointer,
+            @intFromEnum(Register.sp) => .stack_pointer,
+            @intFromEnum(Register.wsp) => .stack_pointer,
 
-            @enumToInt(Register.q0)...@enumToInt(Register.q31) => .floating_point,
-            @enumToInt(Register.d0)...@enumToInt(Register.d31) => .floating_point,
-            @enumToInt(Register.s0)...@enumToInt(Register.s31) => .floating_point,
-            @enumToInt(Register.h0)...@enumToInt(Register.h31) => .floating_point,
-            @enumToInt(Register.b0)...@enumToInt(Register.b31) => .floating_point,
+            @intFromEnum(Register.q0)...@intFromEnum(Register.q31) => .floating_point,
+            @intFromEnum(Register.d0)...@intFromEnum(Register.d31) => .floating_point,
+            @intFromEnum(Register.s0)...@intFromEnum(Register.s31) => .floating_point,
+            @intFromEnum(Register.h0)...@intFromEnum(Register.h31) => .floating_point,
+            @intFromEnum(Register.b0)...@intFromEnum(Register.b31) => .floating_point,
             else => unreachable,
         };
     }
 
     pub fn id(self: Register) u6 {
-        return switch (@enumToInt(self)) {
-            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.x0)),
-            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.w0)),
+        return switch (@intFromEnum(self)) {
+            @intFromEnum(Register.x0)...@intFromEnum(Register.xzr) => @intCast(u6, @intFromEnum(self) - @intFromEnum(Register.x0)),
+            @intFromEnum(Register.w0)...@intFromEnum(Register.wzr) => @intCast(u6, @intFromEnum(self) - @intFromEnum(Register.w0)),
 
-            @enumToInt(Register.sp) => 32,
-            @enumToInt(Register.wsp) => 32,
+            @intFromEnum(Register.sp) => 32,
+            @intFromEnum(Register.wsp) => 32,
 
-            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.q0) + 33),
-            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.d0) + 33),
-            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.s0) + 33),
-            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.h0) + 33),
-            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.b0) + 33),
+            @intFromEnum(Register.q0)...@intFromEnum(Register.q31) => @intCast(u6, @intFromEnum(self) - @intFromEnum(Register.q0) + 33),
+            @intFromEnum(Register.d0)...@intFromEnum(Register.d31) => @intCast(u6, @intFromEnum(self) - @intFromEnum(Register.d0) + 33),
+            @intFromEnum(Register.s0)...@intFromEnum(Register.s31) => @intCast(u6, @intFromEnum(self) - @intFromEnum(Register.s0) + 33),
+            @intFromEnum(Register.h0)...@intFromEnum(Register.h31) => @intCast(u6, @intFromEnum(self) - @intFromEnum(Register.h0) + 33),
+            @intFromEnum(Register.b0)...@intFromEnum(Register.b31) => @intCast(u6, @intFromEnum(self) - @intFromEnum(Register.b0) + 33),
             else => unreachable,
         };
     }
 
     pub fn enc(self: Register) u5 {
-        return switch (@enumToInt(self)) {
-            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.x0)),
-            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.w0)),
+        return switch (@intFromEnum(self)) {
+            @intFromEnum(Register.x0)...@intFromEnum(Register.xzr) => @intCast(u5, @intFromEnum(self) - @intFromEnum(Register.x0)),
+            @intFromEnum(Register.w0)...@intFromEnum(Register.wzr) => @intCast(u5, @intFromEnum(self) - @intFromEnum(Register.w0)),
 
-            @enumToInt(Register.sp) => 31,
-            @enumToInt(Register.wsp) => 31,
+            @intFromEnum(Register.sp) => 31,
+            @intFromEnum(Register.wsp) => 31,
 
-            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.q0)),
-            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.d0)),
-            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.s0)),
-            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.h0)),
-            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.b0)),
+            @intFromEnum(Register.q0)...@intFromEnum(Register.q31) => @intCast(u5, @intFromEnum(self) - @intFromEnum(Register.q0)),
+            @intFromEnum(Register.d0)...@intFromEnum(Register.d31) => @intCast(u5, @intFromEnum(self) - @intFromEnum(Register.d0)),
+            @intFromEnum(Register.s0)...@intFromEnum(Register.s31) => @intCast(u5, @intFromEnum(self) - @intFromEnum(Register.s0)),
+            @intFromEnum(Register.h0)...@intFromEnum(Register.h31) => @intCast(u5, @intFromEnum(self) - @intFromEnum(Register.h0)),
+            @intFromEnum(Register.b0)...@intFromEnum(Register.b31) => @intCast(u5, @intFromEnum(self) - @intFromEnum(Register.b0)),
             else => unreachable,
         };
     }
 
     /// Returns the bit-width of the register.
     pub fn size(self: Register) u8 {
-        return switch (@enumToInt(self)) {
-            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => 64,
-            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => 32,
+        return switch (@intFromEnum(self)) {
+            @intFromEnum(Register.x0)...@intFromEnum(Register.xzr) => 64,
+            @intFromEnum(Register.w0)...@intFromEnum(Register.wzr) => 32,
 
-            @enumToInt(Register.sp) => 64,
-            @enumToInt(Register.wsp) => 32,
+            @intFromEnum(Register.sp) => 64,
+            @intFromEnum(Register.wsp) => 32,
 
-            @enumToInt(Register.q0)...@enumToInt(Register.q31) => 128,
-            @enumToInt(Register.d0)...@enumToInt(Register.d31) => 64,
-            @enumToInt(Register.s0)...@enumToInt(Register.s31) => 32,
-            @enumToInt(Register.h0)...@enumToInt(Register.h31) => 16,
-            @enumToInt(Register.b0)...@enumToInt(Register.b31) => 8,
+            @intFromEnum(Register.q0)...@intFromEnum(Register.q31) => 128,
+            @intFromEnum(Register.d0)...@intFromEnum(Register.d31) => 64,
+            @intFromEnum(Register.s0)...@intFromEnum(Register.s31) => 32,
+            @intFromEnum(Register.h0)...@intFromEnum(Register.h31) => 16,
+            @intFromEnum(Register.b0)...@intFromEnum(Register.b31) => 8,
             else => unreachable,
         };
     }
 
     /// Convert from a general-purpose register to its 64 bit alias.
     pub fn toX(self: Register) Register {
-        return switch (@enumToInt(self)) {
-            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => @intToEnum(
+        return switch (@intFromEnum(self)) {
+            @intFromEnum(Register.x0)...@intFromEnum(Register.xzr) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.x0) + @enumToInt(Register.x0),
+                @intFromEnum(self) - @intFromEnum(Register.x0) + @intFromEnum(Register.x0),
             ),
-            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => @intToEnum(
+            @intFromEnum(Register.w0)...@intFromEnum(Register.wzr) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.w0) + @enumToInt(Register.x0),
+                @intFromEnum(self) - @intFromEnum(Register.w0) + @intFromEnum(Register.x0),
             ),
             else => unreachable,
         };
@@ -147,14 +147,14 @@ pub const Register = enum(u8) {
 
     /// Convert from a general-purpose register to its 32 bit alias.
     pub fn toW(self: Register) Register {
-        return switch (@enumToInt(self)) {
-            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => @intToEnum(
+        return switch (@intFromEnum(self)) {
+            @intFromEnum(Register.x0)...@intFromEnum(Register.xzr) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.x0) + @enumToInt(Register.w0),
+                @intFromEnum(self) - @intFromEnum(Register.x0) + @intFromEnum(Register.w0),
             ),
-            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => @intToEnum(
+            @intFromEnum(Register.w0)...@intFromEnum(Register.wzr) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.w0) + @enumToInt(Register.w0),
+                @intFromEnum(self) - @intFromEnum(Register.w0) + @intFromEnum(Register.w0),
             ),
             else => unreachable,
         };
@@ -162,26 +162,26 @@ pub const Register = enum(u8) {
 
     /// Convert from a floating-point register to its 128 bit alias.
     pub fn toQ(self: Register) Register {
-        return switch (@enumToInt(self)) {
-            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intToEnum(
+        return switch (@intFromEnum(self)) {
+            @intFromEnum(Register.q0)...@intFromEnum(Register.q31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.q0) + @enumToInt(Register.q0),
+                @intFromEnum(self) - @intFromEnum(Register.q0) + @intFromEnum(Register.q0),
             ),
-            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intToEnum(
+            @intFromEnum(Register.d0)...@intFromEnum(Register.d31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.d0) + @enumToInt(Register.q0),
+                @intFromEnum(self) - @intFromEnum(Register.d0) + @intFromEnum(Register.q0),
             ),
-            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intToEnum(
+            @intFromEnum(Register.s0)...@intFromEnum(Register.s31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.s0) + @enumToInt(Register.q0),
+                @intFromEnum(self) - @intFromEnum(Register.s0) + @intFromEnum(Register.q0),
             ),
-            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intToEnum(
+            @intFromEnum(Register.h0)...@intFromEnum(Register.h31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.h0) + @enumToInt(Register.q0),
+                @intFromEnum(self) - @intFromEnum(Register.h0) + @intFromEnum(Register.q0),
             ),
-            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intToEnum(
+            @intFromEnum(Register.b0)...@intFromEnum(Register.b31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.b0) + @enumToInt(Register.q0),
+                @intFromEnum(self) - @intFromEnum(Register.b0) + @intFromEnum(Register.q0),
             ),
             else => unreachable,
         };
@@ -189,26 +189,26 @@ pub const Register = enum(u8) {
 
     /// Convert from a floating-point register to its 64 bit alias.
     pub fn toD(self: Register) Register {
-        return switch (@enumToInt(self)) {
-            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intToEnum(
+        return switch (@intFromEnum(self)) {
+            @intFromEnum(Register.q0)...@intFromEnum(Register.q31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.q0) + @enumToInt(Register.d0),
+                @intFromEnum(self) - @intFromEnum(Register.q0) + @intFromEnum(Register.d0),
             ),
-            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intToEnum(
+            @intFromEnum(Register.d0)...@intFromEnum(Register.d31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.d0) + @enumToInt(Register.d0),
+                @intFromEnum(self) - @intFromEnum(Register.d0) + @intFromEnum(Register.d0),
             ),
-            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intToEnum(
+            @intFromEnum(Register.s0)...@intFromEnum(Register.s31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.s0) + @enumToInt(Register.d0),
+                @intFromEnum(self) - @intFromEnum(Register.s0) + @intFromEnum(Register.d0),
             ),
-            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intToEnum(
+            @intFromEnum(Register.h0)...@intFromEnum(Register.h31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.h0) + @enumToInt(Register.d0),
+                @intFromEnum(self) - @intFromEnum(Register.h0) + @intFromEnum(Register.d0),
             ),
-            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intToEnum(
+            @intFromEnum(Register.b0)...@intFromEnum(Register.b31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.b0) + @enumToInt(Register.d0),
+                @intFromEnum(self) - @intFromEnum(Register.b0) + @intFromEnum(Register.d0),
             ),
             else => unreachable,
         };
@@ -216,26 +216,26 @@ pub const Register = enum(u8) {
 
     /// Convert from a floating-point register to its 32 bit alias.
     pub fn toS(self: Register) Register {
-        return switch (@enumToInt(self)) {
-            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intToEnum(
+        return switch (@intFromEnum(self)) {
+            @intFromEnum(Register.q0)...@intFromEnum(Register.q31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.q0) + @enumToInt(Register.s0),
+                @intFromEnum(self) - @intFromEnum(Register.q0) + @intFromEnum(Register.s0),
             ),
-            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intToEnum(
+            @intFromEnum(Register.d0)...@intFromEnum(Register.d31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.d0) + @enumToInt(Register.s0),
+                @intFromEnum(self) - @intFromEnum(Register.d0) + @intFromEnum(Register.s0),
             ),
-            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intToEnum(
+            @intFromEnum(Register.s0)...@intFromEnum(Register.s31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.s0) + @enumToInt(Register.s0),
+                @intFromEnum(self) - @intFromEnum(Register.s0) + @intFromEnum(Register.s0),
             ),
-            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intToEnum(
+            @intFromEnum(Register.h0)...@intFromEnum(Register.h31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.h0) + @enumToInt(Register.s0),
+                @intFromEnum(self) - @intFromEnum(Register.h0) + @intFromEnum(Register.s0),
             ),
-            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intToEnum(
+            @intFromEnum(Register.b0)...@intFromEnum(Register.b31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.b0) + @enumToInt(Register.s0),
+                @intFromEnum(self) - @intFromEnum(Register.b0) + @intFromEnum(Register.s0),
             ),
             else => unreachable,
         };
@@ -243,26 +243,26 @@ pub const Register = enum(u8) {
 
     /// Convert from a floating-point register to its 16 bit alias.
     pub fn toH(self: Register) Register {
-        return switch (@enumToInt(self)) {
-            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intToEnum(
+        return switch (@intFromEnum(self)) {
+            @intFromEnum(Register.q0)...@intFromEnum(Register.q31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.q0) + @enumToInt(Register.h0),
+                @intFromEnum(self) - @intFromEnum(Register.q0) + @intFromEnum(Register.h0),
             ),
-            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intToEnum(
+            @intFromEnum(Register.d0)...@intFromEnum(Register.d31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.d0) + @enumToInt(Register.h0),
+                @intFromEnum(self) - @intFromEnum(Register.d0) + @intFromEnum(Register.h0),
             ),
-            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intToEnum(
+            @intFromEnum(Register.s0)...@intFromEnum(Register.s31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.s0) + @enumToInt(Register.h0),
+                @intFromEnum(self) - @intFromEnum(Register.s0) + @intFromEnum(Register.h0),
             ),
-            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intToEnum(
+            @intFromEnum(Register.h0)...@intFromEnum(Register.h31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.h0) + @enumToInt(Register.h0),
+                @intFromEnum(self) - @intFromEnum(Register.h0) + @intFromEnum(Register.h0),
             ),
-            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intToEnum(
+            @intFromEnum(Register.b0)...@intFromEnum(Register.b31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.b0) + @enumToInt(Register.h0),
+                @intFromEnum(self) - @intFromEnum(Register.b0) + @intFromEnum(Register.h0),
             ),
             else => unreachable,
         };
@@ -270,26 +270,26 @@ pub const Register = enum(u8) {
 
     /// Convert from a floating-point register to its 8 bit alias.
     pub fn toB(self: Register) Register {
-        return switch (@enumToInt(self)) {
-            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intToEnum(
+        return switch (@intFromEnum(self)) {
+            @intFromEnum(Register.q0)...@intFromEnum(Register.q31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.q0) + @enumToInt(Register.b0),
+                @intFromEnum(self) - @intFromEnum(Register.q0) + @intFromEnum(Register.b0),
             ),
-            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intToEnum(
+            @intFromEnum(Register.d0)...@intFromEnum(Register.d31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.d0) + @enumToInt(Register.b0),
+                @intFromEnum(self) - @intFromEnum(Register.d0) + @intFromEnum(Register.b0),
             ),
-            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intToEnum(
+            @intFromEnum(Register.s0)...@intFromEnum(Register.s31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.s0) + @enumToInt(Register.b0),
+                @intFromEnum(self) - @intFromEnum(Register.s0) + @intFromEnum(Register.b0),
             ),
-            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intToEnum(
+            @intFromEnum(Register.h0)...@intFromEnum(Register.h31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.h0) + @enumToInt(Register.b0),
+                @intFromEnum(self) - @intFromEnum(Register.h0) + @intFromEnum(Register.b0),
             ),
-            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intToEnum(
+            @intFromEnum(Register.b0)...@intFromEnum(Register.b31) => @enumFromInt(
                 Register,
-                @enumToInt(self) - @enumToInt(Register.b0) + @enumToInt(Register.b0),
+                @intFromEnum(self) - @intFromEnum(Register.b0) + @intFromEnum(Register.b0),
             ),
             else => unreachable,
         };
@@ -901,7 +901,7 @@ pub const Instruction = union(enum) {
                         .rn = rn.enc(),
                         .rt2 = rt2.enc(),
                         .imm7 = imm7,
-                        .load = @boolToInt(load),
+                        .load = @intFromBool(load),
                         .encoding = encoding,
                         .opc = 0b00,
                     },
@@ -916,7 +916,7 @@ pub const Instruction = union(enum) {
                         .rn = rn.enc(),
                         .rt2 = rt2.enc(),
                         .imm7 = imm7,
-                        .load = @boolToInt(load),
+                        .load = @intFromBool(load),
                         .encoding = encoding,
                         .opc = 0b10,
                     },
@@ -1010,7 +1010,7 @@ pub const Instruction = union(enum) {
                 .imm6 = amount,
                 .rm = rm.enc(),
                 .n = n,
-                .shift = @enumToInt(shift),
+                .shift = @intFromEnum(shift),
                 .opc = opc,
                 .sf = switch (rd.size()) {
                     32 => 0b0,
@@ -1037,7 +1037,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .rn = rn.enc(),
                 .imm12 = imm12,
-                .sh = @boolToInt(shift),
+                .sh = @intFromBool(shift),
                 .s = s,
                 .op = op,
                 .sf = switch (rd.size()) {
@@ -1126,7 +1126,7 @@ pub const Instruction = union(enum) {
                 .rn = rn.enc(),
                 .imm6 = imm6,
                 .rm = rm.enc(),
-                .shift = @enumToInt(shift),
+                .shift = @intFromEnum(shift),
                 .s = s,
                 .op = op,
                 .sf = switch (rd.size()) {
@@ -1163,7 +1163,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .rn = rn.enc(),
                 .imm3 = imm3,
-                .option = @enumToInt(extend),
+                .option = @intFromEnum(extend),
                 .rm = rm.enc(),
                 .s = s,
                 .op = op,
@@ -1186,7 +1186,7 @@ pub const Instruction = union(enum) {
 
         return Instruction{
             .conditional_branch = .{
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
                 .o0 = o0,
                 .imm19 = @bitCast(u19, @intCast(i19, offset >> 2)),
                 .o1 = o1,
@@ -1232,7 +1232,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .rn = rn.enc(),
                 .op2 = op2,
-                .cond = @enumToInt(cond),
+                .cond = @intFromEnum(cond),
                 .rm = rm.enc(),
                 .s = s,
                 .op = op,
@@ -1394,7 +1394,7 @@ pub const Instruction = union(enum) {
     };
 
     pub fn ldp(rt1: Register, rt2: Register, rn: Register, offset: LoadStorePairOffset) Instruction {
-        return loadStoreRegisterPair(rt1, rt2, rn, offset.offset, @enumToInt(offset.encoding), true);
+        return loadStoreRegisterPair(rt1, rt2, rn, offset.offset, @intFromEnum(offset.encoding), true);
     }
 
     pub fn ldnp(rt1: Register, rt2: Register, rn: Register, offset: i9) Instruction {
@@ -1402,7 +1402,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn stp(rt1: Register, rt2: Register, rn: Register, offset: LoadStorePairOffset) Instruction {
-        return loadStoreRegisterPair(rt1, rt2, rn, offset.offset, @enumToInt(offset.encoding), false);
+        return loadStoreRegisterPair(rt1, rt2, rn, offset.offset, @intFromEnum(offset.encoding), false);
     }
 
     pub fn stnp(rt1: Register, rt2: Register, rn: Register, offset: i9) Instruction {

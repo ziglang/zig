@@ -54,6 +54,7 @@ int inet_pton(int af, const char *restrict s, void *restrict a0)
 			if (s[j]!='.' || (i<6 && brk<0)) return 0;
 			need_v4=1;
 			i++;
+			ip[i&7]=0;
 			break;
 		}
 		s += j+1;

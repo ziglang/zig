@@ -560,7 +560,7 @@ fn gen(self: *Self) !void {
 
         // Backpatch stack offset
         const total_stack_size = self.max_end_stack + self.saved_regs_stack_space;
-        const aligned_total_stack_end = mem.alignForwardGeneric(u32, total_stack_size, self.stack_align);
+        const aligned_total_stack_end = mem.alignForward(u32, total_stack_size, self.stack_align);
         const stack_size = aligned_total_stack_end - self.saved_regs_stack_space;
         self.max_end_stack = stack_size;
         self.mir_instructions.set(sub_reloc, .{
@@ -736,7 +736,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .fpext           => try self.airFpext(inst),
             .intcast         => try self.airIntCast(inst),
             .trunc           => try self.airTrunc(inst),
-            .bool_to_int     => try self.airBoolToInt(inst),
+            .int_from_bool     => try self.airIntFromBool(inst),
             .is_non_null     => try self.airIsNonNull(inst),
             .is_non_null_ptr => try self.airIsNonNullPtr(inst),
             .is_null         => try self.airIsNull(inst),
@@ -748,7 +748,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .load            => try self.airLoad(inst),
             .loop            => try self.airLoop(inst),
             .not             => try self.airNot(inst),
-            .ptrtoint        => try self.airPtrToInt(inst),
+            .int_from_ptr        => try self.airIntFromPtr(inst),
             .ret             => try self.airRet(inst),
             .ret_load        => try self.airRetLoad(inst),
             .store           => try self.airStore(inst, false),
@@ -756,8 +756,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .struct_field_ptr=> try self.airStructFieldPtr(inst),
             .struct_field_val=> try self.airStructFieldVal(inst),
             .array_to_slice  => try self.airArrayToSlice(inst),
-            .int_to_float    => try self.airIntToFloat(inst),
-            .float_to_int    => try self.airFloatToInt(inst),
+            .float_from_int    => try self.airFloatFromInt(inst),
+            .int_from_float    => try self.airIntFromFloat(inst),
             .cmpxchg_strong  => try self.airCmpxchg(inst),
             .cmpxchg_weak    => try self.airCmpxchg(inst),
             .atomic_rmw      => try self.airAtomicRmw(inst),
@@ -869,7 +869,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .cmp_neq_optimized,
             .cmp_vector_optimized,
             .reduce_optimized,
-            .float_to_int_optimized,
+            .int_from_float_optimized,
             => return self.fail("TODO implement optimized float mode", .{}),
 
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
@@ -937,7 +937,7 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
         const dies = @truncate(u1, tomb_bits) != 0;
         tomb_bits >>= 1;
         if (!dies) continue;
-        const op_int = @enumToInt(op);
+        const op_int = @intFromEnum(op);
         if (op_int < Air.ref_start_index) continue;
         const op_index = @intCast(Air.Inst.Index, op_int - Air.ref_start_index);
         self.processDeath(op_index);
@@ -991,7 +991,7 @@ fn allocMem(
     assert(abi_align > 0);
 
     // TODO find a free slot instead of always appending
-    const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align) + abi_size;
+    const offset = mem.alignForward(u32, self.next_stack_offset, abi_align) + abi_size;
     self.next_stack_offset = offset;
     self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
 
@@ -1269,7 +1269,7 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
+fn airIntFromBool(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = try self.resolveInst(un_op);
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else operand;
@@ -4649,7 +4649,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
     if (self.liveness.operandDies(inst, 0)) {
-        const op_int = @enumToInt(pl_op.operand);
+        const op_int = @intFromEnum(pl_op.operand);
         if (op_int >= Air.ref_start_index) {
             const op_index = @intCast(Air.Inst.Index, op_int - Air.ref_start_index);
             self.processDeath(op_index);
@@ -5857,7 +5857,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
     }
 }
 
-fn airPtrToInt(self: *Self, inst: Air.Inst.Index) !void {
+fn airIntFromPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result = try self.resolveInst(un_op);
     return self.finishAir(inst, result, .{ un_op, .none, .none });
@@ -5903,17 +5903,17 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
+fn airFloatFromInt(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airIntToFloat for {}", .{
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airFloatFromInt for {}", .{
         self.target.cpu.arch,
     });
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
+fn airIntFromFloat(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airFloatToInt for {}", .{
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airIntFromFloat for {}", .{
         self.target.cpu.arch,
     });
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
@@ -6214,7 +6214,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
             for (fn_info.param_types, 0..) |ty, i| {
                 if (ty.toType().abiAlignment(mod) == 8)
-                    ncrn = std.mem.alignForwardGeneric(usize, ncrn, 2);
+                    ncrn = std.mem.alignForward(usize, ncrn, 2);
 
                 const param_size = @intCast(u32, ty.toType().abiSize(mod));
                 if (std.math.divCeil(u32, param_size, 4) catch unreachable <= 4 - ncrn) {
@@ -6229,7 +6229,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 } else {
                     ncrn = 4;
                     if (ty.toType().abiAlignment(mod) == 8)
-                        nsaa = std.mem.alignForwardGeneric(u32, nsaa, 8);
+                        nsaa = std.mem.alignForward(u32, nsaa, 8);
 
                     result.args[i] = .{ .stack_argument_offset = nsaa };
                     nsaa += param_size;
@@ -6267,7 +6267,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     const param_size = @intCast(u32, ty.toType().abiSize(mod));
                     const param_alignment = ty.toType().abiAlignment(mod);
 
-                    stack_offset = std.mem.alignForwardGeneric(u32, stack_offset, param_alignment);
+                    stack_offset = std.mem.alignForward(u32, stack_offset, param_alignment);
                     result.args[i] = .{ .stack_argument_offset = stack_offset };
                     stack_offset += param_size;
                 } else {

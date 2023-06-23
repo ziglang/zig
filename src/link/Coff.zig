@@ -437,10 +437,10 @@ fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff.Section
     const vaddr = blk: {
         if (index == 0) break :blk self.page_size;
         const prev_header = self.sections.items(.header)[index - 1];
-        break :blk mem.alignForwardGeneric(u32, prev_header.virtual_address + prev_header.virtual_size, self.page_size);
+        break :blk mem.alignForward(u32, prev_header.virtual_address + prev_header.virtual_size, self.page_size);
     };
     // We commit more memory than needed upfront so that we don't have to reallocate too soon.
-    const memsz = mem.alignForwardGeneric(u32, size, self.page_size) * 100;
+    const memsz = mem.alignForward(u32, size, self.page_size) * 100;
     log.debug("found {s} free space 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         name,
         off,
@@ -505,8 +505,8 @@ fn growSection(self: *Coff, sect_id: u32, needed_size: u32) !void {
 fn growSectionVirtualMemory(self: *Coff, sect_id: u32, needed_size: u32) !void {
     const header = &self.sections.items(.header)[sect_id];
     const increased_size = padToIdeal(needed_size);
-    const old_aligned_end = header.virtual_address + mem.alignForwardGeneric(u32, header.virtual_size, self.page_size);
-    const new_aligned_end = header.virtual_address + mem.alignForwardGeneric(u32, increased_size, self.page_size);
+    const old_aligned_end = header.virtual_address + mem.alignForward(u32, header.virtual_size, self.page_size);
+    const new_aligned_end = header.virtual_address + mem.alignForward(u32, increased_size, self.page_size);
     const diff = new_aligned_end - old_aligned_end;
     log.debug("growing {s} in virtual memory by {x}", .{ self.getSectionName(header), diff });
 
@@ -538,7 +538,7 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
     defer tracy.end();
 
     const atom = self.getAtom(atom_index);
-    const sect_id = @enumToInt(atom.getSymbol(self).section_number) - 1;
+    const sect_id = @intFromEnum(atom.getSymbol(self).section_number) - 1;
     const header = &self.sections.items(.header)[sect_id];
     const free_list = &self.sections.items(.free_list)[sect_id];
     const maybe_last_atom_index = &self.sections.items(.last_atom_index)[sect_id];
@@ -567,7 +567,7 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
             const ideal_capacity_end_vaddr = math.add(u32, sym.value, ideal_capacity) catch ideal_capacity;
             const capacity_end_vaddr = sym.value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
-            const new_start_vaddr = mem.alignBackwardGeneric(u32, new_start_vaddr_unaligned, alignment);
+            const new_start_vaddr = mem.alignBackward(u32, new_start_vaddr_unaligned, alignment);
             if (new_start_vaddr < ideal_capacity_end_vaddr) {
                 // Additional bookkeeping here to notice if this free list node
                 // should be deleted because the atom that it points to has grown to take up
@@ -596,11 +596,11 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
             const last_symbol = last.getSymbol(self);
             const ideal_capacity = if (header.isCode()) padToIdeal(last.size) else last.size;
             const ideal_capacity_end_vaddr = last_symbol.value + ideal_capacity;
-            const new_start_vaddr = mem.alignForwardGeneric(u32, ideal_capacity_end_vaddr, alignment);
+            const new_start_vaddr = mem.alignForward(u32, ideal_capacity_end_vaddr, alignment);
             atom_placement = last_index;
             break :blk new_start_vaddr;
         } else {
-            break :blk mem.alignForwardGeneric(u32, header.virtual_address, alignment);
+            break :blk mem.alignForward(u32, header.virtual_address, alignment);
         }
     };
 
@@ -722,7 +722,7 @@ pub fn createAtom(self: *Coff) !Atom.Index {
 fn growAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignment: u32) !u32 {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
-    const align_ok = mem.alignBackwardGeneric(u32, sym.value, alignment) == sym.value;
+    const align_ok = mem.alignBackward(u32, sym.value, alignment) == sym.value;
     const need_realloc = !align_ok or new_atom_size > atom.capacity(self);
     if (!need_realloc) return sym.value;
     return self.allocateAtom(atom_index, new_atom_size, alignment);
@@ -739,7 +739,7 @@ fn shrinkAtom(self: *Coff, atom_index: Atom.Index, new_block_size: u32) void {
 fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
-    const section = self.sections.get(@enumToInt(sym.section_number) - 1);
+    const section = self.sections.get(@intFromEnum(sym.section_number) - 1);
     const file_offset = section.header.pointer_to_raw_data + sym.value - section.header.virtual_address;
 
     log.debug("writing atom for symbol {s} at file offset 0x{x} to 0x{x}", .{
@@ -769,14 +769,14 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
 
     if (is_hot_update_compatible) {
         if (self.base.child_pid) |handle| {
-            const slide = @ptrToInt(self.hot_state.loaded_base_address.?);
+            const slide = @intFromPtr(self.hot_state.loaded_base_address.?);
 
             const mem_code = try gpa.dupe(u8, code);
             defer gpa.free(mem_code);
             self.resolveRelocs(atom_index, relocs.items, mem_code, slide);
 
             const vaddr = sym.value + slide;
-            const pvaddr = @intToPtr(*anyopaque, vaddr);
+            const pvaddr = @ptrFromInt(*anyopaque, vaddr);
 
             log.debug("writing to memory at address {x}", .{vaddr});
 
@@ -860,9 +860,9 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
     if (is_hot_update_compatible) {
         if (self.base.child_pid) |handle| {
             const gpa = self.base.allocator;
-            const slide = @ptrToInt(self.hot_state.loaded_base_address.?);
+            const slide = @intFromPtr(self.hot_state.loaded_base_address.?);
             const actual_vmaddr = vmaddr + slide;
-            const pvaddr = @intToPtr(*anyopaque, actual_vmaddr);
+            const pvaddr = @ptrFromInt(*anyopaque, actual_vmaddr);
             log.debug("writing GOT entry to memory at address {x}", .{actual_vmaddr});
             if (build_options.enable_logging) {
                 switch (self.ptr_width) {
@@ -970,7 +970,7 @@ fn freeAtom(self: *Coff, atom_index: Atom.Index) void {
 
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
-    const sect_id = @enumToInt(sym.section_number) - 1;
+    const sect_id = @intFromEnum(sym.section_number) - 1;
     const free_list = &self.sections.items(.free_list)[sect_id];
     var already_have_free_list_node = false;
     {
@@ -1107,7 +1107,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
         const atom = self.getAtom(atom_index);
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, sym_name);
-        sym.section_number = @intToEnum(coff.SectionNumber, self.rdata_section_index.? + 1);
+        sym.section_number = @enumFromInt(coff.SectionNumber, self.rdata_section_index.? + 1);
     }
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), tv, &code_buffer, .none, .{
@@ -1244,7 +1244,7 @@ fn updateLazySymbolAtom(
     const code_len = @intCast(u32, code.len);
     const symbol = atom.getSymbolPtr(self);
     try self.setSymbolName(symbol, name);
-    symbol.section_number = @intToEnum(coff.SectionNumber, section_index + 1);
+    symbol.section_number = @enumFromInt(coff.SectionNumber, section_index + 1);
     symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
 
     const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
@@ -1341,7 +1341,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, comple
     if (atom.size != 0) {
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, decl_name);
-        sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
+        sym.section_number = @enumFromInt(coff.SectionNumber, sect_index + 1);
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const capacity = atom.capacity(self);
@@ -1365,7 +1365,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, comple
     } else {
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, decl_name);
-        sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
+        sym.section_number = @enumFromInt(coff.SectionNumber, sect_index + 1);
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
@@ -1502,7 +1502,7 @@ pub fn updateDeclExports(
         const sym = self.getSymbolPtr(sym_loc);
         try self.setSymbolName(sym, mod.intern_pool.stringToSlice(exp.opts.name));
         sym.value = decl_sym.value;
-        sym.section_number = @intToEnum(coff.SectionNumber, self.text_section_index.? + 1);
+        sym.section_number = @enumFromInt(coff.SectionNumber, self.text_section_index.? + 1);
         sym.type = .{ .complex_type = .FUNCTION, .base_type = .NULL };
 
         switch (exp.opts.linkage) {
@@ -1668,7 +1668,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
         const atom = self.getAtom(atom_index);
         const sym = atom.getSymbol(self);
-        const section = self.sections.get(@enumToInt(sym.section_number) - 1).header;
+        const section = self.sections.get(@intFromEnum(sym.section_number) - 1).header;
         const file_offset = section.pointer_to_raw_data + sym.value - section.virtual_address;
 
         var code = std.ArrayList(u8).init(gpa);
@@ -1798,7 +1798,7 @@ fn writeBaseRelocations(self: *Coff) !void {
 
             for (offsets.items) |offset| {
                 const rva = sym.value + offset;
-                const page = mem.alignBackwardGeneric(u32, rva, self.page_size);
+                const page = mem.alignBackward(u32, rva, self.page_size);
                 const gop = try page_table.getOrPut(page);
                 if (!gop.found_existing) {
                     gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
@@ -1819,7 +1819,7 @@ fn writeBaseRelocations(self: *Coff) !void {
                 if (sym.section_number == .UNDEFINED) continue;
 
                 const rva = @intCast(u32, header.virtual_address + index * self.ptr_width.size());
-                const page = mem.alignBackwardGeneric(u32, rva, self.page_size);
+                const page = mem.alignBackward(u32, rva, self.page_size);
                 const gop = try page_table.getOrPut(page);
                 if (!gop.found_existing) {
                     gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
@@ -1878,7 +1878,7 @@ fn writeBaseRelocations(self: *Coff) !void {
 
     try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
 
-    self.data_directories[@enumToInt(coff.DirectoryEntry.BASERELOC)] = .{
+    self.data_directories[@intFromEnum(coff.DirectoryEntry.BASERELOC)] = .{
         .virtual_address = header.virtual_address,
         .size = needed_size,
     };
@@ -1907,7 +1907,7 @@ fn writeImportTables(self: *Coff) !void {
         lookup_table_size += @intCast(u32, itable.entries.items.len + 1) * @sizeOf(coff.ImportLookupEntry64.ByName);
         for (itable.entries.items) |entry| {
             const sym_name = self.getSymbolName(entry);
-            names_table_size += 2 + mem.alignForwardGeneric(u32, @intCast(u32, sym_name.len + 1), 2);
+            names_table_size += 2 + mem.alignForward(u32, @intCast(u32, sym_name.len + 1), 2);
         }
         dll_names_size += @intCast(u32, lib_name.len + ext.len + 1);
     }
@@ -2011,11 +2011,11 @@ fn writeImportTables(self: *Coff) !void {
 
     try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
 
-    self.data_directories[@enumToInt(coff.DirectoryEntry.IMPORT)] = .{
+    self.data_directories[@intFromEnum(coff.DirectoryEntry.IMPORT)] = .{
         .virtual_address = header.virtual_address + iat_size,
         .size = dir_table_size,
     };
-    self.data_directories[@enumToInt(coff.DirectoryEntry.IAT)] = .{
+    self.data_directories[@intFromEnum(coff.DirectoryEntry.IAT)] = .{
         .virtual_address = header.virtual_address,
         .size = iat_size,
     };
@@ -2102,7 +2102,7 @@ fn writeHeader(self: *Coff) !void {
     };
     const subsystem: coff.Subsystem = .WINDOWS_CUI;
     const size_of_image: u32 = self.getSizeOfImage();
-    const size_of_headers: u32 = mem.alignForwardGeneric(u32, self.getSizeOfHeaders(), default_file_alignment);
+    const size_of_headers: u32 = mem.alignForward(u32, self.getSizeOfHeaders(), default_file_alignment);
     const image_base = self.getImageBase();
 
     const base_of_code = self.sections.get(self.text_section_index.?).header.virtual_address;
@@ -2247,7 +2247,7 @@ fn allocatedSize(self: *Coff, start: u32) u32 {
 fn findFreeSpace(self: *Coff, object_size: u32, min_alignment: u32) u32 {
     var start: u32 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
-        start = mem.alignForwardGeneric(u32, item_end, min_alignment);
+        start = mem.alignForward(u32, item_end, min_alignment);
     }
     return start;
 }
@@ -2294,9 +2294,9 @@ inline fn getSectionHeadersOffset(self: Coff) u32 {
 }
 
 inline fn getSizeOfImage(self: Coff) u32 {
-    var image_size: u32 = mem.alignForwardGeneric(u32, self.getSizeOfHeaders(), self.page_size);
+    var image_size: u32 = mem.alignForward(u32, self.getSizeOfHeaders(), self.page_size);
     for (self.sections.items(.header)) |header| {
-        image_size += mem.alignForwardGeneric(u32, header.virtual_size, self.page_size);
+        image_size += mem.alignForward(u32, header.virtual_size, self.page_size);
     }
     return image_size;
 }
@@ -2469,7 +2469,7 @@ fn logSymtab(self: *Coff) void {
             .UNDEFINED => 0, // TODO
             .ABSOLUTE => unreachable, // TODO
             .DEBUG => unreachable, // TODO
-            else => @enumToInt(sym.section_number),
+            else => @intFromEnum(sym.section_number),
         };
         log.debug("    %{d}: {?s} @{x} in {s}({d}), {s}", .{
             sym_id,

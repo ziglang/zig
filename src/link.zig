@@ -197,8 +197,8 @@ pub const Options = struct {
     /// __real_symbol.
     symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
 
-    version: ?std.builtin.Version,
-    compatibility_version: ?std.builtin.Version,
+    version: ?std.SemanticVersion,
+    compatibility_version: ?std.SemanticVersion,
     libc_installation: ?*const LibCInstallation,
 
     dwarf_format: ?std.dwarf.Format,

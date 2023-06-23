@@ -9,7 +9,7 @@ fn paritydi2Naive(a: i64) i32 {
         has_parity = !has_parity;
         x = x & (x - 1);
     }
-    return @intCast(i32, @boolToInt(has_parity));
+    return @intCast(i32, @intFromBool(has_parity));
 }
 
 fn test__paritydi2(a: i64) !void {

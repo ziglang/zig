@@ -73,7 +73,7 @@ pub fn ValidationAllocator(comptime T: type) type {
             const underlying = self.getUnderlyingAllocatorPtr();
             const result = underlying.rawAlloc(n, log2_ptr_align, ret_addr) orelse
                 return null;
-            assert(mem.isAlignedLog2(@ptrToInt(result), log2_ptr_align));
+            assert(mem.isAlignedLog2(@intFromPtr(result), log2_ptr_align));
             return result;
         }
 
@@ -185,7 +185,7 @@ test "Allocator.resize" {
         var values = try testing.allocator.alloc(T, 100);
         defer testing.allocator.free(values);
 
-        for (values, 0..) |*v, i| v.* = @intToFloat(T, i);
+        for (values, 0..) |*v, i| v.* = @floatFromInt(T, i);
         if (!testing.allocator.resize(values, values.len + 10)) return error.OutOfMemory;
         values = values.ptr[0 .. values.len + 10];
         try testing.expect(values.len == 110);
@@ -233,7 +233,7 @@ pub fn zeroes(comptime T: type) T {
             return @as(T, 0);
         },
         .Enum, .EnumLiteral => {
-            return @intToEnum(T, 0);
+            return @enumFromInt(T, 0);
         },
         .Void => {
             return {};
@@ -596,10 +596,9 @@ pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
 
 /// Compares two slices of numbers lexicographically. O(n).
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
-    const n = math.min(lhs.len, rhs.len);
-    var i: usize = 0;
-    while (i < n) : (i += 1) {
-        switch (math.order(lhs[i], rhs[i])) {
+    const n = @min(lhs.len, rhs.len);
+    for (lhs[0..n], rhs[0..n]) |lhs_elem, rhs_elem| {
+        switch (math.order(lhs_elem, rhs_elem)) {
             .eq => continue,
             .lt => return .lt,
             .gt => return .gt,
@@ -642,7 +641,7 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 /// Compares two slices and returns the index of the first inequality.
 /// Returns null if the slices are equal.
 pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
-    const shortest = math.min(a.len, b.len);
+    const shortest = @min(a.len, b.len);
     if (a.ptr == b.ptr)
         return if (a.len == b.len) null else shortest;
     var index: usize = 0;
@@ -1375,7 +1374,7 @@ pub fn readVarPackedInt(
         const value = if (read_size == 1) b: {
             break :b @truncate(uN, read_bytes[0] >> bit_shift);
         } else b: {
-            const i: u1 = @boolToInt(endian == .Big);
+            const i: u1 = @intFromBool(endian == .Big);
             const head = @truncate(uN, read_bytes[i] >> bit_shift);
             const tail_shift = @intCast(Log2N, @as(u4, 8) - bit_shift);
             const tail = @truncate(uN, read_bytes[1 - i]);
@@ -1638,7 +1637,7 @@ pub fn writeInt(comptime T: type, buffer: *[@divExact(@typeInfo(T).Int.bits, 8)]
     }
 }
 
-pub fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
+fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
     const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
@@ -1671,7 +1670,7 @@ pub fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, va
     writeIntLittle(StoreInt, write_bytes[0..store_size], write_value);
 }
 
-pub fn writePackedIntBig(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
+fn writePackedIntBig(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
     const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
@@ -3101,7 +3100,7 @@ test "testStringEquality" {
 
 test "testReadInt" {
     try testReadIntImpl();
-    comptime try testReadIntImpl();
+    try comptime testReadIntImpl();
 }
 fn testReadIntImpl() !void {
     {
@@ -3152,7 +3151,7 @@ fn testReadIntImpl() !void {
 
 test writeIntSlice {
     try testWriteIntImpl();
-    comptime try testWriteIntImpl();
+    try comptime testWriteIntImpl();
 }
 fn testWriteIntImpl() !void {
     var bytes: [8]u8 = undefined;
@@ -3296,7 +3295,7 @@ pub fn min(comptime T: type, slice: []const T) T {
     assert(slice.len > 0);
     var best = slice[0];
     for (slice[1..]) |item| {
-        best = math.min(best, item);
+        best = @min(best, item);
     }
     return best;
 }
@@ -3313,7 +3312,7 @@ pub fn max(comptime T: type, slice: []const T) T {
     assert(slice.len > 0);
     var best = slice[0];
     for (slice[1..]) |item| {
-        best = math.max(best, item);
+        best = @max(best, item);
     }
     return best;
 }
@@ -3332,8 +3331,8 @@ pub fn minMax(comptime T: type, slice: []const T) struct { min: T, max: T } {
     var minVal = slice[0];
     var maxVal = slice[0];
     for (slice[1..]) |item| {
-        minVal = math.min(minVal, item);
-        maxVal = math.max(maxVal, item);
+        minVal = @min(minVal, item);
+        maxVal = @max(maxVal, item);
     }
     return .{ .min = minVal, .max = maxVal };
 }
@@ -3779,7 +3778,7 @@ pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
         return 0;
 
     // Calculate the aligned base address with an eye out for overflow.
-    const addr = @ptrToInt(ptr);
+    const addr = @intFromPtr(ptr);
     var ov = @addWithOverflow(addr, align_to - 1);
     if (ov[1] != 0) return null;
     ov[0] &= ~@as(usize, align_to - 1);
@@ -3801,16 +3800,16 @@ pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
 pub fn alignPointer(ptr: anytype, align_to: usize) ?@TypeOf(ptr) {
     const adjust_off = alignPointerOffset(ptr, align_to) orelse return null;
     const T = @TypeOf(ptr);
-    // Avoid the use of intToPtr to avoid losing the pointer provenance info.
+    // Avoid the use of ptrFromInt to avoid losing the pointer provenance info.
     return @alignCast(@typeInfo(T).Pointer.alignment, ptr + adjust_off);
 }
 
 test "alignPointer" {
     const S = struct {
         fn checkAlign(comptime T: type, base: usize, align_to: usize, expected: usize) !void {
-            var ptr = @intToPtr(T, base);
+            var ptr = @ptrFromInt(T, base);
             var aligned = alignPointer(ptr, align_to);
-            try testing.expectEqual(expected, @ptrToInt(aligned));
+            try testing.expectEqual(expected, @intFromPtr(aligned));
         }
     };
 
@@ -4069,13 +4068,13 @@ test "bytesAsSlice keeps pointer alignment" {
     {
         var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
         const numbers = bytesAsSlice(u32, bytes[0..]);
-        comptime try testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+        try comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
     }
     {
         var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
         var runtime_zero: usize = 0;
         const numbers = bytesAsSlice(u32, bytes[runtime_zero..]);
-        comptime try testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+        try comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
     }
 }
 
@@ -4168,7 +4167,7 @@ test "sliceAsBytes packed struct at runtime and comptime" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "sliceAsBytes and bytesAsSlice back" {
@@ -4213,23 +4212,17 @@ test "sliceAsBytes preserves pointer attributes" {
 /// Round an address up to the next (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
 /// Asserts that rounding up the address does not cause integer overflow.
-pub fn alignForward(addr: usize, alignment: usize) usize {
-    return alignForwardGeneric(usize, addr, alignment);
+pub fn alignForward(comptime T: type, addr: T, alignment: T) T {
+    assert(isValidAlignGeneric(T, alignment));
+    return alignBackward(T, addr + (alignment - 1), alignment);
 }
 
 pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
     const alignment = @as(usize, 1) << @intCast(math.Log2Int(usize), log2_alignment);
-    return alignForward(addr, alignment);
+    return alignForward(usize, addr, alignment);
 }
 
-/// Round an address up to the next (or current) aligned address.
-/// The alignment must be a power of 2 and greater than 0.
-/// Asserts that rounding up the address does not cause integer overflow.
-pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
-    assert(alignment > 0);
-    assert(std.math.isPowerOfTwo(alignment));
-    return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
-}
+pub const alignForwardGeneric = @compileError("renamed to alignForward");
 
 /// Force an evaluation of the expression; this tries to prevent
 /// the compiler from optimizing the computation away even if the
@@ -4243,8 +4236,8 @@ pub fn doNotOptimizeAway(val: anytype) void {
     const t = @typeInfo(@TypeOf(val));
     switch (t) {
         .Void, .Null, .ComptimeInt, .ComptimeFloat => return,
-        .Enum => doNotOptimizeAway(@enumToInt(val)),
-        .Bool => doNotOptimizeAway(@boolToInt(val)),
+        .Enum => doNotOptimizeAway(@intFromEnum(val)),
+        .Bool => doNotOptimizeAway(@intFromBool(val)),
         .Int => {
             const bits = t.Int.bits;
             if (bits <= max_gp_register_bits and builtin.zig_backend != .stage2_c) {
@@ -4322,44 +4315,40 @@ test "doNotOptimizeAway" {
 }
 
 test "alignForward" {
-    try testing.expect(alignForward(1, 1) == 1);
-    try testing.expect(alignForward(2, 1) == 2);
-    try testing.expect(alignForward(1, 2) == 2);
-    try testing.expect(alignForward(2, 2) == 2);
-    try testing.expect(alignForward(3, 2) == 4);
-    try testing.expect(alignForward(4, 2) == 4);
-    try testing.expect(alignForward(7, 8) == 8);
-    try testing.expect(alignForward(8, 8) == 8);
-    try testing.expect(alignForward(9, 8) == 16);
-    try testing.expect(alignForward(15, 8) == 16);
-    try testing.expect(alignForward(16, 8) == 16);
-    try testing.expect(alignForward(17, 8) == 24);
+    try testing.expect(alignForward(usize, 1, 1) == 1);
+    try testing.expect(alignForward(usize, 2, 1) == 2);
+    try testing.expect(alignForward(usize, 1, 2) == 2);
+    try testing.expect(alignForward(usize, 2, 2) == 2);
+    try testing.expect(alignForward(usize, 3, 2) == 4);
+    try testing.expect(alignForward(usize, 4, 2) == 4);
+    try testing.expect(alignForward(usize, 7, 8) == 8);
+    try testing.expect(alignForward(usize, 8, 8) == 8);
+    try testing.expect(alignForward(usize, 9, 8) == 16);
+    try testing.expect(alignForward(usize, 15, 8) == 16);
+    try testing.expect(alignForward(usize, 16, 8) == 16);
+    try testing.expect(alignForward(usize, 17, 8) == 24);
 }
 
 /// Round an address down to the previous (or current) aligned address.
 /// Unlike `alignBackward`, `alignment` can be any positive number, not just a power of 2.
 pub fn alignBackwardAnyAlign(i: usize, alignment: usize) usize {
     if (isValidAlign(alignment))
-        return alignBackward(i, alignment);
+        return alignBackward(usize, i, alignment);
     assert(alignment != 0);
     return i - @mod(i, alignment);
 }
 
 /// Round an address down to the previous (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
-pub fn alignBackward(addr: usize, alignment: usize) usize {
-    return alignBackwardGeneric(usize, addr, alignment);
-}
-
-/// Round an address down to the previous (or current) aligned address.
-/// The alignment must be a power of 2 and greater than 0.
-pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
+pub fn alignBackward(comptime T: type, addr: T, alignment: T) T {
     assert(isValidAlignGeneric(T, alignment));
     // 000010000 // example alignment
     // 000001111 // subtract 1
     // 111110000 // binary not
     return addr & ~(alignment - 1);
 }
+
+pub const alignBackwardGeneric = @compileError("renamed to alignBackward");
 
 /// Returns whether `alignment` is a valid alignment, meaning it is
 /// a positive power of 2.
@@ -4391,7 +4380,7 @@ pub fn isAligned(addr: usize, alignment: usize) bool {
 }
 
 pub fn isAlignedGeneric(comptime T: type, addr: T, alignment: T) bool {
-    return alignBackwardGeneric(T, addr, alignment) == addr;
+    return alignBackward(T, addr, alignment) == addr;
 }
 
 test "isAligned" {
@@ -4436,10 +4425,10 @@ fn AlignedSlice(comptime AttributeSource: type, comptime new_alignment: usize) t
 /// Returns the largest slice in the given bytes that conforms to the new alignment,
 /// or `null` if the given bytes contain no conforming address.
 pub fn alignInBytes(bytes: []u8, comptime new_alignment: usize) ?[]align(new_alignment) u8 {
-    const begin_address = @ptrToInt(bytes.ptr);
+    const begin_address = @intFromPtr(bytes.ptr);
     const end_address = begin_address + bytes.len;
 
-    const begin_address_aligned = mem.alignForward(begin_address, new_alignment);
+    const begin_address_aligned = mem.alignForward(usize, begin_address, new_alignment);
     const new_length = std.math.sub(usize, end_address, begin_address_aligned) catch |e| switch (e) {
         error.Overflow => return null,
     };
@@ -4557,7 +4546,7 @@ test "read/write(Var)PackedInt" {
                         }
 
                         const signedness = @typeInfo(PackedType).Int.signedness;
-                        const NextPowerOfTwoInt = std.meta.Int(signedness, comptime try std.math.ceilPowerOfTwo(u16, @bitSizeOf(PackedType)));
+                        const NextPowerOfTwoInt = std.meta.Int(signedness, try comptime std.math.ceilPowerOfTwo(u16, @bitSizeOf(PackedType)));
                         const ui64 = std.meta.Int(signedness, 64);
                         inline for ([_]type{ PackedType, NextPowerOfTwoInt, ui64 }) |U| {
                             { // Variable-size Read/Write (Native-endian)

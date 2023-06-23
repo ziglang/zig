@@ -488,7 +488,7 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 
         const reloc_addr = info.dlpi_addr + phdr.p_vaddr;
         // Find the ELF header
-        const elf_header = @intToPtr(*elf.Ehdr, reloc_addr - phdr.p_offset);
+        const elf_header = @ptrFromInt(*elf.Ehdr, reloc_addr - phdr.p_offset);
         // Validate the magic
         if (!mem.eql(u8, elf_header.e_ident[0..4], elf.MAGIC)) return error.BadElfMagic;
         // Consistency check
@@ -541,7 +541,7 @@ test "memfd_create" {
     switch (native_os) {
         .linux => {},
         .freebsd => {
-            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0 }) == .lt)
+            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0, .patch = 0 }) == .lt)
                 return error.SkipZigTest;
         },
         else => return error.SkipZigTest,
@@ -751,7 +751,7 @@ test "getrlimit and setrlimit" {
     }
 
     inline for (std.meta.fields(os.rlimit_resource)) |field| {
-        const resource = @intToEnum(os.rlimit_resource, field.value);
+        const resource = @enumFromInt(os.rlimit_resource, field.value);
         const limit = try os.getrlimit(resource);
 
         // On 32 bit MIPS musl includes a fix which changes limits greater than -1UL/2 to RLIM_INFINITY.
@@ -931,10 +931,10 @@ test "POSIX file locking with fcntl" {
 
     // Place an exclusive lock on the first byte, and a shared lock on the second byte:
     var struct_flock = std.mem.zeroInit(os.Flock, .{ .type = os.F.WRLCK });
-    _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
+    _ = try os.fcntl(fd, os.F.SETLK, @intFromPtr(&struct_flock));
     struct_flock.start = 1;
     struct_flock.type = os.F.RDLCK;
-    _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
+    _ = try os.fcntl(fd, os.F.SETLK, @intFromPtr(&struct_flock));
 
     // Check the locks in a child process:
     const pid = try os.fork();
@@ -942,15 +942,15 @@ test "POSIX file locking with fcntl" {
         // child expects be denied the exclusive lock:
         struct_flock.start = 0;
         struct_flock.type = os.F.WRLCK;
-        try expectError(error.Locked, os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock)));
+        try expectError(error.Locked, os.fcntl(fd, os.F.SETLK, @intFromPtr(&struct_flock)));
         // child expects to get the shared lock:
         struct_flock.start = 1;
         struct_flock.type = os.F.RDLCK;
-        _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
+        _ = try os.fcntl(fd, os.F.SETLK, @intFromPtr(&struct_flock));
         // child waits for the exclusive lock in order to test deadlock:
         struct_flock.start = 0;
         struct_flock.type = os.F.WRLCK;
-        _ = try os.fcntl(fd, os.F.SETLKW, @ptrToInt(&struct_flock));
+        _ = try os.fcntl(fd, os.F.SETLKW, @intFromPtr(&struct_flock));
         // child exits without continuing:
         os.exit(0);
     } else {
@@ -959,15 +959,15 @@ test "POSIX file locking with fcntl" {
         // parent expects deadlock when attempting to upgrade the shared lock to exclusive:
         struct_flock.start = 1;
         struct_flock.type = os.F.WRLCK;
-        try expectError(error.DeadLock, os.fcntl(fd, os.F.SETLKW, @ptrToInt(&struct_flock)));
+        try expectError(error.DeadLock, os.fcntl(fd, os.F.SETLKW, @intFromPtr(&struct_flock)));
         // parent releases exclusive lock:
         struct_flock.start = 0;
         struct_flock.type = os.F.UNLCK;
-        _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
+        _ = try os.fcntl(fd, os.F.SETLK, @intFromPtr(&struct_flock));
         // parent releases shared lock:
         struct_flock.start = 1;
         struct_flock.type = os.F.UNLCK;
-        _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
+        _ = try os.fcntl(fd, os.F.SETLK, @intFromPtr(&struct_flock));
         // parent waits for child:
         const result = os.waitpid(pid, 0);
         try expect(result.status == 0 * 256);
