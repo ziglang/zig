@@ -275,6 +275,63 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             print("capacity: {}", .{self.capacity()});
             print(" }}\n", .{});
         }
+
+        fn dumpPretty(self: *Self) void {
+            var stderr_mutex = std.debug.getStderrMutex();
+            stderr_mutex.lock();
+            defer stderr_mutex.unlock();
+            const stderr = std.io.getStdErr().writer();
+            const fmt = switch (T) {
+                []const u8, [:0]const u8, [*:0]const u8, []u8, [:0]u8, [*:0]u8 => "{s}",
+                else => "{}",
+            };
+            self.format(fmt, .{}, stderr) catch return;
+
+            stderr.print("len: {}, capacity: {}, garbage: {{", .{ self.len, self.capacity() }) catch return;
+            const garbage = self.items[self.len..];
+            for (garbage, 0..) |e, i| {
+                stderr.print(" {any}{c}", .{ e, if (i < garbage.len - 1) @as(u8, ',') else @as(u8, ' ') }) catch return;
+            }
+            stderr.print("}}\n", .{}) catch return;
+        }
+
+        // Based on https://github.com/geoffleyland/lua-heaps/blob/18c5397762110aeaa8eae3237e04be677df56895/lua/binary_heap.lua#L138-L170
+        fn formatHelperRecursive(
+            comptime fmt: []const u8,
+            items: []T,
+            writer: anytype,
+            level_to_print: usize,
+            i: usize,
+            level: usize,
+            end_padding: usize,
+        ) !usize {
+            if (i >= items.len) return 0;
+            const element_len = std.fmt.count(fmt, .{items[i]});
+            var left_padding = try formatHelperRecursive(fmt, items, writer, level_to_print, 2 *| i +| 1, level + 1, element_len);
+            var right_padding = try formatHelperRecursive(fmt, items, writer, level_to_print, 2 *| i +| 2, level + 1, end_padding);
+            const added_len = left_padding + element_len + right_padding;
+
+            if (level_to_print == level) {
+                try writer.writeByteNTimes(' ', left_padding);
+                try writer.print(fmt, .{items[i]});
+                try writer.writeByteNTimes(' ', right_padding + end_padding);
+            }
+            return added_len;
+        }
+
+        pub fn format(
+            self: Self,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = options;
+            if (self.len == 0) return;
+            for (0..@as(usize, std.math.log2_int(usize, self.len)) + 1) |level_to_print| {
+                _ = try formatHelperRecursive(fmt, self.items[0..self.len], writer, level_to_print, 0, 0, 0);
+                try writer.writeAll("\n");
+            }
+        }
     };
 }
 
@@ -642,4 +699,28 @@ test "std.PriorityQueue: add and remove min heap with contextful comparator" {
     try expectEqual(@as(usize, 2), queue.remove());
     try expectEqual(@as(usize, 0), queue.remove());
     try expectEqual(@as(usize, 5), queue.remove());
+}
+
+test "std.PriorityQueue: format makes a pretty picture" {
+    var pq = PriorityQueue(u8, void, struct {
+        fn lessThan(_: void, a: u8, b: u8) Order {
+            return std.math.order(a, b);
+        }
+    }.lessThan).init(testing.allocator, {});
+    defer pq.deinit();
+
+    for ([_]u8{ '~', 'h', 'i', 'c', 'i', 'e', 'a', 'g', 'f', 'e', 'n', 'd', 'l', 'b', 's' }) |c|
+        try pq.add(c);
+
+    var buffer: [64]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buffer);
+    try pq.format("{c}", .{}, stream.writer());
+
+    const formatted_pq =
+        "       a       \n" ++
+        "   e       b   \n" ++
+        " g   f   d   c \n" ++
+        "~ h i n i l e s\n";
+
+    try testing.expectEqualStrings(formatted_pq, &buffer);
 }
