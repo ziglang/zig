@@ -132,7 +132,9 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
                     std.os.KERN.OSRELEASE,
                 };
                 var buf: [64]u8 = undefined;
-                var len: usize = buf.len;
+                // consider that sysctl result includes null-termination
+                // reserve 1 byte to ensure we never overflow when appending ".0"
+                var len: usize = buf.len - 1;
 
                 std.os.sysctl(&mib, &buf, &len, null, 0) catch |err| switch (err) {
                     error.NameTooLong => unreachable, // constant, known good value
@@ -142,7 +144,12 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
                     error.Unexpected => return error.OSVersionDetectionFail,
                 };
 
-                if (std.SemanticVersion.parse(buf[0 .. len - 1])) |ver| {
+                // append ".0" to satisfy semver
+                buf[len - 1] = '.';
+                buf[len] = '0';
+                len += 1;
+
+                if (std.SemanticVersion.parse(buf[0..len])) |ver| {
                     os.version_range.semver.min = ver;
                     os.version_range.semver.max = ver;
                 } else |_| {
