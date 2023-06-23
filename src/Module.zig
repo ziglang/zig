@@ -5503,7 +5503,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
             else
                 break :t arg_tv.ty;
 
-            const arg = try sema.addConstant(arg_tv.ty, arg_val);
+            const arg = try sema.addConstant(arg_val);
             sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
             total_param_index += 1;
             continue;
@@ -5517,7 +5517,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
             else => |e| return e,
         };
         if (opt_opv) |opv| {
-            const arg = try sema.addConstant(param_ty, opv);
+            const arg = try sema.addConstant(opv);
             sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
             total_param_index += 1;
             runtime_param_index += 1;
