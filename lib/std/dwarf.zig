@@ -1580,7 +1580,7 @@ pub const DwarfInfo = struct {
         if (!comptime abi.isSupportedArch(builtin.target.cpu.arch)) return error.UnsupportedCpuArchitecture;
         if (context.pc == 0) return;
 
-        // TODO: Handle signal frame (ie. use_prev_instr in libunwind)
+        // TODO: Handle unwinding from a signal frame (ie. use_prev_instr in libunwind)
 
         // Find the FDE and CIE
         var cie: CommonInformationEntry = undefined;
@@ -1594,7 +1594,14 @@ pub const DwarfInfo = struct {
 
         if (di.eh_frame_hdr) |header| {
             mapped_pc = context.pc;
-            try header.findEntry(context.isValidMemory, @intFromPtr(di.section(.eh_frame_hdr).?.ptr), mapped_pc, &cie, &fde);
+            try header.findEntry(
+                context.isValidMemory,
+                null, // TODO: Check di for this
+                @intFromPtr(di.section(.eh_frame_hdr).?.ptr),
+                mapped_pc,
+                &cie,
+                &fde,
+            );
         } else {
             mapped_pc = context.pc - module_base_address;
             const index = std.sort.binarySearch(FrameDescriptionEntry, mapped_pc, di.fde_list.items, {}, struct {
@@ -1821,9 +1828,28 @@ pub const ExceptionFrameHeader = struct {
         };
     }
 
+    fn isValidPtr(
+        self: ExceptionFrameHeader,
+        ptr: usize,
+        isValidMemory: *const fn (address: usize) bool,
+        eh_frame_len: ?usize,
+    ) bool {
+        if (eh_frame_len) |len| {
+            return ptr >= self.eh_frame_ptr and ptr < self.eh_frame_ptr + len;
+        } else {
+            return isValidMemory(ptr);
+        }
+    }
+
+    /// Find an entry by binary searching the eh_frame_hdr section.
+    ///
+    /// Since the length of the eh_frame section (`eh_frame_len`) may not be known by the caller,
+    /// `isValidMemory` will be called before accessing any memory referenced by
+    /// the header entries. If `eh_frame_len` is provided, then these checks can be skipped.
     pub fn findEntry(
         self: ExceptionFrameHeader,
         isValidMemory: *const fn (address: usize) bool,
+        eh_frame_len: ?usize,
         eh_frame_hdr_ptr: usize,
         pc: usize,
         cie: *CommonInformationEntry,
@@ -1855,7 +1881,7 @@ pub const ExceptionFrameHeader = struct {
 
         try stream.seekTo(left * entry_size);
 
-        // Read past pc_begin
+        // Read past the pc_begin field of the entry
         _ = try readEhPointer(reader, self.table_enc, @sizeOf(usize), .{
             .pc_rel_base = @intFromPtr(&self.entries[stream.pos]),
             .follow_indirect = true,
@@ -1868,24 +1894,29 @@ pub const ExceptionFrameHeader = struct {
             .data_rel_base = eh_frame_hdr_ptr,
         }, builtin.cpu.arch.endian()) orelse return badDwarf()) orelse return badDwarf();
 
-        // TODO: Should this also do isValidMemory(fde_ptr) + 11 (worst case header size)?
+        // Verify the length fields of the FDE header are readable
+        if (!self.isValidPtr(fde_ptr, isValidMemory, eh_frame_len) or fde_ptr < self.eh_frame_ptr) return badDwarf();
 
-        // The length of the .eh_frame section is unknown at this point, since .eh_frame_hdr only provides the start
-        if (!isValidMemory(fde_ptr) or fde_ptr < self.eh_frame_ptr) return badDwarf();
-        const eh_frame = @ptrFromInt([*]const u8, self.eh_frame_ptr)[0..math.maxInt(usize)];
+        var fde_entry_header_len: usize = 4;
+        if (!self.isValidPtr(fde_ptr + 3, isValidMemory, eh_frame_len)) return badDwarf();
+        if (self.isValidPtr(fde_ptr + 11, isValidMemory, eh_frame_len)) fde_entry_header_len = 12;
+
+        // Even if eh_frame_len is not specified, all ranges accssed are checked by isValidPtr
+        const eh_frame = @ptrFromInt([*]const u8, self.eh_frame_ptr)[0..eh_frame_len orelse math.maxInt(u32)];
+
         const fde_offset = fde_ptr - self.eh_frame_ptr;
-
         var eh_frame_stream = io.fixedBufferStream(eh_frame);
         try eh_frame_stream.seekTo(fde_offset);
 
         const fde_entry_header = try EntryHeader.read(&eh_frame_stream, builtin.cpu.arch.endian());
-        if (!isValidMemory(@intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]))) return badDwarf();
+        if (!self.isValidPtr(@intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]), isValidMemory, eh_frame_len)) return badDwarf();
         if (fde_entry_header.type != .fde) return badDwarf();
 
+        // CIEs always come before FDEs (the offset is a subtration), so we can assume this memory is readable
         const cie_offset = fde_entry_header.type.fde;
         try eh_frame_stream.seekTo(cie_offset);
         const cie_entry_header = try EntryHeader.read(&eh_frame_stream, builtin.cpu.arch.endian());
-        if (!isValidMemory(@intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]))) return badDwarf();
+        if (!self.isValidPtr(@intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]), isValidMemory, eh_frame_len)) return badDwarf();
         if (cie_entry_header.type != .cie) return badDwarf();
 
         cie.* = try CommonInformationEntry.parse(
