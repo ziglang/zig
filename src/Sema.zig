@@ -11646,6 +11646,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                     cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
                     cases_extra.appendAssumeCapacity(@intFromEnum(item_ref));
                     cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
+
+                    if (item.compareScalar(.eq, item_last, operand_ty, mod)) break;
                 }
             }
 
