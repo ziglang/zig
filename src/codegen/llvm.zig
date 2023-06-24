@@ -377,6 +377,9 @@ pub const Object = struct {
     /// name collision.
     extern_collisions: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, void),
 
+    /// Memoizes a null `?usize` value.
+    null_opt_addr: ?*llvm.Value,
+
     pub const TypeMap = std.AutoHashMapUnmanaged(InternPool.Index, *llvm.Type);
 
     /// This is an ArrayHashMap as opposed to a HashMap because in `flushModule` we
@@ -532,6 +535,7 @@ pub const Object = struct {
             .di_type_map = .{},
             .error_name_table = null,
             .extern_collisions = .{},
+            .null_opt_addr = null,
         };
     }
 
@@ -2416,6 +2420,35 @@ pub const Object = struct {
         return buffer.toOwnedSliceSentinel(0);
     }
 
+    fn getNullOptAddr(o: *Object) !*llvm.Value {
+        if (o.null_opt_addr) |global| return global;
+
+        const mod = o.module;
+        const target = mod.getTarget();
+        const ty = try mod.intern(.{ .opt_type = .usize_type });
+        const null_opt_usize = try mod.intern(.{ .opt = .{
+            .ty = ty,
+            .val = .none,
+        } });
+
+        const llvm_init = try o.lowerValue(.{
+            .ty = ty.toType(),
+            .val = null_opt_usize.toValue(),
+        });
+        const global = o.llvm_module.addGlobalInAddressSpace(
+            llvm_init.typeOf(),
+            "",
+            toLlvmGlobalAddressSpace(.generic, target),
+        );
+        global.setLinkage(.Internal);
+        global.setUnnamedAddr(.True);
+        global.setAlignment(ty.toType().abiAlignment(mod));
+        global.setInitializer(llvm_init);
+
+        o.null_opt_addr = global;
+        return global;
+    }
+
     /// If the llvm function does not exist, create it.
     /// Note that this can be called before the function's semantic analysis has
     /// completed, so if any attributes rely on that, they must be done in updateFunc, not here.
@@ -3141,8 +3174,8 @@ pub const Object = struct {
                     .func => |func| mod.funcPtr(func.index).owner_decl,
                     else => unreachable,
                 };
-                const fn_decl = o.module.declPtr(fn_decl_index);
-                try o.module.markDeclAlive(fn_decl);
+                const fn_decl = mod.declPtr(fn_decl_index);
+                try mod.markDeclAlive(fn_decl);
                 return o.resolveLlvmFunction(fn_decl_index);
             },
             .int => {
@@ -3682,11 +3715,12 @@ pub const Object = struct {
     }
 
     fn lowerIntAsPtr(o: *Object, val: Value) Error!*llvm.Value {
-        switch (o.module.intern_pool.indexToKey(val.toIntern())) {
+        const mod = o.module;
+        switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef => return o.context.pointerType(0).getUndef(),
             .int => {
                 var bigint_space: Value.BigIntSpace = undefined;
-                const bigint = val.toBigInt(&bigint_space, o.module);
+                const bigint = val.toBigInt(&bigint_space, mod);
                 const llvm_int = lowerBigInt(o, Type.usize, bigint);
                 return llvm_int.constIntToPtr(o.context.pointerType(0));
             },
@@ -4306,15 +4340,25 @@ pub const FuncGen = struct {
 
             const opt_value: ?*llvm.Value = switch (air_tags[inst]) {
                 // zig fmt: off
-                .add       => try self.airAdd(inst, false),
-                .addwrap   => try self.airAddWrap(inst, false),
-                .add_sat   => try self.airAddSat(inst),
-                .sub       => try self.airSub(inst, false),
-                .subwrap   => try self.airSubWrap(inst, false),
-                .sub_sat   => try self.airSubSat(inst),
-                .mul       => try self.airMul(inst, false),
-                .mulwrap   => try self.airMulWrap(inst, false),
-                .mul_sat   => try self.airMulSat(inst),
+                .add            => try self.airAdd(inst, false),
+                .add_optimized  => try self.airAdd(inst, true),
+                .add_wrap       => try self.airAddWrap(inst),
+                .add_sat        => try self.airAddSat(inst),
+
+                .sub            => try self.airSub(inst, false),
+                .sub_optimized  => try self.airSub(inst, true),
+                .sub_wrap       => try self.airSubWrap(inst),
+                .sub_sat        => try self.airSubSat(inst),
+
+                .mul           => try self.airMul(inst, false),
+                .mul_optimized => try self.airMul(inst, true),
+                .mul_wrap      => try self.airMulWrap(inst),
+                .mul_sat       => try self.airMulSat(inst),
+
+                .add_safe => try self.airSafeArithmetic(inst, "llvm.sadd.with.overflow", "llvm.uadd.with.overflow"),
+                .sub_safe => try self.airSafeArithmetic(inst, "llvm.ssub.with.overflow", "llvm.usub.with.overflow"),
+                .mul_safe => try self.airSafeArithmetic(inst, "llvm.smul.with.overflow", "llvm.umul.with.overflow"),
+
                 .div_float => try self.airDivFloat(inst, false),
                 .div_trunc => try self.airDivTrunc(inst, false),
                 .div_floor => try self.airDivFloor(inst, false),
@@ -4331,12 +4375,6 @@ pub const FuncGen = struct {
                 .slice     => try self.airSlice(inst),
                 .mul_add   => try self.airMulAdd(inst),
 
-                .add_optimized       => try self.airAdd(inst, true),
-                .addwrap_optimized   => try self.airAddWrap(inst, true),
-                .sub_optimized       => try self.airSub(inst, true),
-                .subwrap_optimized   => try self.airSubWrap(inst, true),
-                .mul_optimized       => try self.airMul(inst, true),
-                .mulwrap_optimized   => try self.airMulWrap(inst, true),
                 .div_float_optimized => try self.airDivFloat(inst, true),
                 .div_trunc_optimized => try self.airDivTrunc(inst, true),
                 .div_floor_optimized => try self.airDivFloor(inst, true),
@@ -4857,6 +4895,48 @@ pub const FuncGen = struct {
         } else {
             return call;
         }
+    }
+
+    fn buildSimplePanic(fg: *FuncGen, panic_id: Module.PanicId) !void {
+        const o = fg.dg.object;
+        const mod = o.module;
+        const msg_decl_index = mod.panic_messages[@intFromEnum(panic_id)].unwrap().?;
+        const msg_decl = mod.declPtr(msg_decl_index);
+        const msg_len = msg_decl.ty.childType(mod).arrayLen(mod);
+        const msg_ptr = try o.lowerValue(.{
+            .ty = msg_decl.ty,
+            .val = msg_decl.val,
+        });
+        const null_opt_addr_global = try o.getNullOptAddr();
+        const target = mod.getTarget();
+        const llvm_usize = fg.context.intType(target.ptrBitWidth());
+        // example:
+        // call fastcc void @test2.panic(
+        //   ptr @builtin.panic_messages.integer_overflow__anon_987, ; msg.ptr
+        //   i64 16,                                                 ; msg.len
+        //   ptr null,                                               ; stack trace
+        //   ptr @2,                                                 ; addr (null ?usize)
+        // )
+        const args = [4]*llvm.Value{
+            msg_ptr,
+            llvm_usize.constInt(msg_len, .False),
+            fg.context.pointerType(0).constNull(),
+            null_opt_addr_global,
+        };
+        const panic_func = mod.funcPtrUnwrap(mod.panic_func_index).?;
+        const panic_decl = mod.declPtr(panic_func.owner_decl);
+        const fn_info = mod.typeToFunc(panic_decl.ty).?;
+        const panic_global = try o.resolveLlvmFunction(panic_func.owner_decl);
+        _ = fg.builder.buildCall(
+            try o.lowerType(panic_decl.ty),
+            panic_global,
+            &args,
+            args.len,
+            toLlvmCallConv(fn_info.cc, target),
+            .Auto,
+            "",
+        );
+        _ = fg.builder.buildUnreachable();
     }
 
     fn airRet(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -6945,9 +7025,55 @@ pub const FuncGen = struct {
         return self.builder.buildNUWAdd(lhs, rhs, "");
     }
 
-    fn airAddWrap(self: *FuncGen, inst: Air.Inst.Index, want_fast_math: bool) !?*llvm.Value {
-        self.builder.setFastMath(want_fast_math);
+    fn airSafeArithmetic(
+        fg: *FuncGen,
+        inst: Air.Inst.Index,
+        signed_intrinsic: []const u8,
+        unsigned_intrinsic: []const u8,
+    ) !?*llvm.Value {
+        const o = fg.dg.object;
+        const mod = o.module;
 
+        const bin_op = fg.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try fg.resolveInst(bin_op.lhs);
+        const rhs = try fg.resolveInst(bin_op.rhs);
+        const inst_ty = fg.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType(mod);
+        const is_scalar = scalar_ty.ip_index == inst_ty.ip_index;
+
+        const intrinsic_name = switch (scalar_ty.isSignedInt(mod)) {
+            true => signed_intrinsic,
+            false => unsigned_intrinsic,
+        };
+        const llvm_inst_ty = try o.lowerType(inst_ty);
+        const llvm_fn = fg.getIntrinsic(intrinsic_name, &.{llvm_inst_ty});
+        const result_struct = fg.builder.buildCall(
+            llvm_fn.globalGetValueType(),
+            llvm_fn,
+            &[_]*llvm.Value{ lhs, rhs },
+            2,
+            .Fast,
+            .Auto,
+            "",
+        );
+        const overflow_bit = fg.builder.buildExtractValue(result_struct, 1, "");
+        const scalar_overflow_bit = switch (is_scalar) {
+            true => overflow_bit,
+            false => fg.builder.buildOrReduce(overflow_bit),
+        };
+
+        const fail_block = fg.context.appendBasicBlock(fg.llvm_func, "OverflowFail");
+        const ok_block = fg.context.appendBasicBlock(fg.llvm_func, "OverflowOk");
+        _ = fg.builder.buildCondBr(scalar_overflow_bit, fail_block, ok_block);
+
+        fg.builder.positionBuilderAtEnd(fail_block);
+        try fg.buildSimplePanic(.integer_overflow);
+
+        fg.builder.positionBuilderAtEnd(ok_block);
+        return fg.builder.buildExtractValue(result_struct, 0, "");
+    }
+
+    fn airAddWrap(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
@@ -6986,9 +7112,7 @@ pub const FuncGen = struct {
         return self.builder.buildNUWSub(lhs, rhs, "");
     }
 
-    fn airSubWrap(self: *FuncGen, inst: Air.Inst.Index, want_fast_math: bool) !?*llvm.Value {
-        self.builder.setFastMath(want_fast_math);
-
+    fn airSubWrap(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
@@ -7026,9 +7150,7 @@ pub const FuncGen = struct {
         return self.builder.buildNUWMul(lhs, rhs, "");
     }
 
-    fn airMulWrap(self: *FuncGen, inst: Air.Inst.Index, want_fast_math: bool) !?*llvm.Value {
-        self.builder.setFastMath(want_fast_math);
-
+    fn airMulWrap(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);

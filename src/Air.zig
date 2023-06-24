@@ -40,15 +40,25 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         add,
-        /// Same as `add` with optimized float mode.
+        /// Integer addition. Wrapping is a safety panic.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// The panic handler function must be populated before lowering AIR
+        /// that contains this instruction.
+        /// This instruction will only be emitted if the backend has the
+        /// feature `safety_checked_instructions`.
+        /// Uses the `bin_op` field.
+        add_safe,
+        /// Float addition. The instruction is allowed to have equal or more
+        /// mathematical accuracy than strict IEEE-757 float addition.
+        /// If either operand is NaN, the result value is undefined.
+        /// Uses the `bin_op` field.
         add_optimized,
-        /// Integer addition. Wrapping is defined to be twos complement wrapping.
+        /// Twos complement wrapping integer addition.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
-        addwrap,
-        /// Same as `addwrap` with optimized float mode.
-        addwrap_optimized,
+        add_wrap,
         /// Saturating integer addition.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -59,15 +69,25 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         sub,
-        /// Same as `sub` with optimized float mode.
+        /// Integer subtraction. Wrapping is a safety panic.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// The panic handler function must be populated before lowering AIR
+        /// that contains this instruction.
+        /// This instruction will only be emitted if the backend has the
+        /// feature `safety_checked_instructions`.
+        /// Uses the `bin_op` field.
+        sub_safe,
+        /// Float subtraction. The instruction is allowed to have equal or more
+        /// mathematical accuracy than strict IEEE-757 float subtraction.
+        /// If either operand is NaN, the result value is undefined.
+        /// Uses the `bin_op` field.
         sub_optimized,
-        /// Integer subtraction. Wrapping is defined to be twos complement wrapping.
+        /// Twos complement wrapping integer subtraction.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
-        subwrap,
-        /// Same as `sub` with optimized float mode.
-        subwrap_optimized,
+        sub_wrap,
         /// Saturating integer subtraction.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -78,15 +98,25 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         mul,
-        /// Same as `mul` with optimized float mode.
+        /// Integer multiplication. Wrapping is a safety panic.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// The panic handler function must be populated before lowering AIR
+        /// that contains this instruction.
+        /// This instruction will only be emitted if the backend has the
+        /// feature `safety_checked_instructions`.
+        /// Uses the `bin_op` field.
+        mul_safe,
+        /// Float multiplication. The instruction is allowed to have equal or more
+        /// mathematical accuracy than strict IEEE-757 float multiplication.
+        /// If either operand is NaN, the result value is undefined.
+        /// Uses the `bin_op` field.
         mul_optimized,
-        /// Integer multiplication. Wrapping is defined to be twos complement wrapping.
+        /// Twos complement wrapping integer multiplication.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
-        mulwrap,
-        /// Same as `mulwrap` with optimized float mode.
-        mulwrap_optimized,
+        mul_wrap,
         /// Saturating integer multiplication.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -1197,13 +1227,16 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
     const datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst]) {
         .add,
-        .addwrap,
+        .add_safe,
+        .add_wrap,
         .add_sat,
         .sub,
-        .subwrap,
+        .sub_safe,
+        .sub_wrap,
         .sub_sat,
         .mul,
-        .mulwrap,
+        .mul_safe,
+        .mul_wrap,
         .mul_sat,
         .div_float,
         .div_trunc,
@@ -1224,11 +1257,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .bool_and,
         .bool_or,
         .add_optimized,
-        .addwrap_optimized,
         .sub_optimized,
-        .subwrap_optimized,
         .mul_optimized,
-        .mulwrap_optimized,
         .div_float_optimized,
         .div_trunc_optimized,
         .div_floor_optimized,
@@ -1594,19 +1624,19 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         => true,
 
         .add,
+        .add_safe,
         .add_optimized,
-        .addwrap,
-        .addwrap_optimized,
+        .add_wrap,
         .add_sat,
         .sub,
+        .sub_safe,
         .sub_optimized,
-        .subwrap,
-        .subwrap_optimized,
+        .sub_wrap,
         .sub_sat,
         .mul,
+        .mul_safe,
         .mul_optimized,
-        .mulwrap,
-        .mulwrap_optimized,
+        .mul_wrap,
         .mul_sat,
         .div_float,
         .div_float_optimized,

@@ -187,6 +187,40 @@ reference_table: std.AutoHashMapUnmanaged(Decl.Index, struct {
     src: LazySrcLoc,
 }) = .{},
 
+panic_messages: [PanicId.len]Decl.OptionalIndex = .{.none} ** PanicId.len,
+panic_func_index: Fn.OptionalIndex = .none,
+null_stack_trace: InternPool.Index = .none,
+
+pub const PanicId = enum {
+    unreach,
+    unwrap_null,
+    cast_to_null,
+    incorrect_alignment,
+    invalid_error_code,
+    cast_truncated_data,
+    negative_to_unsigned,
+    integer_overflow,
+    shl_overflow,
+    shr_overflow,
+    divide_by_zero,
+    exact_division_remainder,
+    inactive_union_field,
+    integer_part_out_of_bounds,
+    corrupt_switch,
+    shift_rhs_too_big,
+    invalid_enum_value,
+    sentinel_mismatch,
+    unwrap_error,
+    index_out_of_bounds,
+    start_index_greater_than_end,
+    for_len_mismatch,
+    memcpy_len_mismatch,
+    memcpy_alias,
+    noreturn_returned,
+
+    pub const len = @typeInfo(PanicId).Enum.fields.len;
+};
+
 pub const GlobalErrorSet = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);
 
 pub const CImportError = struct {
@@ -6651,6 +6685,14 @@ pub const Feature = enum {
     is_named_enum_value,
     error_set_has_value,
     field_reordering,
+    /// When this feature is supported, the backend supports the following AIR instructions:
+    /// * `Air.Inst.Tag.add_safe`
+    /// * `Air.Inst.Tag.sub_safe`
+    /// * `Air.Inst.Tag.mul_safe`
+    /// The motivation for this feature is that it makes AIR smaller, and makes it easier
+    /// to generate better machine code in the backends. All backends should migrate to
+    /// enabling this feature.
+    safety_checked_instructions,
 };
 
 pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
@@ -6665,6 +6707,7 @@ pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
         .is_named_enum_value => mod.comp.bin_file.options.use_llvm,
         .error_set_has_value => mod.comp.bin_file.options.use_llvm or mod.comp.bin_file.options.target.isWasm(),
         .field_reordering => mod.comp.bin_file.options.use_llvm,
+        .safety_checked_instructions => mod.comp.bin_file.options.use_llvm,
     };
 }
 
