@@ -1510,7 +1510,7 @@ fn buildOutputType(
                     }
                 } else switch (file_ext orelse
                     Compilation.classifyFileExt(arg)) {
-                    .object, .static_library, .shared_library => try link_objects.append(.{ .path = arg }),
+                    .object, .static_library, .shared_library, .res => try link_objects.append(.{ .path = arg }),
                     .assembly, .assembly_with_cpp, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
                         try c_source_files.append(.{
                             .src_path = arg,
@@ -1605,7 +1605,7 @@ fn buildOutputType(
                                 .ext = file_ext, // duped while parsing the args.
                             });
                         },
-                        .unknown, .shared_library, .object, .static_library => try link_objects.append(.{
+                        .unknown, .shared_library, .object, .static_library, .res => try link_objects.append(.{
                             .path = it.only_arg,
                             .must_link = must_link,
                         }),

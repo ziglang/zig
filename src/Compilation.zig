@@ -4436,7 +4436,7 @@ pub fn addCCArgs(
                 try argv.append("-fno-unwind-tables");
             }
         },
-        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig => {},
+        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res => {},
         .assembly, .assembly_with_cpp => {
             // The Clang assembler does not accept the list of CPU features like the
             // compiler frontend does. Therefore we must hard-code the -m flags for
@@ -4602,6 +4602,7 @@ pub const FileExt = enum {
     static_library,
     zig,
     def,
+    res,
     unknown,
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
@@ -4617,6 +4618,7 @@ pub const FileExt = enum {
             .static_library,
             .zig,
             .def,
+            .res,
             .unknown,
             => false,
         };
@@ -4639,6 +4641,7 @@ pub const FileExt = enum {
             .static_library => target.staticLibSuffix(),
             .zig => ".zig",
             .def => ".def",
+            .res => ".res",
             .unknown => "",
         };
     }
@@ -4730,6 +4733,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .cu;
     } else if (mem.endsWith(u8, filename, ".def")) {
         return .def;
+    } else if (mem.endsWith(u8, filename, ".res")) {
+        return .res;
     } else {
         return .unknown;
     }
