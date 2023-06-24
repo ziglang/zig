@@ -49,8 +49,6 @@ pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) vo
         .indent = 2,
         .skip_body = false,
     };
-    writer.writeAllConstants(stream) catch return;
-    stream.writeByte('\n') catch return;
     writer.writeBody(stream, air.getMainBody()) catch return;
 }
 
@@ -87,15 +85,6 @@ const Writer = struct {
     liveness: ?Liveness,
     indent: usize,
     skip_body: bool,
-
-    fn writeAllConstants(w: *Writer, s: anytype) @TypeOf(s).Error!void {
-        for (w.air.instructions.items(.tag), 0..) |tag, i| {
-            if (tag != .interned) continue;
-            const inst = @as(Air.Inst.Index, @intCast(i));
-            try w.writeInst(s, inst);
-            try s.writeByte('\n');
-        }
-    }
 
     fn writeBody(w: *Writer, s: anytype, body: []const Air.Inst.Index) @TypeOf(s).Error!void {
         for (body) |inst| {
@@ -299,7 +288,6 @@ const Writer = struct {
             .struct_field_val => try w.writeStructField(s, inst),
             .inferred_alloc => @panic("TODO"),
             .inferred_alloc_comptime => @panic("TODO"),
-            .interned => try w.writeInterned(s, inst),
             .assembly => try w.writeAssembly(s, inst),
             .dbg_stmt => try w.writeDbgStmt(s, inst),
 
@@ -594,14 +582,6 @@ const Writer = struct {
 
         try w.writeOperand(s, inst, 0, extra.field_ptr);
         try s.print(", {d}", .{extra.field_index});
-    }
-
-    fn writeInterned(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const mod = w.module;
-        const ip_index = w.air.instructions.items(.data)[inst].interned;
-        const ty = mod.intern_pool.indexToKey(ip_index).typeOf().toType();
-        try w.writeType(s, ty);
-        try s.print(", {}", .{ip_index.toValue().fmtValue(ty, mod)});
     }
 
     fn writeAssembly(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -956,13 +936,18 @@ const Writer = struct {
         operand: Air.Inst.Ref,
         dies: bool,
     ) @TypeOf(s).Error!void {
-        const i = @intFromEnum(operand);
-
-        if (i < InternPool.static_len) {
+        if (@intFromEnum(operand) < InternPool.static_len) {
             return s.print("@{}", .{operand});
+        } else if (Air.refToInterned(operand)) |ip_index| {
+            const mod = w.module;
+            const ty = mod.intern_pool.indexToKey(ip_index).typeOf().toType();
+            try s.print("<{}, {}>", .{
+                ty.fmt(mod),
+                ip_index.toValue().fmtValue(ty, mod),
+            });
+        } else {
+            return w.writeInstIndex(s, Air.refToIndex(operand).?, dies);
         }
-
-        return w.writeInstIndex(s, i - InternPool.static_len, dies);
     }
 
     fn writeInstIndex(

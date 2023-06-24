@@ -81,7 +81,7 @@ end_di_column: u32,
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
 
-const_tracking: InstTrackingMap = .{},
+const_tracking: ConstTrackingMap = .{},
 inst_tracking: InstTrackingMap = .{},
 
 // Key is the block instruction
@@ -403,6 +403,7 @@ pub const MCValue = union(enum) {
 };
 
 const InstTrackingMap = std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InstTracking);
+const ConstTrackingMap = std.AutoArrayHashMapUnmanaged(InternPool.Index, InstTracking);
 const InstTracking = struct {
     long: MCValue,
     short: MCValue,
@@ -1927,7 +1928,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptr_elem_val        => try self.airPtrElemVal(inst),
             .ptr_elem_ptr        => try self.airPtrElemPtr(inst),
 
-            .inferred_alloc, .inferred_alloc_comptime, .interned => unreachable,
+            .inferred_alloc, .inferred_alloc_comptime => unreachable,
             .unreach  => if (self.wantSafety()) try self.airTrap() else self.finishAirBookkeeping(),
 
             .optional_payload           => try self.airOptionalPayload(inst),
@@ -2099,7 +2100,6 @@ fn feed(self: *Self, bt: *Liveness.BigTomb, operand: Air.Inst.Ref) void {
 
 /// Asserts there is already capacity to insert into top branch inst_table.
 fn processDeath(self: *Self, inst: Air.Inst.Index) void {
-    assert(self.air.instructions.items(.tag)[inst] != .interned);
     self.inst_tracking.getPtr(inst).?.die(self, inst);
 }
 
@@ -2871,13 +2871,6 @@ fn activeIntBits(self: *Self, dst_air: Air.Inst.Ref) u16 {
     const dst_info = dst_ty.intInfo(mod);
     if (Air.refToIndex(dst_air)) |inst| {
         switch (air_tag[inst]) {
-            .interned => {
-                const src_val = air_data[inst].interned.toValue();
-                var space: Value.BigIntSpace = undefined;
-                const src_int = src_val.toBigInt(&space, mod);
-                return @as(u16, @intCast(src_int.bitCountTwosComp())) +
-                    @intFromBool(src_int.positive and dst_info.signedness == .signed);
-            },
             .intcast => {
                 const src_ty = self.typeOf(air_data[inst].ty_op.operand);
                 const src_info = src_ty.intInfo(mod);
@@ -2894,6 +2887,11 @@ fn activeIntBits(self: *Self, dst_air: Air.Inst.Ref) u16 {
             },
             else => {},
         }
+    } else if (Air.refToInterned(dst_air)) |ip_index| {
+        var space: Value.BigIntSpace = undefined;
+        const src_int = ip_index.toValue().toBigInt(&space, mod);
+        return @as(u16, @intCast(src_int.bitCountTwosComp())) +
+            @intFromBool(src_int.positive and dst_info.signedness == .signed);
     }
     return dst_info.bits;
 }
@@ -11635,32 +11633,26 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
     // If the type has no codegen bits, no need to store it.
     if (!ty.hasRuntimeBitsIgnoreComptime(mod)) return .none;
 
-    if (Air.refToIndex(ref)) |inst| {
-        const mcv = switch (self.air.instructions.items(.tag)[inst]) {
-            .interned => tracking: {
-                const gop = try self.const_tracking.getOrPut(self.gpa, inst);
-                if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(try self.genTypedValue(.{
-                    .ty = ty,
-                    .val = self.air.instructions.items(.data)[inst].interned.toValue(),
-                }));
-                break :tracking gop.value_ptr;
-            },
-            else => self.inst_tracking.getPtr(inst).?,
-        }.short;
-        switch (mcv) {
-            .none, .unreach, .dead => unreachable,
-            else => return mcv,
-        }
-    }
+    const mcv = if (Air.refToIndex(ref)) |inst| mcv: {
+        break :mcv self.inst_tracking.getPtr(inst).?.short;
+    } else mcv: {
+        const ip_index = Air.refToInterned(ref).?;
+        const gop = try self.const_tracking.getOrPut(self.gpa, ip_index);
+        if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(try self.genTypedValue(.{
+            .ty = ty,
+            .val = ip_index.toValue(),
+        }));
+        break :mcv gop.value_ptr.short;
+    };
 
-    return self.genTypedValue(.{ .ty = ty, .val = (try self.air.value(ref, mod)).? });
+    switch (mcv) {
+        .none, .unreach, .dead => unreachable,
+        else => return mcv,
+    }
 }
 
 fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) *InstTracking {
-    const tracking = switch (self.air.instructions.items(.tag)[inst]) {
-        .interned => &self.const_tracking,
-        else => &self.inst_tracking,
-    }.getPtr(inst).?;
+    const tracking = self.inst_tracking.getPtr(inst).?;
     return switch (tracking.short) {
         .none, .unreach, .dead => unreachable,
         else => tracking,
