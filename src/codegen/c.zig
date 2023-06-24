@@ -5855,7 +5855,7 @@ fn airIntFromPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.renderType(writer, inst_ty);
     try writer.writeByte(')');
     if (operand_ty.isSlice(mod)) {
-        try f.writeCValueMember(writer, operand, .{ .identifier = "len" });
+        try f.writeCValueMember(writer, operand, .{ .identifier = "ptr" });
     } else {
         try f.writeCValue(writer, operand, .Other);
     }
