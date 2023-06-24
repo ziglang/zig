@@ -5584,7 +5584,7 @@ fn doAThing(str: []u8) !void {
       appropriately.
       </p>
       <p>
-      Finally, you may want to take a different action for every situation. For that, we combine
+      You may want to take a different action for every situation. For that, we combine
       the {#link|if#} and {#link|switch#} expression:
       </p>
       {#syntax_block|zig|handle_all_error_scenarios.zig#}
@@ -5597,6 +5597,22 @@ fn doAThing(str: []u8) void {
         },
         // we promise that InvalidChar won't happen (or crash in debug mode if it does)
         error.InvalidChar => unreachable,
+    }
+}
+      {#end_syntax_block#}
+      <p>
+      Finally, you may want to handle only some errors. For that, you can capture the unhandled
+      errors in the {#syntax#}else{#endsyntax#} case, which now contains a narrower error set:
+      </p>
+      {#syntax_block|zig|handle_some_error_scenarios.zig#}
+ fn doAnotherThing(str: []u8) error{InvaidChar}!void {
+    if (parseU64(str, 10)) |number| {
+        doSomethingWithNumber(number);
+    } else |err| switch (err) {
+        error.Overflow => {
+            // handle overflow...
+        },
+        else => |leftover_err| return leftover_err,
     }
 }
       {#end_syntax_block#}

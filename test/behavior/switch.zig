@@ -785,3 +785,15 @@ test "switch pointer capture peer type resolution" {
     try expectEqual(U{ .a = 111 }, ua);
     try expectEqual(U{ .b = 222 }, ub);
 }
+
+test "inline switch range that includes the maximum value of the switched type" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const inputs: [3]u8 = .{ 0, 254, 255 };
+    for (inputs) |input| {
+        switch (input) {
+            inline 254...255 => |val| try expectEqual(input, val),
+            else => |val| try expectEqual(input, val),
+        }
+    }
+}
