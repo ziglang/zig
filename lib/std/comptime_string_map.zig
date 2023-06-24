@@ -9,18 +9,12 @@ const mem = std.mem;
 /// You can pass `struct { []const u8 }` (only keys) tuples if `V` is `void`.
 pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
     const precomputed = comptime blk: {
-        @setEvalBranchQuota(2000);
+        @setEvalBranchQuota(1500);
         const KV = struct {
             key: []const u8,
             value: V,
         };
         var sorted_kvs: [kvs_list.len]KV = undefined;
-        const lenAsc = (struct {
-            fn lenAsc(context: void, a: KV, b: KV) bool {
-                _ = context;
-                return a.key.len < b.key.len;
-            }
-        }).lenAsc;
         for (kvs_list, 0..) |kv, i| {
             if (V != void) {
                 sorted_kvs[i] = .{ .key = kv.@"0", .value = kv.@"1" };
@@ -28,7 +22,20 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
                 sorted_kvs[i] = .{ .key = kv.@"0", .value = {} };
             }
         }
-        mem.sort(KV, &sorted_kvs, {}, lenAsc);
+
+        const SortContext = struct {
+            kvs: []KV,
+
+            pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+                return ctx.kvs[a].key.len < ctx.kvs[b].key.len;
+            }
+
+            pub fn swap(ctx: @This(), a: usize, b: usize) void {
+                return std.mem.swap(KV, &ctx.kvs[a], &ctx.kvs[b]);
+            }
+        };
+        mem.sortUnstableContext(0, sorted_kvs.len, SortContext{ .kvs = &sorted_kvs });
+
         const min_len = sorted_kvs[0].key.len;
         const max_len = sorted_kvs[sorted_kvs.len - 1].key.len;
         var len_indexes: [max_len + 1]usize = undefined;

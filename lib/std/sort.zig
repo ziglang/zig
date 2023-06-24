@@ -366,7 +366,7 @@ test "sort with context in the middle of a slice" {
                 const slice = buf[0..case[0].len];
                 @memcpy(slice, case[0]);
                 sortFn(range.start, range.end, Context{ .items = slice });
-                try testing.expectEqualSlices(i32, slice[range.start..range.end], case[1][range.start..range.end]);
+                try testing.expectEqualSlices(i32, case[1][range.start..range.end], slice[range.start..range.end]);
             }
         }
     }

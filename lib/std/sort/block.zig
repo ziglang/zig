@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../std.zig");
 const sort = std.sort;
 const math = std.math;
@@ -100,8 +101,16 @@ pub fn block(
     comptime T: type,
     items: []T,
     context: anytype,
-    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+    comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) void {
+    const lessThan = if (builtin.mode == .Debug) struct {
+        fn lessThan(ctx: @TypeOf(context), lhs: T, rhs: T) bool {
+            const lt = lessThanFn(ctx, lhs, rhs);
+            const gt = lessThanFn(ctx, rhs, lhs);
+            std.debug.assert(!(lt and gt));
+            return lt;
+        }
+    }.lessThan else lessThanFn;
 
     // Implementation ported from https://github.com/BonzaiThePenguin/WikiSort/blob/master/WikiSort.c
     var cache: [512]T = undefined;
