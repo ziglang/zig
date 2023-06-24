@@ -1753,6 +1753,14 @@ test "parseInt" {
     try std.testing.expect((try parseInt(u8, "255", 10)) == 255);
     try std.testing.expectError(error.Overflow, parseInt(u8, "256", 10));
 
+    // Test different bases
+    try std.testing.expect((try parseInt(i32, "0b10", 2)) == 0b10);
+    try std.testing.expect((try parseInt(i32, "0o10", 8)) == 0o10);
+    try std.testing.expect((try parseInt(i32, "0x10", 16)) == 0x10);
+    try std.testing.expect((try parseInt(i32, "10", 2)) == 0b10);
+    try std.testing.expect((try parseInt(i32, "10", 8)) == 0o10);
+    try std.testing.expect((try parseInt(i32, "10", 16)) == 0x10);
+
     // +0 and -0 should work for unsigned
     try std.testing.expect((try parseInt(u8, "-0", 10)) == 0);
     try std.testing.expect((try parseInt(u8, "+0", 10)) == 0);
@@ -1804,28 +1812,25 @@ fn parseWithSign(
 
     var buf_base = base;
     var buf_start = buf;
-    if (base == 0) {
-        // Treat is as a decimal number by default.
-        buf_base = 10;
-        // Detect the base by looking at buf prefix.
-        if (buf.len > 2 and buf[0] == '0') {
-            switch (std.ascii.toLower(buf[1])) {
-                'b' => {
-                    buf_base = 2;
-                    buf_start = buf[2..];
-                },
-                'o' => {
-                    buf_base = 8;
-                    buf_start = buf[2..];
-                },
-                'x' => {
-                    buf_base = 16;
-                    buf_start = buf[2..];
-                },
-                else => {},
-            }
+
+    if (buf.len > 2 and buf[0] == '0') {
+        switch (std.ascii.toLower(buf[1])) {
+            'b' => {
+                if (base == 0) buf_base = 2;
+                buf_start = buf[2..];
+            },
+            'o' => {
+                if (base == 0) buf_base = 8;
+                buf_start = buf[2..];
+            },
+            'x' => {
+                if (base == 0) buf_base = 16;
+                buf_start = buf[2..];
+            },
+            else => {},
         }
     }
+    if (buf_base == 0) buf_base = 10;
 
     const add = switch (sign) {
         .pos => math.add,
