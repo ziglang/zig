@@ -472,8 +472,9 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         ) !usize {
             if (i >= items.len) return 0;
             const element_len = std.math.lossyCast(usize, std.fmt.count(fmt, .{items[i]}));
-            const left_padding = try formatHelperRecursive(fmt, items, writer, level_to_print, (2 *| i) | 1, level + 1, element_len);
-            const right_padding = try formatHelperRecursive(fmt, items, writer, level_to_print, 2 *| i +| 2, level + 1, end_padding);
+            const left_child_index = (std.math.mul(usize, i, 2) catch std.math.maxInt(usize)) | 1;
+            const left_padding = try formatHelperRecursive(fmt, items, writer, level_to_print, left_child_index, level + 1, element_len);
+            const right_padding = try formatHelperRecursive(fmt, items, writer, level_to_print, left_child_index +| 1, level + 1, end_padding);
             const added_len = left_padding +| element_len +| right_padding;
 
             if (level_to_print == level) {
