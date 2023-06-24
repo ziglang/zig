@@ -621,11 +621,18 @@ pub fn categorizeOperand(
                 if (inst_data.operand == operand_ref and operandDies(l, body[0], 0))
                     return .tomb;
 
-                if (cond_extra.data.then_body_len != 1 or cond_extra.data.else_body_len != 1)
+                if (cond_extra.data.then_body_len > 2 or cond_extra.data.else_body_len > 2)
+                    return .complex;
+
+                const then_body = air.extra[cond_extra.end..][0..cond_extra.data.then_body_len];
+                const else_body = air.extra[cond_extra.end + cond_extra.data.then_body_len ..][0 .. cond_extra.data.then_body_len + cond_extra.data.else_body_len];
+                if (then_body.len > 1 and air_tags[then_body[1]] != .unreach)
+                    return .complex;
+                if (else_body.len > 1 and air_tags[else_body[1]] != .unreach)
                     return .complex;
 
                 var operand_live: bool = true;
-                for (air.extra[cond_extra.end..][0..2]) |cond_inst| {
+                for (&[_]u32{ then_body[0], else_body[0] }) |cond_inst| {
                     if (l.categorizeOperand(air, cond_inst, operand, ip) == .tomb)
                         operand_live = false;
 
