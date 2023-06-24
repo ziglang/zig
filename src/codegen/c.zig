@@ -5534,7 +5534,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
             else
                 try f.writeCValueMember(writer, operand, .{ .identifier = "error" })
         else
-            try f.object.dg.renderValue(writer, error_ty, try mod.intValue(error_ty, 0), .Initializer);
+            try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Initializer);
     }
     try writer.writeAll(";\n");
     return local;
