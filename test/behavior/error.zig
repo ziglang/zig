@@ -921,3 +921,20 @@ test "optional error set return type" {
     try expect(null == S.foo(true));
     try expect(E.A == S.foo(false).?);
 }
+
+test "returning an error union containing a type with no runtime bits" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const ZeroByteType = struct {
+        foo: void,
+
+        pub fn init() !@This() {
+            return .{ .foo = {} };
+        }
+    };
+
+    var zero_byte: ZeroByteType = undefined;
+    (&zero_byte).* = try ZeroByteType.init();
+}
