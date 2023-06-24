@@ -554,11 +554,11 @@ pub const CAP = struct {
 pub extern "c" fn __cap_rights_init(version: c_int, rights: ?*cap_rights_t, ...) ?*cap_rights_t;
 pub extern "c" fn __cap_rights_set(rights: ?*cap_rights_t, ...) ?*cap_rights_t;
 pub extern "c" fn __cap_rights_clear(rights: ?*cap_rights_t, ...) ?*cap_rights_t;
-pub extern "c" fn __cap_rights_merge(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
-pub extern "c" fn __cap_rights_remove(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
-pub extern "c" fn __cap_rights_contains(dst: ?*const cap_rights_t, src: ?*const cap_rights_t) bool;
 pub extern "c" fn __cap_rights_is_set(rights: ?*const cap_rights_t, ...) bool;
-pub extern "c" fn __cap_rights_is_valid(rights: ?*const cap_rights_t) bool;
+pub extern "c" fn cap_rights_merge(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
+pub extern "c" fn cap_rights_remove(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
+pub extern "c" fn cap_rights_contains(dst: ?*const cap_rights_t, src: ?*const cap_rights_t) bool;
+pub extern "c" fn cap_rights_is_valid(rights: ?*const cap_rights_t) bool;
 
 pub const kinfo_file = extern struct {
     /// Size of this record.
