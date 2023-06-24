@@ -1,5 +1,5 @@
 export fn entry() void {
-    var b = @ptrFromInt(*i32, 0);
+    var b: *i32 = @ptrFromInt(0);
     _ = b;
 }
 

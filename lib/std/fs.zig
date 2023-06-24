@@ -373,13 +373,13 @@ pub const IterableDir = struct {
                             }
                         }
                         self.index = 0;
-                        self.end_index = @intCast(usize, rc);
+                        self.end_index = @as(usize, @intCast(rc));
                     }
-                    const darwin_entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
+                    const darwin_entry = @as(*align(1) os.system.dirent, @ptrCast(&self.buf[self.index]));
                     const next_index = self.index + darwin_entry.reclen();
                     self.index = next_index;
 
-                    const name = @ptrCast([*]u8, &darwin_entry.d_name)[0..darwin_entry.d_namlen];
+                    const name = @as([*]u8, @ptrCast(&darwin_entry.d_name))[0..darwin_entry.d_namlen];
 
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (darwin_entry.d_ino == 0)) {
                         continue :start_over;
@@ -421,13 +421,13 @@ pub const IterableDir = struct {
                         }
                         if (rc == 0) return null;
                         self.index = 0;
-                        self.end_index = @intCast(usize, rc);
+                        self.end_index = @as(usize, @intCast(rc));
                     }
-                    const entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
+                    const entry = @as(*align(1) os.system.dirent, @ptrCast(&self.buf[self.index]));
                     const next_index = self.index + entry.reclen();
                     self.index = next_index;
 
-                    const name = mem.sliceTo(@ptrCast([*:0]u8, &entry.d_name), 0);
+                    const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&entry.d_name)), 0);
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, ".."))
                         continue :start_over;
 
@@ -485,13 +485,13 @@ pub const IterableDir = struct {
                         }
                         if (rc == 0) return null;
                         self.index = 0;
-                        self.end_index = @intCast(usize, rc);
+                        self.end_index = @as(usize, @intCast(rc));
                     }
-                    const bsd_entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
+                    const bsd_entry = @as(*align(1) os.system.dirent, @ptrCast(&self.buf[self.index]));
                     const next_index = self.index + bsd_entry.reclen();
                     self.index = next_index;
 
-                    const name = @ptrCast([*]u8, &bsd_entry.d_name)[0..bsd_entry.d_namlen];
+                    const name = @as([*]u8, @ptrCast(&bsd_entry.d_name))[0..bsd_entry.d_namlen];
 
                     const skip_zero_fileno = switch (builtin.os.tag) {
                         // d_fileno=0 is used to mark invalid entries or deleted files.
@@ -567,12 +567,12 @@ pub const IterableDir = struct {
                             }
                         }
                         self.index = 0;
-                        self.end_index = @intCast(usize, rc);
+                        self.end_index = @as(usize, @intCast(rc));
                     }
-                    const haiku_entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
+                    const haiku_entry = @as(*align(1) os.system.dirent, @ptrCast(&self.buf[self.index]));
                     const next_index = self.index + haiku_entry.reclen();
                     self.index = next_index;
-                    const name = mem.sliceTo(@ptrCast([*:0]u8, &haiku_entry.d_name), 0);
+                    const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&haiku_entry.d_name)), 0);
 
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (haiku_entry.d_ino == 0)) {
                         continue :start_over;
@@ -672,11 +672,11 @@ pub const IterableDir = struct {
                         self.index = 0;
                         self.end_index = rc;
                     }
-                    const linux_entry = @ptrCast(*align(1) linux.dirent64, &self.buf[self.index]);
+                    const linux_entry = @as(*align(1) linux.dirent64, @ptrCast(&self.buf[self.index]));
                     const next_index = self.index + linux_entry.reclen();
                     self.index = next_index;
 
-                    const name = mem.sliceTo(@ptrCast([*:0]u8, &linux_entry.d_name), 0);
+                    const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&linux_entry.d_name)), 0);
 
                     // skip . and .. entries
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
@@ -750,15 +750,14 @@ pub const IterableDir = struct {
                         }
                     }
 
-                    const aligned_ptr = @alignCast(@alignOf(w.FILE_BOTH_DIR_INFORMATION), &self.buf[self.index]);
-                    const dir_info = @ptrCast(*w.FILE_BOTH_DIR_INFORMATION, aligned_ptr);
+                    const dir_info: *w.FILE_BOTH_DIR_INFORMATION = @ptrCast(@alignCast(&self.buf[self.index]));
                     if (dir_info.NextEntryOffset != 0) {
                         self.index += dir_info.NextEntryOffset;
                     } else {
                         self.index = self.buf.len;
                     }
 
-                    const name_utf16le = @ptrCast([*]u16, &dir_info.FileName)[0 .. dir_info.FileNameLength / 2];
+                    const name_utf16le = @as([*]u16, @ptrCast(&dir_info.FileName))[0 .. dir_info.FileNameLength / 2];
 
                     if (mem.eql(u16, name_utf16le, &[_]u16{'.'}) or mem.eql(u16, name_utf16le, &[_]u16{ '.', '.' }))
                         continue;
@@ -835,7 +834,7 @@ pub const IterableDir = struct {
                         self.index = 0;
                         self.end_index = bufused;
                     }
-                    const entry = @ptrCast(*align(1) w.dirent_t, &self.buf[self.index]);
+                    const entry = @as(*align(1) w.dirent_t, @ptrCast(&self.buf[self.index]));
                     const entry_size = @sizeOf(w.dirent_t);
                     const name_index = self.index + entry_size;
                     if (name_index + entry.d_namlen > self.end_index) {
@@ -1789,7 +1788,7 @@ pub const Dir = struct {
             .fd = undefined,
         };
 
-        const path_len_bytes = @intCast(u16, mem.sliceTo(sub_path_w, 0).len * 2);
+        const path_len_bytes = @as(u16, @intCast(mem.sliceTo(sub_path_w, 0).len * 2));
         var nt_name = w.UNICODE_STRING{
             .Length = path_len_bytes,
             .MaximumLength = path_len_bytes,

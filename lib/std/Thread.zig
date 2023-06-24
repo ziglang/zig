@@ -66,7 +66,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             if (self.getHandle() == std.c.pthread_self()) {
                 // Set the name of the calling thread (no thread id required).
                 const err = try os.prctl(.SET_NAME, .{@intFromPtr(name_with_terminator.ptr)});
-                switch (@enumFromInt(os.E, err)) {
+                switch (@as(os.E, @enumFromInt(err))) {
                     .SUCCESS => return,
                     else => |e| return os.unexpectedErrno(e),
                 }
@@ -176,7 +176,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             if (self.getHandle() == std.c.pthread_self()) {
                 // Get the name of the calling thread (no thread id required).
                 const err = try os.prctl(.GET_NAME, .{@intFromPtr(buffer.ptr)});
-                switch (@enumFromInt(os.E, err)) {
+                switch (@as(os.E, @enumFromInt(err))) {
                     .SUCCESS => return std.mem.sliceTo(buffer, 0),
                     else => |e| return os.unexpectedErrno(e),
                 }
@@ -211,7 +211,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 null,
             )) {
                 .SUCCESS => {
-                    const string = @ptrCast(*const os.windows.UNICODE_STRING, &buf);
+                    const string = @as(*const os.windows.UNICODE_STRING, @ptrCast(&buf));
                     const len = try std.unicode.utf16leToUtf8(buffer, string.Buffer[0 .. string.Length / 2]);
                     return if (len > 0) buffer[0..len] else null;
                 },
@@ -510,7 +510,7 @@ const WindowsThreadImpl = struct {
             thread: ThreadCompletion,
 
             fn entryFn(raw_ptr: windows.PVOID) callconv(.C) windows.DWORD {
-                const self = @ptrCast(*@This(), @alignCast(@alignOf(@This()), raw_ptr));
+                const self: *@This() = @ptrCast(@alignCast(raw_ptr));
                 defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
                     .running => {},
                     .completed => unreachable,
@@ -525,7 +525,7 @@ const WindowsThreadImpl = struct {
         const alloc_ptr = windows.kernel32.HeapAlloc(heap_handle, 0, alloc_bytes) orelse return error.OutOfMemory;
         errdefer assert(windows.kernel32.HeapFree(heap_handle, 0, alloc_ptr) != 0);
 
-        const instance_bytes = @ptrCast([*]u8, alloc_ptr)[0..alloc_bytes];
+        const instance_bytes = @as([*]u8, @ptrCast(alloc_ptr))[0..alloc_bytes];
         var fba = std.heap.FixedBufferAllocator.init(instance_bytes);
         const instance = fba.allocator().create(Instance) catch unreachable;
         instance.* = .{
@@ -547,7 +547,7 @@ const WindowsThreadImpl = struct {
             null,
             stack_size,
             Instance.entryFn,
-            @ptrCast(*anyopaque, instance),
+            @as(*anyopaque, @ptrCast(instance)),
             0,
             null,
         ) orelse {
@@ -596,19 +596,19 @@ const PosixThreadImpl = struct {
                 return thread_id;
             },
             .dragonfly => {
-                return @bitCast(u32, c.lwp_gettid());
+                return @as(u32, @bitCast(c.lwp_gettid()));
             },
             .netbsd => {
-                return @bitCast(u32, c._lwp_self());
+                return @as(u32, @bitCast(c._lwp_self()));
             },
             .freebsd => {
-                return @bitCast(u32, c.pthread_getthreadid_np());
+                return @as(u32, @bitCast(c.pthread_getthreadid_np()));
             },
             .openbsd => {
-                return @bitCast(u32, c.getthrid());
+                return @as(u32, @bitCast(c.getthrid()));
             },
             .haiku => {
-                return @bitCast(u32, c.find_thread(null));
+                return @as(u32, @bitCast(c.find_thread(null)));
             },
             else => {
                 return @intFromPtr(c.pthread_self());
@@ -629,7 +629,7 @@ const PosixThreadImpl = struct {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
                 };
-                return @intCast(usize, count);
+                return @as(usize, @intCast(count));
             },
             .solaris => {
                 // The "proper" way to get the cpu count would be to query
@@ -637,7 +637,7 @@ const PosixThreadImpl = struct {
                 // cpu.
                 const rc = c.sysconf(os._SC.NPROCESSORS_ONLN);
                 return switch (os.errno(rc)) {
-                    .SUCCESS => @intCast(usize, rc),
+                    .SUCCESS => @as(usize, @intCast(rc)),
                     else => |err| os.unexpectedErrno(err),
                 };
             },
@@ -645,7 +645,7 @@ const PosixThreadImpl = struct {
                 var system_info: os.system.system_info = undefined;
                 const rc = os.system.get_system_info(&system_info); // always returns B_OK
                 return switch (os.errno(rc)) {
-                    .SUCCESS => @intCast(usize, system_info.cpu_count),
+                    .SUCCESS => @as(usize, @intCast(system_info.cpu_count)),
                     else => |err| os.unexpectedErrno(err),
                 };
             },
@@ -657,7 +657,7 @@ const PosixThreadImpl = struct {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
                 };
-                return @intCast(usize, count);
+                return @as(usize, @intCast(count));
             },
         }
     }
@@ -675,7 +675,7 @@ const PosixThreadImpl = struct {
                     return callFn(f, @as(Args, undefined));
                 }
 
-                const args_ptr = @ptrCast(*Args, @alignCast(@alignOf(Args), raw_arg));
+                const args_ptr: *Args = @ptrCast(@alignCast(raw_arg));
                 defer allocator.destroy(args_ptr);
                 return callFn(f, args_ptr.*);
             }
@@ -699,7 +699,7 @@ const PosixThreadImpl = struct {
             &handle,
             &attr,
             Instance.entryFn,
-            if (@sizeOf(Args) > 1) @ptrCast(*anyopaque, args_ptr) else undefined,
+            if (@sizeOf(Args) > 1) @as(*anyopaque, @ptrCast(args_ptr)) else undefined,
         )) {
             .SUCCESS => return Impl{ .handle = handle },
             .AGAIN => return error.SystemResources,
@@ -742,7 +742,7 @@ const LinuxThreadImpl = struct {
 
     fn getCurrentId() Id {
         return tls_thread_id orelse {
-            const tid = @bitCast(u32, linux.gettid());
+            const tid = @as(u32, @bitCast(linux.gettid()));
             tls_thread_id = tid;
             return tid;
         };
@@ -911,7 +911,7 @@ const LinuxThreadImpl = struct {
             thread: ThreadCompletion,
 
             fn entryFn(raw_arg: usize) callconv(.C) u8 {
-                const self = @ptrFromInt(*@This(), raw_arg);
+                const self = @as(*@This(), @ptrFromInt(raw_arg));
                 defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
                     .running => {},
                     .completed => unreachable,
@@ -969,7 +969,7 @@ const LinuxThreadImpl = struct {
 
         // map everything but the guard page as read/write
         os.mprotect(
-            @alignCast(page_size, mapped[guard_offset..]),
+            @alignCast(mapped[guard_offset..]),
             os.PROT.READ | os.PROT.WRITE,
         ) catch |err| switch (err) {
             error.AccessDenied => unreachable,
@@ -994,7 +994,7 @@ const LinuxThreadImpl = struct {
             };
         }
 
-        const instance = @ptrCast(*Instance, @alignCast(@alignOf(Instance), &mapped[instance_offset]));
+        const instance: *Instance = @ptrCast(@alignCast(&mapped[instance_offset]));
         instance.* = .{
             .fn_args = args,
             .thread = .{ .mapped = mapped },

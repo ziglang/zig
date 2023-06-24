@@ -9,7 +9,7 @@ const Allocator = mem.Allocator;
 
 const UefiPoolAllocator = struct {
     fn getHeader(ptr: [*]u8) *[*]align(8) u8 {
-        return @ptrFromInt(*[*]align(8) u8, @intFromPtr(ptr) - @sizeOf(usize));
+        return @as(*[*]align(8) u8, @ptrFromInt(@intFromPtr(ptr) - @sizeOf(usize)));
     }
 
     fn alloc(
@@ -22,7 +22,7 @@ const UefiPoolAllocator = struct {
 
         assert(len > 0);
 
-        const ptr_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align);
+        const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
 
         const metadata_len = mem.alignForward(usize, @sizeOf(usize), ptr_align);
 
@@ -135,5 +135,5 @@ fn uefi_free(
 ) void {
     _ = log2_old_ptr_align;
     _ = ret_addr;
-    _ = uefi.system_table.boot_services.?.freePool(@alignCast(8, buf.ptr));
+    _ = uefi.system_table.boot_services.?.freePool(@alignCast(buf.ptr));
 }

@@ -63,7 +63,7 @@ fn testPopCountIntegers() !void {
         try expect(@popCount(x) == 2);
     }
     comptime {
-        try expect(@popCount(@bitCast(u8, @as(i8, -120))) == 2);
+        try expect(@popCount(@as(u8, @bitCast(@as(i8, -120)))) == 2);
     }
 }
 

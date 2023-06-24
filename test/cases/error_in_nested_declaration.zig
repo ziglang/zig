@@ -3,7 +3,7 @@ const S = struct {
     c: i32,
     a: struct {
         pub fn str(_: @This(), extra: []u32) []i32 {
-            return @bitCast([]i32, extra);
+            return @bitCast(extra);
         }
     },
 };
@@ -27,5 +27,5 @@ pub export fn entry2() void {
 // target=native
 //
 // :17:12: error: C pointers cannot point to opaque types
-// :6:29: error: cannot @bitCast to '[]i32'
-// :6:29: note: use @ptrCast to cast from '[]u32'
+// :6:20: error: cannot @bitCast to '[]i32'
+// :6:20: note: use @ptrCast to cast from '[]u32'

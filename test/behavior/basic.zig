@@ -20,7 +20,7 @@ test "truncate" {
     try comptime expect(testTruncate(0x10fd) == 0xfd);
 }
 fn testTruncate(x: u32) u8 {
-    return @truncate(u8, x);
+    return @as(u8, @truncate(x));
 }
 
 test "truncate to non-power-of-two integers" {
@@ -56,7 +56,7 @@ test "truncate to non-power-of-two integers from 128-bit" {
 }
 
 fn testTrunc(comptime Big: type, comptime Little: type, big: Big, little: Little) !void {
-    try expect(@truncate(Little, big) == little);
+    try expect(@as(Little, @truncate(big)) == little);
 }
 
 const g1: i32 = 1233 + 1;
@@ -229,9 +229,9 @@ test "opaque types" {
 
 const global_a: i32 = 1234;
 const global_b: *const i32 = &global_a;
-const global_c: *const f32 = @ptrCast(*const f32, global_b);
+const global_c: *const f32 = @as(*const f32, @ptrCast(global_b));
 test "compile time global reinterpret" {
-    const d = @ptrCast(*const i32, global_c);
+    const d = @as(*const i32, @ptrCast(global_c));
     try expect(d.* == 1234);
 }
 
@@ -362,7 +362,7 @@ test "variable is allowed to be a pointer to an opaque type" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: i32 = 1234;
-    _ = hereIsAnOpaqueType(@ptrCast(*OpaqueA, &x));
+    _ = hereIsAnOpaqueType(@as(*OpaqueA, @ptrCast(&x)));
 }
 fn hereIsAnOpaqueType(ptr: *OpaqueA) *OpaqueA {
     var a = ptr;
@@ -442,7 +442,7 @@ test "array 3D const double ptr with offset" {
 }
 
 fn testArray2DConstDoublePtr(ptr: *const f32) !void {
-    const ptr2 = @ptrCast([*]const f32, ptr);
+    const ptr2 = @as([*]const f32, @ptrCast(ptr));
     try expect(ptr2[0] == 1.0);
     try expect(ptr2[1] == 2.0);
 }
@@ -574,9 +574,9 @@ test "constant equal function pointers" {
 
 fn emptyFn() void {}
 
-const addr1 = @ptrCast(*const u8, &emptyFn);
+const addr1 = @as(*const u8, @ptrCast(&emptyFn));
 test "comptime cast fn to ptr" {
-    const addr2 = @ptrCast(*const u8, &emptyFn);
+    const addr2 = @as(*const u8, @ptrCast(&emptyFn));
     try comptime expect(addr1 == addr2);
 }
 
@@ -667,7 +667,7 @@ test "string escapes" {
 
 test "explicit cast optional pointers" {
     const a: ?*i32 = undefined;
-    const b: ?*f32 = @ptrCast(?*f32, a);
+    const b: ?*f32 = @as(?*f32, @ptrCast(a));
     _ = b;
 }
 
@@ -752,7 +752,7 @@ test "auto created variables have correct alignment" {
 
     const S = struct {
         fn foo(str: [*]const u8) u32 {
-            for (@ptrCast([*]align(1) const u32, str)[0..1]) |v| {
+            for (@as([*]align(1) const u32, @ptrCast(str))[0..1]) |v| {
                 return v;
             }
             return 0;
@@ -772,7 +772,7 @@ test "extern variable with non-pointer opaque type" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     @export(var_to_export, .{ .name = "opaque_extern_var" });
-    try expect(@ptrCast(*align(1) u32, &opaque_extern_var).* == 42);
+    try expect(@as(*align(1) u32, @ptrCast(&opaque_extern_var)).* == 42);
 }
 extern var opaque_extern_var: opaque {};
 var var_to_export: u32 = 42;

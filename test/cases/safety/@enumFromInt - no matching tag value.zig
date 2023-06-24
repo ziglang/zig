@@ -17,7 +17,7 @@ pub fn main() !void {
     return error.TestFailed;
 }
 fn bar(a: u2) Foo {
-    return @enumFromInt(Foo, a);
+    return @enumFromInt(a);
 }
 fn baz(_: Foo) void {}
 

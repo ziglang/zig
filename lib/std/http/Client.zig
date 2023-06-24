@@ -187,7 +187,7 @@ pub const Connection = struct {
         const nread = try conn.rawReadAtLeast(conn.read_buf[0..], 1);
         if (nread == 0) return error.EndOfStream;
         conn.read_start = 0;
-        conn.read_end = @intCast(u16, nread);
+        conn.read_end = @as(u16, @intCast(nread));
     }
 
     pub fn peek(conn: *Connection) []const u8 {
@@ -208,8 +208,8 @@ pub const Connection = struct {
 
             if (available_read > available_buffer) { // partially read buffered data
                 @memcpy(buffer[out_index..], conn.read_buf[conn.read_start..conn.read_end][0..available_buffer]);
-                out_index += @intCast(u16, available_buffer);
-                conn.read_start += @intCast(u16, available_buffer);
+                out_index += @as(u16, @intCast(available_buffer));
+                conn.read_start += @as(u16, @intCast(available_buffer));
 
                 break;
             } else if (available_read > 0) { // fully read buffered data
@@ -343,7 +343,7 @@ pub const Response = struct {
             else => return error.HttpHeadersInvalid,
         };
         if (first_line[8] != ' ') return error.HttpHeadersInvalid;
-        const status = @enumFromInt(http.Status, parseInt3(first_line[9..12].*));
+        const status = @as(http.Status, @enumFromInt(parseInt3(first_line[9..12].*)));
         const reason = mem.trimLeft(u8, first_line[12..], " ");
 
         res.version = version;
@@ -415,7 +415,7 @@ pub const Response = struct {
     }
 
     inline fn int64(array: *const [8]u8) u64 {
-        return @bitCast(u64, array.*);
+        return @as(u64, @bitCast(array.*));
     }
 
     fn parseInt3(nnn: @Vector(3, u8)) u10 {
@@ -649,7 +649,7 @@ pub const Request = struct {
                 try req.connection.?.data.fill();
 
                 const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.?.data.peek());
-                req.connection.?.data.drop(@intCast(u16, nchecked));
+                req.connection.?.data.drop(@as(u16, @intCast(nchecked)));
 
                 if (req.response.parser.state.isContent()) break;
             }
@@ -768,7 +768,7 @@ pub const Request = struct {
                 try req.connection.?.data.fill();
 
                 const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.?.data.peek());
-                req.connection.?.data.drop(@intCast(u16, nchecked));
+                req.connection.?.data.drop(@as(u16, @intCast(nchecked)));
             }
 
             if (has_trail) {

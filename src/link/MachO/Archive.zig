@@ -169,7 +169,7 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
         };
         const object_offset = try symtab_reader.readIntLittle(u32);
 
-        const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + n_strx), 0);
+        const sym_name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + n_strx)), 0);
         const owned_name = try allocator.dupe(u8, sym_name);
         const res = try self.toc.getOrPut(allocator, owned_name);
         defer if (res.found_existing) allocator.free(owned_name);

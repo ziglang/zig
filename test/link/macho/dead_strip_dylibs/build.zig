@@ -37,7 +37,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         exe.dead_strip_dylibs = true;
 
         const run_cmd = b.addRunArtifact(exe);
-        run_cmd.expectExitCode(@bitCast(u8, @as(i8, -2))); // should fail
+        run_cmd.expectExitCode(@as(u8, @bitCast(@as(i8, -2)))); // should fail
         test_step.dependOn(&run_cmd.step);
     }
 }

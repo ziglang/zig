@@ -15,7 +15,7 @@ const U = union(enum(u32)) {
 
 pub fn main() !void {
     var u: U = undefined;
-    @memset(@ptrCast([*]u8, &u)[0..@sizeOf(U)], 0x55);
+    @memset(@as([*]u8, @ptrCast(&u))[0..@sizeOf(U)], 0x55);
     switch (u) {
         .X, .Y => @breakpoint(),
     }

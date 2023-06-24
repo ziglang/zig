@@ -371,12 +371,12 @@ pub fn hkdfExpandLabel(
     const tls13 = "tls13 ";
     var buf: [2 + 1 + tls13.len + max_label_len + 1 + max_context_len]u8 = undefined;
     mem.writeIntBig(u16, buf[0..2], len);
-    buf[2] = @intCast(u8, tls13.len + label.len);
+    buf[2] = @as(u8, @intCast(tls13.len + label.len));
     buf[3..][0..tls13.len].* = tls13.*;
     var i: usize = 3 + tls13.len;
     @memcpy(buf[i..][0..label.len], label);
     i += label.len;
-    buf[i] = @intCast(u8, context.len);
+    buf[i] = @as(u8, @intCast(context.len));
     i += 1;
     @memcpy(buf[i..][0..context.len], context);
     i += context.len;
@@ -411,24 +411,24 @@ pub inline fn enum_array(comptime E: type, comptime tags: []const E) [2 + @sizeO
     assert(@sizeOf(E) == 2);
     var result: [tags.len * 2]u8 = undefined;
     for (tags, 0..) |elem, i| {
-        result[i * 2] = @truncate(u8, @intFromEnum(elem) >> 8);
-        result[i * 2 + 1] = @truncate(u8, @intFromEnum(elem));
+        result[i * 2] = @as(u8, @truncate(@intFromEnum(elem) >> 8));
+        result[i * 2 + 1] = @as(u8, @truncate(@intFromEnum(elem)));
     }
     return array(2, result);
 }
 
 pub inline fn int2(x: u16) [2]u8 {
     return .{
-        @truncate(u8, x >> 8),
-        @truncate(u8, x),
+        @as(u8, @truncate(x >> 8)),
+        @as(u8, @truncate(x)),
     };
 }
 
 pub inline fn int3(x: u24) [3]u8 {
     return .{
-        @truncate(u8, x >> 16),
-        @truncate(u8, x >> 8),
-        @truncate(u8, x),
+        @as(u8, @truncate(x >> 16)),
+        @as(u8, @truncate(x >> 8)),
+        @as(u8, @truncate(x)),
     };
 }
 
@@ -513,7 +513,7 @@ pub const Decoder = struct {
             .Enum => |info| {
                 const int = d.decode(info.tag_type);
                 if (info.is_exhaustive) @compileError("exhaustive enum cannot be used");
-                return @enumFromInt(T, int);
+                return @as(T, @enumFromInt(int));
             },
             else => @compileError("unsupported type: " ++ @typeName(T)),
         }

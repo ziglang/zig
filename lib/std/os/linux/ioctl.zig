@@ -32,7 +32,7 @@ fn io_impl(dir: Direction, io_type: u8, nr: u8, comptime T: type) u32 {
         .io_type = io_type,
         .nr = nr,
     };
-    return @bitCast(u32, request);
+    return @as(u32, @bitCast(request));
 }
 
 pub fn IO(io_type: u8, nr: u8) u32 {

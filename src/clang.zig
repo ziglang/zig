@@ -117,7 +117,7 @@ pub const APFloatBaseSemantics = enum(c_int) {
 
 pub const APInt = opaque {
     pub fn getLimitedValue(self: *const APInt, comptime T: type) T {
-        return @truncate(T, ZigClangAPInt_getLimitedValue(self, std.math.maxInt(T)));
+        return @as(T, @truncate(ZigClangAPInt_getLimitedValue(self, std.math.maxInt(T))));
     }
     extern fn ZigClangAPInt_getLimitedValue(*const APInt, limit: u64) u64;
 };

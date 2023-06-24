@@ -275,7 +275,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                     )) {
                         .pending => {
                             self.windows.active.handles_buf[self.windows.active.count] = handle;
-                            self.windows.active.stream_map[self.windows.active.count] = @enumFromInt(StreamEnum, i);
+                            self.windows.active.stream_map[self.windows.active.count] = @as(StreamEnum, @enumFromInt(i));
                             self.windows.active.count += 1;
                         },
                         .closed => {}, // don't add to the wait_objects list

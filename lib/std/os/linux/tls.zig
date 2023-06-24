@@ -205,7 +205,7 @@ fn initTLS(phdrs: []elf.Phdr) void {
         // the data stored in the PT_TLS segment is p_filesz and may be less
         // than the former
         tls_align_factor = phdr.p_align;
-        tls_data = @ptrFromInt([*]u8, img_base + phdr.p_vaddr)[0..phdr.p_filesz];
+        tls_data = @as([*]u8, @ptrFromInt(img_base + phdr.p_vaddr))[0..phdr.p_filesz];
         tls_data_alloc_size = phdr.p_memsz;
     } else {
         tls_align_factor = @alignOf(usize);
@@ -263,12 +263,12 @@ fn initTLS(phdrs: []elf.Phdr) void {
         .dtv_offset = dtv_offset,
         .data_offset = data_offset,
         .data_size = tls_data_alloc_size,
-        .gdt_entry_number = @bitCast(usize, @as(isize, -1)),
+        .gdt_entry_number = @as(usize, @bitCast(@as(isize, -1))),
     };
 }
 
 inline fn alignPtrCast(comptime T: type, ptr: [*]u8) *T {
-    return @ptrCast(*T, @alignCast(@alignOf(T), ptr));
+    return @ptrCast(@alignCast(ptr));
 }
 
 /// Initializes all the fields of the static TLS area and returns the computed

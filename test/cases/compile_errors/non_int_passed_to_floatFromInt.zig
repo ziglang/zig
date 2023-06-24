@@ -1,5 +1,5 @@
 export fn entry() void {
-    const x = @floatFromInt(f32, 1.1);
+    const x: f32 = @floatFromInt(1.1);
     _ = x;
 }
 

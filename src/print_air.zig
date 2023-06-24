@@ -91,7 +91,7 @@ const Writer = struct {
     fn writeAllConstants(w: *Writer, s: anytype) @TypeOf(s).Error!void {
         for (w.air.instructions.items(.tag), 0..) |tag, i| {
             if (tag != .interned) continue;
-            const inst = @intCast(Air.Inst.Index, i);
+            const inst = @as(Air.Inst.Index, @intCast(i));
             try w.writeInst(s, inst);
             try s.writeByte('\n');
         }
@@ -424,8 +424,8 @@ const Writer = struct {
         const mod = w.module;
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const vector_ty = w.air.getRefType(ty_pl.ty);
-        const len = @intCast(usize, vector_ty.arrayLen(mod));
-        const elements = @ptrCast([]const Air.Inst.Ref, w.air.extra[ty_pl.payload..][0..len]);
+        const len = @as(usize, @intCast(vector_ty.arrayLen(mod)));
+        const elements = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[ty_pl.payload..][0..len]));
 
         try w.writeType(s, vector_ty);
         try s.writeAll(", [");
@@ -607,8 +607,8 @@ const Writer = struct {
     fn writeAssembly(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const extra = w.air.extraData(Air.Asm, ty_pl.payload);
-        const is_volatile = @truncate(u1, extra.data.flags >> 31) != 0;
-        const clobbers_len = @truncate(u31, extra.data.flags);
+        const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
+        const clobbers_len = @as(u31, @truncate(extra.data.flags));
         var extra_i: usize = extra.end;
         var op_index: usize = 0;
 
@@ -619,9 +619,9 @@ const Writer = struct {
             try s.writeAll(", volatile");
         }
 
-        const outputs = @ptrCast([]const Air.Inst.Ref, w.air.extra[extra_i..][0..extra.data.outputs_len]);
+        const outputs = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[extra_i..][0..extra.data.outputs_len]));
         extra_i += outputs.len;
-        const inputs = @ptrCast([]const Air.Inst.Ref, w.air.extra[extra_i..][0..extra.data.inputs_len]);
+        const inputs = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[extra_i..][0..extra.data.inputs_len]));
         extra_i += inputs.len;
 
         for (outputs) |output| {
@@ -699,7 +699,7 @@ const Writer = struct {
     fn writeCall(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         const extra = w.air.extraData(Air.Call, pl_op.payload);
-        const args = @ptrCast([]const Air.Inst.Ref, w.air.extra[extra.end..][0..extra.data.args_len]);
+        const args = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[extra.end..][0..extra.data.args_len]));
         try w.writeOperand(s, inst, 0, pl_op.operand);
         try s.writeAll(", [");
         for (args, 0..) |arg, i| {
@@ -855,7 +855,7 @@ const Writer = struct {
 
         while (case_i < switch_br.data.cases_len) : (case_i += 1) {
             const case = w.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items = @ptrCast([]const Air.Inst.Ref, w.air.extra[case.end..][0..case.data.items_len]);
+            const items = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[case.end..][0..case.data.items_len]));
             const case_body = w.air.extra[case.end + items.len ..][0..case.data.body_len];
             extra_index = case.end + case.data.items_len + case_body.len;
 
@@ -934,13 +934,13 @@ const Writer = struct {
         const small_tomb_bits = Liveness.bpi - 1;
         const dies = if (w.liveness) |liveness| blk: {
             if (op_index < small_tomb_bits)
-                break :blk liveness.operandDies(inst, @intCast(Liveness.OperandInt, op_index));
+                break :blk liveness.operandDies(inst, @as(Liveness.OperandInt, @intCast(op_index)));
             var extra_index = liveness.special.get(inst).?;
             var tomb_op_index: usize = small_tomb_bits;
             while (true) {
                 const bits = liveness.extra[extra_index];
                 if (op_index < tomb_op_index + 31) {
-                    break :blk @truncate(u1, bits >> @intCast(u5, op_index - tomb_op_index)) != 0;
+                    break :blk @as(u1, @truncate(bits >> @as(u5, @intCast(op_index - tomb_op_index)))) != 0;
                 }
                 if ((bits >> 31) != 0) break :blk false;
                 extra_index += 1;

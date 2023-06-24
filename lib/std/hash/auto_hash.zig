@@ -92,10 +92,10 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.
         .Int => |int| switch (int.signedness) {
-            .signed => hash(hasher, @bitCast(@Type(.{ .Int = .{
+            .signed => hash(hasher, @as(@Type(.{ .Int = .{
                 .bits = int.bits,
                 .signedness = .unsigned,
-            } }), key), strat),
+            } }), @bitCast(key)), strat),
             .unsigned => {
                 if (comptime meta.trait.hasUniqueRepresentation(Key)) {
                     @call(.always_inline, Hasher.update, .{ hasher, std.mem.asBytes(&key) });

@@ -113,7 +113,7 @@ fn testNullTerminatedPtr() !void {
     try expect(ptr_info.Pointer.size == .Many);
     try expect(ptr_info.Pointer.is_const == false);
     try expect(ptr_info.Pointer.is_volatile == false);
-    try expect(@ptrCast(*const u8, ptr_info.Pointer.sentinel.?).* == 0);
+    try expect(@as(*const u8, @ptrCast(ptr_info.Pointer.sentinel.?)).* == 0);
 
     try expect(@typeInfo([:0]u8).Pointer.sentinel != null);
 }
@@ -151,7 +151,7 @@ fn testArray() !void {
         const info = @typeInfo([10:0]u8);
         try expect(info.Array.len == 10);
         try expect(info.Array.child == u8);
-        try expect(@ptrCast(*const u8, info.Array.sentinel.?).* == @as(u8, 0));
+        try expect(@as(*const u8, @ptrCast(info.Array.sentinel.?)).* == @as(u8, 0));
         try expect(@sizeOf([10:0]u8) == info.Array.len + 1);
     }
 }
@@ -295,8 +295,8 @@ fn testStruct() !void {
     try expect(unpacked_struct_info.Struct.is_tuple == false);
     try expect(unpacked_struct_info.Struct.backing_integer == null);
     try expect(unpacked_struct_info.Struct.fields[0].alignment == @alignOf(u32));
-    try expect(@ptrCast(*align(1) const u32, unpacked_struct_info.Struct.fields[0].default_value.?).* == 4);
-    try expect(mem.eql(u8, "foobar", @ptrCast(*align(1) const *const [6:0]u8, unpacked_struct_info.Struct.fields[1].default_value.?).*));
+    try expect(@as(*align(1) const u32, @ptrCast(unpacked_struct_info.Struct.fields[0].default_value.?)).* == 4);
+    try expect(mem.eql(u8, "foobar", @as(*align(1) const *const [6:0]u8, @ptrCast(unpacked_struct_info.Struct.fields[1].default_value.?)).*));
 }
 
 const TestStruct = struct {
@@ -319,7 +319,7 @@ fn testPackedStruct() !void {
     try expect(struct_info.Struct.fields[0].alignment == 0);
     try expect(struct_info.Struct.fields[2].type == f32);
     try expect(struct_info.Struct.fields[2].default_value == null);
-    try expect(@ptrCast(*align(1) const u32, struct_info.Struct.fields[3].default_value.?).* == 4);
+    try expect(@as(*align(1) const u32, @ptrCast(struct_info.Struct.fields[3].default_value.?)).* == 4);
     try expect(struct_info.Struct.fields[3].alignment == 0);
     try expect(struct_info.Struct.decls.len == 2);
     try expect(struct_info.Struct.decls[0].is_pub);
@@ -504,7 +504,7 @@ test "type info for async frames" {
 
     switch (@typeInfo(@Frame(add))) {
         .Frame => |frame| {
-            try expect(@ptrCast(@TypeOf(add), frame.function) == add);
+            try expect(@as(@TypeOf(add), @ptrCast(frame.function)) == add);
         },
         else => unreachable,
     }
@@ -564,7 +564,7 @@ test "typeInfo resolves usingnamespace declarations" {
 test "value from struct @typeInfo default_value can be loaded at comptime" {
     comptime {
         const a = @typeInfo(@TypeOf(.{ .foo = @as(u8, 1) })).Struct.fields[0].default_value;
-        try expect(@ptrCast(*const u8, a).* == 1);
+        try expect(@as(*const u8, @ptrCast(a)).* == 1);
     }
 }
 
@@ -607,6 +607,6 @@ test "@typeInfo decls ignore dependency loops" {
 
 test "type info of tuple of string literal default value" {
     const struct_field = @typeInfo(@TypeOf(.{"hi"})).Struct.fields[0];
-    const value = @ptrCast(*align(1) const *const [2:0]u8, struct_field.default_value.?).*;
+    const value = @as(*align(1) const *const [2:0]u8, @ptrCast(struct_field.default_value.?)).*;
     comptime std.debug.assert(value[0] == 'h');
 }

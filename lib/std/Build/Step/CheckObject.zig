@@ -449,9 +449,9 @@ const MachODumper = struct {
                 },
                 .SYMTAB => if (opts.dump_symtab) {
                     const lc = cmd.cast(macho.symtab_command).?;
-                    symtab = @ptrCast(
+                    symtab = @as(
                         [*]const macho.nlist_64,
-                        @alignCast(@alignOf(macho.nlist_64), &bytes[lc.symoff]),
+                        @ptrCast(@alignCast(&bytes[lc.symoff])),
                     )[0..lc.nsyms];
                     strtab = bytes[lc.stroff..][0..lc.strsize];
                 },
@@ -474,7 +474,7 @@ const MachODumper = struct {
             try writer.print("{s}\n", .{symtab_label});
             for (symtab) |sym| {
                 if (sym.stab()) continue;
-                const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
+                const sym_name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + sym.n_strx)), 0);
                 if (sym.sect()) {
                     const sect = sections.items[sym.n_sect - 1];
                     try writer.print("{x} ({s},{s})", .{
@@ -487,7 +487,7 @@ const MachODumper = struct {
                     }
                     try writer.print(" {s}\n", .{sym_name});
                 } else if (sym.undf()) {
-                    const ordinal = @divTrunc(@bitCast(i16, sym.n_desc), macho.N_SYMBOL_RESOLVER);
+                    const ordinal = @divTrunc(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
                     const import_name = blk: {
                         if (ordinal <= 0) {
                             if (ordinal == macho.BIND_SPECIAL_DYLIB_SELF)
@@ -498,7 +498,7 @@ const MachODumper = struct {
                                 break :blk "flat lookup";
                             unreachable;
                         }
-                        const full_path = imports.items[@bitCast(u16, ordinal) - 1];
+                        const full_path = imports.items[@as(u16, @bitCast(ordinal)) - 1];
                         const basename = fs.path.basename(full_path);
                         assert(basename.len > 0);
                         const ext = mem.lastIndexOfScalar(u8, basename, '.') orelse basename.len;
@@ -950,8 +950,8 @@ const WasmDumper = struct {
         switch (opcode) {
             .i32_const => try writer.print("i32.const {x}\n", .{try std.leb.readILEB128(i32, reader)}),
             .i64_const => try writer.print("i64.const {x}\n", .{try std.leb.readILEB128(i64, reader)}),
-            .f32_const => try writer.print("f32.const {x}\n", .{@bitCast(f32, try reader.readIntLittle(u32))}),
-            .f64_const => try writer.print("f64.const {x}\n", .{@bitCast(f64, try reader.readIntLittle(u64))}),
+            .f32_const => try writer.print("f32.const {x}\n", .{@as(f32, @bitCast(try reader.readIntLittle(u32)))}),
+            .f64_const => try writer.print("f64.const {x}\n", .{@as(f64, @bitCast(try reader.readIntLittle(u64)))}),
             .global_get => try writer.print("global.get {x}\n", .{try std.leb.readULEB128(u32, reader)}),
             else => unreachable,
         }

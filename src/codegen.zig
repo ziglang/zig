@@ -108,7 +108,7 @@ fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian
     _ = target;
     const bits = @typeInfo(F).Float.bits;
     const Int = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = bits } });
-    const int = @bitCast(Int, f);
+    const int = @as(Int, @bitCast(f));
     mem.writeInt(Int, code[0..@divExact(bits, 8)], int, endian);
 }
 
@@ -143,18 +143,18 @@ pub fn generateLazySymbol(
     if (lazy_sym.ty.isAnyError(mod)) {
         alignment.* = 4;
         const err_names = mod.global_error_set.keys();
-        mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, err_names.len), endian);
+        mem.writeInt(u32, try code.addManyAsArray(4), @as(u32, @intCast(err_names.len)), endian);
         var offset = code.items.len;
         try code.resize((1 + err_names.len + 1) * 4);
         for (err_names) |err_name_nts| {
             const err_name = mod.intern_pool.stringToSlice(err_name_nts);
-            mem.writeInt(u32, code.items[offset..][0..4], @intCast(u32, code.items.len), endian);
+            mem.writeInt(u32, code.items[offset..][0..4], @as(u32, @intCast(code.items.len)), endian);
             offset += 4;
             try code.ensureUnusedCapacity(err_name.len + 1);
             code.appendSliceAssumeCapacity(err_name);
             code.appendAssumeCapacity(0);
         }
-        mem.writeInt(u32, code.items[offset..][0..4], @intCast(u32, code.items.len), endian);
+        mem.writeInt(u32, code.items[offset..][0..4], @as(u32, @intCast(code.items.len)), endian);
         return Result.ok;
     } else if (lazy_sym.ty.zigTypeTag(mod) == .Enum) {
         alignment.* = 1;
@@ -253,12 +253,12 @@ pub fn generateSymbol(
         },
         .err => |err| {
             const int = try mod.getErrorValue(err.name);
-            try code.writer().writeInt(u16, @intCast(u16, int), endian);
+            try code.writer().writeInt(u16, @as(u16, @intCast(int)), endian);
         },
         .error_union => |error_union| {
             const payload_ty = typed_value.ty.errorUnionPayload(mod);
             const err_val = switch (error_union.val) {
-                .err_name => |err_name| @intCast(u16, try mod.getErrorValue(err_name)),
+                .err_name => |err_name| @as(u16, @intCast(try mod.getErrorValue(err_name))),
                 .payload => @as(u16, 0),
             };
 
@@ -397,7 +397,7 @@ pub fn generateSymbol(
                             .ty = array_type.child.toType(),
                             .val = switch (aggregate.storage) {
                                 .bytes => unreachable,
-                                .elems => |elems| elems[@intCast(usize, index)],
+                                .elems => |elems| elems[@as(usize, @intCast(index))],
                                 .repeated_elem => |elem| elem,
                             }.toValue(),
                         }, code, debug_output, reloc_info)) {
@@ -417,7 +417,7 @@ pub fn generateSymbol(
                                 .ty = vector_type.child.toType(),
                                 .val = switch (aggregate.storage) {
                                     .bytes => unreachable,
-                                    .elems => |elems| elems[@intCast(usize, index)],
+                                    .elems => |elems| elems[@as(usize, @intCast(index))],
                                     .repeated_elem => |elem| elem,
                                 }.toValue(),
                             }, code, debug_output, reloc_info)) {
@@ -509,7 +509,7 @@ pub fn generateSymbol(
                         } else {
                             field_val.toValue().writeToPackedMemory(field_ty, mod, code.items[current_pos..], bits) catch unreachable;
                         }
-                        bits += @intCast(u16, field_ty.bitSize(mod));
+                        bits += @as(u16, @intCast(field_ty.bitSize(mod)));
                     }
                 } else {
                     const struct_begin = code.items.len;
@@ -642,10 +642,10 @@ fn lowerParentPtr(
             eu_payload,
             code,
             debug_output,
-            reloc_info.offset(@intCast(u32, errUnionPayloadOffset(
+            reloc_info.offset(@as(u32, @intCast(errUnionPayloadOffset(
                 mod.intern_pool.typeOf(eu_payload).toType(),
                 mod,
-            ))),
+            )))),
         ),
         .opt_payload => |opt_payload| try lowerParentPtr(
             bin_file,
@@ -661,8 +661,8 @@ fn lowerParentPtr(
             elem.base,
             code,
             debug_output,
-            reloc_info.offset(@intCast(u32, elem.index *
-                mod.intern_pool.typeOf(elem.base).toType().elemType2(mod).abiSize(mod))),
+            reloc_info.offset(@as(u32, @intCast(elem.index *
+                mod.intern_pool.typeOf(elem.base).toType().elemType2(mod).abiSize(mod)))),
         ),
         .field => |field| {
             const base_type = mod.intern_pool.indexToKey(mod.intern_pool.typeOf(field.base)).ptr_type.child;
@@ -684,10 +684,10 @@ fn lowerParentPtr(
                     .struct_type,
                     .anon_struct_type,
                     .union_type,
-                    => @intCast(u32, base_type.toType().structFieldOffset(
-                        @intCast(u32, field.index),
+                    => @as(u32, @intCast(base_type.toType().structFieldOffset(
+                        @as(u32, @intCast(field.index)),
                         mod,
-                    )),
+                    ))),
                     else => unreachable,
                 }),
             );
@@ -735,8 +735,8 @@ fn lowerDeclRef(
     });
     const endian = target.cpu.arch.endian();
     switch (ptr_width) {
-        16 => mem.writeInt(u16, try code.addManyAsArray(2), @intCast(u16, vaddr), endian),
-        32 => mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, vaddr), endian),
+        16 => mem.writeInt(u16, try code.addManyAsArray(2), @as(u16, @intCast(vaddr)), endian),
+        32 => mem.writeInt(u32, try code.addManyAsArray(4), @as(u32, @intCast(vaddr)), endian),
         64 => mem.writeInt(u64, try code.addManyAsArray(8), vaddr, endian),
         else => unreachable,
     }
@@ -945,7 +945,7 @@ pub fn genTypedValue(
             const info = typed_value.ty.intInfo(mod);
             if (info.bits <= ptr_bits) {
                 const unsigned = switch (info.signedness) {
-                    .signed => @bitCast(u64, typed_value.val.toSignedInt(mod)),
+                    .signed => @as(u64, @bitCast(typed_value.val.toSignedInt(mod))),
                     .unsigned => typed_value.val.toUnsignedInt(mod),
                 };
                 return GenResult.mcv(.{ .immediate = unsigned });

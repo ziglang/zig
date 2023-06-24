@@ -89,7 +89,7 @@ pub fn Decompress(comptime ReaderType: type) type {
 
             if (FLG & FHCRC != 0) {
                 const hash = try source.readIntLittle(u16);
-                if (hash != @truncate(u16, hasher.hasher.final()))
+                if (hash != @as(u16, @truncate(hasher.hasher.final())))
                     return error.WrongChecksum;
             }
 

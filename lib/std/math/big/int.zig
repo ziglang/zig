@@ -30,7 +30,7 @@ pub fn calcLimbLen(scalar: anytype) usize {
     }
 
     const w_value = std.math.absCast(scalar);
-    return @intCast(usize, @divFloor(@intCast(Limb, math.log2(w_value)), limb_bits) + 1);
+    return @as(usize, @intCast(@divFloor(@as(Limb, @intCast(math.log2(w_value))), limb_bits) + 1));
 }
 
 pub fn calcToStringLimbsBufferLen(a_len: usize, base: u8) usize {
@@ -87,8 +87,8 @@ pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
 
     // r2 = b * c
     const bc = @as(DoubleLimb, math.mulWide(Limb, b, c));
-    const r2 = @truncate(Limb, bc);
-    const c2 = @truncate(Limb, bc >> limb_bits);
+    const r2 = @as(Limb, @truncate(bc));
+    const c2 = @as(Limb, @truncate(bc >> limb_bits));
 
     // ov2[0] = ov1[0] + r2
     const ov2 = @addWithOverflow(ov1[0], r2);
@@ -107,8 +107,8 @@ fn subMulLimbWithBorrow(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
 
     // r2 = b * c
     const bc = @as(DoubleLimb, std.math.mulWide(Limb, b, c));
-    const r2 = @truncate(Limb, bc);
-    const c2 = @truncate(Limb, bc >> limb_bits);
+    const r2 = @as(Limb, @truncate(bc));
+    const c2 = @as(Limb, @truncate(bc >> limb_bits));
 
     // ov2[0] = ov1[0] - r2
     const ov2 = @subWithOverflow(ov1[0], r2);
@@ -244,7 +244,7 @@ pub const Mutable = struct {
                 } else {
                     var i: usize = 0;
                     while (true) : (i += 1) {
-                        self.limbs[i] = @truncate(Limb, w_value);
+                        self.limbs[i] = @as(Limb, @truncate(w_value));
                         w_value >>= limb_bits;
 
                         if (w_value == 0) break;
@@ -340,7 +340,7 @@ pub const Mutable = struct {
         }
 
         const req_limbs = calcTwosCompLimbCount(bit_count);
-        const bit = @truncate(Log2Limb, bit_count - 1);
+        const bit = @as(Log2Limb, @truncate(bit_count - 1));
         const signmask = @as(Limb, 1) << bit; // 0b0..010..0 where 1 is the sign bit.
         const mask = (signmask << 1) -% 1; // 0b0..011..1 where the leftmost 1 is the sign bit.
 
@@ -365,7 +365,7 @@ pub const Mutable = struct {
                         r.set(0);
                     } else {
                         const new_req_limbs = calcTwosCompLimbCount(bit_count - 1);
-                        const msb = @truncate(Log2Limb, bit_count - 2);
+                        const msb = @as(Log2Limb, @truncate(bit_count - 2));
                         const new_signmask = @as(Limb, 1) << msb; // 0b0..010..0 where 1 is the sign bit.
                         const new_mask = (new_signmask << 1) -% 1; // 0b0..001..1 where the rightmost 0 is the sign bit.
 
@@ -1153,7 +1153,7 @@ pub const Mutable = struct {
         // const msb = @truncate(Log2Limb, checkbit);
         // const checkmask = (@as(Limb, 1) << msb) -% 1;
 
-        if (a.limbs[a.limbs.len - 1] >> @truncate(Log2Limb, checkbit) != 0) {
+        if (a.limbs[a.limbs.len - 1] >> @as(Log2Limb, @truncate(checkbit)) != 0) {
             // Need to saturate.
             r.setTwosCompIntLimit(if (a.positive) .max else .min, signedness, bit_count);
             return;
@@ -1554,7 +1554,7 @@ pub const Mutable = struct {
             // Optimization for small divisor. By using a half limb we can avoid requiring DoubleLimb
             // divisions in the hot code path. This may often require compiler_rt software-emulation.
             if (divisor < maxInt(HalfLimb)) {
-                lldiv0p5(q.limbs, &r.limbs[0], x.limbs[xy_trailing..x.len], @intCast(HalfLimb, divisor));
+                lldiv0p5(q.limbs, &r.limbs[0], x.limbs[xy_trailing..x.len], @as(HalfLimb, @intCast(divisor)));
             } else {
                 lldiv1(q.limbs, &r.limbs[0], x.limbs[xy_trailing..x.len], divisor);
             }
@@ -1671,7 +1671,7 @@ pub const Mutable = struct {
             } else {
                 const q0 = (@as(DoubleLimb, x.limbs[i]) << limb_bits) | @as(DoubleLimb, x.limbs[i - 1]);
                 const n0 = @as(DoubleLimb, y.limbs[t]);
-                q.limbs[k] = @intCast(Limb, q0 / n0);
+                q.limbs[k] = @as(Limb, @intCast(q0 / n0));
             }
 
             // 3.2
@@ -1750,7 +1750,7 @@ pub const Mutable = struct {
             return;
         }
 
-        const bit = @truncate(Log2Limb, bit_count - 1);
+        const bit = @as(Log2Limb, @truncate(bit_count - 1));
         const signmask = @as(Limb, 1) << bit;
         const mask = (signmask << 1) -% 1;
 
@@ -1781,7 +1781,7 @@ pub const Mutable = struct {
             return;
         }
 
-        const bit = @truncate(Log2Limb, bit_count - 1);
+        const bit = @as(Log2Limb, @truncate(bit_count - 1));
         const signmask = @as(Limb, 1) << bit; // 0b0..010...0 where 1 is the sign bit.
         const mask = (signmask << 1) -% 1; // 0b0..01..1 where the leftmost 1 is the sign bit.
 
@@ -1912,7 +1912,7 @@ pub const Mutable = struct {
                 .Big => buffer.len - ((total_bits + 7) / 8),
             };
 
-            const sign_bit = @as(u8, 1) << @intCast(u3, (total_bits - 1) % 8);
+            const sign_bit = @as(u8, 1) << @as(u3, @intCast((total_bits - 1) % 8));
             positive = ((buffer[last_byte] & sign_bit) == 0);
         }
 
@@ -1942,7 +1942,7 @@ pub const Mutable = struct {
                 .signed => b: {
                     const SLimb = std.meta.Int(.signed, @bitSizeOf(Limb));
                     const limb = mem.readVarPackedInt(SLimb, buffer, bit_index + bit_offset, bit_count - bit_index, endian, .signed);
-                    break :b @bitCast(Limb, limb);
+                    break :b @as(Limb, @bitCast(limb));
                 },
             };
 
@@ -2170,7 +2170,7 @@ pub const Const = struct {
                 var r: UT = 0;
 
                 if (@sizeOf(UT) <= @sizeOf(Limb)) {
-                    r = @intCast(UT, self.limbs[0]);
+                    r = @as(UT, @intCast(self.limbs[0]));
                 } else {
                     for (self.limbs[0..self.limbs.len], 0..) |_, ri| {
                         const limb = self.limbs[self.limbs.len - ri - 1];
@@ -2180,10 +2180,10 @@ pub const Const = struct {
                 }
 
                 if (info.signedness == .unsigned) {
-                    return if (self.positive) @intCast(T, r) else error.NegativeIntoUnsigned;
+                    return if (self.positive) @as(T, @intCast(r)) else error.NegativeIntoUnsigned;
                 } else {
                     if (self.positive) {
-                        return @intCast(T, r);
+                        return @as(T, @intCast(r));
                     } else {
                         if (math.cast(T, r)) |ok| {
                             return -ok;
@@ -2292,7 +2292,7 @@ pub const Const = struct {
             outer: for (self.limbs[0..self.limbs.len]) |limb| {
                 var shift: usize = 0;
                 while (shift < limb_bits) : (shift += base_shift) {
-                    const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & @as(Limb, base - 1));
+                    const r = @as(u8, @intCast((limb >> @as(Log2Limb, @intCast(shift))) & @as(Limb, base - 1)));
                     const ch = std.fmt.digitToChar(r, case);
                     string[digits_len] = ch;
                     digits_len += 1;
@@ -2340,7 +2340,7 @@ pub const Const = struct {
                 var r_word = r.limbs[0];
                 var i: usize = 0;
                 while (i < digits_per_limb) : (i += 1) {
-                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), case);
+                    const ch = std.fmt.digitToChar(@as(u8, @intCast(r_word % base)), case);
                     r_word /= base;
                     string[digits_len] = ch;
                     digits_len += 1;
@@ -2352,7 +2352,7 @@ pub const Const = struct {
 
                 var r_word = q.limbs[0];
                 while (r_word != 0) {
-                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), case);
+                    const ch = std.fmt.digitToChar(@as(u8, @intCast(r_word % base)), case);
                     r_word /= base;
                     string[digits_len] = ch;
                     digits_len += 1;
@@ -3680,13 +3680,13 @@ fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
             rem.* = 0;
         } else if (pdiv < b) {
             quo[i] = 0;
-            rem.* = @truncate(Limb, pdiv);
+            rem.* = @as(Limb, @truncate(pdiv));
         } else if (pdiv == b) {
             quo[i] = 1;
             rem.* = 0;
         } else {
-            quo[i] = @truncate(Limb, @divTrunc(pdiv, b));
-            rem.* = @truncate(Limb, pdiv - (quo[i] *% b));
+            quo[i] = @as(Limb, @truncate(@divTrunc(pdiv, b)));
+            rem.* = @as(Limb, @truncate(pdiv - (quo[i] *% b)));
         }
     }
 }
@@ -3719,7 +3719,7 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
     @setRuntimeSafety(debug_safety);
     assert(a.len >= 1);
 
-    const interior_limb_shift = @truncate(Log2Limb, shift);
+    const interior_limb_shift = @as(Log2Limb, @truncate(shift));
 
     // We only need the extra limb if the shift of the last element overflows.
     // This is useful for the implementation of `shiftLeftSat`.
@@ -3741,7 +3741,7 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
         r[dst_i] = carry | @call(.always_inline, math.shr, .{
             Limb,
             src_digit,
-            limb_bits - @intCast(Limb, interior_limb_shift),
+            limb_bits - @as(Limb, @intCast(interior_limb_shift)),
         });
         carry = (src_digit << interior_limb_shift);
     }
@@ -3756,7 +3756,7 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
     assert(r.len >= a.len - (shift / limb_bits));
 
     const limb_shift = shift / limb_bits;
-    const interior_limb_shift = @truncate(Log2Limb, shift);
+    const interior_limb_shift = @as(Log2Limb, @truncate(shift));
 
     var carry: Limb = 0;
     var i: usize = 0;
@@ -3769,7 +3769,7 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
         carry = @call(.always_inline, math.shl, .{
             Limb,
             src_digit,
-            limb_bits - @intCast(Limb, interior_limb_shift),
+            limb_bits - @as(Limb, @intCast(interior_limb_shift)),
         });
     }
 }
@@ -4150,7 +4150,7 @@ fn llpow(r: []Limb, a: []const Limb, b: u32, tmp_limbs: []Limb) void {
     // Square the result if the current bit is zero, square and multiply by a if
     // it is one.
     var exp_bits = 32 - 1 - b_leading_zeros;
-    var exp = b << @intCast(u5, 1 + b_leading_zeros);
+    var exp = b << @as(u5, @intCast(1 + b_leading_zeros));
 
     var i: usize = 0;
     while (i < exp_bits) : (i += 1) {
@@ -4174,9 +4174,9 @@ fn fixedIntFromSignedDoubleLimb(A: SignedDoubleLimb, storage: []Limb) Mutable {
     assert(storage.len >= 2);
 
     const A_is_positive = A >= 0;
-    const Au = @intCast(DoubleLimb, if (A < 0) -A else A);
-    storage[0] = @truncate(Limb, Au);
-    storage[1] = @truncate(Limb, Au >> limb_bits);
+    const Au = @as(DoubleLimb, @intCast(if (A < 0) -A else A));
+    storage[0] = @as(Limb, @truncate(Au));
+    storage[1] = @as(Limb, @truncate(Au >> limb_bits));
     return .{
         .limbs = storage[0..2],
         .positive = A_is_positive,

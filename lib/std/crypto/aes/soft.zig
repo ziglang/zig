@@ -51,13 +51,13 @@ pub const Block = struct {
         const s3 = block.repr[3];
 
         var x: [4]u32 = undefined;
-        x = table_lookup(&table_encrypt, @truncate(u8, s0), @truncate(u8, s1 >> 8), @truncate(u8, s2 >> 16), @truncate(u8, s3 >> 24));
+        x = table_lookup(&table_encrypt, @as(u8, @truncate(s0)), @as(u8, @truncate(s1 >> 8)), @as(u8, @truncate(s2 >> 16)), @as(u8, @truncate(s3 >> 24)));
         var t0 = x[0] ^ x[1] ^ x[2] ^ x[3];
-        x = table_lookup(&table_encrypt, @truncate(u8, s1), @truncate(u8, s2 >> 8), @truncate(u8, s3 >> 16), @truncate(u8, s0 >> 24));
+        x = table_lookup(&table_encrypt, @as(u8, @truncate(s1)), @as(u8, @truncate(s2 >> 8)), @as(u8, @truncate(s3 >> 16)), @as(u8, @truncate(s0 >> 24)));
         var t1 = x[0] ^ x[1] ^ x[2] ^ x[3];
-        x = table_lookup(&table_encrypt, @truncate(u8, s2), @truncate(u8, s3 >> 8), @truncate(u8, s0 >> 16), @truncate(u8, s1 >> 24));
+        x = table_lookup(&table_encrypt, @as(u8, @truncate(s2)), @as(u8, @truncate(s3 >> 8)), @as(u8, @truncate(s0 >> 16)), @as(u8, @truncate(s1 >> 24)));
         var t2 = x[0] ^ x[1] ^ x[2] ^ x[3];
-        x = table_lookup(&table_encrypt, @truncate(u8, s3), @truncate(u8, s0 >> 8), @truncate(u8, s1 >> 16), @truncate(u8, s2 >> 24));
+        x = table_lookup(&table_encrypt, @as(u8, @truncate(s3)), @as(u8, @truncate(s0 >> 8)), @as(u8, @truncate(s1 >> 16)), @as(u8, @truncate(s2 >> 24)));
         var t3 = x[0] ^ x[1] ^ x[2] ^ x[3];
 
         t0 ^= round_key.repr[0];
@@ -77,31 +77,31 @@ pub const Block = struct {
 
         var x: [4]u32 = undefined;
         x = .{
-            table_encrypt[0][@truncate(u8, s0)],
-            table_encrypt[1][@truncate(u8, s1 >> 8)],
-            table_encrypt[2][@truncate(u8, s2 >> 16)],
-            table_encrypt[3][@truncate(u8, s3 >> 24)],
+            table_encrypt[0][@as(u8, @truncate(s0))],
+            table_encrypt[1][@as(u8, @truncate(s1 >> 8))],
+            table_encrypt[2][@as(u8, @truncate(s2 >> 16))],
+            table_encrypt[3][@as(u8, @truncate(s3 >> 24))],
         };
         var t0 = x[0] ^ x[1] ^ x[2] ^ x[3];
         x = .{
-            table_encrypt[0][@truncate(u8, s1)],
-            table_encrypt[1][@truncate(u8, s2 >> 8)],
-            table_encrypt[2][@truncate(u8, s3 >> 16)],
-            table_encrypt[3][@truncate(u8, s0 >> 24)],
+            table_encrypt[0][@as(u8, @truncate(s1))],
+            table_encrypt[1][@as(u8, @truncate(s2 >> 8))],
+            table_encrypt[2][@as(u8, @truncate(s3 >> 16))],
+            table_encrypt[3][@as(u8, @truncate(s0 >> 24))],
         };
         var t1 = x[0] ^ x[1] ^ x[2] ^ x[3];
         x = .{
-            table_encrypt[0][@truncate(u8, s2)],
-            table_encrypt[1][@truncate(u8, s3 >> 8)],
-            table_encrypt[2][@truncate(u8, s0 >> 16)],
-            table_encrypt[3][@truncate(u8, s1 >> 24)],
+            table_encrypt[0][@as(u8, @truncate(s2))],
+            table_encrypt[1][@as(u8, @truncate(s3 >> 8))],
+            table_encrypt[2][@as(u8, @truncate(s0 >> 16))],
+            table_encrypt[3][@as(u8, @truncate(s1 >> 24))],
         };
         var t2 = x[0] ^ x[1] ^ x[2] ^ x[3];
         x = .{
-            table_encrypt[0][@truncate(u8, s3)],
-            table_encrypt[1][@truncate(u8, s0 >> 8)],
-            table_encrypt[2][@truncate(u8, s1 >> 16)],
-            table_encrypt[3][@truncate(u8, s2 >> 24)],
+            table_encrypt[0][@as(u8, @truncate(s3))],
+            table_encrypt[1][@as(u8, @truncate(s0 >> 8))],
+            table_encrypt[2][@as(u8, @truncate(s1 >> 16))],
+            table_encrypt[3][@as(u8, @truncate(s2 >> 24))],
         };
         var t3 = x[0] ^ x[1] ^ x[2] ^ x[3];
 
@@ -122,13 +122,13 @@ pub const Block = struct {
 
         // Last round uses s-box directly and XORs to produce output.
         var x: [4]u8 = undefined;
-        x = sbox_lookup(&sbox_encrypt, @truncate(u8, s3 >> 24), @truncate(u8, s2 >> 16), @truncate(u8, s1 >> 8), @truncate(u8, s0));
+        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s3 >> 24)), @as(u8, @truncate(s2 >> 16)), @as(u8, @truncate(s1 >> 8)), @as(u8, @truncate(s0)));
         var t0 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_encrypt, @truncate(u8, s0 >> 24), @truncate(u8, s3 >> 16), @truncate(u8, s2 >> 8), @truncate(u8, s1));
+        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s0 >> 24)), @as(u8, @truncate(s3 >> 16)), @as(u8, @truncate(s2 >> 8)), @as(u8, @truncate(s1)));
         var t1 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_encrypt, @truncate(u8, s1 >> 24), @truncate(u8, s0 >> 16), @truncate(u8, s3 >> 8), @truncate(u8, s2));
+        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s1 >> 24)), @as(u8, @truncate(s0 >> 16)), @as(u8, @truncate(s3 >> 8)), @as(u8, @truncate(s2)));
         var t2 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_encrypt, @truncate(u8, s2 >> 24), @truncate(u8, s1 >> 16), @truncate(u8, s0 >> 8), @truncate(u8, s3));
+        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s2 >> 24)), @as(u8, @truncate(s1 >> 16)), @as(u8, @truncate(s0 >> 8)), @as(u8, @truncate(s3)));
         var t3 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
 
         t0 ^= round_key.repr[0];
@@ -147,13 +147,13 @@ pub const Block = struct {
         const s3 = block.repr[3];
 
         var x: [4]u32 = undefined;
-        x = table_lookup(&table_decrypt, @truncate(u8, s0), @truncate(u8, s3 >> 8), @truncate(u8, s2 >> 16), @truncate(u8, s1 >> 24));
+        x = table_lookup(&table_decrypt, @as(u8, @truncate(s0)), @as(u8, @truncate(s3 >> 8)), @as(u8, @truncate(s2 >> 16)), @as(u8, @truncate(s1 >> 24)));
         var t0 = x[0] ^ x[1] ^ x[2] ^ x[3];
-        x = table_lookup(&table_decrypt, @truncate(u8, s1), @truncate(u8, s0 >> 8), @truncate(u8, s3 >> 16), @truncate(u8, s2 >> 24));
+        x = table_lookup(&table_decrypt, @as(u8, @truncate(s1)), @as(u8, @truncate(s0 >> 8)), @as(u8, @truncate(s3 >> 16)), @as(u8, @truncate(s2 >> 24)));
         var t1 = x[0] ^ x[1] ^ x[2] ^ x[3];
-        x = table_lookup(&table_decrypt, @truncate(u8, s2), @truncate(u8, s1 >> 8), @truncate(u8, s0 >> 16), @truncate(u8, s3 >> 24));
+        x = table_lookup(&table_decrypt, @as(u8, @truncate(s2)), @as(u8, @truncate(s1 >> 8)), @as(u8, @truncate(s0 >> 16)), @as(u8, @truncate(s3 >> 24)));
         var t2 = x[0] ^ x[1] ^ x[2] ^ x[3];
-        x = table_lookup(&table_decrypt, @truncate(u8, s3), @truncate(u8, s2 >> 8), @truncate(u8, s1 >> 16), @truncate(u8, s0 >> 24));
+        x = table_lookup(&table_decrypt, @as(u8, @truncate(s3)), @as(u8, @truncate(s2 >> 8)), @as(u8, @truncate(s1 >> 16)), @as(u8, @truncate(s0 >> 24)));
         var t3 = x[0] ^ x[1] ^ x[2] ^ x[3];
 
         t0 ^= round_key.repr[0];
@@ -173,31 +173,31 @@ pub const Block = struct {
 
         var x: [4]u32 = undefined;
         x = .{
-            table_decrypt[0][@truncate(u8, s0)],
-            table_decrypt[1][@truncate(u8, s3 >> 8)],
-            table_decrypt[2][@truncate(u8, s2 >> 16)],
-            table_decrypt[3][@truncate(u8, s1 >> 24)],
+            table_decrypt[0][@as(u8, @truncate(s0))],
+            table_decrypt[1][@as(u8, @truncate(s3 >> 8))],
+            table_decrypt[2][@as(u8, @truncate(s2 >> 16))],
+            table_decrypt[3][@as(u8, @truncate(s1 >> 24))],
         };
         var t0 = x[0] ^ x[1] ^ x[2] ^ x[3];
         x = .{
-            table_decrypt[0][@truncate(u8, s1)],
-            table_decrypt[1][@truncate(u8, s0 >> 8)],
-            table_decrypt[2][@truncate(u8, s3 >> 16)],
-            table_decrypt[3][@truncate(u8, s2 >> 24)],
+            table_decrypt[0][@as(u8, @truncate(s1))],
+            table_decrypt[1][@as(u8, @truncate(s0 >> 8))],
+            table_decrypt[2][@as(u8, @truncate(s3 >> 16))],
+            table_decrypt[3][@as(u8, @truncate(s2 >> 24))],
         };
         var t1 = x[0] ^ x[1] ^ x[2] ^ x[3];
         x = .{
-            table_decrypt[0][@truncate(u8, s2)],
-            table_decrypt[1][@truncate(u8, s1 >> 8)],
-            table_decrypt[2][@truncate(u8, s0 >> 16)],
-            table_decrypt[3][@truncate(u8, s3 >> 24)],
+            table_decrypt[0][@as(u8, @truncate(s2))],
+            table_decrypt[1][@as(u8, @truncate(s1 >> 8))],
+            table_decrypt[2][@as(u8, @truncate(s0 >> 16))],
+            table_decrypt[3][@as(u8, @truncate(s3 >> 24))],
         };
         var t2 = x[0] ^ x[1] ^ x[2] ^ x[3];
         x = .{
-            table_decrypt[0][@truncate(u8, s3)],
-            table_decrypt[1][@truncate(u8, s2 >> 8)],
-            table_decrypt[2][@truncate(u8, s1 >> 16)],
-            table_decrypt[3][@truncate(u8, s0 >> 24)],
+            table_decrypt[0][@as(u8, @truncate(s3))],
+            table_decrypt[1][@as(u8, @truncate(s2 >> 8))],
+            table_decrypt[2][@as(u8, @truncate(s1 >> 16))],
+            table_decrypt[3][@as(u8, @truncate(s0 >> 24))],
         };
         var t3 = x[0] ^ x[1] ^ x[2] ^ x[3];
 
@@ -218,13 +218,13 @@ pub const Block = struct {
 
         // Last round uses s-box directly and XORs to produce output.
         var x: [4]u8 = undefined;
-        x = sbox_lookup(&sbox_decrypt, @truncate(u8, s1 >> 24), @truncate(u8, s2 >> 16), @truncate(u8, s3 >> 8), @truncate(u8, s0));
+        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s1 >> 24)), @as(u8, @truncate(s2 >> 16)), @as(u8, @truncate(s3 >> 8)), @as(u8, @truncate(s0)));
         var t0 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_decrypt, @truncate(u8, s2 >> 24), @truncate(u8, s3 >> 16), @truncate(u8, s0 >> 8), @truncate(u8, s1));
+        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s2 >> 24)), @as(u8, @truncate(s3 >> 16)), @as(u8, @truncate(s0 >> 8)), @as(u8, @truncate(s1)));
         var t1 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_decrypt, @truncate(u8, s3 >> 24), @truncate(u8, s0 >> 16), @truncate(u8, s1 >> 8), @truncate(u8, s2));
+        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s3 >> 24)), @as(u8, @truncate(s0 >> 16)), @as(u8, @truncate(s1 >> 8)), @as(u8, @truncate(s2)));
         var t2 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_decrypt, @truncate(u8, s0 >> 24), @truncate(u8, s1 >> 16), @truncate(u8, s2 >> 8), @truncate(u8, s3));
+        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s0 >> 24)), @as(u8, @truncate(s1 >> 16)), @as(u8, @truncate(s2 >> 8)), @as(u8, @truncate(s3)));
         var t3 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
 
         t0 ^= round_key.repr[0];
@@ -348,7 +348,7 @@ fn KeySchedule(comptime Aes: type) type {
             const subw = struct {
                 // Apply sbox_encrypt to each byte in w.
                 fn func(w: u32) u32 {
-                    const x = sbox_lookup(&sbox_key_schedule, @truncate(u8, w), @truncate(u8, w >> 8), @truncate(u8, w >> 16), @truncate(u8, w >> 24));
+                    const x = sbox_lookup(&sbox_key_schedule, @as(u8, @truncate(w)), @as(u8, @truncate(w >> 8)), @as(u8, @truncate(w >> 16)), @as(u8, @truncate(w >> 24)));
                     return @as(u32, x[3]) << 24 | @as(u32, x[2]) << 16 | @as(u32, x[1]) << 8 | @as(u32, x[0]);
                 }
             }.func;
@@ -386,7 +386,7 @@ fn KeySchedule(comptime Aes: type) type {
                 inline while (j < 4) : (j += 1) {
                     var rk = round_keys[(ei + j) / 4].repr[(ei + j) % 4];
                     if (i > 0 and i + 4 < total_words) {
-                        const x = sbox_lookup(&sbox_key_schedule, @truncate(u8, rk >> 24), @truncate(u8, rk >> 16), @truncate(u8, rk >> 8), @truncate(u8, rk));
+                        const x = sbox_lookup(&sbox_key_schedule, @as(u8, @truncate(rk >> 24)), @as(u8, @truncate(rk >> 16)), @as(u8, @truncate(rk >> 8)), @as(u8, @truncate(rk)));
                         const y = table_lookup(&table_decrypt, x[3], x[2], x[1], x[0]);
                         rk = y[0] ^ y[1] ^ y[2] ^ y[3];
                     }
@@ -664,7 +664,7 @@ fn mul(a: u8, b: u8) u8 {
         }
     }
 
-    return @truncate(u8, s);
+    return @as(u8, @truncate(s));
 }
 
 const cache_line_bytes = 64;

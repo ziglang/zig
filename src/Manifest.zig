@@ -102,7 +102,7 @@ pub fn hex64(x: u64) [16]u8 {
     var result: [16]u8 = undefined;
     var i: usize = 0;
     while (i < 8) : (i += 1) {
-        const byte = @truncate(u8, x >> @intCast(u6, 8 * i));
+        const byte = @as(u8, @truncate(x >> @as(u6, @intCast(8 * i))));
         result[i * 2 + 0] = hex_charset[byte >> 4];
         result[i * 2 + 1] = hex_charset[byte & 15];
     }
@@ -284,7 +284,7 @@ const Parse = struct {
                     @errorName(err),
                 });
             };
-            if (@enumFromInt(MultihashFunction, their_multihash_func) != multihash_function) {
+            if (@as(MultihashFunction, @enumFromInt(their_multihash_func)) != multihash_function) {
                 return fail(p, tok, "unsupported hash function: only sha2-256 is supported", .{});
             }
         }
@@ -345,7 +345,7 @@ const Parse = struct {
             .invalid_escape_character => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "invalid escape character: '{c}'",
                     .{raw_string[bad_index]},
                 );
@@ -353,7 +353,7 @@ const Parse = struct {
             .expected_hex_digit => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "expected hex digit, found '{c}'",
                     .{raw_string[bad_index]},
                 );
@@ -361,7 +361,7 @@ const Parse = struct {
             .empty_unicode_escape_sequence => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "empty unicode escape sequence",
                     .{},
                 );
@@ -369,7 +369,7 @@ const Parse = struct {
             .expected_hex_digit_or_rbrace => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "expected hex digit or '}}', found '{c}'",
                     .{raw_string[bad_index]},
                 );
@@ -377,7 +377,7 @@ const Parse = struct {
             .invalid_unicode_codepoint => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "unicode escape does not correspond to a valid codepoint",
                     .{},
                 );
@@ -385,7 +385,7 @@ const Parse = struct {
             .expected_lbrace => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "expected '{{', found '{c}",
                     .{raw_string[bad_index]},
                 );
@@ -393,7 +393,7 @@ const Parse = struct {
             .expected_rbrace => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "expected '}}', found '{c}",
                     .{raw_string[bad_index]},
                 );
@@ -401,7 +401,7 @@ const Parse = struct {
             .expected_single_quote => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "expected single quote ('), found '{c}",
                     .{raw_string[bad_index]},
                 );
@@ -409,7 +409,7 @@ const Parse = struct {
             .invalid_character => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "invalid byte in string or character literal: '{c}'",
                     .{raw_string[bad_index]},
                 );

@@ -376,10 +376,10 @@ pub const State = struct {
     const Halves = struct { l: u32, r: u32 };
 
     fn halfRound(state: *const State, i: u32, j: u32, n: usize) u32 {
-        var r = state.sboxes[0][@truncate(u8, j >> 24)];
-        r +%= state.sboxes[1][@truncate(u8, j >> 16)];
-        r ^= state.sboxes[2][@truncate(u8, j >> 8)];
-        r +%= state.sboxes[3][@truncate(u8, j)];
+        var r = state.sboxes[0][@as(u8, @truncate(j >> 24))];
+        r +%= state.sboxes[1][@as(u8, @truncate(j >> 16))];
+        r ^= state.sboxes[2][@as(u8, @truncate(j >> 8))];
+        r +%= state.sboxes[3][@as(u8, @truncate(j))];
         return i ^ r ^ state.subkeys[n];
     }
 

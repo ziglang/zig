@@ -442,7 +442,7 @@ fn internalParse(
                             }
 
                             if (ptrInfo.sentinel) |some| {
-                                const sentinel_value = @ptrCast(*align(1) const ptrInfo.child, some).*;
+                                const sentinel_value = @as(*align(1) const ptrInfo.child, @ptrCast(some)).*;
                                 return try arraylist.toOwnedSliceSentinel(sentinel_value);
                             }
 
@@ -456,7 +456,7 @@ fn internalParse(
                                 // Use our own array list so we can append the sentinel.
                                 var value_list = ArrayList(u8).init(allocator);
                                 _ = try source.allocNextIntoArrayList(&value_list, .alloc_always);
-                                return try value_list.toOwnedSliceSentinel(@ptrCast(*const u8, sentinel_ptr).*);
+                                return try value_list.toOwnedSliceSentinel(@as(*const u8, @ptrCast(sentinel_ptr)).*);
                             }
                             if (ptrInfo.is_const) {
                                 switch (try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?)) {
@@ -518,8 +518,8 @@ fn internalParseFromValue(
         },
         .Float, .ComptimeFloat => {
             switch (source) {
-                .float => |f| return @floatCast(T, f),
-                .integer => |i| return @floatFromInt(T, i),
+                .float => |f| return @as(T, @floatCast(f)),
+                .integer => |i| return @as(T, @floatFromInt(i)),
                 .number_string, .string => |s| return std.fmt.parseFloat(T, s),
                 else => return error.UnexpectedToken,
             }
@@ -530,12 +530,12 @@ fn internalParseFromValue(
                     if (@round(f) != f) return error.InvalidNumber;
                     if (f > std.math.maxInt(T)) return error.Overflow;
                     if (f < std.math.minInt(T)) return error.Overflow;
-                    return @intFromFloat(T, f);
+                    return @as(T, @intFromFloat(f));
                 },
                 .integer => |i| {
                     if (i > std.math.maxInt(T)) return error.Overflow;
                     if (i < std.math.minInt(T)) return error.Overflow;
-                    return @intCast(T, i);
+                    return @as(T, @intCast(i));
                 },
                 .number_string, .string => |s| {
                     return sliceToInt(T, s);
@@ -686,7 +686,7 @@ fn internalParseFromValue(
                     switch (source) {
                         .array => |array| {
                             const r = if (ptrInfo.sentinel) |sentinel_ptr|
-                                try allocator.allocSentinel(ptrInfo.child, array.items.len, @ptrCast(*align(1) const ptrInfo.child, sentinel_ptr).*)
+                                try allocator.allocSentinel(ptrInfo.child, array.items.len, @as(*align(1) const ptrInfo.child, @ptrCast(sentinel_ptr)).*)
                             else
                                 try allocator.alloc(ptrInfo.child, array.items.len);
 
@@ -701,7 +701,7 @@ fn internalParseFromValue(
                             // Dynamic length string.
 
                             const r = if (ptrInfo.sentinel) |sentinel_ptr|
-                                try allocator.allocSentinel(ptrInfo.child, s.len, @ptrCast(*align(1) const ptrInfo.child, sentinel_ptr).*)
+                                try allocator.allocSentinel(ptrInfo.child, s.len, @as(*align(1) const ptrInfo.child, @ptrCast(sentinel_ptr)).*)
                             else
                                 try allocator.alloc(ptrInfo.child, s.len);
                             @memcpy(r[0..], s);
@@ -743,7 +743,7 @@ fn sliceToInt(comptime T: type, slice: []const u8) !T {
     const float = try std.fmt.parseFloat(f128, slice);
     if (@round(float) != float) return error.InvalidNumber;
     if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
-    return @intCast(T, @intFromFloat(i128, float));
+    return @as(T, @intCast(@as(i128, @intFromFloat(float))));
 }
 
 fn sliceToEnum(comptime T: type, slice: []const u8) !T {
@@ -759,7 +759,7 @@ fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).
     inline for (@typeInfo(T).Struct.fields, 0..) |field, i| {
         if (!fields_seen[i]) {
             if (field.default_value) |default_ptr| {
-                const default = @ptrCast(*align(1) const field.type, default_ptr).*;
+                const default = @as(*align(1) const field.type, @ptrCast(default_ptr)).*;
                 @field(r, field.name) = default;
             } else {
                 return error.MissingField;

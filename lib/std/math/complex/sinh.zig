@@ -26,10 +26,10 @@ fn sinh32(z: Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
-    const hx = @bitCast(u32, x);
+    const hx = @as(u32, @bitCast(x));
     const ix = hx & 0x7fffffff;
 
-    const hy = @bitCast(u32, y);
+    const hy = @as(u32, @bitCast(y));
     const iy = hy & 0x7fffffff;
 
     if (ix < 0x7f800000 and iy < 0x7f800000) {
@@ -89,14 +89,14 @@ fn sinh64(z: Complex(f64)) Complex(f64) {
     const x = z.re;
     const y = z.im;
 
-    const fx = @bitCast(u64, x);
-    const hx = @intCast(u32, fx >> 32);
-    const lx = @truncate(u32, fx);
+    const fx = @as(u64, @bitCast(x));
+    const hx = @as(u32, @intCast(fx >> 32));
+    const lx = @as(u32, @truncate(fx));
     const ix = hx & 0x7fffffff;
 
-    const fy = @bitCast(u64, y);
-    const hy = @intCast(u32, fy >> 32);
-    const ly = @truncate(u32, fy);
+    const fy = @as(u64, @bitCast(y));
+    const hy = @as(u32, @intCast(fy >> 32));
+    const ly = @as(u32, @truncate(fy));
     const iy = hy & 0x7fffffff;
 
     if (ix < 0x7ff00000 and iy < 0x7ff00000) {

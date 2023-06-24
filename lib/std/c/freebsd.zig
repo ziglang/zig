@@ -20,11 +20,11 @@ fn __BIT_COUNT(bits: []const c_long) c_long {
 
 fn __BIT_MASK(s: usize) c_long {
     var x = s % CPU_SETSIZE;
-    return @bitCast(c_long, @intCast(c_ulong, 1) << @intCast(u6, x));
+    return @as(c_long, @bitCast(@as(c_ulong, @intCast(1)) << @as(u6, @intCast(x))));
 }
 
 pub fn CPU_COUNT(set: cpuset_t) c_int {
-    return @intCast(c_int, __BIT_COUNT(set.__bits[0..]));
+    return @as(c_int, @intCast(__BIT_COUNT(set.__bits[0..])));
 }
 
 pub fn CPU_ZERO(set: *cpuset_t) void {
@@ -529,7 +529,7 @@ pub const cap_rights_t = extern struct {
 
 pub const CAP = struct {
     pub fn RIGHT(idx: u6, bit: u64) u64 {
-        return (@intCast(u64, 1) << (57 + idx)) | bit;
+        return (@as(u64, @intCast(1)) << (57 + idx)) | bit;
     }
     pub const READ = CAP.RIGHT(0, 0x0000000000000001);
     pub const WRITE = CAP.RIGHT(0, 0x0000000000000002);
@@ -961,7 +961,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0010;
@@ -1013,7 +1013,7 @@ pub const W = struct {
     pub const TRAPPED = 32;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, (s & 0xff00) >> 8);
+        return @as(u8, @intCast((s & 0xff00) >> 8));
     }
     pub fn TERMSIG(s: u32) u32 {
         return s & 0x7f;
@@ -1025,7 +1025,7 @@ pub const W = struct {
         return TERMSIG(s) == 0;
     }
     pub fn IFSTOPPED(s: u32) bool {
-        return @truncate(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+        return @as(u16, @truncate((((s & 0xffff) *% 0x10001) >> 8))) > 0x7f00;
     }
     pub fn IFSIGNALED(s: u32) bool {
         return (s & 0xffff) -% 1 < 0xff;
@@ -1086,9 +1086,9 @@ pub const SIG = struct {
     pub const UNBLOCK = 2;
     pub const SETMASK = 3;
 
-    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
-    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
-    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -2626,7 +2626,7 @@ pub const domainset_t = extern struct {
 };
 
 pub fn DOMAINSET_COUNT(set: domainset_t) c_int {
-    return @intCast(c_int, __BIT_COUNT(set.__bits[0..]));
+    return @as(c_int, @intCast(__BIT_COUNT(set.__bits[0..])));
 }
 
 pub const domainset = extern struct {
@@ -2650,7 +2650,7 @@ const ioctl_cmd = enum(u32) {
 };
 
 fn ioImpl(cmd: ioctl_cmd, op: u8, nr: u8, comptime IT: type) u32 {
-    return @bitCast(u32, @intFromEnum(cmd) | @intCast(u32, @truncate(u8, @sizeOf(IT))) << 16 | @intCast(u32, op) << 8 | nr);
+    return @as(u32, @bitCast(@intFromEnum(cmd) | @as(u32, @intCast(@as(u8, @truncate(@sizeOf(IT))))) << 16 | @as(u32, @intCast(op)) << 8 | nr));
 }
 
 pub fn IO(op: u8, nr: u8) u32 {

@@ -326,7 +326,7 @@ fn testAtomicRmwInt128(comptime signedness: std.builtin.Signedness) !void {
     const uint = std.meta.Int(.unsigned, 128);
     const int = std.meta.Int(signedness, 128);
 
-    const initial: int = @bitCast(int, @as(uint, 0xaaaaaaaa_bbbbbbbb_cccccccc_dddddddd));
+    const initial: int = @as(int, @bitCast(@as(uint, 0xaaaaaaaa_bbbbbbbb_cccccccc_dddddddd)));
     const replacement: int = 0x00000000_00000005_00000000_00000003;
 
     var x: int align(16) = initial;

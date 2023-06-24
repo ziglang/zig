@@ -103,13 +103,13 @@ pub const timespec = extern struct {
         const tv_sec: timestamp_t = tm / 1_000_000_000;
         const tv_nsec = tm - tv_sec * 1_000_000_000;
         return timespec{
-            .tv_sec = @intCast(time_t, tv_sec),
-            .tv_nsec = @intCast(isize, tv_nsec),
+            .tv_sec = @as(time_t, @intCast(tv_sec)),
+            .tv_nsec = @as(isize, @intCast(tv_nsec)),
         };
     }
 
     pub fn toTimestamp(ts: timespec) timestamp_t {
-        const tm = @intCast(timestamp_t, ts.tv_sec * 1_000_000_000) + @intCast(timestamp_t, ts.tv_nsec);
+        const tm = @as(timestamp_t, @intCast(ts.tv_sec * 1_000_000_000)) + @as(timestamp_t, @intCast(ts.tv_nsec));
         return tm;
     }
 };

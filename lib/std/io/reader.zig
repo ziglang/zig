@@ -246,7 +246,7 @@ pub fn Reader(
 
         /// Same as `readByte` except the returned byte is signed.
         pub fn readByteSigned(self: Self) (Error || error{EndOfStream})!i8 {
-            return @bitCast(i8, try self.readByte());
+            return @as(i8, @bitCast(try self.readByte()));
         }
 
         /// Reads exactly `num_bytes` bytes and returns as an array.

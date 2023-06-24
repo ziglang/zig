@@ -67,11 +67,11 @@ pub const TokenIterator = struct {
     }
 
     pub fn seekBy(self: *TokenIterator, offset: isize) void {
-        const new_pos = @bitCast(isize, self.pos) + offset;
+        const new_pos = @as(isize, @bitCast(self.pos)) + offset;
         if (new_pos < 0) {
             self.pos = 0;
         } else {
-            self.pos = @intCast(usize, new_pos);
+            self.pos = @as(usize, @intCast(new_pos));
         }
     }
 };

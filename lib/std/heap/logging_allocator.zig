@@ -59,7 +59,7 @@ pub fn ScopedLoggingAllocator(
             log2_ptr_align: u8,
             ra: usize,
         ) ?[*]u8 {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx));
             const result = self.parent_allocator.rawAlloc(len, log2_ptr_align, ra);
             if (result != null) {
                 logHelper(
@@ -84,7 +84,7 @@ pub fn ScopedLoggingAllocator(
             new_len: usize,
             ra: usize,
         ) bool {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.parent_allocator.rawResize(buf, log2_buf_align, new_len, ra)) {
                 if (new_len <= buf.len) {
                     logHelper(
@@ -118,7 +118,7 @@ pub fn ScopedLoggingAllocator(
             log2_buf_align: u8,
             ra: usize,
         ) void {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx));
             self.parent_allocator.rawFree(buf, log2_buf_align, ra);
             logHelper(success_log_level, "free - len: {}", .{buf.len});
         }

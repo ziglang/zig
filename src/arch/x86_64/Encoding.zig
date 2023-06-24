@@ -85,7 +85,7 @@ pub fn findByOpcode(opc: []const u8, prefixes: struct {
     rex: Rex,
 }, modrm_ext: ?u3) ?Encoding {
     for (mnemonic_to_encodings_map, 0..) |encs, mnemonic_int| for (encs) |data| {
-        const enc = Encoding{ .mnemonic = @enumFromInt(Mnemonic, mnemonic_int), .data = data };
+        const enc = Encoding{ .mnemonic = @as(Mnemonic, @enumFromInt(mnemonic_int)), .data = data };
         if (modrm_ext) |ext| if (ext != data.modrm_ext) continue;
         if (!std.mem.eql(u8, opc, enc.opcode())) continue;
         if (prefixes.rex.w) {
@@ -763,7 +763,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 
     var cwriter = std.io.countingWriter(std.io.null_writer);
     inst.encode(cwriter.writer(), .{ .allow_frame_loc = true }) catch unreachable; // Not allowed to fail here unless OOM.
-    return @intCast(usize, cwriter.bytes_written);
+    return @as(usize, @intCast(cwriter.bytes_written));
 }
 
 const mnemonic_to_encodings_map = init: {

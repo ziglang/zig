@@ -110,7 +110,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         comptime std.debug.assert(@intFromEnum(InternPool.Index.first_type) == 0);
         var i: u32 = 0;
         while (i <= @intFromEnum(InternPool.Index.last_type)) : (i += 1) {
-            const ip_index = @enumFromInt(InternPool.Index, i);
+            const ip_index = @as(InternPool.Index, @enumFromInt(i));
             var tmpbuf = std.ArrayList(u8).init(self.arena);
             if (ip_index == .generic_poison_type) {
                 // Not a real type, doesn't have a normal name
@@ -1529,7 +1529,6 @@ fn walkInstruction(
         .int_cast,
         .ptr_cast,
         .truncate,
-        .align_cast,
         .has_decl,
         .has_field,
         .div_exact,
@@ -1670,7 +1669,7 @@ fn walkInstruction(
             // present in json
             var sentinel: ?DocData.Expr = null;
             if (ptr.flags.has_sentinel) {
-                const ref = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+                const ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
                 const ref_result = try self.walkRef(file, parent_scope, parent_src, ref, false);
                 sentinel = ref_result.expr;
                 extra_index += 1;
@@ -1678,21 +1677,21 @@ fn walkInstruction(
 
             var @"align": ?DocData.Expr = null;
             if (ptr.flags.has_align) {
-                const ref = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+                const ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
                 const ref_result = try self.walkRef(file, parent_scope, parent_src, ref, false);
                 @"align" = ref_result.expr;
                 extra_index += 1;
             }
             var address_space: ?DocData.Expr = null;
             if (ptr.flags.has_addrspace) {
-                const ref = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+                const ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
                 const ref_result = try self.walkRef(file, parent_scope, parent_src, ref, false);
                 address_space = ref_result.expr;
                 extra_index += 1;
             }
             var bit_start: ?DocData.Expr = null;
             if (ptr.flags.has_bit_range) {
-                const ref = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+                const ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
                 const ref_result = try self.walkRef(file, parent_scope, parent_src, ref, false);
                 address_space = ref_result.expr;
                 extra_index += 1;
@@ -1700,7 +1699,7 @@ fn walkInstruction(
 
             var host_size: ?DocData.Expr = null;
             if (ptr.flags.has_bit_range) {
-                const ref = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+                const ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
                 const ref_result = try self.walkRef(file, parent_scope, parent_src, ref, false);
                 host_size = ref_result.expr;
             }
@@ -2550,11 +2549,11 @@ fn walkInstruction(
                         .enclosing_type = type_slot_index,
                     };
 
-                    const small = @bitCast(Zir.Inst.OpaqueDecl.Small, extended.small);
+                    const small = @as(Zir.Inst.OpaqueDecl.Small, @bitCast(extended.small));
                     var extra_index: usize = extended.operand;
 
                     const src_node: ?i32 = if (small.has_src_node) blk: {
-                        const src_node = @bitCast(i32, file.zir.extra[extra_index]);
+                        const src_node = @as(i32, @bitCast(file.zir.extra[extra_index]));
                         extra_index += 1;
                         break :blk src_node;
                     } else null;
@@ -2607,7 +2606,7 @@ fn walkInstruction(
                 .variable => {
                     const extra = file.zir.extraData(Zir.Inst.ExtendedVar, extended.operand);
 
-                    const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
+                    const small = @as(Zir.Inst.ExtendedVar.Small, @bitCast(extended.small));
                     var extra_index: usize = extra.end;
                     if (small.has_lib_name) extra_index += 1;
                     if (small.has_align) extra_index += 1;
@@ -2620,7 +2619,7 @@ fn walkInstruction(
                     };
 
                     if (small.has_init) {
-                        const var_init_ref = @enumFromInt(Ref, file.zir.extra[extra_index]);
+                        const var_init_ref = @as(Ref, @enumFromInt(file.zir.extra[extra_index]));
                         const var_init = try self.walkRef(file, parent_scope, parent_src, var_init_ref, need_type);
                         value.expr = var_init.expr;
                         value.typeRef = var_init.typeRef;
@@ -2637,11 +2636,11 @@ fn walkInstruction(
                         .enclosing_type = type_slot_index,
                     };
 
-                    const small = @bitCast(Zir.Inst.UnionDecl.Small, extended.small);
+                    const small = @as(Zir.Inst.UnionDecl.Small, @bitCast(extended.small));
                     var extra_index: usize = extended.operand;
 
                     const src_node: ?i32 = if (small.has_src_node) blk: {
-                        const src_node = @bitCast(i32, file.zir.extra[extra_index]);
+                        const src_node = @as(i32, @bitCast(file.zir.extra[extra_index]));
                         extra_index += 1;
                         break :blk src_node;
                     } else null;
@@ -2656,7 +2655,7 @@ fn walkInstruction(
                     const tag_type_ref: ?Ref = if (small.has_tag_type) blk: {
                         const tag_type = file.zir.extra[extra_index];
                         extra_index += 1;
-                        const tag_ref = @enumFromInt(Ref, tag_type);
+                        const tag_ref = @as(Ref, @enumFromInt(tag_type));
                         break :blk tag_ref;
                     } else null;
 
@@ -2764,11 +2763,11 @@ fn walkInstruction(
                         .enclosing_type = type_slot_index,
                     };
 
-                    const small = @bitCast(Zir.Inst.EnumDecl.Small, extended.small);
+                    const small = @as(Zir.Inst.EnumDecl.Small, @bitCast(extended.small));
                     var extra_index: usize = extended.operand;
 
                     const src_node: ?i32 = if (small.has_src_node) blk: {
-                        const src_node = @bitCast(i32, file.zir.extra[extra_index]);
+                        const src_node = @as(i32, @bitCast(file.zir.extra[extra_index]));
                         extra_index += 1;
                         break :blk src_node;
                     } else null;
@@ -2781,7 +2780,7 @@ fn walkInstruction(
                     const tag_type: ?DocData.Expr = if (small.has_tag_type) blk: {
                         const tag_type = file.zir.extra[extra_index];
                         extra_index += 1;
-                        const tag_ref = @enumFromInt(Ref, tag_type);
+                        const tag_ref = @as(Ref, @enumFromInt(tag_type));
                         const wr = try self.walkRef(file, parent_scope, parent_src, tag_ref, false);
                         break :blk wr.expr;
                     } else null;
@@ -2827,7 +2826,7 @@ fn walkInstruction(
                                 bit_bag_idx += 1;
                             }
 
-                            const has_value = @truncate(u1, cur_bit_bag) != 0;
+                            const has_value = @as(u1, @truncate(cur_bit_bag)) != 0;
                             cur_bit_bag >>= 1;
 
                             const field_name_index = file.zir.extra[extra_index];
@@ -2839,7 +2838,7 @@ fn walkInstruction(
                             const value_expr: ?DocData.Expr = if (has_value) blk: {
                                 const value_ref = file.zir.extra[extra_index];
                                 extra_index += 1;
-                                const value = try self.walkRef(file, &scope, src_info, @enumFromInt(Ref, value_ref), false);
+                                const value = try self.walkRef(file, &scope, src_info, @as(Ref, @enumFromInt(value_ref)), false);
                                 break :blk value.expr;
                             } else null;
                             try field_values.append(self.arena, value_expr);
@@ -2900,11 +2899,11 @@ fn walkInstruction(
                         .enclosing_type = type_slot_index,
                     };
 
-                    const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
+                    const small = @as(Zir.Inst.StructDecl.Small, @bitCast(extended.small));
                     var extra_index: usize = extended.operand;
 
                     const src_node: ?i32 = if (small.has_src_node) blk: {
-                        const src_node = @bitCast(i32, file.zir.extra[extra_index]);
+                        const src_node = @as(i32, @bitCast(file.zir.extra[extra_index]));
                         extra_index += 1;
                         break :blk src_node;
                     } else null;
@@ -2928,7 +2927,7 @@ fn walkInstruction(
                         const backing_int_body_len = file.zir.extra[extra_index];
                         extra_index += 1; // backing_int_body_len
                         if (backing_int_body_len == 0) {
-                            const backing_int_ref = @enumFromInt(Ref, file.zir.extra[extra_index]);
+                            const backing_int_ref = @as(Ref, @enumFromInt(file.zir.extra[extra_index]));
                             const backing_int_res = try self.walkRef(file, &scope, src_info, backing_int_ref, true);
                             backing_int = backing_int_res.expr;
                             extra_index += 1; // backing_int_ref
@@ -3024,8 +3023,6 @@ fn walkInstruction(
                 .int_from_error,
                 .error_from_int,
                 .reify,
-                .const_cast,
-                .volatile_cast,
                 => {
                     const extra = file.zir.extraData(Zir.Inst.UnNode, extended.operand).data;
                     const bin_index = self.exprs.items.len;
@@ -3157,7 +3154,7 @@ fn analyzeAllDecls(
     priv_decl_indexes: *std.ArrayListUnmanaged(usize),
 ) AutodocErrors!usize {
     const first_decl_indexes_slot = decl_indexes.items.len;
-    const original_it = file.zir.declIterator(@intCast(u32, parent_inst_index));
+    const original_it = file.zir.declIterator(@as(u32, @intCast(parent_inst_index)));
 
     // First loop to discover decl names
     {
@@ -3183,7 +3180,7 @@ fn analyzeAllDecls(
             const decl_name_index = file.zir.extra[d.sub_index + 5];
             switch (decl_name_index) {
                 0 => {
-                    const is_exported = @truncate(u1, d.flags >> 1);
+                    const is_exported = @as(u1, @truncate(d.flags >> 1));
                     switch (is_exported) {
                         0 => continue, // comptime decl
                         1 => {
@@ -3258,10 +3255,10 @@ fn analyzeDecl(
     d: Zir.DeclIterator.Item,
 ) AutodocErrors!void {
     const data = file.zir.instructions.items(.data);
-    const is_pub = @truncate(u1, d.flags >> 0) != 0;
+    const is_pub = @as(u1, @truncate(d.flags >> 0)) != 0;
     // const is_exported = @truncate(u1, d.flags >> 1) != 0;
-    const has_align = @truncate(u1, d.flags >> 2) != 0;
-    const has_section_or_addrspace = @truncate(u1, d.flags >> 3) != 0;
+    const has_align = @as(u1, @truncate(d.flags >> 2)) != 0;
+    const has_section_or_addrspace = @as(u1, @truncate(d.flags >> 3)) != 0;
 
     var extra_index = d.sub_index;
     // const hash_u32s = file.zir.extra[extra_index..][0..4];
@@ -3280,21 +3277,21 @@ fn analyzeDecl(
 
     extra_index += 1;
     const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
-        const inst = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        const inst = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
         extra_index += 1;
         break :inst inst;
     };
     _ = align_inst;
 
     const section_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-        const inst = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        const inst = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
         extra_index += 1;
         break :inst inst;
     };
     _ = section_inst;
 
     const addrspace_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-        const inst = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        const inst = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
         extra_index += 1;
         break :inst inst;
     };
@@ -3384,7 +3381,7 @@ fn analyzeUsingnamespaceDecl(
 ) AutodocErrors!void {
     const data = file.zir.instructions.items(.data);
 
-    const is_pub = @truncate(u1, d.flags) != 0;
+    const is_pub = @as(u1, @truncate(d.flags)) != 0;
     const value_index = file.zir.extra[d.sub_index + 6];
     const doc_comment_index = file.zir.extra[d.sub_index + 7];
 
@@ -4031,7 +4028,7 @@ fn analyzeFancyFunction(
 ) AutodocErrors!DocData.WalkResult {
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
-    const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
+    const fn_info = file.zir.getFnInfo(@as(u32, @intCast(inst_index)));
 
     try self.ast_nodes.ensureUnusedCapacity(self.arena, fn_info.total_params_len);
     var param_type_refs = try std.ArrayListUnmanaged(DocData.Expr).initCapacity(
@@ -4111,7 +4108,7 @@ fn analyzeFancyFunction(
 
     var align_index: ?usize = null;
     if (extra.data.bits.has_align_ref) {
-        const align_ref = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        const align_ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
         align_index = self.exprs.items.len;
         _ = try self.walkRef(file, scope, parent_src, align_ref, false);
         extra_index += 1;
@@ -4128,7 +4125,7 @@ fn analyzeFancyFunction(
 
     var addrspace_index: ?usize = null;
     if (extra.data.bits.has_addrspace_ref) {
-        const addrspace_ref = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        const addrspace_ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
         addrspace_index = self.exprs.items.len;
         _ = try self.walkRef(file, scope, parent_src, addrspace_ref, false);
         extra_index += 1;
@@ -4145,7 +4142,7 @@ fn analyzeFancyFunction(
 
     var section_index: ?usize = null;
     if (extra.data.bits.has_section_ref) {
-        const section_ref = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        const section_ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
         section_index = self.exprs.items.len;
         _ = try self.walkRef(file, scope, parent_src, section_ref, false);
         extra_index += 1;
@@ -4162,7 +4159,7 @@ fn analyzeFancyFunction(
 
     var cc_index: ?usize = null;
     if (extra.data.bits.has_cc_ref and !extra.data.bits.has_cc_body) {
-        const cc_ref = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        const cc_ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
         const cc_expr = try self.walkRef(file, scope, parent_src, cc_ref, false);
 
         cc_index = self.exprs.items.len;
@@ -4265,7 +4262,7 @@ fn analyzeFunction(
 ) AutodocErrors!DocData.WalkResult {
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
-    const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
+    const fn_info = file.zir.getFnInfo(@as(u32, @intCast(inst_index)));
 
     try self.ast_nodes.ensureUnusedCapacity(self.arena, fn_info.total_params_len);
     var param_type_refs = try std.ArrayListUnmanaged(DocData.Expr).initCapacity(
@@ -4452,13 +4449,13 @@ fn collectUnionFieldInfo(
             cur_bit_bag = file.zir.extra[bit_bag_index];
             bit_bag_index += 1;
         }
-        const has_type = @truncate(u1, cur_bit_bag) != 0;
+        const has_type = @as(u1, @truncate(cur_bit_bag)) != 0;
         cur_bit_bag >>= 1;
-        const has_align = @truncate(u1, cur_bit_bag) != 0;
+        const has_align = @as(u1, @truncate(cur_bit_bag)) != 0;
         cur_bit_bag >>= 1;
-        const has_tag = @truncate(u1, cur_bit_bag) != 0;
+        const has_tag = @as(u1, @truncate(cur_bit_bag)) != 0;
         cur_bit_bag >>= 1;
-        const unused = @truncate(u1, cur_bit_bag) != 0;
+        const unused = @as(u1, @truncate(cur_bit_bag)) != 0;
         cur_bit_bag >>= 1;
         _ = unused;
 
@@ -4467,7 +4464,7 @@ fn collectUnionFieldInfo(
         const doc_comment_index = file.zir.extra[extra_index];
         extra_index += 1;
         const field_type = if (has_type)
-            @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index])
+            @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]))
         else
             .void_type;
         if (has_type) extra_index += 1;
@@ -4535,13 +4532,13 @@ fn collectStructFieldInfo(
             cur_bit_bag = file.zir.extra[bit_bag_index];
             bit_bag_index += 1;
         }
-        const has_align = @truncate(u1, cur_bit_bag) != 0;
+        const has_align = @as(u1, @truncate(cur_bit_bag)) != 0;
         cur_bit_bag >>= 1;
-        const has_default = @truncate(u1, cur_bit_bag) != 0;
+        const has_default = @as(u1, @truncate(cur_bit_bag)) != 0;
         cur_bit_bag >>= 1;
         // const is_comptime = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
-        const has_type_body = @truncate(u1, cur_bit_bag) != 0;
+        const has_type_body = @as(u1, @truncate(cur_bit_bag)) != 0;
         cur_bit_bag >>= 1;
 
         const field_name: ?u32 = if (!is_tuple) blk: {
@@ -4561,7 +4558,7 @@ fn collectStructFieldInfo(
         if (has_type_body) {
             fields[field_i].type_body_len = file.zir.extra[extra_index];
         } else {
-            fields[field_i].type_ref = @enumFromInt(Zir.Inst.Ref, file.zir.extra[extra_index]);
+            fields[field_i].type_ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
         }
         extra_index += 1;
 
@@ -4858,9 +4855,9 @@ fn srcLocInfo(
     src_node: i32,
     parent_src: SrcLocInfo,
 ) !SrcLocInfo {
-    const sn = @intCast(u32, @intCast(i32, parent_src.src_node) + src_node);
+    const sn = @as(u32, @intCast(@as(i32, @intCast(parent_src.src_node)) + src_node));
     const tree = try file.getTree(self.comp_module.gpa);
-    const node_idx = @bitCast(Ast.Node.Index, sn);
+    const node_idx = @as(Ast.Node.Index, @bitCast(sn));
     const tokens = tree.nodes.items(.main_token);
 
     const tok_idx = tokens[node_idx];
@@ -4879,9 +4876,9 @@ fn declIsVar(
     src_node: i32,
     parent_src: SrcLocInfo,
 ) !bool {
-    const sn = @intCast(u32, @intCast(i32, parent_src.src_node) + src_node);
+    const sn = @as(u32, @intCast(@as(i32, @intCast(parent_src.src_node)) + src_node));
     const tree = try file.getTree(self.comp_module.gpa);
-    const node_idx = @bitCast(Ast.Node.Index, sn);
+    const node_idx = @as(Ast.Node.Index, @bitCast(sn));
     const tokens = tree.nodes.items(.main_token);
     const tags = tree.tokens.items(.tag);
 

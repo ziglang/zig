@@ -266,8 +266,8 @@ const DbgInfoReloc = struct {
                     .stack_argument_offset,
                     => blk: {
                         const adjusted_stack_offset = switch (reloc.mcv) {
-                            .stack_offset => |offset| -@intCast(i32, offset),
-                            .stack_argument_offset => |offset| @intCast(i32, function.saved_regs_stack_space + offset),
+                            .stack_offset => |offset| -@as(i32, @intCast(offset)),
+                            .stack_argument_offset => |offset| @as(i32, @intCast(function.saved_regs_stack_space + offset)),
                             else => unreachable,
                         };
                         break :blk .{ .stack = .{
@@ -303,8 +303,8 @@ const DbgInfoReloc = struct {
                         const adjusted_offset = switch (reloc.mcv) {
                             .ptr_stack_offset,
                             .stack_offset,
-                            => -@intCast(i32, offset),
-                            .stack_argument_offset => @intCast(i32, function.saved_regs_stack_space + offset),
+                            => -@as(i32, @intCast(offset)),
+                            .stack_argument_offset => @as(i32, @intCast(function.saved_regs_stack_space + offset)),
                             else => unreachable,
                         };
                         break :blk .{ .stack = .{
@@ -446,7 +446,7 @@ fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
 
     try self.mir_instructions.ensureUnusedCapacity(gpa, 1);
 
-    const result_index = @intCast(Air.Inst.Index, self.mir_instructions.len);
+    const result_index = @as(Air.Inst.Index, @intCast(self.mir_instructions.len));
     self.mir_instructions.appendAssumeCapacity(inst);
     return result_index;
 }
@@ -466,11 +466,11 @@ pub fn addExtra(self: *Self, extra: anytype) Allocator.Error!u32 {
 
 pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
     const fields = std.meta.fields(@TypeOf(extra));
-    const result = @intCast(u32, self.mir_extra.items.len);
+    const result = @as(u32, @intCast(self.mir_extra.items.len));
     inline for (fields) |field| {
         self.mir_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
-            i32 => @bitCast(u32, @field(extra, field.name)),
+            i32 => @as(u32, @bitCast(@field(extra, field.name))),
             else => @compileError("bad field type"),
         });
     }
@@ -522,7 +522,7 @@ fn gen(self: *Self) !void {
 
                     const ty = self.typeOfIndex(inst);
 
-                    const abi_size = @intCast(u32, ty.abiSize(mod));
+                    const abi_size = @as(u32, @intCast(ty.abiSize(mod)));
                     const abi_align = ty.abiAlignment(mod);
                     const stack_offset = try self.allocMem(abi_size, abi_align, inst);
                     try self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
@@ -588,7 +588,7 @@ fn gen(self: *Self) !void {
         for (self.exitlude_jump_relocs.items) |jmp_reloc| {
             self.mir_instructions.set(jmp_reloc, .{
                 .tag = .b,
-                .data = .{ .inst = @intCast(u32, self.mir_instructions.len) },
+                .data = .{ .inst = @as(u32, @intCast(self.mir_instructions.len)) },
             });
         }
 
@@ -934,15 +934,15 @@ fn finishAirBookkeeping(self: *Self) void {
 fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Liveness.bpi - 1]Air.Inst.Ref) void {
     var tomb_bits = self.liveness.getTombBits(inst);
     for (operands) |op| {
-        const dies = @truncate(u1, tomb_bits) != 0;
+        const dies = @as(u1, @truncate(tomb_bits)) != 0;
         tomb_bits >>= 1;
         if (!dies) continue;
         const op_int = @intFromEnum(op);
         if (op_int < Air.ref_start_index) continue;
-        const op_index = @intCast(Air.Inst.Index, op_int - Air.ref_start_index);
+        const op_index = @as(Air.Inst.Index, @intCast(op_int - Air.ref_start_index));
         self.processDeath(op_index);
     }
-    const is_used = @truncate(u1, tomb_bits) == 0;
+    const is_used = @as(u1, @truncate(tomb_bits)) == 0;
     if (is_used) {
         log.debug("%{d} => {}", .{ inst, result });
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -1201,7 +1201,7 @@ fn truncRegister(
             .rd = dest_reg,
             .rn = operand_reg,
             .lsb = 0,
-            .width = @intCast(u6, int_bits),
+            .width = @as(u6, @intCast(int_bits)),
         } },
     });
 }
@@ -1591,9 +1591,9 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const rhs_ty = self.typeOf(extra.rhs);
 
         const tuple_ty = self.typeOfIndex(inst);
-        const tuple_size = @intCast(u32, tuple_ty.abiSize(mod));
+        const tuple_size = @as(u32, @intCast(tuple_ty.abiSize(mod)));
         const tuple_align = tuple_ty.abiAlignment(mod);
-        const overflow_bit_offset = @intCast(u32, tuple_ty.structFieldOffset(1, mod));
+        const overflow_bit_offset = @as(u32, @intCast(tuple_ty.structFieldOffset(1, mod)));
 
         switch (lhs_ty.zigTypeTag(mod)) {
             .Vector => return self.fail("TODO implement add_with_overflow/sub_with_overflow for vectors", .{}),
@@ -1704,9 +1704,9 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const rhs_ty = self.typeOf(extra.rhs);
 
         const tuple_ty = self.typeOfIndex(inst);
-        const tuple_size = @intCast(u32, tuple_ty.abiSize(mod));
+        const tuple_size = @as(u32, @intCast(tuple_ty.abiSize(mod)));
         const tuple_align = tuple_ty.abiAlignment(mod);
-        const overflow_bit_offset = @intCast(u32, tuple_ty.structFieldOffset(1, mod));
+        const overflow_bit_offset = @as(u32, @intCast(tuple_ty.structFieldOffset(1, mod)));
 
         switch (lhs_ty.zigTypeTag(mod)) {
             .Vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
@@ -1866,9 +1866,9 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const rhs_ty = self.typeOf(extra.rhs);
 
         const tuple_ty = self.typeOfIndex(inst);
-        const tuple_size = @intCast(u32, tuple_ty.abiSize(mod));
+        const tuple_size = @as(u32, @intCast(tuple_ty.abiSize(mod)));
         const tuple_align = tuple_ty.abiAlignment(mod);
-        const overflow_bit_offset = @intCast(u32, tuple_ty.structFieldOffset(1, mod));
+        const overflow_bit_offset = @as(u32, @intCast(tuple_ty.structFieldOffset(1, mod)));
 
         switch (lhs_ty.zigTypeTag(mod)) {
             .Vector => return self.fail("TODO implement shl_with_overflow for vectors", .{}),
@@ -1915,7 +1915,7 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                             .data = .{ .rr_shift = .{
                                 .rd = dest_reg,
                                 .rm = lhs_reg,
-                                .shift_amount = Instruction.ShiftAmount.imm(@intCast(u5, rhs_mcv.immediate)),
+                                .shift_amount = Instruction.ShiftAmount.imm(@as(u5, @intCast(rhs_mcv.immediate))),
                             } },
                         });
 
@@ -1927,7 +1927,7 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                             .data = .{ .rr_shift = .{
                                 .rd = reconstructed_reg,
                                 .rm = dest_reg,
-                                .shift_amount = Instruction.ShiftAmount.imm(@intCast(u5, rhs_mcv.immediate)),
+                                .shift_amount = Instruction.ShiftAmount.imm(@as(u5, @intCast(rhs_mcv.immediate))),
                             } },
                         });
                     } else {
@@ -2020,7 +2020,7 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const optional_ty = self.typeOfIndex(inst);
-        const abi_size = @intCast(u32, optional_ty.abiSize(mod));
+        const abi_size = @as(u32, @intCast(optional_ty.abiSize(mod)));
 
         // Optional with a zero-bit payload type is just a boolean true
         if (abi_size == 1) {
@@ -2049,7 +2049,7 @@ fn errUnionErr(
         return try error_union_bind.resolveToMcv(self);
     }
 
-    const err_offset = @intCast(u32, errUnionErrorOffset(payload_ty, mod));
+    const err_offset = @as(u32, @intCast(errUnionErrorOffset(payload_ty, mod)));
     switch (try error_union_bind.resolveToMcv(self)) {
         .register => {
             var operand_reg: Register = undefined;
@@ -2071,15 +2071,15 @@ fn errUnionErr(
             );
 
             const err_bit_offset = err_offset * 8;
-            const err_bit_size = @intCast(u32, err_ty.abiSize(mod)) * 8;
+            const err_bit_size = @as(u32, @intCast(err_ty.abiSize(mod))) * 8;
 
             _ = try self.addInst(.{
                 .tag = .ubfx, // errors are unsigned integers
                 .data = .{ .rr_lsb_width = .{
                     .rd = dest_reg,
                     .rn = operand_reg,
-                    .lsb = @intCast(u5, err_bit_offset),
-                    .width = @intCast(u6, err_bit_size),
+                    .lsb = @as(u5, @intCast(err_bit_offset)),
+                    .width = @as(u6, @intCast(err_bit_size)),
                 } },
             });
 
@@ -2126,7 +2126,7 @@ fn errUnionPayload(
         return MCValue.none;
     }
 
-    const payload_offset = @intCast(u32, errUnionPayloadOffset(payload_ty, mod));
+    const payload_offset = @as(u32, @intCast(errUnionPayloadOffset(payload_ty, mod)));
     switch (try error_union_bind.resolveToMcv(self)) {
         .register => {
             var operand_reg: Register = undefined;
@@ -2148,15 +2148,15 @@ fn errUnionPayload(
             );
 
             const payload_bit_offset = payload_offset * 8;
-            const payload_bit_size = @intCast(u32, payload_ty.abiSize(mod)) * 8;
+            const payload_bit_size = @as(u32, @intCast(payload_ty.abiSize(mod))) * 8;
 
             _ = try self.addInst(.{
                 .tag = if (payload_ty.isSignedInt(mod)) Mir.Inst.Tag.sbfx else .ubfx,
                 .data = .{ .rr_lsb_width = .{
                     .rd = dest_reg,
                     .rn = operand_reg,
-                    .lsb = @intCast(u5, payload_bit_offset),
-                    .width = @intCast(u6, payload_bit_size),
+                    .lsb = @as(u5, @intCast(payload_bit_offset)),
+                    .width = @as(u6, @intCast(payload_bit_size)),
                 } },
             });
 
@@ -2235,13 +2235,13 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
         const operand = try self.resolveInst(ty_op.operand);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result operand;
 
-        const abi_size = @intCast(u32, error_union_ty.abiSize(mod));
+        const abi_size = @as(u32, @intCast(error_union_ty.abiSize(mod)));
         const abi_align = error_union_ty.abiAlignment(mod);
-        const stack_offset = @intCast(u32, try self.allocMem(abi_size, abi_align, inst));
+        const stack_offset = @as(u32, @intCast(try self.allocMem(abi_size, abi_align, inst)));
         const payload_off = errUnionPayloadOffset(payload_ty, mod);
         const err_off = errUnionErrorOffset(payload_ty, mod);
-        try self.genSetStack(payload_ty, stack_offset - @intCast(u32, payload_off), operand);
-        try self.genSetStack(error_ty, stack_offset - @intCast(u32, err_off), .{ .immediate = 0 });
+        try self.genSetStack(payload_ty, stack_offset - @as(u32, @intCast(payload_off)), operand);
+        try self.genSetStack(error_ty, stack_offset - @as(u32, @intCast(err_off)), .{ .immediate = 0 });
 
         break :result MCValue{ .stack_offset = stack_offset };
     };
@@ -2259,13 +2259,13 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
         const operand = try self.resolveInst(ty_op.operand);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result operand;
 
-        const abi_size = @intCast(u32, error_union_ty.abiSize(mod));
+        const abi_size = @as(u32, @intCast(error_union_ty.abiSize(mod)));
         const abi_align = error_union_ty.abiAlignment(mod);
-        const stack_offset = @intCast(u32, try self.allocMem(abi_size, abi_align, inst));
+        const stack_offset = @as(u32, @intCast(try self.allocMem(abi_size, abi_align, inst)));
         const payload_off = errUnionPayloadOffset(payload_ty, mod);
         const err_off = errUnionErrorOffset(payload_ty, mod);
-        try self.genSetStack(error_ty, stack_offset - @intCast(u32, err_off), operand);
-        try self.genSetStack(payload_ty, stack_offset - @intCast(u32, payload_off), .undef);
+        try self.genSetStack(error_ty, stack_offset - @as(u32, @intCast(err_off)), operand);
+        try self.genSetStack(payload_ty, stack_offset - @as(u32, @intCast(payload_off)), .undef);
 
         break :result MCValue{ .stack_offset = stack_offset };
     };
@@ -2369,7 +2369,7 @@ fn ptrElemVal(
 ) !MCValue {
     const mod = self.bin_file.options.module.?;
     const elem_ty = ptr_ty.childType(mod);
-    const elem_size = @intCast(u32, elem_ty.abiSize(mod));
+    const elem_size = @as(u32, @intCast(elem_ty.abiSize(mod)));
 
     switch (elem_size) {
         1, 4 => {
@@ -2480,7 +2480,7 @@ fn arrayElemVal(
         => {
             const ptr_to_mcv = switch (mcv) {
                 .stack_offset => |off| MCValue{ .ptr_stack_offset = off },
-                .memory => |addr| MCValue{ .immediate = @intCast(u32, addr) },
+                .memory => |addr| MCValue{ .immediate = @as(u32, @intCast(addr)) },
                 .stack_argument_offset => |off| blk: {
                     const reg = try self.register_manager.allocReg(null, gp);
 
@@ -2654,7 +2654,7 @@ fn reuseOperand(
 fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
     const mod = self.bin_file.options.module.?;
     const elem_ty = ptr_ty.childType(mod);
-    const elem_size = @intCast(u32, elem_ty.abiSize(mod));
+    const elem_size = @as(u32, @intCast(elem_ty.abiSize(mod)));
 
     switch (ptr) {
         .none => unreachable,
@@ -2759,7 +2759,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
 
 fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
     const mod = self.bin_file.options.module.?;
-    const elem_size = @intCast(u32, value_ty.abiSize(mod));
+    const elem_size = @as(u32, @intCast(value_ty.abiSize(mod)));
 
     switch (ptr) {
         .none => unreachable,
@@ -2814,7 +2814,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 // sub src_reg, fp, #off
                                 try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                             },
-                            .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @intCast(u32, addr) }),
+                            .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @as(u32, @intCast(addr)) }),
                             .stack_argument_offset => |off| {
                                 _ = try self.addInst(.{
                                     .tag = .ldr_ptr_stack_argument,
@@ -2882,7 +2882,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
         const mcv = try self.resolveInst(operand);
         const ptr_ty = self.typeOf(operand);
         const struct_ty = ptr_ty.childType(mod);
-        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, mod));
+        const struct_field_offset = @as(u32, @intCast(struct_ty.structFieldOffset(index, mod)));
         switch (mcv) {
             .ptr_stack_offset => |off| {
                 break :result MCValue{ .ptr_stack_offset = off - struct_field_offset };
@@ -2906,7 +2906,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(operand);
         const struct_ty = self.typeOf(operand);
-        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, mod));
+        const struct_field_offset = @as(u32, @intCast(struct_ty.structFieldOffset(index, mod)));
         const struct_field_ty = struct_ty.structFieldType(index, mod);
 
         switch (mcv) {
@@ -2970,15 +2970,15 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 );
 
                 const field_bit_offset = struct_field_offset * 8;
-                const field_bit_size = @intCast(u32, struct_field_ty.abiSize(mod)) * 8;
+                const field_bit_size = @as(u32, @intCast(struct_field_ty.abiSize(mod))) * 8;
 
                 _ = try self.addInst(.{
                     .tag = if (struct_field_ty.isSignedInt(mod)) Mir.Inst.Tag.sbfx else .ubfx,
                     .data = .{ .rr_lsb_width = .{
                         .rd = dest_reg,
                         .rn = operand_reg,
-                        .lsb = @intCast(u5, field_bit_offset),
-                        .width = @intCast(u6, field_bit_size),
+                        .lsb = @as(u5, @intCast(field_bit_offset)),
+                        .width = @as(u6, @intCast(field_bit_size)),
                     } },
                 });
 
@@ -3003,7 +3003,7 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
             return self.fail("TODO implement @fieldParentPtr codegen for unions", .{});
         }
 
-        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(extra.field_index, mod));
+        const struct_field_offset = @as(u32, @intCast(struct_ty.structFieldOffset(extra.field_index, mod)));
         switch (field_ptr) {
             .ptr_stack_offset => |off| {
                 break :result MCValue{ .ptr_stack_offset = off + struct_field_offset };
@@ -3364,7 +3364,7 @@ fn binOpImmediate(
         => .{ .rr_shift = .{
             .rd = dest_reg,
             .rm = lhs_reg,
-            .shift_amount = Instruction.ShiftAmount.imm(@intCast(u5, rhs_immediate)),
+            .shift_amount = Instruction.ShiftAmount.imm(@as(u5, @intCast(rhs_immediate))),
         } },
         else => unreachable,
     };
@@ -3895,7 +3895,7 @@ fn ptrArithmetic(
                 .One => ptr_ty.childType(mod).childType(mod), // ptr to array, so get array element type
                 else => ptr_ty.childType(mod),
             };
-            const elem_size = @intCast(u32, elem_ty.abiSize(mod));
+            const elem_size = @as(u32, @intCast(elem_ty.abiSize(mod)));
 
             const base_tag: Air.Inst.Tag = switch (tag) {
                 .ptr_add => .add,
@@ -4022,7 +4022,7 @@ fn genInlineMemcpy(
     _ = try self.addInst(.{
         .tag = .b,
         .cond = .ge,
-        .data = .{ .inst = @intCast(u32, self.mir_instructions.len + 5) },
+        .data = .{ .inst = @as(u32, @intCast(self.mir_instructions.len + 5)) },
     });
 
     // ldrb tmp, [src, count]
@@ -4058,7 +4058,7 @@ fn genInlineMemcpy(
     // b loop
     _ = try self.addInst(.{
         .tag = .b,
-        .data = .{ .inst = @intCast(u32, self.mir_instructions.len - 5) },
+        .data = .{ .inst = @as(u32, @intCast(self.mir_instructions.len - 5)) },
     });
 
     // end:
@@ -4126,7 +4126,7 @@ fn genInlineMemsetCode(
     _ = try self.addInst(.{
         .tag = .b,
         .cond = .ge,
-        .data = .{ .inst = @intCast(u32, self.mir_instructions.len + 4) },
+        .data = .{ .inst = @as(u32, @intCast(self.mir_instructions.len + 4)) },
     });
 
     // strb val, [src, count]
@@ -4152,7 +4152,7 @@ fn genInlineMemsetCode(
     // b loop
     _ = try self.addInst(.{
         .tag = .b,
-        .data = .{ .inst = @intCast(u32, self.mir_instructions.len - 4) },
+        .data = .{ .inst = @as(u32, @intCast(self.mir_instructions.len - 4)) },
     });
 
     // end:
@@ -4216,7 +4216,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const callee = pl_op.operand;
     const extra = self.air.extraData(Air.Call, pl_op.payload);
-    const args = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
+    const args = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]));
     const ty = self.typeOf(callee);
     const mod = self.bin_file.options.module.?;
 
@@ -4248,8 +4248,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const r0_lock: ?RegisterLock = if (info.return_value == .stack_offset) blk: {
         log.debug("airCall: return by reference", .{});
         const ret_ty = fn_ty.fnReturnType(mod);
-        const ret_abi_size = @intCast(u32, ret_ty.abiSize(mod));
-        const ret_abi_align = @intCast(u32, ret_ty.abiAlignment(mod));
+        const ret_abi_size = @as(u32, @intCast(ret_ty.abiSize(mod)));
+        const ret_abi_align = @as(u32, @intCast(ret_ty.abiAlignment(mod)));
         const stack_offset = try self.allocMem(ret_abi_size, ret_abi_align, inst);
 
         const ptr_ty = try mod.singleMutPtrType(ret_ty);
@@ -4294,7 +4294,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
                 const atom = elf_file.getAtom(atom_index);
                 _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-                const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
+                const got_addr = @as(u32, @intCast(atom.getOffsetTableAddress(elf_file)));
                 try self.genSetReg(Type.usize, .lr, .{ .memory = got_addr });
             } else if (self.bin_file.cast(link.File.MachO)) |_| {
                 unreachable; // unsupported architecture for MachO
@@ -4425,7 +4425,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
             // location.
             const op_inst = Air.refToIndex(un_op).?;
             if (self.air.instructions.items(.tag)[op_inst] != .ret_ptr) {
-                const abi_size = @intCast(u32, ret_ty.abiSize(mod));
+                const abi_size = @as(u32, @intCast(ret_ty.abiSize(mod)));
                 const abi_align = ret_ty.abiAlignment(mod);
 
                 const offset = try self.allocMem(abi_size, abi_align, null);
@@ -4651,7 +4651,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     if (self.liveness.operandDies(inst, 0)) {
         const op_int = @intFromEnum(pl_op.operand);
         if (op_int >= Air.ref_start_index) {
-            const op_index = @intCast(Air.Inst.Index, op_int - Air.ref_start_index);
+            const op_index = @as(Air.Inst.Index, @intCast(op_int - Air.ref_start_index));
             self.processDeath(op_index);
         }
     }
@@ -4956,7 +4956,7 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[loop.end..][0..loop.data.body_len];
-    const start_index = @intCast(Mir.Inst.Index, self.mir_instructions.len);
+    const start_index = @as(Mir.Inst.Index, @intCast(self.mir_instructions.len));
 
     try self.genBody(body);
     try self.jump(start_index);
@@ -5021,7 +5021,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     var case_i: u32 = 0;
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
         const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items = @ptrCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+        const items = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[case.end..][0..case.data.items_len]));
         assert(items.len > 0);
         const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
         extra_index = case.end + items.len + case_body.len;
@@ -5139,7 +5139,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 fn performReloc(self: *Self, inst: Mir.Inst.Index) !void {
     const tag = self.mir_instructions.items(.tag)[inst];
     switch (tag) {
-        .b => self.mir_instructions.items(.data)[inst].inst = @intCast(Air.Inst.Index, self.mir_instructions.len),
+        .b => self.mir_instructions.items(.data)[inst].inst = @as(Air.Inst.Index, @intCast(self.mir_instructions.len)),
         else => unreachable,
     }
 }
@@ -5188,12 +5188,12 @@ fn brVoid(self: *Self, block: Air.Inst.Index) !void {
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Asm, ty_pl.payload);
-    const is_volatile = @truncate(u1, extra.data.flags >> 31) != 0;
-    const clobbers_len = @truncate(u31, extra.data.flags);
+    const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
+    const clobbers_len = @as(u31, @truncate(extra.data.flags));
     var extra_i: usize = extra.end;
-    const outputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.outputs_len]);
+    const outputs = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]));
     extra_i += outputs.len;
-    const inputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
+    const inputs = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]));
     extra_i += inputs.len;
 
     const dead = !is_volatile and self.liveness.isUnused(inst);
@@ -5323,7 +5323,7 @@ fn setRegOrMem(self: *Self, ty: Type, loc: MCValue, val: MCValue) !void {
 
 fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
     const mod = self.bin_file.options.module.?;
-    const abi_size = @intCast(u32, ty.abiSize(mod));
+    const abi_size = @as(u32, @intCast(ty.abiSize(mod)));
     switch (mcv) {
         .dead => unreachable,
         .unreach, .none => return, // Nothing to do.
@@ -5376,7 +5376,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 },
                 2 => {
                     const offset = if (stack_offset <= math.maxInt(u8)) blk: {
-                        break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, stack_offset));
+                        break :blk Instruction.ExtraLoadStoreOffset.imm(@as(u8, @intCast(stack_offset)));
                     } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.u32, MCValue{ .immediate = stack_offset }));
 
                     _ = try self.addInst(.{
@@ -5404,7 +5404,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             try self.genSetStack(wrapped_ty, stack_offset, .{ .register = reg });
 
             const overflow_bit_ty = ty.structFieldType(1, mod);
-            const overflow_bit_offset = @intCast(u32, ty.structFieldOffset(1, mod));
+            const overflow_bit_offset = @as(u32, @intCast(ty.structFieldOffset(1, mod)));
             const cond_reg = try self.register_manager.allocReg(null, gp);
 
             // C flag: movcs reg, #1
@@ -5457,7 +5457,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         // sub src_reg, fp, #off
                         try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                     },
-                    .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @intCast(u32, addr) }),
+                    .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @as(u32, @intCast(addr)) }),
                     .stack_argument_offset => |off| {
                         _ = try self.addInst(.{
                             .tag = .ldr_ptr_stack_argument,
@@ -5554,7 +5554,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .tag = .movw,
                         .data = .{ .r_imm16 = .{
                             .rd = reg,
-                            .imm16 = @intCast(u16, x),
+                            .imm16 = @as(u16, @intCast(x)),
                         } },
                     });
                 } else {
@@ -5562,7 +5562,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .tag = .mov,
                         .data = .{ .r_op_mov = .{
                             .rd = reg,
-                            .op = Instruction.Operand.imm(@truncate(u8, x), 0),
+                            .op = Instruction.Operand.imm(@as(u8, @truncate(x)), 0),
                         } },
                     });
                     _ = try self.addInst(.{
@@ -5570,7 +5570,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .data = .{ .rr_op = .{
                             .rd = reg,
                             .rn = reg,
-                            .op = Instruction.Operand.imm(@truncate(u8, x >> 8), 12),
+                            .op = Instruction.Operand.imm(@as(u8, @truncate(x >> 8)), 12),
                         } },
                     });
                 }
@@ -5585,14 +5585,14 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .tag = .movw,
                         .data = .{ .r_imm16 = .{
                             .rd = reg,
-                            .imm16 = @truncate(u16, x),
+                            .imm16 = @as(u16, @truncate(x)),
                         } },
                     });
                     _ = try self.addInst(.{
                         .tag = .movt,
                         .data = .{ .r_imm16 = .{
                             .rd = reg,
-                            .imm16 = @truncate(u16, x >> 16),
+                            .imm16 = @as(u16, @truncate(x >> 16)),
                         } },
                     });
                 } else {
@@ -5605,7 +5605,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .tag = .mov,
                         .data = .{ .r_op_mov = .{
                             .rd = reg,
-                            .op = Instruction.Operand.imm(@truncate(u8, x), 0),
+                            .op = Instruction.Operand.imm(@as(u8, @truncate(x)), 0),
                         } },
                     });
                     _ = try self.addInst(.{
@@ -5613,7 +5613,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .data = .{ .rr_op = .{
                             .rd = reg,
                             .rn = reg,
-                            .op = Instruction.Operand.imm(@truncate(u8, x >> 8), 12),
+                            .op = Instruction.Operand.imm(@as(u8, @truncate(x >> 8)), 12),
                         } },
                     });
                     _ = try self.addInst(.{
@@ -5621,7 +5621,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .data = .{ .rr_op = .{
                             .rd = reg,
                             .rn = reg,
-                            .op = Instruction.Operand.imm(@truncate(u8, x >> 16), 8),
+                            .op = Instruction.Operand.imm(@as(u8, @truncate(x >> 16)), 8),
                         } },
                     });
                     _ = try self.addInst(.{
@@ -5629,7 +5629,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .data = .{ .rr_op = .{
                             .rd = reg,
                             .rn = reg,
-                            .op = Instruction.Operand.imm(@truncate(u8, x >> 24), 4),
+                            .op = Instruction.Operand.imm(@as(u8, @truncate(x >> 24)), 4),
                         } },
                     });
                 }
@@ -5654,12 +5654,12 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         .memory => |addr| {
             // The value is in memory at a hard-coded address.
             // If the type is a pointer, it means the pointer address is at this memory location.
-            try self.genSetReg(ty, reg, .{ .immediate = @intCast(u32, addr) });
+            try self.genSetReg(ty, reg, .{ .immediate = @as(u32, @intCast(addr)) });
             try self.genLdrRegister(reg, reg, ty);
         },
         .stack_offset => |off| {
             // TODO: maybe addressing from sp instead of fp
-            const abi_size = @intCast(u32, ty.abiSize(mod));
+            const abi_size = @as(u32, @intCast(ty.abiSize(mod)));
 
             const tag: Mir.Inst.Tag = switch (abi_size) {
                 1 => if (ty.isSignedInt(mod)) Mir.Inst.Tag.ldrsb else .ldrb,
@@ -5677,7 +5677,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 
             if (extra_offset) {
                 const offset = if (off <= math.maxInt(u8)) blk: {
-                    break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, off));
+                    break :blk Instruction.ExtraLoadStoreOffset.imm(@as(u8, @intCast(off)));
                 } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.usize, MCValue{ .immediate = off }));
 
                 _ = try self.addInst(.{
@@ -5693,7 +5693,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 });
             } else {
                 const offset = if (off <= math.maxInt(u12)) blk: {
-                    break :blk Instruction.Offset.imm(@intCast(u12, off));
+                    break :blk Instruction.Offset.imm(@as(u12, @intCast(off)));
                 } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.usize, MCValue{ .immediate = off }), .none);
 
                 _ = try self.addInst(.{
@@ -5732,7 +5732,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 
 fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
     const mod = self.bin_file.options.module.?;
-    const abi_size = @intCast(u32, ty.abiSize(mod));
+    const abi_size = @as(u32, @intCast(ty.abiSize(mod)));
     switch (mcv) {
         .dead => unreachable,
         .none, .unreach => return,
@@ -5771,7 +5771,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                 },
                 2 => {
                     const offset = if (stack_offset <= math.maxInt(u8)) blk: {
-                        break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, stack_offset));
+                        break :blk Instruction.ExtraLoadStoreOffset.imm(@as(u8, @intCast(stack_offset)));
                     } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.u32, MCValue{ .immediate = stack_offset }));
 
                     _ = try self.addInst(.{
@@ -5814,7 +5814,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                         // sub src_reg, fp, #off
                         try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                     },
-                    .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @intCast(u32, addr) }),
+                    .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @as(u32, @intCast(addr)) }),
                     .stack_argument_offset => |off| {
                         _ = try self.addInst(.{
                             .tag = .ldr_ptr_stack_argument,
@@ -5893,7 +5893,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
         const ptr_ty = self.typeOf(ty_op.operand);
         const ptr = try self.resolveInst(ty_op.operand);
         const array_ty = ptr_ty.childType(mod);
-        const array_len = @intCast(u32, array_ty.arrayLen(mod));
+        const array_len = @as(u32, @intCast(array_ty.arrayLen(mod)));
 
         const stack_offset = try self.allocMem(8, 8, inst);
         try self.genSetStack(ptr_ty, stack_offset, ptr);
@@ -6010,7 +6010,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
     const vector_ty = self.typeOfIndex(inst);
     const len = vector_ty.vectorLen(mod);
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+    const elements = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[ty_pl.payload..][0..len]));
     const result: MCValue = res: {
         if (self.liveness.isUnused(inst)) break :res MCValue.dead;
         return self.fail("TODO implement airAggregateInit for arm", .{});
@@ -6058,7 +6058,7 @@ fn airTry(self: *Self, inst: Air.Inst.Index) !void {
         const error_union_bind: ReadArg.Bind = .{ .inst = pl_op.operand };
         const error_union_ty = self.typeOf(pl_op.operand);
         const mod = self.bin_file.options.module.?;
-        const error_union_size = @intCast(u32, error_union_ty.abiSize(mod));
+        const error_union_size = @as(u32, @intCast(error_union_ty.abiSize(mod)));
         const error_union_align = error_union_ty.abiAlignment(mod);
 
         // The error union will die in the body. However, we need the
@@ -6141,7 +6141,7 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
             .none => .none,
             .undef => .undef,
             .load_got, .load_direct, .load_tlv => unreachable, // TODO
-            .immediate => |imm| .{ .immediate = @truncate(u32, imm) },
+            .immediate => |imm| .{ .immediate = @as(u32, @truncate(imm)) },
             .memory => |addr| .{ .memory = addr },
         },
         .fail => |msg| {
@@ -6198,7 +6198,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             } else if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                 result.return_value = .{ .none = {} };
             } else {
-                const ret_ty_size = @intCast(u32, ret_ty.abiSize(mod));
+                const ret_ty_size = @as(u32, @intCast(ret_ty.abiSize(mod)));
                 // TODO handle cases where multiple registers are used
                 if (ret_ty_size <= 4) {
                     result.return_value = .{ .register = c_abi_int_return_regs[0] };
@@ -6216,7 +6216,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 if (ty.toType().abiAlignment(mod) == 8)
                     ncrn = std.mem.alignForward(usize, ncrn, 2);
 
-                const param_size = @intCast(u32, ty.toType().abiSize(mod));
+                const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
                 if (std.math.divCeil(u32, param_size, 4) catch unreachable <= 4 - ncrn) {
                     if (param_size <= 4) {
                         result.args[i] = .{ .register = c_abi_int_param_regs[ncrn] };
@@ -6245,7 +6245,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             } else if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod) and !ret_ty.isError(mod)) {
                 result.return_value = .{ .none = {} };
             } else {
-                const ret_ty_size = @intCast(u32, ret_ty.abiSize(mod));
+                const ret_ty_size = @as(u32, @intCast(ret_ty.abiSize(mod)));
                 if (ret_ty_size == 0) {
                     assert(ret_ty.isError(mod));
                     result.return_value = .{ .immediate = 0 };
@@ -6264,7 +6264,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
             for (fn_info.param_types, 0..) |ty, i| {
                 if (ty.toType().abiSize(mod) > 0) {
-                    const param_size = @intCast(u32, ty.toType().abiSize(mod));
+                    const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
                     const param_alignment = ty.toType().abiAlignment(mod);
 
                     stack_offset = std.mem.alignForward(u32, stack_offset, param_alignment);

@@ -184,8 +184,8 @@ test "implicit cast error unions with non-optional to optional pointer" {
 }
 
 test "compare equality of optional and non-optional pointer" {
-    const a = @ptrFromInt(*const usize, 0x12345678);
-    const b = @ptrFromInt(?*usize, 0x12345678);
+    const a = @as(*const usize, @ptrFromInt(0x12345678));
+    const b = @as(?*usize, @ptrFromInt(0x12345678));
     try expect(a == b);
     try expect(b == a);
 }
@@ -197,7 +197,7 @@ test "allowzero pointer and slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    var ptr = @ptrFromInt([*]allowzero i32, 0);
+    var ptr = @as([*]allowzero i32, @ptrFromInt(0));
     var opt_ptr: ?[*]allowzero i32 = ptr;
     try expect(opt_ptr != null);
     try expect(@intFromPtr(ptr) == 0);
@@ -286,9 +286,9 @@ test "null terminated pointer" {
     const S = struct {
         fn doTheTest() !void {
             var array_with_zero = [_:0]u8{ 'h', 'e', 'l', 'l', 'o' };
-            var zero_ptr: [*:0]const u8 = @ptrCast([*:0]const u8, &array_with_zero);
+            var zero_ptr: [*:0]const u8 = @as([*:0]const u8, @ptrCast(&array_with_zero));
             var no_zero_ptr: [*]const u8 = zero_ptr;
-            var zero_ptr_again = @ptrCast([*:0]const u8, no_zero_ptr);
+            var zero_ptr_again = @as([*:0]const u8, @ptrCast(no_zero_ptr));
             try expect(std.mem.eql(u8, std.mem.sliceTo(zero_ptr_again, 0), "hello"));
         }
     };
@@ -367,7 +367,7 @@ test "pointer sentinel with +inf" {
 }
 
 test "pointer to array at fixed address" {
-    const array = @ptrFromInt(*volatile [2]u32, 0x10);
+    const array = @as(*volatile [2]u32, @ptrFromInt(0x10));
     // Silly check just to reference `array`
     try expect(@intFromPtr(&array[0]) == 0x10);
     try expect(@intFromPtr(&array[1]) == 0x14);
@@ -406,13 +406,13 @@ test "pointer arithmetic affects the alignment" {
 
 test "@intFromPtr on null optional at comptime" {
     {
-        const pointer = @ptrFromInt(?*u8, 0x000);
+        const pointer = @as(?*u8, @ptrFromInt(0x000));
         const x = @intFromPtr(pointer);
         _ = x;
         try comptime expect(0 == @intFromPtr(pointer));
     }
     {
-        const pointer = @ptrFromInt(?*u8, 0xf00);
+        const pointer = @as(?*u8, @ptrFromInt(0xf00));
         try comptime expect(0xf00 == @intFromPtr(pointer));
     }
 }
@@ -463,8 +463,8 @@ test "element pointer arithmetic to slice" {
             };
 
             const elem_ptr = &cases[0]; // *[2]i32
-            const many = @ptrCast([*][2]i32, elem_ptr);
-            const many_elem = @ptrCast(*[2]i32, &many[1]);
+            const many = @as([*][2]i32, @ptrCast(elem_ptr));
+            const many_elem = @as(*[2]i32, @ptrCast(&many[1]));
             const items: []i32 = many_elem;
             try testing.expect(items.len == 2);
             try testing.expect(items[1] == 3);
@@ -512,7 +512,7 @@ test "ptrCast comptime known slice to C pointer" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s: [:0]const u8 = "foo";
-    var p = @ptrCast([*c]const u8, s);
+    var p = @as([*c]const u8, @ptrCast(s));
     try std.testing.expectEqualStrings(s, std.mem.sliceTo(p, 0));
 }
 
@@ -550,7 +550,7 @@ test "pointer to array has explicit alignment" {
         const Base = extern struct { a: u8 };
         const Base2 = extern struct { a: u8 };
         fn func(ptr: *[4]Base) *align(1) [4]Base2 {
-            return @alignCast(1, @ptrCast(*[4]Base2, ptr));
+            return @alignCast(@as(*[4]Base2, @ptrCast(ptr)));
         }
     };
     var bases = [_]S.Base{.{ .a = 2 }} ** 4;

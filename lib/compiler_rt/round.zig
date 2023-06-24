@@ -27,14 +27,14 @@ comptime {
 
 pub fn __roundh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @floatCast(f16, roundf(x));
+    return @as(f16, @floatCast(roundf(x)));
 }
 
 pub fn roundf(x_: f32) callconv(.C) f32 {
     const f32_toint = 1.0 / math.floatEps(f32);
 
     var x = x_;
-    const u = @bitCast(u32, x);
+    const u = @as(u32, @bitCast(x));
     const e = (u >> 23) & 0xFF;
     var y: f32 = undefined;
 
@@ -46,7 +46,7 @@ pub fn roundf(x_: f32) callconv(.C) f32 {
     }
     if (e < 0x7F - 1) {
         math.doNotOptimizeAway(x + f32_toint);
-        return 0 * @bitCast(f32, u);
+        return 0 * @as(f32, @bitCast(u));
     }
 
     y = x + f32_toint - f32_toint - x;
@@ -69,7 +69,7 @@ pub fn round(x_: f64) callconv(.C) f64 {
     const f64_toint = 1.0 / math.floatEps(f64);
 
     var x = x_;
-    const u = @bitCast(u64, x);
+    const u = @as(u64, @bitCast(x));
     const e = (u >> 52) & 0x7FF;
     var y: f64 = undefined;
 
@@ -81,7 +81,7 @@ pub fn round(x_: f64) callconv(.C) f64 {
     }
     if (e < 0x3ff - 1) {
         math.doNotOptimizeAway(x + f64_toint);
-        return 0 * @bitCast(f64, u);
+        return 0 * @as(f64, @bitCast(u));
     }
 
     y = x + f64_toint - f64_toint - x;
@@ -102,14 +102,14 @@ pub fn round(x_: f64) callconv(.C) f64 {
 
 pub fn __roundx(x: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @floatCast(f80, roundq(x));
+    return @as(f80, @floatCast(roundq(x)));
 }
 
 pub fn roundq(x_: f128) callconv(.C) f128 {
     const f128_toint = 1.0 / math.floatEps(f128);
 
     var x = x_;
-    const u = @bitCast(u128, x);
+    const u = @as(u128, @bitCast(x));
     const e = (u >> 112) & 0x7FFF;
     var y: f128 = undefined;
 
@@ -121,7 +121,7 @@ pub fn roundq(x_: f128) callconv(.C) f128 {
     }
     if (e < 0x3FFF - 1) {
         math.doNotOptimizeAway(x + f128_toint);
-        return 0 * @bitCast(f128, u);
+        return 0 * @as(f128, @bitCast(u));
     }
 
     y = x + f128_toint - f128_toint - x;

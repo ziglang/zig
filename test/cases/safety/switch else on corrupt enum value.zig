@@ -13,7 +13,7 @@ const E = enum(u32) {
 };
 pub fn main() !void {
     var a: E = undefined;
-    @ptrCast(*u32, &a).* = 255;
+    @as(*u32, @ptrCast(&a)).* = 255;
     switch (a) {
         else => @panic("else"),
     }

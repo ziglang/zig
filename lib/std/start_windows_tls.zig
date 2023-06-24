@@ -42,7 +42,7 @@ export const _tls_used linksection(".rdata$T") = IMAGE_TLS_DIRECTORY{
     .StartAddressOfRawData = &_tls_start,
     .EndAddressOfRawData = &_tls_end,
     .AddressOfIndex = &_tls_index,
-    .AddressOfCallBacks = @ptrCast(*anyopaque, &__xl_a),
+    .AddressOfCallBacks = @as(*anyopaque, @ptrCast(&__xl_a)),
     .SizeOfZeroFill = 0,
     .Characteristics = 0,
 };

@@ -93,7 +93,7 @@ const RelocatableData = struct {
         const data_alignment = object.segment_info[relocatable_data.index].alignment;
         if (data_alignment == 0) return 1;
         // Decode from power of 2 to natural alignment
-        return @as(u32, 1) << @intCast(u5, data_alignment);
+        return @as(u32, 1) << @as(u5, @intCast(data_alignment));
     }
 
     /// Returns the symbol kind that corresponds to the relocatable section
@@ -130,7 +130,7 @@ pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_siz
     const size = maybe_max_size orelse size: {
         errdefer gpa.free(object.name);
         const stat = try file.stat();
-        break :size @intCast(usize, stat.size);
+        break :size @as(usize, @intCast(stat.size));
     };
 
     const file_contents = try gpa.alloc(u8, size);
@@ -365,7 +365,7 @@ fn Parser(comptime ReaderType: type) type {
                 const len = try readLeb(u32, parser.reader.reader());
                 var limited_reader = std.io.limitedReader(parser.reader.reader(), len);
                 const reader = limited_reader.reader();
-                switch (@enumFromInt(std.wasm.Section, byte)) {
+                switch (@as(std.wasm.Section, @enumFromInt(byte))) {
                     .custom => {
                         const name_len = try readLeb(u32, reader);
                         const name = try gpa.alloc(u8, name_len);
@@ -375,13 +375,13 @@ fn Parser(comptime ReaderType: type) type {
                         if (std.mem.eql(u8, name, "linking")) {
                             is_object_file.* = true;
                             parser.object.relocatable_data = relocatable_data.items; // at this point no new relocatable sections will appear so we're free to store them.
-                            try parser.parseMetadata(gpa, @intCast(usize, reader.context.bytes_left));
+                            try parser.parseMetadata(gpa, @as(usize, @intCast(reader.context.bytes_left)));
                         } else if (std.mem.startsWith(u8, name, "reloc")) {
                             try parser.parseRelocations(gpa);
                         } else if (std.mem.eql(u8, name, "target_features")) {
                             try parser.parseFeatures(gpa);
                         } else if (std.mem.startsWith(u8, name, ".debug")) {
-                            const debug_size = @intCast(u32, reader.context.bytes_left);
+                            const debug_size = @as(u32, @intCast(reader.context.bytes_left));
                             const debug_content = try gpa.alloc(u8, debug_size);
                             errdefer gpa.free(debug_content);
                             try reader.readNoEof(debug_content);
@@ -514,7 +514,7 @@ fn Parser(comptime ReaderType: type) type {
                         const count = try readLeb(u32, reader);
                         while (index < count) : (index += 1) {
                             const code_len = try readLeb(u32, reader);
-                            const offset = @intCast(u32, start - reader.context.bytes_left);
+                            const offset = @as(u32, @intCast(start - reader.context.bytes_left));
                             const data = try gpa.alloc(u8, code_len);
                             errdefer gpa.free(data);
                             try reader.readNoEof(data);
@@ -538,7 +538,7 @@ fn Parser(comptime ReaderType: type) type {
                             _ = flags; // TODO: Do we need to check flags to detect passive/active memory?
                             _ = data_offset;
                             const data_len = try readLeb(u32, reader);
-                            const offset = @intCast(u32, start - reader.context.bytes_left);
+                            const offset = @as(u32, @intCast(start - reader.context.bytes_left));
                             const data = try gpa.alloc(u8, data_len);
                             errdefer gpa.free(data);
                             try reader.readNoEof(data);
@@ -645,7 +645,7 @@ fn Parser(comptime ReaderType: type) type {
         /// such as access to the `import` section to find the name of a symbol.
         fn parseSubsection(parser: *ObjectParser, gpa: Allocator, reader: anytype) !void {
             const sub_type = try leb.readULEB128(u8, reader);
-            log.debug("Found subsection: {s}", .{@tagName(@enumFromInt(types.SubsectionType, sub_type))});
+            log.debug("Found subsection: {s}", .{@tagName(@as(types.SubsectionType, @enumFromInt(sub_type)))});
             const payload_len = try leb.readULEB128(u32, reader);
             if (payload_len == 0) return;
 
@@ -655,7 +655,7 @@ fn Parser(comptime ReaderType: type) type {
             // every subsection contains a 'count' field
             const count = try leb.readULEB128(u32, limited_reader);
 
-            switch (@enumFromInt(types.SubsectionType, sub_type)) {
+            switch (@as(types.SubsectionType, @enumFromInt(sub_type))) {
                 .WASM_SEGMENT_INFO => {
                     const segments = try gpa.alloc(types.Segment, count);
                     errdefer gpa.free(segments);
@@ -714,7 +714,7 @@ fn Parser(comptime ReaderType: type) type {
                         errdefer gpa.free(symbols);
                         for (symbols) |*symbol| {
                             symbol.* = .{
-                                .kind = @enumFromInt(types.ComdatSym.Type, try leb.readULEB128(u8, reader)),
+                                .kind = @as(types.ComdatSym.Type, @enumFromInt(try leb.readULEB128(u8, reader))),
                                 .index = try leb.readULEB128(u32, reader),
                             };
                         }
@@ -758,7 +758,7 @@ fn Parser(comptime ReaderType: type) type {
         /// requires access to `Object` to find the name of a symbol when it's
         /// an import and flag `WASM_SYM_EXPLICIT_NAME` is not set.
         fn parseSymbol(parser: *ObjectParser, gpa: Allocator, reader: anytype) !Symbol {
-            const tag = @enumFromInt(Symbol.Tag, try leb.readULEB128(u8, reader));
+            const tag = @as(Symbol.Tag, @enumFromInt(try leb.readULEB128(u8, reader)));
             const flags = try leb.readULEB128(u32, reader);
             var symbol: Symbol = .{
                 .flags = flags,
@@ -846,7 +846,7 @@ fn readLeb(comptime T: type, reader: anytype) !T {
 /// Asserts `T` is an enum
 fn readEnum(comptime T: type, reader: anytype) !T {
     switch (@typeInfo(T)) {
-        .Enum => |enum_type| return @enumFromInt(T, try readLeb(enum_type.tag_type, reader)),
+        .Enum => |enum_type| return @as(T, @enumFromInt(try readLeb(enum_type.tag_type, reader))),
         else => @compileError("T must be an enum. Instead was given type " ++ @typeName(T)),
     }
 }
@@ -867,7 +867,7 @@ fn readLimits(reader: anytype) !std.wasm.Limits {
 
 fn readInit(reader: anytype) !std.wasm.InitExpression {
     const opcode = try reader.readByte();
-    const init_expr: std.wasm.InitExpression = switch (@enumFromInt(std.wasm.Opcode, opcode)) {
+    const init_expr: std.wasm.InitExpression = switch (@as(std.wasm.Opcode, @enumFromInt(opcode))) {
         .i32_const => .{ .i32_const = try readLeb(i32, reader) },
         .global_get => .{ .global_get = try readLeb(u32, reader) },
         else => @panic("TODO: initexpression for other opcodes"),
@@ -899,7 +899,7 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
         switch (symbol.tag) {
             .function, .data, .section => if (!symbol.isUndefined()) {
                 const gop = try symbol_for_segment.getOrPut(.{ .kind = symbol.tag, .index = symbol.index });
-                const sym_idx = @intCast(u32, symbol_index);
+                const sym_idx = @as(u32, @intCast(symbol_index));
                 if (!gop.found_existing) {
                     gop.value_ptr.* = std.ArrayList(u32).init(gpa);
                 }
@@ -910,11 +910,11 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
     }
 
     for (object.relocatable_data, 0..) |relocatable_data, index| {
-        const final_index = (try wasm_bin.getMatchingSegment(object_index, @intCast(u32, index))) orelse {
+        const final_index = (try wasm_bin.getMatchingSegment(object_index, @as(u32, @intCast(index)))) orelse {
             continue; // found unknown section, so skip parsing into atom as we do not know how to handle it.
         };
 
-        const atom_index = @intCast(Atom.Index, wasm_bin.managed_atoms.items.len);
+        const atom_index = @as(Atom.Index, @intCast(wasm_bin.managed_atoms.items.len));
         const atom = try wasm_bin.managed_atoms.addOne(gpa);
         atom.* = Atom.empty;
         atom.file = object_index;

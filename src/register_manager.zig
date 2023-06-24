@@ -427,13 +427,13 @@ const MockRegister3 = enum(u3) {
 
     pub fn id(reg: MockRegister3) u3 {
         return switch (@intFromEnum(reg)) {
-            0...3 => @as(u3, @truncate(u2, @intFromEnum(reg))),
+            0...3 => @as(u3, @as(u2, @truncate(@intFromEnum(reg)))),
             4...7 => @intFromEnum(reg),
         };
     }
 
     pub fn enc(reg: MockRegister3) u2 {
-        return @truncate(u2, @intFromEnum(reg));
+        return @as(u2, @truncate(@intFromEnum(reg)));
     }
 
     const gp_regs = [_]MockRegister3{ .r0, .r1, .r2, .r3 };

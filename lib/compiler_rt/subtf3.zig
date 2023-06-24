@@ -20,6 +20,6 @@ fn _Qp_sub(c: *f128, a: *const f128, b: *const f128) callconv(.C) void {
 }
 
 inline fn sub(a: f128, b: f128) f128 {
-    const neg_b = @bitCast(f128, @bitCast(u128, b) ^ (@as(u128, 1) << 127));
+    const neg_b = @as(f128, @bitCast(@as(u128, @bitCast(b)) ^ (@as(u128, 1) << 127)));
     return a + neg_b;
 }

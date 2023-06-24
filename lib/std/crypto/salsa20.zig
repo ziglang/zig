@@ -337,8 +337,8 @@ pub fn Salsa(comptime rounds: comptime_int) type {
             var d: [4]u32 = undefined;
             d[0] = mem.readIntLittle(u32, nonce[0..4]);
             d[1] = mem.readIntLittle(u32, nonce[4..8]);
-            d[2] = @truncate(u32, counter);
-            d[3] = @truncate(u32, counter >> 32);
+            d[2] = @as(u32, @truncate(counter));
+            d[3] = @as(u32, @truncate(counter >> 32));
             SalsaImpl(rounds).salsaXor(out, in, keyToWords(key), d);
         }
     };

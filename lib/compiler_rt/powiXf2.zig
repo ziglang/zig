@@ -25,7 +25,7 @@ inline fn powiXf2(comptime FT: type, a: FT, b: i32) FT {
     const is_recip: bool = b < 0;
     var r: FT = 1.0;
     while (true) {
-        if (@bitCast(u32, x_b) & @as(u32, 1) != 0) {
+        if (@as(u32, @bitCast(x_b)) & @as(u32, 1) != 0) {
             r *= x_a;
         }
         x_b = @divTrunc(x_b, @as(i32, 2));

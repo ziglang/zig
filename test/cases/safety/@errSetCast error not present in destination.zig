@@ -14,7 +14,7 @@ pub fn main() !void {
     return error.TestFailed;
 }
 fn foo(set1: Set1) Set2 {
-    return @errSetCast(Set2, set1);
+    return @errSetCast(set1);
 }
 // run
 // backend=llvm

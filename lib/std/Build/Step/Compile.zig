@@ -321,7 +321,7 @@ pub const BuildId = union(enum) {
     pub fn initHexString(bytes: []const u8) BuildId {
         var result: BuildId = .{ .hexstring = .{
             .bytes = undefined,
-            .len = @intCast(u8, bytes.len),
+            .len = @as(u8, @intCast(bytes.len)),
         } };
         @memcpy(result.hexstring.bytes[0..bytes.len], bytes);
         return result;
@@ -342,7 +342,7 @@ pub const BuildId = union(enum) {
         } else if (mem.startsWith(u8, text, "0x")) {
             var result: BuildId = .{ .hexstring = undefined };
             const slice = try std.fmt.hexToBytes(&result.hexstring.bytes, text[2..]);
-            result.hexstring.len = @intCast(u8, slice.len);
+            result.hexstring.len = @as(u8, @intCast(slice.len));
             return result;
         }
         return error.InvalidBuildIdStyle;
@@ -2059,7 +2059,7 @@ fn findVcpkgRoot(allocator: Allocator) !?[]const u8 {
     const file = fs.cwd().openFile(path_file, .{}) catch return null;
     defer file.close();
 
-    const size = @intCast(usize, try file.getEndPos());
+    const size = @as(usize, @intCast(try file.getEndPos()));
     const vcpkg_path = try allocator.alloc(u8, size);
     const size_read = try file.read(vcpkg_path);
     std.debug.assert(size == size_read);

@@ -33,18 +33,14 @@ pub fn __emutls_get_address(control: *emutls_control) callconv(.C) *anyopaque {
 const simple_allocator = struct {
     /// Allocate a memory chunk for requested type. Return a pointer on the data.
     pub fn alloc(comptime T: type) *T {
-        return @ptrCast(*T, @alignCast(
-            @alignOf(T),
-            advancedAlloc(@alignOf(T), @sizeOf(T)),
-        ));
+        return @ptrCast(@alignCast(advancedAlloc(@alignOf(T), @sizeOf(T))));
     }
 
     /// Allocate a slice of T, with len elements.
     pub fn allocSlice(comptime T: type, len: usize) []T {
-        return @ptrCast([*]T, @alignCast(
-            @alignOf(T),
+        return @as([*]T, @ptrCast(@alignCast(
             advancedAlloc(@alignOf(T), @sizeOf(T) * len),
-        ))[0 .. len - 1];
+        )))[0 .. len - 1];
     }
 
     /// Allocate a memory chunk.
@@ -56,22 +52,19 @@ const simple_allocator = struct {
             abort();
         }
 
-        return @ptrCast([*]u8, aligned_ptr);
+        return @as([*]u8, @ptrCast(aligned_ptr));
     }
 
     /// Resize a slice.
     pub fn reallocSlice(comptime T: type, slice: []T, len: usize) []T {
-        var c_ptr: *anyopaque = @ptrCast(*anyopaque, slice.ptr);
-        var new_array: [*]T = @ptrCast([*]T, @alignCast(
-            @alignOf(T),
-            std.c.realloc(c_ptr, @sizeOf(T) * len) orelse abort(),
-        ));
+        var c_ptr: *anyopaque = @as(*anyopaque, @ptrCast(slice.ptr));
+        var new_array: [*]T = @ptrCast(@alignCast(std.c.realloc(c_ptr, @sizeOf(T) * len) orelse abort()));
         return new_array[0..len];
     }
 
     /// Free a memory chunk allocated with simple_allocator.
     pub fn free(ptr: anytype) void {
-        std.c.free(@ptrCast(*anyopaque, ptr));
+        std.c.free(@as(*anyopaque, @ptrCast(ptr)));
     }
 };
 
@@ -132,20 +125,20 @@ const ObjectArray = struct {
         if (self.slots[index] == null) {
             // initialize the slot
             const size = control.size;
-            const alignment = @truncate(u29, control.alignment);
+            const alignment = @as(u29, @truncate(control.alignment));
 
             var data = simple_allocator.advancedAlloc(alignment, size);
             errdefer simple_allocator.free(data);
 
             if (control.default_value) |value| {
                 // default value: copy the content to newly allocated object.
-                @memcpy(data[0..size], @ptrCast([*]const u8, value));
+                @memcpy(data[0..size], @as([*]const u8, @ptrCast(value)));
             } else {
                 // no default: return zeroed memory.
                 @memset(data[0..size], 0);
             }
 
-            self.slots[index] = @ptrCast(*anyopaque, data);
+            self.slots[index] = @as(*anyopaque, @ptrCast(data));
         }
 
         return self.slots[index].?;
@@ -180,18 +173,12 @@ const current_thread_storage = struct {
 
     /// Return casted thread specific value.
     fn getspecific() ?*ObjectArray {
-        return @ptrCast(
-            ?*ObjectArray,
-            @alignCast(
-                @alignOf(ObjectArray),
-                std.c.pthread_getspecific(current_thread_storage.key),
-            ),
-        );
+        return @ptrCast(@alignCast(std.c.pthread_getspecific(current_thread_storage.key)));
     }
 
     /// Set casted thread specific value.
     fn setspecific(new: ?*ObjectArray) void {
-        if (std.c.pthread_setspecific(current_thread_storage.key, @ptrCast(*anyopaque, new)) != 0) {
+        if (std.c.pthread_setspecific(current_thread_storage.key, @as(*anyopaque, @ptrCast(new))) != 0) {
             abort();
         }
     }
@@ -205,10 +192,7 @@ const current_thread_storage = struct {
 
     /// Invoked by pthread specific destructor. the passed argument is the ObjectArray pointer.
     fn deinit(arrayPtr: *anyopaque) callconv(.C) void {
-        var array = @ptrCast(
-            *ObjectArray,
-            @alignCast(@alignOf(ObjectArray), arrayPtr),
-        );
+        var array: *ObjectArray = @ptrCast(@alignCast(arrayPtr));
         array.deinit();
     }
 };
@@ -294,7 +278,7 @@ const emutls_control = extern struct {
             .size = @sizeOf(T),
             .alignment = @alignOf(T),
             .object = .{ .index = 0 },
-            .default_value = @ptrCast(?*const anyopaque, default_value),
+            .default_value = @as(?*const anyopaque, @ptrCast(default_value)),
         };
     }
 
@@ -313,10 +297,7 @@ const emutls_control = extern struct {
     pub fn get_typed_pointer(self: *emutls_control, comptime T: type) *T {
         assert(self.size == @sizeOf(T));
         assert(self.alignment == @alignOf(T));
-        return @ptrCast(
-            *T,
-            @alignCast(@alignOf(T), self.getPointer()),
-        );
+        return @ptrCast(@alignCast(self.getPointer()));
     }
 };
 
@@ -343,7 +324,7 @@ test "__emutls_get_address zeroed" {
     try expect(ctl.object.index == 0);
 
     // retrieve a variable from ctl
-    var x = @ptrCast(*usize, @alignCast(@alignOf(usize), __emutls_get_address(&ctl)));
+    var x: *usize = @ptrCast(@alignCast(__emutls_get_address(&ctl)));
     try expect(ctl.object.index != 0); // index has been allocated for this ctl
     try expect(x.* == 0); // storage has been zeroed
 
@@ -351,7 +332,7 @@ test "__emutls_get_address zeroed" {
     x.* = 1234;
 
     // retrieve a variable from ctl (same ctl)
-    var y = @ptrCast(*usize, @alignCast(@alignOf(usize), __emutls_get_address(&ctl)));
+    var y: *usize = @ptrCast(@alignCast(__emutls_get_address(&ctl)));
 
     try expect(y.* == 1234); // same content that x.*
     try expect(x == y); // same pointer
@@ -364,7 +345,7 @@ test "__emutls_get_address with default_value" {
     var ctl = emutls_control.init(usize, &value);
     try expect(ctl.object.index == 0);
 
-    var x: *usize = @ptrCast(*usize, @alignCast(@alignOf(usize), __emutls_get_address(&ctl)));
+    var x: *usize = @ptrCast(@alignCast(__emutls_get_address(&ctl)));
     try expect(ctl.object.index != 0);
     try expect(x.* == 5678); // storage initialized with default value
 
@@ -373,7 +354,7 @@ test "__emutls_get_address with default_value" {
 
     try expect(value == 5678); // the default value didn't change
 
-    var y = @ptrCast(*usize, @alignCast(@alignOf(usize), __emutls_get_address(&ctl)));
+    var y: *usize = @ptrCast(@alignCast(__emutls_get_address(&ctl)));
     try expect(y.* == 9012); // the modified storage persists
 }
 

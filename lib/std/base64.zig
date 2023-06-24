@@ -108,12 +108,12 @@ pub const Base64Encoder = struct {
             acc_len += 8;
             while (acc_len >= 6) {
                 acc_len -= 6;
-                dest[out_idx] = encoder.alphabet_chars[@truncate(u6, (acc >> acc_len))];
+                dest[out_idx] = encoder.alphabet_chars[@as(u6, @truncate((acc >> acc_len)))];
                 out_idx += 1;
             }
         }
         if (acc_len > 0) {
-            dest[out_idx] = encoder.alphabet_chars[@truncate(u6, (acc << 6 - acc_len))];
+            dest[out_idx] = encoder.alphabet_chars[@as(u6, @truncate((acc << 6 - acc_len)))];
             out_idx += 1;
         }
         if (encoder.pad_char) |pad_char| {
@@ -144,7 +144,7 @@ pub const Base64Decoder = struct {
             assert(!char_in_alphabet[c]);
             assert(pad_char == null or c != pad_char.?);
 
-            result.char_to_index[c] = @intCast(u8, i);
+            result.char_to_index[c] = @as(u8, @intCast(i));
             char_in_alphabet[c] = true;
         }
         return result;
@@ -196,7 +196,7 @@ pub const Base64Decoder = struct {
             acc_len += 6;
             if (acc_len >= 8) {
                 acc_len -= 8;
-                dest[dest_idx] = @truncate(u8, acc >> acc_len);
+                dest[dest_idx] = @as(u8, @truncate(acc >> acc_len));
                 dest_idx += 1;
             }
         }
@@ -271,7 +271,7 @@ pub const Base64DecoderWithIgnore = struct {
             if (acc_len >= 8) {
                 if (dest_idx == dest.len) return error.NoSpaceLeft;
                 acc_len -= 8;
-                dest[dest_idx] = @truncate(u8, acc >> acc_len);
+                dest[dest_idx] = @as(u8, @truncate(acc >> acc_len));
                 dest_idx += 1;
             }
         }

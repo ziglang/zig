@@ -30,13 +30,13 @@ fn exp32(z: Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
-    const hy = @bitCast(u32, y) & 0x7fffffff;
+    const hy = @as(u32, @bitCast(y)) & 0x7fffffff;
     // cexp(x + i0) = exp(x) + i0
     if (hy == 0) {
         return Complex(f32).init(@exp(x), y);
     }
 
-    const hx = @bitCast(u32, x);
+    const hx = @as(u32, @bitCast(x));
     // cexp(0 + iy) = cos(y) + isin(y)
     if ((hx & 0x7fffffff) == 0) {
         return Complex(f32).init(@cos(y), @sin(y));
@@ -75,18 +75,18 @@ fn exp64(z: Complex(f64)) Complex(f64) {
     const x = z.re;
     const y = z.im;
 
-    const fy = @bitCast(u64, y);
-    const hy = @intCast(u32, (fy >> 32) & 0x7fffffff);
-    const ly = @truncate(u32, fy);
+    const fy = @as(u64, @bitCast(y));
+    const hy = @as(u32, @intCast((fy >> 32) & 0x7fffffff));
+    const ly = @as(u32, @truncate(fy));
 
     // cexp(x + i0) = exp(x) + i0
     if (hy | ly == 0) {
         return Complex(f64).init(@exp(x), y);
     }
 
-    const fx = @bitCast(u64, x);
-    const hx = @intCast(u32, fx >> 32);
-    const lx = @truncate(u32, fx);
+    const fx = @as(u64, @bitCast(x));
+    const hx = @as(u32, @intCast(fx >> 32));
+    const lx = @as(u32, @truncate(fx));
 
     // cexp(0 + iy) = cos(y) + isin(y)
     if ((hx & 0x7fffffff) | lx == 0) {

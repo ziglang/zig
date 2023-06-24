@@ -295,7 +295,7 @@ fn putFn(self: *Plan9, decl_index: Module.Decl.Index, out: FnDeclOutput) !void {
             .sym_index = blk: {
                 try self.syms.append(gpa, undefined);
                 try self.syms.append(gpa, undefined);
-                break :blk @intCast(u32, self.syms.items.len - 1);
+                break :blk @as(u32, @intCast(self.syms.items.len - 1));
             },
         };
         try fn_map_res.value_ptr.functions.put(gpa, decl_index, out);
@@ -485,7 +485,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: Module.Decl.Index) !vo
         .ty = decl.ty,
         .val = decl_val,
     }, &code_buffer, .{ .none = {} }, .{
-        .parent_atom_index = @intCast(Atom.Index, atom_idx),
+        .parent_atom_index = @as(Atom.Index, @intCast(atom_idx)),
     });
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -562,10 +562,10 @@ pub fn flush(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) li
 
 pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
     if (delta_line > 0 and delta_line < 65) {
-        const toappend = @intCast(u8, delta_line);
+        const toappend = @as(u8, @intCast(delta_line));
         try l.append(toappend);
     } else if (delta_line < 0 and delta_line > -65) {
-        const toadd: u8 = @intCast(u8, -delta_line + 64);
+        const toadd: u8 = @as(u8, @intCast(-delta_line + 64));
         try l.append(toadd);
     } else if (delta_line != 0) {
         try l.append(0);
@@ -675,7 +675,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 const out = entry.value_ptr.*;
                 {
                     // connect the previous decl to the next
-                    const delta_line = @intCast(i32, out.start_line) - @intCast(i32, linecount);
+                    const delta_line = @as(i32, @intCast(out.start_line)) - @as(i32, @intCast(linecount));
 
                     try changeLine(&linecountinfo, delta_line);
                     // TODO change the pc too (maybe?)
@@ -692,7 +692,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 atom.offset = off;
                 log.debug("write text decl {*} ({}), lines {d} to {d}.;__GOT+0x{x} vaddr: 0x{x}", .{ decl, decl.name.fmt(&mod.intern_pool), out.start_line + 1, out.end_line, atom.got_index.? * 8, off });
                 if (!self.sixtyfour_bit) {
-                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
                 } else {
                     mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
                 }
@@ -721,7 +721,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             text_i += code.len;
             text_atom.offset = off;
             if (!self.sixtyfour_bit) {
-                mem.writeInt(u32, got_table[text_atom.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u32, got_table[text_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
             } else {
                 mem.writeInt(u64, got_table[text_atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
             }
@@ -749,7 +749,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             data_i += code.len;
             atom.offset = off;
             if (!self.sixtyfour_bit) {
-                mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
             } else {
                 mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
             }
@@ -772,7 +772,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 data_i += code.len;
                 atom.offset = off;
                 if (!self.sixtyfour_bit) {
-                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
                 } else {
                     mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
                 }
@@ -792,7 +792,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             data_i += code.len;
             data_atom.offset = off;
             if (!self.sixtyfour_bit) {
-                mem.writeInt(u32, got_table[data_atom.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u32, got_table[data_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
             } else {
                 mem.writeInt(u64, got_table[data_atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
             }
@@ -815,13 +815,13 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
     // generate the header
     self.hdr = .{
         .magic = self.magic,
-        .text = @intCast(u32, text_i),
-        .data = @intCast(u32, data_i),
-        .syms = @intCast(u32, syms.len),
+        .text = @as(u32, @intCast(text_i)),
+        .data = @as(u32, @intCast(data_i)),
+        .syms = @as(u32, @intCast(syms.len)),
         .bss = 0,
         .spsz = 0,
-        .pcsz = @intCast(u32, linecountinfo.items.len),
-        .entry = @intCast(u32, self.entry_val.?),
+        .pcsz = @as(u32, @intCast(linecountinfo.items.len)),
+        .entry = @as(u32, @intCast(self.entry_val.?)),
     };
     @memcpy(hdr_slice, self.hdr.toU8s()[0..hdr_size]);
     // write the fat header for 64 bit entry points
@@ -847,13 +847,13 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 const code = source_atom.code.getCode(self);
 
                 if (reloc.pcrel) {
-                    const disp = @intCast(i32, target_offset) - @intCast(i32, source_atom.offset.?) - 4 - @intCast(i32, offset);
-                    mem.writeInt(i32, code[@intCast(usize, offset)..][0..4], @intCast(i32, disp), self.base.options.target.cpu.arch.endian());
+                    const disp = @as(i32, @intCast(target_offset)) - @as(i32, @intCast(source_atom.offset.?)) - 4 - @as(i32, @intCast(offset));
+                    mem.writeInt(i32, code[@as(usize, @intCast(offset))..][0..4], @as(i32, @intCast(disp)), self.base.options.target.cpu.arch.endian());
                 } else {
                     if (!self.sixtyfour_bit) {
-                        mem.writeInt(u32, code[@intCast(usize, offset)..][0..4], @intCast(u32, target_offset + addend), self.base.options.target.cpu.arch.endian());
+                        mem.writeInt(u32, code[@as(usize, @intCast(offset))..][0..4], @as(u32, @intCast(target_offset + addend)), self.base.options.target.cpu.arch.endian());
                     } else {
-                        mem.writeInt(u64, code[@intCast(usize, offset)..][0..8], target_offset + addend, self.base.options.target.cpu.arch.endian());
+                        mem.writeInt(u64, code[@as(usize, @intCast(offset))..][0..8], target_offset + addend, self.base.options.target.cpu.arch.endian());
                     }
                 }
                 log.debug("relocating the address of '{s}' + {d} into '{s}' + {d} (({s}[{d}] = 0x{x} + 0x{x})", .{ target_symbol.name, addend, source_atom_symbol.name, offset, source_atom_symbol.name, offset, target_offset, addend });
@@ -960,7 +960,7 @@ fn freeUnnamedConsts(self: *Plan9, decl_index: Module.Decl.Index) void {
 
 fn createAtom(self: *Plan9) !Atom.Index {
     const gpa = self.base.allocator;
-    const index = @intCast(Atom.Index, self.atoms.items.len);
+    const index = @as(Atom.Index, @intCast(self.atoms.items.len));
     const atom = try self.atoms.addOne(gpa);
     atom.* = .{
         .type = .t,
@@ -1060,7 +1060,7 @@ fn updateLazySymbolAtom(self: *Plan9, sym: File.LazySymbol, atom_index: Atom.Ind
         &required_alignment,
         &code_buffer,
         .none,
-        .{ .parent_atom_index = @intCast(Atom.Index, atom_index) },
+        .{ .parent_atom_index = @as(Atom.Index, @intCast(atom_index)) },
     );
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -1188,7 +1188,7 @@ pub fn writeSym(self: *Plan9, w: anytype, sym: aout.Sym) !void {
     // log.debug("write sym{{name: {s}, value: {x}}}", .{ sym.name, sym.value });
     if (sym.type == .bad) return; // we don't want to write free'd symbols
     if (!self.sixtyfour_bit) {
-        try w.writeIntBig(u32, @intCast(u32, sym.value));
+        try w.writeIntBig(u32, @as(u32, @intCast(sym.value)));
     } else {
         try w.writeIntBig(u64, sym.value);
     }

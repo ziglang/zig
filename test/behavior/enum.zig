@@ -20,7 +20,7 @@ test "enum to int" {
 }
 
 fn testIntToEnumEval(x: i32) !void {
-    try expect(@enumFromInt(IntToEnumNumber, x) == IntToEnumNumber.Three);
+    try expect(@as(IntToEnumNumber, @enumFromInt(x)) == IntToEnumNumber.Three);
 }
 const IntToEnumNumber = enum { Zero, One, Two, Three, Four };
 
@@ -629,7 +629,7 @@ test "non-exhaustive enum" {
                 .b => true,
                 _ => false,
             });
-            e = @enumFromInt(E, 12);
+            e = @as(E, @enumFromInt(12));
             try expect(switch (e) {
                 .a => false,
                 .b => false,
@@ -648,9 +648,9 @@ test "non-exhaustive enum" {
             });
 
             try expect(@typeInfo(E).Enum.fields.len == 2);
-            e = @enumFromInt(E, 12);
+            e = @as(E, @enumFromInt(12));
             try expect(@intFromEnum(e) == 12);
-            e = @enumFromInt(E, y);
+            e = @as(E, @enumFromInt(y));
             try expect(@intFromEnum(e) == 52);
             try expect(@typeInfo(E).Enum.is_exhaustive == false);
         }
@@ -666,7 +666,7 @@ test "empty non-exhaustive enum" {
         const E = enum(u8) { _ };
 
         fn doTheTest(y: u8) !void {
-            var e = @enumFromInt(E, y);
+            var e = @as(E, @enumFromInt(y));
             try expect(switch (e) {
                 _ => true,
             });
@@ -693,7 +693,7 @@ test "single field non-exhaustive enum" {
                 .a => true,
                 _ => false,
             });
-            e = @enumFromInt(E, 12);
+            e = @as(E, @enumFromInt(12));
             try expect(switch (e) {
                 .a => false,
                 _ => true,
@@ -709,7 +709,7 @@ test "single field non-exhaustive enum" {
                 else => false,
             });
 
-            try expect(@intFromEnum(@enumFromInt(E, y)) == y);
+            try expect(@intFromEnum(@as(E, @enumFromInt(y))) == y);
             try expect(@typeInfo(E).Enum.fields.len == 1);
             try expect(@typeInfo(E).Enum.is_exhaustive == false);
         }
@@ -741,8 +741,8 @@ const MultipleChoice2 = enum(u32) {
 };
 
 test "cast integer literal to enum" {
-    try expect(@enumFromInt(MultipleChoice2, 0) == MultipleChoice2.Unspecified1);
-    try expect(@enumFromInt(MultipleChoice2, 40) == MultipleChoice2.B);
+    try expect(@as(MultipleChoice2, @enumFromInt(0)) == MultipleChoice2.Unspecified1);
+    try expect(@as(MultipleChoice2, @enumFromInt(40)) == MultipleChoice2.B);
 }
 
 test "enum with specified and unspecified tag values" {
@@ -1155,7 +1155,7 @@ test "size of enum with only one tag which has explicit integer tag type" {
     var s1: S1 = undefined;
     s1.e = .nope;
     try expect(s1.e == .nope);
-    const ptr = @ptrCast(*u8, &s1);
+    const ptr = @as(*u8, @ptrCast(&s1));
     try expect(ptr.* == 10);
 
     var s0: S0 = undefined;
@@ -1183,7 +1183,7 @@ test "Non-exhaustive enum with nonstandard int size behaves correctly" {
 test "runtime int to enum with one possible value" {
     const E = enum { one };
     var runtime: usize = 0;
-    if (@enumFromInt(E, runtime) != .one) {
+    if (@as(E, @enumFromInt(runtime)) != .one) {
         @compileError("test failed");
     }
 }
@@ -1194,7 +1194,7 @@ test "enum tag from a local variable" {
             return enum(Inner) { _ };
         }
     };
-    const i = @enumFromInt(S.Int(u32), 0);
+    const i = @as(S.Int(u32), @enumFromInt(0));
     try std.testing.expect(@intFromEnum(i) == 0);
 }
 
@@ -1203,12 +1203,12 @@ test "auto-numbered enum with signed tag type" {
 
     try std.testing.expectEqual(@as(i32, 0), @intFromEnum(E.a));
     try std.testing.expectEqual(@as(i32, 1), @intFromEnum(E.b));
-    try std.testing.expectEqual(E.a, @enumFromInt(E, 0));
-    try std.testing.expectEqual(E.b, @enumFromInt(E, 1));
-    try std.testing.expectEqual(E.a, @enumFromInt(E, @as(i32, 0)));
-    try std.testing.expectEqual(E.b, @enumFromInt(E, @as(i32, 1)));
-    try std.testing.expectEqual(E.a, @enumFromInt(E, @as(u32, 0)));
-    try std.testing.expectEqual(E.b, @enumFromInt(E, @as(u32, 1)));
+    try std.testing.expectEqual(E.a, @as(E, @enumFromInt(0)));
+    try std.testing.expectEqual(E.b, @as(E, @enumFromInt(1)));
+    try std.testing.expectEqual(E.a, @as(E, @enumFromInt(@as(i32, 0))));
+    try std.testing.expectEqual(E.b, @as(E, @enumFromInt(@as(i32, 1))));
+    try std.testing.expectEqual(E.a, @as(E, @enumFromInt(@as(u32, 0))));
+    try std.testing.expectEqual(E.b, @as(E, @enumFromInt(@as(u32, 1))));
     try std.testing.expectEqualStrings("a", @tagName(E.a));
     try std.testing.expectEqualStrings("b", @tagName(E.b));
 }

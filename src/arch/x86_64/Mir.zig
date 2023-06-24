@@ -989,7 +989,7 @@ pub const RegisterList = struct {
 
     fn getIndexForReg(registers: []const Register, reg: Register) BitSet.MaskInt {
         for (registers, 0..) |cpreg, i| {
-            if (reg.id() == cpreg.id()) return @intCast(u32, i);
+            if (reg.id() == cpreg.id()) return @as(u32, @intCast(i));
         }
         unreachable; // register not in input register list!
     }
@@ -1009,7 +1009,7 @@ pub const RegisterList = struct {
     }
 
     pub fn count(self: Self) u32 {
-        return @intCast(u32, self.bitset.count());
+        return @as(u32, @intCast(self.bitset.count()));
     }
 };
 
@@ -1023,15 +1023,15 @@ pub const Imm64 = struct {
 
     pub fn encode(v: u64) Imm64 {
         return .{
-            .msb = @truncate(u32, v >> 32),
-            .lsb = @truncate(u32, v),
+            .msb = @as(u32, @truncate(v >> 32)),
+            .lsb = @as(u32, @truncate(v)),
         };
     }
 
     pub fn decode(imm: Imm64) u64 {
         var res: u64 = 0;
-        res |= (@intCast(u64, imm.msb) << 32);
-        res |= @intCast(u64, imm.lsb);
+        res |= (@as(u64, @intCast(imm.msb)) << 32);
+        res |= @as(u64, @intCast(imm.lsb));
         return res;
     }
 };
@@ -1070,18 +1070,18 @@ pub const MemorySib = struct {
     }
 
     pub fn decode(msib: MemorySib) Memory {
-        const scale = @truncate(u4, msib.scale_index);
+        const scale = @as(u4, @truncate(msib.scale_index));
         assert(scale == 0 or std.math.isPowerOfTwo(scale));
         return .{ .sib = .{
-            .ptr_size = @enumFromInt(Memory.PtrSize, msib.ptr_size),
-            .base = switch (@enumFromInt(Memory.Base.Tag, msib.base_tag)) {
+            .ptr_size = @as(Memory.PtrSize, @enumFromInt(msib.ptr_size)),
+            .base = switch (@as(Memory.Base.Tag, @enumFromInt(msib.base_tag))) {
                 .none => .none,
-                .reg => .{ .reg = @enumFromInt(Register, msib.base) },
-                .frame => .{ .frame = @enumFromInt(bits.FrameIndex, msib.base) },
+                .reg => .{ .reg = @as(Register, @enumFromInt(msib.base)) },
+                .frame => .{ .frame = @as(bits.FrameIndex, @enumFromInt(msib.base)) },
             },
             .scale_index = .{
                 .scale = scale,
-                .index = if (scale > 0) @enumFromInt(Register, msib.scale_index >> 4) else undefined,
+                .index = if (scale > 0) @as(Register, @enumFromInt(msib.scale_index >> 4)) else undefined,
             },
             .disp = msib.disp,
         } };
@@ -1103,7 +1103,7 @@ pub const MemoryRip = struct {
 
     pub fn decode(mrip: MemoryRip) Memory {
         return .{ .rip = .{
-            .ptr_size = @enumFromInt(Memory.PtrSize, mrip.ptr_size),
+            .ptr_size = @as(Memory.PtrSize, @enumFromInt(mrip.ptr_size)),
             .disp = mrip.disp,
         } };
     }
@@ -1120,14 +1120,14 @@ pub const MemoryMoffs = struct {
     pub fn encode(seg: Register, offset: u64) MemoryMoffs {
         return .{
             .seg = @intFromEnum(seg),
-            .msb = @truncate(u32, offset >> 32),
-            .lsb = @truncate(u32, offset >> 0),
+            .msb = @as(u32, @truncate(offset >> 32)),
+            .lsb = @as(u32, @truncate(offset >> 0)),
         };
     }
 
     pub fn decode(moffs: MemoryMoffs) Memory {
         return .{ .moffs = .{
-            .seg = @enumFromInt(Register, moffs.seg),
+            .seg = @as(Register, @enumFromInt(moffs.seg)),
             .offset = @as(u64, moffs.msb) << 32 | @as(u64, moffs.lsb) << 0,
         } };
     }
@@ -1147,7 +1147,7 @@ pub fn extraData(mir: Mir, comptime T: type, index: u32) struct { data: T, end: 
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => mir.extra[i],
-            i32 => @bitCast(i32, mir.extra[i]),
+            i32 => @as(i32, @bitCast(mir.extra[i])),
             else => @compileError("bad field type"),
         };
         i += 1;
