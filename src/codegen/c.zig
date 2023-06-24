@@ -53,7 +53,7 @@ const BlockData = struct {
     result: CValue,
 };
 
-pub const CValueMap = std.AutoHashMap(Air.Inst.Index, CValue);
+pub const CValueMap = std.AutoHashMap(Air.Inst.Ref, CValue);
 
 pub const LazyFnKey = union(enum) {
     tag_name: Decl.Index,
@@ -282,31 +282,29 @@ pub const Function = struct {
     allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .{},
 
     fn resolveInst(f: *Function, ref: Air.Inst.Ref) !CValue {
-        if (Air.refToIndex(ref)) |inst| {
-            const gop = try f.value_map.getOrPut(inst);
-            if (gop.found_existing) return gop.value_ptr.*;
+        const gop = try f.value_map.getOrPut(ref);
+        if (gop.found_existing) return gop.value_ptr.*;
 
-            const mod = f.object.dg.module;
-            const val = (try f.air.value(ref, mod)).?;
-            const ty = f.typeOf(ref);
+        const mod = f.object.dg.module;
+        const val = (try f.air.value(ref, mod)).?;
+        const ty = f.typeOf(ref);
 
-            const result: CValue = if (lowersToArray(ty, mod)) result: {
-                const writer = f.object.code_header.writer();
-                const alignment = 0;
-                const decl_c_value = try f.allocLocalValue(ty, alignment);
-                const gpa = f.object.dg.gpa;
-                try f.allocs.put(gpa, decl_c_value.new_local, false);
-                try writer.writeAll("static ");
-                try f.object.dg.renderTypeAndName(writer, ty, decl_c_value, Const, alignment, .complete);
-                try writer.writeAll(" = ");
-                try f.object.dg.renderValue(writer, ty, val, .StaticInitializer);
-                try writer.writeAll(";\n ");
-                break :result decl_c_value;
-            } else .{ .constant = ref };
+        const result: CValue = if (lowersToArray(ty, mod)) result: {
+            const writer = f.object.code_header.writer();
+            const alignment = 0;
+            const decl_c_value = try f.allocLocalValue(ty, alignment);
+            const gpa = f.object.dg.gpa;
+            try f.allocs.put(gpa, decl_c_value.new_local, false);
+            try writer.writeAll("static ");
+            try f.object.dg.renderTypeAndName(writer, ty, decl_c_value, Const, alignment, .complete);
+            try writer.writeAll(" = ");
+            try f.object.dg.renderValue(writer, ty, val, .StaticInitializer);
+            try writer.writeAll(";\n ");
+            break :result decl_c_value;
+        } else .{ .constant = ref };
 
-            gop.value_ptr.* = result;
-            return result;
-        } else return .{ .constant = ref };
+        gop.value_ptr.* = result;
+        return result;
     }
 
     fn wantSafety(f: *Function) bool {
@@ -2823,7 +2821,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
         const result_value = switch (air_tags[inst]) {
             // zig fmt: off
-            .inferred_alloc, .inferred_alloc_comptime, .interned => unreachable,
+            .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
             .arg      => try airArg(f, inst),
 
@@ -3091,7 +3089,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
         if (result_value == .new_local) {
             log.debug("map %{d} to t{d}", .{ inst, result_value.new_local });
         }
-        try f.value_map.putNoClobber(inst, switch (result_value) {
+        try f.value_map.putNoClobber(Air.indexToRef(inst), switch (result_value) {
             .none => continue,
             .new_local => |i| .{ .local = i },
             else => result_value,
@@ -7439,7 +7437,7 @@ fn formatIntLiteral(
     } else data.val.toBigInt(&int_buf, mod);
     assert(int.fitsInTwosComp(data.int_info.signedness, data.int_info.bits));
 
-    const c_bits = @as(usize, @intCast(data.cty.byteSize(data.dg.ctypes.set, target) * 8));
+    const c_bits: usize = @intCast(data.cty.byteSize(data.dg.ctypes.set, target) * 8);
     var one_limbs: [BigInt.calcLimbLen(1)]BigIntLimb = undefined;
     const one = BigInt.Mutable.init(&one_limbs, 1).toConst();
 
@@ -7745,8 +7743,7 @@ fn reap(f: *Function, inst: Air.Inst.Index, operands: []const Air.Inst.Ref) !voi
 
 fn die(f: *Function, inst: Air.Inst.Index, ref: Air.Inst.Ref) !void {
     const ref_inst = Air.refToIndex(ref) orelse return;
-    assert(f.air.instructions.items(.tag)[ref_inst] != .interned);
-    const c_value = (f.value_map.fetchRemove(ref_inst) orelse return).value;
+    const c_value = (f.value_map.fetchRemove(ref) orelse return).value;
     const local_index = switch (c_value) {
         .local, .new_local => |l| l,
         else => return,

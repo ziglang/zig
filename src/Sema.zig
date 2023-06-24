@@ -2068,28 +2068,26 @@ fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
 ) CompileError!?Value {
     assert(inst != .none);
     // First section of indexes correspond to a set number of constant values.
-    const int = @intFromEnum(inst);
-    if (int < InternPool.static_len) {
-        return @as(InternPool.Index, @enumFromInt(int)).toValue();
+    if (@intFromEnum(inst) < InternPool.static_len) {
+        return @as(InternPool.Index, @enumFromInt(@intFromEnum(inst))).toValue();
     }
 
-    const i = int - InternPool.static_len;
     const air_tags = sema.air_instructions.items(.tag);
     if (try sema.typeHasOnePossibleValue(sema.typeOf(inst))) |opv| {
-        if (air_tags[i] == .interned) {
-            const interned = sema.air_instructions.items(.data)[i].interned;
-            const val = interned.toValue();
+        if (Air.refToInterned(inst)) |ip_index| {
+            const val = ip_index.toValue();
             if (val.getVariable(sema.mod) != null) return val;
         }
         return opv;
     }
-    const air_datas = sema.air_instructions.items(.data);
-    const val = switch (air_tags[i]) {
-        .inferred_alloc => unreachable,
-        .inferred_alloc_comptime => unreachable,
-        .interned => air_datas[i].interned.toValue(),
-        else => return null,
+    const ip_index = Air.refToInterned(inst) orelse {
+        switch (air_tags[Air.refToIndex(inst).?]) {
+            .inferred_alloc => unreachable,
+            .inferred_alloc_comptime => unreachable,
+            else => return null,
+        }
     };
+    const val = ip_index.toValue();
     if (val.isRuntimeValue(sema.mod)) make_runtime.* = true;
     if (val.isPtrToThreadLocal(sema.mod)) make_runtime.* = true;
     return val;
@@ -3868,18 +3866,23 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 },
             });
 
+            if (std.debug.runtime_safety) {
+                // The inferred_alloc_comptime should never be referenced again
+                sema.air_instructions.set(ptr_inst, .{ .tag = undefined, .data = undefined });
+            }
+
             try sema.maybeQueueFuncBodyAnalysis(decl_index);
-            // Change it to an interned.
-            sema.air_instructions.set(ptr_inst, .{
-                .tag = .interned,
-                .data = .{ .interned = try mod.intern(.{ .ptr = .{
-                    .ty = final_ptr_ty.toIntern(),
-                    .addr = if (!iac.is_const) .{ .mut_decl = .{
-                        .decl = decl_index,
-                        .runtime_index = block.runtime_index,
-                    } } else .{ .decl = decl_index },
-                } }) },
-            });
+
+            const interned = try mod.intern(.{ .ptr = .{
+                .ty = final_ptr_ty.toIntern(),
+                .addr = if (!iac.is_const) .{ .mut_decl = .{
+                    .decl = decl_index,
+                    .runtime_index = block.runtime_index,
+                } } else .{ .decl = decl_index },
+            } });
+
+            // Remap the ZIR operand to the resolved pointer value
+            sema.inst_map.putAssumeCapacity(Zir.refToIndex(inst_data.operand).?, Air.internedToRef(interned));
         },
         .inferred_alloc => {
             const ia1 = sema.air_instructions.items(.data)[ptr_inst].inferred_alloc;
@@ -3966,17 +3969,22 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 };
                 try mod.declareDeclDependency(sema.owner_decl_index, new_decl_index);
 
-                // Even though we reuse the constant instruction, we still remove it from the
-                // block so that codegen does not see it.
+                // Remove the instruction from the block so that codegen does not see it.
                 block.instructions.shrinkRetainingCapacity(search_index);
                 try sema.maybeQueueFuncBodyAnalysis(new_decl_index);
-                sema.air_instructions.set(ptr_inst, .{
-                    .tag = .interned,
-                    .data = .{ .interned = try mod.intern(.{ .ptr = .{
-                        .ty = final_ptr_ty.toIntern(),
-                        .addr = .{ .decl = new_decl_index },
-                    } }) },
-                });
+
+                if (std.debug.runtime_safety) {
+                    // The inferred_alloc should never be referenced again
+                    sema.air_instructions.set(ptr_inst, .{ .tag = undefined, .data = undefined });
+                }
+
+                const interned = try mod.intern(.{ .ptr = .{
+                    .ty = final_ptr_ty.toIntern(),
+                    .addr = .{ .decl = new_decl_index },
+                } });
+
+                // Remap the ZIR oeprand to the resolved pointer value
+                sema.inst_map.putAssumeCapacity(Zir.refToIndex(inst_data.operand).?, Air.internedToRef(interned));
 
                 // Unless the block is comptime, `alloc_inferred` always produces
                 // a runtime constant. The final inferred type needs to be
@@ -4404,7 +4412,6 @@ fn validateUnionInit(
     const air_tags = sema.air_instructions.items(.tag);
     const air_datas = sema.air_instructions.items(.data);
     const field_ptr_air_ref = sema.inst_map.get(field_ptr).?;
-    const field_ptr_air_inst = Air.refToIndex(field_ptr_air_ref).?;
 
     // Our task here is to determine if the union is comptime-known. In such case,
     // we erase the runtime AIR instructions for initializing the union, and replace
@@ -4434,7 +4441,7 @@ fn validateUnionInit(
     var make_runtime = false;
     while (block_index > 0) : (block_index -= 1) {
         const store_inst = block.instructions.items[block_index];
-        if (store_inst == field_ptr_air_inst) break;
+        if (Air.indexToRef(store_inst) == field_ptr_air_ref) break;
         switch (air_tags[store_inst]) {
             .store, .store_safe => {},
             else => continue,
@@ -4453,7 +4460,7 @@ fn validateUnionInit(
             if (air_tags[block_inst] != .dbg_stmt) break;
         }
         if (block_index > 0 and
-            field_ptr_air_inst == block.instructions.items[block_index - 1])
+            field_ptr_air_ref == Air.indexToRef(block.instructions.items[block_index - 1]))
         {
             first_block_index = @min(first_block_index, block_index - 1);
         } else {
@@ -4622,7 +4629,6 @@ fn validateStructInit(
             }
 
             const field_ptr_air_ref = sema.inst_map.get(field_ptr).?;
-            const field_ptr_air_inst = Air.refToIndex(field_ptr_air_ref).?;
 
             //std.debug.print("validateStructInit (field_ptr_air_inst=%{d}):\n", .{
             //    field_ptr_air_inst,
@@ -4652,7 +4658,7 @@ fn validateStructInit(
             var block_index = block.instructions.items.len - 1;
             while (block_index > 0) : (block_index -= 1) {
                 const store_inst = block.instructions.items[block_index];
-                if (store_inst == field_ptr_air_inst) {
+                if (Air.indexToRef(store_inst) == field_ptr_air_ref) {
                     struct_is_comptime = false;
                     continue :field;
                 }
@@ -4675,7 +4681,7 @@ fn validateStructInit(
                     if (air_tags[block_inst] != .dbg_stmt) break;
                 }
                 if (block_index > 0 and
-                    field_ptr_air_inst == block.instructions.items[block_index - 1])
+                    field_ptr_air_ref == Air.indexToRef(block.instructions.items[block_index - 1]))
                 {
                     first_block_index = @min(first_block_index, block_index - 1);
                 } else {
@@ -4865,7 +4871,6 @@ fn zirValidateArrayInit(
         }
 
         const elem_ptr_air_ref = sema.inst_map.get(elem_ptr).?;
-        const elem_ptr_air_inst = Air.refToIndex(elem_ptr_air_ref).?;
 
         // We expect to see something like this in the current block AIR:
         //   %a = elem_ptr(...)
@@ -4890,7 +4895,7 @@ fn zirValidateArrayInit(
         var block_index = block.instructions.items.len - 1;
         while (block_index > 0) : (block_index -= 1) {
             const store_inst = block.instructions.items[block_index];
-            if (store_inst == elem_ptr_air_inst) {
+            if (Air.indexToRef(store_inst) == elem_ptr_air_ref) {
                 array_is_comptime = false;
                 continue :outer;
             }
@@ -4913,7 +4918,7 @@ fn zirValidateArrayInit(
                 if (air_tags[block_inst] != .dbg_stmt) break;
             }
             if (block_index > 0 and
-                elem_ptr_air_inst == block.instructions.items[block_index - 1])
+                elem_ptr_air_ref == Air.indexToRef(block.instructions.items[block_index - 1]))
             {
                 first_block_index = @min(first_block_index, block_index - 1);
             } else {
@@ -5785,8 +5790,7 @@ fn analyzeBlockBody(
             sema.air_instructions.items(.data)[br].br.operand = coerced_operand;
             continue;
         }
-        assert(coerce_block.instructions.items[coerce_block.instructions.items.len - 1] ==
-            Air.refToIndex(coerced_operand).?);
+        assert(Air.indexToRef(coerce_block.instructions.items[coerce_block.instructions.items.len - 1]) == coerced_operand);
 
         // Convert the br instruction to a block instruction that has the coercion
         // and then a new br inside that returns the coerced instruction.
@@ -30397,8 +30401,8 @@ fn analyzeDeclVal(
     }
     const decl_ref = try sema.analyzeDeclRefInner(decl_index, false);
     const result = try sema.analyzeLoad(block, src, decl_ref, src);
-    if (Air.refToIndex(result)) |index| {
-        if (sema.air_instructions.items(.tag)[index] == .interned and !block.is_typeof) {
+    if (Air.refToInterned(result) != null) {
+        if (!block.is_typeof) {
             try sema.decl_val_table.put(sema.gpa, decl_index, result);
         }
     }
@@ -30720,7 +30724,7 @@ fn analyzeIsNonErrComptimeOnly(
         }
     } else if (operand == .undef) {
         return sema.addConstUndef(Type.bool);
-    } else {
+    } else if (@intFromEnum(operand) < InternPool.static_len) {
         // None of the ref tags can be errors.
         return Air.Inst.Ref.bool_true;
     }
@@ -35494,14 +35498,10 @@ pub fn getTmpAir(sema: Sema) Air {
     };
 }
 
+// TODO: make this non-fallible or remove it entirely
 pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
-    if (@intFromEnum(ty.toIntern()) < Air.ref_start_index)
-        return @as(Air.Inst.Ref, @enumFromInt(@intFromEnum(ty.toIntern())));
-    try sema.air_instructions.append(sema.gpa, .{
-        .tag = .interned,
-        .data = .{ .interned = ty.toIntern() },
-    });
-    return Air.indexToRef(@as(u32, @intCast(sema.air_instructions.len - 1)));
+    _ = sema;
+    return Air.internedToRef(ty.toIntern());
 }
 
 fn addIntUnsigned(sema: *Sema, ty: Type, int: u64) CompileError!Air.Inst.Ref {
@@ -35513,14 +35513,10 @@ fn addConstUndef(sema: *Sema, ty: Type) CompileError!Air.Inst.Ref {
     return sema.addConstant((try sema.mod.intern(.{ .undef = ty.toIntern() })).toValue());
 }
 
-pub fn addConstant(sema: *Sema, val: Value) SemaError!Air.Inst.Ref {
-    if (@intFromEnum(val.toIntern()) < Air.ref_start_index)
-        return @as(Air.Inst.Ref, @enumFromInt(@intFromEnum(val.toIntern())));
-    try sema.air_instructions.append(sema.gpa, .{
-        .tag = .interned,
-        .data = .{ .interned = val.toIntern() },
-    });
-    return Air.indexToRef(@as(u32, @intCast(sema.air_instructions.len - 1)));
+// TODO: make this non-fallible or remove it entirely
+pub fn addConstant(sema: *Sema, val: Value) !Air.Inst.Ref {
+    _ = sema;
+    return Air.internedToRef(val.toIntern());
 }
 
 pub fn addExtra(sema: *Sema, extra: anytype) Allocator.Error!u32 {
