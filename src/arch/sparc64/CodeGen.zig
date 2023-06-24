@@ -508,11 +508,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptr_sub => try self.airPtrArithmetic(inst, .ptr_sub),
 
             .add             => try self.airBinOp(inst, .add),
-            .addwrap         => try self.airBinOp(inst, .addwrap),
+            .add_wrap        => try self.airBinOp(inst, .add_wrap),
             .sub             => try self.airBinOp(inst, .sub),
-            .subwrap         => try self.airBinOp(inst, .subwrap),
+            .sub_wrap        => try self.airBinOp(inst, .sub_wrap),
             .mul             => try self.airBinOp(inst, .mul),
-            .mulwrap         => try self.airBinOp(inst, .mulwrap),
+            .mul_wrap        => try self.airBinOp(inst, .mul_wrap),
             .shl             => try self.airBinOp(inst, .shl),
             .shl_exact       => try self.airBinOp(inst, .shl_exact),
             .shr             => try self.airBinOp(inst, .shr),
@@ -697,11 +697,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
             .add_optimized,
-            .addwrap_optimized,
             .sub_optimized,
-            .subwrap_optimized,
             .mul_optimized,
-            .mulwrap_optimized,
             .div_float_optimized,
             .div_trunc_optimized,
             .div_floor_optimized,
@@ -719,6 +716,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .reduce_optimized,
             .int_from_float_optimized,
             => @panic("TODO implement optimized float mode"),
+
+            .add_safe,
+            .sub_safe,
+            .mul_safe,
+            => @panic("TODO implement safety_checked_instructions"),
 
             .is_named_enum_value => @panic("TODO implement is_named_enum_value"),
             .error_set_has_value => @panic("TODO implement error_set_has_value"),
@@ -2931,14 +2933,14 @@ fn binOp(
             }
         },
 
-        .addwrap,
-        .subwrap,
-        .mulwrap,
+        .add_wrap,
+        .sub_wrap,
+        .mul_wrap,
         => {
             const base_tag: Air.Inst.Tag = switch (tag) {
-                .addwrap => .add,
-                .subwrap => .sub,
-                .mulwrap => .mul,
+                .add_wrap => .add,
+                .sub_wrap => .sub,
+                .mul_wrap => .mul,
                 else => unreachable,
             };
 

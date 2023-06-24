@@ -653,11 +653,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         switch (air_tags[inst]) {
             // zig fmt: off
             .add,            => try self.airBinOp(inst, .add),
-            .addwrap         => try self.airBinOp(inst, .addwrap),
+            .add_wrap        => try self.airBinOp(inst, .add_wrap),
             .sub,            => try self.airBinOp(inst, .sub),
-            .subwrap         => try self.airBinOp(inst, .subwrap),
+            .sub_wrap        => try self.airBinOp(inst, .sub_wrap),
             .mul             => try self.airBinOp(inst, .mul),
-            .mulwrap         => try self.airBinOp(inst, .mulwrap),
+            .mul_wrap        => try self.airBinOp(inst, .mul_wrap),
             .shl             => try self.airBinOp(inst, .shl),
             .shl_exact       => try self.airBinOp(inst, .shl_exact),
             .bool_and        => try self.airBinOp(inst, .bool_and),
@@ -849,11 +849,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
             .add_optimized,
-            .addwrap_optimized,
             .sub_optimized,
-            .subwrap_optimized,
             .mul_optimized,
-            .mulwrap_optimized,
             .div_float_optimized,
             .div_trunc_optimized,
             .div_floor_optimized,
@@ -871,6 +868,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .reduce_optimized,
             .int_from_float_optimized,
             => return self.fail("TODO implement optimized float mode", .{}),
+
+            .add_safe,
+            .sub_safe,
+            .mul_safe,
+            => return self.fail("TODO implement safety_checked_instructions", .{}),
 
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
             .error_set_has_value => return self.fail("TODO implement error_set_has_value", .{}),
@@ -1523,9 +1525,9 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
 
             .mod => try self.modulo(lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
 
-            .addwrap => try self.wrappingArithmetic(tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
-            .subwrap => try self.wrappingArithmetic(tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
-            .mulwrap => try self.wrappingArithmetic(tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
+            .add_wrap => try self.wrappingArithmetic(tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
+            .sub_wrap => try self.wrappingArithmetic(tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
+            .mul_wrap => try self.wrappingArithmetic(tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
 
             .bit_and => try self.bitwise(tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
             .bit_or => try self.bitwise(tag, lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
@@ -3694,9 +3696,9 @@ fn wrappingArithmetic(
             if (int_info.bits <= 32) {
                 // Generate an add/sub/mul
                 const result: MCValue = switch (tag) {
-                    .addwrap => try self.addSub(.add, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst),
-                    .subwrap => try self.addSub(.sub, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst),
-                    .mulwrap => try self.mul(lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst),
+                    .add_wrap => try self.addSub(.add, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst),
+                    .sub_wrap => try self.addSub(.sub, lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst),
+                    .mul_wrap => try self.mul(lhs_bind, rhs_bind, lhs_ty, rhs_ty, maybe_inst),
                     else => unreachable,
                 };
 

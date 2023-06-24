@@ -9674,7 +9674,7 @@ fn intCast(
             const dest_max_val_scalar = try dest_scalar_ty.maxIntScalar(mod, operand_scalar_ty);
             const dest_max_val = try sema.splat(operand_ty, dest_max_val_scalar);
             const dest_max = try sema.addConstant(dest_max_val);
-            const diff = try block.addBinOp(.subwrap, dest_max, operand);
+            const diff = try block.addBinOp(.sub_wrap, dest_max, operand);
 
             if (actual_info.signedness == .signed) {
                 // Reinterpret the sign-bit as part of the value. This will make
@@ -15113,7 +15113,11 @@ fn analyzeArithmetic(
 
     const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(casted_lhs);
     const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
-    const rs: struct { src: LazySrcLoc, air_tag: Air.Inst.Tag } = rs: {
+    const rs: struct {
+        src: LazySrcLoc,
+        air_tag: Air.Inst.Tag,
+        air_tag_safe: Air.Inst.Tag,
+    } = rs: {
         switch (zir_tag) {
             .add, .add_unsafe => {
                 // For integers:intAddSat
@@ -15162,8 +15166,8 @@ fn analyzeArithmetic(
                                 try Value.floatAdd(lhs_val, rhs_val, resolved_type, sema.arena, mod),
                             );
                         }
-                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
-                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
+                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag, .air_tag_safe = .add_safe };
+                } else break :rs .{ .src = lhs_src, .air_tag = air_tag, .air_tag_safe = .add_safe };
             },
             .addwrap => {
                 // Integers only; floats are checked above.
@@ -15174,7 +15178,6 @@ fn analyzeArithmetic(
                         return casted_rhs;
                     }
                 }
-                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .addwrap_optimized else .addwrap;
                 if (maybe_rhs_val) |rhs_val| {
                     if (rhs_val.isUndef(mod)) {
                         return sema.addConstUndef(resolved_type);
@@ -15186,8 +15189,8 @@ fn analyzeArithmetic(
                         return sema.addConstant(
                             try sema.numberAddWrapScalar(lhs_val, rhs_val, resolved_type),
                         );
-                    } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
-                } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
+                    } else break :rs .{ .src = lhs_src, .air_tag = .add_wrap, .air_tag_safe = .add_wrap };
+                } else break :rs .{ .src = rhs_src, .air_tag = .add_wrap, .air_tag_safe = .add_wrap };
             },
             .add_sat => {
                 // Integers only; floats are checked above.
@@ -15212,8 +15215,16 @@ fn analyzeArithmetic(
                             try lhs_val.intAddSat(rhs_val, resolved_type, sema.arena, mod);
 
                         return sema.addConstant(val);
-                    } else break :rs .{ .src = lhs_src, .air_tag = .add_sat };
-                } else break :rs .{ .src = rhs_src, .air_tag = .add_sat };
+                    } else break :rs .{
+                        .src = lhs_src,
+                        .air_tag = .add_sat,
+                        .air_tag_safe = .add_sat,
+                    };
+                } else break :rs .{
+                    .src = rhs_src,
+                    .air_tag = .add_sat,
+                    .air_tag_safe = .add_sat,
+                };
             },
             .sub => {
                 // For integers:
@@ -15257,8 +15268,8 @@ fn analyzeArithmetic(
                                 try Value.floatSub(lhs_val, rhs_val, resolved_type, sema.arena, mod),
                             );
                         }
-                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
-                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
+                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag, .air_tag_safe = .sub_safe };
+                } else break :rs .{ .src = lhs_src, .air_tag = air_tag, .air_tag_safe = .sub_safe };
             },
             .subwrap => {
                 // Integers only; floats are checked above.
@@ -15272,7 +15283,6 @@ fn analyzeArithmetic(
                         return casted_lhs;
                     }
                 }
-                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .subwrap_optimized else .subwrap;
                 if (maybe_lhs_val) |lhs_val| {
                     if (lhs_val.isUndef(mod)) {
                         return sema.addConstUndef(resolved_type);
@@ -15281,8 +15291,8 @@ fn analyzeArithmetic(
                         return sema.addConstant(
                             try sema.numberSubWrapScalar(lhs_val, rhs_val, resolved_type),
                         );
-                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
-                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
+                    } else break :rs .{ .src = rhs_src, .air_tag = .sub_wrap, .air_tag_safe = .sub_wrap };
+                } else break :rs .{ .src = lhs_src, .air_tag = .sub_wrap, .air_tag_safe = .sub_wrap };
             },
             .sub_sat => {
                 // Integers only; floats are checked above.
@@ -15307,8 +15317,8 @@ fn analyzeArithmetic(
                             try lhs_val.intSubSat(rhs_val, resolved_type, sema.arena, mod);
 
                         return sema.addConstant(val);
-                    } else break :rs .{ .src = rhs_src, .air_tag = .sub_sat };
-                } else break :rs .{ .src = lhs_src, .air_tag = .sub_sat };
+                    } else break :rs .{ .src = rhs_src, .air_tag = .sub_sat, .air_tag_safe = .sub_sat };
+                } else break :rs .{ .src = lhs_src, .air_tag = .sub_sat, .air_tag_safe = .sub_sat };
             },
             .mul => {
                 // For integers:
@@ -15406,8 +15416,8 @@ fn analyzeArithmetic(
                                 try lhs_val.floatMul(rhs_val, resolved_type, sema.arena, mod),
                             );
                         }
-                    } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
-                } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
+                    } else break :rs .{ .src = lhs_src, .air_tag = air_tag, .air_tag_safe = .mul_safe };
+                } else break :rs .{ .src = rhs_src, .air_tag = air_tag, .air_tag_safe = .mul_safe };
             },
             .mulwrap => {
                 // Integers only; floats are handled above.
@@ -15435,7 +15445,6 @@ fn analyzeArithmetic(
                         }
                     }
                 }
-                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .mulwrap_optimized else .mulwrap;
                 if (maybe_rhs_val) |rhs_val| {
                     if (rhs_val.isUndef(mod)) {
                         return sema.addConstUndef(resolved_type);
@@ -15454,8 +15463,8 @@ fn analyzeArithmetic(
                         return sema.addConstant(
                             try lhs_val.numberMulWrap(rhs_val, resolved_type, sema.arena, mod),
                         );
-                    } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
-                } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
+                    } else break :rs .{ .src = lhs_src, .air_tag = .mul_wrap, .air_tag_safe = .mul_wrap };
+                } else break :rs .{ .src = rhs_src, .air_tag = .mul_wrap, .air_tag_safe = .mul_wrap };
             },
             .mul_sat => {
                 // Integers only; floats are checked above.
@@ -15505,16 +15514,19 @@ fn analyzeArithmetic(
                             try lhs_val.intMulSat(rhs_val, resolved_type, sema.arena, mod);
 
                         return sema.addConstant(val);
-                    } else break :rs .{ .src = lhs_src, .air_tag = .mul_sat };
-                } else break :rs .{ .src = rhs_src, .air_tag = .mul_sat };
+                    } else break :rs .{ .src = lhs_src, .air_tag = .mul_sat, .air_tag_safe = .mul_sat };
+                } else break :rs .{ .src = rhs_src, .air_tag = .mul_sat, .air_tag_safe = .mul_sat };
             },
             else => unreachable,
         }
     };
 
     try sema.requireRuntimeBlock(block, src, rs.src);
-    if (block.wantSafety() and want_safety) {
-        if (scalar_tag == .Int) {
+    if (block.wantSafety() and want_safety and scalar_tag == .Int) {
+        if (mod.backendSupportsFeature(.safety_checked_instructions)) {
+            _ = try sema.preparePanicId(block, .integer_overflow);
+            return block.addBinOp(rs.air_tag_safe, casted_lhs, casted_rhs);
+        } else {
             const maybe_op_ov: ?Air.Inst.Tag = switch (rs.air_tag) {
                 .add => .add_with_overflow,
                 .sub => .sub_with_overflow,
@@ -24743,39 +24755,67 @@ fn explainWhyTypeIsNotPacked(
     }
 }
 
-pub const PanicId = enum {
-    unreach,
-    unwrap_null,
-    cast_to_null,
-    incorrect_alignment,
-    invalid_error_code,
-    cast_truncated_data,
-    negative_to_unsigned,
-    integer_overflow,
-    shl_overflow,
-    shr_overflow,
-    divide_by_zero,
-    exact_division_remainder,
-    inactive_union_field,
-    integer_part_out_of_bounds,
-    corrupt_switch,
-    shift_rhs_too_big,
-    invalid_enum_value,
-    sentinel_mismatch,
-    unwrap_error,
-    index_out_of_bounds,
-    start_index_greater_than_end,
-    for_len_mismatch,
-    memcpy_len_mismatch,
-    memcpy_alias,
-    noreturn_returned,
-};
+fn prepareSimplePanic(sema: *Sema, block: *Block) !void {
+    const mod = sema.mod;
+
+    if (mod.panic_func_index == .none) {
+        const decl_index = (try sema.getBuiltinDecl(block, "panic"));
+        // decl_index may be an alias; we must find the decl that actually
+        // owns the function.
+        try sema.ensureDeclAnalyzed(decl_index);
+        const tv = try mod.declPtr(decl_index).typedValue();
+        assert(tv.ty.zigTypeTag(mod) == .Fn);
+        assert(try sema.fnHasRuntimeBits(tv.ty));
+        const func_index = mod.intern_pool.indexToFunc(tv.val.toIntern()).unwrap().?;
+        try mod.ensureFuncBodyAnalysisQueued(func_index);
+        mod.panic_func_index = func_index.toOptional();
+    }
+
+    if (mod.null_stack_trace == .none) {
+        const unresolved_stack_trace_ty = try sema.getBuiltinType("StackTrace");
+        const stack_trace_ty = try sema.resolveTypeFields(unresolved_stack_trace_ty);
+        const target = mod.getTarget();
+        const ptr_stack_trace_ty = try mod.ptrType(.{
+            .child = stack_trace_ty.toIntern(),
+            .flags = .{
+                .address_space = target_util.defaultAddressSpace(target, .global_constant),
+            },
+        });
+        const opt_ptr_stack_trace_ty = try mod.optionalType(ptr_stack_trace_ty.toIntern());
+        mod.null_stack_trace = try mod.intern(.{ .opt = .{
+            .ty = opt_ptr_stack_trace_ty.toIntern(),
+            .val = .none,
+        } });
+    }
+}
+
+/// Backends depend on panic decls being available when lowering safety-checked
+/// instructions. This function ensures the panic function will be available to
+/// be called during that time.
+fn preparePanicId(sema: *Sema, block: *Block, panic_id: Module.PanicId) !Module.Decl.Index {
+    const mod = sema.mod;
+    const gpa = sema.gpa;
+    if (mod.panic_messages[@intFromEnum(panic_id)].unwrap()) |x| return x;
+
+    try sema.prepareSimplePanic(block);
+
+    const panic_messages_ty = try sema.getBuiltinType("panic_messages");
+    const msg_decl_index = (try sema.namespaceLookup(
+        block,
+        sema.src,
+        panic_messages_ty.getNamespaceIndex(mod).unwrap().?,
+        try mod.intern_pool.getOrPutString(gpa, @tagName(panic_id)),
+    )).?;
+    try sema.ensureDeclAnalyzed(msg_decl_index);
+    mod.panic_messages[@intFromEnum(panic_id)] = msg_decl_index.toOptional();
+    return msg_decl_index;
+}
 
 fn addSafetyCheck(
     sema: *Sema,
     parent_block: *Block,
     ok: Air.Inst.Ref,
-    panic_id: PanicId,
+    panic_id: Module.PanicId,
 ) !void {
     const gpa = sema.gpa;
     assert(!parent_block.is_comptime);
@@ -24852,32 +24892,19 @@ fn addSafetyCheckExtra(
     parent_block.instructions.appendAssumeCapacity(block_inst);
 }
 
-fn panicWithMsg(
-    sema: *Sema,
-    block: *Block,
-    msg_inst: Air.Inst.Ref,
-) !void {
+fn panicWithMsg(sema: *Sema, block: *Block, msg_inst: Air.Inst.Ref) !void {
     const mod = sema.mod;
 
     if (!mod.backendSupportsFeature(.panic_fn)) {
         _ = try block.addNoOp(.trap);
         return;
     }
-    const panic_fn = try sema.getBuiltin("panic");
-    const unresolved_stack_trace_ty = try sema.getBuiltinType("StackTrace");
-    const stack_trace_ty = try sema.resolveTypeFields(unresolved_stack_trace_ty);
-    const target = mod.getTarget();
-    const ptr_stack_trace_ty = try mod.ptrType(.{
-        .child = stack_trace_ty.toIntern(),
-        .flags = .{
-            .address_space = target_util.defaultAddressSpace(target, .global_constant), // TODO might need a place that is more dynamic
-        },
-    });
-    const opt_ptr_stack_trace_ty = try mod.optionalType(ptr_stack_trace_ty.toIntern());
-    const null_stack_trace = try sema.addConstant((try mod.intern(.{ .opt = .{
-        .ty = opt_ptr_stack_trace_ty.toIntern(),
-        .val = .none,
-    } })).toValue());
+
+    try sema.prepareSimplePanic(block);
+
+    const panic_func = mod.funcPtrUnwrap(mod.panic_func_index).?;
+    const panic_fn = try sema.analyzeDeclVal(block, .unneeded, panic_func.owner_decl);
+    const null_stack_trace = try sema.addConstant(mod.null_stack_trace.toValue());
 
     const opt_usize_ty = try mod.optionalType(.usize_type);
     const null_ret_addr = try sema.addConstant((try mod.intern(.{ .opt = .{
@@ -25036,21 +25063,8 @@ fn safetyCheckFormatted(
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
 }
 
-fn safetyPanic(
-    sema: *Sema,
-    block: *Block,
-    panic_id: PanicId,
-) CompileError!void {
-    const mod = sema.mod;
-    const gpa = sema.gpa;
-    const panic_messages_ty = try sema.getBuiltinType("panic_messages");
-    const msg_decl_index = (try sema.namespaceLookup(
-        block,
-        sema.src,
-        panic_messages_ty.getNamespaceIndex(mod).unwrap().?,
-        try mod.intern_pool.getOrPutString(gpa, @tagName(panic_id)),
-    )).?;
-
+fn safetyPanic(sema: *Sema, block: *Block, panic_id: Module.PanicId) CompileError!void {
+    const msg_decl_index = try sema.preparePanicId(block, panic_id);
     const msg_inst = try sema.analyzeDeclVal(block, sema.src, msg_decl_index);
     try sema.panicWithMsg(block, msg_inst);
 }
@@ -35022,6 +35036,7 @@ fn generateUnionTagTypeSimple(
 
 fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
     const gpa = sema.gpa;
+    const src = LazySrcLoc.nodeOffset(0);
 
     var wip_captures = try WipCaptureScope.init(gpa, sema.owner_decl.src_scope);
     defer wip_captures.deinit();
@@ -35040,6 +35055,14 @@ fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
         block.instructions.deinit(gpa);
         block.params.deinit(gpa);
     }
+
+    const decl_index = try getBuiltinDecl(sema, &block, name);
+    return sema.analyzeDeclVal(&block, src, decl_index);
+}
+
+fn getBuiltinDecl(sema: *Sema, block: *Block, name: []const u8) CompileError!Module.Decl.Index {
+    const gpa = sema.gpa;
+
     const src = LazySrcLoc.nodeOffset(0);
 
     const mod = sema.mod;
@@ -35047,23 +35070,23 @@ fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
     const std_pkg = mod.main_pkg.table.get("std").?;
     const std_file = (mod.importPkg(std_pkg) catch unreachable).file;
     const opt_builtin_inst = (try sema.namespaceLookupRef(
-        &block,
+        block,
         src,
         mod.declPtr(std_file.root_decl.unwrap().?).src_namespace,
         try ip.getOrPutString(gpa, "builtin"),
     )) orelse @panic("lib/std.zig is corrupt and missing 'builtin'");
-    const builtin_inst = try sema.analyzeLoad(&block, src, opt_builtin_inst, src);
-    const builtin_ty = sema.analyzeAsType(&block, src, builtin_inst) catch |err| switch (err) {
+    const builtin_inst = try sema.analyzeLoad(block, src, opt_builtin_inst, src);
+    const builtin_ty = sema.analyzeAsType(block, src, builtin_inst) catch |err| switch (err) {
         error.AnalysisFail => std.debug.panic("std.builtin is corrupt", .{}),
         else => |e| return e,
     };
-    const opt_ty_decl = (try sema.namespaceLookup(
-        &block,
+    const decl_index = (try sema.namespaceLookup(
+        block,
         src,
         builtin_ty.getNamespaceIndex(mod).unwrap().?,
         try ip.getOrPutString(gpa, name),
     )) orelse std.debug.panic("lib/std/builtin.zig is corrupt and missing '{s}'", .{name});
-    return sema.analyzeDeclVal(&block, src, opt_ty_decl);
+    return decl_index;
 }
 
 fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {

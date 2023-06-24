@@ -1755,9 +1755,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             => |tag| try self.airUnOp(inst, tag),
 
             .add,
-            .addwrap,
+            .add_wrap,
             .sub,
-            .subwrap,
+            .sub_wrap,
             .bool_and,
             .bool_or,
             .bit_and,
@@ -1773,7 +1773,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .shl, .shl_exact => try self.airShlShrBinOp(inst),
 
             .mul             => try self.airMulDivBinOp(inst),
-            .mulwrap         => try self.airMulDivBinOp(inst),
+            .mul_wrap        => try self.airMulDivBinOp(inst),
             .rem             => try self.airMulDivBinOp(inst),
             .mod             => try self.airMulDivBinOp(inst),
 
@@ -1947,11 +1947,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
             .add_optimized,
-            .addwrap_optimized,
             .sub_optimized,
-            .subwrap_optimized,
             .mul_optimized,
-            .mulwrap_optimized,
             .div_float_optimized,
             .div_trunc_optimized,
             .div_floor_optimized,
@@ -1969,6 +1966,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .reduce_optimized,
             .int_from_float_optimized,
             => return self.fail("TODO implement optimized float mode", .{}),
+
+            .add_safe,
+            .sub_safe,
+            .mul_safe,
+            => return self.fail("TODO implement safety_checked_instructions", .{}),
 
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
             .error_set_has_value => return self.fail("TODO implement error_set_has_value", .{}),
@@ -2912,7 +2914,7 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
         const dst_info = dst_ty.intInfo(mod);
         const src_ty = try mod.intType(dst_info.signedness, switch (tag) {
             else => unreachable,
-            .mul, .mulwrap => @max(
+            .mul, .mul_wrap => @max(
                 self.activeIntBits(bin_op.lhs),
                 self.activeIntBits(bin_op.rhs),
                 dst_info.bits / 2,
@@ -6155,7 +6157,7 @@ fn genMulDivBinOp(
     const src_abi_size = @as(u32, @intCast(src_ty.abiSize(mod)));
     if (switch (tag) {
         else => unreachable,
-        .mul, .mulwrap => dst_abi_size != src_abi_size and dst_abi_size != src_abi_size * 2,
+        .mul, .mul_wrap => dst_abi_size != src_abi_size and dst_abi_size != src_abi_size * 2,
         .div_trunc, .div_floor, .div_exact, .rem, .mod => dst_abi_size != src_abi_size,
     } or src_abi_size > 8) return self.fail("TODO implement genMulDivBinOp from {} to {}", .{
         src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
@@ -6172,13 +6174,13 @@ fn genMulDivBinOp(
     const signedness = ty.intInfo(mod).signedness;
     switch (tag) {
         .mul,
-        .mulwrap,
+        .mul_wrap,
         .rem,
         .div_trunc,
         .div_exact,
         => {
             const track_inst_rax = switch (tag) {
-                .mul, .mulwrap => if (dst_abi_size <= 8) maybe_inst else null,
+                .mul, .mul_wrap => if (dst_abi_size <= 8) maybe_inst else null,
                 .div_exact, .div_trunc => maybe_inst,
                 else => null,
             };
@@ -6191,19 +6193,19 @@ fn genMulDivBinOp(
 
             try self.genIntMulDivOpMir(switch (signedness) {
                 .signed => switch (tag) {
-                    .mul, .mulwrap => .{ .i_, .mul },
+                    .mul, .mul_wrap => .{ .i_, .mul },
                     .div_trunc, .div_exact, .rem => .{ .i_, .div },
                     else => unreachable,
                 },
                 .unsigned => switch (tag) {
-                    .mul, .mulwrap => .{ ._, .mul },
+                    .mul, .mul_wrap => .{ ._, .mul },
                     .div_trunc, .div_exact, .rem => .{ ._, .div },
                     else => unreachable,
                 },
             }, ty, lhs, rhs);
 
             if (dst_abi_size <= 8) return .{ .register = registerAlias(switch (tag) {
-                .mul, .mulwrap, .div_trunc, .div_exact => .rax,
+                .mul, .mul_wrap, .div_trunc, .div_exact => .rax,
                 .rem => .rdx,
                 else => unreachable,
             }, dst_abi_size) };
@@ -6347,7 +6349,7 @@ fn genBinOp(
     switch (lhs_mcv) {
         .immediate => |imm| switch (imm) {
             0 => switch (air_tag) {
-                .sub, .subwrap => return self.genUnOp(maybe_inst, .neg, rhs_air),
+                .sub, .sub_wrap => return self.genUnOp(maybe_inst, .neg, rhs_air),
                 else => {},
             },
             else => {},
@@ -6357,7 +6359,7 @@ fn genBinOp(
 
     const is_commutative = switch (air_tag) {
         .add,
-        .addwrap,
+        .add_wrap,
         .mul,
         .bool_or,
         .bit_or,
@@ -6427,11 +6429,11 @@ fn genBinOp(
     if (!vec_op) {
         switch (air_tag) {
             .add,
-            .addwrap,
+            .add_wrap,
             => try self.genBinOpMir(.{ ._, .add }, lhs_ty, dst_mcv, src_mcv),
 
             .sub,
-            .subwrap,
+            .sub_wrap,
             => try self.genBinOpMir(.{ ._, .sub }, lhs_ty, dst_mcv, src_mcv),
 
             .ptr_add,
@@ -6649,10 +6651,10 @@ fn genBinOp(
                 8 => switch (lhs_ty.vectorLen(mod)) {
                     1...16 => switch (air_tag) {
                         .add,
-                        .addwrap,
+                        .add_wrap,
                         => if (self.hasFeature(.avx)) .{ .vp_b, .add } else .{ .p_b, .add },
                         .sub,
-                        .subwrap,
+                        .sub_wrap,
                         => if (self.hasFeature(.avx)) .{ .vp_b, .sub } else .{ .p_b, .sub },
                         .bit_and => if (self.hasFeature(.avx)) .{ .vp_, .@"and" } else .{ .p_, .@"and" },
                         .bit_or => if (self.hasFeature(.avx)) .{ .vp_, .@"or" } else .{ .p_, .@"or" },
@@ -6689,10 +6691,10 @@ fn genBinOp(
                     },
                     17...32 => switch (air_tag) {
                         .add,
-                        .addwrap,
+                        .add_wrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_b, .add } else null,
                         .sub,
-                        .subwrap,
+                        .sub_wrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_b, .sub } else null,
                         .bit_and => if (self.hasFeature(.avx2)) .{ .vp_, .@"and" } else null,
                         .bit_or => if (self.hasFeature(.avx2)) .{ .vp_, .@"or" } else null,
@@ -6712,13 +6714,13 @@ fn genBinOp(
                 16 => switch (lhs_ty.vectorLen(mod)) {
                     1...8 => switch (air_tag) {
                         .add,
-                        .addwrap,
+                        .add_wrap,
                         => if (self.hasFeature(.avx)) .{ .vp_w, .add } else .{ .p_w, .add },
                         .sub,
-                        .subwrap,
+                        .sub_wrap,
                         => if (self.hasFeature(.avx)) .{ .vp_w, .sub } else .{ .p_w, .sub },
                         .mul,
-                        .mulwrap,
+                        .mul_wrap,
                         => if (self.hasFeature(.avx)) .{ .vp_w, .mull } else .{ .p_d, .mull },
                         .bit_and => if (self.hasFeature(.avx)) .{ .vp_, .@"and" } else .{ .p_, .@"and" },
                         .bit_or => if (self.hasFeature(.avx)) .{ .vp_, .@"or" } else .{ .p_, .@"or" },
@@ -6747,13 +6749,13 @@ fn genBinOp(
                     },
                     9...16 => switch (air_tag) {
                         .add,
-                        .addwrap,
+                        .add_wrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_w, .add } else null,
                         .sub,
-                        .subwrap,
+                        .sub_wrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_w, .sub } else null,
                         .mul,
-                        .mulwrap,
+                        .mul_wrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_w, .mull } else null,
                         .bit_and => if (self.hasFeature(.avx2)) .{ .vp_, .@"and" } else null,
                         .bit_or => if (self.hasFeature(.avx2)) .{ .vp_, .@"or" } else null,
@@ -6773,13 +6775,13 @@ fn genBinOp(
                 32 => switch (lhs_ty.vectorLen(mod)) {
                     1...4 => switch (air_tag) {
                         .add,
-                        .addwrap,
+                        .add_wrap,
                         => if (self.hasFeature(.avx)) .{ .vp_d, .add } else .{ .p_d, .add },
                         .sub,
-                        .subwrap,
+                        .sub_wrap,
                         => if (self.hasFeature(.avx)) .{ .vp_d, .sub } else .{ .p_d, .sub },
                         .mul,
-                        .mulwrap,
+                        .mul_wrap,
                         => if (self.hasFeature(.avx))
                             .{ .vp_d, .mull }
                         else if (self.hasFeature(.sse4_1))
@@ -6821,13 +6823,13 @@ fn genBinOp(
                     },
                     5...8 => switch (air_tag) {
                         .add,
-                        .addwrap,
+                        .add_wrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_d, .add } else null,
                         .sub,
-                        .subwrap,
+                        .sub_wrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_d, .sub } else null,
                         .mul,
-                        .mulwrap,
+                        .mul_wrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_d, .mull } else null,
                         .bit_and => if (self.hasFeature(.avx2)) .{ .vp_, .@"and" } else null,
                         .bit_or => if (self.hasFeature(.avx2)) .{ .vp_, .@"or" } else null,
@@ -6847,10 +6849,10 @@ fn genBinOp(
                 64 => switch (lhs_ty.vectorLen(mod)) {
                     1...2 => switch (air_tag) {
                         .add,
-                        .addwrap,
+                        .add_wrap,
                         => if (self.hasFeature(.avx)) .{ .vp_q, .add } else .{ .p_q, .add },
                         .sub,
-                        .subwrap,
+                        .sub_wrap,
                         => if (self.hasFeature(.avx)) .{ .vp_q, .sub } else .{ .p_q, .sub },
                         .bit_and => if (self.hasFeature(.avx)) .{ .vp_, .@"and" } else .{ .p_, .@"and" },
                         .bit_or => if (self.hasFeature(.avx)) .{ .vp_, .@"or" } else .{ .p_, .@"or" },
@@ -6859,10 +6861,10 @@ fn genBinOp(
                     },
                     3...4 => switch (air_tag) {
                         .add,
-                        .addwrap,
+                        .add_wrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_q, .add } else null,
                         .sub,
-                        .subwrap,
+                        .sub_wrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_q, .sub } else null,
                         .bit_and => if (self.hasFeature(.avx2)) .{ .vp_, .@"and" } else null,
                         .bit_or => if (self.hasFeature(.avx2)) .{ .vp_, .@"or" } else null,
@@ -7174,7 +7176,7 @@ fn genBinOp(
     }
 
     switch (air_tag) {
-        .add, .addwrap, .sub, .subwrap, .mul, .mulwrap, .div_float, .div_exact => {},
+        .add, .add_wrap, .sub, .sub_wrap, .mul, .mul_wrap, .div_float, .div_exact => {},
         .div_trunc, .div_floor => if (self.hasFeature(.sse4_1)) try self.genRound(
             lhs_ty,
             dst_reg,
