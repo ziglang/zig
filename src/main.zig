@@ -2211,6 +2211,9 @@ fn buildOutputType(
                         fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
                     };
                     have_version = true;
+                } else if (mem.eql(u8, arg, "--version")) {
+                    try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
+                    process.exit(0);
                 } else {
                     fatal("unsupported linker arg: {s}", .{arg});
                 }
