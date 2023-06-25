@@ -4341,6 +4341,9 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
     const result = result: {
         const dst_ty = self.typeOfIndex(inst);
         const src_ty = self.typeOf(ty_op.operand);
+        if (src_ty.zigTypeTag(mod) == .Vector) return self.fail("TODO implement airClz for {}", .{
+            src_ty.fmt(mod),
+        });
 
         const src_mcv = try self.resolveInst(ty_op.operand);
         const mat_src_mcv = switch (src_mcv) {
@@ -4691,7 +4694,9 @@ fn byteSwap(self: *Self, inst: Air.Inst.Index, src_ty: Type, src_mcv: MCValue, m
     defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
     switch (src_bits) {
-        else => unreachable,
+        else => return self.fail("TODO implement byteSwap for {}", .{
+            src_ty.fmt(mod),
+        }),
         8 => return if ((mem_ok or src_mcv.isRegister()) and
             self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
             src_mcv
@@ -6093,16 +6098,16 @@ fn genShiftBinOp(
     rhs_ty: Type,
 ) !MCValue {
     const mod = self.bin_file.options.module.?;
-    if (lhs_ty.zigTypeTag(mod) == .Vector) {
-        return self.fail("TODO implement genShiftBinOp for {}", .{lhs_ty.fmtDebug()});
-    }
+    if (lhs_ty.zigTypeTag(mod) == .Vector) return self.fail("TODO implement genShiftBinOp for {}", .{
+        lhs_ty.fmt(mod),
+    });
 
     assert(rhs_ty.abiSize(mod) == 1);
 
     const lhs_abi_size = lhs_ty.abiSize(mod);
-    if (lhs_abi_size > 16) {
-        return self.fail("TODO implement genShiftBinOp for {}", .{lhs_ty.fmtDebug()});
-    }
+    if (lhs_abi_size > 16) return self.fail("TODO implement genShiftBinOp for {}", .{
+        lhs_ty.fmt(mod),
+    });
 
     try self.register_manager.getReg(.rcx, null);
     const rcx_lock = self.register_manager.lockRegAssumeUnused(.rcx);
@@ -6158,11 +6163,12 @@ fn genMulDivBinOp(
     rhs: MCValue,
 ) !MCValue {
     const mod = self.bin_file.options.module.?;
-    if (dst_ty.zigTypeTag(mod) == .Vector or dst_ty.zigTypeTag(mod) == .Float) {
-        return self.fail("TODO implement genMulDivBinOp for {}", .{dst_ty.fmtDebug()});
-    }
-    const dst_abi_size = @as(u32, @intCast(dst_ty.abiSize(mod)));
-    const src_abi_size = @as(u32, @intCast(src_ty.abiSize(mod)));
+    if (dst_ty.zigTypeTag(mod) == .Vector or dst_ty.zigTypeTag(mod) == .Float) return self.fail(
+        "TODO implement genMulDivBinOp for {}",
+        .{dst_ty.fmt(mod)},
+    );
+    const dst_abi_size: u32 = @intCast(dst_ty.abiSize(mod));
+    const src_abi_size: u32 = @intCast(src_ty.abiSize(mod));
     if (switch (tag) {
         else => unreachable,
         .mul, .mul_wrap => dst_abi_size != src_abi_size and dst_abi_size != src_abi_size * 2,
