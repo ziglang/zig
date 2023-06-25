@@ -30566,7 +30566,7 @@ fn analyzeLoad(
 
     if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
         if (try sema.pointerDeref(block, src, ptr_val, ptr_ty)) |elem_val| {
-            return sema.addConstant(try mod.getCoerced(elem_val, elem_ty));
+            return sema.addConstant(elem_val);
         }
     }
 

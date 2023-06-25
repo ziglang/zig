@@ -946,12 +946,24 @@ pub const Value = struct {
             },
             .Pointer => {
                 assert(!ty.isSlice(mod)); // No well defined layout.
-                return readFromMemory(Type.usize, mod, buffer, arena);
+                const int_val = try readFromMemory(Type.usize, mod, buffer, arena);
+                return (try mod.intern(.{ .ptr = .{
+                    .ty = ty.toIntern(),
+                    .addr = .{ .int = int_val.toIntern() },
+                } })).toValue();
             },
             .Optional => {
                 assert(ty.isPtrLikeOptional(mod));
-                const child = ty.optionalChild(mod);
-                return readFromMemory(child, mod, buffer, arena);
+                const child_ty = ty.optionalChild(mod);
+                const child_val = try readFromMemory(child_ty, mod, buffer, arena);
+                return (try mod.intern(.{ .opt = .{
+                    .ty = ty.toIntern(),
+                    .val = switch (child_val.orderAgainstZero(mod)) {
+                        .lt => unreachable,
+                        .eq => .none,
+                        .gt => child_val.toIntern(),
+                    },
+                } })).toValue();
             },
             else => @panic("TODO implement readFromMemory for more types"),
         }
