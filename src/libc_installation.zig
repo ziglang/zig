@@ -212,7 +212,6 @@ pub const LibCInstallation = struct {
                 });
             } else if (std.process.can_spawn) {
                 try self.findNativeIncludeDirPosix(args);
-                // TODO find framework dir using clang
             }
         } else if (is_windows) {
             if (!build_options.have_llvm)
@@ -347,6 +346,19 @@ pub const LibCInstallation = struct {
             // search in reverse order
             const search_path_untrimmed = search_paths.items[search_paths.items.len - path_i - 1];
             const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
+
+            if (is_darwin and self.framework_dir == null) {
+                // Path to frameworks is reported as
+                // "/path/to/sdk/System/Library/Frameworks (framework directory)"
+                // and so we parse that before trying to open it as a directory due to the nonsensical
+                // suffix.
+                if (std.mem.indexOf(u8, search_path, "(framework directory)")) |pos| {
+                    const framework_dir = std.mem.trimRight(u8, search_path[0..pos], " ");
+                    self.framework_dir = try allocator.dupeZ(u8, framework_dir);
+                    continue;
+                }
+            }
+
             var search_dir = fs.cwd().openDir(search_path, .{}) catch |err| switch (err) {
                 error.FileNotFound,
                 error.NotDir,
@@ -375,7 +387,11 @@ pub const LibCInstallation = struct {
                 }
             }
 
-            if (self.include_dir != null and self.sys_include_dir != null) {
+            var success = self.include_dir != null and self.sys_include_dir != null;
+            if (is_darwin) {
+                success = success and self.framework_dir != null;
+            }
+            if (success) {
                 // Success.
                 return;
             }
