@@ -153,7 +153,11 @@ test "strncat" {
 }
 
 fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.C) c_int {
-    return std.cstr.cmp(s1, s2);
+    return switch (std.mem.orderZ(u8, s1, s2)) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1,
+    };
 }
 
 fn strlen(s: [*:0]const u8) callconv(.C) usize {

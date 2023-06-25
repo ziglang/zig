@@ -1,6 +1,5 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const cstr = std.cstr;
 const unicode = std.unicode;
 const io = std.io;
 const fs = std.fs;

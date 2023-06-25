@@ -607,12 +607,24 @@ pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     return math.order(lhs.len, rhs.len);
 }
 
-test "order" {
+/// Compares two many-item pointers with NUL-termination lexicographically.
+pub fn orderZ(comptime T: type, lhs: [*:0]const T, rhs: [*:0]const T) math.Order {
+    var i: usize = 0;
+    while (lhs[i] == rhs[i] and lhs[i] != 0) : (i += 1) {}
+    return math.order(lhs[i], rhs[i]);
+}
+
+test "order and orderZ" {
     try testing.expect(order(u8, "abcd", "bee") == .lt);
+    try testing.expect(orderZ(u8, "abcd", "bee") == .lt);
     try testing.expect(order(u8, "abc", "abc") == .eq);
+    try testing.expect(orderZ(u8, "abc", "abc") == .eq);
     try testing.expect(order(u8, "abc", "abc0") == .lt);
+    try testing.expect(orderZ(u8, "abc", "abc0") == .lt);
     try testing.expect(order(u8, "", "") == .eq);
+    try testing.expect(orderZ(u8, "", "") == .eq);
     try testing.expect(order(u8, "", "a") == .lt);
+    try testing.expect(orderZ(u8, "", "a") == .lt);
 }
 
 /// Returns true if lhs < rhs, false otherwise
