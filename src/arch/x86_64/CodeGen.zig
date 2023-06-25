@@ -5404,6 +5404,7 @@ fn packedStore(self: *Self, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue) In
 
     const limb_abi_size: u16 = @min(ptr_info.packed_offset.host_size, 8);
     const limb_abi_bits = limb_abi_size * 8;
+    const limb_ty = try mod.intType(.unsigned, limb_abi_bits);
 
     const src_bit_size = src_ty.bitSize(mod);
     const src_byte_off = @as(i32, @intCast(ptr_info.packed_offset.bit_offset / limb_abi_bits * limb_abi_size));
@@ -5443,23 +5444,23 @@ fn packedStore(self: *Self, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue) In
             const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
             defer self.register_manager.unlockReg(tmp_lock);
 
-            try self.genSetReg(tmp_reg, src_ty, src_mcv);
+            try self.genSetReg(tmp_reg, limb_ty, src_mcv);
             switch (limb_i) {
                 0 => try self.genShiftBinOpMir(
                     .{ ._l, .sh },
-                    src_ty,
+                    limb_ty,
                     tmp_mcv,
                     .{ .immediate = src_bit_off },
                 ),
                 1 => try self.genShiftBinOpMir(
                     .{ ._r, .sh },
-                    src_ty,
+                    limb_ty,
                     tmp_mcv,
                     .{ .immediate = limb_abi_bits - src_bit_off },
                 ),
                 else => unreachable,
             }
-            try self.genBinOpMir(.{ ._, .@"and" }, src_ty, tmp_mcv, .{ .immediate = part_mask });
+            try self.genBinOpMir(.{ ._, .@"and" }, limb_ty, tmp_mcv, .{ .immediate = part_mask });
             try self.asmMemoryRegister(
                 .{ ._, .@"or" },
                 limb_mem,
