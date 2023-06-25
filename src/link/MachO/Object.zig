@@ -740,7 +740,11 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
                     .aarch64 => {
                         assert(rel_pos.len > 0); // TODO convert to an error as the FDE eh frame is malformed
                         // Find function symbol that this record describes
-                        const rel = relocs[rel_pos.start..][rel_pos.len - 1];
+                        const rel = for (relocs[rel_pos.start..][0..rel_pos.len]) |rel| {
+                            if (rel.r_address - @as(i32, @intCast(offset)) == 8 and
+                                @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type)) == .ARM64_RELOC_UNSIGNED)
+                                break rel;
+                        } else unreachable;
                         const target = Atom.parseRelocTarget(zld, .{
                             .object_id = object_id,
                             .rel = rel,
