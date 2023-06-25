@@ -11724,7 +11724,6 @@ fn readU32Be() u32 {}
       </p>
       <p>
       Note that running <kbd>zig fmt</kbd> on a source file will implement all recommendations mentioned here.
-      Note also that the stage1 compiler does <a href="https://github.com/ziglang/zig/wiki/FAQ#why-does-zig-force-me-to-use-spaces-instead-of-tabs">not yet support CR or HT</a> control characters.
       </p>
       <p>
       Note that a tool reading Zig source code can make assumptions if the source code is assumed to be correct Zig code.
