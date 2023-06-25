@@ -4886,6 +4886,9 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
         }),
     };
     const scalar_bits = ty.scalarType(mod).floatBits(self.target.*);
+    if (scalar_bits == 80) return self.fail("TODO implement airFloatSign for {}", .{
+        ty.fmt(mod),
+    });
 
     const src_mcv = try self.resolveInst(un_op);
     const src_lock = if (src_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
@@ -6342,7 +6345,12 @@ fn genBinOp(
     const mod = self.bin_file.options.module.?;
     const lhs_ty = self.typeOf(lhs_air);
     const rhs_ty = self.typeOf(rhs_air);
-    const abi_size = @as(u32, @intCast(lhs_ty.abiSize(mod)));
+    const abi_size: u32 = @intCast(lhs_ty.abiSize(mod));
+    if (lhs_ty.scalarType(mod).isRuntimeFloat() and
+        lhs_ty.scalarType(mod).floatBits(self.target.*) == 80)
+        return self.fail("TODO implement genBinOp for {s} {}", .{
+            @tagName(air_tag), lhs_ty.fmt(mod),
+        });
 
     const maybe_mask_reg = switch (air_tag) {
         else => null,
