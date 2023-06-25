@@ -94,7 +94,7 @@ pub extern "c" fn getpid() pid_t;
 
 pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;
 pub extern "c" fn kinfo_getvmmap(pid: pid_t, cntp: *c_int) ?[*]kinfo_vmentry;
-pub extern "c" fn kinfo_getproc(pid: pid_t) ?[*]kinfo_proc;
+pub extern "c" fn kinfo_getproc(pid: pid_t) ?*kinfo_proc;
 pub extern "c" fn kinfo_getvmobject(cntp: *c_int) ?[*]kinfo_vmobject;
 pub extern "c" fn kinfo_getswapvmobject(cntp: *c_int) ?[*]kinfo_vmobject;
 
@@ -676,31 +676,31 @@ comptime {
 }
 
 pub const kinfo_vmentry = extern struct {
-    kve_structsize: c_int,
-    kve_type: c_int,
-    kve_start: u64,
-    kve_end: u64,
-    kve_offset: u64,
-    kve_vn_fileid: u64,
-    kve_vn_fsid_freebsd11: u32,
-    kve_flags: c_int,
-    kve_resident: c_int,
-    kve_private_resident: c_int,
-    kve_protection: c_int,
-    kve_ref_count: c_int,
-    kve_shadow_count: c_int,
-    kve_vn_type: c_int,
-    kve_vn_size: u64,
-    kve_vn_rdev_freebsd11: u32,
-    kve_vn_mode: u16,
-    kve_status: u16,
-    kve_type_spec: extern union {
-        _kve_vn_fsid: u64,
-        _kve_obj: u64,
+    structsize: c_int,
+    type: c_int,
+    start: u64,
+    end: u64,
+    offset: u64,
+    vn_fileid: u64,
+    vn_fsid_freebsd11: u32,
+    flags: c_int,
+    resident: c_int,
+    private_resident: c_int,
+    protection: c_int,
+    ref_count: c_int,
+    shadow_count: c_int,
+    vn_type: c_int,
+    vn_size: u64,
+    vn_rdev_freebsd11: u32,
+    vn_mode: u16,
+    status: u16,
+    type_spec: extern union {
+        _vn_fsid: u64,
+        _obj: u64,
     },
-    kve_vn_rdev: u64,
-    _kve_ispare: [8]c_int,
-    kve_rpath: [PATH_MAX]u8,
+    vn_rdev: u64,
+    _ispare: [8]c_int,
+    rpath: [PATH_MAX]u8,
 };
 
 pub const KINFO_VMENTRY_SIZE = 1160;
