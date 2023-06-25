@@ -51,7 +51,7 @@ test "math.ln32() sanity" {
 }
 
 test "math.ln32() special" {
-    const cases = test_utils.genTests(Tc32, special_tests) ++ test_utils.nanTests(Tc32);
+    const cases = comptime test_utils.genTests(Tc32, special_tests) ++ test_utils.nanTests(Tc32);
     try runTests(cases);
 }
 
@@ -89,7 +89,7 @@ test "math.ln64() sanity" {
 }
 
 test "math.ln64() special" {
-    const cases = test_utils.genTests(Tc64, special_tests) ++ test_utils.nanTests(Tc64);
+    const cases = comptime test_utils.genTests(Tc64, special_tests) ++ test_utils.nanTests(Tc64);
     try runTests(cases);
 }
 

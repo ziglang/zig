@@ -329,7 +329,93 @@ pub const Complex = complex.Complex;
 pub const big = @import("math/big.zig");
 
 test {
-    std.testing.refAllDecls(@This());
+    _ = floatExponentBits;
+    _ = floatMantissaBits;
+    _ = floatFractionalBits;
+    _ = floatExponentMin;
+    _ = floatExponentMax;
+    _ = floatTrueMin;
+    _ = floatMin;
+    _ = floatMax;
+    _ = floatEps;
+    _ = inf;
+
+    _ = nan_u16;
+    _ = nan_f16;
+
+    _ = qnan_u16;
+    _ = qnan_f16;
+
+    _ = nan_u32;
+    _ = nan_f32;
+
+    _ = qnan_u32;
+    _ = qnan_f32;
+
+    _ = nan_u64;
+    _ = nan_f64;
+
+    _ = qnan_u64;
+    _ = qnan_f64;
+
+    _ = nan_f80;
+    _ = qnan_f80;
+
+    _ = nan_u128;
+    _ = nan_f128;
+
+    _ = qnan_u128;
+    _ = qnan_f128;
+
+    _ = nan;
+    _ = snan;
+
+    _ = isNan;
+    _ = isSignalNan;
+    _ = frexp;
+    _ = Frexp;
+    _ = modf;
+    _ = modf32_result;
+    _ = modf64_result;
+    _ = copysign;
+    _ = isFinite;
+    _ = isInf;
+    _ = isPositiveInf;
+    _ = isNegativeInf;
+    _ = isNormal;
+    _ = signbit;
+    _ = scalbn;
+    _ = ldexp;
+    _ = pow;
+    _ = powi;
+    _ = sqrt;
+    _ = cbrt;
+    _ = acos;
+    _ = asin;
+    _ = atan;
+    _ = atan2;
+    _ = hypot;
+    _ = expm1;
+    _ = ilogb;
+    _ = ln;
+    _ = log;
+    _ = log2;
+    _ = log10;
+    _ = log10_int;
+    _ = log1p;
+    _ = asinh;
+    _ = acosh;
+    _ = atanh;
+    _ = sinh;
+    _ = cosh;
+    _ = tanh;
+    _ = gcd;
+
+    _ = complex;
+    _ = Complex;
+
+    _ = big;
+
     _ = @import("math/test.zig");
 }
 

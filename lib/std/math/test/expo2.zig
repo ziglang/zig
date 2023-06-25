@@ -4,8 +4,8 @@ const Testcase = test_utils.Testcase;
 const runTests = test_utils.runTests;
 const floatFromBits = test_utils.floatFromBits;
 const negInf = test_utils.negInf;
-const inf32 = math.inf_f32;
-const inf64 = math.inf_f64;
+const inf32 = math.inf(f32);
+const inf64 = math.inf(f64);
 
 const Tc32 = Testcase(math.expo2, "expo2", f32);
 const tc32 = Tc32.init;
@@ -57,7 +57,7 @@ test "math.expo2_32() sanity" {
 }
 
 test "math.expo2_32() special" {
-    const cases = test_utils.genTests(Tc32, special_tests) ++ test_utils.nanTests(Tc32);
+    const cases = comptime test_utils.genTests(Tc32, special_tests) ++ test_utils.nanTests(Tc32);
     try runTests(cases);
 }
 
@@ -99,7 +99,7 @@ test "math.expo2_64() sanity" {
 }
 
 test "math.expo2_64() special" {
-    const cases = test_utils.genTests(Tc64, special_tests) ++ test_utils.nanTests(Tc64);
+    const cases = comptime test_utils.genTests(Tc64, special_tests) ++ test_utils.nanTests(Tc64);
     try runTests(cases);
 }
 

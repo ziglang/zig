@@ -2,7 +2,6 @@ const std = @import("../std.zig");
 const print = std.debug.print;
 const meta = std.meta;
 const math = std.math;
-const bitCount = meta.bitCount;
 const nan = math.nan;
 
 // Change to '.info' to enable verbose output.
@@ -51,7 +50,7 @@ pub fn Testcase(
 
         const Self = @This();
 
-        pub const bits = bitCount(F);
+        pub const bits = @bitSizeOf(F);
         const U: type = meta.Int(.unsigned, bits);
 
         pub fn init(input: F, exp_output: F) Self {
@@ -121,7 +120,7 @@ pub fn runTests(tests: anytype) !void {
 }
 
 /// Create a float of the given type using the unsigned integer bit representation.
-pub fn floatFromBits(comptime T: type, bits: meta.Int(.unsigned, bitCount(T))) T {
+pub fn floatFromBits(comptime T: type, bits: meta.Int(.unsigned, @bitSizeOf(T))) T {
     return @bitCast(T, bits);
 }
 
