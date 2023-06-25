@@ -6483,11 +6483,11 @@ fn forExpr(
                     return astgen.failTok(ident_tok, "cannot capture reference to range", .{});
                 }
                 const start_node = node_data[input].lhs;
-                const start_val = try expr(parent_gz, scope, .{ .rl = .none }, start_node);
+                const start_val = try expr(parent_gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, start_node);
 
                 const end_node = node_data[input].rhs;
                 const end_val = if (end_node != 0)
-                    try expr(parent_gz, scope, .{ .rl = .none }, node_data[input].rhs)
+                    try expr(parent_gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_data[input].rhs)
                 else
                     .none;
 
@@ -8053,17 +8053,9 @@ fn ptrCast(
     }
 
     // Full cast including result type
-    const need_result_type_builtin = if (flags.ptr_cast)
-        "@ptrCast"
-    else if (flags.align_cast)
-        "@alignCast"
-    else if (flags.addrspace_cast)
-        "@addrSpaceCast"
-    else
-        unreachable;
 
     const cursor = maybeAdvanceSourceCursorToMainToken(gz, root_node);
-    const result_type = try ri.rl.resultType(gz, root_node, need_result_type_builtin);
+    const result_type = try ri.rl.resultType(gz, root_node, flags.needResultTypeBuiltinName());
     const operand = try expr(gz, scope, .{ .rl = .none }, node);
     try emitDbgStmt(gz, cursor);
     const result = try gz.addExtendedPayloadSmall(.ptr_cast_full, flags_i, Zir.Inst.BinNode{

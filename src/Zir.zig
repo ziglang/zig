@@ -2820,6 +2820,13 @@ pub const Inst = struct {
         addrspace_cast: bool = false,
         const_cast: bool = false,
         volatile_cast: bool = false,
+
+        pub inline fn needResultTypeBuiltinName(flags: FullPtrCastFlags) []const u8 {
+            if (flags.ptr_cast) return "@ptrCast";
+            if (flags.align_cast) return "@alignCast";
+            if (flags.addrspace_cast) return "@addrSpaceCast";
+            unreachable;
+        }
     };
 
     /// Trailing:
