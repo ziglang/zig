@@ -1,6 +1,6 @@
 const std = @import("std");
 const tests = @import("tests.zig");
-const nl = std.cstr.line_sep;
+const nl = if (@import("builtin").os.tag == .windows) "\r\n" else "\n";
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
     cases.add("dereference address of",

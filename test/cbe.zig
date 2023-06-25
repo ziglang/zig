@@ -1,5 +1,6 @@
 const std = @import("std");
 const Cases = @import("src/Cases.zig");
+const nl = if (@import("builtin").os.tag == .windows) "\r\n" else "\n";
 
 // These tests should work with all platforms, but we're using linux_x64 for
 // now for consistency. Will be expanded eventually.
@@ -19,7 +20,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\    _ = puts("hello world!");
             \\    return 0;
             \\}
-        , "hello world!" ++ std.cstr.line_sep);
+        , "hello world!" ++ nl);
 
         // Now change the message only
         case.addCompareOutput(
@@ -28,7 +29,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\    _ = puts("yo");
             \\    return 0;
             \\}
-        , "yo" ++ std.cstr.line_sep);
+        , "yo" ++ nl);
 
         // Add an unused Decl
         case.addCompareOutput(
@@ -38,7 +39,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\    return 0;
             \\}
             \\fn unused() void {}
-        , "yo!" ++ std.cstr.line_sep);
+        , "yo!" ++ nl);
 
         // Comptime return type and calling convention expected.
         case.addError(
@@ -67,7 +68,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\    _ = printf("Hello, %s!\n", "world");
             \\    return 0;
             \\}
-        , "Hello, world!" ++ std.cstr.line_sep);
+        , "Hello, world!" ++ nl);
     }
 
     {

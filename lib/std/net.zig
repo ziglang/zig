@@ -783,7 +783,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
     errdefer result.deinit();
 
     if (builtin.target.os.tag == .windows) {
-        const name_c = try std.cstr.addNullByte(allocator, name);
+        const name_c = try allocator.dupeZ(u8, name);
         defer allocator.free(name_c);
 
         const port_c = try std.fmt.allocPrintZ(allocator, "{}", .{port});
@@ -855,7 +855,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
     }
 
     if (builtin.link_libc) {
-        const name_c = try std.cstr.addNullByte(allocator, name);
+        const name_c = try allocator.dupeZ(u8, name);
         defer allocator.free(name_c);
 
         const port_c = try std.fmt.allocPrintZ(allocator, "{}", .{port});

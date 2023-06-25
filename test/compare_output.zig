@@ -15,7 +15,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    _ = c.puts("Hello, world!");
         \\    return 0;
         \\}
-    , "Hello, world!" ++ std.cstr.line_sep);
+    , "Hello, world!" ++ if (@import("builtin").os.tag == .windows) "\r\n" else "\n");
 
     cases.add("hello world without libc",
         \\const io = @import("std").io;

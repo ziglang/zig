@@ -647,7 +647,7 @@ test "multiline string literal is null terminated" {
         \\three
     ;
     const s2 = "one\ntwo)\nthree";
-    try expect(std.cstr.cmp(s1, s2) == 0);
+    try expect(std.mem.orderZ(u8, s1, s2) == .eq);
 }
 
 test "string escapes" {

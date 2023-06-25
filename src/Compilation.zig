@@ -5066,7 +5066,7 @@ fn parseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []con
     defer context_lines.deinit();
 
     var current_err: ?*LldError = null;
-    var lines = mem.splitSequence(u8, stderr, std.cstr.line_sep);
+    var lines = mem.splitSequence(u8, stderr, if (builtin.os.tag == .windows) "\r\n" else "\n");
     while (lines.next()) |line| {
         if (mem.startsWith(u8, line, prefix ++ ":")) {
             if (current_err) |err| {
