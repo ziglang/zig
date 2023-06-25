@@ -684,10 +684,22 @@ fn lowerParentPtr(
                     .struct_type,
                     .anon_struct_type,
                     .union_type,
-                    => @as(u32, @intCast(base_type.toType().structFieldOffset(
-                        @as(u32, @intCast(field.index)),
-                        mod,
-                    ))),
+                    => switch (base_type.toType().containerLayout(mod)) {
+                        .Auto, .Extern => @intCast(base_type.toType().structFieldOffset(
+                            @intCast(field.index),
+                            mod,
+                        )),
+                        .Packed => if (mod.typeToStruct(base_type.toType())) |struct_obj|
+                            math.divExact(u16, struct_obj.packedFieldBitOffset(
+                                mod,
+                                @intCast(field.index),
+                            ), 8) catch |err| switch (err) {
+                                error.UnexpectedRemainder => 0,
+                                error.DivisionByZero => unreachable,
+                            }
+                        else
+                            0,
+                    },
                     else => unreachable,
                 }),
             );
