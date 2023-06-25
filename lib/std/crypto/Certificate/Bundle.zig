@@ -60,6 +60,7 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) RescanError!void {
     switch (builtin.os.tag) {
         .linux => return rescanLinux(cb, gpa),
         .macos => return rescanMac(cb, gpa),
+        .openbsd => return rescanOpenBSD(cb, gpa),
         .windows => return rescanWindows(cb, gpa),
         else => {},
     }
@@ -108,6 +109,19 @@ pub fn rescanLinux(cb: *Bundle, gpa: Allocator) RescanLinuxError!void {
             };
         }
     }
+
+    cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
+}
+
+pub const RescanOpenBSDError = AddCertsFromFilePathError;
+
+pub fn rescanOpenBSD(cb: *Bundle, gpa: Allocator) RescanOpenBSDError!void {
+    const cert_file_path = "/etc/ssl/cert.pem";
+
+    cb.bytes.clearRetainingCapacity();
+    cb.map.clearRetainingCapacity();
+
+    addCertsFromFilePathAbsolute(cb, gpa, cert_file_path) catch |err| return err;
 
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
