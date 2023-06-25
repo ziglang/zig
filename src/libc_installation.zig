@@ -37,7 +37,6 @@ pub const LibCInstallation = struct {
         UnsupportedArchitecture,
         WindowsSdkNotFound,
         ZigIsTheCCompiler,
-        DarwinSdkNotFound,
     };
 
     pub fn parse(
