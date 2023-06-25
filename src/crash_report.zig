@@ -207,7 +207,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         .x86_64,
         .arm,
         .aarch64,
-        => StackContext{ .exception = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr)) },
+        => StackContext{ .exception = @ptrCast(@alignCast(ctx_ptr)) },
         else => .not_supported,
     };
 

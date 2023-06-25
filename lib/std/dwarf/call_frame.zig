@@ -206,13 +206,13 @@ pub const Instruction = union(Opcode) {
     ) !Instruction {
         return switch (try stream.reader().readByte()) {
             inline Opcode.lo_inline...Opcode.hi_inline => |opcode| blk: {
-                const e = @enumFromInt(Opcode, opcode & 0b11000000);
+                const e: Opcode = @enumFromInt(opcode & 0b11000000);
                 var result = @unionInit(Instruction, @tagName(e), undefined);
-                try result.readOperands(stream, @intCast(u6, opcode & 0b111111), addr_size_bytes, endian);
+                try result.readOperands(stream, @as(u6, @intCast(opcode & 0b111111)), addr_size_bytes, endian);
                 break :blk result;
             },
             inline Opcode.lo_reserved...Opcode.hi_reserved => |opcode| blk: {
-                const e = @enumFromInt(Opcode, opcode);
+                const e: Opcode = @enumFromInt(opcode);
                 var result = @unionInit(Instruction, @tagName(e), undefined);
                 try result.readOperands(stream, null, addr_size_bytes, endian);
                 break :blk result;
@@ -234,9 +234,9 @@ pub const Instruction = union(Opcode) {
 /// an error and fall back to FP-based unwinding.
 pub fn applyOffset(base: usize, offset: i64) !usize {
     return if (offset >= 0)
-        try std.math.add(usize, base, @intCast(usize, offset))
+        try std.math.add(usize, base, @as(usize, @intCast(offset)))
     else
-        try std.math.sub(usize, base, @intCast(usize, -offset));
+        try std.math.sub(usize, base, @as(usize, @intCast(-offset)));
 }
 
 /// This is a virtual machine that runs DWARF call frame instructions.
@@ -304,7 +304,7 @@ pub const VirtualMachine = struct {
                 .same_value => {},
                 .offset => |offset| {
                     if (context.cfa) |cfa| {
-                        const ptr = @ptrFromInt(*const usize, try applyOffset(cfa, offset));
+                        const ptr: *const usize = @ptrFromInt(try applyOffset(cfa, offset));
 
                         // TODO: context.isValidMemory(ptr)
                         mem.writeIntSliceNative(usize, out, ptr.*);
@@ -480,7 +480,7 @@ pub const VirtualMachine = struct {
             => |i| {
                 try self.resolveCopyOnWrite(allocator);
                 const column = try self.getOrAddColumn(allocator, i.operands.register);
-                column.rule = .{ .offset = @intCast(i64, i.operands.offset) * cie.data_alignment_factor };
+                column.rule = .{ .offset = @as(i64, @intCast(i.operands.offset)) * cie.data_alignment_factor };
             },
             inline .restore,
             .restore_extended,
@@ -526,7 +526,7 @@ pub const VirtualMachine = struct {
                 try self.resolveCopyOnWrite(allocator);
                 self.current_row.cfa = .{
                     .register = i.operands.register,
-                    .rule = .{ .val_offset = @intCast(i64, i.operands.offset) },
+                    .rule = .{ .val_offset = @intCast(i.operands.offset) },
                 };
             },
             .def_cfa_sf => |i| {
@@ -544,7 +544,7 @@ pub const VirtualMachine = struct {
             .def_cfa_offset => |i| {
                 try self.resolveCopyOnWrite(allocator);
                 if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .val_offset) return error.InvalidOperation;
-                self.current_row.cfa.rule = .{ .val_offset = @intCast(i64, i.operands.offset) };
+                self.current_row.cfa.rule = .{ .val_offset = @intCast(i.operands.offset) };
             },
             .def_cfa_offset_sf => |i| {
                 try self.resolveCopyOnWrite(allocator);

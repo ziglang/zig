@@ -62,13 +62,13 @@ pub fn StackMachine(comptime options: StackMachineOptions) type {
             const int_info = @typeInfo(@TypeOf(value)).Int;
             if (@sizeOf(@TypeOf(value)) > options.addr_size) {
                 return .{ .generic = switch (int_info.signedness) {
-                    .signed => @bitCast(addr_type, @truncate(addr_type_signed, value)),
-                    .unsigned => @truncate(addr_type, value),
+                    .signed => @bitCast(@as(addr_type_signed, @truncate(value))),
+                    .unsigned => @truncate(value),
                 } };
             } else {
                 return .{ .generic = switch (int_info.signedness) {
-                    .signed => @bitCast(addr_type, @intCast(addr_type_signed, value)),
-                    .unsigned => @intCast(addr_type, value),
+                    .signed => @bitCast(@as(addr_type_signed, @intCast(value))),
+                    .unsigned => @intCast(value),
                 } };
             }
         }

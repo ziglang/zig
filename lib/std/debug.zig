@@ -987,7 +987,7 @@ pub fn readElfDebugInfo(
 
             if (mem.eql(u8, name, ".gnu_debuglink")) {
                 const gnu_debuglink = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-                const debug_filename = mem.sliceTo(@ptrCast([*:0]const u8, gnu_debuglink.ptr), 0);
+                const debug_filename = mem.sliceTo(@as([*:0]const u8, @ptrCast(gnu_debuglink.ptr)), 0);
                 const crc_offset = mem.alignForward(usize, @intFromPtr(&debug_filename[debug_filename.len]) + 1, 4) - @intFromPtr(gnu_debuglink.ptr);
                 const crc_bytes = gnu_debuglink[crc_offset .. crc_offset + 4];
                 separate_debug_crc = mem.readIntSliceNative(u32, crc_bytes);
@@ -1535,7 +1535,7 @@ pub const DebugInfo = struct {
                     switch (phdr.p_type) {
                         elf.PT_NOTE => {
                             // Look for .note.gnu.build-id
-                            const note_bytes = @ptrFromInt([*]const u8, info.dlpi_addr + phdr.p_vaddr)[0..phdr.p_memsz];
+                            const note_bytes = @as([*]const u8, @ptrFromInt(info.dlpi_addr + phdr.p_vaddr))[0..phdr.p_memsz];
                             const name_size = mem.readIntSliceNative(u32, note_bytes[0..4]);
                             if (name_size != 4) continue;
                             const desc_size = mem.readIntSliceNative(u32, note_bytes[4..8]);
@@ -1545,7 +1545,7 @@ pub const DebugInfo = struct {
                             context.build_id = note_bytes[16..][0..desc_size];
                         },
                         elf.PT_GNU_EH_FRAME => {
-                            context.gnu_eh_frame = @ptrFromInt([*]const u8, info.dlpi_addr + phdr.p_vaddr)[0..phdr.p_memsz];
+                            context.gnu_eh_frame = @as([*]const u8, @ptrFromInt(info.dlpi_addr + phdr.p_vaddr))[0..phdr.p_memsz];
                         },
                         else => {},
                     }
@@ -2094,7 +2094,7 @@ fn dumpSegfaultInfoPosix(sig: i32, addr: usize, ctx_ptr: ?*const anyopaque) void
         .arm,
         .aarch64,
         => {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
             dumpStackTraceFromBase(ctx);
         },
         else => {},

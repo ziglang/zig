@@ -1538,9 +1538,7 @@ pub const DwarfInfo = struct {
                     .cie => {
                         const cie = try CommonInformationEntry.parse(
                             entry_header.entry_bytes,
-                            -@intCast(isize, @intFromPtr(binary_mem.ptr)),
-                            //@ptrToInt(eh_frame.ptr),
-                            //@ptrToInt(eh_frame.ptr) - @ptrToInt(binary_mem.ptr),
+                            -@as(i64, @intCast(@intFromPtr(binary_mem.ptr))),
                             true,
                             entry_header.length_offset,
                             @sizeOf(usize),
@@ -1552,9 +1550,7 @@ pub const DwarfInfo = struct {
                         const cie = di.cie_map.get(cie_offset) orelse return badDwarf();
                         const fde = try FrameDescriptionEntry.parse(
                             entry_header.entry_bytes,
-                            -@intCast(isize, @intFromPtr(binary_mem.ptr)),
-                            //@ptrToInt(eh_frame.ptr),
-                            //@ptrToInt(eh_frame.ptr) - @ptrToInt(binary_mem.ptr),
+                            -@as(i64, @intCast(@intFromPtr(binary_mem.ptr))),
                             true,
                             cie,
                             @sizeOf(usize),
@@ -1783,10 +1779,10 @@ fn readEhPointer(reader: anytype, enc: u8, addr_size_bytes: u8, ctx: EhPointerCo
     };
 
     const ptr = if (base) |b| switch (value) {
-        .signed => |s| @intCast(u64, s + @intCast(i64, b)),
+        .signed => |s| @as(u64, @intCast(s + @as(i64, @intCast(b)))),
         .unsigned => |u| u + b,
     } else switch (value) {
-        .signed => |s| @intCast(u64, s),
+        .signed => |s| @as(u64, @intCast(s)),
         .unsigned => |u| u,
     };
 
@@ -1798,7 +1794,7 @@ fn readEhPointer(reader: anytype, enc: u8, addr_size_bytes: u8, ctx: EhPointerCo
 
         const native_ptr = math.cast(usize, ptr) orelse return error.PointerOverflow;
         return switch (addr_size_bytes) {
-            2, 4, 8 => return @ptrFromInt(*const usize, native_ptr).*,
+            2, 4, 8 => return @as(*const usize, @ptrFromInt(native_ptr)).*,
             else => return error.UnsupportedAddrSize,
         };
     } else {
@@ -1903,7 +1899,7 @@ pub const ExceptionFrameHeader = struct {
         if (self.isValidPtr(fde_ptr + 11, isValidMemory, eh_frame_len)) fde_entry_header_len = 12;
 
         // Even if eh_frame_len is not specified, all ranges accssed are checked by isValidPtr
-        const eh_frame = @ptrFromInt([*]const u8, self.eh_frame_ptr)[0..eh_frame_len orelse math.maxInt(u32)];
+        const eh_frame = @as([*]const u8, @ptrFromInt(self.eh_frame_ptr))[0 .. eh_frame_len orelse math.maxInt(u32)];
 
         const fde_offset = fde_ptr - self.eh_frame_ptr;
         var eh_frame_stream = io.fixedBufferStream(eh_frame);
@@ -2248,8 +2244,8 @@ pub const FrameDescriptionEntry = struct {
 
 fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
     if (pc_rel_offset < 0) {
-        return math.sub(usize, field_ptr, @intCast(usize, -pc_rel_offset));
+        return math.sub(usize, field_ptr, @as(usize, @intCast(-pc_rel_offset)));
     } else {
-        return math.add(usize, field_ptr, @intCast(usize, pc_rel_offset));
+        return math.add(usize, field_ptr, @as(usize, @intCast(pc_rel_offset)));
     }
 }
