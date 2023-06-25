@@ -83,12 +83,15 @@ pub const Scanner = @import("json/scanner.zig").Scanner;
 pub const isNumberFormattedLikeAnInteger = @import("json/scanner.zig").isNumberFormattedLikeAnInteger;
 
 pub const ParseOptions = @import("json/static.zig").ParseOptions;
+pub const Parsed = @import("json/static.zig").Parsed;
 pub const parseFromSlice = @import("json/static.zig").parseFromSlice;
 pub const parseFromSliceLeaky = @import("json/static.zig").parseFromSliceLeaky;
 pub const parseFromTokenSource = @import("json/static.zig").parseFromTokenSource;
 pub const parseFromTokenSourceLeaky = @import("json/static.zig").parseFromTokenSourceLeaky;
+pub const parseFromValue = @import("json/static.zig").parseFromValue;
+pub const parseFromValueLeaky = @import("json/static.zig").parseFromValueLeaky;
 pub const ParseError = @import("json/static.zig").ParseError;
-pub const Parsed = @import("json/static.zig").Parsed;
+pub const ParseFromValueError = @import("json/static.zig").ParseFromValueError;
 
 pub const StringifyOptions = @import("json/stringify.zig").StringifyOptions;
 pub const encodeJsonString = @import("json/stringify.zig").encodeJsonString;
