@@ -8050,17 +8050,9 @@ fn ptrCast(
     }
 
     // Full cast including result type
-    const need_result_type_builtin = if (flags.ptr_cast)
-        "@ptrCast"
-    else if (flags.align_cast)
-        "@alignCast"
-    else if (flags.addrspace_cast)
-        "@addrSpaceCast"
-    else
-        unreachable;
 
     const cursor = maybeAdvanceSourceCursorToMainToken(gz, root_node);
-    const result_type = try ri.rl.resultType(gz, root_node, need_result_type_builtin);
+    const result_type = try ri.rl.resultType(gz, root_node, flags.needResultTypeBuiltinName());
     const operand = try expr(gz, scope, .{ .rl = .none }, node);
     try emitDbgStmt(gz, cursor);
     const result = try gz.addExtendedPayloadSmall(.ptr_cast_full, flags_i, Zir.Inst.BinNode{
