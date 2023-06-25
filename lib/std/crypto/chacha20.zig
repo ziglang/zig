@@ -587,8 +587,8 @@ fn ChaChaWith64BitNonce(comptime rounds_nb: usize) type {
 
             const k = keyToWords(key);
             var c: [4]u32 = undefined;
-            c[0] = @truncate(u32, counter);
-            c[1] = @truncate(u32, counter >> 32);
+            c[0] = @as(u32, @truncate(counter));
+            c[1] = @as(u32, @truncate(counter >> 32));
             c[2] = mem.readIntLittle(u32, nonce[0..4]);
             c[3] = mem.readIntLittle(u32, nonce[4..8]);
             ChaChaImpl(rounds_nb).chacha20Xor(out, in, k, c, true);
@@ -600,8 +600,8 @@ fn ChaChaWith64BitNonce(comptime rounds_nb: usize) type {
 
             const k = keyToWords(key);
             var c: [4]u32 = undefined;
-            c[0] = @truncate(u32, counter);
-            c[1] = @truncate(u32, counter >> 32);
+            c[0] = @as(u32, @truncate(counter));
+            c[1] = @as(u32, @truncate(counter >> 32));
             c[2] = mem.readIntLittle(u32, nonce[0..4]);
             c[3] = mem.readIntLittle(u32, nonce[4..8]);
             ChaChaImpl(rounds_nb).chacha20Stream(out, k, c, true);

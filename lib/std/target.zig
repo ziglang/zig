@@ -711,14 +711,14 @@ pub const Target = struct {
 
                 pub fn isEnabled(set: Set, arch_feature_index: Index) bool {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
-                    const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
+                    const bit_index = @as(ShiftInt, @intCast(arch_feature_index % @bitSizeOf(usize)));
                     return (set.ints[usize_index] & (@as(usize, 1) << bit_index)) != 0;
                 }
 
                 /// Adds the specified feature but not its dependencies.
                 pub fn addFeature(set: *Set, arch_feature_index: Index) void {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
-                    const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
+                    const bit_index = @as(ShiftInt, @intCast(arch_feature_index % @bitSizeOf(usize)));
                     set.ints[usize_index] |= @as(usize, 1) << bit_index;
                 }
 
@@ -730,7 +730,7 @@ pub const Target = struct {
                 /// Removes the specified feature but not its dependents.
                 pub fn removeFeature(set: *Set, arch_feature_index: Index) void {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
-                    const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
+                    const bit_index = @as(ShiftInt, @intCast(arch_feature_index % @bitSizeOf(usize)));
                     set.ints[usize_index] &= ~(@as(usize, 1) << bit_index);
                 }
 
@@ -745,7 +745,7 @@ pub const Target = struct {
                     var old = set.ints;
                     while (true) {
                         for (all_features_list, 0..) |feature, index_usize| {
-                            const index = @intCast(Index, index_usize);
+                            const index = @as(Index, @intCast(index_usize));
                             if (set.isEnabled(index)) {
                                 set.addFeatureSet(feature.dependencies);
                             }
@@ -757,7 +757,7 @@ pub const Target = struct {
                 }
 
                 pub fn asBytes(set: *const Set) *const [byte_count]u8 {
-                    return @ptrCast(*const [byte_count]u8, &set.ints);
+                    return @as(*const [byte_count]u8, @ptrCast(&set.ints));
                 }
 
                 pub fn eql(set: Set, other_set: Set) bool {
@@ -1526,7 +1526,7 @@ pub const Target = struct {
         pub fn set(self: *DynamicLinker, dl_or_null: ?[]const u8) void {
             if (dl_or_null) |dl| {
                 @memcpy(self.buffer[0..dl.len], dl);
-                self.max_byte = @intCast(u8, dl.len - 1);
+                self.max_byte = @as(u8, @intCast(dl.len - 1));
             } else {
                 self.max_byte = null;
             }
@@ -1537,12 +1537,12 @@ pub const Target = struct {
         var result: DynamicLinker = .{};
         const S = struct {
             fn print(r: *DynamicLinker, comptime fmt: []const u8, args: anytype) DynamicLinker {
-                r.max_byte = @intCast(u8, (std.fmt.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1);
+                r.max_byte = @as(u8, @intCast((std.fmt.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1));
                 return r.*;
             }
             fn copy(r: *DynamicLinker, s: []const u8) DynamicLinker {
                 @memcpy(r.buffer[0..s.len], s);
-                r.max_byte = @intCast(u8, s.len - 1);
+                r.max_byte = @as(u8, @intCast(s.len - 1));
                 return r.*;
             }
         };
@@ -1970,7 +1970,7 @@ pub const Target = struct {
                 16 => 2,
                 32 => 4,
                 64 => 8,
-                80 => @intCast(u16, mem.alignForward(usize, 10, c_type_alignment(t, .longdouble))),
+                80 => @as(u16, @intCast(mem.alignForward(usize, 10, c_type_alignment(t, .longdouble)))),
                 128 => 16,
                 else => unreachable,
             },

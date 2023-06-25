@@ -115,15 +115,10 @@ pub const Node = extern union {
 
         /// @import("std").zig.c_builtins.<name>
         import_c_builtin,
-        log2_int_type,
-        /// @import("std").math.Log2Int(operand)
-        std_math_Log2Int,
-        /// @intCast(lhs, rhs)
+        /// @intCast(operand)
         int_cast,
         /// @import("std").zig.c_translation.promoteIntLiteral(value, type, base)
         helpers_promoteIntLiteral,
-        /// @import("std").meta.alignment(value)
-        std_meta_alignment,
         /// @import("std").zig.c_translation.signedRemainder(lhs, rhs)
         signed_remainder,
         /// @divTrunc(lhs, rhs)
@@ -132,23 +127,23 @@ pub const Node = extern union {
         int_from_bool,
         /// @as(lhs, rhs)
         as,
-        /// @truncate(lhs, rhs)
+        /// @truncate(operand)
         truncate,
-        /// @bitCast(lhs, rhs)
+        /// @bitCast(operand)
         bit_cast,
-        /// @floatCast(lhs, rhs)
+        /// @floatCast(operand)
         float_cast,
-        /// @intFromFloat(lhs, rhs)
+        /// @intFromFloat(operand)
         int_from_float,
-        /// @floatFromInt(lhs, rhs)
+        /// @floatFromInt(operand)
         float_from_int,
-        /// @ptrFromInt(lhs, rhs)
+        /// @ptrFromInt(operand)
         ptr_from_int,
         /// @intFromPtr(operand)
         int_from_ptr,
-        /// @alignCast(lhs, rhs)
+        /// @alignCast(operand)
         align_cast,
-        /// @ptrCast(lhs, rhs)
+        /// @ptrCast(operand)
         ptr_cast,
         /// @divExact(lhs, rhs)
         div_exact,
@@ -254,7 +249,6 @@ pub const Node = extern union {
                 .@"comptime",
                 .@"defer",
                 .asm_simple,
-                .std_math_Log2Int,
                 .negate,
                 .negate_wrap,
                 .bit_not,
@@ -270,12 +264,20 @@ pub const Node = extern union {
                 .switch_else,
                 .block_single,
                 .helpers_sizeof,
-                .std_meta_alignment,
                 .int_from_bool,
                 .sizeof,
                 .alignof,
                 .typeof,
                 .typeinfo,
+                .align_cast,
+                .truncate,
+                .bit_cast,
+                .float_cast,
+                .int_from_float,
+                .float_from_int,
+                .ptr_from_int,
+                .ptr_cast,
+                .int_cast,
                 => Payload.UnOp,
 
                 .add,
@@ -314,24 +316,15 @@ pub const Node = extern union {
                 .bit_xor_assign,
                 .div_trunc,
                 .signed_remainder,
-                .int_cast,
                 .as,
-                .truncate,
-                .bit_cast,
-                .float_cast,
-                .int_from_float,
-                .float_from_int,
-                .ptr_from_int,
                 .array_cat,
                 .ellipsis3,
                 .assign,
-                .align_cast,
                 .array_access,
                 .std_mem_zeroinit,
                 .helpers_flexible_array_type,
                 .helpers_shuffle_vector_index,
                 .vector,
-                .ptr_cast,
                 .div_exact,
                 .offset_of,
                 .helpers_cast,
@@ -367,7 +360,6 @@ pub const Node = extern union {
                 .c_pointer, .single_pointer => Payload.Pointer,
                 .array_type, .null_sentinel_array_type => Payload.Array,
                 .arg_redecl, .alias, .fail_decl => Payload.ArgRedecl,
-                .log2_int_type => Payload.Log2IntType,
                 .var_simple, .pub_var_simple, .static_local_var, .mut_str => Payload.SimpleVarDecl,
                 .enum_constant => Payload.EnumConstant,
                 .array_filler => Payload.ArrayFiller,
@@ -401,7 +393,7 @@ pub const Node = extern union {
 
     pub fn tag(self: Node) Tag {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
-            return @enumFromInt(Tag, @intCast(std.meta.Tag(Tag), self.tag_if_small_enough));
+            return @as(Tag, @enumFromInt(@as(std.meta.Tag(Tag), @intCast(self.tag_if_small_enough))));
         } else {
             return self.ptr_otherwise.tag;
         }
@@ -644,11 +636,6 @@ pub const Payload = struct {
         },
     };
 
-    pub const Log2IntType = struct {
-        base: Payload,
-        data: std.math.Log2Int(u64),
-    };
-
     pub const SimpleVarDecl = struct {
         base: Payload,
         data: struct {
@@ -791,7 +778,7 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
 
     try ctx.tokens.append(gpa, .{
         .tag = .eof,
-        .start = @intCast(u32, ctx.buf.items.len),
+        .start = @as(u32, @intCast(ctx.buf.items.len)),
     });
 
     return std.zig.Ast{
@@ -821,10 +808,10 @@ const Context = struct {
 
         try c.tokens.append(c.gpa, .{
             .tag = tag,
-            .start = @intCast(u32, start_index),
+            .start = @as(u32, @intCast(start_index)),
         });
 
-        return @intCast(u32, c.tokens.len - 1);
+        return @as(u32, @intCast(c.tokens.len - 1));
     }
 
     fn addToken(c: *Context, tag: TokenTag, bytes: []const u8) Allocator.Error!TokenIndex {
@@ -840,13 +827,13 @@ const Context = struct {
     fn listToSpan(c: *Context, list: []const NodeIndex) Allocator.Error!NodeSubRange {
         try c.extra_data.appendSlice(c.gpa, list);
         return NodeSubRange{
-            .start = @intCast(NodeIndex, c.extra_data.items.len - list.len),
-            .end = @intCast(NodeIndex, c.extra_data.items.len),
+            .start = @as(NodeIndex, @intCast(c.extra_data.items.len - list.len)),
+            .end = @as(NodeIndex, @intCast(c.extra_data.items.len)),
         };
     }
 
     fn addNode(c: *Context, elem: std.zig.Ast.Node) Allocator.Error!NodeIndex {
-        const result = @intCast(NodeIndex, c.nodes.len);
+        const result = @as(NodeIndex, @intCast(c.nodes.len));
         try c.nodes.append(c.gpa, elem);
         return result;
     }
@@ -854,7 +841,7 @@ const Context = struct {
     fn addExtra(c: *Context, extra: anytype) Allocator.Error!NodeIndex {
         const fields = std.meta.fields(@TypeOf(extra));
         try c.extra_data.ensureUnusedCapacity(c.gpa, fields.len);
-        const result = @intCast(u32, c.extra_data.items.len);
+        const result = @as(u32, @intCast(c.extra_data.items.len));
         inline for (fields) |field| {
             comptime std.debug.assert(field.type == NodeIndex);
             c.extra_data.appendAssumeCapacity(@field(extra, field.name));
@@ -885,11 +872,6 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             try c.buf.append('\n');
             return @as(NodeIndex, 0); // error: integer value 0 cannot be coerced to type 'std.mem.Allocator.Error!u32'
         },
-        .std_math_Log2Int => {
-            const payload = node.castTag(.std_math_Log2Int).?.data;
-            const import_node = try renderStdImport(c, &.{ "math", "Log2Int" });
-            return renderCall(c, import_node, &.{payload});
-        },
         .helpers_cast => {
             const payload = node.castTag(.helpers_cast).?.data;
             const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "cast" });
@@ -899,11 +881,6 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.helpers_promoteIntLiteral).?.data;
             const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "promoteIntLiteral" });
             return renderCall(c, import_node, &.{ payload.type, payload.value, payload.base });
-        },
-        .std_meta_alignment => {
-            const payload = node.castTag(.std_meta_alignment).?.data;
-            const import_node = try renderStdImport(c, &.{ "meta", "alignment" });
-            return renderCall(c, import_node, &.{payload});
         },
         .helpers_sizeof => {
             const payload = node.castTag(.helpers_sizeof).?.data;
@@ -1078,14 +1055,6 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addToken(.identifier, payload),
-                .data = undefined,
-            });
-        },
-        .log2_int_type => {
-            const payload = node.castTag(.log2_int_type).?.data;
-            return c.addNode(.{
-                .tag = .identifier,
-                .main_token = try c.addTokenFmt(.identifier, "u{d}", .{payload}),
                 .data = undefined,
             });
         },
@@ -1344,7 +1313,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .int_cast => {
             const payload = node.castTag(.int_cast).?.data;
-            return renderBuiltinCall(c, "@intCast", &.{ payload.lhs, payload.rhs });
+            return renderBuiltinCall(c, "@intCast", &.{payload});
         },
         .signed_remainder => {
             const payload = node.castTag(.signed_remainder).?.data;
@@ -1365,27 +1334,27 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .truncate => {
             const payload = node.castTag(.truncate).?.data;
-            return renderBuiltinCall(c, "@truncate", &.{ payload.lhs, payload.rhs });
+            return renderBuiltinCall(c, "@truncate", &.{payload});
         },
         .bit_cast => {
             const payload = node.castTag(.bit_cast).?.data;
-            return renderBuiltinCall(c, "@bitCast", &.{ payload.lhs, payload.rhs });
+            return renderBuiltinCall(c, "@bitCast", &.{payload});
         },
         .float_cast => {
             const payload = node.castTag(.float_cast).?.data;
-            return renderBuiltinCall(c, "@floatCast", &.{ payload.lhs, payload.rhs });
+            return renderBuiltinCall(c, "@floatCast", &.{payload});
         },
         .int_from_float => {
             const payload = node.castTag(.int_from_float).?.data;
-            return renderBuiltinCall(c, "@intFromFloat", &.{ payload.lhs, payload.rhs });
+            return renderBuiltinCall(c, "@intFromFloat", &.{payload});
         },
         .float_from_int => {
             const payload = node.castTag(.float_from_int).?.data;
-            return renderBuiltinCall(c, "@floatFromInt", &.{ payload.lhs, payload.rhs });
+            return renderBuiltinCall(c, "@floatFromInt", &.{payload});
         },
         .ptr_from_int => {
             const payload = node.castTag(.ptr_from_int).?.data;
-            return renderBuiltinCall(c, "@ptrFromInt", &.{ payload.lhs, payload.rhs });
+            return renderBuiltinCall(c, "@ptrFromInt", &.{payload});
         },
         .int_from_ptr => {
             const payload = node.castTag(.int_from_ptr).?.data;
@@ -1393,11 +1362,11 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .align_cast => {
             const payload = node.castTag(.align_cast).?.data;
-            return renderBuiltinCall(c, "@alignCast", &.{ payload.lhs, payload.rhs });
+            return renderBuiltinCall(c, "@alignCast", &.{payload});
         },
         .ptr_cast => {
             const payload = node.castTag(.ptr_cast).?.data;
-            return renderBuiltinCall(c, "@ptrCast", &.{ payload.lhs, payload.rhs });
+            return renderBuiltinCall(c, "@ptrCast", &.{payload});
         },
         .div_exact => {
             const payload = node.castTag(.div_exact).?.data;
@@ -2330,14 +2299,11 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .float_from_int,
         .ptr_from_int,
         .std_mem_zeroes,
-        .std_math_Log2Int,
-        .log2_int_type,
         .int_from_ptr,
         .sizeof,
         .alignof,
         .typeof,
         .typeinfo,
-        .std_meta_alignment,
         .vector,
         .helpers_sizeof,
         .helpers_cast,

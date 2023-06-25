@@ -2410,7 +2410,7 @@ var some_integers: [100]i32 = undefined;
 
 test "modify an array" {
     for (&some_integers, 0..) |*item, i| {
-        item.* = @intCast(i32, i);
+        item.* = @intCast(i);
     }
     try expect(some_integers[10] == 10);
     try expect(some_integers[99] == 99);
@@ -2452,8 +2452,8 @@ var fancy_array = init: {
     var initial_value: [10]Point = undefined;
     for (&initial_value, 0..) |*pt, i| {
         pt.* = Point{
-            .x = @intCast(i32, i),
-            .y = @intCast(i32, i) * 2,
+            .x = @intCast(i),
+            .y = @intCast(i * 2),
         };
     }
     break :init initial_value;
@@ -2769,7 +2769,7 @@ test "comptime pointers" {
 const expect = @import("std").testing.expect;
 
 test "@intFromPtr and @ptrFromInt" {
-    const ptr = @ptrFromInt(*i32, 0xdeadbee0);
+    const ptr: *i32 = @ptrFromInt(0xdeadbee0);
     const addr = @intFromPtr(ptr);
     try expect(@TypeOf(addr) == usize);
     try expect(addr == 0xdeadbee0);
@@ -2784,7 +2784,7 @@ test "comptime @ptrFromInt" {
     comptime {
         // Zig is able to do this at compile-time, as long as
         // ptr is never dereferenced.
-        const ptr = @ptrFromInt(*i32, 0xdeadbee0);
+        const ptr: *i32 = @ptrFromInt(0xdeadbee0);
         const addr = @intFromPtr(ptr);
         try expect(@TypeOf(addr) == usize);
         try expect(addr == 0xdeadbee0);
@@ -2801,7 +2801,7 @@ test "comptime @ptrFromInt" {
 const expect = @import("std").testing.expect;
 
 test "volatile" {
-    const mmio_ptr = @ptrFromInt(*volatile u8, 0x12345678);
+    const mmio_ptr: *volatile u8 = @ptrFromInt(0x12345678);
     try expect(@TypeOf(mmio_ptr) == *volatile u8);
 }
       {#code_end#}
@@ -2822,7 +2822,7 @@ const expect = std.testing.expect;
 
 test "pointer casting" {
     const bytes align(@alignOf(u32)) = [_]u8{ 0x12, 0x12, 0x12, 0x12 };
-    const u32_ptr = @ptrCast(*const u32, &bytes);
+    const u32_ptr: *const u32 = @ptrCast(&bytes);
     try expect(u32_ptr.* == 0x12121212);
 
     // Even this example is contrived - there are better ways to do the above than
@@ -2831,7 +2831,7 @@ test "pointer casting" {
     try expect(u32_value == 0x12121212);
 
     // And even another way, the most straightforward way to do it:
-    try expect(@bitCast(u32, bytes) == 0x12121212);
+    try expect(@as(u32, @bitCast(bytes)) == 0x12121212);
 }
 
 test "pointer child type" {
@@ -2921,7 +2921,7 @@ test "pointer alignment safety" {
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
-    const int_slice = std.mem.bytesAsSlice(u32, @alignCast(4, slice4));
+    const int_slice = std.mem.bytesAsSlice(u32, @as([]align(4) u8, @alignCast(slice4)));
     return int_slice[0];
 }
       {#code_end#}
@@ -2942,7 +2942,7 @@ const expect = std.testing.expect;
 
 test "allowzero" {
     var zero: usize = 0;
-    var ptr = @ptrFromInt(*allowzero i32, zero);
+    var ptr: *allowzero i32 = @ptrFromInt(zero);
     try expect(@intFromPtr(ptr) == 0);
 }
       {#code_end#}
@@ -3354,12 +3354,12 @@ fn doTheTest() !void {
     try expect(@sizeOf(Full) == 2);
     try expect(@sizeOf(Divided) == 2);
     var full = Full{ .number = 0x1234 };
-    var divided = @bitCast(Divided, full);
+    var divided: Divided = @bitCast(full);
     try expect(divided.half1 == 0x34);
     try expect(divided.quarter3 == 0x2);
     try expect(divided.quarter4 == 0x1);
 
-    var ordered = @bitCast([2]u8, full);
+    var ordered: [2]u8 = @bitCast(full);
     switch (native_endian) {
         .Big => {
             try expect(ordered[0] == 0x12);
@@ -4428,7 +4428,7 @@ fn getNum(u: U) u32 {
         // `u.a` or `u.b` and `tag` is `u`'s comptime-known tag value.
         inline else => |num, tag| {
             if (tag == .b) {
-                return @intFromFloat(u32, num);
+                return @intFromFloat(num);
             }
             return num;
         }
@@ -4714,7 +4714,7 @@ test "for basics" {
     var sum2: i32 = 0;
     for (items, 0..) |_, i| {
         try expect(@TypeOf(i) == usize);
-        sum2 += @intCast(i32, i);
+        sum2 += @as(i32, @intCast(i));
     }
     try expect(sum2 == 10);
 
@@ -6363,7 +6363,7 @@ const mem = std.mem;
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    try expect(mem.eql(u8, std.mem.sliceTo(@ptrCast([*:0]const u8, x[0].?), 0), "window name"));
+    try expect(mem.eql(u8, std.mem.sliceTo(@as([*:0]const u8, @ptrCast(x[0].?)), 0), "window name"));
 }
       {#code_end#}
       {#header_close#}
@@ -6760,8 +6760,8 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
 }
 
 test "peer type resolution: *const T and ?*T" {
-    const a = @ptrFromInt(*const usize, 0x123456780);
-    const b = @ptrFromInt(?*usize, 0x123456780);
+    const a: *const usize = @ptrFromInt(0x123456780);
+    const b: ?*usize = @ptrFromInt(0x123456780);
     try expect(a == b);
     try expect(b == a);
 }
@@ -7762,12 +7762,13 @@ test "global assembly" {
       at compile time.
       </p>
       {#header_open|@addrSpaceCast#}
-      <pre>{#syntax#}@addrSpaceCast(comptime addrspace: std.builtin.AddressSpace, ptr: anytype) anytype{#endsyntax#}</pre>
+      <pre>{#syntax#}@addrSpaceCast(ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts a pointer from one address space to another. Depending on the current target and
-      address spaces, this cast may be a no-op, a complex operation, or illegal. If the cast is
-      legal, then the resulting pointer points to the same memory location as the pointer operand.
-      It is always valid to cast a pointer between the same address spaces.
+      Converts a pointer from one address space to another. The new address space is inferred
+			based on the result type. Depending on the current target and address spaces, this cast
+			may be a no-op, a complex operation, or illegal. If the cast is legal, then the resulting
+			pointer points to the same memory location as the pointer operand. It is always valid to
+			cast a pointer between the same address spaces.
       </p>
       {#header_close#}
       {#header_open|@addWithOverflow#}
@@ -7777,10 +7778,10 @@ test "global assembly" {
       </p>
       {#header_close#}
       {#header_open|@alignCast#}
-      <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: anytype) anytype{#endsyntax#}</pre>
+      <pre>{#syntax#}@alignCast(ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
       {#syntax#}ptr{#endsyntax#} can be {#syntax#}*T{#endsyntax#}, {#syntax#}?*T{#endsyntax#}, or {#syntax#}[]T{#endsyntax#}.
-      It returns the same type as {#syntax#}ptr{#endsyntax#} except with the alignment adjusted to the new value.
+			Changes the alignment of a pointer. The alignment to use is inferred based on the result type.
       </p>
       <p>A {#link|pointer alignment safety check|Incorrect Pointer Alignment#} is added
       to the generated code to make sure the pointer is aligned as promised.</p>
@@ -7865,9 +7866,10 @@ comptime {
       {#header_close#}
 
       {#header_open|@bitCast#}
-      <pre>{#syntax#}@bitCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@bitCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts a value of one type to another type.
+      Converts a value of one type to another type. The return type is the
+			inferred result type.
       </p>
       <p>
       Asserts that {#syntax#}@sizeOf(@TypeOf(value)) == @sizeOf(DestType){#endsyntax#}.
@@ -8420,10 +8422,11 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errSetCast#}
-      <pre>{#syntax#}@errSetCast(comptime T: DestType, value: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@errSetCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts an error value from one error set to another error set. Attempting to convert an error
-      which is not in the destination error set results in safety-protected {#link|Undefined Behavior#}.
+      Converts an error value from one error set to another error set. The return type is the
+			inferred result type. Attempting to convert an error which is not in the destination error
+			set results in safety-protected {#link|Undefined Behavior#}.
       </p>
       {#header_close#}
 
@@ -8535,17 +8538,17 @@ test "decl access by string" {
       {#header_close#}
 
       {#header_open|@floatCast#}
-      <pre>{#syntax#}@floatCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@floatCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
       Convert from one float type to another. This cast is safe, but may cause the
-      numeric value to lose precision.
+      numeric value to lose precision. The return type is the inferred result type.
       </p>
       {#header_close#}
 
       {#header_open|@intFromFloat#}
-      <pre>{#syntax#}@intFromFloat(comptime DestType: type, float: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@intFromFloat(float: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts the integer part of a floating point number to the destination type.
+      Converts the integer part of a floating point number to the inferred result type.
       </p>
       <p>
       If the integer part of the floating point number cannot fit in the destination type,
@@ -8660,16 +8663,17 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@intCast#}
-      <pre>{#syntax#}@intCast(comptime DestType: type, int: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@intCast(int: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts an integer to another integer while keeping the same numerical value.
+			The return type is the inferred result type.
       Attempting to convert a number which is out of range of the destination type results in
       safety-protected {#link|Undefined Behavior#}.
       </p>
       {#code_begin|test_err|test_intCast_builtin|cast truncated bits#}
 test "integer cast panic" {
     var a: u16 = 0xabcd;
-    var b: u8 = @intCast(u8, a);
+    var b: u8 = @intCast(a);
     _ = b;
 }
       {#code_end#}
@@ -8683,9 +8687,9 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@enumFromInt#}
-      <pre>{#syntax#}@enumFromInt(comptime DestType: type, integer: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@enumFromInt(integer: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts an integer into an {#link|enum#} value.
+      Converts an integer into an {#link|enum#} value. The return type is the inferred result type.
       </p>
       <p>
       Attempting to convert an integer which represents no value in the chosen enum type invokes
@@ -8711,16 +8715,18 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@floatFromInt#}
-      <pre>{#syntax#}@floatFromInt(comptime DestType: type, int: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@floatFromInt(int: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts an integer to the closest floating point representation. To convert the other way, use {#link|@intFromFloat#}. This cast is always safe.
+      Converts an integer to the closest floating point representation. The return type is the inferred result type.
+			To convert the other way, use {#link|@intFromFloat#}. This cast is always safe.
       </p>
       {#header_close#}
 
       {#header_open|@ptrFromInt#}
-      <pre>{#syntax#}@ptrFromInt(comptime DestType: type, address: usize) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@ptrFromInt(address: usize) anytype{#endsyntax#}</pre>
       <p>
-      Converts an integer to a {#link|pointer|Pointers#}. To convert the other way, use {#link|@intFromPtr#}. Casting an address of 0 to a destination type
+      Converts an integer to a {#link|pointer|Pointers#}. The return type is the inferred result type.
+			To convert the other way, use {#link|@intFromPtr#}. Casting an address of 0 to a destination type
       which in not {#link|optional|Optional Pointers#} and does not have the {#syntax#}allowzero{#endsyntax#} attribute will result in a
       {#link|Pointer Cast Invalid Null#} panic when runtime safety checks are enabled.
       </p>
@@ -8924,9 +8930,9 @@ pub const PrefetchOptions = struct {
       {#header_close#}
 
       {#header_open|@ptrCast#}
-      <pre>{#syntax#}@ptrCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@ptrCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts a pointer of one type to a pointer of another type.
+      Converts a pointer of one type to a pointer of another type. The return type is the inferred result type.
       </p>
       <p>
       {#link|Optional Pointers#} are allowed. Casting an optional pointer which is {#link|null#}
@@ -9522,10 +9528,10 @@ fn List(comptime T: type) type {
       {#header_close#}
 
       {#header_open|@truncate#}
-      <pre>{#syntax#}@truncate(comptime T: type, integer: anytype) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@truncate(integer: anytype) anytype{#endsyntax#}</pre>
       <p>
       This function truncates bits from an integer type, resulting in a smaller
-      or same-sized integer type.
+      or same-sized integer type. The return type is the inferred result type.
       </p>
       <p>
       This function always truncates the significant bits of the integer, regardless
@@ -9540,7 +9546,7 @@ const expect = std.testing.expect;
 
 test "integer truncation" {
     var a: u16 = 0xabcd;
-    var b: u8 = @truncate(u8, a);
+    var b: u8 = @truncate(a);
     try expect(b == 0xcd);
 }
       {#code_end#}
@@ -9838,7 +9844,7 @@ fn foo(x: []const u8) u8 {
       {#code_begin|test_err|test_comptime_invalid_cast|type 'u32' cannot represent integer value '-1'#}
 comptime {
     var value: i32 = -1;
-    const unsigned = @intCast(u32, value);
+    const unsigned: u32 = @intCast(value);
     _ = unsigned;
 }
       {#code_end#}
@@ -9848,7 +9854,7 @@ const std = @import("std");
 
 pub fn main() void {
     var value: i32 = -1;
-    var unsigned = @intCast(u32, value);
+    var unsigned: u32 = @intCast(value);
     std.debug.print("value: {}\n", .{unsigned});
 }
       {#code_end#}
@@ -9861,7 +9867,7 @@ pub fn main() void {
       {#code_begin|test_err|test_comptime_invalid_cast_truncate|type 'u8' cannot represent integer value '300'#}
 comptime {
     const spartan_count: u16 = 300;
-    const byte = @intCast(u8, spartan_count);
+    const byte: u8 = @intCast(spartan_count);
     _ = byte;
 }
       {#code_end#}
@@ -9871,7 +9877,7 @@ const std = @import("std");
 
 pub fn main() void {
     var spartan_count: u16 = 300;
-    const byte = @intCast(u8, spartan_count);
+    const byte: u8 = @intCast(spartan_count);
     std.debug.print("value: {}\n", .{byte});
 }
       {#code_end#}
@@ -10208,7 +10214,7 @@ const Foo = enum {
 };
 comptime {
     const a: u2 = 3;
-    const b = @enumFromInt(Foo, a);
+    const b: Foo = @enumFromInt(a);
     _ = b;
 }
       {#code_end#}
@@ -10224,7 +10230,7 @@ const Foo = enum {
 
 pub fn main() void {
     var a: u2 = 3;
-    var b = @enumFromInt(Foo, a);
+    var b: Foo = @enumFromInt(a);
     std.debug.print("value: {s}\n", .{@tagName(b)});
 }
       {#code_end#}
@@ -10242,7 +10248,7 @@ const Set2 = error{
     C,
 };
 comptime {
-    _ = @errSetCast(Set2, Set1.B);
+    _ = @as(Set2, @errSetCast(Set1.B));
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -10261,7 +10267,7 @@ pub fn main() void {
     foo(Set1.B);
 }
 fn foo(set1: Set1) void {
-    const x = @errSetCast(Set2, set1);
+    const x = @as(Set2, @errSetCast(set1));
     std.debug.print("value: {}\n", .{x});
 }
       {#code_end#}
@@ -10271,8 +10277,8 @@ fn foo(set1: Set1) void {
       <p>At compile-time:</p>
       {#code_begin|test_err|test_comptime_incorrect_pointer_alignment|pointer address 0x1 is not aligned to 4 bytes#}
 comptime {
-    const ptr = @ptrFromInt(*align(1) i32, 0x1);
-    const aligned = @alignCast(4, ptr);
+    const ptr: *align(1) i32 = @ptrFromInt(0x1);
+    const aligned: *align(4) i32 = @alignCast(ptr);
     _ = aligned;
 }
       {#code_end#}
@@ -10286,7 +10292,7 @@ pub fn main() !void {
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
-    const int_slice = mem.bytesAsSlice(u32, @alignCast(4, slice4));
+    const int_slice = mem.bytesAsSlice(u32, @as([]align(4) u8, @alignCast(slice4)));
     return int_slice[0];
 }
       {#code_end#}
@@ -10387,7 +10393,7 @@ fn bar(f: *Foo) void {
       {#code_begin|test_err|test_comptime_invalid_null_pointer_cast|null pointer casted to type#}
 comptime {
     const opt_ptr: ?*i32 = null;
-    const ptr = @ptrCast(*i32, opt_ptr);
+    const ptr: *i32 = @ptrCast(opt_ptr);
     _ = ptr;
 }
       {#code_end#}
@@ -10395,7 +10401,7 @@ comptime {
       {#code_begin|exe_err|runtime_invalid_null_pointer_cast#}
 pub fn main() void {
     var opt_ptr: ?*i32 = null;
-    var ptr = @ptrCast(*i32, opt_ptr);
+    var ptr: *i32 = @ptrCast(opt_ptr);
     _ = ptr;
 }
       {#code_end#}

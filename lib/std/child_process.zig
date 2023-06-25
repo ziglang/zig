@@ -93,7 +93,7 @@ pub const ChildProcess = struct {
             switch (builtin.os.tag) {
                 .linux => {
                     if (rus.rusage) |ru| {
-                        return @intCast(usize, ru.maxrss) * 1024;
+                        return @as(usize, @intCast(ru.maxrss)) * 1024;
                     } else {
                         return null;
                     }
@@ -108,7 +108,7 @@ pub const ChildProcess = struct {
                 .macos, .ios => {
                     if (rus.rusage) |ru| {
                         // Darwin oddly reports in bytes instead of kilobytes.
-                        return @intCast(usize, ru.maxrss);
+                        return @as(usize, @intCast(ru.maxrss));
                     } else {
                         return null;
                     }
@@ -376,7 +376,7 @@ pub const ChildProcess = struct {
             if (windows.kernel32.GetExitCodeProcess(self.id, &exit_code) == 0) {
                 break :x Term{ .Unknown = 0 };
             } else {
-                break :x Term{ .Exited = @truncate(u8, exit_code) };
+                break :x Term{ .Exited = @as(u8, @truncate(exit_code)) };
             }
         });
 
@@ -449,7 +449,7 @@ pub const ChildProcess = struct {
                 // has a value greater than 0
                 if ((fd[0].revents & std.os.POLL.IN) != 0) {
                     const err_int = try readIntFd(err_pipe[0]);
-                    return @errSetCast(SpawnError, @errorFromInt(err_int));
+                    return @as(SpawnError, @errSetCast(@errorFromInt(err_int)));
                 }
             } else {
                 // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
@@ -462,7 +462,7 @@ pub const ChildProcess = struct {
                 // Here we potentially return the fork child's error from the parent
                 // pid.
                 if (err_int != maxInt(ErrInt)) {
-                    return @errSetCast(SpawnError, @errorFromInt(err_int));
+                    return @as(SpawnError, @errSetCast(@errorFromInt(err_int)));
                 }
             }
         }
@@ -542,7 +542,7 @@ pub const ChildProcess = struct {
             } else if (builtin.output_mode == .Exe) {
                 // Then we have Zig start code and this works.
                 // TODO type-safety for null-termination of `os.environ`.
-                break :m @ptrCast([*:null]const ?[*:0]const u8, os.environ.ptr);
+                break :m @as([*:null]const ?[*:0]const u8, @ptrCast(os.environ.ptr));
             } else {
                 // TODO come up with a solution for this.
                 @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
@@ -605,7 +605,7 @@ pub const ChildProcess = struct {
         }
 
         // we are the parent
-        const pid = @intCast(i32, pid_result);
+        const pid = @as(i32, @intCast(pid_result));
         if (self.stdin_behavior == StdIo.Pipe) {
             self.stdin = File{ .handle = stdin_pipe[1] };
         } else {
@@ -1015,11 +1015,11 @@ fn windowsCreateProcessPathExt(
             else => return windows.unexpectedStatus(rc),
         }
 
-        const dir_info = @ptrCast(*windows.FILE_DIRECTORY_INFORMATION, &file_information_buf);
+        const dir_info = @as(*windows.FILE_DIRECTORY_INFORMATION, @ptrCast(&file_information_buf));
         if (dir_info.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) {
             break :found_name null;
         }
-        break :found_name @ptrCast([*]u16, &dir_info.FileName)[0 .. dir_info.FileNameLength / 2];
+        break :found_name @as([*]u16, @ptrCast(&dir_info.FileName))[0 .. dir_info.FileNameLength / 2];
     };
 
     const unappended_err = unappended: {
@@ -1104,7 +1104,7 @@ fn windowsCreateProcessPathExt(
             else => return windows.unexpectedStatus(rc),
         }
 
-        const dir_info = @ptrCast(*windows.FILE_DIRECTORY_INFORMATION, &file_information_buf);
+        const dir_info = @as(*windows.FILE_DIRECTORY_INFORMATION, @ptrCast(&file_information_buf));
         // Skip directories
         if (dir_info.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) continue;
 
@@ -1164,7 +1164,7 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
         null,
         windows.TRUE,
         windows.CREATE_UNICODE_ENVIRONMENT,
-        @ptrCast(?*anyopaque, envp_ptr),
+        @as(?*anyopaque, @ptrCast(envp_ptr)),
         cwd_ptr,
         lpStartupInfo,
         lpProcessInformation,
@@ -1376,7 +1376,7 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    file.writer().writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
+    file.writer().writeIntNative(u64, @as(u64, @intCast(value))) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
@@ -1385,7 +1385,7 @@ fn readIntFd(fd: i32) !ErrInt {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    return @intCast(ErrInt, file.reader().readIntNative(u64) catch return error.SystemResources);
+    return @as(ErrInt, @intCast(file.reader().readIntNative(u64) catch return error.SystemResources));
 }
 
 /// Caller must free result.

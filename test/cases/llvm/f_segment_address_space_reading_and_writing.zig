@@ -34,7 +34,7 @@ pub fn main() void {
     setFs(@intFromPtr(&test_value));
     assert(getFs() == @intFromPtr(&test_value));
 
-    var test_ptr = @ptrFromInt(*allowzero addrspace(.fs) u64, 0);
+    var test_ptr: *allowzero addrspace(.fs) u64 = @ptrFromInt(0);
     assert(test_ptr.* == 12345);
     test_ptr.* = 98765;
     assert(test_value == 98765);

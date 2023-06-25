@@ -190,7 +190,7 @@ fn exit2(code: usize) noreturn {
             else => @compileError("TODO"),
         },
         .windows => {
-            ExitProcess(@truncate(u32, code));
+            ExitProcess(@as(u32, @truncate(code)));
         },
         else => @compileError("TODO"),
     }
@@ -387,23 +387,23 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.debug.maybeEnableSegfaultHandler();
 
     const result: std.os.windows.INT = initEventLoopAndCallWinMain();
-    std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
+    std.os.windows.kernel32.ExitProcess(@as(std.os.windows.UINT, @bitCast(result)));
 }
 
 fn posixCallMainAndExit() callconv(.C) noreturn {
     @setAlignStack(16);
 
     const argc = argc_argv_ptr[0];
-    const argv = @ptrCast([*][*:0]u8, argc_argv_ptr + 1);
+    const argv = @as([*][*:0]u8, @ptrCast(argc_argv_ptr + 1));
 
-    const envp_optional = @ptrCast([*:null]?[*:0]u8, @alignCast(@alignOf(usize), argv + argc + 1));
+    const envp_optional: [*:null]?[*:0]u8 = @ptrCast(@alignCast(argv + argc + 1));
     var envp_count: usize = 0;
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
-    const envp = @ptrCast([*][*:0]u8, envp_optional)[0..envp_count];
+    const envp = @as([*][*:0]u8, @ptrCast(envp_optional))[0..envp_count];
 
     if (native_os == .linux) {
         // Find the beginning of the auxiliary vector
-        const auxv = @ptrCast([*]elf.Auxv, @alignCast(@alignOf(usize), envp.ptr + envp_count + 1));
+        const auxv: [*]elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
         std.os.linux.elf_aux_maybe = auxv;
 
         var at_hwcap: usize = 0;
@@ -419,7 +419,7 @@ fn posixCallMainAndExit() callconv(.C) noreturn {
                     else => continue,
                 }
             }
-            break :init @ptrFromInt([*]elf.Phdr, at_phdr)[0..at_phnum];
+            break :init @as([*]elf.Phdr, @ptrFromInt(at_phdr))[0..at_phnum];
         };
 
         // Apply the initial relocations as early as possible in the startup
@@ -495,20 +495,20 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
 fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.C) c_int {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
-    const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
+    const envp = @as([*][*:0]u8, @ptrCast(c_envp))[0..env_count];
 
     if (builtin.os.tag == .linux) {
         const at_phdr = std.c.getauxval(elf.AT_PHDR);
         const at_phnum = std.c.getauxval(elf.AT_PHNUM);
-        const phdrs = (@ptrFromInt([*]elf.Phdr, at_phdr))[0..at_phnum];
+        const phdrs = (@as([*]elf.Phdr, @ptrFromInt(at_phdr)))[0..at_phnum];
         expandStackSize(phdrs);
     }
 
-    return @call(.always_inline, callMainWithArgs, .{ @intCast(usize, c_argc), @ptrCast([*][*:0]u8, c_argv), envp });
+    return @call(.always_inline, callMainWithArgs, .{ @as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), envp });
 }
 
 fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
-    std.os.argv = @ptrCast([*][*:0]u8, c_argv)[0..@intCast(usize, c_argc)];
+    std.os.argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@as(usize, @intCast(c_argc))];
     return @call(.always_inline, callMain, .{});
 }
 
@@ -629,7 +629,7 @@ pub fn callMain() u8 {
 
 pub fn call_wWinMain() std.os.windows.INT {
     const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.params[0].type.?;
-    const hInstance = @ptrCast(MAIN_HINSTANCE, std.os.windows.kernel32.GetModuleHandleW(null).?);
+    const hInstance = @as(MAIN_HINSTANCE, @ptrCast(std.os.windows.kernel32.GetModuleHandleW(null).?));
     const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();
 
     // There's no (documented) way to get the nCmdShow parameter, so we're

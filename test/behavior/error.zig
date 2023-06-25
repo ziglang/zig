@@ -234,9 +234,9 @@ const Set1 = error{ A, B };
 const Set2 = error{ A, C };
 
 fn testExplicitErrorSetCast(set1: Set1) !void {
-    var x = @errSetCast(Set2, set1);
+    var x = @as(Set2, @errSetCast(set1));
     try expect(@TypeOf(x) == Set2);
-    var y = @errSetCast(Set1, x);
+    var y = @as(Set1, @errSetCast(x));
     try expect(@TypeOf(y) == Set1);
     try expect(y == error.A);
 }
@@ -920,4 +920,21 @@ test "optional error set return type" {
 
     try expect(null == S.foo(true));
     try expect(E.A == S.foo(false).?);
+}
+
+test "returning an error union containing a type with no runtime bits" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const ZeroByteType = struct {
+        foo: void,
+
+        pub fn init() !@This() {
+            return .{ .foo = {} };
+        }
+    };
+
+    var zero_byte: ZeroByteType = undefined;
+    (&zero_byte).* = try ZeroByteType.init();
 }

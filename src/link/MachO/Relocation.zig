@@ -94,9 +94,9 @@ pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, cod
         .tlv_initializer => blk: {
             assert(self.addend == 0); // Addend here makes no sense.
             const header = macho_file.sections.items(.header)[macho_file.thread_data_section_index.?];
-            break :blk @intCast(i64, target_base_addr - header.addr);
+            break :blk @as(i64, @intCast(target_base_addr - header.addr));
         },
-        else => @intCast(i64, target_base_addr) + self.addend,
+        else => @as(i64, @intCast(target_base_addr)) + self.addend,
     };
 
     log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{
@@ -119,7 +119,7 @@ fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []
         .branch => {
             const displacement = math.cast(
                 i28,
-                @intCast(i64, target_addr) - @intCast(i64, source_addr),
+                @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr)),
             ) orelse unreachable; // TODO codegen should never allow for jump larger than i28 displacement
             var inst = aarch64.Instruction{
                 .unconditional_branch_immediate = mem.bytesToValue(meta.TagPayload(
@@ -127,25 +127,25 @@ fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []
                     aarch64.Instruction.unconditional_branch_immediate,
                 ), buffer[0..4]),
             };
-            inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement >> 2));
+            inst.unconditional_branch_immediate.imm26 = @as(u26, @truncate(@as(u28, @bitCast(displacement >> 2))));
             mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
         },
         .page, .got_page => {
-            const source_page = @intCast(i32, source_addr >> 12);
-            const target_page = @intCast(i32, target_addr >> 12);
-            const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
+            const source_page = @as(i32, @intCast(source_addr >> 12));
+            const target_page = @as(i32, @intCast(target_addr >> 12));
+            const pages = @as(u21, @bitCast(@as(i21, @intCast(target_page - source_page))));
             var inst = aarch64.Instruction{
                 .pc_relative_address = mem.bytesToValue(meta.TagPayload(
                     aarch64.Instruction,
                     aarch64.Instruction.pc_relative_address,
                 ), buffer[0..4]),
             };
-            inst.pc_relative_address.immhi = @truncate(u19, pages >> 2);
-            inst.pc_relative_address.immlo = @truncate(u2, pages);
+            inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
+            inst.pc_relative_address.immlo = @as(u2, @truncate(pages));
             mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
         },
         .pageoff, .got_pageoff => {
-            const narrowed = @truncate(u12, @intCast(u64, target_addr));
+            const narrowed = @as(u12, @truncate(@as(u64, @intCast(target_addr))));
             if (isArithmeticOp(buffer[0..4])) {
                 var inst = aarch64.Instruction{
                     .add_subtract_immediate = mem.bytesToValue(meta.TagPayload(
@@ -180,8 +180,8 @@ fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []
             }
         },
         .tlv_initializer, .unsigned => switch (self.length) {
-            2 => mem.writeIntLittle(u32, buffer[0..4], @truncate(u32, @bitCast(u64, target_addr))),
-            3 => mem.writeIntLittle(u64, buffer[0..8], @bitCast(u64, target_addr)),
+            2 => mem.writeIntLittle(u32, buffer[0..4], @as(u32, @truncate(@as(u64, @bitCast(target_addr))))),
+            3 => mem.writeIntLittle(u64, buffer[0..8], @as(u64, @bitCast(target_addr))),
             else => unreachable,
         },
         .got, .signed, .tlv => unreachable, // Invalid target architecture.
@@ -191,16 +191,16 @@ fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []
 fn resolveX8664(self: Relocation, source_addr: u64, target_addr: i64, code: []u8) void {
     switch (self.type) {
         .branch, .got, .tlv, .signed => {
-            const displacement = @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4);
-            mem.writeIntLittle(u32, code[self.offset..][0..4], @bitCast(u32, displacement));
+            const displacement = @as(i32, @intCast(@as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr)) - 4));
+            mem.writeIntLittle(u32, code[self.offset..][0..4], @as(u32, @bitCast(displacement)));
         },
         .tlv_initializer, .unsigned => {
             switch (self.length) {
                 2 => {
-                    mem.writeIntLittle(u32, code[self.offset..][0..4], @truncate(u32, @bitCast(u64, target_addr)));
+                    mem.writeIntLittle(u32, code[self.offset..][0..4], @as(u32, @truncate(@as(u64, @bitCast(target_addr)))));
                 },
                 3 => {
-                    mem.writeIntLittle(u64, code[self.offset..][0..8], @bitCast(u64, target_addr));
+                    mem.writeIntLittle(u64, code[self.offset..][0..8], @as(u64, @bitCast(target_addr)));
                 },
                 else => unreachable,
             }
@@ -210,24 +210,24 @@ fn resolveX8664(self: Relocation, source_addr: u64, target_addr: i64, code: []u8
 }
 
 pub inline fn isArithmeticOp(inst: *const [4]u8) bool {
-    const group_decode = @truncate(u5, inst[3]);
+    const group_decode = @as(u5, @truncate(inst[3]));
     return ((group_decode >> 2) == 4);
 }
 
 pub fn calcPcRelativeDisplacementX86(source_addr: u64, target_addr: u64, correction: u3) error{Overflow}!i32 {
-    const disp = @intCast(i64, target_addr) - @intCast(i64, source_addr + 4 + correction);
+    const disp = @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr + 4 + correction));
     return math.cast(i32, disp) orelse error.Overflow;
 }
 
 pub fn calcPcRelativeDisplacementArm64(source_addr: u64, target_addr: u64) error{Overflow}!i28 {
-    const disp = @intCast(i64, target_addr) - @intCast(i64, source_addr);
+    const disp = @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr));
     return math.cast(i28, disp) orelse error.Overflow;
 }
 
 pub fn calcNumberOfPages(source_addr: u64, target_addr: u64) i21 {
-    const source_page = @intCast(i32, source_addr >> 12);
-    const target_page = @intCast(i32, target_addr >> 12);
-    const pages = @intCast(i21, target_page - source_page);
+    const source_page = @as(i32, @intCast(source_addr >> 12));
+    const target_page = @as(i32, @intCast(target_addr >> 12));
+    const pages = @as(i21, @intCast(target_page - source_page));
     return pages;
 }
 
@@ -241,7 +241,7 @@ pub const PageOffsetInstKind = enum {
 };
 
 pub fn calcPageOffset(target_addr: u64, kind: PageOffsetInstKind) !u12 {
-    const narrowed = @truncate(u12, target_addr);
+    const narrowed = @as(u12, @truncate(target_addr));
     return switch (kind) {
         .arithmetic, .load_store_8 => narrowed,
         .load_store_16 => try math.divExact(u12, narrowed, 2),

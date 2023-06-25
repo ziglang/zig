@@ -1123,19 +1123,19 @@ test "std.ArrayList/ArrayListUnmanaged.basic" {
         {
             var i: usize = 0;
             while (i < 10) : (i += 1) {
-                list.append(@intCast(i32, i + 1)) catch unreachable;
+                list.append(@as(i32, @intCast(i + 1))) catch unreachable;
             }
         }
 
         {
             var i: usize = 0;
             while (i < 10) : (i += 1) {
-                try testing.expect(list.items[i] == @intCast(i32, i + 1));
+                try testing.expect(list.items[i] == @as(i32, @intCast(i + 1)));
             }
         }
 
         for (list.items, 0..) |v, i| {
-            try testing.expect(v == @intCast(i32, i + 1));
+            try testing.expect(v == @as(i32, @intCast(i + 1)));
         }
 
         try testing.expect(list.pop() == 10);
@@ -1173,19 +1173,19 @@ test "std.ArrayList/ArrayListUnmanaged.basic" {
         {
             var i: usize = 0;
             while (i < 10) : (i += 1) {
-                list.append(a, @intCast(i32, i + 1)) catch unreachable;
+                list.append(a, @as(i32, @intCast(i + 1))) catch unreachable;
             }
         }
 
         {
             var i: usize = 0;
             while (i < 10) : (i += 1) {
-                try testing.expect(list.items[i] == @intCast(i32, i + 1));
+                try testing.expect(list.items[i] == @as(i32, @intCast(i + 1)));
             }
         }
 
         for (list.items, 0..) |v, i| {
-            try testing.expect(v == @intCast(i32, i + 1));
+            try testing.expect(v == @as(i32, @intCast(i + 1)));
         }
 
         try testing.expect(list.pop() == 10);

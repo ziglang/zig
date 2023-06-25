@@ -212,7 +212,7 @@ pub const XxHash32 = struct {
                 rotl(u32, self.acc3, 12) +% rotl(u32, self.acc4, 18);
         }
 
-        acc = acc +% @intCast(u32, self.byte_count) +% @intCast(u32, self.buf_len);
+        acc = acc +% @as(u32, @intCast(self.byte_count)) +% @as(u32, @intCast(self.buf_len));
 
         var pos: usize = 0;
         while (pos + 4 <= self.buf_len) : (pos += 4) {

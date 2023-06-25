@@ -55,7 +55,7 @@ pub const Lock = struct {
         const head = switch (self.head) {
             UNLOCKED => unreachable,
             LOCKED => null,
-            else => @ptrFromInt(*Waiter, self.head),
+            else => @as(*Waiter, @ptrFromInt(self.head)),
         };
 
         if (head) |h| {
@@ -102,7 +102,7 @@ pub const Lock = struct {
                         break :blk null;
                     },
                     else => {
-                        const waiter = @ptrFromInt(*Waiter, self.lock.head);
+                        const waiter = @as(*Waiter, @ptrFromInt(self.lock.head));
                         self.lock.head = if (waiter.next == null) LOCKED else @intFromPtr(waiter.next);
                         if (waiter.next) |next|
                             next.tail = waiter.tail;
@@ -130,7 +130,7 @@ test "std.event.Lock" {
     var lock = Lock{};
     testLock(&lock);
 
-    const expected_result = [1]i32{3 * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
+    const expected_result = [1]i32{3 * @as(i32, @intCast(shared_test_data.len))} ** shared_test_data.len;
     try testing.expectEqualSlices(i32, &expected_result, &shared_test_data);
 }
 fn testLock(lock: *Lock) void {

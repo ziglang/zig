@@ -132,7 +132,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             // Copy any remainder for next pass.
             const b_slice = b[off..];
             @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
-            d.buf_len += @intCast(u8, b[off..].len);
+            d.buf_len += @as(u8, @intCast(b[off..].len));
 
             d.total_len += b.len;
         }
@@ -159,9 +159,9 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             // Append message length.
             var i: usize = 1;
             var len = d.total_len >> 5;
-            d.buf[63] = @intCast(u8, d.total_len & 0x1f) << 3;
+            d.buf[63] = @as(u8, @intCast(d.total_len & 0x1f)) << 3;
             while (i < 8) : (i += 1) {
-                d.buf[63 - i] = @intCast(u8, len & 0xff);
+                d.buf[63 - i] = @as(u8, @intCast(len & 0xff));
                 len >>= 8;
             }
 
@@ -194,7 +194,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
 
         fn round(d: *Self, b: *const [64]u8) void {
             var s: [64]u32 align(16) = undefined;
-            for (@ptrCast(*align(1) const [16]u32, b), 0..) |*elem, i| {
+            for (@as(*align(1) const [16]u32, @ptrCast(b)), 0..) |*elem, i| {
                 s[i] = mem.readIntBig(u32, mem.asBytes(elem));
             }
 
@@ -203,7 +203,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                     .aarch64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.aarch64.featureSetHas(builtin.cpu.features, .sha2)) {
                         var x: v4u32 = d.s[0..4].*;
                         var y: v4u32 = d.s[4..8].*;
-                        const s_v = @ptrCast(*[16]v4u32, &s);
+                        const s_v = @as(*[16]v4u32, @ptrCast(&s));
 
                         comptime var k: u8 = 0;
                         inline while (k < 16) : (k += 1) {
@@ -241,7 +241,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                     .x86_64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.x86.featureSetHas(builtin.cpu.features, .sha)) {
                         var x: v4u32 = [_]u32{ d.s[5], d.s[4], d.s[1], d.s[0] };
                         var y: v4u32 = [_]u32{ d.s[7], d.s[6], d.s[3], d.s[2] };
-                        const s_v = @ptrCast(*[16]v4u32, &s);
+                        const s_v = @as(*[16]v4u32, @ptrCast(&s));
 
                         comptime var k: u8 = 0;
                         inline while (k < 16) : (k += 1) {
@@ -273,7 +273,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                                 : [x] "=x" (-> v4u32),
                                 : [_] "0" (x),
                                   [y] "x" (y),
-                                  [_] "{xmm0}" (@bitCast(v4u32, @bitCast(u128, w) >> 64)),
+                                  [_] "{xmm0}" (@as(v4u32, @bitCast(@as(u128, @bitCast(w)) >> 64))),
                             );
                         }
 
@@ -624,7 +624,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             // Copy any remainder for next pass.
             const b_slice = b[off..];
             @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
-            d.buf_len += @intCast(u8, b[off..].len);
+            d.buf_len += @as(u8, @intCast(b[off..].len));
 
             d.total_len += b.len;
         }
@@ -651,9 +651,9 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             // Append message length.
             var i: usize = 1;
             var len = d.total_len >> 5;
-            d.buf[127] = @intCast(u8, d.total_len & 0x1f) << 3;
+            d.buf[127] = @as(u8, @intCast(d.total_len & 0x1f)) << 3;
             while (i < 16) : (i += 1) {
-                d.buf[127 - i] = @intCast(u8, len & 0xff);
+                d.buf[127 - i] = @as(u8, @intCast(len & 0xff));
                 len >>= 8;
             }
 

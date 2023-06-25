@@ -16,7 +16,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
         fields = fields ++ &[_]StructField{.{
             .name = field.name,
             .type = Data,
-            .default_value = if (field_default) |d| @ptrCast(?*const anyopaque, &d) else null,
+            .default_value = if (field_default) |d| @as(?*const anyopaque, @ptrCast(&d)) else null,
             .is_comptime = false,
             .alignment = if (@sizeOf(Data) > 0) @alignOf(Data) else 0,
         }};
@@ -61,7 +61,7 @@ test tagName {
     const E = enum(u8) { a, b, _ };
     try testing.expect(tagName(E, .a) != null);
     try testing.expectEqualStrings("a", tagName(E, .a).?);
-    try testing.expect(tagName(E, @enumFromInt(E, 42)) == null);
+    try testing.expect(tagName(E, @as(E, @enumFromInt(42))) == null);
 }
 
 /// Determines the length of a direct-mapped enum array, indexed by
@@ -156,7 +156,7 @@ pub fn directEnumArrayDefault(
     var result: [len]Data = if (default) |d| [_]Data{d} ** len else undefined;
     inline for (@typeInfo(@TypeOf(init_values)).Struct.fields) |f| {
         const enum_value = @field(E, f.name);
-        const index = @intCast(usize, @intFromEnum(enum_value));
+        const index = @as(usize, @intCast(@intFromEnum(enum_value)));
         result[index] = @field(init_values, f.name);
     }
     return result;
@@ -341,7 +341,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
             var self = initWithCount(0);
             inline for (@typeInfo(E).Enum.fields) |field| {
                 const c = @field(init_counts, field.name);
-                const key = @enumFromInt(E, field.value);
+                const key = @as(E, @enumFromInt(field.value));
                 self.counts.set(key, c);
             }
             return self;
@@ -412,7 +412,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// asserts operation will not overflow any key.
         pub fn addSetAssertSafe(self: *Self, other: Self) void {
             inline for (@typeInfo(E).Enum.fields) |field| {
-                const key = @enumFromInt(E, field.value);
+                const key = @as(E, @enumFromInt(field.value));
                 self.addAssertSafe(key, other.getCount(key));
             }
         }
@@ -420,7 +420,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// Increases the all key counts by given multiset.
         pub fn addSet(self: *Self, other: Self) error{Overflow}!void {
             inline for (@typeInfo(E).Enum.fields) |field| {
-                const key = @enumFromInt(E, field.value);
+                const key = @as(E, @enumFromInt(field.value));
                 try self.add(key, other.getCount(key));
             }
         }
@@ -430,7 +430,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// then that key will have a key count of zero.
         pub fn removeSet(self: *Self, other: Self) void {
             inline for (@typeInfo(E).Enum.fields) |field| {
-                const key = @enumFromInt(E, field.value);
+                const key = @as(E, @enumFromInt(field.value));
                 self.remove(key, other.getCount(key));
             }
         }
@@ -439,7 +439,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// given multiset.
         pub fn eql(self: Self, other: Self) bool {
             inline for (@typeInfo(E).Enum.fields) |field| {
-                const key = @enumFromInt(E, field.value);
+                const key = @as(E, @enumFromInt(field.value));
                 if (self.getCount(key) != other.getCount(key)) {
                     return false;
                 }
@@ -451,7 +451,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// equal to the given multiset.
         pub fn subsetOf(self: Self, other: Self) bool {
             inline for (@typeInfo(E).Enum.fields) |field| {
-                const key = @enumFromInt(E, field.value);
+                const key = @as(E, @enumFromInt(field.value));
                 if (self.getCount(key) > other.getCount(key)) {
                     return false;
                 }
@@ -463,7 +463,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// equal to the given multiset.
         pub fn supersetOf(self: Self, other: Self) bool {
             inline for (@typeInfo(E).Enum.fields) |field| {
-                const key = @enumFromInt(E, field.value);
+                const key = @as(E, @enumFromInt(field.value));
                 if (self.getCount(key) < other.getCount(key)) {
                     return false;
                 }
@@ -1281,10 +1281,10 @@ test "std.enums.ensureIndexer" {
         pub const Key = u32;
         pub const count: usize = 8;
         pub fn indexOf(k: Key) usize {
-            return @intCast(usize, k);
+            return @as(usize, @intCast(k));
         }
         pub fn keyForIndex(index: usize) Key {
-            return @intCast(Key, index);
+            return @as(Key, @intCast(index));
         }
     });
 }
@@ -1323,14 +1323,14 @@ pub fn EnumIndexer(comptime E: type) type {
             pub const Key = E;
             pub const count = fields_len;
             pub fn indexOf(e: E) usize {
-                return @intCast(usize, @intFromEnum(e) - min);
+                return @as(usize, @intCast(@intFromEnum(e) - min));
             }
             pub fn keyForIndex(i: usize) E {
                 // TODO fix addition semantics.  This calculation
                 // gives up some safety to avoid artificially limiting
                 // the range of signed enum values to max_isize.
-                const enum_value = if (min < 0) @bitCast(isize, i) +% min else i + min;
-                return @enumFromInt(E, @intCast(std.meta.Tag(E), enum_value));
+                const enum_value = if (min < 0) @as(isize, @bitCast(i)) +% min else i + min;
+                return @as(E, @enumFromInt(@as(std.meta.Tag(E), @intCast(enum_value))));
             }
         };
     }

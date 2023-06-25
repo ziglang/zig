@@ -114,7 +114,7 @@ pub fn resolveRelocs(atom: *Atom, wasm_bin: *const Wasm) void {
             .R_WASM_GLOBAL_INDEX_I32,
             .R_WASM_MEMORY_ADDR_I32,
             .R_WASM_SECTION_OFFSET_I32,
-            => std.mem.writeIntLittle(u32, atom.code.items[reloc.offset..][0..4], @intCast(u32, value)),
+            => std.mem.writeIntLittle(u32, atom.code.items[reloc.offset..][0..4], @as(u32, @intCast(value))),
             .R_WASM_TABLE_INDEX_I64,
             .R_WASM_MEMORY_ADDR_I64,
             => std.mem.writeIntLittle(u64, atom.code.items[reloc.offset..][0..8], value),
@@ -127,7 +127,7 @@ pub fn resolveRelocs(atom: *Atom, wasm_bin: *const Wasm) void {
             .R_WASM_TABLE_NUMBER_LEB,
             .R_WASM_TYPE_INDEX_LEB,
             .R_WASM_MEMORY_ADDR_TLS_SLEB,
-            => leb.writeUnsignedFixed(5, atom.code.items[reloc.offset..][0..5], @intCast(u32, value)),
+            => leb.writeUnsignedFixed(5, atom.code.items[reloc.offset..][0..5], @as(u32, @intCast(value))),
             .R_WASM_MEMORY_ADDR_LEB64,
             .R_WASM_MEMORY_ADDR_SLEB64,
             .R_WASM_TABLE_INDEX_SLEB64,
@@ -173,24 +173,24 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             if (symbol.isUndefined()) {
                 return 0;
             }
-            const va = @intCast(i64, symbol.virtual_address);
-            return @intCast(u32, va + relocation.addend);
+            const va = @as(i64, @intCast(symbol.virtual_address));
+            return @as(u32, @intCast(va + relocation.addend));
         },
         .R_WASM_EVENT_INDEX_LEB => return symbol.index,
         .R_WASM_SECTION_OFFSET_I32 => {
             const target_atom_index = wasm_bin.symbol_atom.get(target_loc).?;
             const target_atom = wasm_bin.getAtom(target_atom_index);
-            const rel_value = @intCast(i32, target_atom.offset) + relocation.addend;
-            return @intCast(u32, rel_value);
+            const rel_value = @as(i32, @intCast(target_atom.offset)) + relocation.addend;
+            return @as(u32, @intCast(rel_value));
         },
         .R_WASM_FUNCTION_OFFSET_I32 => {
             const target_atom_index = wasm_bin.symbol_atom.get(target_loc) orelse {
-                return @bitCast(u32, @as(i32, -1));
+                return @as(u32, @bitCast(@as(i32, -1)));
             };
             const target_atom = wasm_bin.getAtom(target_atom_index);
             const offset: u32 = 11 + Wasm.getULEB128Size(target_atom.size); // Header (11 bytes fixed-size) + body size (leb-encoded)
-            const rel_value = @intCast(i32, target_atom.offset + offset) + relocation.addend;
-            return @intCast(u32, rel_value);
+            const rel_value = @as(i32, @intCast(target_atom.offset + offset)) + relocation.addend;
+            return @as(u32, @intCast(rel_value));
         },
         .R_WASM_MEMORY_ADDR_TLS_SLEB,
         .R_WASM_MEMORY_ADDR_TLS_SLEB64,

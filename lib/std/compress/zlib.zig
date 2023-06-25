@@ -41,7 +41,7 @@ pub fn DecompressStream(comptime ReaderType: type) type {
             // verify the header checksum
             if (header_u16 % 31 != 0)
                 return error.BadHeader;
-            const header = @bitCast(ZLibHeader, header_u16);
+            const header = @as(ZLibHeader, @bitCast(header_u16));
 
             // The CM field must be 8 to indicate the use of DEFLATE
             if (header.compression_method != ZLibHeader.DEFLATE)
@@ -130,9 +130,9 @@ pub fn CompressStream(comptime WriterType: type) type {
                 .preset_dict = 0,
                 .checksum = 0,
             };
-            header.checksum = @truncate(u5, 31 - @bitCast(u16, header) % 31);
+            header.checksum = @as(u5, @truncate(31 - @as(u16, @bitCast(header)) % 31));
 
-            try dest.writeIntBig(u16, @bitCast(u16, header));
+            try dest.writeIntBig(u16, @as(u16, @bitCast(header)));
 
             const compression_level: deflate.Compression = switch (options.level) {
                 .no_compression => .no_compression,

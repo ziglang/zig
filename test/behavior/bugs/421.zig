@@ -16,6 +16,6 @@ fn testBitCastArray() !void {
 }
 
 fn extractOne64(a: u128) u64 {
-    const x = @bitCast([2]u64, a);
+    const x = @as([2]u64, @bitCast(a));
     return x[1];
 }

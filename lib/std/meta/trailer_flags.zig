@@ -72,7 +72,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
         pub fn setMany(self: Self, p: [*]align(@alignOf(Fields)) u8, fields: FieldValues) void {
             inline for (@typeInfo(Fields).Struct.fields, 0..) |field, i| {
                 if (@field(fields, field.name)) |value|
-                    self.set(p, @enumFromInt(FieldEnum, i), value);
+                    self.set(p, @as(FieldEnum, @enumFromInt(i)), value);
             }
         }
 
@@ -89,14 +89,14 @@ pub fn TrailerFlags(comptime Fields: type) type {
             if (@sizeOf(Field(field)) == 0)
                 return undefined;
             const off = self.offset(field);
-            return @ptrCast(*Field(field), @alignCast(@alignOf(Field(field)), p + off));
+            return @ptrCast(@alignCast(p + off));
         }
 
         pub fn ptrConst(self: Self, p: [*]align(@alignOf(Fields)) const u8, comptime field: FieldEnum) *const Field(field) {
             if (@sizeOf(Field(field)) == 0)
                 return undefined;
             const off = self.offset(field);
-            return @ptrCast(*const Field(field), @alignCast(@alignOf(Field(field)), p + off));
+            return @ptrCast(@alignCast(p + off));
         }
 
         pub fn offset(self: Self, comptime field: FieldEnum) usize {

@@ -390,10 +390,10 @@ const Report = struct {
             .src_loc = try eb.addSourceLocation(.{
                 .src_path = try eb.addString(file_path),
                 .span_start = token_starts[msg.tok],
-                .span_end = @intCast(u32, token_starts[msg.tok] + ast.tokenSlice(msg.tok).len),
+                .span_end = @as(u32, @intCast(token_starts[msg.tok] + ast.tokenSlice(msg.tok).len)),
                 .span_main = token_starts[msg.tok] + msg.off,
-                .line = @intCast(u32, start_loc.line),
-                .column = @intCast(u32, start_loc.column),
+                .line = @as(u32, @intCast(start_loc.line)),
+                .column = @as(u32, @intCast(start_loc.column)),
                 .source_line = try eb.addString(ast.source[start_loc.line_start..start_loc.line_end]),
             }),
             .notes_len = notes_len,

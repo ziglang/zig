@@ -625,7 +625,7 @@ test "Aegis MAC" {
     const key = [_]u8{0x00} ** Aegis128LMac.key_length;
     var msg: [64]u8 = undefined;
     for (&msg, 0..) |*m, i| {
-        m.* = @truncate(u8, i);
+        m.* = @as(u8, @truncate(i));
     }
     const st_init = Aegis128LMac.init(&key);
     var st = st_init;

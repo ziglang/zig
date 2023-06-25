@@ -94,7 +94,7 @@ pub fn IsTool(base: [2]u8, code: usize) bool {
 }
 
 fn doClientRequestExpr(default: usize, request: ClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) usize {
-    return doClientRequest(default, @intCast(usize, @intFromEnum(request)), a1, a2, a3, a4, a5);
+    return doClientRequest(default, @as(usize, @intCast(@intFromEnum(request))), a1, a2, a3, a4, a5);
 }
 
 fn doClientRequestStmt(request: ClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) void {

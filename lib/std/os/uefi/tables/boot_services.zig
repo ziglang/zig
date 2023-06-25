@@ -165,7 +165,7 @@ pub const BootServices = extern struct {
         try self.openProtocol(
             handle,
             &protocol.guid,
-            @ptrCast(*?*anyopaque, &ptr),
+            @as(*?*anyopaque, @ptrCast(&ptr)),
             // Invoking handle (loaded image)
             uefi.handle,
             // Control handle (null as not a driver)

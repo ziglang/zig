@@ -24,7 +24,7 @@ test "slicing array of length 1 can not assume runtime index is always zero" {
     const slice = @as(*align(4) [1]u8, &foo)[runtime_index..];
     try expect(@TypeOf(slice) == []u8);
     try expect(slice.len == 0);
-    try expect(@truncate(u2, @intFromPtr(slice.ptr) - 1) == 0);
+    try expect(@as(u2, @truncate(@intFromPtr(slice.ptr) - 1)) == 0);
 }
 
 test "default alignment allows unspecified in type syntax" {
@@ -47,7 +47,7 @@ test "@alignCast pointers" {
     try expect(x == 2);
 }
 fn expectsOnly1(x: *align(1) u32) void {
-    expects4(@alignCast(4, x));
+    expects4(@alignCast(x));
 }
 fn expects4(x: *align(4) u32) void {
     x.* += 1;
@@ -213,12 +213,6 @@ test "alignment and size of structs with 128-bit fields" {
     }
 }
 
-test "@ptrCast preserves alignment of bigger source" {
-    var x: u32 align(16) = 1234;
-    const ptr = @ptrCast(*u8, &x);
-    try expect(@TypeOf(ptr) == *align(16) u8);
-}
-
 test "alignstack" {
     try expect(fnWithAlignedStack() == 1234);
 }
@@ -249,7 +243,7 @@ test "specifying alignment allows pointer cast" {
 }
 fn testBytesAlign(b: u8) !void {
     var bytes align(4) = [_]u8{ b, b, b, b };
-    const ptr = @ptrCast(*u32, &bytes[0]);
+    const ptr = @as(*u32, @ptrCast(&bytes[0]));
     try expect(ptr.* == 0x33333333);
 }
 
@@ -265,7 +259,7 @@ test "@alignCast slices" {
     try expect(slice[0] == 2);
 }
 fn sliceExpectsOnly1(slice: []align(1) u32) void {
-    sliceExpects4(@alignCast(4, slice));
+    sliceExpects4(@alignCast(slice));
 }
 fn sliceExpects4(slice: []align(4) u32) void {
     slice[0] += 1;
@@ -302,8 +296,8 @@ test "page aligned array on stack" {
     try expect(@intFromPtr(&array[0]) & 0xFFF == 0);
     try expect(array[3] == 4);
 
-    try expect(@truncate(u4, @intFromPtr(&number1)) == 0);
-    try expect(@truncate(u4, @intFromPtr(&number2)) == 0);
+    try expect(@as(u4, @truncate(@intFromPtr(&number1))) == 0);
+    try expect(@as(u4, @truncate(@intFromPtr(&number2))) == 0);
     try expect(number1 == 42);
     try expect(number2 == 43);
 }
@@ -366,7 +360,7 @@ test "@alignCast functions" {
     try expect(fnExpectsOnly1(simple4) == 0x19);
 }
 fn fnExpectsOnly1(ptr: *const fn () align(1) i32) i32 {
-    return fnExpects4(@alignCast(4, ptr));
+    return fnExpects4(@alignCast(ptr));
 }
 fn fnExpects4(ptr: *const fn () align(4) i32) i32 {
     return ptr();
@@ -461,9 +455,11 @@ fn testIndex2(ptr: [*]align(4) u8, index: usize, comptime T: type) !void {
 test "alignment of function with c calling convention" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
+    const a = @alignOf(@TypeOf(nothing));
+
     var runtime_nothing = &nothing;
-    const casted1 = @ptrCast(*const u8, runtime_nothing);
-    const casted2 = @ptrCast(*const fn () callconv(.C) void, casted1);
+    const casted1: *align(a) const u8 = @ptrCast(runtime_nothing);
+    const casted2: *const fn () callconv(.C) void = @ptrCast(casted1);
     casted2();
 }
 
@@ -588,7 +584,7 @@ test "@alignCast null" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var ptr: ?*anyopaque = null;
-    const aligned: ?*anyopaque = @alignCast(@alignOf(?*anyopaque), ptr);
+    const aligned: ?*anyopaque = @alignCast(ptr);
     try expect(aligned == null);
 }
 

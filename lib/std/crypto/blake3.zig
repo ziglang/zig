@@ -89,7 +89,7 @@ const CompressVectorized = struct {
         counter: u64,
         flags: u8,
     ) [16]u32 {
-        const md = Lane{ @truncate(u32, counter), @truncate(u32, counter >> 32), block_len, @as(u32, flags) };
+        const md = Lane{ @as(u32, @truncate(counter)), @as(u32, @truncate(counter >> 32)), block_len, @as(u32, flags) };
         var rows = Rows{ chaining_value[0..4].*, chaining_value[4..8].*, IV[0..4].*, md };
 
         var m = Rows{ block_words[0..4].*, block_words[4..8].*, block_words[8..12].*, block_words[12..16].* };
@@ -134,7 +134,7 @@ const CompressVectorized = struct {
         rows[2] ^= @Vector(4, u32){ chaining_value[0], chaining_value[1], chaining_value[2], chaining_value[3] };
         rows[3] ^= @Vector(4, u32){ chaining_value[4], chaining_value[5], chaining_value[6], chaining_value[7] };
 
-        return @bitCast([16]u32, rows);
+        return @as([16]u32, @bitCast(rows));
     }
 };
 
@@ -184,8 +184,8 @@ const CompressGeneric = struct {
             IV[1],
             IV[2],
             IV[3],
-            @truncate(u32, counter),
-            @truncate(u32, counter >> 32),
+            @as(u32, @truncate(counter)),
+            @as(u32, @truncate(counter >> 32)),
             block_len,
             flags,
         };
@@ -206,7 +206,7 @@ else
     CompressGeneric.compress;
 
 fn first8Words(words: [16]u32) [8]u32 {
-    return @ptrCast(*const [8]u32, &words).*;
+    return @as(*const [8]u32, @ptrCast(&words)).*;
 }
 
 fn wordsFromLittleEndianBytes(comptime count: usize, bytes: [count * 4]u8) [count]u32 {
@@ -285,7 +285,7 @@ const ChunkState = struct {
         const want = BLOCK_LEN - self.block_len;
         const take = @min(want, input.len);
         @memcpy(self.block[self.block_len..][0..take], input[0..take]);
-        self.block_len += @truncate(u8, take);
+        self.block_len += @as(u8, @truncate(take));
         return input[take..];
     }
 
@@ -658,7 +658,7 @@ fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) !void {
 
     // Setup input pattern
     var input_pattern: [251]u8 = undefined;
-    for (&input_pattern, 0..) |*e, i| e.* = @truncate(u8, i);
+    for (&input_pattern, 0..) |*e, i| e.* = @as(u8, @truncate(i));
 
     // Write repeating input pattern to hasher
     var input_counter = input_len;

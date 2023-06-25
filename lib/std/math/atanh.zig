@@ -26,11 +26,11 @@ pub fn atanh(x: anytype) @TypeOf(x) {
 
 // atanh(x) = log((1 + x) / (1 - x)) / 2 = log1p(2x / (1 - x)) / 2 ~= x + x^3 / 3 + o(x^5)
 fn atanh_32(x: f32) f32 {
-    const u = @bitCast(u32, x);
+    const u = @as(u32, @bitCast(x));
     const i = u & 0x7FFFFFFF;
     const s = u >> 31;
 
-    var y = @bitCast(f32, i); // |x|
+    var y = @as(f32, @bitCast(i)); // |x|
 
     if (y == 1.0) {
         return math.copysign(math.inf(f32), x);
@@ -55,11 +55,11 @@ fn atanh_32(x: f32) f32 {
 }
 
 fn atanh_64(x: f64) f64 {
-    const u = @bitCast(u64, x);
+    const u = @as(u64, @bitCast(x));
     const e = (u >> 52) & 0x7FF;
     const s = u >> 63;
 
-    var y = @bitCast(f64, u & (maxInt(u64) >> 1)); // |x|
+    var y = @as(f64, @bitCast(u & (maxInt(u64) >> 1))); // |x|
 
     if (y == 1.0) {
         return math.copysign(math.inf(f64), x);
@@ -69,7 +69,7 @@ fn atanh_64(x: f64) f64 {
         if (e < 0x3FF - 32) {
             // underflow
             if (e == 0) {
-                math.doNotOptimizeAway(@floatCast(f32, y));
+                math.doNotOptimizeAway(@as(f32, @floatCast(y)));
             }
         }
         // |x| < 0.5

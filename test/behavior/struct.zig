@@ -92,7 +92,7 @@ test "structs" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var foo: StructFoo = undefined;
-    @memset(@ptrCast([*]u8, &foo)[0..@sizeOf(StructFoo)], 0);
+    @memset(@as([*]u8, @ptrCast(&foo))[0..@sizeOf(StructFoo)], 0);
     foo.a += 1;
     foo.b = foo.a == 1;
     try testFoo(foo);
@@ -479,14 +479,14 @@ test "runtime struct initialization of bitfield" {
         .y = x1,
     };
     const s2 = Nibbles{
-        .x = @intCast(u4, x2),
-        .y = @intCast(u4, x2),
+        .x = @as(u4, @intCast(x2)),
+        .y = @as(u4, @intCast(x2)),
     };
 
     try expect(s1.x == x1);
     try expect(s1.y == x1);
-    try expect(s2.x == @intCast(u4, x2));
-    try expect(s2.y == @intCast(u4, x2));
+    try expect(s2.x == @as(u4, @intCast(x2)));
+    try expect(s2.y == @as(u4, @intCast(x2)));
 }
 
 var x1 = @as(u4, 1);
@@ -515,8 +515,8 @@ test "packed struct fields are ordered from LSB to MSB" {
 
     var all: u64 = 0x7765443322221111;
     var bytes: [8]u8 align(@alignOf(Bitfields)) = undefined;
-    @memcpy(bytes[0..8], @ptrCast([*]u8, &all));
-    var bitfields = @ptrCast(*Bitfields, &bytes).*;
+    @memcpy(bytes[0..8], @as([*]u8, @ptrCast(&all)));
+    var bitfields = @as(*Bitfields, @ptrCast(&bytes)).*;
 
     try expect(bitfields.f1 == 0x1111);
     try expect(bitfields.f2 == 0x2222);
@@ -1281,7 +1281,7 @@ test "packed struct aggregate init" {
 
     const S = struct {
         fn foo(a: i2, b: i6) u8 {
-            return @bitCast(u8, P{ .a = a, .b = b });
+            return @as(u8, @bitCast(P{ .a = a, .b = b }));
         }
 
         const P = packed struct {
@@ -1289,7 +1289,7 @@ test "packed struct aggregate init" {
             b: i6,
         };
     };
-    const result = @bitCast(u8, S.foo(1, 2));
+    const result = @as(u8, @bitCast(S.foo(1, 2)));
     try expect(result == 9);
 }
 
@@ -1365,7 +1365,7 @@ test "under-aligned struct field" {
     };
     var runtime: usize = 1234;
     const ptr = &S{ .events = 0, .data = .{ .u64 = runtime } };
-    const array = @ptrCast(*const [12]u8, ptr);
+    const array = @as(*const [12]u8, @ptrCast(ptr));
     const result = std.mem.readIntNative(u64, array[4..12]);
     try expect(result == 1234);
 }

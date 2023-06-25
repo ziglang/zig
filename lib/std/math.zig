@@ -85,31 +85,31 @@ pub const inf_f128 = @compileError("Deprecated: use `inf(f128)` instead");
 pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
 
 pub const nan_u16 = @as(u16, 0x7C01);
-pub const nan_f16 = @bitCast(f16, nan_u16);
+pub const nan_f16 = @as(f16, @bitCast(nan_u16));
 
 pub const qnan_u16 = @as(u16, 0x7E00);
-pub const qnan_f16 = @bitCast(f16, qnan_u16);
+pub const qnan_f16 = @as(f16, @bitCast(qnan_u16));
 
 pub const nan_u32 = @as(u32, 0x7F800001);
-pub const nan_f32 = @bitCast(f32, nan_u32);
+pub const nan_f32 = @as(f32, @bitCast(nan_u32));
 
 pub const qnan_u32 = @as(u32, 0x7FC00000);
-pub const qnan_f32 = @bitCast(f32, qnan_u32);
+pub const qnan_f32 = @as(f32, @bitCast(qnan_u32));
 
 pub const nan_u64 = @as(u64, 0x7FF << 52) | 1;
-pub const nan_f64 = @bitCast(f64, nan_u64);
+pub const nan_f64 = @as(f64, @bitCast(nan_u64));
 
 pub const qnan_u64 = @as(u64, 0x7ff8000000000000);
-pub const qnan_f64 = @bitCast(f64, qnan_u64);
+pub const qnan_f64 = @as(f64, @bitCast(qnan_u64));
 
 pub const nan_f80 = make_f80(F80{ .fraction = 0xA000000000000000, .exp = 0x7fff });
 pub const qnan_f80 = make_f80(F80{ .fraction = 0xC000000000000000, .exp = 0x7fff });
 
 pub const nan_u128 = @as(u128, 0x7fff0000000000000000000000000001);
-pub const nan_f128 = @bitCast(f128, nan_u128);
+pub const nan_f128 = @as(f128, @bitCast(nan_u128));
 
 pub const qnan_u128 = @as(u128, 0x7fff8000000000000000000000000000);
-pub const qnan_f128 = @bitCast(f128, qnan_u128);
+pub const qnan_f128 = @as(f128, @bitCast(qnan_u128));
 
 pub const nan = @import("math/nan.zig").nan;
 pub const snan = @import("math/nan.zig").snan;
@@ -512,10 +512,10 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
             const C = @typeInfo(T).Vector.child;
             const len = @typeInfo(T).Vector.len;
             if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(len, @as(C, 0));
-            break :blk @splat(len, @intCast(Log2Int(C), abs_shift_amt));
+            break :blk @splat(len, @as(Log2Int(C), @intCast(abs_shift_amt)));
         } else {
             if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0;
-            break :blk @intCast(Log2Int(T), abs_shift_amt);
+            break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
         }
     };
 
@@ -556,10 +556,10 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
             const C = @typeInfo(T).Vector.child;
             const len = @typeInfo(T).Vector.len;
             if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(len, @as(C, 0));
-            break :blk @splat(len, @intCast(Log2Int(C), abs_shift_amt));
+            break :blk @splat(len, @as(Log2Int(C), @intCast(abs_shift_amt)));
         } else {
             if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0;
-            break :blk @intCast(Log2Int(T), abs_shift_amt);
+            break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
         }
     };
 
@@ -600,7 +600,7 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
-        const ar = @intCast(Log2Int(C), @mod(r, @typeInfo(C).Int.bits));
+        const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
         return (x >> @splat(@typeInfo(T).Vector.len, ar)) | (x << @splat(@typeInfo(T).Vector.len, 1 + ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
@@ -608,7 +608,7 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
         if (T == u0) return 0;
 
         if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
-            const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
+            const ar = @as(Log2Int(T), @intCast(@mod(r, @typeInfo(T).Int.bits)));
             return x >> ar | x << (1 +% ~ar);
         } else {
             const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -644,7 +644,7 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
-        const ar = @intCast(Log2Int(C), @mod(r, @typeInfo(C).Int.bits));
+        const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
         return (x << @splat(@typeInfo(T).Vector.len, ar)) | (x >> @splat(@typeInfo(T).Vector.len, 1 +% ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
@@ -652,7 +652,7 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
         if (T == u0) return 0;
 
         if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
-            const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
+            const ar = @as(Log2Int(T), @intCast(@mod(r, @typeInfo(T).Int.bits)));
             return x << ar | x >> 1 +% ~ar;
         } else {
             const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -1033,9 +1033,9 @@ pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
             if (int_info.signedness == .unsigned) return x;
             const Uint = std.meta.Int(.unsigned, int_info.bits);
             if (x < 0) {
-                return ~@bitCast(Uint, x +% -1);
+                return ~@as(Uint, @bitCast(x +% -1));
             } else {
-                return @intCast(Uint, x);
+                return @as(Uint, @intCast(x));
             }
         },
         else => unreachable,
@@ -1060,7 +1060,7 @@ pub fn negateCast(x: anytype) !std.meta.Int(.signed, @bitSizeOf(@TypeOf(x))) {
 
     if (x == -minInt(int)) return minInt(int);
 
-    return -@intCast(int, x);
+    return -@as(int, @intCast(x));
 }
 
 test "negateCast" {
@@ -1084,7 +1084,7 @@ pub fn cast(comptime T: type, x: anytype) ?T {
     } else if ((is_comptime or minInt(@TypeOf(x)) < minInt(T)) and x < minInt(T)) {
         return null;
     } else {
-        return @intCast(T, x);
+        return @as(T, @intCast(x));
     }
 }
 
@@ -1106,13 +1106,19 @@ test "cast" {
 
 pub const AlignCastError = error{UnalignedMemory};
 
+fn AlignCastResult(comptime alignment: u29, comptime Ptr: type) type {
+    var ptr_info = @typeInfo(Ptr);
+    ptr_info.Pointer.alignment = alignment;
+    return @Type(ptr_info);
+}
+
 /// Align cast a pointer but return an error if it's the wrong alignment
-pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!@TypeOf(@alignCast(alignment, ptr)) {
+pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!AlignCastResult(alignment, @TypeOf(ptr)) {
     const addr = @intFromPtr(ptr);
     if (addr % alignment != 0) {
         return error.UnalignedMemory;
     }
-    return @alignCast(alignment, ptr);
+    return @alignCast(ptr);
 }
 
 /// Asserts `int > 0`.
@@ -1176,7 +1182,7 @@ pub inline fn floor(value: anytype) @TypeOf(value) {
 pub fn floorPowerOfTwo(comptime T: type, value: T) T {
     const uT = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
     if (value <= 0) return 0;
-    return @as(T, 1) << log2_int(uT, @intCast(uT, value));
+    return @as(T, 1) << log2_int(uT, @as(uT, @intCast(value)));
 }
 
 test "floorPowerOfTwo" {
@@ -1215,7 +1221,7 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(@typeInfo(
     assert(value != 0);
     const PromotedType = std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits + 1);
     const ShiftType = std.math.Log2Int(PromotedType);
-    return @as(PromotedType, 1) << @intCast(ShiftType, @typeInfo(T).Int.bits - @clz(value - 1));
+    return @as(PromotedType, 1) << @as(ShiftType, @intCast(@typeInfo(T).Int.bits - @clz(value - 1)));
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
@@ -1231,7 +1237,7 @@ pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     if (overflowBit & x != 0) {
         return error.Overflow;
     }
-    return @intCast(T, x);
+    return @as(T, @intCast(x));
 }
 
 /// Returns the next power of two (if the value is not already a power
@@ -1281,7 +1287,7 @@ pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
     if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
         @compileError("log2_int requires an unsigned integer, found " ++ @typeName(T));
     assert(x != 0);
-    return @intCast(Log2Int(T), @typeInfo(T).Int.bits - 1 - @clz(x));
+    return @as(Log2Int(T), @intCast(@typeInfo(T).Int.bits - 1 - @clz(x)));
 }
 
 /// Return the log base 2 of integer value x, rounding up to the
@@ -1315,8 +1321,8 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
     switch (@typeInfo(T)) {
         .Float => {
             switch (@typeInfo(@TypeOf(value))) {
-                .Int => return @floatFromInt(T, value),
-                .Float => return @floatCast(T, value),
+                .Int => return @as(T, @floatFromInt(value)),
+                .Float => return @as(T, @floatCast(value)),
                 .ComptimeInt => return @as(T, value),
                 .ComptimeFloat => return @as(T, value),
                 else => @compileError("bad type"),
@@ -1330,7 +1336,7 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
                     } else if (value <= minInt(T)) {
                         return @as(T, minInt(T));
                     } else {
-                        return @intCast(T, value);
+                        return @as(T, @intCast(value));
                     }
                 },
                 .Float, .ComptimeFloat => {
@@ -1339,7 +1345,7 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
                     } else if (value <= minInt(T)) {
                         return @as(T, minInt(T));
                     } else {
-                        return @intFromFloat(T, value);
+                        return @as(T, @intFromFloat(value));
                     }
                 },
                 else => @compileError("bad type"),
@@ -1598,7 +1604,7 @@ test "compare between signed and unsigned" {
     try testing.expect(compare(@as(u8, 255), .gt, @as(i9, -1)));
     try testing.expect(!compare(@as(u8, 255), .lte, @as(i9, -1)));
     try testing.expect(compare(@as(u8, 1), .lt, @as(u8, 2)));
-    try testing.expect(@bitCast(u8, @as(i8, -1)) == @as(u8, 255));
+    try testing.expect(@as(u8, @bitCast(@as(i8, -1))) == @as(u8, 255));
     try testing.expect(!compare(@as(u8, 255), .eq, @as(i8, -1)));
     try testing.expect(compare(@as(u8, 1), .eq, @as(u8, 1)));
 }
@@ -1628,7 +1634,7 @@ test "order.compare" {
 
 test "compare.reverse" {
     inline for (@typeInfo(CompareOperator).Enum.fields) |op_field| {
-        const op = @enumFromInt(CompareOperator, op_field.value);
+        const op = @as(CompareOperator, @enumFromInt(op_field.value));
         try testing.expect(compare(2, op, 3) == compare(3, op.reverse(), 2));
         try testing.expect(compare(3, op, 3) == compare(3, op.reverse(), 3));
         try testing.expect(compare(4, op, 3) == compare(3, op.reverse(), 4));
@@ -1650,10 +1656,10 @@ pub inline fn boolMask(comptime MaskInt: type, value: bool) MaskInt {
     if (MaskInt == u1) return @intFromBool(value);
     if (MaskInt == i1) {
         // The @as here is a workaround for #7950
-        return @bitCast(i1, @as(u1, @intFromBool(value)));
+        return @as(i1, @bitCast(@as(u1, @intFromBool(value))));
     }
 
-    return -%@intCast(MaskInt, @intFromBool(value));
+    return -%@as(MaskInt, @intCast(@intFromBool(value)));
 }
 
 test "boolMask" {
@@ -1684,7 +1690,7 @@ test "boolMask" {
 
 /// Return the mod of `num` with the smallest integer type
 pub fn comptimeMod(num: anytype, comptime denom: comptime_int) IntFittingRange(0, denom - 1) {
-    return @intCast(IntFittingRange(0, denom - 1), @mod(num, denom));
+    return @as(IntFittingRange(0, denom - 1), @intCast(@mod(num, denom)));
 }
 
 pub const F80 = struct {
@@ -1694,14 +1700,14 @@ pub const F80 = struct {
 
 pub fn make_f80(repr: F80) f80 {
     const int = (@as(u80, repr.exp) << 64) | repr.fraction;
-    return @bitCast(f80, int);
+    return @as(f80, @bitCast(int));
 }
 
 pub fn break_f80(x: f80) F80 {
-    const int = @bitCast(u80, x);
+    const int = @as(u80, @bitCast(x));
     return .{
-        .fraction = @truncate(u64, int),
-        .exp = @truncate(u16, int >> 64),
+        .fraction = @as(u64, @truncate(int)),
+        .exp = @as(u16, @truncate(int >> 64)),
     };
 }
 
@@ -1713,7 +1719,7 @@ pub inline fn sign(i: anytype) @TypeOf(i) {
     const T = @TypeOf(i);
     return switch (@typeInfo(T)) {
         .Int, .ComptimeInt => @as(T, @intFromBool(i > 0)) - @as(T, @intFromBool(i < 0)),
-        .Float, .ComptimeFloat => @floatFromInt(T, @intFromBool(i > 0)) - @floatFromInt(T, @intFromBool(i < 0)),
+        .Float, .ComptimeFloat => @as(T, @floatFromInt(@intFromBool(i > 0))) - @as(T, @floatFromInt(@intFromBool(i < 0))),
         .Vector => |vinfo| blk: {
             switch (@typeInfo(vinfo.child)) {
                 .Int, .Float => {

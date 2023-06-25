@@ -71,18 +71,18 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
         while (_DYNAMIC[i].d_tag != elf.DT_NULL) : (i += 1) {
             switch (_DYNAMIC[i].d_tag) {
                 elf.DT_DEBUG => {
-                    const ptr = @ptrFromInt(?*RDebug, _DYNAMIC[i].d_val);
+                    const ptr = @as(?*RDebug, @ptrFromInt(_DYNAMIC[i].d_val));
                     if (ptr) |r_debug| {
                         if (r_debug.r_version != 1) return error.InvalidExe;
                         break :init r_debug.r_map;
                     }
                 },
                 elf.DT_PLTGOT => {
-                    const ptr = @ptrFromInt(?[*]usize, _DYNAMIC[i].d_val);
+                    const ptr = @as(?[*]usize, @ptrFromInt(_DYNAMIC[i].d_val));
                     if (ptr) |got_table| {
                         // The address to the link_map structure is stored in
                         // the second slot
-                        break :init @ptrFromInt(?*LinkMap, got_table[1]);
+                        break :init @as(?*LinkMap, @ptrFromInt(got_table[1]));
                     }
                 },
                 else => {},
@@ -132,7 +132,7 @@ pub const ElfDynLib = struct {
         );
         defer os.munmap(file_bytes);
 
-        const eh = @ptrCast(*elf.Ehdr, file_bytes.ptr);
+        const eh = @as(*elf.Ehdr, @ptrCast(file_bytes.ptr));
         if (!mem.eql(u8, eh.e_ident[0..4], elf.MAGIC)) return error.NotElfFile;
         if (eh.e_type != elf.ET.DYN) return error.NotDynamicLibrary;
 
@@ -149,10 +149,10 @@ pub const ElfDynLib = struct {
                 i += 1;
                 ph_addr += eh.e_phentsize;
             }) {
-                const ph = @ptrFromInt(*elf.Phdr, ph_addr);
+                const ph = @as(*elf.Phdr, @ptrFromInt(ph_addr));
                 switch (ph.p_type) {
                     elf.PT_LOAD => virt_addr_end = @max(virt_addr_end, ph.p_vaddr + ph.p_memsz),
-                    elf.PT_DYNAMIC => maybe_dynv = @ptrFromInt([*]usize, elf_addr + ph.p_offset),
+                    elf.PT_DYNAMIC => maybe_dynv = @as([*]usize, @ptrFromInt(elf_addr + ph.p_offset)),
                     else => {},
                 }
             }
@@ -180,7 +180,7 @@ pub const ElfDynLib = struct {
                 i += 1;
                 ph_addr += eh.e_phentsize;
             }) {
-                const ph = @ptrFromInt(*elf.Phdr, ph_addr);
+                const ph = @as(*elf.Phdr, @ptrFromInt(ph_addr));
                 switch (ph.p_type) {
                     elf.PT_LOAD => {
                         // The VirtAddr may not be page-aligned; in such case there will be
@@ -188,7 +188,7 @@ pub const ElfDynLib = struct {
                         const aligned_addr = (base + ph.p_vaddr) & ~(@as(usize, mem.page_size) - 1);
                         const extra_bytes = (base + ph.p_vaddr) - aligned_addr;
                         const extended_memsz = mem.alignForward(usize, ph.p_memsz + extra_bytes, mem.page_size);
-                        const ptr = @ptrFromInt([*]align(mem.page_size) u8, aligned_addr);
+                        const ptr = @as([*]align(mem.page_size) u8, @ptrFromInt(aligned_addr));
                         const prot = elfToMmapProt(ph.p_flags);
                         if ((ph.p_flags & elf.PF_W) == 0) {
                             // If it does not need write access, it can be mapped from the fd.
@@ -228,11 +228,11 @@ pub const ElfDynLib = struct {
             while (dynv[i] != 0) : (i += 2) {
                 const p = base + dynv[i + 1];
                 switch (dynv[i]) {
-                    elf.DT_STRTAB => maybe_strings = @ptrFromInt([*:0]u8, p),
-                    elf.DT_SYMTAB => maybe_syms = @ptrFromInt([*]elf.Sym, p),
-                    elf.DT_HASH => maybe_hashtab = @ptrFromInt([*]os.Elf_Symndx, p),
-                    elf.DT_VERSYM => maybe_versym = @ptrFromInt([*]u16, p),
-                    elf.DT_VERDEF => maybe_verdef = @ptrFromInt(*elf.Verdef, p),
+                    elf.DT_STRTAB => maybe_strings = @as([*:0]u8, @ptrFromInt(p)),
+                    elf.DT_SYMTAB => maybe_syms = @as([*]elf.Sym, @ptrFromInt(p)),
+                    elf.DT_HASH => maybe_hashtab = @as([*]os.Elf_Symndx, @ptrFromInt(p)),
+                    elf.DT_VERSYM => maybe_versym = @as([*]u16, @ptrFromInt(p)),
+                    elf.DT_VERDEF => maybe_verdef = @as(*elf.Verdef, @ptrFromInt(p)),
                     else => {},
                 }
             }
@@ -261,7 +261,7 @@ pub const ElfDynLib = struct {
 
     pub fn lookup(self: *ElfDynLib, comptime T: type, name: [:0]const u8) ?T {
         if (self.lookupAddress("", name)) |symbol| {
-            return @ptrFromInt(T, symbol);
+            return @as(T, @ptrFromInt(symbol));
         } else {
             return null;
         }
@@ -276,8 +276,8 @@ pub const ElfDynLib = struct {
 
         var i: usize = 0;
         while (i < self.hashtab[1]) : (i += 1) {
-            if (0 == (@as(u32, 1) << @intCast(u5, self.syms[i].st_info & 0xf) & OK_TYPES)) continue;
-            if (0 == (@as(u32, 1) << @intCast(u5, self.syms[i].st_info >> 4) & OK_BINDS)) continue;
+            if (0 == (@as(u32, 1) << @as(u5, @intCast(self.syms[i].st_info & 0xf)) & OK_TYPES)) continue;
+            if (0 == (@as(u32, 1) << @as(u5, @intCast(self.syms[i].st_info >> 4)) & OK_BINDS)) continue;
             if (0 == self.syms[i].st_shndx) continue;
             if (!mem.eql(u8, name, mem.sliceTo(self.strings + self.syms[i].st_name, 0))) continue;
             if (maybe_versym) |versym| {
@@ -301,15 +301,15 @@ pub const ElfDynLib = struct {
 
 fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [*:0]u8) bool {
     var def = def_arg;
-    const vsym = @bitCast(u32, vsym_arg) & 0x7fff;
+    const vsym = @as(u32, @bitCast(vsym_arg)) & 0x7fff;
     while (true) {
         if (0 == (def.vd_flags & elf.VER_FLG_BASE) and (def.vd_ndx & 0x7fff) == vsym)
             break;
         if (def.vd_next == 0)
             return false;
-        def = @ptrFromInt(*elf.Verdef, @intFromPtr(def) + def.vd_next);
+        def = @as(*elf.Verdef, @ptrFromInt(@intFromPtr(def) + def.vd_next));
     }
-    const aux = @ptrFromInt(*elf.Verdaux, @intFromPtr(def) + def.vd_aux);
+    const aux = @as(*elf.Verdaux, @ptrFromInt(@intFromPtr(def) + def.vd_aux));
     return mem.eql(u8, vername, mem.sliceTo(strings + aux.vda_name, 0));
 }
 
@@ -347,7 +347,7 @@ pub const WindowsDynLib = struct {
 
     pub fn lookup(self: *WindowsDynLib, comptime T: type, name: [:0]const u8) ?T {
         if (windows.kernel32.GetProcAddress(self.dll, name.ptr)) |addr| {
-            return @ptrCast(T, @alignCast(@alignOf(@typeInfo(T).Pointer.child), addr));
+            return @as(T, @ptrCast(@alignCast(addr)));
         } else {
             return null;
         }
@@ -381,7 +381,7 @@ pub const DlDynlib = struct {
         // dlsym (and other dl-functions) secretly take shadow parameter - return address on stack
         // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=66826
         if (@call(.never_tail, system.dlsym, .{ self.handle, name.ptr })) |symbol| {
-            return @ptrCast(T, @alignCast(@alignOf(@typeInfo(T).Pointer.child), symbol));
+            return @as(T, @ptrCast(@alignCast(symbol)));
         } else {
             return null;
         }

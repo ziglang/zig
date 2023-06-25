@@ -130,30 +130,30 @@ const HuffmanDecoder = struct {
         // Exception: To be compatible with zlib, we also need to
         // accept degenerate single-code codings. See also
         // TestDegenerateHuffmanCoding.
-        if (code != @as(u32, 1) << @intCast(u5, max) and !(code == 1 and max == 1)) {
+        if (code != @as(u32, 1) << @as(u5, @intCast(max)) and !(code == 1 and max == 1)) {
             return false;
         }
 
         self.min = min;
         if (max > huffman_chunk_bits) {
-            var num_links = @as(u32, 1) << @intCast(u5, max - huffman_chunk_bits);
-            self.link_mask = @intCast(u32, num_links - 1);
+            var num_links = @as(u32, 1) << @as(u5, @intCast(max - huffman_chunk_bits));
+            self.link_mask = @as(u32, @intCast(num_links - 1));
 
             // create link tables
             var link = next_code[huffman_chunk_bits + 1] >> 1;
             self.links = try self.allocator.alloc([]u16, huffman_num_chunks - link);
             self.sub_chunks = ArrayList(u32).init(self.allocator);
             self.initialized = true;
-            var j = @intCast(u32, link);
+            var j = @as(u32, @intCast(link));
             while (j < huffman_num_chunks) : (j += 1) {
-                var reverse = @intCast(u32, bu.bitReverse(u16, @intCast(u16, j), 16));
-                reverse >>= @intCast(u32, 16 - huffman_chunk_bits);
-                var off = j - @intCast(u32, link);
+                var reverse = @as(u32, @intCast(bu.bitReverse(u16, @as(u16, @intCast(j)), 16)));
+                reverse >>= @as(u32, @intCast(16 - huffman_chunk_bits));
+                var off = j - @as(u32, @intCast(link));
                 if (sanity) {
                     // check we are not overwriting an existing chunk
                     assert(self.chunks[reverse] == 0);
                 }
-                self.chunks[reverse] = @intCast(u16, off << huffman_value_shift | (huffman_chunk_bits + 1));
+                self.chunks[reverse] = @as(u16, @intCast(off << huffman_value_shift | (huffman_chunk_bits + 1)));
                 self.links[off] = try self.allocator.alloc(u16, num_links);
                 if (sanity) {
                     // initialize to a known invalid chunk code (0) to see if we overwrite
@@ -170,12 +170,12 @@ const HuffmanDecoder = struct {
             }
             var ncode = next_code[n];
             next_code[n] += 1;
-            var chunk = @intCast(u16, (li << huffman_value_shift) | n);
-            var reverse = @intCast(u16, bu.bitReverse(u16, @intCast(u16, ncode), 16));
-            reverse >>= @intCast(u4, 16 - n);
+            var chunk = @as(u16, @intCast((li << huffman_value_shift) | n));
+            var reverse = @as(u16, @intCast(bu.bitReverse(u16, @as(u16, @intCast(ncode)), 16)));
+            reverse >>= @as(u4, @intCast(16 - n));
             if (n <= huffman_chunk_bits) {
                 var off = reverse;
-                while (off < self.chunks.len) : (off += @as(u16, 1) << @intCast(u4, n)) {
+                while (off < self.chunks.len) : (off += @as(u16, 1) << @as(u4, @intCast(n))) {
                     // We should never need to overwrite
                     // an existing chunk. Also, 0 is
                     // never a valid chunk, because the
@@ -198,12 +198,12 @@ const HuffmanDecoder = struct {
                 var link_tab = self.links[value];
                 reverse >>= huffman_chunk_bits;
                 var off = reverse;
-                while (off < link_tab.len) : (off += @as(u16, 1) << @intCast(u4, n - huffman_chunk_bits)) {
+                while (off < link_tab.len) : (off += @as(u16, 1) << @as(u4, @intCast(n - huffman_chunk_bits))) {
                     if (sanity) {
                         // check we are not overwriting an existing chunk
                         assert(link_tab[off] == 0);
                     }
-                    link_tab[off] = @intCast(u16, chunk);
+                    link_tab[off] = @as(u16, @intCast(chunk));
                 }
             }
         }
@@ -494,21 +494,21 @@ pub fn Decompressor(comptime ReaderType: type) type {
             while (self.nb < 5 + 5 + 4) {
                 try self.moreBits();
             }
-            var nlit = @intCast(u32, self.b & 0x1F) + 257;
+            var nlit = @as(u32, @intCast(self.b & 0x1F)) + 257;
             if (nlit > max_num_lit) {
                 corrupt_input_error_offset = self.roffset;
                 self.err = InflateError.CorruptInput;
                 return InflateError.CorruptInput;
             }
             self.b >>= 5;
-            var ndist = @intCast(u32, self.b & 0x1F) + 1;
+            var ndist = @as(u32, @intCast(self.b & 0x1F)) + 1;
             if (ndist > max_num_dist) {
                 corrupt_input_error_offset = self.roffset;
                 self.err = InflateError.CorruptInput;
                 return InflateError.CorruptInput;
             }
             self.b >>= 5;
-            var nclen = @intCast(u32, self.b & 0xF) + 4;
+            var nclen = @as(u32, @intCast(self.b & 0xF)) + 4;
             // num_codes is 19, so nclen is always valid.
             self.b >>= 4;
             self.nb -= 5 + 5 + 4;
@@ -519,7 +519,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
                 while (self.nb < 3) {
                     try self.moreBits();
                 }
-                self.codebits[code_order[i]] = @intCast(u32, self.b & 0x7);
+                self.codebits[code_order[i]] = @as(u32, @intCast(self.b & 0x7));
                 self.b >>= 3;
                 self.nb -= 3;
             }
@@ -575,8 +575,8 @@ pub fn Decompressor(comptime ReaderType: type) type {
                 while (self.nb < nb) {
                     try self.moreBits();
                 }
-                rep += @intCast(u32, self.b & (@as(u32, 1) << @intCast(u5, nb)) - 1);
-                self.b >>= @intCast(u5, nb);
+                rep += @as(u32, @intCast(self.b & (@as(u32, 1) << @as(u5, @intCast(nb))) - 1));
+                self.b >>= @as(u5, @intCast(nb));
                 self.nb -= nb;
                 if (i + rep > n) {
                     corrupt_input_error_offset = self.roffset;
@@ -623,7 +623,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
                         var length: u32 = 0;
                         switch (v) {
                             0...255 => {
-                                self.dict.writeByte(@intCast(u8, v));
+                                self.dict.writeByte(@as(u8, @intCast(v)));
                                 if (self.dict.availWrite() == 0) {
                                     self.to_read = self.dict.readFlush();
                                     self.step = huffmanBlock;
@@ -676,8 +676,8 @@ pub fn Decompressor(comptime ReaderType: type) type {
                             while (self.nb < n) {
                                 try self.moreBits();
                             }
-                            length += @intCast(u32, self.b) & ((@as(u32, 1) << @intCast(u5, n)) - 1);
-                            self.b >>= @intCast(u5, n);
+                            length += @as(u32, @intCast(self.b)) & ((@as(u32, 1) << @as(u5, @intCast(n))) - 1);
+                            self.b >>= @as(u5, @intCast(n));
                             self.nb -= n;
                         }
 
@@ -686,9 +686,9 @@ pub fn Decompressor(comptime ReaderType: type) type {
                             while (self.nb < 5) {
                                 try self.moreBits();
                             }
-                            dist = @intCast(
+                            dist = @as(
                                 u32,
-                                bu.bitReverse(u8, @intCast(u8, (self.b & 0x1F) << 3), 8),
+                                @intCast(bu.bitReverse(u8, @as(u8, @intCast((self.b & 0x1F) << 3)), 8)),
                             );
                             self.b >>= 5;
                             self.nb -= 5;
@@ -699,16 +699,16 @@ pub fn Decompressor(comptime ReaderType: type) type {
                         switch (dist) {
                             0...3 => dist += 1,
                             4...max_num_dist - 1 => { // 4...29
-                                var nb = @intCast(u32, dist - 2) >> 1;
+                                var nb = @as(u32, @intCast(dist - 2)) >> 1;
                                 // have 1 bit in bottom of dist, need nb more.
-                                var extra = (dist & 1) << @intCast(u5, nb);
+                                var extra = (dist & 1) << @as(u5, @intCast(nb));
                                 while (self.nb < nb) {
                                     try self.moreBits();
                                 }
-                                extra |= @intCast(u32, self.b & (@as(u32, 1) << @intCast(u5, nb)) - 1);
-                                self.b >>= @intCast(u5, nb);
+                                extra |= @as(u32, @intCast(self.b & (@as(u32, 1) << @as(u5, @intCast(nb))) - 1));
+                                self.b >>= @as(u5, @intCast(nb));
                                 self.nb -= nb;
-                                dist = (@as(u32, 1) << @intCast(u5, nb + 1)) + 1 + extra;
+                                dist = (@as(u32, 1) << @as(u5, @intCast(nb + 1))) + 1 + extra;
                             },
                             else => {
                                 corrupt_input_error_offset = self.roffset;
@@ -762,10 +762,10 @@ pub fn Decompressor(comptime ReaderType: type) type {
                 self.err = InflateError.UnexpectedEndOfStream;
                 return InflateError.UnexpectedEndOfStream;
             };
-            self.roffset += @intCast(u64, nr);
-            var n = @intCast(u32, self.buf[0]) | @intCast(u32, self.buf[1]) << 8;
-            var nn = @intCast(u32, self.buf[2]) | @intCast(u32, self.buf[3]) << 8;
-            if (@intCast(u16, nn) != @truncate(u16, ~n)) {
+            self.roffset += @as(u64, @intCast(nr));
+            var n = @as(u32, @intCast(self.buf[0])) | @as(u32, @intCast(self.buf[1])) << 8;
+            var nn = @as(u32, @intCast(self.buf[2])) | @as(u32, @intCast(self.buf[3])) << 8;
+            if (@as(u16, @intCast(nn)) != @as(u16, @truncate(~n))) {
                 corrupt_input_error_offset = self.roffset;
                 self.err = InflateError.CorruptInput;
                 return InflateError.CorruptInput;
@@ -793,9 +793,9 @@ pub fn Decompressor(comptime ReaderType: type) type {
             if (cnt < buf.len) {
                 self.err = InflateError.UnexpectedEndOfStream;
             }
-            self.roffset += @intCast(u64, cnt);
-            self.copy_len -= @intCast(u32, cnt);
-            self.dict.writeMark(@intCast(u32, cnt));
+            self.roffset += @as(u64, @intCast(cnt));
+            self.copy_len -= @as(u32, @intCast(cnt));
+            self.dict.writeMark(@as(u32, @intCast(cnt)));
             if (self.err != null) {
                 return InflateError.UnexpectedEndOfStream;
             }
@@ -826,7 +826,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
                 return InflateError.BadReaderState;
             };
             self.roffset += 1;
-            self.b |= @as(u32, c) << @intCast(u5, self.nb);
+            self.b |= @as(u32, c) << @as(u5, @intCast(self.nb));
             self.nb += 8;
             return;
         }
@@ -854,14 +854,14 @@ pub fn Decompressor(comptime ReaderType: type) type {
                         return InflateError.BadReaderState;
                     };
                     self.roffset += 1;
-                    b |= @intCast(u32, c) << @intCast(u5, nb & 31);
+                    b |= @as(u32, @intCast(c)) << @as(u5, @intCast(nb & 31));
                     nb += 8;
                 }
                 var chunk = h.chunks[b & (huffman_num_chunks - 1)];
-                n = @intCast(u32, chunk & huffman_count_mask);
+                n = @as(u32, @intCast(chunk & huffman_count_mask));
                 if (n > huffman_chunk_bits) {
                     chunk = h.links[chunk >> huffman_value_shift][(b >> huffman_chunk_bits) & h.link_mask];
-                    n = @intCast(u32, chunk & huffman_count_mask);
+                    n = @as(u32, @intCast(chunk & huffman_count_mask));
                 }
                 if (n <= nb) {
                     if (n == 0) {
@@ -871,9 +871,9 @@ pub fn Decompressor(comptime ReaderType: type) type {
                         self.err = InflateError.CorruptInput;
                         return InflateError.CorruptInput;
                     }
-                    self.b = b >> @intCast(u5, n & 31);
+                    self.b = b >> @as(u5, @intCast(n & 31));
                     self.nb = nb - n;
-                    return @intCast(u32, chunk >> huffman_value_shift);
+                    return @as(u32, @intCast(chunk >> huffman_value_shift));
                 }
             }
         }

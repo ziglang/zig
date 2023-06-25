@@ -403,7 +403,7 @@ test "nested runtime conditionals in tuple initializer" {
 
     var data: u8 = 0;
     const x = .{
-        if (data != 0) "" else switch (@truncate(u1, data)) {
+        if (data != 0) "" else switch (@as(u1, @truncate(data))) {
             0 => "up",
             1 => "down",
         },

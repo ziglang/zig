@@ -394,7 +394,7 @@ test "BoundedArrayAligned" {
     try a.append(255);
     try a.append(255);
 
-    const b = @ptrCast(*const [2]u16, a.constSlice().ptr);
+    const b = @as(*const [2]u16, @ptrCast(a.constSlice().ptr));
     try testing.expectEqual(@as(u16, 0), b[0]);
     try testing.expectEqual(@as(u16, 65535), b[1]);
 }

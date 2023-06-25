@@ -787,7 +787,7 @@ pub const section_64 = extern struct {
     }
 
     pub fn @"type"(sect: section_64) u8 {
-        return @truncate(u8, sect.flags & 0xff);
+        return @as(u8, @truncate(sect.flags & 0xff));
     }
 
     pub fn attrs(sect: section_64) u32 {
@@ -1870,7 +1870,7 @@ pub const LoadCommandIterator = struct {
 
         pub fn cast(lc: LoadCommand, comptime Cmd: type) ?Cmd {
             if (lc.data.len < @sizeOf(Cmd)) return null;
-            return @ptrCast(*const Cmd, @alignCast(@alignOf(Cmd), &lc.data[0])).*;
+            return @as(*const Cmd, @ptrCast(@alignCast(&lc.data[0]))).*;
         }
 
         /// Asserts LoadCommand is of type segment_command_64.
@@ -1878,9 +1878,9 @@ pub const LoadCommandIterator = struct {
             const segment_lc = lc.cast(segment_command_64).?;
             if (segment_lc.nsects == 0) return &[0]section_64{};
             const data = lc.data[@sizeOf(segment_command_64)..];
-            const sections = @ptrCast(
+            const sections = @as(
                 [*]const section_64,
-                @alignCast(@alignOf(section_64), &data[0]),
+                @ptrCast(@alignCast(&data[0])),
             )[0..segment_lc.nsects];
             return sections;
         }
@@ -1903,16 +1903,16 @@ pub const LoadCommandIterator = struct {
     pub fn next(it: *LoadCommandIterator) ?LoadCommand {
         if (it.index >= it.ncmds) return null;
 
-        const hdr = @ptrCast(
+        const hdr = @as(
             *const load_command,
-            @alignCast(@alignOf(load_command), &it.buffer[0]),
+            @ptrCast(@alignCast(&it.buffer[0])),
         ).*;
         const cmd = LoadCommand{
             .hdr = hdr,
             .data = it.buffer[0..hdr.cmdsize],
         };
 
-        it.buffer = @alignCast(@alignOf(u64), it.buffer[hdr.cmdsize..]);
+        it.buffer = @alignCast(it.buffer[hdr.cmdsize..]);
         it.index += 1;
 
         return cmd;

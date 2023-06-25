@@ -488,7 +488,7 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 
         const reloc_addr = info.dlpi_addr + phdr.p_vaddr;
         // Find the ELF header
-        const elf_header = @ptrFromInt(*elf.Ehdr, reloc_addr - phdr.p_offset);
+        const elf_header = @as(*elf.Ehdr, @ptrFromInt(reloc_addr - phdr.p_offset));
         // Validate the magic
         if (!mem.eql(u8, elf_header.e_ident[0..4], elf.MAGIC)) return error.BadElfMagic;
         // Consistency check
@@ -751,7 +751,7 @@ test "getrlimit and setrlimit" {
     }
 
     inline for (std.meta.fields(os.rlimit_resource)) |field| {
-        const resource = @enumFromInt(os.rlimit_resource, field.value);
+        const resource = @as(os.rlimit_resource, @enumFromInt(field.value));
         const limit = try os.getrlimit(resource);
 
         // On 32 bit MIPS musl includes a fix which changes limits greater than -1UL/2 to RLIM_INFINITY.

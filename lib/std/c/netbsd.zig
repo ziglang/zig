@@ -172,9 +172,9 @@ pub const RTLD = struct {
     pub const NODELETE = 0x01000;
     pub const NOLOAD = 0x02000;
 
-    pub const NEXT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @ptrFromInt(*anyopaque, @bitCast(usize, @as(isize, -3)));
+    pub const NEXT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
+    pub const DEFAULT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -2)))));
+    pub const SELF = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -3)))));
 };
 
 pub const dl_phdr_info = extern struct {
@@ -597,7 +597,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const REMAPDUP = 0x0004;
@@ -653,7 +653,7 @@ pub const W = struct {
     pub const TRAPPED = 0x00000040;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, (s >> 8) & 0xff);
+        return @as(u8, @intCast((s >> 8) & 0xff));
     }
     pub fn TERMSIG(s: u32) u32 {
         return s & 0x7f;
@@ -1106,9 +1106,9 @@ pub const winsize = extern struct {
 const NSIG = 32;
 
 pub const SIG = struct {
-    pub const DFL = @ptrFromInt(?Sigaction.handler_fn, 0);
-    pub const IGN = @ptrFromInt(?Sigaction.handler_fn, 1);
-    pub const ERR = @ptrFromInt(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;

@@ -462,7 +462,7 @@ const LineNumberProgram = struct {
             });
 
             return debug.LineInfo{
-                .line = if (self.prev_line >= 0) @intCast(u64, self.prev_line) else 0,
+                .line = if (self.prev_line >= 0) @as(u64, @intCast(self.prev_line)) else 0,
                 .column = self.prev_column,
                 .file_name = file_name,
             };
@@ -533,7 +533,7 @@ fn parseFormValueConstant(in_stream: anytype, signed: bool, endian: std.builtin.
                 -1 => blk: {
                     if (signed) {
                         const x = try nosuspend leb.readILEB128(i64, in_stream);
-                        break :blk @bitCast(u64, x);
+                        break :blk @as(u64, @bitCast(x));
                     } else {
                         const x = try nosuspend leb.readULEB128(u64, in_stream);
                         break :blk x;
@@ -939,12 +939,12 @@ pub const DwarfInfo = struct {
                 .Const => |c| try c.asUnsignedLe(),
                 .RangeListOffset => |idx| off: {
                     if (compile_unit.is_64) {
-                        const offset_loc = @intCast(usize, compile_unit.rnglists_base + 8 * idx);
+                        const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 8 * idx));
                         if (offset_loc + 8 > debug_ranges.len) return badDwarf();
                         const offset = mem.readInt(u64, debug_ranges[offset_loc..][0..8], di.endian);
                         break :off compile_unit.rnglists_base + offset;
                     } else {
-                        const offset_loc = @intCast(usize, compile_unit.rnglists_base + 4 * idx);
+                        const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 4 * idx));
                         if (offset_loc + 4 > debug_ranges.len) return badDwarf();
                         const offset = mem.readInt(u32, debug_ranges[offset_loc..][0..4], di.endian);
                         break :off compile_unit.rnglists_base + offset;
@@ -1134,7 +1134,7 @@ pub const DwarfInfo = struct {
                 ),
             };
             if (attr.form_id == FORM.implicit_const) {
-                result.attrs.items[i].value.Const.payload = @bitCast(u64, attr.payload);
+                result.attrs.items[i].value.Const.payload = @as(u64, @bitCast(attr.payload));
             }
         }
         return result;
@@ -1438,7 +1438,7 @@ pub const DwarfInfo = struct {
         const addr_size = debug_addr[compile_unit.addr_base - 2];
         const seg_size = debug_addr[compile_unit.addr_base - 1];
 
-        const byte_offset = @intCast(usize, compile_unit.addr_base + (addr_size + seg_size) * index);
+        const byte_offset = @as(usize, @intCast(compile_unit.addr_base + (addr_size + seg_size) * index));
         if (byte_offset + addr_size > debug_addr.len) return badDwarf();
         return switch (addr_size) {
             1 => debug_addr[byte_offset],

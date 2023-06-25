@@ -27,10 +27,10 @@ fn frexp_exp32(x: f32, expt: *i32) f32 {
     const kln2 = 162.88958740; // k * ln2
 
     const exp_x = @exp(x - kln2);
-    const hx = @bitCast(u32, exp_x);
+    const hx = @as(u32, @bitCast(exp_x));
     // TODO zig should allow this cast implicitly because it should know the value is in range
-    expt.* = @intCast(i32, hx >> 23) - (0x7f + 127) + k;
-    return @bitCast(f32, (hx & 0x7fffff) | ((0x7f + 127) << 23));
+    expt.* = @as(i32, @intCast(hx >> 23)) - (0x7f + 127) + k;
+    return @as(f32, @bitCast((hx & 0x7fffff) | ((0x7f + 127) << 23)));
 }
 
 fn ldexp_cexp32(z: Complex(f32), expt: i32) Complex(f32) {
@@ -39,10 +39,10 @@ fn ldexp_cexp32(z: Complex(f32), expt: i32) Complex(f32) {
     const exptf = expt + ex_expt;
 
     const half_expt1 = @divTrunc(exptf, 2);
-    const scale1 = @bitCast(f32, (0x7f + half_expt1) << 23);
+    const scale1 = @as(f32, @bitCast((0x7f + half_expt1) << 23));
 
     const half_expt2 = exptf - half_expt1;
-    const scale2 = @bitCast(f32, (0x7f + half_expt2) << 23);
+    const scale2 = @as(f32, @bitCast((0x7f + half_expt2) << 23));
 
     return Complex(f32).init(
         @cos(z.im) * exp_x * scale1 * scale2,
@@ -56,14 +56,14 @@ fn frexp_exp64(x: f64, expt: *i32) f64 {
 
     const exp_x = @exp(x - kln2);
 
-    const fx = @bitCast(u64, exp_x);
-    const hx = @intCast(u32, fx >> 32);
-    const lx = @truncate(u32, fx);
+    const fx = @as(u64, @bitCast(exp_x));
+    const hx = @as(u32, @intCast(fx >> 32));
+    const lx = @as(u32, @truncate(fx));
 
-    expt.* = @intCast(i32, hx >> 20) - (0x3ff + 1023) + k;
+    expt.* = @as(i32, @intCast(hx >> 20)) - (0x3ff + 1023) + k;
 
     const high_word = (hx & 0xfffff) | ((0x3ff + 1023) << 20);
-    return @bitCast(f64, (@as(u64, high_word) << 32) | lx);
+    return @as(f64, @bitCast((@as(u64, high_word) << 32) | lx));
 }
 
 fn ldexp_cexp64(z: Complex(f64), expt: i32) Complex(f64) {
@@ -72,10 +72,10 @@ fn ldexp_cexp64(z: Complex(f64), expt: i32) Complex(f64) {
     const exptf = @as(i64, expt + ex_expt);
 
     const half_expt1 = @divTrunc(exptf, 2);
-    const scale1 = @bitCast(f64, (0x3ff + half_expt1) << (20 + 32));
+    const scale1 = @as(f64, @bitCast((0x3ff + half_expt1) << (20 + 32)));
 
     const half_expt2 = exptf - half_expt1;
-    const scale2 = @bitCast(f64, (0x3ff + half_expt2) << (20 + 32));
+    const scale2 = @as(f64, @bitCast((0x3ff + half_expt2) << (20 + 32)));
 
     return Complex(f64).init(
         @cos(z.im) * exp_x * scale1 * scale2,

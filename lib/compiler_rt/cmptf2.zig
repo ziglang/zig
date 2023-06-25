@@ -75,30 +75,30 @@ fn _Qp_cmp(a: *const f128, b: *const f128) callconv(.C) i32 {
 }
 
 fn _Qp_feq(a: *const f128, b: *const f128) callconv(.C) bool {
-    return @enumFromInt(SparcFCMP, _Qp_cmp(a, b)) == .Equal;
+    return @as(SparcFCMP, @enumFromInt(_Qp_cmp(a, b))) == .Equal;
 }
 
 fn _Qp_fne(a: *const f128, b: *const f128) callconv(.C) bool {
-    return @enumFromInt(SparcFCMP, _Qp_cmp(a, b)) != .Equal;
+    return @as(SparcFCMP, @enumFromInt(_Qp_cmp(a, b))) != .Equal;
 }
 
 fn _Qp_flt(a: *const f128, b: *const f128) callconv(.C) bool {
-    return @enumFromInt(SparcFCMP, _Qp_cmp(a, b)) == .Less;
+    return @as(SparcFCMP, @enumFromInt(_Qp_cmp(a, b))) == .Less;
 }
 
 fn _Qp_fgt(a: *const f128, b: *const f128) callconv(.C) bool {
-    return @enumFromInt(SparcFCMP, _Qp_cmp(a, b)) == .Greater;
+    return @as(SparcFCMP, @enumFromInt(_Qp_cmp(a, b))) == .Greater;
 }
 
 fn _Qp_fge(a: *const f128, b: *const f128) callconv(.C) bool {
-    return switch (@enumFromInt(SparcFCMP, _Qp_cmp(a, b))) {
+    return switch (@as(SparcFCMP, @enumFromInt(_Qp_cmp(a, b)))) {
         .Equal, .Greater => true,
         .Less, .Unordered => false,
     };
 }
 
 fn _Qp_fle(a: *const f128, b: *const f128) callconv(.C) bool {
-    return switch (@enumFromInt(SparcFCMP, _Qp_cmp(a, b))) {
+    return switch (@as(SparcFCMP, @enumFromInt(_Qp_cmp(a, b)))) {
         .Equal, .Less => true,
         .Greater, .Unordered => false,
     };

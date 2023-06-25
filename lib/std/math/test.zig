@@ -66,7 +66,7 @@ pub fn Testcase(
                 128 => "40",
                 else => unreachable,
             };
-            const input_bits = @bitCast(U, tc.input);
+            const input_bits: U = @bitCast(tc.input);
             std.log.info(
                 " IN:  0x{X:0>" ++ hex_bits_fmt_size ++ "}  " ++
                     "{[1]x:<" ++ hex_float_fmt_size ++ "}  {[1]e}",
@@ -74,13 +74,13 @@ pub fn Testcase(
             );
 
             const output = func(tc.input);
-            const output_bits = @bitCast(U, output);
+            const output_bits: U = @bitCast(output);
             std.log.info(
                 "OUT:  0x{X:0>" ++ hex_bits_fmt_size ++ "}  " ++
                     "{[1]x:<" ++ hex_float_fmt_size ++ "}  {[1]e}",
                 .{ output_bits, output },
             );
-            const exp_output_bits = @bitCast(U, tc.exp_output);
+            const exp_output_bits: U = @bitCast(tc.exp_output);
             // Compare bits rather than values so that NaN compares correctly.
             if (output_bits != exp_output_bits) {
                 std.log.info(
@@ -121,7 +121,7 @@ pub fn runTests(tests: anytype) !void {
 
 /// Create a float of the given type using the unsigned integer bit representation.
 pub fn floatFromBits(comptime T: type, bits: meta.Int(.unsigned, @bitSizeOf(T))) T {
-    return @bitCast(T, bits);
+    return @bitCast(bits);
 }
 
 /// Generate a comptime slice of testcases of the given type.

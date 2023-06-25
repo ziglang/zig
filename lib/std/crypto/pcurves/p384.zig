@@ -318,7 +318,7 @@ pub const P384 = struct {
         var t = P384.identityElement;
         comptime var i: u8 = 1;
         inline while (i < pc.len) : (i += 1) {
-            t.cMov(pc[i], @truncate(u1, (@as(usize, b ^ i) -% 1) >> 8));
+            t.cMov(pc[i], @as(u1, @truncate((@as(usize, b ^ i) -% 1) >> 8)));
         }
         return t;
     }
@@ -326,8 +326,8 @@ pub const P384 = struct {
     fn slide(s: [48]u8) [2 * 48 + 1]i8 {
         var e: [2 * 48 + 1]i8 = undefined;
         for (s, 0..) |x, i| {
-            e[i * 2 + 0] = @as(i8, @truncate(u4, x));
-            e[i * 2 + 1] = @as(i8, @truncate(u4, x >> 4));
+            e[i * 2 + 0] = @as(i8, @as(u4, @truncate(x)));
+            e[i * 2 + 1] = @as(i8, @as(u4, @truncate(x >> 4)));
         }
         // Now, e[0..63] is between 0 and 15, e[63] is between 0 and 7
         var carry: i8 = 0;
@@ -351,9 +351,9 @@ pub const P384 = struct {
         while (true) : (pos -= 1) {
             const slot = e[pos];
             if (slot > 0) {
-                q = q.add(pc[@intCast(usize, slot)]);
+                q = q.add(pc[@as(usize, @intCast(slot))]);
             } else if (slot < 0) {
-                q = q.sub(pc[@intCast(usize, -slot)]);
+                q = q.sub(pc[@as(usize, @intCast(-slot))]);
             }
             if (pos == 0) break;
             q = q.dbl().dbl().dbl().dbl();
@@ -366,7 +366,7 @@ pub const P384 = struct {
         var q = P384.identityElement;
         var pos: usize = 380;
         while (true) : (pos -= 4) {
-            const slot = @truncate(u4, (s[pos >> 3] >> @truncate(u3, pos)));
+            const slot = @as(u4, @truncate((s[pos >> 3] >> @as(u3, @truncate(pos)))));
             if (vartime) {
                 if (slot != 0) {
                     q = q.add(pc[slot]);
@@ -445,15 +445,15 @@ pub const P384 = struct {
         while (true) : (pos -= 1) {
             const slot1 = e1[pos];
             if (slot1 > 0) {
-                q = q.add(pc1[@intCast(usize, slot1)]);
+                q = q.add(pc1[@as(usize, @intCast(slot1))]);
             } else if (slot1 < 0) {
-                q = q.sub(pc1[@intCast(usize, -slot1)]);
+                q = q.sub(pc1[@as(usize, @intCast(-slot1))]);
             }
             const slot2 = e2[pos];
             if (slot2 > 0) {
-                q = q.add(pc2[@intCast(usize, slot2)]);
+                q = q.add(pc2[@as(usize, @intCast(slot2))]);
             } else if (slot2 < 0) {
-                q = q.sub(pc2[@intCast(usize, -slot2)]);
+                q = q.sub(pc2[@as(usize, @intCast(-slot2))]);
             }
             if (pos == 0) break;
             q = q.dbl().dbl().dbl().dbl();

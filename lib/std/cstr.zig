@@ -89,12 +89,12 @@ pub const NullTerminated2DArray = struct {
         return NullTerminated2DArray{
             .allocator = allocator,
             .byte_count = byte_count,
-            .ptr = @ptrCast(?[*:null]?[*:0]u8, buf.ptr),
+            .ptr = @as(?[*:null]?[*:0]u8, @ptrCast(buf.ptr)),
         };
     }
 
     pub fn deinit(self: *NullTerminated2DArray) void {
-        const buf = @ptrCast([*]u8, self.ptr);
+        const buf = @as([*]u8, @ptrCast(self.ptr));
         self.allocator.free(buf[0..self.byte_count]);
     }
 };

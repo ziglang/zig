@@ -132,8 +132,8 @@ pub const Wyhash = struct {
 
     inline fn mum(a: *u64, b: *u64) void {
         const x = @as(u128, a.*) *% b.*;
-        a.* = @truncate(u64, x);
-        b.* = @truncate(u64, x >> 64);
+        a.* = @as(u64, @truncate(x));
+        b.* = @as(u64, @truncate(x >> 64));
     }
 
     inline fn mix(a_: u64, b_: u64) u64 {
@@ -252,7 +252,7 @@ test "test ensure idempotent final call" {
 test "iterative non-divisible update" {
     var buf: [8192]u8 = undefined;
     for (&buf, 0..) |*e, i| {
-        e.* = @truncate(u8, i);
+        e.* = @as(u8, @truncate(i));
     }
 
     const seed = 0x128dad08f;

@@ -60,7 +60,7 @@ pub const IO_Uring = struct {
             .NOSYS => return error.SystemOutdated,
             else => |errno| return os.unexpectedErrno(errno),
         }
-        const fd = @intCast(os.fd_t, res);
+        const fd = @as(os.fd_t, @intCast(res));
         assert(fd >= 0);
         errdefer os.close(fd);
 
@@ -198,7 +198,7 @@ pub const IO_Uring = struct {
             .INTR => return error.SignalInterrupt,
             else => |errno| return os.unexpectedErrno(errno),
         }
-        return @intCast(u32, res);
+        return @as(u32, @intCast(res));
     }
 
     /// Sync internal state with kernel ring state on the SQ side.
@@ -937,8 +937,8 @@ pub const IO_Uring = struct {
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_FILES,
-            @ptrCast(*const anyopaque, fds.ptr),
-            @intCast(u32, fds.len),
+            @as(*const anyopaque, @ptrCast(fds.ptr)),
+            @as(u32, @intCast(fds.len)),
         );
         try handle_registration_result(res);
     }
@@ -968,8 +968,8 @@ pub const IO_Uring = struct {
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_FILES_UPDATE,
-            @ptrCast(*const anyopaque, &update),
-            @intCast(u32, fds.len),
+            @as(*const anyopaque, @ptrCast(&update)),
+            @as(u32, @intCast(fds.len)),
         );
         try handle_registration_result(res);
     }
@@ -982,7 +982,7 @@ pub const IO_Uring = struct {
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_EVENTFD,
-            @ptrCast(*const anyopaque, &fd),
+            @as(*const anyopaque, @ptrCast(&fd)),
             1,
         );
         try handle_registration_result(res);
@@ -997,7 +997,7 @@ pub const IO_Uring = struct {
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_EVENTFD_ASYNC,
-            @ptrCast(*const anyopaque, &fd),
+            @as(*const anyopaque, @ptrCast(&fd)),
             1,
         );
         try handle_registration_result(res);
@@ -1022,7 +1022,7 @@ pub const IO_Uring = struct {
             self.fd,
             .REGISTER_BUFFERS,
             buffers.ptr,
-            @intCast(u32, buffers.len),
+            @as(u32, @intCast(buffers.len)),
         );
         try handle_registration_result(res);
     }
@@ -1122,20 +1122,17 @@ pub const SubmissionQueue = struct {
         errdefer os.munmap(mmap_sqes);
         assert(mmap_sqes.len == size_sqes);
 
-        const array = @ptrCast([*]u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.array]));
-        const sqes = @ptrCast([*]linux.io_uring_sqe, @alignCast(@alignOf(linux.io_uring_sqe), &mmap_sqes[0]));
+        const array: [*]u32 = @ptrCast(@alignCast(&mmap[p.sq_off.array]));
+        const sqes: [*]linux.io_uring_sqe = @ptrCast(@alignCast(&mmap_sqes[0]));
         // We expect the kernel copies p.sq_entries to the u32 pointed to by p.sq_off.ring_entries,
         // see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L7843-L7844.
-        assert(
-            p.sq_entries ==
-                @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.ring_entries])).*,
-        );
+        assert(p.sq_entries == @as(*u32, @ptrCast(@alignCast(&mmap[p.sq_off.ring_entries]))).*);
         return SubmissionQueue{
-            .head = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.head])),
-            .tail = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.tail])),
-            .mask = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.ring_mask])).*,
-            .flags = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.flags])),
-            .dropped = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.dropped])),
+            .head = @ptrCast(@alignCast(&mmap[p.sq_off.head])),
+            .tail = @ptrCast(@alignCast(&mmap[p.sq_off.tail])),
+            .mask = @as(*u32, @ptrCast(@alignCast(&mmap[p.sq_off.ring_mask]))).*,
+            .flags = @ptrCast(@alignCast(&mmap[p.sq_off.flags])),
+            .dropped = @ptrCast(@alignCast(&mmap[p.sq_off.dropped])),
             .array = array[0..p.sq_entries],
             .sqes = sqes[0..p.sq_entries],
             .mmap = mmap,
@@ -1160,17 +1157,13 @@ pub const CompletionQueue = struct {
         assert(fd >= 0);
         assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
         const mmap = sq.mmap;
-        const cqes = @ptrCast(
-            [*]linux.io_uring_cqe,
-            @alignCast(@alignOf(linux.io_uring_cqe), &mmap[p.cq_off.cqes]),
-        );
-        assert(p.cq_entries ==
-            @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.ring_entries])).*);
+        const cqes: [*]linux.io_uring_cqe = @ptrCast(@alignCast(&mmap[p.cq_off.cqes]));
+        assert(p.cq_entries == @as(*u32, @ptrCast(@alignCast(&mmap[p.cq_off.ring_entries]))).*);
         return CompletionQueue{
-            .head = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.head])),
-            .tail = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.tail])),
-            .mask = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.ring_mask])).*,
-            .overflow = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.overflow])),
+            .head = @ptrCast(@alignCast(&mmap[p.cq_off.head])),
+            .tail = @ptrCast(@alignCast(&mmap[p.cq_off.tail])),
+            .mask = @as(*u32, @ptrCast(@alignCast(&mmap[p.cq_off.ring_mask]))).*,
+            .overflow = @ptrCast(@alignCast(&mmap[p.cq_off.overflow])),
             .cqes = cqes[0..p.cq_entries],
         };
     }
@@ -1233,7 +1226,7 @@ pub fn io_uring_prep_rw(
         .fd = fd,
         .off = offset,
         .addr = addr,
-        .len = @intCast(u32, len),
+        .len = @as(u32, @intCast(len)),
         .rw_flags = 0,
         .user_data = 0,
         .buf_index = 0,
@@ -1319,7 +1312,7 @@ pub fn io_uring_prep_epoll_ctl(
     op: u32,
     ev: ?*linux.epoll_event,
 ) void {
-    io_uring_prep_rw(.EPOLL_CTL, sqe, epfd, @intFromPtr(ev), op, @intCast(u64, fd));
+    io_uring_prep_rw(.EPOLL_CTL, sqe, epfd, @intFromPtr(ev), op, @as(u64, @intCast(fd)));
 }
 
 pub fn io_uring_prep_recv(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []u8, flags: u32) void {
@@ -1459,7 +1452,7 @@ pub fn io_uring_prep_fallocate(
         .fd = fd,
         .off = offset,
         .addr = len,
-        .len = @intCast(u32, mode),
+        .len = @as(u32, @intCast(mode)),
         .rw_flags = 0,
         .user_data = 0,
         .buf_index = 0,
@@ -1514,7 +1507,7 @@ pub fn io_uring_prep_renameat(
         0,
         @intFromPtr(new_path),
     );
-    sqe.len = @bitCast(u32, new_dir_fd);
+    sqe.len = @as(u32, @bitCast(new_dir_fd));
     sqe.rw_flags = flags;
 }
 
@@ -1569,7 +1562,7 @@ pub fn io_uring_prep_linkat(
         0,
         @intFromPtr(new_path),
     );
-    sqe.len = @bitCast(u32, new_dir_fd);
+    sqe.len = @as(u32, @bitCast(new_dir_fd));
     sqe.rw_flags = flags;
 }
 
@@ -1582,8 +1575,8 @@ pub fn io_uring_prep_provide_buffers(
     buffer_id: usize,
 ) void {
     const ptr = @intFromPtr(buffers);
-    io_uring_prep_rw(.PROVIDE_BUFFERS, sqe, @intCast(i32, num), ptr, buffer_len, buffer_id);
-    sqe.buf_index = @intCast(u16, group_id);
+    io_uring_prep_rw(.PROVIDE_BUFFERS, sqe, @as(i32, @intCast(num)), ptr, buffer_len, buffer_id);
+    sqe.buf_index = @as(u16, @intCast(group_id));
 }
 
 pub fn io_uring_prep_remove_buffers(
@@ -1591,8 +1584,8 @@ pub fn io_uring_prep_remove_buffers(
     num: usize,
     group_id: usize,
 ) void {
-    io_uring_prep_rw(.REMOVE_BUFFERS, sqe, @intCast(i32, num), 0, 0, 0);
-    sqe.buf_index = @intCast(u16, group_id);
+    io_uring_prep_rw(.REMOVE_BUFFERS, sqe, @as(i32, @intCast(num)), 0, 0, 0);
+    sqe.buf_index = @as(u16, @intCast(group_id));
 }
 
 test "structs/offsets/entries" {
@@ -1886,12 +1879,12 @@ test "write_fixed/read_fixed" {
 
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x45454545,
-        .res = @intCast(i32, buffers[0].iov_len),
+        .res = @as(i32, @intCast(buffers[0].iov_len)),
         .flags = 0,
     }, cqe_write);
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x12121212,
-        .res = @intCast(i32, buffers[1].iov_len),
+        .res = @as(i32, @intCast(buffers[1].iov_len)),
         .flags = 0,
     }, cqe_read);
 
@@ -2145,7 +2138,7 @@ test "timeout (after a relative time)" {
     }, cqe);
 
     // Tests should not depend on timings: skip test if outside margin.
-    if (!std.math.approxEqAbs(f64, ms, @floatFromInt(f64, stopped - started), margin)) return error.SkipZigTest;
+    if (!std.math.approxEqAbs(f64, ms, @as(f64, @floatFromInt(stopped - started)), margin)) return error.SkipZigTest;
 }
 
 test "timeout (after a number of completions)" {
@@ -2637,7 +2630,7 @@ test "renameat" {
     );
     try testing.expectEqual(linux.IORING_OP.RENAMEAT, sqe.opcode);
     try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
-    try testing.expectEqual(@as(i32, tmp.dir.fd), @bitCast(i32, sqe.len));
+    try testing.expectEqual(@as(i32, tmp.dir.fd), @as(i32, @bitCast(sqe.len)));
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
@@ -2850,7 +2843,7 @@ test "linkat" {
     );
     try testing.expectEqual(linux.IORING_OP.LINKAT, sqe.opcode);
     try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
-    try testing.expectEqual(@as(i32, tmp.dir.fd), @bitCast(i32, sqe.len));
+    try testing.expectEqual(@as(i32, tmp.dir.fd), @as(i32, @bitCast(sqe.len)));
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
@@ -2898,7 +2891,7 @@ test "provide_buffers: read" {
     // Provide 4 buffers
 
     {
-        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
+        const sqe = try ring.provide_buffers(0xcccccccc, @as([*]u8, @ptrCast(&buffers)), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(linux.IORING_OP.PROVIDE_BUFFERS, sqe.opcode);
         try testing.expectEqual(@as(i32, buffers.len), sqe.fd);
         try testing.expectEqual(@as(u32, buffers[0].len), sqe.len);
@@ -2939,7 +2932,7 @@ test "provide_buffers: read" {
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
 
         try testing.expectEqual(@as(u64, 0xdededede), cqe.user_data);
-        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@intCast(usize, cqe.res)]);
+        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@as(usize, @intCast(cqe.res))]);
     }
 
     // This read should fail
@@ -2971,7 +2964,7 @@ test "provide_buffers: read" {
     const reprovided_buffer_id = 2;
 
     {
-        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), buffer_len, 1, group_id, reprovided_buffer_id);
+        _ = try ring.provide_buffers(0xabababab, @as([*]u8, @ptrCast(&buffers[reprovided_buffer_id])), buffer_len, 1, group_id, reprovided_buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3003,7 +2996,7 @@ test "provide_buffers: read" {
         try testing.expectEqual(used_buffer_id, reprovided_buffer_id);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
-        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@intCast(usize, cqe.res)]);
+        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@as(usize, @intCast(cqe.res))]);
     }
 }
 
@@ -3030,7 +3023,7 @@ test "remove_buffers" {
     // Provide 4 buffers
 
     {
-        _ = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
+        _ = try ring.provide_buffers(0xcccccccc, @as([*]u8, @ptrCast(&buffers)), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3076,7 +3069,7 @@ test "remove_buffers" {
         try testing.expect(used_buffer_id >= 0 and used_buffer_id < 4);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
-        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@intCast(usize, cqe.res)]);
+        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@as(usize, @intCast(cqe.res))]);
     }
 
     // Final read should _not_ work
@@ -3119,7 +3112,7 @@ test "provide_buffers: accept/connect/send/recv" {
     // Provide 4 buffers
 
     {
-        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
+        const sqe = try ring.provide_buffers(0xcccccccc, @as([*]u8, @ptrCast(&buffers)), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(linux.IORING_OP.PROVIDE_BUFFERS, sqe.opcode);
         try testing.expectEqual(@as(i32, buffers.len), sqe.fd);
         try testing.expectEqual(@as(u32, buffer_len), sqe.len);
@@ -3181,7 +3174,7 @@ test "provide_buffers: accept/connect/send/recv" {
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
 
         try testing.expectEqual(@as(u64, 0xdededede), cqe.user_data);
-        const buffer = buffers[used_buffer_id][0..@intCast(usize, cqe.res)];
+        const buffer = buffers[used_buffer_id][0..@as(usize, @intCast(cqe.res))];
         try testing.expectEqualSlices(u8, &([_]u8{'z'} ** buffer_len), buffer);
     }
 
@@ -3213,7 +3206,7 @@ test "provide_buffers: accept/connect/send/recv" {
     const reprovided_buffer_id = 2;
 
     {
-        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), buffer_len, 1, group_id, reprovided_buffer_id);
+        _ = try ring.provide_buffers(0xabababab, @as([*]u8, @ptrCast(&buffers[reprovided_buffer_id])), buffer_len, 1, group_id, reprovided_buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3259,7 +3252,7 @@ test "provide_buffers: accept/connect/send/recv" {
         try testing.expectEqual(used_buffer_id, reprovided_buffer_id);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
-        const buffer = buffers[used_buffer_id][0..@intCast(usize, cqe.res)];
+        const buffer = buffers[used_buffer_id][0..@as(usize, @intCast(cqe.res))];
         try testing.expectEqualSlices(u8, &([_]u8{'w'} ** buffer_len), buffer);
     }
 }

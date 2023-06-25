@@ -1111,7 +1111,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
             var populated_cpu_features = whitelist_cpu.model.features;
             populated_cpu_features.populateDependencies(all_features);
             for (all_features, 0..) |feature, i_usize| {
-                const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
+                const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                 const in_cpu_set = populated_cpu_features.isEnabled(i);
                 if (in_cpu_set) {
                     log.err("{s} ", .{feature.name});
@@ -1119,7 +1119,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
             }
             log.err("  Remove: ", .{});
             for (all_features, 0..) |feature, i_usize| {
-                const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
+                const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                 const in_cpu_set = populated_cpu_features.isEnabled(i);
                 const in_actual_set = selected_cpu.features.isEnabled(i);
                 if (in_actual_set and !in_cpu_set) {
@@ -1442,13 +1442,13 @@ pub fn execAllowFail(
     switch (term) {
         .Exited => |code| {
             if (code != 0) {
-                out_code.* = @truncate(u8, code);
+                out_code.* = @as(u8, @truncate(code));
                 return error.ExitCodeFailure;
             }
             return stdout;
         },
         .Signal, .Stopped, .Unknown => |code| {
-            out_code.* = @truncate(u8, code);
+            out_code.* = @as(u8, @truncate(code));
             return error.ProcessTerminated;
         },
     }
@@ -1815,7 +1815,7 @@ pub fn serializeCpu(allocator: Allocator, cpu: std.Target.Cpu) ![]const u8 {
         try mcpu_buffer.appendSlice(cpu.model.name);
 
         for (all_features, 0..) |feature, i_usize| {
-            const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
+            const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
             const in_cpu_set = populated_cpu_features.isEnabled(i);
             const in_actual_set = cpu.features.isEnabled(i);
             if (in_cpu_set and !in_actual_set) {
@@ -1852,7 +1852,7 @@ pub fn hex64(x: u64) [16]u8 {
     var result: [16]u8 = undefined;
     var i: usize = 0;
     while (i < 8) : (i += 1) {
-        const byte = @truncate(u8, x >> @intCast(u6, 8 * i));
+        const byte = @as(u8, @truncate(x >> @as(u6, @intCast(8 * i))));
         result[i * 2 + 0] = hex_charset[byte >> 4];
         result[i * 2 + 1] = hex_charset[byte & 15];
     }

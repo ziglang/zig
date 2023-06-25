@@ -1046,7 +1046,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const llvm_cpu_features: ?[*:0]const u8 = if (build_options.have_llvm and use_llvm) blk: {
             var buf = std.ArrayList(u8).init(arena);
             for (options.target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
-                const index = @intCast(Target.Cpu.Feature.Set.Index, index_usize);
+                const index = @as(Target.Cpu.Feature.Set.Index, @intCast(index_usize));
                 const is_enabled = options.target.cpu.features.isEnabled(index);
 
                 if (feature.llvm_name) |llvm_name| {
@@ -2562,7 +2562,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
         }
     }
 
-    return @intCast(u32, total);
+    return @as(u32, @intCast(total));
 }
 
 /// This function is temporally single-threaded.
@@ -2596,7 +2596,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
     }
 
     for (self.lld_errors.items) |lld_error| {
-        const notes_len = @intCast(u32, lld_error.context_lines.len);
+        const notes_len = @as(u32, @intCast(lld_error.context_lines.len));
 
         try bundle.addRootErrorMessage(.{
             .msg = try bundle.addString(lld_error.msg),
@@ -2753,7 +2753,7 @@ pub const ErrorNoteHashContext = struct {
             std.hash.autoHash(&hasher, src.span_main);
         }
 
-        return @truncate(u32, hasher.final());
+        return @as(u32, @truncate(hasher.final()));
     }
 
     pub fn eql(
@@ -2830,8 +2830,8 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
                 .span_start = span.start,
                 .span_main = span.main,
                 .span_end = span.end,
-                .line = @intCast(u32, loc.line),
-                .column = @intCast(u32, loc.column),
+                .line = @as(u32, @intCast(loc.line)),
+                .column = @as(u32, @intCast(loc.column)),
                 .source_line = 0,
             }),
         });
@@ -2842,13 +2842,13 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
         .span_start = err_span.start,
         .span_main = err_span.main,
         .span_end = err_span.end,
-        .line = @intCast(u32, err_loc.line),
-        .column = @intCast(u32, err_loc.column),
+        .line = @as(u32, @intCast(err_loc.line)),
+        .column = @as(u32, @intCast(err_loc.column)),
         .source_line = if (module_err_msg.src_loc.lazy == .entire_file)
             0
         else
             try eb.addString(err_loc.source_line),
-        .reference_trace_len = @intCast(u32, ref_traces.items.len),
+        .reference_trace_len = @as(u32, @intCast(ref_traces.items.len)),
     });
 
     for (ref_traces.items) |rt| {
@@ -2874,8 +2874,8 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
                 .span_start = span.start,
                 .span_main = span.main,
                 .span_end = span.end,
-                .line = @intCast(u32, loc.line),
-                .column = @intCast(u32, loc.column),
+                .line = @as(u32, @intCast(loc.line)),
+                .column = @as(u32, @intCast(loc.column)),
                 .source_line = if (err_loc.eql(loc)) 0 else try eb.addString(loc.source_line),
             }),
         }, .{ .eb = eb });
@@ -2884,7 +2884,7 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
         }
     }
 
-    const notes_len = @intCast(u32, notes.entries.len);
+    const notes_len = @as(u32, @intCast(notes.entries.len));
 
     try eb.addRootErrorMessage(.{
         .msg = try eb.addString(module_err_msg.msg),
@@ -2919,7 +2919,7 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
             }
             const token_starts = file.tree.tokens.items(.start);
             const start = token_starts[item.data.token] + item.data.byte_offset;
-            const end = start + @intCast(u32, file.tree.tokenSlice(item.data.token).len) - item.data.byte_offset;
+            const end = start + @as(u32, @intCast(file.tree.tokenSlice(item.data.token).len)) - item.data.byte_offset;
             break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
         };
         const err_loc = std.zig.findLineColumn(file.source, err_span.main);
@@ -2935,8 +2935,8 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
                     .span_start = err_span.start,
                     .span_main = err_span.main,
                     .span_end = err_span.end,
-                    .line = @intCast(u32, err_loc.line),
-                    .column = @intCast(u32, err_loc.column),
+                    .line = @as(u32, @intCast(err_loc.line)),
+                    .column = @as(u32, @intCast(err_loc.column)),
                     .source_line = try eb.addString(err_loc.source_line),
                 }),
                 .notes_len = item.data.notesLen(file.zir),
@@ -2956,7 +2956,7 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
                     }
                     const token_starts = file.tree.tokens.items(.start);
                     const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
-                    const end = start + @intCast(u32, file.tree.tokenSlice(note_item.data.token).len) - item.data.byte_offset;
+                    const end = start + @as(u32, @intCast(file.tree.tokenSlice(note_item.data.token).len)) - item.data.byte_offset;
                     break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
                 };
                 const loc = std.zig.findLineColumn(file.source, span.main);
@@ -2970,8 +2970,8 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
                         .span_start = span.start,
                         .span_main = span.main,
                         .span_end = span.end,
-                        .line = @intCast(u32, loc.line),
-                        .column = @intCast(u32, loc.column),
+                        .line = @as(u32, @intCast(loc.line)),
+                        .column = @as(u32, @intCast(loc.column)),
                         .source_line = if (loc.eql(err_loc))
                             0
                         else
@@ -4302,7 +4302,7 @@ pub fn addCCArgs(
             const all_features_list = target.cpu.arch.allFeaturesList();
             try argv.ensureUnusedCapacity(all_features_list.len * 4);
             for (all_features_list, 0..) |feature, index_usize| {
-                const index = @intCast(std.Target.Cpu.Feature.Set.Index, index_usize);
+                const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
                 const is_enabled = target.cpu.features.isEnabled(index);
 
                 if (feature.llvm_name) |llvm_name| {
@@ -4436,7 +4436,7 @@ pub fn addCCArgs(
                 try argv.append("-fno-unwind-tables");
             }
         },
-        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig => {},
+        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res => {},
         .assembly, .assembly_with_cpp => {
             // The Clang assembler does not accept the list of CPU features like the
             // compiler frontend does. Therefore we must hard-code the -m flags for
@@ -4602,6 +4602,7 @@ pub const FileExt = enum {
     static_library,
     zig,
     def,
+    res,
     unknown,
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
@@ -4617,6 +4618,7 @@ pub const FileExt = enum {
             .static_library,
             .zig,
             .def,
+            .res,
             .unknown,
             => false,
         };
@@ -4639,6 +4641,7 @@ pub const FileExt = enum {
             .static_library => target.staticLibSuffix(),
             .zig => ".zig",
             .def => ".def",
+            .res => ".res",
             .unknown => "",
         };
     }
@@ -4730,6 +4733,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .cu;
     } else if (mem.endsWith(u8, filename, ".def")) {
         return .def;
+    } else if (mem.endsWith(u8, filename, ".res")) {
+        return .res;
     } else {
         return .unknown;
     }
@@ -5172,7 +5177,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     });
 
     for (target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
-        const index = @intCast(std.Target.Cpu.Feature.Set.Index, index_usize);
+        const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
         const is_enabled = target.cpu.features.isEnabled(index);
         if (is_enabled) {
             try buffer.writer().print("        .{},\n", .{std.zig.fmtId(feature.name)});

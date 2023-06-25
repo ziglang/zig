@@ -114,7 +114,7 @@ pub fn Decimal(comptime T: type) type {
                 return math.maxInt(MantissaT);
             }
 
-            const dp = @intCast(usize, self.decimal_point);
+            const dp = @as(usize, @intCast(self.decimal_point));
             var n: MantissaT = 0;
 
             var i: usize = 0;
@@ -155,7 +155,7 @@ pub fn Decimal(comptime T: type) type {
                 const quotient = n / 10;
                 const remainder = n - (10 * quotient);
                 if (write_index < max_digits) {
-                    self.digits[write_index] = @intCast(u8, remainder);
+                    self.digits[write_index] = @as(u8, @intCast(remainder));
                 } else if (remainder > 0) {
                     self.truncated = true;
                 }
@@ -167,7 +167,7 @@ pub fn Decimal(comptime T: type) type {
                 const quotient = n / 10;
                 const remainder = n - (10 * quotient);
                 if (write_index < max_digits) {
-                    self.digits[write_index] = @intCast(u8, remainder);
+                    self.digits[write_index] = @as(u8, @intCast(remainder));
                 } else if (remainder > 0) {
                     self.truncated = true;
                 }
@@ -178,7 +178,7 @@ pub fn Decimal(comptime T: type) type {
             if (self.num_digits > max_digits) {
                 self.num_digits = max_digits;
             }
-            self.decimal_point += @intCast(i32, num_new_digits);
+            self.decimal_point += @as(i32, @intCast(num_new_digits));
             self.trim();
         }
 
@@ -202,7 +202,7 @@ pub fn Decimal(comptime T: type) type {
                 }
             }
 
-            self.decimal_point -= @intCast(i32, read_index) - 1;
+            self.decimal_point -= @as(i32, @intCast(read_index)) - 1;
             if (self.decimal_point < -decimal_point_range) {
                 self.num_digits = 0;
                 self.decimal_point = 0;
@@ -212,14 +212,14 @@ pub fn Decimal(comptime T: type) type {
 
             const mask = math.shl(MantissaT, 1, shift) - 1;
             while (read_index < self.num_digits) {
-                const new_digit = @intCast(u8, math.shr(MantissaT, n, shift));
+                const new_digit = @as(u8, @intCast(math.shr(MantissaT, n, shift)));
                 n = (10 * (n & mask)) + self.digits[read_index];
                 read_index += 1;
                 self.digits[write_index] = new_digit;
                 write_index += 1;
             }
             while (n > 0) {
-                const new_digit = @intCast(u8, math.shr(MantissaT, n, shift));
+                const new_digit = @as(u8, @intCast(math.shr(MantissaT, n, shift)));
                 n = 10 * (n & mask);
                 if (write_index < max_digits) {
                     self.digits[write_index] = new_digit;
@@ -268,7 +268,7 @@ pub fn Decimal(comptime T: type) type {
                 while (stream.scanDigit(10)) |digit| {
                     d.tryAddDigit(digit);
                 }
-                d.decimal_point = @intCast(i32, marker) - @intCast(i32, stream.offsetTrue());
+                d.decimal_point = @as(i32, @intCast(marker)) - @as(i32, @intCast(stream.offsetTrue()));
             }
             if (d.num_digits != 0) {
                 // Ignore trailing zeros if any
@@ -284,9 +284,9 @@ pub fn Decimal(comptime T: type) type {
                     i -= 1;
                     if (i == 0) break;
                 }
-                d.decimal_point += @intCast(i32, n_trailing_zeros);
+                d.decimal_point += @as(i32, @intCast(n_trailing_zeros));
                 d.num_digits -= n_trailing_zeros;
-                d.decimal_point += @intCast(i32, d.num_digits);
+                d.decimal_point += @as(i32, @intCast(d.num_digits));
                 if (d.num_digits > max_digits) {
                     d.truncated = true;
                     d.num_digits = max_digits;

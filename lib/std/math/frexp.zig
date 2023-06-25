@@ -38,8 +38,8 @@ pub fn frexp(x: anytype) Frexp(@TypeOf(x)) {
 fn frexp32(x: f32) Frexp(f32) {
     var result: Frexp(f32) = undefined;
 
-    var y = @bitCast(u32, x);
-    const e = @intCast(i32, y >> 23) & 0xFF;
+    var y = @as(u32, @bitCast(x));
+    const e = @as(i32, @intCast(y >> 23)) & 0xFF;
 
     if (e == 0) {
         if (x != 0) {
@@ -68,15 +68,15 @@ fn frexp32(x: f32) Frexp(f32) {
     result.exponent = e - 0x7E;
     y &= 0x807FFFFF;
     y |= 0x3F000000;
-    result.significand = @bitCast(f32, y);
+    result.significand = @as(f32, @bitCast(y));
     return result;
 }
 
 fn frexp64(x: f64) Frexp(f64) {
     var result: Frexp(f64) = undefined;
 
-    var y = @bitCast(u64, x);
-    const e = @intCast(i32, y >> 52) & 0x7FF;
+    var y = @as(u64, @bitCast(x));
+    const e = @as(i32, @intCast(y >> 52)) & 0x7FF;
 
     if (e == 0) {
         if (x != 0) {
@@ -105,15 +105,15 @@ fn frexp64(x: f64) Frexp(f64) {
     result.exponent = e - 0x3FE;
     y &= 0x800FFFFFFFFFFFFF;
     y |= 0x3FE0000000000000;
-    result.significand = @bitCast(f64, y);
+    result.significand = @as(f64, @bitCast(y));
     return result;
 }
 
 fn frexp128(x: f128) Frexp(f128) {
     var result: Frexp(f128) = undefined;
 
-    var y = @bitCast(u128, x);
-    const e = @intCast(i32, y >> 112) & 0x7FFF;
+    var y = @as(u128, @bitCast(x));
+    const e = @as(i32, @intCast(y >> 112)) & 0x7FFF;
 
     if (e == 0) {
         if (x != 0) {
@@ -142,7 +142,7 @@ fn frexp128(x: f128) Frexp(f128) {
     result.exponent = e - 0x3FFE;
     y &= 0x8000FFFFFFFFFFFFFFFFFFFFFFFFFFFF;
     y |= 0x3FFE0000000000000000000000000000;
-    result.significand = @bitCast(f128, y);
+    result.significand = @as(f128, @bitCast(y));
     return result;
 }
 

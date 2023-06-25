@@ -166,7 +166,7 @@ test "correct sizeOf and offsets in packed structs" {
     try expectEqual(4, @sizeOf(PStruct));
 
     if (native_endian == .Little) {
-        const s1 = @bitCast(PStruct, @as(u32, 0x12345678));
+        const s1 = @as(PStruct, @bitCast(@as(u32, 0x12345678)));
         try expectEqual(false, s1.bool_a);
         try expectEqual(false, s1.bool_b);
         try expectEqual(false, s1.bool_c);
@@ -180,7 +180,7 @@ test "correct sizeOf and offsets in packed structs" {
         try expectEqual(@as(u10, 0b1101000101), s1.u10_a);
         try expectEqual(@as(u10, 0b0001001000), s1.u10_b);
 
-        const s2 = @bitCast(packed struct { x: u1, y: u7, z: u24 }, @as(u32, 0xd5c71ff4));
+        const s2 = @as(packed struct { x: u1, y: u7, z: u24 }, @bitCast(@as(u32, 0xd5c71ff4)));
         try expectEqual(@as(u1, 0), s2.x);
         try expectEqual(@as(u7, 0b1111010), s2.y);
         try expectEqual(@as(u24, 0xd5c71f), s2.z);
@@ -207,7 +207,7 @@ test "nested packed structs" {
     try expectEqual(24, @bitOffsetOf(S3, "y"));
 
     if (native_endian == .Little) {
-        const s3 = @bitCast(S3Padded, @as(u64, 0xe952d5c71ff4)).s3;
+        const s3 = @as(S3Padded, @bitCast(@as(u64, 0xe952d5c71ff4))).s3;
         try expectEqual(@as(u8, 0xf4), s3.x.a);
         try expectEqual(@as(u8, 0x1f), s3.x.b);
         try expectEqual(@as(u8, 0xc7), s3.x.c);
@@ -600,7 +600,7 @@ test "packed struct initialized in bitcast" {
 
     const T = packed struct { val: u8 };
     var val: u8 = 123;
-    const t = @bitCast(u8, T{ .val = val });
+    const t = @as(u8, @bitCast(T{ .val = val }));
     try expect(t == val);
 }
 
@@ -627,7 +627,7 @@ test "pointer to container level packed struct field" {
         },
         var arr = [_]u32{0} ** 2;
     };
-    @ptrCast(*S, &S.arr[0]).other_bits.enable_3 = true;
+    @as(*S, @ptrCast(&S.arr[0])).other_bits.enable_3 = true;
     try expect(S.arr[0] == 0x10000000);
 }
 

@@ -84,7 +84,7 @@ test "basic for loop" {
     }
     for (array, 0..) |item, index| {
         _ = item;
-        buffer[buf_index] = @intCast(u8, index);
+        buffer[buf_index] = @as(u8, @intCast(index));
         buf_index += 1;
     }
     const array_ptr = &array;
@@ -94,7 +94,7 @@ test "basic for loop" {
     }
     for (array_ptr, 0..) |item, index| {
         _ = item;
-        buffer[buf_index] = @intCast(u8, index);
+        buffer[buf_index] = @as(u8, @intCast(index));
         buf_index += 1;
     }
     const unknown_size: []const u8 = &array;
@@ -103,7 +103,7 @@ test "basic for loop" {
         buf_index += 1;
     }
     for (unknown_size, 0..) |_, index| {
-        buffer[buf_index] = @intCast(u8, index);
+        buffer[buf_index] = @as(u8, @intCast(index));
         buf_index += 1;
     }
 
@@ -208,7 +208,7 @@ test "for on slice with allowzero ptr" {
 
     const S = struct {
         fn doTheTest(slice: []const u8) !void {
-            var ptr = @ptrCast([*]allowzero const u8, slice.ptr)[0..slice.len];
+            var ptr = @as([*]allowzero const u8, @ptrCast(slice.ptr))[0..slice.len];
             for (ptr, 0..) |x, i| try expect(x == i + 1);
             for (ptr, 0..) |*x, i| try expect(x.* == i + 1);
         }
@@ -393,7 +393,7 @@ test "raw pointer and counter" {
     const ptr: [*]u8 = &buf;
 
     for (ptr, 0..4) |*a, b| {
-        a.* = @intCast(u8, 'A' + b);
+        a.* = @as(u8, @intCast('A' + b));
     }
 
     try expect(buf[0] == 'A');

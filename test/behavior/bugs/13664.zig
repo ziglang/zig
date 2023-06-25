@@ -21,7 +21,7 @@ test {
 
     const timestamp: i64 = value();
     const id = ID{ .fields = Fields{
-        .timestamp = @intCast(u50, timestamp),
+        .timestamp = @as(u50, @intCast(timestamp)),
         .random_bits = 420,
     } };
     try std.testing.expect((ID{ .value = id.value }).fields.timestamp == timestamp);

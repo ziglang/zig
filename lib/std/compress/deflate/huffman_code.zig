@@ -73,7 +73,7 @@ pub const HuffmanEncoder = struct {
         // Set list to be the set of all non-zero literals and their frequencies
         for (freq, 0..) |f, i| {
             if (f != 0) {
-                list[count] = LiteralNode{ .literal = @intCast(u16, i), .freq = f };
+                list[count] = LiteralNode{ .literal = @as(u16, @intCast(i)), .freq = f };
                 count += 1;
             } else {
                 list[count] = LiteralNode{ .literal = 0x00, .freq = 0 };
@@ -88,7 +88,7 @@ pub const HuffmanEncoder = struct {
             // two or fewer literals, everything has bit length 1.
             for (list, 0..) |node, i| {
                 // "list" is in order of increasing literal value.
-                self.codes[node.literal].set(@intCast(u16, i), 1);
+                self.codes[node.literal].set(@as(u16, @intCast(i)), 1);
             }
             return;
         }
@@ -105,7 +105,7 @@ pub const HuffmanEncoder = struct {
         var total: u32 = 0;
         for (freq, 0..) |f, i| {
             if (f != 0) {
-                total += @intCast(u32, f) * @intCast(u32, self.codes[i].len);
+                total += @as(u32, @intCast(f)) * @as(u32, @intCast(self.codes[i].len));
             }
         }
         return total;
@@ -167,7 +167,7 @@ pub const HuffmanEncoder = struct {
         }
 
         // We need a total of 2*n - 2 items at top level and have already generated 2.
-        levels[max_bits].needed = 2 * @intCast(u32, n) - 4;
+        levels[max_bits].needed = 2 * @as(u32, @intCast(n)) - 4;
 
         {
             var level = max_bits;
@@ -267,19 +267,19 @@ pub const HuffmanEncoder = struct {
             // are encoded using "bits" bits, and get the values
             // code, code + 1, ....  The code values are
             // assigned in literal order (not frequency order).
-            var chunk = list[list.len - @intCast(u32, bits) ..];
+            var chunk = list[list.len - @as(u32, @intCast(bits)) ..];
 
             self.lns = chunk;
             mem.sort(LiteralNode, self.lns, {}, byLiteral);
 
             for (chunk) |node| {
                 self.codes[node.literal] = HuffCode{
-                    .code = bu.bitReverse(u16, code, @intCast(u5, n)),
-                    .len = @intCast(u16, n),
+                    .code = bu.bitReverse(u16, code, @as(u5, @intCast(n))),
+                    .len = @as(u16, @intCast(n)),
                 };
                 code += 1;
             }
-            list = list[0 .. list.len - @intCast(u32, bits)];
+            list = list[0 .. list.len - @as(u32, @intCast(bits))];
         }
     }
 };
@@ -332,7 +332,7 @@ pub fn generateFixedLiteralEncoding(allocator: Allocator) !HuffmanEncoder {
                 size = 8;
             },
         }
-        codes[ch] = HuffCode{ .code = bu.bitReverse(u16, bits, @intCast(u5, size)), .len = size };
+        codes[ch] = HuffCode{ .code = bu.bitReverse(u16, bits, @as(u5, @intCast(size))), .len = size };
     }
     return h;
 }
@@ -341,7 +341,7 @@ pub fn generateFixedOffsetEncoding(allocator: Allocator) !HuffmanEncoder {
     var h = try newHuffmanEncoder(allocator, 30);
     var codes = h.codes;
     for (codes, 0..) |_, ch| {
-        codes[ch] = HuffCode{ .code = bu.bitReverse(u16, @intCast(u16, ch), 5), .len = 5 };
+        codes[ch] = HuffCode{ .code = bu.bitReverse(u16, @as(u16, @intCast(ch)), 5), .len = 5 };
     }
     return h;
 }

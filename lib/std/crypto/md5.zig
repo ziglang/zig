@@ -80,7 +80,7 @@ pub const Md5 = struct {
         // Copy any remainder for next pass.
         const b_slice = b[off..];
         @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
-        d.buf_len += @intCast(u8, b_slice.len);
+        d.buf_len += @as(u8, @intCast(b_slice.len));
 
         // Md5 uses the bottom 64-bits for length padding
         d.total_len +%= b.len;
@@ -103,9 +103,9 @@ pub const Md5 = struct {
         // Append message length.
         var i: usize = 1;
         var len = d.total_len >> 5;
-        d.buf[56] = @intCast(u8, d.total_len & 0x1f) << 3;
+        d.buf[56] = @as(u8, @intCast(d.total_len & 0x1f)) << 3;
         while (i < 8) : (i += 1) {
-            d.buf[56 + i] = @intCast(u8, len & 0xff);
+            d.buf[56 + i] = @as(u8, @intCast(len & 0xff));
             len >>= 8;
         }
 

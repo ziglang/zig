@@ -1,9 +1,9 @@
 export fn entry(a: *i32) usize {
-    return @ptrCast(usize, a);
+    return @ptrCast(a);
 }
 
 // error
 // backend=llvm
 // target=native
 //
-// :2:21: error: expected pointer type, found 'usize'
+// :2:12: error: expected pointer type, found 'usize'

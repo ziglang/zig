@@ -18,7 +18,7 @@ pub fn TableSection(comptime Entry: type) type {
                     break :blk index;
                 } else {
                     log.debug("  (allocating entry at index {d})", .{self.entries.items.len});
-                    const index = @intCast(u32, self.entries.items.len);
+                    const index = @as(u32, @intCast(self.entries.items.len));
                     _ = self.entries.addOneAssumeCapacity();
                     break :blk index;
                 }

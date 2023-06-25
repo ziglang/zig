@@ -16,7 +16,8 @@ pub fn main() !void {
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
-    const int_slice = std.mem.bytesAsSlice(u32, @alignCast(4, slice4));
+    const aligned: *align(4) [4]u8 = @alignCast(slice4);
+    const int_slice = std.mem.bytesAsSlice(u32, aligned);
     return int_slice[0];
 }
 // run

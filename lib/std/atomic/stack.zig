@@ -151,7 +151,7 @@ fn startPuts(ctx: *Context) u8 {
     const random = prng.random();
     while (put_count != 0) : (put_count -= 1) {
         std.time.sleep(1); // let the os scheduler be our fuzz
-        const x = @bitCast(i32, random.int(u32));
+        const x = @as(i32, @bitCast(random.int(u32)));
         const node = ctx.allocator.create(Stack(i32).Node) catch unreachable;
         node.* = Stack(i32).Node{
             .next = undefined,

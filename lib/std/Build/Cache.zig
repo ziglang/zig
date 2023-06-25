@@ -128,7 +128,7 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
             const sub_path = try gpa.dupe(u8, resolved_path[p.len + 1 ..]);
             gpa.free(resolved_path);
             return PrefixedPath{
-                .prefix = @intCast(u8, i),
+                .prefix = @as(u8, @intCast(i)),
                 .sub_path = sub_path,
             };
         }
@@ -653,7 +653,7 @@ pub const Manifest = struct {
                 return error.FileTooBig;
             }
 
-            const contents = try self.cache.gpa.alloc(u8, @intCast(usize, ch_file.stat.size));
+            const contents = try self.cache.gpa.alloc(u8, @as(usize, @intCast(ch_file.stat.size)));
             errdefer self.cache.gpa.free(contents);
 
             // Hash while reading from disk, to keep the contents in the cpu cache while

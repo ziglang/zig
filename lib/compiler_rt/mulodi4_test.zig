@@ -54,34 +54,34 @@ test "mulodi4" {
 
     try test__mulodi4(0x7FFFFFFFFFFFFFFF, -2, 2, 1);
     try test__mulodi4(-2, 0x7FFFFFFFFFFFFFFF, 2, 1);
-    try test__mulodi4(0x7FFFFFFFFFFFFFFF, -1, @bitCast(i64, @as(u64, 0x8000000000000001)), 0);
-    try test__mulodi4(-1, 0x7FFFFFFFFFFFFFFF, @bitCast(i64, @as(u64, 0x8000000000000001)), 0);
+    try test__mulodi4(0x7FFFFFFFFFFFFFFF, -1, @as(i64, @bitCast(@as(u64, 0x8000000000000001))), 0);
+    try test__mulodi4(-1, 0x7FFFFFFFFFFFFFFF, @as(i64, @bitCast(@as(u64, 0x8000000000000001))), 0);
     try test__mulodi4(0x7FFFFFFFFFFFFFFF, 0, 0, 0);
     try test__mulodi4(0, 0x7FFFFFFFFFFFFFFF, 0, 0);
     try test__mulodi4(0x7FFFFFFFFFFFFFFF, 1, 0x7FFFFFFFFFFFFFFF, 0);
     try test__mulodi4(1, 0x7FFFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFFF, 0);
-    try test__mulodi4(0x7FFFFFFFFFFFFFFF, 2, @bitCast(i64, @as(u64, 0x8000000000000001)), 1);
-    try test__mulodi4(2, 0x7FFFFFFFFFFFFFFF, @bitCast(i64, @as(u64, 0x8000000000000001)), 1);
+    try test__mulodi4(0x7FFFFFFFFFFFFFFF, 2, @as(i64, @bitCast(@as(u64, 0x8000000000000001))), 1);
+    try test__mulodi4(2, 0x7FFFFFFFFFFFFFFF, @as(i64, @bitCast(@as(u64, 0x8000000000000001))), 1);
 
-    try test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000000)), -2, @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
-    try test__mulodi4(-2, @bitCast(i64, @as(u64, 0x8000000000000000)), @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
-    try test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000000)), -1, @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
-    try test__mulodi4(-1, @bitCast(i64, @as(u64, 0x8000000000000000)), @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
-    try test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000000)), 0, 0, 0);
-    try test__mulodi4(0, @bitCast(i64, @as(u64, 0x8000000000000000)), 0, 0);
-    try test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000000)), 1, @bitCast(i64, @as(u64, 0x8000000000000000)), 0);
-    try test__mulodi4(1, @bitCast(i64, @as(u64, 0x8000000000000000)), @bitCast(i64, @as(u64, 0x8000000000000000)), 0);
-    try test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000000)), 2, @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
-    try test__mulodi4(2, @bitCast(i64, @as(u64, 0x8000000000000000)), @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
+    try test__mulodi4(@as(i64, @bitCast(@as(u64, 0x8000000000000000))), -2, @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 1);
+    try test__mulodi4(-2, @as(i64, @bitCast(@as(u64, 0x8000000000000000))), @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 1);
+    try test__mulodi4(@as(i64, @bitCast(@as(u64, 0x8000000000000000))), -1, @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 1);
+    try test__mulodi4(-1, @as(i64, @bitCast(@as(u64, 0x8000000000000000))), @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 1);
+    try test__mulodi4(@as(i64, @bitCast(@as(u64, 0x8000000000000000))), 0, 0, 0);
+    try test__mulodi4(0, @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 0, 0);
+    try test__mulodi4(@as(i64, @bitCast(@as(u64, 0x8000000000000000))), 1, @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 0);
+    try test__mulodi4(1, @as(i64, @bitCast(@as(u64, 0x8000000000000000))), @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 0);
+    try test__mulodi4(@as(i64, @bitCast(@as(u64, 0x8000000000000000))), 2, @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 1);
+    try test__mulodi4(2, @as(i64, @bitCast(@as(u64, 0x8000000000000000))), @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 1);
 
-    try test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000001)), -2, @bitCast(i64, @as(u64, 0x8000000000000001)), 1);
-    try test__mulodi4(-2, @bitCast(i64, @as(u64, 0x8000000000000001)), @bitCast(i64, @as(u64, 0x8000000000000001)), 1);
-    try test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000001)), -1, 0x7FFFFFFFFFFFFFFF, 0);
-    try test__mulodi4(-1, @bitCast(i64, @as(u64, 0x8000000000000001)), 0x7FFFFFFFFFFFFFFF, 0);
-    try test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000001)), 0, 0, 0);
-    try test__mulodi4(0, @bitCast(i64, @as(u64, 0x8000000000000001)), 0, 0);
-    try test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000001)), 1, @bitCast(i64, @as(u64, 0x8000000000000001)), 0);
-    try test__mulodi4(1, @bitCast(i64, @as(u64, 0x8000000000000001)), @bitCast(i64, @as(u64, 0x8000000000000001)), 0);
-    try test__mulodi4(@bitCast(i64, @as(u64, 0x8000000000000001)), 2, @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
-    try test__mulodi4(2, @bitCast(i64, @as(u64, 0x8000000000000001)), @bitCast(i64, @as(u64, 0x8000000000000000)), 1);
+    try test__mulodi4(@as(i64, @bitCast(@as(u64, 0x8000000000000001))), -2, @as(i64, @bitCast(@as(u64, 0x8000000000000001))), 1);
+    try test__mulodi4(-2, @as(i64, @bitCast(@as(u64, 0x8000000000000001))), @as(i64, @bitCast(@as(u64, 0x8000000000000001))), 1);
+    try test__mulodi4(@as(i64, @bitCast(@as(u64, 0x8000000000000001))), -1, 0x7FFFFFFFFFFFFFFF, 0);
+    try test__mulodi4(-1, @as(i64, @bitCast(@as(u64, 0x8000000000000001))), 0x7FFFFFFFFFFFFFFF, 0);
+    try test__mulodi4(@as(i64, @bitCast(@as(u64, 0x8000000000000001))), 0, 0, 0);
+    try test__mulodi4(0, @as(i64, @bitCast(@as(u64, 0x8000000000000001))), 0, 0);
+    try test__mulodi4(@as(i64, @bitCast(@as(u64, 0x8000000000000001))), 1, @as(i64, @bitCast(@as(u64, 0x8000000000000001))), 0);
+    try test__mulodi4(1, @as(i64, @bitCast(@as(u64, 0x8000000000000001))), @as(i64, @bitCast(@as(u64, 0x8000000000000001))), 0);
+    try test__mulodi4(@as(i64, @bitCast(@as(u64, 0x8000000000000001))), 2, @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 1);
+    try test__mulodi4(2, @as(i64, @bitCast(@as(u64, 0x8000000000000001))), @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 1);
 }

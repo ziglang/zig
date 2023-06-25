@@ -32,7 +32,7 @@ pub const MADV = linux.MADV;
 pub const MAP = struct {
     pub usingnamespace linux.MAP;
     /// Only used by libc to communicate failure.
-    pub const FAILED = @ptrFromInt(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
 };
 pub const MSF = linux.MSF;
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;

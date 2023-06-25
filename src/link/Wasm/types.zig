@@ -205,7 +205,7 @@ pub const Feature = struct {
 
         /// From a given cpu feature, returns its linker feature
         pub fn fromCpuFeature(feature: std.Target.wasm.Feature) Tag {
-            return @enumFromInt(Tag, @intFromEnum(feature));
+            return @as(Tag, @enumFromInt(@intFromEnum(feature)));
         }
 
         pub fn format(tag: Tag, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {

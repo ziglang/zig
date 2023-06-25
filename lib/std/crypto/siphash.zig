@@ -83,13 +83,13 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
                 @call(.always_inline, round, .{ self, blob });
             }
 
-            self.msg_len +%= @truncate(u8, b.len);
+            self.msg_len +%= @as(u8, @truncate(b.len));
         }
 
         fn final(self: *Self, b: []const u8) T {
             std.debug.assert(b.len < 8);
 
-            self.msg_len +%= @truncate(u8, b.len);
+            self.msg_len +%= @as(u8, @truncate(b.len));
 
             var buf = [_]u8{0} ** 8;
             @memcpy(buf[0..b.len], b);
@@ -202,7 +202,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
 
             const b_slice = b[off + aligned_len ..];
             @memcpy(self.buf[self.buf_len..][0..b_slice.len], b_slice);
-            self.buf_len += @intCast(u8, b_slice.len);
+            self.buf_len += @as(u8, @intCast(b_slice.len));
         }
 
         pub fn peek(self: Self) [mac_length]u8 {
@@ -329,7 +329,7 @@ test "siphash64-2-4 sanity" {
 
     var buffer: [64]u8 = undefined;
     for (vectors, 0..) |vector, i| {
-        buffer[i] = @intCast(u8, i);
+        buffer[i] = @as(u8, @intCast(i));
 
         var out: [siphash.mac_length]u8 = undefined;
         siphash.create(&out, buffer[0..i], test_key);
@@ -409,7 +409,7 @@ test "siphash128-2-4 sanity" {
 
     var buffer: [64]u8 = undefined;
     for (vectors, 0..) |vector, i| {
-        buffer[i] = @intCast(u8, i);
+        buffer[i] = @as(u8, @intCast(i));
 
         var out: [siphash.mac_length]u8 = undefined;
         siphash.create(&out, buffer[0..i], test_key[0..]);
@@ -420,7 +420,7 @@ test "siphash128-2-4 sanity" {
 test "iterative non-divisible update" {
     var buf: [1024]u8 = undefined;
     for (&buf, 0..) |*e, i| {
-        e.* = @truncate(u8, i);
+        e.* = @as(u8, @truncate(i));
     }
 
     const key = "0x128dad08f12307";

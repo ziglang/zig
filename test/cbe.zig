@@ -642,7 +642,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\pub export fn main() c_int {
             \\    var number1 = Number.One;
             \\    var number2: Number = .Two;
-            \\    const number3 = @enumFromInt(Number, 2);
+            \\    const number3: Number = @enumFromInt(2);
             \\    if (number1 == number2) return 1;
             \\    if (number2 == number3) return 1;
             \\    if (@intFromEnum(number1) != 0) return 1;
@@ -737,19 +737,19 @@ pub fn addCases(ctx: *Cases) !void {
         case.addError(
             \\pub export fn main() c_int {
             \\    const a = 1;
-            \\    _ = @enumFromInt(bool, a);
+            \\    _ = @as(bool, @enumFromInt(a));
             \\}
         , &.{
-            ":3:20: error: expected enum, found 'bool'",
+            ":3:19: error: expected enum, found 'bool'",
         });
 
         case.addError(
             \\const E = enum { a, b, c };
             \\pub export fn main() c_int {
-            \\    _ = @enumFromInt(E, 3);
+            \\    _ = @as(E, @enumFromInt(3));
             \\}
         , &.{
-            ":3:9: error: enum 'tmp.E' has no tag with value '3'",
+            ":3:16: error: enum 'tmp.E' has no tag with value '3'",
             ":1:11: note: enum declared here",
         });
 

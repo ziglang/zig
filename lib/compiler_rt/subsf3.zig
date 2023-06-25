@@ -11,11 +11,11 @@ comptime {
 }
 
 fn __subsf3(a: f32, b: f32) callconv(.C) f32 {
-    const neg_b = @bitCast(f32, @bitCast(u32, b) ^ (@as(u32, 1) << 31));
+    const neg_b = @as(f32, @bitCast(@as(u32, @bitCast(b)) ^ (@as(u32, 1) << 31)));
     return a + neg_b;
 }
 
 fn __aeabi_fsub(a: f32, b: f32) callconv(.AAPCS) f32 {
-    const neg_b = @bitCast(f32, @bitCast(u32, b) ^ (@as(u32, 1) << 31));
+    const neg_b = @as(f32, @bitCast(@as(u32, @bitCast(b)) ^ (@as(u32, 1) << 31)));
     return a + neg_b;
 }

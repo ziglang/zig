@@ -46,13 +46,13 @@ pub fn jump(self: *Xoshiro256) void {
     var table: u256 = 0x39abdc4529b1661ca9582618e03fc9aad5a61266f0c9392c180ec6d33cfd0aba;
 
     while (table != 0) : (table >>= 1) {
-        if (@truncate(u1, table) != 0) {
-            s ^= @bitCast(u256, self.s);
+        if (@as(u1, @truncate(table)) != 0) {
+            s ^= @as(u256, @bitCast(self.s));
         }
         _ = self.next();
     }
 
-    self.s = @bitCast([4]u64, s);
+    self.s = @as([4]u64, @bitCast(s));
 }
 
 pub fn seed(self: *Xoshiro256, init_s: u64) void {
@@ -74,7 +74,7 @@ pub fn fill(self: *Xoshiro256, buf: []u8) void {
         var n = self.next();
         comptime var j: usize = 0;
         inline while (j < 8) : (j += 1) {
-            buf[i + j] = @truncate(u8, n);
+            buf[i + j] = @as(u8, @truncate(n));
             n >>= 8;
         }
     }
@@ -83,7 +83,7 @@ pub fn fill(self: *Xoshiro256, buf: []u8) void {
     if (i != buf.len) {
         var n = self.next();
         while (i < buf.len) : (i += 1) {
-            buf[i] = @truncate(u8, n);
+            buf[i] = @as(u8, @truncate(n));
             n >>= 8;
         }
     }

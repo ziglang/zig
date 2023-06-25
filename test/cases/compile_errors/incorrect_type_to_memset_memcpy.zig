@@ -2,7 +2,7 @@ pub export fn entry() void {
     var buf: [5]u8 = .{ 1, 2, 3, 4, 5 };
     var slice: []u8 = &buf;
     const a: u32 = 1234;
-    @memcpy(slice.ptr, @ptrCast([*]const u8, &a));
+    @memcpy(slice.ptr, @as([*]const u8, @ptrCast(&a)));
 }
 pub export fn entry1() void {
     var buf: [5]u8 = .{ 1, 2, 3, 4, 5 };
@@ -39,7 +39,7 @@ pub export fn memset_array() void {
 //
 // :5:5: error: unknown @memcpy length
 // :5:18: note: destination type '[*]u8' provides no length
-// :5:24: note: source type '[*]align(4) const u8' provides no length
+// :5:24: note: source type '[*]const u8' provides no length
 // :10:13: error: type '*u8' is not an indexable pointer
 // :10:13: note: operand must be a slice, a many pointer or a pointer to an array
 // :15:13: error: type '*u8' is not an indexable pointer

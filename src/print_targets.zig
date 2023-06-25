@@ -100,7 +100,7 @@ pub fn cmdTargets(
             try jws.objectField(model.name);
             try jws.beginArray();
             for (arch.allFeaturesList(), 0..) |feature, i_usize| {
-                const index = @intCast(Target.Cpu.Feature.Set.Index, i_usize);
+                const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                 if (model.features.isEnabled(index)) {
                     try jws.arrayElem();
                     try jws.emitString(feature.name);
@@ -147,7 +147,7 @@ pub fn cmdTargets(
             try jws.objectField("features");
             try jws.beginArray();
             for (native_target.cpu.arch.allFeaturesList(), 0..) |feature, i_usize| {
-                const index = @intCast(Target.Cpu.Feature.Set.Index, i_usize);
+                const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                 if (cpu.features.isEnabled(index)) {
                     try jws.arrayElem();
                     try jws.emitString(feature.name);

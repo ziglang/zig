@@ -176,8 +176,8 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                 .ComptimeInt => {
                     return self.emitNumber(@as(std.math.IntFittingRange(value, value), value));
                 },
-                .Float, .ComptimeFloat => if (@floatCast(f64, value) == value) {
-                    try self.stream.print("{}", .{@floatCast(f64, value)});
+                .Float, .ComptimeFloat => if (@as(f64, @floatCast(value)) == value) {
+                    try self.stream.print("{}", .{@as(f64, @floatCast(value))});
                     self.popState();
                     return;
                 },
@@ -294,7 +294,7 @@ test "json write stream" {
 
 fn getJsonObject(allocator: std.mem.Allocator) !Value {
     var value = Value{ .object = ObjectMap.init(allocator) };
-    try value.object.put("one", Value{ .integer = @intCast(i64, 1) });
+    try value.object.put("one", Value{ .integer = @as(i64, @intCast(1)) });
     try value.object.put("two", Value{ .float = 2.0 });
     return value;
 }

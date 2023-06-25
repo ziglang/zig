@@ -76,12 +76,12 @@ pub const Poly1305 = struct {
             const m1 = h1r0 +% h0r1;
             const m2 = h2r0 +% h1r1;
 
-            const t0 = @truncate(u64, m0);
-            v = @addWithOverflow(@truncate(u64, m1), @truncate(u64, m0 >> 64));
+            const t0 = @as(u64, @truncate(m0));
+            v = @addWithOverflow(@as(u64, @truncate(m1)), @as(u64, @truncate(m0 >> 64)));
             const t1 = v[0];
-            v = add(@truncate(u64, m2), @truncate(u64, m1 >> 64), v[1]);
+            v = add(@as(u64, @truncate(m2)), @as(u64, @truncate(m1 >> 64)), v[1]);
             const t2 = v[0];
-            v = add(@truncate(u64, m3), @truncate(u64, m2 >> 64), v[1]);
+            v = add(@as(u64, @truncate(m3)), @as(u64, @truncate(m2 >> 64)), v[1]);
             const t3 = v[0];
 
             // Partial reduction
@@ -98,9 +98,9 @@ pub const Poly1305 = struct {
             h1 = v[0];
             h2 +%= v[1];
             const cc = (cclo | (@as(u128, cchi) << 64)) >> 2;
-            v = @addWithOverflow(h0, @truncate(u64, cc));
+            v = @addWithOverflow(h0, @as(u64, @truncate(cc)));
             h0 = v[0];
-            v = add(h1, @truncate(u64, cc >> 64), v[1]);
+            v = add(h1, @as(u64, @truncate(cc >> 64)), v[1]);
             h1 = v[0];
             h2 +%= v[1];
         }
@@ -185,7 +185,7 @@ pub const Poly1305 = struct {
         mem.writeIntLittle(u64, out[0..8], st.h[0]);
         mem.writeIntLittle(u64, out[8..16], st.h[1]);
 
-        utils.secureZero(u8, @ptrCast([*]u8, st)[0..@sizeOf(Poly1305)]);
+        utils.secureZero(u8, @as([*]u8, @ptrCast(st))[0..@sizeOf(Poly1305)]);
     }
 
     pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {

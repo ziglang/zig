@@ -39,7 +39,7 @@ pub fn Bind(comptime Ctx: type, comptime Target: type) type {
         }
 
         pub fn size(self: Self) u64 {
-            return @intCast(u64, self.buffer.items.len);
+            return @as(u64, @intCast(self.buffer.items.len));
         }
 
         pub fn finalize(self: *Self, gpa: Allocator, ctx: Ctx) !void {
@@ -95,7 +95,7 @@ pub fn Bind(comptime Ctx: type, comptime Target: type) type {
                     const sym = ctx.getSymbol(current.target);
                     const name = ctx.getSymbolName(current.target);
                     const flags: u8 = if (sym.weakRef()) macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT else 0;
-                    const ordinal = @divTrunc(@bitCast(i16, sym.n_desc), macho.N_SYMBOL_RESOLVER);
+                    const ordinal = @divTrunc(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
 
                     try setSymbol(name, flags, writer);
                     try setTypePointer(writer);
@@ -112,7 +112,7 @@ pub fn Bind(comptime Ctx: type, comptime Target: type) type {
                 switch (state) {
                     .start => {
                         if (current.offset < offset) {
-                            try addAddr(@bitCast(u64, @intCast(i64, current.offset) - @intCast(i64, offset)), writer);
+                            try addAddr(@as(u64, @bitCast(@as(i64, @intCast(current.offset)) - @as(i64, @intCast(offset)))), writer);
                             offset = offset - (offset - current.offset);
                         } else if (current.offset > offset) {
                             const delta = current.offset - offset;
@@ -130,7 +130,7 @@ pub fn Bind(comptime Ctx: type, comptime Target: type) type {
                         } else if (current.offset > offset) {
                             const delta = current.offset - offset;
                             state = .bind_times_skip;
-                            skip = @intCast(u64, delta);
+                            skip = @as(u64, @intCast(delta));
                             offset += skip;
                         } else unreachable;
                         i -= 1;
@@ -194,7 +194,7 @@ pub fn LazyBind(comptime Ctx: type, comptime Target: type) type {
         }
 
         pub fn size(self: Self) u64 {
-            return @intCast(u64, self.buffer.items.len);
+            return @as(u64, @intCast(self.buffer.items.len));
         }
 
         pub fn finalize(self: *Self, gpa: Allocator, ctx: Ctx) !void {
@@ -208,12 +208,12 @@ pub fn LazyBind(comptime Ctx: type, comptime Target: type) type {
             var addend: i64 = 0;
 
             for (self.entries.items) |entry| {
-                self.offsets.appendAssumeCapacity(@intCast(u32, cwriter.bytes_written));
+                self.offsets.appendAssumeCapacity(@as(u32, @intCast(cwriter.bytes_written)));
 
                 const sym = ctx.getSymbol(entry.target);
                 const name = ctx.getSymbolName(entry.target);
                 const flags: u8 = if (sym.weakRef()) macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT else 0;
-                const ordinal = @divTrunc(@bitCast(i16, sym.n_desc), macho.N_SYMBOL_RESOLVER);
+                const ordinal = @divTrunc(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
 
                 try setSegmentOffset(entry.segment_id, entry.offset, writer);
                 try setSymbol(name, flags, writer);
@@ -238,20 +238,20 @@ pub fn LazyBind(comptime Ctx: type, comptime Target: type) type {
 
 fn setSegmentOffset(segment_id: u8, offset: u64, writer: anytype) !void {
     log.debug(">>> set segment: {d} and offset: {x}", .{ segment_id, offset });
-    try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, segment_id));
+    try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @as(u4, @truncate(segment_id)));
     try std.leb.writeULEB128(writer, offset);
 }
 
 fn setSymbol(name: []const u8, flags: u8, writer: anytype) !void {
     log.debug(">>> set symbol: {s} with flags: {x}", .{ name, flags });
-    try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM | @truncate(u4, flags));
+    try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM | @as(u4, @truncate(flags)));
     try writer.writeAll(name);
     try writer.writeByte(0);
 }
 
 fn setTypePointer(writer: anytype) !void {
     log.debug(">>> set type: {d}", .{macho.BIND_TYPE_POINTER});
-    try writer.writeByte(macho.BIND_OPCODE_SET_TYPE_IMM | @truncate(u4, macho.BIND_TYPE_POINTER));
+    try writer.writeByte(macho.BIND_OPCODE_SET_TYPE_IMM | @as(u4, @truncate(macho.BIND_TYPE_POINTER)));
 }
 
 fn setDylibOrdinal(ordinal: i16, writer: anytype) !void {
@@ -264,13 +264,13 @@ fn setDylibOrdinal(ordinal: i16, writer: anytype) !void {
             else => unreachable, // Invalid dylib special binding
         }
         log.debug(">>> set dylib special: {d}", .{ordinal});
-        const cast = @bitCast(u16, ordinal);
-        try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM | @truncate(u4, cast));
+        const cast = @as(u16, @bitCast(ordinal));
+        try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM | @as(u4, @truncate(cast)));
     } else {
-        const cast = @bitCast(u16, ordinal);
+        const cast = @as(u16, @bitCast(ordinal));
         log.debug(">>> set dylib ordinal: {d}", .{ordinal});
         if (cast <= 0xf) {
-            try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | @truncate(u4, cast));
+            try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | @as(u4, @truncate(cast)));
         } else {
             try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB);
             try std.leb.writeULEB128(writer, cast);
@@ -295,7 +295,7 @@ fn doBindAddAddr(addr: u64, writer: anytype) !void {
         const imm = @divExact(addr, @sizeOf(u64));
         if (imm <= 0xf) {
             try writer.writeByte(
-                macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED | @truncate(u4, imm),
+                macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED | @as(u4, @truncate(imm)),
             );
             return;
         }
@@ -341,7 +341,7 @@ const TestContext = struct {
 
     fn addSymbol(ctx: *TestContext, gpa: Allocator, name: []const u8, ordinal: i16, flags: u16) !void {
         const n_strx = try ctx.addString(gpa, name);
-        var n_desc = @bitCast(u16, ordinal * macho.N_SYMBOL_RESOLVER);
+        var n_desc = @as(u16, @bitCast(ordinal * macho.N_SYMBOL_RESOLVER));
         n_desc |= flags;
         try ctx.symbols.append(gpa, .{
             .n_value = 0,
@@ -353,7 +353,7 @@ const TestContext = struct {
     }
 
     fn addString(ctx: *TestContext, gpa: Allocator, name: []const u8) !u32 {
-        const n_strx = @intCast(u32, ctx.strtab.items.len);
+        const n_strx = @as(u32, @intCast(ctx.strtab.items.len));
         try ctx.strtab.appendSlice(gpa, name);
         try ctx.strtab.append(gpa, 0);
         return n_strx;
@@ -366,7 +366,7 @@ const TestContext = struct {
     fn getSymbolName(ctx: TestContext, target: Target) []const u8 {
         const sym = ctx.getSymbol(target);
         assert(sym.n_strx < ctx.strtab.items.len);
-        return std.mem.sliceTo(@ptrCast([*:0]const u8, ctx.strtab.items.ptr + sym.n_strx), 0);
+        return std.mem.sliceTo(@as([*:0]const u8, @ptrCast(ctx.strtab.items.ptr + sym.n_strx)), 0);
     }
 };
 

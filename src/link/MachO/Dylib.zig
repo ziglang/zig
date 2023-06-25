@@ -75,7 +75,7 @@ pub const Id = struct {
                 .int => |int| {
                     var out: u32 = 0;
                     const major = math.cast(u16, int) orelse return error.Overflow;
-                    out += @intCast(u32, major) << 16;
+                    out += @as(u32, @intCast(major)) << 16;
                     return out;
                 },
                 .float => |float| {
@@ -106,9 +106,9 @@ pub const Id = struct {
             out += try fmt.parseInt(u8, values[2], 10);
         }
         if (count > 1) {
-            out += @intCast(u32, try fmt.parseInt(u8, values[1], 10)) << 8;
+            out += @as(u32, @intCast(try fmt.parseInt(u8, values[1], 10))) << 8;
         }
-        out += @intCast(u32, try fmt.parseInt(u16, values[0], 10)) << 16;
+        out += @as(u32, @intCast(try fmt.parseInt(u16, values[0], 10))) << 16;
 
         return out;
     }
@@ -164,11 +164,11 @@ pub fn parseFromBinary(
         switch (cmd.cmd()) {
             .SYMTAB => {
                 const symtab_cmd = cmd.cast(macho.symtab_command).?;
-                const symtab = @ptrCast(
+                const symtab = @as(
                     [*]const macho.nlist_64,
                     // Alignment is guaranteed as a dylib is a final linked image and has to have sections
                     // properly aligned in order to be correctly loaded by the loader.
-                    @alignCast(@alignOf(macho.nlist_64), &data[symtab_cmd.symoff]),
+                    @ptrCast(@alignCast(&data[symtab_cmd.symoff])),
                 )[0..symtab_cmd.nsyms];
                 const strtab = data[symtab_cmd.stroff..][0..symtab_cmd.strsize];
 
@@ -176,7 +176,7 @@ pub fn parseFromBinary(
                     const add_to_symtab = sym.ext() and (sym.sect() or sym.indr());
                     if (!add_to_symtab) continue;
 
-                    const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
+                    const sym_name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + sym.n_strx)), 0);
                     try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), false);
                 }
             },

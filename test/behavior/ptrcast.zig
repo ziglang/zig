@@ -16,7 +16,7 @@ fn testReinterpretBytesAsInteger() !void {
         .Little => 0xab785634,
         .Big => 0x345678ab,
     };
-    try expect(@ptrCast(*align(1) const u32, bytes[1..5]).* == expected);
+    try expect(@as(*align(1) const u32, @ptrCast(bytes[1..5])).* == expected);
 }
 
 test "reinterpret an array over multiple elements, with no well-defined layout" {
@@ -32,7 +32,7 @@ test "reinterpret an array over multiple elements, with no well-defined layout" 
 fn testReinterpretWithOffsetAndNoWellDefinedLayout() !void {
     const bytes: ?[5]?u8 = [5]?u8{ 0x12, 0x34, 0x56, 0x78, 0x9a };
     const ptr = &bytes.?[1];
-    const copy: [4]?u8 = @ptrCast(*const [4]?u8, ptr).*;
+    const copy: [4]?u8 = @as(*const [4]?u8, @ptrCast(ptr)).*;
     _ = copy;
     //try expect(@ptrCast(*align(1)?u8, bytes[1..5]).* == );
 }
@@ -51,7 +51,7 @@ fn testReinterpretStructWrappedBytesAsInteger() !void {
         .Little => 0xab785634,
         .Big => 0x345678ab,
     };
-    try expect(@ptrCast(*align(1) const u32, obj.bytes[1..5]).* == expected);
+    try expect(@as(*align(1) const u32, @ptrCast(obj.bytes[1..5])).* == expected);
 }
 
 test "reinterpret bytes of an array into an extern struct" {
@@ -71,7 +71,7 @@ fn testReinterpretBytesAsExternStruct() !void {
         c: u8,
     };
 
-    var ptr = @ptrCast(*const S, &bytes);
+    var ptr = @as(*const S, @ptrCast(&bytes));
     var val = ptr.c;
     try expect(val == 5);
 }
@@ -95,7 +95,7 @@ fn testReinterpretExternStructAsExternStruct() !void {
         a: u32 align(2),
         c: u8,
     };
-    var ptr = @ptrCast(*const S2, &bytes);
+    var ptr = @as(*const S2, @ptrCast(&bytes));
     var val = ptr.c;
     try expect(val == 5);
 }
@@ -121,7 +121,7 @@ fn testReinterpretOverAlignedExternStructAsExternStruct() !void {
         a2: u16,
         c: u8,
     };
-    var ptr = @ptrCast(*const S2, &bytes);
+    var ptr = @as(*const S2, @ptrCast(&bytes));
     var val = ptr.c;
     try expect(val == 5);
 }
@@ -138,13 +138,13 @@ test "lower reinterpreted comptime field ptr (with under-aligned fields)" {
         a: u32 align(2),
         c: u8,
     };
-    comptime var ptr = @ptrCast(*const S, &bytes);
+    comptime var ptr = @as(*const S, @ptrCast(&bytes));
     var val = &ptr.c;
     try expect(val.* == 5);
 
     // Test lowering an elem ptr
     comptime var src_value = S{ .a = 15, .c = 5 };
-    comptime var ptr2 = @ptrCast(*[@sizeOf(S)]u8, &src_value);
+    comptime var ptr2 = @as(*[@sizeOf(S)]u8, @ptrCast(&src_value));
     var val2 = &ptr2[4];
     try expect(val2.* == 5);
 }
@@ -161,13 +161,13 @@ test "lower reinterpreted comptime field ptr" {
         a: u32,
         c: u8,
     };
-    comptime var ptr = @ptrCast(*const S, &bytes);
+    comptime var ptr = @as(*const S, @ptrCast(&bytes));
     var val = &ptr.c;
     try expect(val.* == 5);
 
     // Test lowering an elem ptr
     comptime var src_value = S{ .a = 15, .c = 5 };
-    comptime var ptr2 = @ptrCast(*[@sizeOf(S)]u8, &src_value);
+    comptime var ptr2 = @as(*[@sizeOf(S)]u8, @ptrCast(&src_value));
     var val2 = &ptr2[4];
     try expect(val2.* == 5);
 }
@@ -190,27 +190,17 @@ const Bytes = struct {
 
     pub fn init(v: u32) Bytes {
         var res: Bytes = undefined;
-        @ptrCast(*align(1) u32, &res.bytes).* = v;
+        @as(*align(1) u32, @ptrCast(&res.bytes)).* = v;
 
         return res;
     }
 };
 
-test "comptime ptrcast keeps larger alignment" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    comptime {
-        const a: u32 = 1234;
-        const p = @ptrCast([*]const u8, &a);
-        try expect(@TypeOf(p) == [*]align(@alignOf(u32)) const u8);
-    }
-}
-
 test "ptrcast of const integer has the correct object size" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    const is_value = ~@intCast(isize, std.math.minInt(isize));
-    const is_bytes = @ptrCast([*]const u8, &is_value)[0..@sizeOf(isize)];
+    const is_value = ~@as(isize, @intCast(std.math.minInt(isize)));
+    const is_bytes = @as([*]const u8, @ptrCast(&is_value))[0..@sizeOf(isize)];
     if (@sizeOf(isize) == 8) {
         switch (native_endian) {
             .Little => {
@@ -248,7 +238,7 @@ test "implicit optional pointer to optional anyopaque pointer" {
     var buf: [4]u8 = "aoeu".*;
     var x: ?[*]u8 = &buf;
     var y: ?*anyopaque = x;
-    var z = @ptrCast(*[4]u8, y);
+    var z = @as(*[4]u8, @ptrCast(y));
     try expect(std.mem.eql(u8, z, "aoeu"));
 }
 
@@ -260,7 +250,7 @@ test "@ptrCast slice to slice" {
 
     const S = struct {
         fn foo(slice: []u32) []i32 {
-            return @ptrCast([]i32, slice);
+            return @as([]i32, @ptrCast(slice));
         }
     };
     var buf: [4]u32 = .{ 0, 0, 0, 0 };
@@ -277,7 +267,7 @@ test "comptime @ptrCast a subset of an array, then write through it" {
 
     comptime {
         var buff: [16]u8 align(4) = undefined;
-        const len_bytes = @ptrCast(*u32, &buff);
+        const len_bytes = @as(*u32, @ptrCast(&buff));
         len_bytes.* = 16;
         std.mem.copy(u8, buff[4..], "abcdef");
     }
@@ -286,7 +276,7 @@ test "comptime @ptrCast a subset of an array, then write through it" {
 test "@ptrCast undefined value at comptime" {
     const S = struct {
         fn transmute(comptime T: type, comptime U: type, value: T) U {
-            return @ptrCast(*const U, &value).*;
+            return @as(*const U, @ptrCast(&value)).*;
         }
     };
     comptime {

@@ -118,7 +118,7 @@ test "adler32 very long with variation" {
 
         var i: usize = 0;
         while (i < result.len) : (i += 1) {
-            result[i] = @truncate(u8, i);
+            result[i] = @as(u8, @truncate(i));
         }
 
         break :blk result;

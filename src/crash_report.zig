@@ -204,49 +204,49 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
 
     const stack_ctx: StackContext = switch (builtin.cpu.arch) {
         .x86 => ctx: {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.gregs[os.REG.EIP]);
-            const bp = @intCast(usize, ctx.mcontext.gregs[os.REG.EBP]);
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            const ip = @as(usize, @intCast(ctx.mcontext.gregs[os.REG.EIP]));
+            const bp = @as(usize, @intCast(ctx.mcontext.gregs[os.REG.EBP]));
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
         },
         .x86_64 => ctx: {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
             const ip = switch (builtin.os.tag) {
-                .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
-                .freebsd => @intCast(usize, ctx.mcontext.rip),
-                .openbsd => @intCast(usize, ctx.sc_rip),
-                .macos => @intCast(usize, ctx.mcontext.ss.rip),
+                .linux, .netbsd, .solaris => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.RIP])),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.rip)),
+                .openbsd => @as(usize, @intCast(ctx.sc_rip)),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.rip)),
                 else => unreachable,
             };
             const bp = switch (builtin.os.tag) {
-                .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
-                .openbsd => @intCast(usize, ctx.sc_rbp),
-                .freebsd => @intCast(usize, ctx.mcontext.rbp),
-                .macos => @intCast(usize, ctx.mcontext.ss.rbp),
+                .linux, .netbsd, .solaris => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.RBP])),
+                .openbsd => @as(usize, @intCast(ctx.sc_rbp)),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.rbp)),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.rbp)),
                 else => unreachable,
             };
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
         },
         .arm => ctx: {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.arm_pc);
-            const bp = @intCast(usize, ctx.mcontext.arm_fp);
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            const ip = @as(usize, @intCast(ctx.mcontext.arm_pc));
+            const bp = @as(usize, @intCast(ctx.mcontext.arm_fp));
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
         },
         .aarch64 => ctx: {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
             const ip = switch (native_os) {
-                .macos => @intCast(usize, ctx.mcontext.ss.pc),
-                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
-                .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
-                else => @intCast(usize, ctx.mcontext.pc),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.pc)),
+                .netbsd => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.PC])),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.gpregs.elr)),
+                else => @as(usize, @intCast(ctx.mcontext.pc)),
             };
             // x29 is the ABI-designated frame pointer
             const bp = switch (native_os) {
-                .macos => @intCast(usize, ctx.mcontext.ss.fp),
-                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
-                .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
-                else => @intCast(usize, ctx.mcontext.regs[29]),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.fp)),
+                .netbsd => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.FP])),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.gpregs.x[os.REG.FP])),
+                else => @as(usize, @intCast(ctx.mcontext.regs[29])),
             };
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
         },

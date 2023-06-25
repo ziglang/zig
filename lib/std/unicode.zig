@@ -45,22 +45,22 @@ pub fn utf8Encode(c: u21, out: []u8) !u3 {
         // - Increasing the initial shift by 6 each time
         // - Each time after the first shorten the shifted
         //   value to a max of 0b111111 (63)
-        1 => out[0] = @intCast(u8, c), // Can just do 0 + codepoint for initial range
+        1 => out[0] = @as(u8, @intCast(c)), // Can just do 0 + codepoint for initial range
         2 => {
-            out[0] = @intCast(u8, 0b11000000 | (c >> 6));
-            out[1] = @intCast(u8, 0b10000000 | (c & 0b111111));
+            out[0] = @as(u8, @intCast(0b11000000 | (c >> 6)));
+            out[1] = @as(u8, @intCast(0b10000000 | (c & 0b111111)));
         },
         3 => {
             if (0xd800 <= c and c <= 0xdfff) return error.Utf8CannotEncodeSurrogateHalf;
-            out[0] = @intCast(u8, 0b11100000 | (c >> 12));
-            out[1] = @intCast(u8, 0b10000000 | ((c >> 6) & 0b111111));
-            out[2] = @intCast(u8, 0b10000000 | (c & 0b111111));
+            out[0] = @as(u8, @intCast(0b11100000 | (c >> 12)));
+            out[1] = @as(u8, @intCast(0b10000000 | ((c >> 6) & 0b111111)));
+            out[2] = @as(u8, @intCast(0b10000000 | (c & 0b111111)));
         },
         4 => {
-            out[0] = @intCast(u8, 0b11110000 | (c >> 18));
-            out[1] = @intCast(u8, 0b10000000 | ((c >> 12) & 0b111111));
-            out[2] = @intCast(u8, 0b10000000 | ((c >> 6) & 0b111111));
-            out[3] = @intCast(u8, 0b10000000 | (c & 0b111111));
+            out[0] = @as(u8, @intCast(0b11110000 | (c >> 18)));
+            out[1] = @as(u8, @intCast(0b10000000 | ((c >> 12) & 0b111111)));
+            out[2] = @as(u8, @intCast(0b10000000 | ((c >> 6) & 0b111111)));
+            out[3] = @as(u8, @intCast(0b10000000 | (c & 0b111111)));
         },
         else => unreachable,
     }
@@ -695,11 +695,11 @@ pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u1
     var it = view.iterator();
     while (it.nextCodepoint()) |codepoint| {
         if (codepoint < 0x10000) {
-            const short = @intCast(u16, codepoint);
+            const short = @as(u16, @intCast(codepoint));
             try result.append(mem.nativeToLittle(u16, short));
         } else {
-            const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
-            const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
+            const high = @as(u16, @intCast((codepoint - 0x10000) >> 10)) + 0xD800;
+            const low = @as(u16, @intCast(codepoint & 0x3FF)) + 0xDC00;
             var out: [2]u16 = undefined;
             out[0] = mem.nativeToLittle(u16, high);
             out[1] = mem.nativeToLittle(u16, low);
@@ -720,12 +720,12 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
         const next_src_i = src_i + n;
         const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch return error.InvalidUtf8;
         if (codepoint < 0x10000) {
-            const short = @intCast(u16, codepoint);
+            const short = @as(u16, @intCast(codepoint));
             utf16le[dest_i] = mem.nativeToLittle(u16, short);
             dest_i += 1;
         } else {
-            const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
-            const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
+            const high = @as(u16, @intCast((codepoint - 0x10000) >> 10)) + 0xD800;
+            const low = @as(u16, @intCast(codepoint & 0x3FF)) + 0xDC00;
             utf16le[dest_i] = mem.nativeToLittle(u16, high);
             utf16le[dest_i + 1] = mem.nativeToLittle(u16, low);
             dest_i += 2;

@@ -1510,7 +1510,7 @@ fn buildOutputType(
                     }
                 } else switch (file_ext orelse
                     Compilation.classifyFileExt(arg)) {
-                    .object, .static_library, .shared_library => try link_objects.append(.{ .path = arg }),
+                    .object, .static_library, .shared_library, .res => try link_objects.append(.{ .path = arg }),
                     .assembly, .assembly_with_cpp, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
                         try c_source_files.append(.{
                             .src_path = arg,
@@ -1605,7 +1605,7 @@ fn buildOutputType(
                                 .ext = file_ext, // duped while parsing the args.
                             });
                         },
-                        .unknown, .shared_library, .object, .static_library => try link_objects.append(.{
+                        .unknown, .shared_library, .object, .static_library, .res => try link_objects.append(.{
                             .path = it.only_arg,
                             .must_link = must_link,
                         }),
@@ -2211,6 +2211,9 @@ fn buildOutputType(
                         fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
                     };
                     have_version = true;
+                } else if (mem.eql(u8, arg, "--version")) {
+                    try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
+                    process.exit(0);
                 } else {
                     fatal("unsupported linker arg: {s}", .{arg});
                 }
@@ -3520,7 +3523,7 @@ fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Th
 
         server.serveMessage(.{
             .tag = .progress,
-            .bytes_len = @intCast(u32, progress_string.len),
+            .bytes_len = @as(u32, @intCast(progress_string.len)),
         }, &.{
             progress_string,
         }) catch |err| {
@@ -5017,8 +5020,8 @@ pub fn clangMain(alloc: Allocator, args: []const []const u8) error{OutOfMemory}!
 
     // Convert the args to the null-terminated format Clang expects.
     const argv = try argsCopyZ(arena, args);
-    const exit_code = ZigClang_main(@intCast(c_int, argv.len), argv.ptr);
-    return @bitCast(u8, @truncate(i8, exit_code));
+    const exit_code = ZigClang_main(@as(c_int, @intCast(argv.len)), argv.ptr);
+    return @as(u8, @bitCast(@as(i8, @truncate(exit_code))));
 }
 
 pub fn llvmArMain(alloc: Allocator, args: []const []const u8) error{OutOfMemory}!u8 {
@@ -5032,8 +5035,8 @@ pub fn llvmArMain(alloc: Allocator, args: []const []const u8) error{OutOfMemory}
     // Convert the args to the format llvm-ar expects.
     // We intentionally shave off the zig binary at args[0].
     const argv = try argsCopyZ(arena, args[1..]);
-    const exit_code = ZigLlvmAr_main(@intCast(c_int, argv.len), argv.ptr);
-    return @bitCast(u8, @truncate(i8, exit_code));
+    const exit_code = ZigLlvmAr_main(@as(c_int, @intCast(argv.len)), argv.ptr);
+    return @as(u8, @bitCast(@as(i8, @truncate(exit_code))));
 }
 
 /// The first argument determines which backend is invoked. The options are:
@@ -5069,7 +5072,7 @@ pub fn lldMain(
     // "If an error occurs, false will be returned."
     const ok = rc: {
         const llvm = @import("codegen/llvm/bindings.zig");
-        const argc = @intCast(c_int, argv.len);
+        const argc = @as(c_int, @intCast(argv.len));
         if (mem.eql(u8, args[1], "ld.lld")) {
             break :rc llvm.LinkELF(argc, argv.ptr, can_exit_early, false);
         } else if (mem.eql(u8, args[1], "lld-link")) {
@@ -5504,7 +5507,7 @@ pub fn cmdAstCheck(
         if (stat.size > max_src_size)
             return error.FileTooBig;
 
-        const source = try arena.allocSentinel(u8, @intCast(usize, stat.size), 0);
+        const source = try arena.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
         const amt = try f.readAll(source);
         if (amt != stat.size)
             return error.UnexpectedEndOfFile;
@@ -5700,7 +5703,7 @@ pub fn cmdChangelist(
     file.pkg = try Package.create(gpa, null, file.sub_file_path);
     defer file.pkg.destroy(gpa);
 
-    const source = try arena.allocSentinel(u8, @intCast(usize, stat.size), 0);
+    const source = try arena.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
     const amt = try f.readAll(source);
     if (amt != stat.size)
         return error.UnexpectedEndOfFile;
@@ -5736,7 +5739,7 @@ pub fn cmdChangelist(
     if (new_stat.size > max_src_size)
         return error.FileTooBig;
 
-    const new_source = try arena.allocSentinel(u8, @intCast(usize, new_stat.size), 0);
+    const new_source = try arena.allocSentinel(u8, @as(usize, @intCast(new_stat.size)), 0);
     const new_amt = try new_f.readAll(new_source);
     if (new_amt != new_stat.size)
         return error.UnexpectedEndOfFile;

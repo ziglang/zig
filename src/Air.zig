@@ -40,15 +40,25 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         add,
-        /// Same as `add` with optimized float mode.
+        /// Integer addition. Wrapping is a safety panic.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// The panic handler function must be populated before lowering AIR
+        /// that contains this instruction.
+        /// This instruction will only be emitted if the backend has the
+        /// feature `safety_checked_instructions`.
+        /// Uses the `bin_op` field.
+        add_safe,
+        /// Float addition. The instruction is allowed to have equal or more
+        /// mathematical accuracy than strict IEEE-757 float addition.
+        /// If either operand is NaN, the result value is undefined.
+        /// Uses the `bin_op` field.
         add_optimized,
-        /// Integer addition. Wrapping is defined to be twos complement wrapping.
+        /// Twos complement wrapping integer addition.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
-        addwrap,
-        /// Same as `addwrap` with optimized float mode.
-        addwrap_optimized,
+        add_wrap,
         /// Saturating integer addition.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -59,15 +69,25 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         sub,
-        /// Same as `sub` with optimized float mode.
+        /// Integer subtraction. Wrapping is a safety panic.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// The panic handler function must be populated before lowering AIR
+        /// that contains this instruction.
+        /// This instruction will only be emitted if the backend has the
+        /// feature `safety_checked_instructions`.
+        /// Uses the `bin_op` field.
+        sub_safe,
+        /// Float subtraction. The instruction is allowed to have equal or more
+        /// mathematical accuracy than strict IEEE-757 float subtraction.
+        /// If either operand is NaN, the result value is undefined.
+        /// Uses the `bin_op` field.
         sub_optimized,
-        /// Integer subtraction. Wrapping is defined to be twos complement wrapping.
+        /// Twos complement wrapping integer subtraction.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
-        subwrap,
-        /// Same as `sub` with optimized float mode.
-        subwrap_optimized,
+        sub_wrap,
         /// Saturating integer subtraction.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -78,15 +98,25 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         mul,
-        /// Same as `mul` with optimized float mode.
+        /// Integer multiplication. Wrapping is a safety panic.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// The panic handler function must be populated before lowering AIR
+        /// that contains this instruction.
+        /// This instruction will only be emitted if the backend has the
+        /// feature `safety_checked_instructions`.
+        /// Uses the `bin_op` field.
+        mul_safe,
+        /// Float multiplication. The instruction is allowed to have equal or more
+        /// mathematical accuracy than strict IEEE-757 float multiplication.
+        /// If either operand is NaN, the result value is undefined.
+        /// Uses the `bin_op` field.
         mul_optimized,
-        /// Integer multiplication. Wrapping is defined to be twos complement wrapping.
+        /// Twos complement wrapping integer multiplication.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
-        mulwrap,
-        /// Same as `mulwrap` with optimized float mode.
-        mulwrap_optimized,
+        mul_wrap,
         /// Saturating integer multiplication.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -1106,7 +1136,7 @@ pub const VectorCmp = struct {
     op: u32,
 
     pub fn compareOperator(self: VectorCmp) std.math.CompareOperator {
-        return @enumFromInt(std.math.CompareOperator, @truncate(u3, self.op));
+        return @as(std.math.CompareOperator, @enumFromInt(@as(u3, @truncate(self.op))));
     }
 
     pub fn encodeOp(compare_operator: std.math.CompareOperator) u32 {
@@ -1151,11 +1181,11 @@ pub const Cmpxchg = struct {
     flags: u32,
 
     pub fn successOrder(self: Cmpxchg) std.builtin.AtomicOrder {
-        return @enumFromInt(std.builtin.AtomicOrder, @truncate(u3, self.flags));
+        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags))));
     }
 
     pub fn failureOrder(self: Cmpxchg) std.builtin.AtomicOrder {
-        return @enumFromInt(std.builtin.AtomicOrder, @truncate(u3, self.flags >> 3));
+        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags >> 3))));
     }
 };
 
@@ -1166,11 +1196,11 @@ pub const AtomicRmw = struct {
     flags: u32,
 
     pub fn ordering(self: AtomicRmw) std.builtin.AtomicOrder {
-        return @enumFromInt(std.builtin.AtomicOrder, @truncate(u3, self.flags));
+        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags))));
     }
 
     pub fn op(self: AtomicRmw) std.builtin.AtomicRmwOp {
-        return @enumFromInt(std.builtin.AtomicRmwOp, @truncate(u4, self.flags >> 3));
+        return @as(std.builtin.AtomicRmwOp, @enumFromInt(@as(u4, @truncate(self.flags >> 3))));
     }
 };
 
@@ -1197,13 +1227,16 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
     const datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst]) {
         .add,
-        .addwrap,
+        .add_safe,
+        .add_wrap,
         .add_sat,
         .sub,
-        .subwrap,
+        .sub_safe,
+        .sub_wrap,
         .sub_sat,
         .mul,
-        .mulwrap,
+        .mul_safe,
+        .mul_wrap,
         .mul_sat,
         .div_float,
         .div_trunc,
@@ -1224,11 +1257,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .bool_and,
         .bool_or,
         .add_optimized,
-        .addwrap_optimized,
         .sub_optimized,
-        .subwrap_optimized,
         .mul_optimized,
-        .mulwrap_optimized,
         .div_float_optimized,
         .div_trunc_optimized,
         .div_floor_optimized,
@@ -1451,7 +1481,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
     const ref_int = @intFromEnum(ref);
     if (ref_int < ref_start_index) {
-        const ip_index = @enumFromInt(InternPool.Index, ref_int);
+        const ip_index = @as(InternPool.Index, @enumFromInt(ref_int));
         return ip_index.toType();
     }
     const inst_index = ref_int - ref_start_index;
@@ -1472,9 +1502,9 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => air.extra[i],
-            Inst.Ref => @enumFromInt(Inst.Ref, air.extra[i]),
-            i32 => @bitCast(i32, air.extra[i]),
-            InternPool.Index => @enumFromInt(InternPool.Index, air.extra[i]),
+            Inst.Ref => @as(Inst.Ref, @enumFromInt(air.extra[i])),
+            i32 => @as(i32, @bitCast(air.extra[i])),
+            InternPool.Index => @as(InternPool.Index, @enumFromInt(air.extra[i])),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
         i += 1;
@@ -1494,7 +1524,7 @@ pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
 pub const ref_start_index: u32 = InternPool.static_len;
 
 pub fn indexToRef(inst: Inst.Index) Inst.Ref {
-    return @enumFromInt(Inst.Ref, ref_start_index + inst);
+    return @as(Inst.Ref, @enumFromInt(ref_start_index + inst));
 }
 
 pub fn refToIndex(inst: Inst.Ref) ?Inst.Index {
@@ -1516,10 +1546,10 @@ pub fn refToIndexAllowNone(inst: Inst.Ref) ?Inst.Index {
 pub fn value(air: Air, inst: Inst.Ref, mod: *Module) !?Value {
     const ref_int = @intFromEnum(inst);
     if (ref_int < ref_start_index) {
-        const ip_index = @enumFromInt(InternPool.Index, ref_int);
+        const ip_index = @as(InternPool.Index, @enumFromInt(ref_int));
         return ip_index.toValue();
     }
-    const inst_index = @intCast(Air.Inst.Index, ref_int - ref_start_index);
+    const inst_index = @as(Air.Inst.Index, @intCast(ref_int - ref_start_index));
     const air_datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst_index]) {
         .interned => return air_datas[inst_index].interned.toValue(),
@@ -1594,19 +1624,19 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         => true,
 
         .add,
+        .add_safe,
         .add_optimized,
-        .addwrap,
-        .addwrap_optimized,
+        .add_wrap,
         .add_sat,
         .sub,
+        .sub_safe,
         .sub_optimized,
-        .subwrap,
-        .subwrap_optimized,
+        .sub_wrap,
         .sub_sat,
         .mul,
+        .mul_safe,
         .mul_optimized,
-        .mulwrap,
-        .mulwrap_optimized,
+        .mul_wrap,
         .mul_sat,
         .div_float,
         .div_float_optimized,
@@ -1747,7 +1777,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .work_group_id,
         => false,
 
-        .assembly => @truncate(u1, air.extraData(Air.Asm, data.ty_pl.payload).data.flags >> 31) != 0,
+        .assembly => @as(u1, @truncate(air.extraData(Air.Asm, data.ty_pl.payload).data.flags >> 31)) != 0,
         .load => air.typeOf(data.ty_op.operand, ip).isVolatilePtrIp(ip),
         .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs, ip).isVolatilePtrIp(ip),
         .atomic_load => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtrIp(ip),

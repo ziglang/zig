@@ -441,10 +441,10 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
         const sh_name = try arena.dupe(u8, mem.sliceTo(shstrtab[s(shdr.sh_name)..], 0));
         log.debug("found section: {s}", .{sh_name});
         if (mem.eql(u8, sh_name, ".dynsym")) {
-            dynsym_index = @intCast(u16, i);
+            dynsym_index = @as(u16, @intCast(i));
         }
         const gop = try parse.sections.getOrPut(sh_name);
-        section_index_map[i] = @intCast(u16, gop.index);
+        section_index_map[i] = @as(u16, @intCast(gop.index));
     }
     if (dynsym_index == 0) @panic("did not find the .dynsym section");
 
@@ -470,9 +470,9 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
     for (copied_dyn_syms) |sym| {
         const this_section = s(sym.st_shndx);
         const name = try arena.dupe(u8, mem.sliceTo(dynstr[s(sym.st_name)..], 0));
-        const ty = @truncate(u4, sym.st_info);
-        const binding = @truncate(u4, sym.st_info >> 4);
-        const visib = @enumFromInt(elf.STV, @truncate(u2, sym.st_other));
+        const ty = @as(u4, @truncate(sym.st_info));
+        const binding = @as(u4, @truncate(sym.st_info >> 4));
+        const visib = @as(elf.STV, @enumFromInt(@as(u2, @truncate(sym.st_other))));
         const size = s(sym.st_size);
 
         if (parse.blacklist.contains(name)) continue;
