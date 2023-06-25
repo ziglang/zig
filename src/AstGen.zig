@@ -3209,7 +3209,10 @@ fn varDecl(
                 // In case the result location did not do the coercion
                 // for us so we must do it here.
                 const coerced_init = if (opt_type_inst != .none)
-                    try gz.addBin(.as, opt_type_inst, init_inst)
+                    try gz.addPlNode(.as_node, var_decl.ast.init_node, Zir.Inst.As{
+                        .dest_type = opt_type_inst,
+                        .operand = init_inst,
+                    })
                 else
                     init_inst;
 
