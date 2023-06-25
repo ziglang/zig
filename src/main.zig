@@ -4752,13 +4752,16 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
     // Mark any excluded files/directories as already seen,
     // so that they are skipped later during actual processing
     for (excluded_files.items) |file_path| {
-        var dir = fs.cwd().openDir(file_path, .{}) catch |err| switch (err) {
+        const stat = fs.cwd().statFile(file_path) catch |err| switch (err) {
             error.FileNotFound => continue,
+            // On Windows, statFile does not work for directories
+            error.IsDir => dir: {
+                var dir = try fs.cwd().openDir(file_path, .{});
+                defer dir.close();
+                break :dir try dir.stat();
+            },
             else => |e| return e,
         };
-        defer dir.close();
-
-        const stat = try dir.stat();
         try fmt.seen.put(stat.inode, {});
     }
 
