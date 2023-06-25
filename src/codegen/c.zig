@@ -5534,7 +5534,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
             else
                 try f.writeCValueMember(writer, operand, .{ .identifier = "error" })
         else
-            try f.object.dg.renderValue(writer, error_ty, try mod.intValue(error_ty, 0), .Initializer);
+            try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Initializer);
     }
     try writer.writeAll(";\n");
     return local;
@@ -5654,14 +5654,13 @@ fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand = try f.resolveInst(ty_op.operand);
     const error_union_ty = f.typeOf(ty_op.operand).childType(mod);
 
-    const error_ty = error_union_ty.errorUnionSet(mod);
     const payload_ty = error_union_ty.errorUnionPayload(mod);
 
     // First, set the non-error value.
     if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         try f.writeCValueDeref(writer, operand);
         try writer.writeAll(" = ");
-        try f.object.dg.renderValue(writer, error_ty, try mod.intValue(error_ty, 0), .Other);
+        try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Other);
         try writer.writeAll(";\n ");
 
         return operand;
