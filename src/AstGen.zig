@@ -6480,11 +6480,11 @@ fn forExpr(
                     return astgen.failTok(ident_tok, "cannot capture reference to range", .{});
                 }
                 const start_node = node_data[input].lhs;
-                const start_val = try expr(parent_gz, scope, .{ .rl = .none }, start_node);
+                const start_val = try expr(parent_gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, start_node);
 
                 const end_node = node_data[input].rhs;
                 const end_val = if (end_node != 0)
-                    try expr(parent_gz, scope, .{ .rl = .none }, node_data[input].rhs)
+                    try expr(parent_gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_data[input].rhs)
                 else
                     .none;
 
