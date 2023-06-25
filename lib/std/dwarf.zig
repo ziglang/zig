@@ -1593,10 +1593,11 @@ pub const DwarfInfo = struct {
         var mapped_pc: usize = undefined;
 
         if (di.eh_frame_hdr) |header| {
+            const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
             mapped_pc = context.pc;
             try header.findEntry(
                 context.isValidMemory,
-                null, // TODO: Check di for this
+                eh_frame_len,
                 @intFromPtr(di.section(.eh_frame_hdr).?.ptr),
                 mapped_pc,
                 &cie,
