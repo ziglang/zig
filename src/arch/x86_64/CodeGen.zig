@@ -5616,9 +5616,31 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
         switch (src_mcv) {
             .load_frame => |frame_addr| {
+                const field_abi_size: u32 = @intCast(field_ty.abiSize(mod));
                 if (field_off % 8 == 0) {
                     const off_mcv =
-                        src_mcv.address().offset(@as(i32, @intCast(@divExact(field_off, 8)))).deref();
+                        src_mcv.address().offset(@intCast(@divExact(field_off, 8))).deref();
+
+                    if (field_abi_size <= 8) {
+                        const int_ty = try mod.intType(
+                            if (field_ty.isAbiInt(mod)) field_ty.intInfo(mod).signedness else .unsigned,
+                            @intCast(field_ty.bitSize(mod)),
+                        );
+
+                        const dst_reg =
+                            try self.register_manager.allocReg(if (field_is_gp) inst else null, gp);
+                        const dst_mcv = MCValue{ .register = dst_reg };
+                        const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+                        defer self.register_manager.unlockReg(dst_lock);
+
+                        try self.genCopy(int_ty, dst_mcv, off_mcv);
+                        if (self.regExtraBits(field_ty) > 0) try self.truncateRegister(int_ty, dst_reg);
+                        break :result if (field_is_gp)
+                            dst_mcv
+                        else
+                            try self.copyToRegisterWithInstTracking(inst, field_ty, dst_mcv);
+                    }
+
                     if (self.reuseOperand(inst, operand, 0, src_mcv)) break :result off_mcv;
 
                     const dst_mcv = try self.allocRegOrMem(inst, true);
@@ -5626,7 +5648,6 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                     break :result dst_mcv;
                 }
 
-                const field_abi_size = @as(u32, @intCast(field_ty.abiSize(mod)));
                 const limb_abi_size: u32 = @min(field_abi_size, 8);
                 const limb_abi_bits = limb_abi_size * 8;
                 const field_byte_off = @as(i32, @intCast(field_off / limb_abi_bits * limb_abi_size));
