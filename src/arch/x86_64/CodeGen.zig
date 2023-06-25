@@ -4565,7 +4565,9 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = result: {
         const src_ty = self.typeOf(ty_op.operand);
-        const src_abi_size = @as(u32, @intCast(src_ty.abiSize(mod)));
+        const src_abi_size: u32 = @intCast(src_ty.abiSize(mod));
+        if (src_ty.zigTypeTag(mod) == .Vector or src_abi_size > 8)
+            return self.fail("TODO implement airPopcount for {}", .{src_ty.fmt(mod)});
         const src_mcv = try self.resolveInst(ty_op.operand);
 
         if (self.hasFeature(.popcnt)) {
@@ -4674,8 +4676,13 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn byteSwap(self: *Self, inst: Air.Inst.Index, src_ty: Type, src_mcv: MCValue, mem_ok: bool) !MCValue {
+    const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
+    if (src_ty.zigTypeTag(mod) == .Vector or src_ty.abiSize(mod) > 8) return self.fail(
+        "TODO implement byteSwap for {}",
+        .{src_ty.fmt(mod)},
+    );
     const src_bits = self.regBitSize(src_ty);
     const src_lock = switch (src_mcv) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
