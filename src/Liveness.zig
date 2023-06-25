@@ -625,7 +625,7 @@ pub fn categorizeOperand(
                     return .complex;
 
                 const then_body = air.extra[cond_extra.end..][0..cond_extra.data.then_body_len];
-                const else_body = air.extra[cond_extra.end + cond_extra.data.then_body_len ..][0 .. cond_extra.data.then_body_len + cond_extra.data.else_body_len];
+                const else_body = air.extra[cond_extra.end + cond_extra.data.then_body_len ..][0..cond_extra.data.else_body_len];
                 if (then_body.len > 1 and air_tags[then_body[1]] != .unreach)
                     return .complex;
                 if (else_body.len > 1 and air_tags[else_body[1]] != .unreach)
