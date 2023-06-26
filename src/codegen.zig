@@ -558,7 +558,7 @@ pub fn generateSymbol(
             }
 
             // Check if we should store the tag first.
-            if (layout.tag_align >= layout.payload_align) {
+            if (layout.tag_size > 0 and layout.tag_align >= layout.payload_align) {
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = typed_value.ty.unionTagType(mod).?,
                     .val = un.tag.toValue(),
@@ -589,7 +589,7 @@ pub fn generateSymbol(
                 }
             }
 
-            if (layout.tag_size > 0) {
+            if (layout.tag_size > 0 and layout.tag_align < layout.payload_align) {
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = union_ty.tag_ty,
                     .val = un.tag.toValue(),
@@ -597,10 +597,10 @@ pub fn generateSymbol(
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
-            }
 
-            if (layout.padding > 0) {
-                try code.writer().writeByteNTimes(0, layout.padding);
+                if (layout.padding > 0) {
+                    try code.writer().writeByteNTimes(0, layout.padding);
+                }
             }
         },
         .memoized_call => unreachable,
@@ -684,10 +684,22 @@ fn lowerParentPtr(
                     .struct_type,
                     .anon_struct_type,
                     .union_type,
-                    => @as(u32, @intCast(base_type.toType().structFieldOffset(
-                        @as(u32, @intCast(field.index)),
-                        mod,
-                    ))),
+                    => switch (base_type.toType().containerLayout(mod)) {
+                        .Auto, .Extern => @intCast(base_type.toType().structFieldOffset(
+                            @intCast(field.index),
+                            mod,
+                        )),
+                        .Packed => if (mod.typeToStruct(base_type.toType())) |struct_obj|
+                            math.divExact(u16, struct_obj.packedFieldBitOffset(
+                                mod,
+                                @intCast(field.index),
+                            ), 8) catch |err| switch (err) {
+                                error.UnexpectedRemainder => 0,
+                                error.DivisionByZero => unreachable,
+                            }
+                        else
+                            0,
+                    },
                     else => unreachable,
                 }),
             );
