@@ -137,7 +137,7 @@ pub const StackTraceContext = blk: {
     if (native_os == .windows) {
         break :blk @typeInfo(@TypeOf(os.windows.CONTEXT.getRegs)).Fn.return_type.?;
     } else if (@hasDecl(os.system, "ucontext_t")) {
-        break :blk *const os.ucontext_t;
+        break :blk os.ucontext_t;
     } else {
         break :blk void;
     }
@@ -146,7 +146,7 @@ pub const StackTraceContext = blk: {
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
-pub fn dumpStackTraceFromBase(context: StackTraceContext) void {
+pub fn dumpStackTraceFromBase(context: *const StackTraceContext) void {
     nosuspend {
         if (comptime builtin.target.isWasm()) {
             if (native_os == .wasi) {
@@ -413,6 +413,14 @@ pub fn writeStackTrace(
     }
 }
 
+inline fn getContext(context: *StackTraceContext) bool {
+    if (native_os == .windows) {
+        @compileError("Syscall please!");
+    }
+
+    return @hasDecl(os.system, "getcontext") and os.system.getcontext(context) == 0;
+}
+
 pub const StackIterator = struct {
     // Skip every frame before this address is found.
     first_address: ?usize,
@@ -423,7 +431,7 @@ pub const StackIterator = struct {
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer).
     debug_info: ?*DebugInfo,
     dwarf_context: if (supports_context) DW.UnwindContext else void = undefined,
-    const supports_context = @hasDecl(os.system, "ucontext_t") and
+    pub const supports_context = @hasDecl(os.system, "ucontext_t") and
         (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
         .mips, .mipsel, .mips64, .mips64el, .riscv64 => false,
         else => true,
@@ -607,8 +615,10 @@ pub fn writeCurrentStackTrace(
         return writeCurrentStackTraceWindows(out_stream, debug_info, tty_config, start_addr);
     }
 
-    // TODO: Capture a context and use initWithContext
-    var it = StackIterator.init(start_addr, null);
+    var context: StackTraceContext = undefined;
+    var it = (if (getContext(&context)) blk: {
+        break :blk StackIterator.initWithContext(start_addr, debug_info, &context) catch null;
+    } else null) orelse StackIterator.init(start_addr, null);
     defer it.deinit();
 
     while (it.next()) |return_address| {
@@ -2163,7 +2173,7 @@ fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[
         else => unreachable,
     } catch os.abort();
 
-    dumpStackTraceFromBase(regs);
+    dumpStackTraceFromBase(&regs);
 }
 
 pub fn dumpStackPointerAddr(prefix: []const u8) void {
