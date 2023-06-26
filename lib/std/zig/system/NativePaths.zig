@@ -14,6 +14,9 @@ rpaths: ArrayList([:0]u8),
 warnings: ArrayList([:0]u8),
 
 pub fn isNix() bool {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        @compileError("isNix check is not supported for WASI without libc");
+    }
     return process.hasEnvVarConstant("NIX_CFLAGS_COMPILE") and process.hasEnvVarConstant("NIX_LDFLAGS");
 }
 
@@ -27,10 +30,11 @@ pub fn detect(allocator: Allocator, native_target: std.Target) !NativePaths {
     };
     errdefer self.deinit();
 
-    if (isNix()) {
-        const nix_cflags_compile = try process.getEnvVarOwned(allocator, "NIX_CFLAGS_COMPILE");
+    var is_nix = false;
+    if (process.getEnvVarOwned(allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
         defer allocator.free(nix_cflags_compile);
 
+        is_nix = true;
         var it = mem.tokenizeScalar(u8, nix_cflags_compile, ' ');
         while (true) {
             const word = it.next() orelse break;
@@ -53,11 +57,16 @@ pub fn detect(allocator: Allocator, native_target: std.Target) !NativePaths {
                 try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_COMPILE: {s}", .{word});
             }
         }
-
-        const nix_ldflags = try process.getEnvVarOwned(allocator, "NIX_LDFLAGS");
+    } else |err| switch (err) {
+        error.InvalidUtf8 => {},
+        error.EnvironmentVariableNotFound => {},
+        error.OutOfMemory => |e| return e,
+    }
+    if (process.getEnvVarOwned(allocator, "NIX_LDFLAGS")) |nix_ldflags| {
         defer allocator.free(nix_ldflags);
 
-        it = mem.tokenizeScalar(u8, nix_ldflags, ' ');
+        is_nix = true;
+        var it = mem.tokenizeScalar(u8, nix_ldflags, ' ');
         while (true) {
             const word = it.next() orelse break;
             if (mem.eql(u8, word, "-rpath")) {
@@ -75,7 +84,12 @@ pub fn detect(allocator: Allocator, native_target: std.Target) !NativePaths {
                 break;
             }
         }
-
+    } else |err| switch (err) {
+        error.InvalidUtf8 => {},
+        error.EnvironmentVariableNotFound => {},
+        error.OutOfMemory => |e| return e,
+    }
+    if (is_nix) {
         return self;
     }
 

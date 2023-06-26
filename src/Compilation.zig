@@ -900,7 +900,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 try rpath_list.append(rpath);
             }
 
-            if (!std.zig.system.NativePaths.isNix() and std.zig.system.darwin.isDarwinSDKInstalled(arena)) {
+            if (darwin_native and !std.zig.system.NativePaths.isNix() and std.zig.system.darwin.isDarwinSDKInstalled(arena)) {
                 darwin_sdk = std.zig.system.darwin.getDarwinSDK(arena, options.target);
             }
         }
