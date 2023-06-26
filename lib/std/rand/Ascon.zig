@@ -1,7 +1,7 @@
 //! CSPRNG based on the Reverie construction, a permutation-based PRNG
 //! with forward security, instantiated with the Ascon(128,12,8) permutation.
 //!
-//! Compared to ChaCha, this PRNG is has a much smaller state, and can be
+//! Compared to ChaCha, this PRNG has a much smaller state, and can be
 //! a better choice for constrained environments.
 //!
 //! References:
