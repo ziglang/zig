@@ -4017,7 +4017,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
             fatal("unable to detect libc for non-native target", .{});
         }
 
-        var darwin_sdk = if ((comptime builtin.target.isDarwin()) and
+        var darwin_sdk: ?std.zig.system.darwin.DarwinSDK = if ((comptime builtin.target.isDarwin()) and
             !std.zig.system.NativePaths.isNix() and
             std.zig.system.darwin.isDarwinSDKInstalled(gpa))
             std.zig.system.darwin.getDarwinSDK(gpa, builtin.target)
