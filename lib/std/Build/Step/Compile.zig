@@ -564,7 +564,7 @@ pub fn installHeadersDirectory(
     dest_rel_path: []const u8,
 ) void {
     return installHeadersDirectoryOptions(a, .{
-        .source_dir = src_dir_path,
+        .source_dir = .{ .path = src_dir_path },
         .install_dir = .header,
         .install_subdir = dest_rel_path,
     });
