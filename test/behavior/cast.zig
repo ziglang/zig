@@ -2219,3 +2219,125 @@ test "peer type resolution: pointer attributes are combined correctly" {
     try expectEqualSlices(u8, std.mem.span(@volatileCast(r2)), "bar");
     try expectEqualSlices(u8, std.mem.span(@volatileCast(r3)), "baz");
 }
+
+test "cast builtins can wrap result in optional" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const MyEnum = enum(u32) { _ };
+        fn a() ?MyEnum {
+            return @enumFromInt(123);
+        }
+        fn b() ?u32 {
+            return @intFromFloat(42.50);
+        }
+        fn c() ?*const f32 {
+            const x: u32 = 1;
+            return @ptrCast(&x);
+        }
+
+        fn doTheTest() !void {
+            const ra = a() orelse return error.ImpossibleError;
+            const rb = b() orelse return error.ImpossibleError;
+            const rc = c() orelse return error.ImpossibleError;
+
+            comptime assert(@TypeOf(ra) == MyEnum);
+            comptime assert(@TypeOf(rb) == u32);
+            comptime assert(@TypeOf(rc) == *const f32);
+
+            try expect(@intFromEnum(ra) == 123);
+            try expect(rb == 42);
+            try expect(@as(*const u32, @ptrCast(rc)).* == 1);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "cast builtins can wrap result in error union" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const MyEnum = enum(u32) { _ };
+        const E = error{ImpossibleError};
+        fn a() E!MyEnum {
+            return @enumFromInt(123);
+        }
+        fn b() E!u32 {
+            return @intFromFloat(42.50);
+        }
+        fn c() E!*const f32 {
+            const x: u32 = 1;
+            return @ptrCast(&x);
+        }
+
+        fn doTheTest() !void {
+            const ra = try a();
+            const rb = try b();
+            const rc = try c();
+
+            comptime assert(@TypeOf(ra) == MyEnum);
+            comptime assert(@TypeOf(rb) == u32);
+            comptime assert(@TypeOf(rc) == *const f32);
+
+            try expect(@intFromEnum(ra) == 123);
+            try expect(rb == 42);
+            try expect(@as(*const u32, @ptrCast(rc)).* == 1);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "cast builtins can wrap result in error union and optional" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const MyEnum = enum(u32) { _ };
+        const E = error{ImpossibleError};
+        fn a() E!?MyEnum {
+            return @enumFromInt(123);
+        }
+        fn b() E!?u32 {
+            return @intFromFloat(42.50);
+        }
+        fn c() E!?*const f32 {
+            const x: u32 = 1;
+            return @ptrCast(&x);
+        }
+
+        fn doTheTest() !void {
+            const ra = try a() orelse return error.ImpossibleError;
+            const rb = try b() orelse return error.ImpossibleError;
+            const rc = try c() orelse return error.ImpossibleError;
+
+            comptime assert(@TypeOf(ra) == MyEnum);
+            comptime assert(@TypeOf(rb) == u32);
+            comptime assert(@TypeOf(rc) == *const f32);
+
+            try expect(@intFromEnum(ra) == 123);
+            try expect(rb == 42);
+            try expect(@as(*const u32, @ptrCast(rc)).* == 1);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}

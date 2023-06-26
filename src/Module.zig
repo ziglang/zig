@@ -34,6 +34,7 @@ const isUpDir = @import("introspect.zig").isUpDir;
 const clang = @import("clang.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
+const BuiltinFn = @import("BuiltinFn.zig");
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -2273,6 +2274,41 @@ pub const SrcLoc = struct {
             .node_offset_builtin_call_arg3 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 3),
             .node_offset_builtin_call_arg4 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 4),
             .node_offset_builtin_call_arg5 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 5),
+            .node_offset_ptrcast_operand => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const main_tokens = tree.nodes.items(.main_token);
+                const node_datas = tree.nodes.items(.data);
+                const node_tags = tree.nodes.items(.tag);
+
+                var node = src_loc.declRelativeToNodeIndex(node_off);
+                while (true) {
+                    switch (node_tags[node]) {
+                        .builtin_call_two, .builtin_call_two_comma => {},
+                        else => break,
+                    }
+
+                    if (node_datas[node].lhs == 0) break; // 0 args
+                    if (node_datas[node].rhs != 0) break; // 2 args
+
+                    const builtin_token = main_tokens[node];
+                    const builtin_name = tree.tokenSlice(builtin_token);
+                    const info = BuiltinFn.list.get(builtin_name) orelse break;
+
+                    switch (info.tag) {
+                        else => break,
+                        .ptr_cast,
+                        .align_cast,
+                        .addrspace_cast,
+                        .const_cast,
+                        .volatile_cast,
+                        => {},
+                    }
+
+                    node = node_datas[node].lhs;
+                }
+
+                return nodeToSpan(tree, node);
+            },
             .node_offset_array_access_index => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
@@ -2887,6 +2923,9 @@ pub const LazySrcLoc = union(enum) {
     node_offset_builtin_call_arg3: i32,
     node_offset_builtin_call_arg4: i32,
     node_offset_builtin_call_arg5: i32,
+    /// Like `node_offset_builtin_call_arg0` but recurses through arbitrarily many calls
+    /// to pointer cast builtins.
+    node_offset_ptrcast_operand: i32,
     /// The source location points to the index expression of an array access
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to an array access AST node. Next, navigate
@@ -3145,6 +3184,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_builtin_call_arg3,
             .node_offset_builtin_call_arg4,
             .node_offset_builtin_call_arg5,
+            .node_offset_ptrcast_operand,
             .node_offset_array_access_index,
             .node_offset_slice_ptr,
             .node_offset_slice_start,

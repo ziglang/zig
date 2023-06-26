@@ -499,7 +499,7 @@ fn collectPersonalityFromDwarf(
     const fde_offset = object.eh_frame_records_lookup.get(atom_index).?;
     it.seekTo(fde_offset);
     const fde = (try it.next()).?;
-    const cie_ptr = fde.getCiePointer();
+    const cie_ptr = fde.getCiePointerSource(object_id, zld, fde_offset);
     const cie_offset = fde_offset + 4 - cie_ptr;
     it.seekTo(cie_offset);
     const cie = (try it.next()).?;

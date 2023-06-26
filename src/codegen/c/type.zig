@@ -1,5 +1,4 @@
 const std = @import("std");
-const cstr = std.cstr;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
@@ -1025,7 +1024,7 @@ pub const CType = extern union {
                 for (lhs_data, rhs_data) |lhs_field, rhs_field| {
                     if (!ctx.eqlIndex(lhs_field.type, rhs_field.type)) return false;
                     if (lhs_field.alignas.@"align" != rhs_field.alignas.@"align") return false;
-                    if (cstr.cmp(lhs_field.name, rhs_field.name) != 0) return false;
+                    if (std.mem.orderZ(u8, lhs_field.name, rhs_field.name) != .eq) return false;
                 }
                 return true;
             },
