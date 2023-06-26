@@ -121,7 +121,7 @@ pub fn log(x_: f64) callconv(.C) f64 {
         // subnormal, scale x
         k -= 54;
         x *= 0x1p54;
-        hx = @intCast(@as(u64, @bitCast(ix)) >> 32);
+        hx = @intCast(@as(u64, @bitCast(x)) >> 32);
     } else if (hx >= 0x7FF00000) {
         return x;
     } else if (hx == 0x3FF00000 and ix << 32 == 0) {
