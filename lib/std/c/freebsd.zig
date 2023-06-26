@@ -1396,7 +1396,7 @@ pub const DT = struct {
     pub const WHT = 14;
 };
 
-pub const accept_filter = extern struct {
+pub const accept_filter_arg = extern struct {
     af_name: [16]u8,
     af_args: [240]u8,
 };
