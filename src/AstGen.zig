@@ -1478,9 +1478,26 @@ fn arrayInitExpr(
 
     switch (ri.rl) {
         .discard => {
-            // TODO elements should still be coerced if type is provided
-            for (array_init.ast.elements) |elem_init| {
-                _ = try expr(gz, scope, .{ .rl = .discard }, elem_init);
+            if (types.elem != .none) {
+                const elem_ri: ResultInfo = .{ .rl = .{ .ty = types.elem } };
+                for (array_init.ast.elements) |elem_init| {
+                    _ = try expr(gz, scope, elem_ri, elem_init);
+                }
+            } else if (types.array != .none) {
+                for (array_init.ast.elements, 0..) |elem_init, i| {
+                    const elem_ty = try gz.add(.{
+                        .tag = .elem_type_index,
+                        .data = .{ .bin = .{
+                            .lhs = types.array,
+                            .rhs = @enumFromInt(i),
+                        } },
+                    });
+                    _ = try expr(gz, scope, .{ .rl = .{ .ty = elem_ty } }, elem_init);
+                }
+            } else {
+                for (array_init.ast.elements) |elem_init| {
+                    _ = try expr(gz, scope, .{ .rl = .discard }, elem_init);
+                }
             }
             return Zir.Inst.Ref.void_value;
         },
@@ -1569,7 +1586,7 @@ fn arrayInitExprInner(
     for (elements, 0..) |elem_init, i| {
         const ri = if (elem_ty != .none)
             ResultInfo{ .rl = .{ .coerced_ty = elem_ty } }
-        else if (array_ty_inst != .none and nodeMayNeedMemoryLocation(astgen.tree, elem_init, true)) ri: {
+        else if (array_ty_inst != .none) ri: {
             const ty_expr = try gz.add(.{
                 .tag = .elem_type_index,
                 .data = .{ .bin = .{
