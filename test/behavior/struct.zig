@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const native_endian = builtin.target.cpu.arch.endian();
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
@@ -1636,4 +1637,80 @@ test "instantiate struct with comptime field" {
 
         comptime std.debug.assert(things.foo == 1);
     }
+}
+
+test "struct field pointer has correct alignment" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var a: struct { x: u32 } = .{ .x = 123 };
+            var b: struct { x: u32 } align(1) = .{ .x = 456 };
+            var c: struct { x: u32 } align(64) = .{ .x = 789 };
+
+            const ap = &a.x;
+            const bp = &b.x;
+            const cp = &c.x;
+
+            comptime assert(@TypeOf(ap) == *u32);
+            comptime assert(@TypeOf(bp) == *align(1) u32);
+            comptime assert(@TypeOf(cp) == *u32); // undefined layout, cannot inherit larger alignment
+
+            try expectEqual(@as(u32, 123), ap.*);
+            try expectEqual(@as(u32, 456), bp.*);
+            try expectEqual(@as(u32, 789), cp.*);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "extern struct field pointer has correct alignment" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var a: extern struct { x: u32, y: u32 } = .{ .x = 1, .y = 2 };
+            var b: extern struct { x: u32, y: u32 } align(1) = .{ .x = 3, .y = 4 };
+            var c: extern struct { x: u32, y: u32 } align(64) = .{ .x = 5, .y = 6 };
+
+            const axp = &a.x;
+            const bxp = &b.x;
+            const cxp = &c.x;
+            const ayp = &a.y;
+            const byp = &b.y;
+            const cyp = &c.y;
+
+            comptime assert(@TypeOf(axp) == *u32);
+            comptime assert(@TypeOf(bxp) == *align(1) u32);
+            comptime assert(@TypeOf(cxp) == *align(64) u32); // first field, inherits larger alignment
+            comptime assert(@TypeOf(ayp) == *u32);
+            comptime assert(@TypeOf(byp) == *align(1) u32);
+            comptime assert(@TypeOf(cyp) == *u32);
+
+            try expectEqual(@as(u32, 1), axp.*);
+            try expectEqual(@as(u32, 3), bxp.*);
+            try expectEqual(@as(u32, 5), cxp.*);
+
+            try expectEqual(@as(u32, 2), ayp.*);
+            try expectEqual(@as(u32, 4), byp.*);
+            try expectEqual(@as(u32, 6), cyp.*);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }

@@ -776,8 +776,8 @@ pub const Pdb = struct {
                                 } else 0;
 
                                 const found_line_index = start_line_index + line_entry_idx * @sizeOf(LineNumberEntry);
-                                const line_num_entry = @as(*align(1) LineNumberEntry, @ptrCast(&subsect_info[found_line_index]));
-                                const flags = @as(*LineNumberEntry.Flags, @ptrCast(&line_num_entry.Flags));
+                                const line_num_entry: *align(1) LineNumberEntry = @ptrCast(&subsect_info[found_line_index]);
+                                const flags: *align(1) LineNumberEntry.Flags = @ptrCast(&line_num_entry.Flags);
 
                                 return debug.LineInfo{
                                     .file_name = source_file_name,
