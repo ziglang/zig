@@ -7,6 +7,7 @@ const os = std.os;
 const mem = std.mem;
 const math = std.math;
 const leb = @import("leb128.zig");
+const assert = std.debug.assert;
 
 pub const TAG = @import("dwarf/TAG.zig");
 pub const AT = @import("dwarf/AT.zig");
@@ -1530,45 +1531,49 @@ pub const DwarfInfo = struct {
             return;
         }
 
-        if (di.section(.eh_frame)) |eh_frame| {
-            var stream = io.fixedBufferStream(eh_frame);
-            while (stream.pos < stream.buffer.len) {
-                const entry_header = try EntryHeader.read(&stream, di.endian);
-                switch (entry_header.type) {
-                    .cie => {
-                        const cie = try CommonInformationEntry.parse(
-                            entry_header.entry_bytes,
-                            -@as(i64, @intCast(@intFromPtr(binary_mem.ptr))),
-                            true,
-                            entry_header.length_offset,
-                            @sizeOf(usize),
-                            di.endian,
-                        );
-                        try di.cie_map.put(allocator, entry_header.length_offset, cie);
-                    },
-                    .fde => |cie_offset| {
-                        const cie = di.cie_map.get(cie_offset) orelse return badDwarf();
-                        const fde = try FrameDescriptionEntry.parse(
-                            entry_header.entry_bytes,
-                            -@as(i64, @intCast(@intFromPtr(binary_mem.ptr))),
-                            true,
-                            cie,
-                            @sizeOf(usize),
-                            di.endian,
-                        );
-                        try di.fde_list.append(allocator, fde);
-                    },
-                    .terminator => break,
+        const frame_sections = [2]DwarfSection{ .eh_frame, .debug_frame };
+        for (frame_sections) |frame_section| {
+            if (di.section(frame_section)) |eh_frame| {
+                var stream = io.fixedBufferStream(eh_frame);
+                while (stream.pos < stream.buffer.len) {
+                    const entry_header = try EntryHeader.read(&stream, frame_section, di.endian);
+                    switch (entry_header.type) {
+                        .cie => {
+                            const cie = try CommonInformationEntry.parse(
+                                entry_header.entry_bytes,
+                                -@as(i64, @intCast(@intFromPtr(binary_mem.ptr))),
+                                true,
+                                frame_section,
+                                entry_header.length_offset,
+                                @sizeOf(usize),
+                                di.endian,
+                            );
+                            try di.cie_map.put(allocator, entry_header.length_offset, cie);
+                        },
+                        .fde => |cie_offset| {
+                            const cie = di.cie_map.get(cie_offset) orelse return badDwarf();
+                            const fde = try FrameDescriptionEntry.parse(
+                                entry_header.entry_bytes,
+                                -@as(i64, @intCast(@intFromPtr(binary_mem.ptr))),
+                                true,
+                                cie,
+                                @sizeOf(usize),
+                                di.endian,
+                            );
+                            try di.fde_list.append(allocator, fde);
+                        },
+                        .terminator => break,
+                    }
                 }
-            }
 
-            // TODO: Avoiding sorting if has_eh_frame_hdr exists
-            std.mem.sort(FrameDescriptionEntry, di.fde_list.items, {}, struct {
-                fn lessThan(ctx: void, a: FrameDescriptionEntry, b: FrameDescriptionEntry) bool {
-                    _ = ctx;
-                    return a.pc_begin < b.pc_begin;
-                }
-            }.lessThan);
+                // TODO: Avoiding sorting if has_eh_frame_hdr exists
+                std.mem.sort(FrameDescriptionEntry, di.fde_list.items, {}, struct {
+                    fn lessThan(ctx: void, a: FrameDescriptionEntry, b: FrameDescriptionEntry) bool {
+                        _ = ctx;
+                        return a.pc_begin < b.pc_begin;
+                    }
+                }.lessThan);
+            }
         }
     }
 
@@ -1905,14 +1910,14 @@ pub const ExceptionFrameHeader = struct {
         var eh_frame_stream = io.fixedBufferStream(eh_frame);
         try eh_frame_stream.seekTo(fde_offset);
 
-        const fde_entry_header = try EntryHeader.read(&eh_frame_stream, builtin.cpu.arch.endian());
+        const fde_entry_header = try EntryHeader.read(&eh_frame_stream, .eh_frame, builtin.cpu.arch.endian());
         if (!self.isValidPtr(@intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]), isValidMemory, eh_frame_len)) return badDwarf();
         if (fde_entry_header.type != .fde) return badDwarf();
 
         // CIEs always come before FDEs (the offset is a subtration), so we can assume this memory is readable
         const cie_offset = fde_entry_header.type.fde;
         try eh_frame_stream.seekTo(cie_offset);
-        const cie_entry_header = try EntryHeader.read(&eh_frame_stream, builtin.cpu.arch.endian());
+        const cie_entry_header = try EntryHeader.read(&eh_frame_stream, .eh_frame, builtin.cpu.arch.endian());
         if (!self.isValidPtr(@intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]), isValidMemory, eh_frame_len)) return badDwarf();
         if (cie_entry_header.type != .cie) return badDwarf();
 
@@ -1920,6 +1925,7 @@ pub const ExceptionFrameHeader = struct {
             cie_entry_header.entry_bytes,
             0,
             true,
+            .eh_frame,
             cie_entry_header.length_offset,
             @sizeOf(usize),
             builtin.cpu.arch.endian(),
@@ -1937,7 +1943,7 @@ pub const ExceptionFrameHeader = struct {
 };
 
 pub const EntryHeader = struct {
-    /// Offset of the length in the backing buffer
+    /// Offset of the length field in the backing buffer
     length_offset: usize,
     is_64: bool,
     type: union(enum) {
@@ -1950,8 +1956,10 @@ pub const EntryHeader = struct {
     entry_bytes: []const u8,
 
     /// Reads a header for either an FDE or a CIE, then advances the stream to the position after the trailing structure.
-    /// `stream` must be a stream backed by the .eh_frame section.
-    pub fn read(stream: *std.io.FixedBufferStream([]const u8), endian: std.builtin.Endian) !EntryHeader {
+    /// `stream` must be a stream backed by either the .eh_frame or .debug_frame sections.
+    pub fn read(stream: *std.io.FixedBufferStream([]const u8), dwarf_section: DwarfSection, endian: std.builtin.Endian) !EntryHeader {
+        assert(dwarf_section == .eh_frame or dwarf_section == .debug_frame);
+
         const reader = stream.reader();
         const length_offset = stream.pos;
 
@@ -1967,14 +1975,21 @@ pub const EntryHeader = struct {
         const id_len = @as(u8, if (is_64) 8 else 4);
         const id = if (is_64) try reader.readInt(u64, endian) else try reader.readInt(u32, endian);
         const entry_bytes = stream.buffer[stream.pos..][0 .. length - id_len];
+        const cie_id: u64 = switch (dwarf_section) {
+            .eh_frame => CommonInformationEntry.eh_id,
+            .debug_frame => if (is_64) CommonInformationEntry.dwarf64_id else CommonInformationEntry.dwarf32_id,
+            else => unreachable,
+        };
 
         const result = EntryHeader{
             .length_offset = length_offset,
             .is_64 = is_64,
-            .type = switch (id) {
-                0 => .{ .cie = {} },
-                // TODO: Support CommonInformationEntry.dwarf32_id, CommonInformationEntry.dwarf64_id
-                else => .{ .fde = stream.pos - id_len - id },
+            .type = if (id == cie_id) .{ .cie = {} } else .{
+                .fde = switch (dwarf_section) {
+                    .eh_frame => stream.pos - id_len - id,
+                    .debug_frame => id,
+                    else => unreachable,
+                },
             },
             .entry_bytes = entry_bytes,
         };
@@ -2003,6 +2018,11 @@ pub const CommonInformationEntry = struct {
     // This is the key that FDEs use to reference CIEs.
     length_offset: u64,
     version: u8,
+
+    address_size: u8,
+
+    // Only present in version 4
+    segment_selector_size: ?u8,
 
     code_alignment_factor: u32,
     data_alignment_factor: i32,
@@ -2038,11 +2058,12 @@ pub const CommonInformationEntry = struct {
     /// of `pc_rel_offset` and `is_runtime`.
     ///
     /// `length_offset` specifies the offset of this CIE's length field in the
-    /// .eh_frame section.
+    /// .eh_frame / .debug_framesection.
     pub fn parse(
         cie_bytes: []const u8,
         pc_rel_offset: i64,
         is_runtime: bool,
+        dwarf_section: DwarfSection,
         length_offset: u64,
         addr_size_bytes: u8,
         endian: std.builtin.Endian,
@@ -2053,7 +2074,11 @@ pub const CommonInformationEntry = struct {
         const reader = stream.reader();
 
         const version = try reader.readByte();
-        if (version != 1 and version != 3) return error.UnsupportedDwarfVersion;
+        switch (dwarf_section) {
+            .eh_frame => if (version != 1 and version != 3) return error.UnsupportedDwarfVersion,
+            .debug_frame => if (version != 4) return error.UnsupportedDwarfVersion,
+            else => return error.UnsupportedDwarfSection,
+        }
 
         var has_eh_data = false;
         var has_aug_data = false;
@@ -2082,6 +2107,9 @@ pub const CommonInformationEntry = struct {
             // legacy data created by older versions of gcc - unsupported here
             for (0..addr_size_bytes) |_| _ = try reader.readByte();
         }
+
+        const address_size = if (version == 4) try reader.readByte() else addr_size_bytes;
+        const segment_selector_size = if (version == 4) try reader.readByte() else null;
 
         const code_alignment_factor = try leb.readULEB128(u32, reader);
         const data_alignment_factor = try leb.readILEB128(i32, reader);
@@ -2134,6 +2162,8 @@ pub const CommonInformationEntry = struct {
         return .{
             .length_offset = length_offset,
             .version = version,
+            .address_size = address_size,
+            .segment_selector_size = segment_selector_size,
             .code_alignment_factor = code_alignment_factor,
             .data_alignment_factor = data_alignment_factor,
             .return_address_register = return_address_register,
