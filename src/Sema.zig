@@ -28881,7 +28881,7 @@ fn beginComptimePtrMutation(
                                     // If we wanted to avoid this, there would need to be special detection
                                     // elsewhere to identify when writing a value to an array element that is stored
                                     // using the `bytes` tag, and handle it without making a call to this function.
-                                    const arena = sema.arena;
+                                    const arena = mod.tmp_hack_arena.allocator();
 
                                     const bytes = val_ptr.castTag(.bytes).?.data;
                                     const dest_len = parent.ty.arrayLenIncludingSentinel(mod);
@@ -28913,7 +28913,7 @@ fn beginComptimePtrMutation(
                                     // need to be special detection elsewhere to identify when writing a value to an
                                     // array element that is stored using the `repeated` tag, and handle it
                                     // without making a call to this function.
-                                    const arena = sema.arena;
+                                    const arena = mod.tmp_hack_arena.allocator();
 
                                     const repeated_val = try val_ptr.castTag(.repeated).?.data.intern(parent.ty.childType(mod), mod);
                                     const array_len_including_sentinel =
@@ -28951,7 +28951,7 @@ fn beginComptimePtrMutation(
                                     // An array has been initialized to undefined at comptime and now we
                                     // are for the first time setting an element. We must change the representation
                                     // of the array from `undef` to `array`.
-                                    const arena = sema.arena;
+                                    const arena = mod.tmp_hack_arena.allocator();
 
                                     const array_len_including_sentinel =
                                         try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel(mod));
@@ -29049,7 +29049,7 @@ fn beginComptimePtrMutation(
                             parent.mut_decl,
                         ),
                         .repeated => {
-                            const arena = sema.arena;
+                            const arena = mod.tmp_hack_arena.allocator();
 
                             const elems = try arena.alloc(Value, parent.ty.structFieldCount(mod));
                             @memset(elems, val_ptr.castTag(.repeated).?.data);
@@ -29112,7 +29112,7 @@ fn beginComptimePtrMutation(
                             // A struct or union has been initialized to undefined at comptime and now we
                             // are for the first time setting a field. We must change the representation
                             // of the struct/union from `undef` to `struct`/`union`.
-                            const arena = sema.arena;
+                            const arena = mod.tmp_hack_arena.allocator();
 
                             switch (parent.ty.zigTypeTag(mod)) {
                                 .Struct => {
