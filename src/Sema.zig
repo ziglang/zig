@@ -23301,6 +23301,7 @@ fn analyzeMinMax(
 
     if (cur_minmax == null) {
         // No comptime operands - use the first operand as the starting value
+        assert(bounds_status == .unknown);
         assert(runtime_idx == 0);
         cur_minmax = operands[0];
         cur_minmax_src = runtime_src;
@@ -23309,6 +23310,9 @@ fn analyzeMinMax(
         if (scalar_ty.isInt(mod)) {
             cur_min_scalar = try scalar_ty.minInt(mod, scalar_ty);
             cur_max_scalar = try scalar_ty.maxInt(mod, scalar_ty);
+            bounds_status = .defined;
+        } else {
+            bounds_status = .non_integral;
         }
     }
 

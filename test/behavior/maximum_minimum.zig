@@ -295,3 +295,17 @@ test "@min/@max notices bounds from vector types when element of comptime-known 
     try expectEqual(@as(u32, 1_000_000), max[0]);
     // Cannot assert values at index 1 as one was undefined
 }
+
+test "@min/@max of signed and unsigned runtime integers" {
+    var x: i32 = -1;
+    var y: u31 = 1;
+
+    const min = @min(x, y);
+    const max = @max(x, y);
+
+    comptime assert(@TypeOf(min) == i32);
+    comptime assert(@TypeOf(max) == u31);
+
+    try expectEqual(x, @min(x, y));
+    try expectEqual(y, @max(x, y));
+}
