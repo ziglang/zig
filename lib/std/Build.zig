@@ -1317,9 +1317,7 @@ pub fn addInstallFileWithDir(
 }
 
 pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *Step.InstallDir {
-    const install_step = self.allocator.create(Step.InstallDir) catch @panic("OOM");
-    install_step.* = Step.InstallDir.init(self, options);
-    return install_step;
+    return Step.InstallDir.create(self, options);
 }
 
 pub fn addCheckFile(

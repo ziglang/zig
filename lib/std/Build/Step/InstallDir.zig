@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
 const Step = std.Build.Step;
+const FileSource = std.Build.FileSource;
 const InstallDir = std.Build.InstallDir;
 const InstallDirStep = @This();
 
@@ -14,7 +15,7 @@ dest_builder: *std.Build,
 pub const base_id = .install_dir;
 
 pub const Options = struct {
-    source_dir: []const u8,
+    source_dir: FileSource,
     install_dir: InstallDir,
     install_subdir: []const u8,
     /// File paths which end in any of these suffixes will be excluded
@@ -29,7 +30,7 @@ pub const Options = struct {
 
     fn dupe(self: Options, b: *std.Build) Options {
         return .{
-            .source_dir = b.dupe(self.source_dir),
+            .source_dir = self.source_dir.dupe(b),
             .install_dir = self.install_dir.dupe(b),
             .install_subdir = b.dupe(self.install_subdir),
             .exclude_extensions = b.dupeStrings(self.exclude_extensions),
@@ -38,18 +39,21 @@ pub const Options = struct {
     }
 };
 
-pub fn init(owner: *std.Build, options: Options) InstallDirStep {
+pub fn create(owner: *std.Build, options: Options) *InstallDirStep {
     owner.pushInstalledFile(options.install_dir, options.install_subdir);
-    return .{
+    const self = owner.allocator.create(InstallDirStep) catch @panic("OOM");
+    self.* = .{
         .step = Step.init(.{
             .id = .install_dir,
-            .name = owner.fmt("install {s}/", .{options.source_dir}),
+            .name = owner.fmt("install {s}/", .{options.source_dir.getDisplayName()}),
             .owner = owner,
             .makeFn = make,
         }),
         .options = options.dupe(owner),
         .dest_builder = owner,
     };
+    options.source_dir.addStepDependencies(&self.step);
+    return self;
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
@@ -59,9 +63,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const arena = dest_builder.allocator;
     const dest_prefix = dest_builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
     const src_builder = self.step.owner;
-    var src_dir = src_builder.build_root.handle.openIterableDir(self.options.source_dir, .{}) catch |err| {
+    const src_dir_path = self.options.source_dir.getPath2(src_builder, step);
+    var src_dir = src_builder.build_root.handle.openIterableDir(src_dir_path, .{}) catch |err| {
         return step.fail("unable to open source directory '{}{s}': {s}", .{
-            src_builder.build_root, self.options.source_dir, @errorName(err),
+            src_builder.build_root, src_dir_path, @errorName(err),
         });
     };
     defer src_dir.close();
@@ -75,7 +80,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
 
         // relative to src build root
-        const src_sub_path = try fs.path.join(arena, &.{ self.options.source_dir, entry.path });
+        const src_sub_path = try fs.path.join(arena, &.{ src_dir_path, entry.path });
         const dest_path = try fs.path.join(arena, &.{ dest_prefix, entry.path });
         const cwd = fs.cwd();
 

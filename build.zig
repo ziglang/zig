@@ -105,7 +105,7 @@ pub fn build(b: *std.Build) !void {
 
     if (!skip_install_lib_files) {
         b.installDirectory(InstallDirectoryOptions{
-            .source_dir = "lib",
+            .source_dir = .{ .path = "lib" },
             .install_dir = .lib,
             .install_subdir = "zig",
             .exclude_extensions = &[_][]const u8{
