@@ -395,3 +395,71 @@ pub const ucontext_t = extern struct {
     sigmask: sigset_t,
     fpregs_mem: [64]usize,
 };
+
+fn gpRegisterOffset(comptime reg_index: comptime_int) usize {
+    return @offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "gregs") + @sizeOf(usize) * reg_index;
+}
+
+pub inline fn getcontext(context: *ucontext_t) usize {
+    asm volatile (
+        \\ movq %%r8, (%[r8_offset])(%[context])
+        \\ movq %%r9, (%[r9_offset])(%[context])
+        \\ movq %%r10, (%[r10_offset])(%[context])
+        \\ movq %%r11, (%[r11_offset])(%[context])
+        \\ movq %%r12, (%[r12_offset])(%[context])
+        \\ movq %%r13, (%[r13_offset])(%[context])
+        \\ movq %%r14, (%[r14_offset])(%[context])
+        \\ movq %%r15, (%[r15_offset])(%[context])
+        \\ movq %%rdi, (%[rdi_offset])(%[context])
+        \\ movq %%rsi, (%[rsi_offset])(%[context])
+        \\ movq %%rbp, (%[rbp_offset])(%[context])
+        \\ movq %%rbx, (%[rbx_offset])(%[context])
+        \\ movq %%rdx, (%[rdx_offset])(%[context])
+        \\ movq %%rax, (%[rax_offset])(%[context])
+        \\ movq %%rcx, (%[rcx_offset])(%[context])
+        \\ movq %%rsp, (%[rsp_offset])(%[context])
+        \\ leaq (%%rip), %%rcx
+        \\ movq %%rcx, (%[rip_offset])(%[context])
+        \\ pushfq
+        \\ popq (%[efl_offset])(%[context])
+        \\ leaq (%[fpmem_offset])(%[context]), %%rcx
+        \\ movq %%rcx, (%[fpstate_offset])(%[context])
+        \\ fnstenv (%%rcx)
+        \\ stmxcsr (%[mxcsr_offset])(%[context])
+        :
+        : [context] "{rdi}" (context),
+          [r8_offset] "p" (comptime gpRegisterOffset(REG.R8)),
+          [r9_offset] "p" (comptime gpRegisterOffset(REG.R9)),
+          [r10_offset] "p" (comptime gpRegisterOffset(REG.R10)),
+          [r11_offset] "p" (comptime gpRegisterOffset(REG.R11)),
+          [r12_offset] "p" (comptime gpRegisterOffset(REG.R12)),
+          [r13_offset] "p" (comptime gpRegisterOffset(REG.R13)),
+          [r14_offset] "p" (comptime gpRegisterOffset(REG.R14)),
+          [r15_offset] "p" (comptime gpRegisterOffset(REG.R15)),
+          [rdi_offset] "p" (comptime gpRegisterOffset(REG.RDI)),
+          [rsi_offset] "p" (comptime gpRegisterOffset(REG.RSI)),
+          [rbp_offset] "p" (comptime gpRegisterOffset(REG.RBP)),
+          [rbx_offset] "p" (comptime gpRegisterOffset(REG.RBX)),
+          [rdx_offset] "p" (comptime gpRegisterOffset(REG.RDX)),
+          [rax_offset] "p" (comptime gpRegisterOffset(REG.RAX)),
+          [rcx_offset] "p" (comptime gpRegisterOffset(REG.RCX)),
+          [rsp_offset] "p" (comptime gpRegisterOffset(REG.RSP)),
+          [rip_offset] "p" (comptime gpRegisterOffset(REG.RIP)),
+          [efl_offset] "p" (comptime gpRegisterOffset(REG.EFL)),
+          [fpstate_offset] "p" (@offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "fpregs")),
+          [fpmem_offset] "p" (@offsetOf(ucontext_t, "fpregs_mem")),
+          [mxcsr_offset] "p" (@offsetOf(ucontext_t, "fpregs_mem") + @offsetOf(fpstate, "mxcsr")),
+        : "memory", "rcx"
+    );
+
+    // TODO: Read GS/FS registers?
+
+    // TODO: `flags` isn't present in the getcontext man page, figure out what to write here
+    context.flags = 0;
+    context.link = null;
+
+    const altstack_result = linux.sigaltstack(null, &context.stack);
+    if (altstack_result != 0) return altstack_result;
+
+    return linux.sigprocmask(0, null, &context.sigmask);
+}

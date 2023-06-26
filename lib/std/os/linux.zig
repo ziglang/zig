@@ -86,6 +86,7 @@ pub const timeval = arch_bits.timeval;
 pub const timezone = arch_bits.timezone;
 pub const ucontext_t = arch_bits.ucontext_t;
 pub const user_desc = arch_bits.user_desc;
+pub const getcontext = arch_bits.getcontext;
 
 pub const tls = @import("linux/tls.zig");
 pub const pie = @import("linux/start_pie.zig");
@@ -4694,7 +4695,7 @@ else
         /// processes.
         RTPRIO,
 
-        /// Maximum CPU time in µs that a process scheduled under a real-time
+        /// Maximum CPU time in Âµs that a process scheduled under a real-time
         /// scheduling policy may consume without making a blocking system
         /// call before being forcibly descheduled.
         RTTIME,
