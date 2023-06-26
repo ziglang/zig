@@ -303,10 +303,7 @@ fn render_cmake(
     var line_index: u32 = 0;
     var line_it = std.mem.splitScalar(u8, contents, '\n');
     while (line_it.next()) |raw_line| : (line_index += 1) {
-        // if we reached the end of the buffer there is nothing worth doing anymore
-        if (line_it.index == line_it.buffer.len) {
-            continue;
-        }
+        const last_line = line_it.index == line_it.buffer.len;
 
         const first_pass = replace_variables(allocator, raw_line, values, "@", "@") catch @panic("Failed to substitute");
         const line = replace_variables(allocator, first_pass, values, "${", "}") catch @panic("Failed to substitute");
@@ -316,7 +313,9 @@ fn render_cmake(
 
         if (!std.mem.startsWith(u8, line, "#")) {
             try output.appendSlice(line);
-            try output.appendSlice("\n");
+            if (!last_line) {
+                try output.appendSlice("\n");
+            }
             continue;
         }
         var it = std.mem.tokenizeAny(u8, line[1..], " \t\r");
@@ -325,7 +324,9 @@ fn render_cmake(
             !std.mem.eql(u8, cmakedefine, "cmakedefine01"))
         {
             try output.appendSlice(line);
-            try output.appendSlice("\n");
+            if (!last_line) {
+                try output.appendSlice("\n");
+            }
             continue;
         }
 
