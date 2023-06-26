@@ -2428,15 +2428,28 @@ fn buildOutputType(
             link_libcpp = true;
     }
 
-    if (target_info.target.cpu.arch.isWasm() and linker_shared_memory) {
-        if (output_mode == .Obj) {
-            fatal("shared memory is not allowed in object files", .{});
+    if (target_info.target.cpu.arch.isWasm()) blk: {
+        if (single_threaded == null) {
+            single_threaded = true;
+        }
+        if (linker_shared_memory) {
+            if (output_mode == .Obj) {
+                fatal("shared memory is not allowed in object files", .{});
+            }
+
+            if (!target_info.target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.atomics)) or
+                !target_info.target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.bulk_memory)))
+            {
+                fatal("'atomics' and 'bulk-memory' features must be enabled to use shared memory", .{});
+            }
+            break :blk;
         }
 
-        if (!target_info.target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.atomics)) or
-            !target_info.target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.bulk_memory)))
-        {
-            fatal("'atomics' and 'bulk-memory' features must be enabled to use shared memory", .{});
+        // Single-threaded is the default for WebAssembly, so only when the user specified `-fno_single-threaded`
+        // can they enable multithreaded WebAssembly builds.
+        const is_single_threaded = single_threaded.?;
+        if (!is_single_threaded) {
+            fatal("'-fno-single-threaded' requires the linker feature shared-memory to be enabled using '--shared-memory'", .{});
         }
     }
 
