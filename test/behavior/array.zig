@@ -748,3 +748,16 @@ test "array init with no result location has result type" {
     try expect(x.foo[0] == 10);
     try expect(x.foo[1] == 20);
 }
+
+test "slicing array of zero-sized values" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var arr: [32]u0 = undefined;
+    for (arr[0..]) |*zero|
+        zero.* = 0;
+    for (arr[0..]) |zero|
+        try expect(zero == 0);
+}
