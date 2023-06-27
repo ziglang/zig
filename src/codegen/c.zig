@@ -561,7 +561,7 @@ pub const DeclGen = struct {
         // them).  The analysis until now should ensure that the C function
         // pointers are compatible.  If they are not, then there is a bug
         // somewhere and we should let the C compiler tell us about it.
-        const need_typecast = if (ty.castPtrToFn(mod)) |_| false else !ty.childType(mod).eql(decl.ty, mod);
+        const need_typecast = if (ty.castPtrToFn(mod)) |_| false else !ty.childType(mod).eql(decl.ty);
         if (need_typecast) {
             try writer.writeAll("((");
             try dg.renderType(writer, ty);
@@ -863,7 +863,7 @@ pub const DeclGen = struct {
                 },
                 .Array, .Vector => {
                     const ai = ty.arrayInfo(mod);
-                    if (ai.elem_type.eql(Type.u8, mod)) {
+                    if (ai.elem_type.eql(Type.u8)) {
                         var literal = stringLiteral(writer);
                         try literal.start();
                         const c_len = ty.arrayLenIncludingSentinel(mod);
@@ -1218,7 +1218,7 @@ pub const DeclGen = struct {
                     const max_string_initializer_len = 65535;
 
                     const ai = ty.arrayInfo(mod);
-                    if (ai.elem_type.eql(Type.u8, mod)) {
+                    if (ai.elem_type.eql(Type.u8)) {
                         if (ai.len <= max_string_initializer_len) {
                             var literal = stringLiteral(writer);
                             try literal.start();
@@ -3625,7 +3625,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     if (need_memcpy) {
         // For this memcpy to safely work we need the rhs to have the same
         // underlying type as the lhs (i.e. they must both be arrays of the same underlying type).
-        assert(src_ty.eql(ptr_info.child.toType(), f.object.dg.module));
+        assert(src_ty.eql(ptr_info.child.toType()));
 
         // If the source is a constant, writeCValue will emit a brace initialization
         // so work around this by initializing into new local.
@@ -5434,7 +5434,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 if (cant_cast) try writer.writeByte(')');
                 try f.object.dg.renderBuiltinInfo(writer, field_int_ty, .bits);
                 try writer.writeAll(");\n");
-                if (inst_ty.eql(field_int_ty, f.object.dg.module)) return temp_local;
+                if (inst_ty.eql(field_int_ty)) return temp_local;
 
                 const local = try f.allocLocal(inst, inst_ty);
                 try writer.writeAll("memcpy(");

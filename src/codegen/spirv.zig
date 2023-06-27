@@ -1887,8 +1887,8 @@ pub const DeclGen = struct {
 
         const result_ty_ref = try self.resolveType(ty, .direct);
 
-        assert(self.typeOf(bin_op.lhs).eql(ty, self.module));
-        assert(self.typeOf(bin_op.rhs).eql(ty, self.module));
+        assert(self.typeOf(bin_op.lhs).eql(ty));
+        assert(self.typeOf(bin_op.rhs).eql(ty));
 
         // Binary operations are generally applicable to both scalar and vector operations
         // in SPIR-V, but int and float versions of operations require different opcodes.
@@ -2272,7 +2272,7 @@ pub const DeclGen = struct {
         const rhs_id = try self.resolve(bin_op.rhs);
         const bool_ty_id = try self.resolveTypeId(Type.bool);
         const ty = self.typeOf(bin_op.lhs);
-        assert(ty.eql(self.typeOf(bin_op.rhs), self.module));
+        assert(ty.eql(self.typeOf(bin_op.rhs)));
 
         return try self.cmp(op, bool_ty_id, ty, lhs_id, rhs_id);
     }

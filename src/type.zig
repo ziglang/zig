@@ -112,8 +112,7 @@ pub const Type = struct {
         };
     }
 
-    pub fn eql(a: Type, b: Type, mod: *const Module) bool {
-        _ = mod; // TODO: remove this parameter
+    pub fn eql(a: Type, b: Type) bool {
         // The InternPool data structure hashes based on Key to make interned objects
         // unique. An Index can be treated simply as u32 value for the
         // purpose of Type/Value hashing and equality.
