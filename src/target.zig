@@ -208,7 +208,8 @@ pub fn supports_fpic(target: std.Target) bool {
 }
 
 pub fn isSingleThreaded(target: std.Target) bool {
-    return target.isWasm();
+    _ = target;
+    return false;
 }
 
 /// Valgrind supports more, but Zig does not support them yet.
