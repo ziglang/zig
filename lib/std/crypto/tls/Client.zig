@@ -958,6 +958,13 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
     // The amount of the user's buffer that will be used to give cleartext. The
     // beginning of the buffer will be used for such purposes.
     const cleartext_buf_len = free_size - ciphertext_buf_len;
+
+    // Recoup `partially_read_buffer space`. This is necessary because it is assumed
+    // below that `frag0` is big enough to hold at least one record.
+    limitedOverlapCopy(c.partially_read_buffer[0..c.partial_ciphertext_end], c.partial_ciphertext_idx);
+    c.partial_ciphertext_end -= c.partial_ciphertext_idx;
+    c.partial_ciphertext_idx = 0;
+    c.partial_cleartext_idx = 0;
     const first_iov = c.partially_read_buffer[c.partial_ciphertext_end..];
 
     var ask_iovecs_buf: [2]std.os.iovec = .{
