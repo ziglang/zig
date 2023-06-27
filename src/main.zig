@@ -400,6 +400,7 @@ const usage_build_generic =
     \\            small|kernel|
     \\            medium|large]
     \\  -x language               Treat subsequent input files as having type <language>
+    \\  -mword-relocations        Only generate absolute relocations on word-sized values. (ARM only)
     \\  -mred-zone                Force-enable the "red-zone"
     \\  -mno-red-zone             Force-disable the "red-zone"
     \\  -fomit-frame-pointer      Omit the stack frame pointer
@@ -773,6 +774,7 @@ fn buildOutputType(
     var want_stack_check: ?bool = null;
     var want_stack_protector: ?u32 = null;
     var want_red_zone: ?bool = null;
+    var want_word_relocations: bool = false;
     var omit_frame_pointer: ?bool = null;
     var want_valgrind: ?bool = null;
     var want_tsan: ?bool = null;
@@ -1235,6 +1237,8 @@ fn buildOutputType(
                         want_stack_protector = Compilation.default_stack_protector_buffer_size;
                     } else if (mem.eql(u8, arg, "-fno-stack-protector")) {
                         want_stack_protector = 0;
+                    } else if (mem.eql(u8, arg, "-mword-relocations")) {
+                        want_word_relocations = true;
                     } else if (mem.eql(u8, arg, "-mred-zone")) {
                         want_red_zone = true;
                     } else if (mem.eql(u8, arg, "-mno-red-zone")) {
@@ -1651,6 +1655,7 @@ fn buildOutputType(
                     .no_lto => want_lto = false,
                     .red_zone => want_red_zone = true,
                     .no_red_zone => want_red_zone = false,
+                    .word_relocations => want_word_relocations = true,
                     .omit_frame_pointer => omit_frame_pointer = true,
                     .no_omit_frame_pointer => omit_frame_pointer = false,
                     .function_sections => function_sections = true,
@@ -3095,6 +3100,7 @@ fn buildOutputType(
         .want_stack_check = want_stack_check,
         .want_stack_protector = want_stack_protector,
         .want_red_zone = want_red_zone,
+        .want_word_relocations = want_word_relocations,
         .omit_frame_pointer = omit_frame_pointer,
         .want_valgrind = want_valgrind,
         .want_tsan = want_tsan,
@@ -5155,6 +5161,7 @@ pub const ClangArgIterator = struct {
         framework_dir,
         framework,
         nostdlibinc,
+        word_relocations,
         red_zone,
         no_red_zone,
         omit_frame_pointer,

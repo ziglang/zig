@@ -186,6 +186,8 @@ pie: ?bool = null,
 
 red_zone: ?bool = null,
 
+word_relocations: bool = false,
+
 omit_frame_pointer: ?bool = null,
 dll_export_fns: ?bool = null,
 
@@ -1645,6 +1647,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             try zig_args.append("-mno-red-zone");
         }
     }
+
+    if (self.word_relocations) {
+        try zig_args.append("-mword-relocations");
+    }
+
     try addFlag(&zig_args, "omit-frame-pointer", self.omit_frame_pointer);
     try addFlag(&zig_args, "dll-export-fns", self.dll_export_fns);
 

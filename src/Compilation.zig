@@ -529,6 +529,7 @@ pub const InitOptions = struct {
     /// other number means stack protection with that buffer size.
     want_stack_protector: ?u32 = null,
     want_red_zone: ?bool = null,
+    want_word_relocations: bool = false,
     omit_frame_pointer: ?bool = null,
     want_valgrind: ?bool = null,
     want_tsan: ?bool = null,
@@ -1065,6 +1066,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const strip = options.strip orelse !target_util.hasDebugInfo(options.target);
         const red_zone = options.want_red_zone orelse target_util.hasRedZone(options.target);
+        const word_relocations = options.want_word_relocations;
         const omit_frame_pointer = options.omit_frame_pointer orelse (options.optimize_mode != .Debug);
         const linker_optimization: u8 = options.linker_optimization orelse switch (options.optimize_mode) {
             .Debug => @as(u8, 0),
@@ -1110,6 +1112,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(stack_check);
         cache.hash.add(stack_protector);
         cache.hash.add(red_zone);
+        cache.hash.add(word_relocations);
         cache.hash.add(omit_frame_pointer);
         cache.hash.add(link_mode);
         cache.hash.add(options.function_sections);
@@ -1512,6 +1515,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .stack_check = stack_check,
             .stack_protector = stack_protector,
             .red_zone = red_zone,
+            .word_relocations = word_relocations,
             .omit_frame_pointer = omit_frame_pointer,
             .single_threaded = single_threaded,
             .verbose_link = options.verbose_link,
@@ -4379,6 +4383,10 @@ pub fn addCCArgs(
                 try argv.append("-mno-red-zone");
             }
 
+            if (comp.bin_file.options.word_relocations) {
+                try argv.append("-mword-relocations");
+            }
+
             if (comp.bin_file.options.omit_frame_pointer) {
                 try argv.append("-fomit-frame-pointer");
             } else {
@@ -5419,6 +5427,7 @@ fn buildOutputFromZig(
         .want_stack_check = false,
         .want_stack_protector = 0,
         .want_red_zone = comp.bin_file.options.red_zone,
+        .want_word_relocations = comp.bin_file.options.word_relocations,
         .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
         .want_valgrind = false,
         .want_tsan = false,
@@ -5493,6 +5502,7 @@ pub fn build_crt_file(
         .want_stack_check = false,
         .want_stack_protector = 0,
         .want_red_zone = comp.bin_file.options.red_zone,
+        .want_word_relocations = comp.bin_file.options.word_relocations,
         .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
         .want_valgrind = false,
         .want_tsan = false,

@@ -150,6 +150,7 @@ pub const Options = struct {
     tsan: bool,
     stack_check: bool,
     red_zone: bool,
+    word_relocations: bool,
     omit_frame_pointer: bool,
     single_threaded: bool,
     verbose_link: bool,
