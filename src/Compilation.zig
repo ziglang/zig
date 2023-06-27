@@ -106,6 +106,7 @@ job_queued_compiler_rt_obj: bool = false,
 alloc_failure_occurred: bool = false,
 formatted_panics: bool = false,
 last_update_was_cache_hit: bool = false,
+want_native_paths: bool = false,
 
 c_source_files: []const CSourceFile,
 clang_argv: []const []const u8,
@@ -855,22 +856,28 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
-        var clang_argv = std.ArrayList([]const u8).init(arena);
         var lib_dirs = std.ArrayList([]const u8).init(arena);
         var framework_dirs = std.ArrayList([]const u8).init(arena);
         var rpath_list = std.ArrayList([]const u8).init(arena);
 
-        try clang_argv.appendSlice(options.clang_argv);
         try lib_dirs.appendSlice(options.lib_dirs);
         try framework_dirs.appendSlice(options.framework_dirs);
         try rpath_list.appendSlice(options.rpath_list);
 
-        const want_native_include_dirs = options.sysroot == null and options.is_native_os and
-            (options.system_lib_names.len > 0 or options.want_native_include_dirs orelse false);
-        const darwin_native = (comptime builtin.target.isDarwin()) and options.target.isDarwin() and options.sysroot == null;
-        var darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null;
+        const darwin_native = (comptime builtin.target.isDarwin()) and options.target.isDarwin() and
+            options.sysroot == null;
+        comp.want_native_paths = (options.sysroot == null and options.is_native_os and
+            (options.system_lib_names.len > 0 or options.want_native_include_dirs orelse false)) or
+            darwin_native;
 
-        if (want_native_include_dirs or darwin_native) {
+        const darwin_sdk: ?std.zig.system.darwin.DarwinSDK = if (darwin_native and
+            !std.zig.system.NativePaths.isNix() and
+            std.zig.system.darwin.isDarwinSDKInstalled(arena))
+            std.zig.system.darwin.getDarwinSDK(arena, options.target)
+        else
+            null;
+
+        if (comp.want_native_paths) {
             const paths = std.zig.system.NativePaths.detect(arena, options.target) catch |err| {
                 fatal("unable to detect native system paths: {s}", .{@errorName(err)});
             };
@@ -879,17 +886,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 std.log.warn("{s}", .{warning});
             }
 
-            try clang_argv.ensureUnusedCapacity(paths.include_dirs.items.len * 2);
-            for (paths.include_dirs.items) |include_dir| {
-                clang_argv.appendAssumeCapacity("-isystem");
-                clang_argv.appendAssumeCapacity(include_dir);
-            }
-
-            try clang_argv.ensureUnusedCapacity(paths.framework_dirs.items.len * 2);
             try framework_dirs.ensureUnusedCapacity(paths.framework_dirs.items.len);
             for (paths.framework_dirs.items) |framework_dir| {
-                clang_argv.appendAssumeCapacity("-iframework");
-                clang_argv.appendAssumeCapacity(framework_dir);
                 framework_dirs.appendAssumeCapacity(framework_dir);
             }
 
@@ -898,10 +896,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             }
             for (paths.rpaths.items) |rpath| {
                 try rpath_list.append(rpath);
-            }
-
-            if (darwin_native and !std.zig.system.NativePaths.isNix() and std.zig.system.darwin.isDarwinSDKInstalled(arena)) {
-                darwin_sdk = std.zig.system.darwin.getDarwinSDK(arena, options.target);
             }
         }
 
@@ -1642,7 +1636,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .embed_file_work_queue = std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
-            .clang_argv = clang_argv.items,
+            .clang_argv = options.clang_argv,
             .c_source_files = options.c_source_files,
             .cache_parent = cache,
             .self_exe_path = options.self_exe_path,
@@ -4397,14 +4391,38 @@ pub fn addCCArgs(
             try argv.append("-isystem");
             try argv.append(c_headers_dir);
 
-            for (comp.libc_include_dir_list) |include_dir| {
-                try argv.append("-isystem");
-                try argv.append(include_dir);
+            if (comp.want_native_paths) {
+                const paths = std.zig.system.NativePaths.detect(arena, target) catch |err| {
+                    fatal("unable to detect native system paths: {s}", .{@errorName(err)});
+                };
+
+                for (paths.warnings.items) |warning| {
+                    std.log.warn("{s}", .{warning});
+                }
+
+                try argv.ensureUnusedCapacity(paths.include_dirs.items.len * 2);
+                for (paths.include_dirs.items) |include_dir| {
+                    argv.appendAssumeCapacity("-isystem");
+                    argv.appendAssumeCapacity(include_dir);
+                }
+
+                try argv.ensureUnusedCapacity(paths.framework_dirs.items.len * 2);
+                for (paths.framework_dirs.items) |framework_dir| {
+                    argv.appendAssumeCapacity("-iframework");
+                    argv.appendAssumeCapacity(framework_dir);
+                }
             }
 
+            try argv.ensureUnusedCapacity(comp.libc_include_dir_list.len * 2);
+            for (comp.libc_include_dir_list) |include_dir| {
+                argv.appendAssumeCapacity("-isystem");
+                argv.appendAssumeCapacity(include_dir);
+            }
+
+            try argv.ensureUnusedCapacity(comp.libc_framework_dir_list.len * 2);
             for (comp.libc_framework_dir_list) |framework_dir| {
-                try argv.append("-iframework");
-                try argv.append(framework_dir);
+                argv.appendAssumeCapacity("-iframework");
+                argv.appendAssumeCapacity(framework_dir);
             }
 
             if (target.cpu.model.llvm_name) |llvm_name| {
