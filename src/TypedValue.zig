@@ -32,15 +32,6 @@ pub fn copy(self: TypedValue, arena: Allocator) error{OutOfMemory}!TypedValue {
     };
 }
 
-pub fn eql(a: TypedValue, b: TypedValue, mod: *Module) bool {
-    if (a.ty.toIntern() != b.ty.toIntern()) return false;
-    return a.val.eql(b.val, a.ty, mod);
-}
-
-pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash, mod: *Module) void {
-    return tv.val.hash(tv.ty, hasher, mod);
-}
-
 pub fn intFromEnum(tv: TypedValue, mod: *Module) Allocator.Error!Value {
     return tv.val.intFromEnum(tv.ty, mod);
 }
