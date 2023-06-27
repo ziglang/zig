@@ -1397,8 +1397,8 @@ pub const DT = struct {
 };
 
 pub const accept_filter_arg = extern struct {
-    af_name: [16]u8,
-    af_args: [240]u8,
+    name: [16]u8,
+    args: [240]u8,
 };
 
 /// add event to kq (implies enable)
