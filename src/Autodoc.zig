@@ -136,6 +136,8 @@ pub fn generateZirData(self: *Autodoc) !void {
                             },
                         };
                     },
+                    .u0_type,
+                    .i0_type,
                     .u1_type,
                     .u8_type,
                     .i8_type,
