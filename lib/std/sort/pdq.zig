@@ -37,8 +37,9 @@ const Hint = enum {
 
 /// Unstable in-place sort. O(n) best case, O(n*log(n)) worst case and average case.
 /// O(log(n)) memory (no allocator required).
-///
-/// Sorts in ascending order with respect to the given `lessThan` function.
+/// `context` must have methods `swap` and `lessThan`,
+/// which each take 2 `usize` parameters indicating the index of an item.
+/// Sorts in ascending order with respect to `lessThan`.
 pub fn pdqContext(a: usize, b: usize, context: anytype) void {
     // slices of up to this length get sorted using insertion sort.
     const max_insertion = 24;
