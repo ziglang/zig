@@ -147,6 +147,7 @@ pub const ConnectionPool = struct {
 pub const Connection = struct {
     pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
     pub const Protocol = enum { plain, tls };
+    pub const BufferedReaderWriter = std.io.BufferedReaderWriter(buffer_size, 4096, *Connection);
 
     stream: net.Stream,
     /// undefined unless protocol is tls.
@@ -159,11 +160,9 @@ pub const Connection = struct {
     proxied: bool = false,
     closing: bool = false,
 
-    read_start: u16 = 0,
-    read_end: u16 = 0,
-    read_buf: [buffer_size]u8 = undefined,
+    buffered: BufferedReaderWriter,
 
-    pub fn rawReadAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
+    pub fn readAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
         return switch (conn.protocol) {
             .plain => conn.stream.readAtLeast(buffer, len),
             .tls => conn.tls_client.readAtLeast(conn.stream, buffer, len),
@@ -178,59 +177,6 @@ pub const Connection = struct {
                 else => return error.UnexpectedReadFailure,
             }
         };
-    }
-
-    pub fn fill(conn: *Connection) ReadError!void {
-        if (conn.read_end != conn.read_start) return;
-
-        const nread = try conn.rawReadAtLeast(conn.read_buf[0..], 1);
-        if (nread == 0) return error.EndOfStream;
-        conn.read_start = 0;
-        conn.read_end = @as(u16, @intCast(nread));
-    }
-
-    pub fn peek(conn: *Connection) []const u8 {
-        return conn.read_buf[conn.read_start..conn.read_end];
-    }
-
-    pub fn drop(conn: *Connection, num: u16) void {
-        conn.read_start += num;
-    }
-
-    pub fn readAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
-        assert(len <= buffer.len);
-
-        var out_index: u16 = 0;
-        while (out_index < len) {
-            const available_read = conn.read_end - conn.read_start;
-            const available_buffer = buffer.len - out_index;
-
-            if (available_read > available_buffer) { // partially read buffered data
-                @memcpy(buffer[out_index..], conn.read_buf[conn.read_start..conn.read_end][0..available_buffer]);
-                out_index += @as(u16, @intCast(available_buffer));
-                conn.read_start += @as(u16, @intCast(available_buffer));
-
-                break;
-            } else if (available_read > 0) { // fully read buffered data
-                @memcpy(buffer[out_index..][0..available_read], conn.read_buf[conn.read_start..conn.read_end]);
-                out_index += available_read;
-                conn.read_start += available_read;
-
-                if (out_index >= len) break;
-            }
-
-            const leftover_buffer = available_buffer - available_read;
-            const leftover_len = len - out_index;
-
-            if (leftover_buffer > conn.read_buf.len) {
-                // skip the buffer if the output is large enough
-                return conn.rawReadAtLeast(buffer[out_index..], leftover_len);
-            }
-
-            try conn.fill();
-        }
-
-        return out_index;
     }
 
     pub fn read(conn: *Connection, buffer: []u8) ReadError!usize {
@@ -536,8 +482,7 @@ pub const Request = struct {
 
     /// Send the request to the server.
     pub fn start(req: *Request) StartError!void {
-        var buffered = std.io.bufferedWriter(req.connection.?.data.writer());
-        const w = buffered.writer();
+        const w = req.connection.?.data.buffered.writer();
 
         try w.writeAll(@tagName(req.method));
         try w.writeByte(' ');
@@ -611,7 +556,7 @@ pub const Request = struct {
 
         try w.writeAll("\r\n");
 
-        try buffered.flush();
+        try req.connection.?.data.buffered.flush();
     }
 
     pub const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
@@ -627,7 +572,7 @@ pub const Request = struct {
 
         var index: usize = 0;
         while (index == 0) {
-            const amt = try req.response.parser.read(&req.connection.?.data, buf[index..], req.response.skip);
+            const amt = try req.response.parser.read(&req.connection.?.data.buffered, buf[index..], req.response.skip);
             if (amt == 0 and req.response.parser.done) break;
             index += amt;
         }
@@ -645,10 +590,11 @@ pub const Request = struct {
     pub fn wait(req: *Request) WaitError!void {
         while (true) { // handle redirects
             while (true) { // read headers
-                try req.connection.?.data.fill();
+                const rest = req.connection.?.data.buffered.peek(0);
+                if (rest.len == 0) return error.EndOfStream;
 
-                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.?.data.peek());
-                req.connection.?.data.drop(@as(u16, @intCast(nchecked)));
+                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, rest);
+                try req.connection.?.data.buffered.discard(@intCast(nchecked));
 
                 if (req.response.parser.state.isContent()) break;
             }
@@ -764,10 +710,12 @@ pub const Request = struct {
             const has_trail = !req.response.parser.state.isContent();
 
             while (!req.response.parser.state.isContent()) { // read trailing headers
-                try req.connection.?.data.fill();
+                const rest = req.connection.?.data.buffered.peek(0);
+                if (rest.len == 0) return error.EndOfStream;
 
-                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.?.data.peek());
-                req.connection.?.data.drop(@as(u16, @intCast(nchecked)));
+                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, rest);
+
+                try req.connection.?.data.buffered.discard(@intCast(nchecked));
             }
 
             if (has_trail) {
@@ -897,7 +845,7 @@ pub fn connectUnproxied(client: *Client, host: []const u8, port: u16, protocol: 
         .stream = stream,
         .tls_client = undefined,
         .protocol = protocol,
-
+        .buffered = Connection.BufferedReaderWriter.init(&conn.data),
         .host = try client.allocator.dupe(u8, host),
         .port = port,
     };
