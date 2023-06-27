@@ -233,10 +233,9 @@ fn handleSegfaultWindows(info: *os.windows.EXCEPTION_POINTERS) callconv(os.windo
 fn handleSegfaultWindowsExtra(info: *os.windows.EXCEPTION_POINTERS, comptime msg: WindowsSegfaultMessage) noreturn {
     PanicSwitch.preDispatch();
 
-    const stack_ctx = if (@hasDecl(os.windows, "CONTEXT")) ctx: {
-        const regs = info.ContextRecord.getRegs();
-        break :ctx StackContext{ .exception = regs };
-    } else ctx: {
+    const stack_ctx = if (@hasDecl(os.windows, "CONTEXT"))
+        StackContext{ .exception = info.ContextRecord }
+    else ctx: {
         const addr = @intFromPtr(info.ExceptionRecord.ExceptionAddress);
         break :ctx StackContext{ .current = .{ .ret_addr = addr } };
     };
@@ -251,7 +250,7 @@ fn handleSegfaultWindowsExtra(info: *os.windows.EXCEPTION_POINTERS, comptime msg
         },
         .illegal_instruction => {
             const ip: ?usize = switch (stack_ctx) {
-                .exception => |ex| ex.ip,
+                .exception => |ex| ex.getRegs().ip,
                 .current => |cur| cur.ret_addr,
                 .not_supported => null,
             };
@@ -272,7 +271,7 @@ const StackContext = union(enum) {
     current: struct {
         ret_addr: ?usize,
     },
-    exception: debug.StackTraceContext,
+    exception: *const debug.StackTraceContext,
     not_supported: void,
 
     pub fn dumpStackTrace(ctx: @This()) void {

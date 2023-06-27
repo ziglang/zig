@@ -135,7 +135,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 
 pub const StackTraceContext = blk: {
     if (native_os == .windows) {
-        break :blk @typeInfo(@TypeOf(os.windows.CONTEXT.getRegs)).Fn.return_type.?;
+        break :blk std.os.windows.CONTEXT;
     } else if (@hasDecl(os.system, "ucontext_t")) {
         break :blk os.ucontext_t;
     } else {
@@ -166,7 +166,14 @@ pub fn dumpStackTraceFromBase(context: *const StackTraceContext) void {
         };
         const tty_config = io.tty.detectConfig(io.getStdErr());
         if (native_os == .windows) {
-            writeCurrentStackTraceWindows(stderr, debug_info, tty_config, context.ip) catch return;
+            // On x86_64 and aarch64, the stack will be unwound using RtlVirtualUnwind using the context
+            // provided by the exception handler. On x86, RtlVirtualUnwind doesn't exist. Instead, a new backtrace
+            // will be captured and frames prior to the exception will be filtered.
+            // The caveat is that RtlCaptureStackBackTrace does not include the KiUserExceptionDispatcher frame,
+            // which is where the IP in `context` points to, so it can't be used as start_addr.
+            // Instead, start_addr is recovered from the stack.
+            const start_addr = if (builtin.cpu.arch == .x86) @as(*const usize, @ptrFromInt(context.getRegs().bp + 4)).* else null;
+            writeStackTraceWindows(stderr, debug_info, tty_config, context, start_addr) catch return;
             return;
         }
 
@@ -196,12 +203,12 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
     if (native_os == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const first_addr = first_address orelse {
-            stack_trace.index = walkStackWindows(addrs[0..]);
+            stack_trace.index = walkStackWindows(addrs[0..], null);
             return;
         };
         var addr_buf_stack: [32]usize = undefined;
         const addr_buf = if (addr_buf_stack.len > addrs.len) addr_buf_stack[0..] else addrs;
-        const n = walkStackWindows(addr_buf[0..]);
+        const n = walkStackWindows(addr_buf[0..], null);
         const first_index = for (addr_buf[0..n], 0..) |addr, i| {
             if (addr == first_addr) {
                 break i;
@@ -218,7 +225,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
         }
         stack_trace.index = slice.len;
     } else {
-        // TODO: This should use the dwarf unwinder if it's available
+        // TODO: This should use the DWARF unwinder if .eh_frame_hdr is available (so that full debug info parsing isn't required)
         var it = StackIterator.init(first_address, null);
         defer it.deinit();
         for (stack_trace.instruction_addresses, 0..) |*addr, i| {
@@ -415,10 +422,18 @@ pub fn writeStackTrace(
 
 inline fn getContext(context: *StackTraceContext) bool {
     if (native_os == .windows) {
-        @compileError("Syscall please!");
+        context.* = std.mem.zeroes(windows.CONTEXT);
+        windows.ntdll.RtlCaptureContext(context);
+        return true;
     }
 
-    return @hasDecl(os.system, "getcontext") and os.system.getcontext(context) == 0;
+    const supports_getcontext = @hasDecl(os.system, "getcontext") and
+        (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
+        .x86, .x86_64 => true,
+        else => false,
+    });
+
+    return supports_getcontext and os.system.getcontext(context) == 0;
 }
 
 pub const StackIterator = struct {
@@ -431,6 +446,7 @@ pub const StackIterator = struct {
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer).
     debug_info: ?*DebugInfo,
     dwarf_context: if (supports_context) DW.UnwindContext else void = undefined,
+
     pub const supports_context = @hasDecl(os.system, "ucontext_t") and
         (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
         .mips, .mipsel, .mips64, .mips64el, .riscv64 => false,
@@ -548,19 +564,20 @@ pub const StackIterator = struct {
         }
     }
 
-    fn next_dwarf(self: *StackIterator) !void {
+    fn next_dwarf(self: *StackIterator) !usize {
         const module = try self.debug_info.?.getModuleForAddress(self.dwarf_context.pc);
         if (try module.getDwarfInfoForAddress(self.debug_info.?.allocator, self.dwarf_context.pc)) |di| {
             self.dwarf_context.reg_ctx.eh_frame = true;
             self.dwarf_context.reg_ctx.is_macho = di.is_macho;
-            try di.unwindFrame(self.debug_info.?.allocator, &self.dwarf_context, module.base_address);
+            return di.unwindFrame(self.debug_info.?.allocator, &self.dwarf_context, module.base_address);
         } else return error.MissingDebugInfo;
     }
 
     fn next_internal(self: *StackIterator) ?usize {
         if (supports_context and self.debug_info != null) {
-            if (self.next_dwarf()) |_| {
-                return self.dwarf_context.pc;
+            if (self.dwarf_context.pc == 0) return null;
+            if (self.next_dwarf()) |return_address| {
+                return return_address;
             } else |err| {
                 if (err != error.MissingFDE) print("DWARF unwind error: {}\n", .{err});
 
@@ -611,12 +628,13 @@ pub fn writeCurrentStackTrace(
     tty_config: io.tty.Config,
     start_addr: ?usize,
 ) !void {
+    var context: StackTraceContext = undefined;
+    const has_context = getContext(&context);
     if (native_os == .windows) {
-        return writeCurrentStackTraceWindows(out_stream, debug_info, tty_config, start_addr);
+        return writeStackTraceWindows(out_stream, debug_info, tty_config, &context, start_addr);
     }
 
-    var context: StackTraceContext = undefined;
-    var it = (if (getContext(&context)) blk: {
+    var it = (if (has_context) blk: {
         break :blk StackIterator.initWithContext(start_addr, debug_info, &context) catch null;
     } else null) orelse StackIterator.init(start_addr, null);
     defer it.deinit();
@@ -632,7 +650,7 @@ pub fn writeCurrentStackTrace(
     }
 }
 
-pub noinline fn walkStackWindows(addresses: []usize) usize {
+pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const windows.CONTEXT) usize {
     if (builtin.cpu.arch == .x86) {
         // RtlVirtualUnwind doesn't exist on x86
         return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @as(**anyopaque, @ptrCast(addresses.ptr)), null);
@@ -640,8 +658,13 @@ pub noinline fn walkStackWindows(addresses: []usize) usize {
 
     const tib = @as(*const windows.NT_TIB, @ptrCast(&windows.teb().Reserved1));
 
-    var context: windows.CONTEXT = std.mem.zeroes(windows.CONTEXT);
-    windows.ntdll.RtlCaptureContext(&context);
+    var context: windows.CONTEXT = undefined;
+    if (existing_context) |context_ptr| {
+        context = context_ptr.*;
+    } else {
+        context = std.mem.zeroes(windows.CONTEXT);
+        windows.ntdll.RtlCaptureContext(&context);
+    }
 
     var i: usize = 0;
     var image_base: usize = undefined;
@@ -683,14 +706,15 @@ pub noinline fn walkStackWindows(addresses: []usize) usize {
     return i;
 }
 
-pub fn writeCurrentStackTraceWindows(
+pub fn writeStackTraceWindows(
     out_stream: anytype,
     debug_info: *DebugInfo,
     tty_config: io.tty.Config,
+    context: *const windows.CONTEXT,
     start_addr: ?usize,
 ) !void {
     var addr_buf: [1024]usize = undefined;
-    const n = walkStackWindows(addr_buf[0..]);
+    const n = walkStackWindows(addr_buf[0..], context);
     const addrs = addr_buf[0..n];
     var start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs, 0..) |addr, i| {
@@ -2164,16 +2188,15 @@ fn handleSegfaultWindowsExtra(
 }
 
 fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) void {
-    const regs = info.ContextRecord.getRegs();
     const stderr = io.getStdErr().writer();
     _ = switch (msg) {
         0 => stderr.print("{s}\n", .{label.?}),
         1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
-        2 => stderr.print("Illegal instruction at address 0x{x}\n", .{regs.ip}),
+        2 => stderr.print("Illegal instruction at address 0x{x}\n", .{info.ContextRecord.getRegs().ip}),
         else => unreachable,
     } catch os.abort();
 
-    dumpStackTraceFromBase(&regs);
+    dumpStackTraceFromBase(info.ContextRecord);
 }
 
 pub fn dumpStackPointerAddr(prefix: []const u8) void {

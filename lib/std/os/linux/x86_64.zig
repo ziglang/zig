@@ -425,6 +425,7 @@ pub inline fn getcontext(context: *ucontext_t) usize {
         \\ leaq (%[fpmem_offset])(%[context]), %%rcx
         \\ movq %%rcx, (%[fpstate_offset])(%[context])
         \\ fnstenv (%%rcx)
+        \\ fldenv (%%rcx)
         \\ stmxcsr (%[mxcsr_offset])(%[context])
         :
         : [context] "{rdi}" (context),

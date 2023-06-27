@@ -389,3 +389,57 @@ pub const SC = struct {
     pub const recvmmsg = 19;
     pub const sendmmsg = 20;
 };
+
+fn gpRegisterOffset(comptime reg_index: comptime_int) usize {
+    return @offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "gregs") + @sizeOf(usize) * reg_index;
+}
+
+pub inline fn getcontext(context: *ucontext_t) usize {
+    asm volatile (
+        \\ movl %%edi, (%[edi_offset])(%[context])
+        \\ movl %%esi, (%[esi_offset])(%[context])
+        \\ movl %%ebp, (%[ebp_offset])(%[context])
+        \\ movl %%esp, (%[esp_offset])(%[context])
+        \\ movl %%ebx, (%[ebx_offset])(%[context])
+        \\ movl %%edx, (%[edx_offset])(%[context])
+        \\ movl %%ecx, (%[ecx_offset])(%[context])
+        \\ movl %%eax, (%[eax_offset])(%[context])
+        \\ xorl %%ecx, %%ecx
+        \\ movw %%fs, %%cx
+        \\ movl %%ecx, (%[fs_offset])(%[context])
+        \\ leal (%[regspace_offset])(%[context]), %%ecx
+        \\ movl %%ecx, (%[fpregs_offset])(%[context])
+        \\ fnstenv (%%ecx)
+        \\ fldenv (%%ecx)
+        \\ call getcontext_read_eip
+        \\ getcontext_read_eip: pop %%ecx
+        \\ movl %%ecx, (%[eip_offset])(%[context])
+        :
+        : [context] "{edi}" (context),
+          [edi_offset] "p" (comptime gpRegisterOffset(REG.EDI)),
+          [esi_offset] "p" (comptime gpRegisterOffset(REG.ESI)),
+          [ebp_offset] "p" (comptime gpRegisterOffset(REG.EBP)),
+          [esp_offset] "p" (comptime gpRegisterOffset(REG.ESP)),
+          [ebx_offset] "p" (comptime gpRegisterOffset(REG.EBX)),
+          [edx_offset] "p" (comptime gpRegisterOffset(REG.EDX)),
+          [ecx_offset] "p" (comptime gpRegisterOffset(REG.ECX)),
+          [eax_offset] "p" (comptime gpRegisterOffset(REG.EAX)),
+          [eip_offset] "p" (comptime gpRegisterOffset(REG.EIP)),
+          [fs_offset] "p" (comptime gpRegisterOffset(REG.FS)),
+          [fpregs_offset] "p" (@offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "fpregs")),
+          [regspace_offset] "p" (@offsetOf(ucontext_t, "regspace")),
+        : "memory", "ecx"
+    );
+
+    // TODO: Read CS/SS registers?
+    // TODO: Store mxcsr state, need an actual definition of fpstate for that
+
+    // TODO: `flags` isn't present in the getcontext man page, figure out what to write here
+    context.flags = 0;
+    context.link = null;
+
+    const altstack_result = linux.sigaltstack(null, &context.stack);
+    if (altstack_result != 0) return altstack_result;
+
+    return linux.sigprocmask(0, null, &context.sigmask);
+}

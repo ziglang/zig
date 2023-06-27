@@ -1577,9 +1577,9 @@ pub const DwarfInfo = struct {
         }
     }
 
-    pub fn unwindFrame(di: *const DwarfInfo, allocator: mem.Allocator, context: *UnwindContext, module_base_address: usize) !void {
+    pub fn unwindFrame(di: *const DwarfInfo, allocator: mem.Allocator, context: *UnwindContext, module_base_address: usize) !usize {
         if (!comptime abi.isSupportedArch(builtin.target.cpu.arch)) return error.UnsupportedCpuArchitecture;
-        if (context.pc == 0) return;
+        if (context.pc == 0) return 0;
 
         // TODO: Handle unwinding from a signal frame (ie. use_prev_instr in libunwind)
 
@@ -1626,8 +1626,11 @@ pub const DwarfInfo = struct {
         }
 
         context.vm.reset();
+        context.reg_ctx.eh_frame = cie.version != 4;
 
-        const row = try context.vm.runToNative(allocator, mapped_pc, cie, fde);
+        _ = try context.vm.runToNative(allocator, mapped_pc, cie, fde);
+        const row = &context.vm.current_row;
+
         context.cfa = switch (row.cfa.rule) {
             .val_offset => |offset| blk: {
                 const register = row.cfa.register orelse return error.InvalidCFARule;
@@ -1650,7 +1653,7 @@ pub const DwarfInfo = struct {
         var next_ucontext = context.ucontext;
 
         var has_next_ip = false;
-        for (context.vm.rowColumns(row)) |column| {
+        for (context.vm.rowColumns(row.*)) |column| {
             if (column.register) |register| {
                 const dest = try abi.regBytes(&next_ucontext, register, context.reg_ctx);
                 if (register == cie.return_address_register) {
@@ -1670,6 +1673,14 @@ pub const DwarfInfo = struct {
         }
 
         mem.writeIntSliceNative(usize, try abi.regBytes(&context.ucontext, abi.spRegNum(context.reg_ctx), context.reg_ctx), context.cfa.?);
+
+        // The call instruction will have pushed the address of the instruction that follows the call as the return address
+        // However, this return address may be past the end of the function if the caller was `noreturn`.
+        // TODO: Check this on non-x86_64
+        const return_address = context.pc;
+        if (context.pc > 0) context.pc -= 1;
+
+        return return_address;
     }
 };
 

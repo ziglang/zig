@@ -386,7 +386,9 @@ pub const VirtualMachine = struct {
     }
 
     /// Runs the CIE instructions, then the FDE instructions. Execution halts
-    /// once the row that corresponds to `pc` is known, and it is returned.
+    /// once the row that corresponds to `pc` is known (and set as `current_row`).
+    ///
+    /// The state of the row prior to the last execution step is returned.
     pub fn runTo(
         self: *VirtualMachine,
         allocator: std.mem.Allocator,
