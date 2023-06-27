@@ -188,8 +188,8 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .anyerror_type => .{
                         .ErrorSet = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
-                    // should be an Enum but if we don't analyze std we don't get the ast node
-                    // since it's defined in std.builtin
+                    // should be different types but if we don't analyze std we don't get the ast nodes etc.
+                    // since they're defined in std.builtin
                     .calling_convention_type,
                     .atomic_order_type,
                     .atomic_rmw_op_type,
