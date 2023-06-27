@@ -73,6 +73,15 @@ test "stringify many-item sentinel-terminated string" {
     try teststringify("\"with unicode\\u0001\"", @as([*:0]const u8, "with unicode\u{1}"), StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
 }
 
+test "stringify enums" {
+    const E = enum {
+        foo,
+        bar,
+    };
+    try teststringify("\"foo\"", E.foo, .{});
+    try teststringify("\"bar\"", E.bar, .{});
+}
+
 test "stringify tagged unions" {
     const T = union(enum) {
         nothing,

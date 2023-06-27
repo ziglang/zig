@@ -167,7 +167,7 @@ pub fn stringify(
                 return value.jsonStringify(options, out_stream);
             }
 
-            @compileError("Unable to stringify enum '" ++ @typeName(T) ++ "'");
+            return try encodeJsonString(@tagName(value), options, out_stream);
         },
         .Union => {
             if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
