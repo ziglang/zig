@@ -1,22 +1,26 @@
 const std = @import("../std.zig");
 
 const io = std.io;
+const meta = std.meta;
 const mem = std.mem;
 
 pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) type {
     return struct {
         unbuffered_writer: WriterType,
-        buf: [buffer_size]u8 = undefined,
+        buf: [mem.alignForward(usize, buffer_size, @sizeOf(usize))]u8 = undefined,
         end: usize = 0,
 
-        pub const Error = WriterType.Error;
+        pub const WriterContainer = if (meta.trait.isContainer(WriterType)) WriterType else meta.Child(WriterType);
+        pub const Error = if (@hasDecl(WriterContainer, "WriteError")) WriterContainer.WriteError else WriterContainer.Error;
         pub const Writer = io.Writer(*Self, Error, write);
 
         const Self = @This();
 
-        pub fn flush(self: *Self) !void {
-            try self.unbuffered_writer.writeAll(self.buf[0..self.end]);
-            self.end = 0;
+        pub fn flush(self: *Self) Error!void {
+            if (self.end > 0) {
+                try self.unbuffered_writer.writeAll(self.buf[0..self.end]);
+                self.end = 0;
+            }
         }
 
         pub fn writer(self: *Self) Writer {
