@@ -497,7 +497,7 @@ pub fn Watch(comptime V: type) type {
                             const basename_ptr = @as([*]u16, @ptrCast(ptr + @sizeOf(windows.FILE_NOTIFY_INFORMATION)));
                             const basename_utf16le = basename_ptr[0 .. ev.FileNameLength / 2];
                             var basename_data: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                            const basename = basename_data[0 .. std.unicode.utf16leToUtf8(&basename_data, basename_utf16le) catch unreachable];
+                            const basename = basename_data[0 .. std.unicode.utf16LeToUtf8(&basename_data, basename_utf16le) catch unreachable];
 
                             if (dir.file_table.getEntry(basename)) |entry| {
                                 self.channel.put(Event{

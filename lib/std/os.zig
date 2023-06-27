@@ -5187,7 +5187,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             const wide_slice = try windows.GetFinalPathNameByHandle(fd, .{}, wide_buf[0..]);
 
             // Trust that Windows gives us valid UTF-16LE.
-            const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice) catch unreachable;
+            const end_index = std.unicode.utf16LeToUtf8(out_buffer, wide_slice) catch unreachable;
             return out_buffer[0..end_index];
         },
         .macos, .ios, .watchos, .tvos => {

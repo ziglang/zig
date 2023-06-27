@@ -579,8 +579,10 @@ fn testDecode(bytes: []const u8) !u21 {
     return utf8Decode(bytes);
 }
 
+pub const utf16leToUtf8Alloc = @compileError("deprecated; use utf16LeToUtf8Alloc");
+
 /// Caller must free returned memory.
-pub fn utf16leToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) ![]u8 {
+pub fn utf16LeToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) ![]u8 {
     // optimistically guess that it will all be ascii.
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len);
     errdefer result.deinit();
@@ -596,8 +598,10 @@ pub fn utf16leToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) ![]u8 
     return result.toOwnedSlice();
 }
 
+pub const utf16leToUtf8AllocZ = @compileError("deprecated; use utf16LeToUtf8AllocZ");
+
 /// Caller must free returned memory.
-pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]u8 {
+pub fn utf16LeToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]u8 {
     // optimistically guess that it will all be ascii (and allocate space for the null terminator)
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len + 1);
     errdefer result.deinit();
@@ -612,9 +616,11 @@ pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]
     return result.toOwnedSliceSentinel(0);
 }
 
+pub const utf16leToUtf8 = @compileError("deprecated; use utf16LeToUtf8");
+
 /// Asserts that the output buffer is big enough.
 /// Returns end byte index into utf8.
-pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !usize {
+pub fn utf16LeToUtf8(utf8: []u8, utf16le: []const u16) !usize {
     var end_index: usize = 0;
     var it = Utf16LeIterator.init(utf16le);
     while (try it.nextCodepoint()) |codepoint| {
@@ -623,14 +629,14 @@ pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !usize {
     return end_index;
 }
 
-test "utf16leToUtf8" {
+test "utf16LeToUtf8" {
     var utf16le: [2]u16 = undefined;
     const utf16le_as_bytes = mem.sliceAsBytes(utf16le[0..]);
 
     {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 'A');
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 'a');
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
+        const utf8 = try utf16LeToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "Aa"));
     }
@@ -638,7 +644,7 @@ test "utf16leToUtf8" {
     {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0x80);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xffff);
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
+        const utf8 = try utf16LeToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
     }
@@ -647,7 +653,7 @@ test "utf16leToUtf8" {
         // the values just outside the surrogate half range
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xd7ff);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xe000);
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
+        const utf8 = try utf16LeToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
     }
@@ -656,7 +662,7 @@ test "utf16leToUtf8" {
         // smallest surrogate pair
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xd800);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
+        const utf8 = try utf16LeToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
     }
@@ -665,7 +671,7 @@ test "utf16leToUtf8" {
         // largest surrogate pair
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdbff);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdfff);
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
+        const utf8 = try utf16LeToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
     }
@@ -673,7 +679,7 @@ test "utf16leToUtf8" {
     {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdbff);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
+        const utf8 = try utf16LeToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
     }
@@ -681,7 +687,7 @@ test "utf16leToUtf8" {
     {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdcdc);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdcdc);
-        const result = utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
+        const result = utf16LeToUtf8Alloc(std.testing.allocator, &utf16le);
         try std.testing.expectError(error.UnexpectedSecondSurrogateHalf, result);
     }
 }
@@ -839,8 +845,10 @@ fn formatUtf16le(
     try writer.writeAll(buf[0..u8len]);
 }
 
-/// Return a Formatter for a Utf16le string
-pub fn fmtUtf16le(utf16le: []const u16) std.fmt.Formatter(formatUtf16le) {
+pub const fmtUtf16le = @compileError("deprecated; use fmtUtf16Le");
+
+/// Return a Formatter for a Utf16Le string
+pub fn fmtUtf16Le(utf16le: []const u16) std.fmt.Formatter(formatUtf16le) {
     return .{ .data = utf16le };
 }
 

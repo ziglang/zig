@@ -269,7 +269,7 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
             const key_w = ptr[key_start..i];
-            const key = try std.unicode.utf16leToUtf8Alloc(allocator, key_w);
+            const key = try std.unicode.utf16LeToUtf8Alloc(allocator, key_w);
             errdefer allocator.free(key);
 
             if (ptr[i] == '=') i += 1;
@@ -277,7 +277,7 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
             const value_start = i;
             while (ptr[i] != 0) : (i += 1) {}
             const value_w = ptr[value_start..i];
-            const value = try std.unicode.utf16leToUtf8Alloc(allocator, value_w);
+            const value = try std.unicode.utf16LeToUtf8Alloc(allocator, value_w);
             errdefer allocator.free(value);
 
             i += 1; // skip over null byte
@@ -368,7 +368,7 @@ pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError
 
             break :blk std.os.getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
         };
-        return std.unicode.utf16leToUtf8Alloc(allocator, result_w) catch |err| switch (err) {
+        return std.unicode.utf16LeToUtf8Alloc(allocator, result_w) catch |err| switch (err) {
             error.DanglingSurrogateHalf => return error.InvalidUtf8,
             error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
             error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
@@ -578,7 +578,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
         /// cmd_line_utf16le MUST be encoded UTF16-LE, and is converted to UTF-8 in an internal buffer
         pub fn initUtf16le(allocator: Allocator, cmd_line_utf16le: [*:0]const u16) InitUtf16leError!Self {
             var utf16le_slice = mem.sliceTo(cmd_line_utf16le, 0);
-            var cmd_line = std.unicode.utf16leToUtf8Alloc(allocator, utf16le_slice) catch |err| switch (err) {
+            var cmd_line = std.unicode.utf16LeToUtf8Alloc(allocator, utf16le_slice) catch |err| switch (err) {
                 error.ExpectedSecondSurrogateHalf,
                 error.DanglingSurrogateHalf,
                 error.UnexpectedSecondSurrogateHalf,
