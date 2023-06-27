@@ -856,14 +856,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
-        var lib_dirs = std.ArrayList([]const u8).init(arena);
-        var framework_dirs = std.ArrayList([]const u8).init(arena);
-        var rpath_list = std.ArrayList([]const u8).init(arena);
-
-        try lib_dirs.appendSlice(options.lib_dirs);
-        try framework_dirs.appendSlice(options.framework_dirs);
-        try rpath_list.appendSlice(options.rpath_list);
-
         const darwin_native = (comptime builtin.target.isDarwin()) and options.target.isDarwin() and
             options.sysroot == null;
         comp.want_native_paths = (options.sysroot == null and options.is_native_os and
@@ -876,28 +868,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             std.zig.system.darwin.getDarwinSDK(arena, options.target)
         else
             null;
-
-        if (comp.want_native_paths) {
-            const paths = std.zig.system.NativePaths.detect(arena, options.target) catch |err| {
-                fatal("unable to detect native system paths: {s}", .{@errorName(err)});
-            };
-
-            for (paths.warnings.items) |warning| {
-                std.log.warn("{s}", .{warning});
-            }
-
-            try framework_dirs.ensureUnusedCapacity(paths.framework_dirs.items.len);
-            for (paths.framework_dirs.items) |framework_dir| {
-                framework_dirs.appendAssumeCapacity(framework_dir);
-            }
-
-            for (paths.lib_dirs.items) |lib_dir| {
-                try lib_dirs.append(lib_dir);
-            }
-            for (paths.rpaths.items) |rpath| {
-                try rpath_list.append(rpath);
-            }
-        }
 
         const sysroot = blk: {
             if (options.sysroot) |sysroot| break :blk sysroot;
@@ -981,7 +951,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const dll_export_fns = options.dll_export_fns orelse (is_dyn_lib or options.rdynamic);
 
-        const libc_dirs = try detectLibCIncludeDirs(
+        const libc_dirs = try comp.detectLibCDirs(
             arena,
             options.zig_lib_directory.path.?,
             options.target,
@@ -1496,6 +1466,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         for (options.system_lib_names, 0..) |lib_name, i| {
             system_libs.putAssumeCapacity(lib_name, options.system_lib_infos[i]);
         }
+
+        var lib_dirs = std.ArrayList([]const u8).init(arena);
+        try lib_dirs.appendSlice(options.lib_dirs);
+        try lib_dirs.appendSlice(libc_dirs.libc_lib_dir_list);
+
+        var framework_dirs = std.ArrayList([]const u8).init(arena);
+        try framework_dirs.appendSlice(options.framework_dirs);
+        try framework_dirs.appendSlice(libc_dirs.libc_framework_dir_list);
+
+        var rpath_list = std.ArrayList([]const u8).init(arena);
+        try rpath_list.appendSlice(options.rpath_list);
+        try rpath_list.appendSlice(libc_dirs.libc_rpath_list);
 
         const bin_file = try link.File.openPath(gpa, .{
             .emit = bin_file_emit,
@@ -4894,11 +4876,14 @@ test "classifyFileExt" {
 
 const LibCDirs = struct {
     libc_include_dir_list: []const []const u8,
+    libc_lib_dir_list: []const []const u8,
     libc_framework_dir_list: []const []const u8,
+    libc_rpath_list: []const []const u8,
     libc_installation: ?*const LibCInstallation,
 };
 
-fn detectLibCIncludeDirs(
+fn detectLibCDirs(
+    comp: *Compilation,
     arena: Allocator,
     zig_lib_dir: []const u8,
     target: Target,
@@ -4910,13 +4895,15 @@ fn detectLibCIncludeDirs(
     if (!link_libc) {
         return LibCDirs{
             .libc_include_dir_list = &[0][]u8{},
+            .libc_lib_dir_list = &[0][]u8{},
             .libc_framework_dir_list = &[0][]u8{},
+            .libc_rpath_list = &[0][]u8{},
             .libc_installation = null,
         };
     }
 
     if (libc_installation) |lci| {
-        return detectLibCFromLibCInstallation(arena, target, lci);
+        return comp.detectLibCFromLibCInstallation(arena, target, lci);
     }
 
     // If linking system libraries and targeting the native abi, default to
@@ -4942,7 +4929,7 @@ fn detectLibCIncludeDirs(
             },
             else => |e| return e,
         };
-        return detectLibCFromLibCInstallation(arena, target, libc);
+        return comp.detectLibCFromLibCInstallation(arena, target, libc);
     }
 
     // If not linking system libraries, build and provide our own libc by
@@ -4967,19 +4954,28 @@ fn detectLibCIncludeDirs(
             .darwin_sdk = darwin_sdk,
             .verbose = true,
         });
-        return detectLibCFromLibCInstallation(arena, target, libc);
+        return comp.detectLibCFromLibCInstallation(arena, target, libc);
     }
 
     return LibCDirs{
         .libc_include_dir_list = &[0][]u8{},
+        .libc_lib_dir_list = &[0][]u8{},
         .libc_framework_dir_list = &[0][]u8{},
+        .libc_rpath_list = &[0][]u8{},
         .libc_installation = null,
     };
 }
 
-fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const LibCInstallation) !LibCDirs {
+fn detectLibCFromLibCInstallation(
+    comp: *Compilation,
+    arena: Allocator,
+    target: Target,
+    lci: *const LibCInstallation,
+) !LibCDirs {
     var list = try std.ArrayList([]const u8).initCapacity(arena, 5);
+    var lib_dir_list = std.ArrayList([]const u8).init(arena);
     var framework_list = std.ArrayList([]const u8).init(arena);
+    var rpath_list = std.ArrayList([]const u8).init(arena);
 
     list.appendAssumeCapacity(lci.include_dir.?);
 
@@ -5011,9 +5007,33 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
         list.appendAssumeCapacity(config_dir);
     }
 
+    if (comp.want_native_paths) {
+        const paths = std.zig.system.NativePaths.detect(arena, target) catch |err| {
+            fatal("unable to detect native system paths: {s}", .{@errorName(err)});
+        };
+
+        for (paths.warnings.items) |warning| {
+            std.log.warn("{s}", .{warning});
+        }
+
+        try framework_list.ensureUnusedCapacity(paths.framework_dirs.items.len);
+        for (paths.framework_dirs.items) |framework_dir| {
+            framework_list.appendAssumeCapacity(framework_dir);
+        }
+
+        for (paths.lib_dirs.items) |lib_dir| {
+            try lib_dir_list.append(lib_dir);
+        }
+        for (paths.rpaths.items) |rpath| {
+            try rpath_list.append(rpath);
+        }
+    }
+
     return LibCDirs{
         .libc_include_dir_list = list.items,
+        .libc_lib_dir_list = lib_dir_list.items,
         .libc_framework_dir_list = framework_list.items,
+        .libc_rpath_list = rpath_list.items,
         .libc_installation = lci,
     };
 }
@@ -5047,7 +5067,9 @@ fn detectLibCFromBuilding(arena: Allocator, zig_lib_dir: []const u8, target: std
 
             return LibCDirs{
                 .libc_include_dir_list = list,
+                .libc_lib_dir_list = &[0][]u8{},
                 .libc_framework_dir_list = &[0][]u8{},
+                .libc_rpath_list = &[0][]u8{},
                 .libc_installation = null,
             };
         },
@@ -5099,7 +5121,9 @@ fn detectLibCFromBuilding(arena: Allocator, zig_lib_dir: []const u8, target: std
 
             return LibCDirs{
                 .libc_include_dir_list = list,
+                .libc_lib_dir_list = &[0][]u8{},
                 .libc_framework_dir_list = &[0][]u8{},
+                .libc_rpath_list = &[0][]u8{},
                 .libc_installation = null,
             };
         },
