@@ -110,8 +110,6 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
         .coreclr,
         .simulator,
         .macabi,
-        => unreachable,
-
         .pixel,
         .vertex,
         .geometry,
