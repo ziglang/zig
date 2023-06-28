@@ -324,7 +324,6 @@ pub fn categorizeOperand(
         .inferred_alloc,
         .inferred_alloc_comptime,
         .ret_ptr,
-        .interned,
         .trap,
         .breakpoint,
         .dbg_stmt,
@@ -981,7 +980,7 @@ fn analyzeInst(
         .work_group_id,
         => return analyzeOperands(a, pass, data, inst, .{ .none, .none, .none }),
 
-        .inferred_alloc, .inferred_alloc_comptime, .interned => unreachable,
+        .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
         .trap,
         .unreach,
@@ -1264,7 +1263,6 @@ fn analyzeOperands(
     operands: [bpi - 1]Air.Inst.Ref,
 ) Allocator.Error!void {
     const gpa = a.gpa;
-    const inst_tags = a.air.instructions.items(.tag);
     const ip = a.intern_pool;
 
     switch (pass) {
@@ -1273,10 +1271,6 @@ fn analyzeOperands(
 
             for (operands) |op_ref| {
                 const operand = Air.refToIndexAllowNone(op_ref) orelse continue;
-
-                // Don't compute any liveness for constants
-                if (inst_tags[operand] == .interned) continue;
-
                 _ = try data.live_set.put(gpa, operand, {});
             }
         },
@@ -1306,9 +1300,6 @@ fn analyzeOperands(
                     i -= 1;
                     const op_ref = operands[i];
                     const operand = Air.refToIndexAllowNone(op_ref) orelse continue;
-
-                    // Don't compute any liveness for constants
-                    if (inst_tags[operand] == .interned) continue;
 
                     const mask = @as(Bpi, 1) << @as(OperandInt, @intCast(i));
 
@@ -1836,10 +1827,6 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
             }
 
             const operand = Air.refToIndex(op_ref) orelse return;
-
-            // Don't compute any liveness for constants
-            const inst_tags = big.a.air.instructions.items(.tag);
-            if (inst_tags[operand] == .interned) return
 
             // If our result is unused and the instruction doesn't need to be lowered, backends will
             // skip the lowering of this instruction, so we don't want to record uses of operands.

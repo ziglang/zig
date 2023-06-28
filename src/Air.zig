@@ -438,9 +438,6 @@ pub const Inst = struct {
         /// was executed on the operand.
         /// Uses the `ty_pl` field. Payload is `TryPtr`.
         try_ptr,
-        /// A comptime-known value via an index into the InternPool.
-        /// Uses the `interned` field.
-        interned,
         /// Notes the beginning of a source code statement and marks the line and column.
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
@@ -879,6 +876,12 @@ pub const Inst = struct {
     /// The position of an AIR instruction within the `Air` instructions array.
     pub const Index = u32;
 
+    /// Either a reference to a value stored in the InternPool, or a reference to an AIR instruction.
+    /// The most-significant bit of the value is a tag bit. This bit is 1 if the value represents an
+    /// instruction index and 0 if it represents an InternPool index.
+    ///
+    /// The hardcoded refs `none` and `var_args_param_type` are exceptions to this rule: they have
+    /// their tag bit set but refer to the InternPool.
     pub const Ref = enum(u32) {
         u0_type = @intFromEnum(InternPool.Index.u0_type),
         i0_type = @intFromEnum(InternPool.Index.i0_type),
@@ -979,7 +982,6 @@ pub const Inst = struct {
     pub const Data = union {
         no_op: void,
         un_op: Ref,
-        interned: InternPool.Index,
 
         bin_op: struct {
             lhs: Ref,
@@ -1216,11 +1218,11 @@ pub fn getMainBody(air: Air) []const Air.Inst.Index {
 }
 
 pub fn typeOf(air: *const Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
-    const ref_int = @intFromEnum(inst);
-    if (ref_int < InternPool.static_keys.len) {
-        return InternPool.static_keys[ref_int].typeOf().toType();
+    if (refToInterned(inst)) |ip_index| {
+        return ip.typeOf(ip_index).toType();
+    } else {
+        return air.typeOfIndex(refToIndex(inst).?, ip);
     }
-    return air.typeOfIndex(ref_int - ref_start_index, ip);
 }
 
 pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
@@ -1341,8 +1343,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .ptr_sub,
         .try_ptr,
         => return air.getRefType(datas[inst].ty_pl.ty),
-
-        .interned => return ip.typeOf(datas[inst].interned).toType(),
 
         .not,
         .bitcast,
@@ -1479,18 +1479,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 }
 
 pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
-    const ref_int = @intFromEnum(ref);
-    if (ref_int < ref_start_index) {
-        const ip_index = @as(InternPool.Index, @enumFromInt(ref_int));
-        return ip_index.toType();
-    }
-    const inst_index = ref_int - ref_start_index;
-    const air_tags = air.instructions.items(.tag);
-    const air_datas = air.instructions.items(.data);
-    return switch (air_tags[inst_index]) {
-        .interned => air_datas[inst_index].interned.toType(),
-        else => unreachable,
-    };
+    _ = air; // TODO: remove this parameter
+    return refToInterned(ref).?.toType();
 }
 
 /// Returns the requested data, as well as the new index which is at the start of the
@@ -1521,40 +1511,56 @@ pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
     air.* = undefined;
 }
 
-pub const ref_start_index: u32 = InternPool.static_len;
+pub fn refToInternedAllowNone(ref: Inst.Ref) ?InternPool.Index {
+    return switch (ref) {
+        .var_args_param_type => .var_args_param_type,
+        .none => .none,
+        else => if (@intFromEnum(ref) >> 31 == 0) {
+            return @as(InternPool.Index, @enumFromInt(@intFromEnum(ref)));
+        } else null,
+    };
+}
+
+pub fn refToInterned(ref: Inst.Ref) ?InternPool.Index {
+    assert(ref != .none);
+    return refToInternedAllowNone(ref);
+}
+
+pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
+    assert(@intFromEnum(ip_index) >> 31 == 0);
+    return switch (ip_index) {
+        .var_args_param_type => .var_args_param_type,
+        .none => .none,
+        else => @enumFromInt(@as(u31, @intCast(@intFromEnum(ip_index)))),
+    };
+}
+
+pub fn refToIndexAllowNone(ref: Inst.Ref) ?Inst.Index {
+    return switch (ref) {
+        .var_args_param_type, .none => null,
+        else => if (@intFromEnum(ref) >> 31 != 0) {
+            return @as(u31, @truncate(@intFromEnum(ref)));
+        } else null,
+    };
+}
+
+pub fn refToIndex(ref: Inst.Ref) ?Inst.Index {
+    assert(ref != .none);
+    return refToIndexAllowNone(ref);
+}
 
 pub fn indexToRef(inst: Inst.Index) Inst.Ref {
-    return @as(Inst.Ref, @enumFromInt(ref_start_index + inst));
-}
-
-pub fn refToIndex(inst: Inst.Ref) ?Inst.Index {
-    assert(inst != .none);
-    const ref_int = @intFromEnum(inst);
-    if (ref_int >= ref_start_index) {
-        return ref_int - ref_start_index;
-    } else {
-        return null;
-    }
-}
-
-pub fn refToIndexAllowNone(inst: Inst.Ref) ?Inst.Index {
-    if (inst == .none) return null;
-    return refToIndex(inst);
+    assert(inst >> 31 == 0);
+    return @enumFromInt((1 << 31) | inst);
 }
 
 /// Returns `null` if runtime-known.
 pub fn value(air: Air, inst: Inst.Ref, mod: *Module) !?Value {
-    const ref_int = @intFromEnum(inst);
-    if (ref_int < ref_start_index) {
-        const ip_index = @as(InternPool.Index, @enumFromInt(ref_int));
+    if (refToInterned(inst)) |ip_index| {
         return ip_index.toValue();
     }
-    const inst_index = @as(Air.Inst.Index, @intCast(ref_int - ref_start_index));
-    const air_datas = air.instructions.items(.data);
-    switch (air.instructions.items(.tag)[inst_index]) {
-        .interned => return air_datas[inst_index].interned.toValue(),
-        else => return air.typeOfIndex(inst_index, &mod.intern_pool).onePossibleValue(mod),
-    }
+    const index = refToIndex(inst).?;
+    return air.typeOfIndex(index, &mod.intern_pool).onePossibleValue(mod);
 }
 
 pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {
@@ -1709,7 +1715,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .cmp_neq_optimized,
         .cmp_vector,
         .cmp_vector_optimized,
-        .interned,
         .is_null,
         .is_non_null,
         .is_null_ptr,

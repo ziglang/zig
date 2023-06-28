@@ -4557,7 +4557,7 @@ pub const FuncGen = struct {
 
                 .vector_store_elem => try self.airVectorStoreElem(inst),
 
-                .inferred_alloc, .inferred_alloc_comptime, .interned => unreachable,
+                .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
                 .unreach  => self.airUnreach(inst),
                 .dbg_stmt => self.airDbgStmt(inst),
@@ -5762,19 +5762,22 @@ pub const FuncGen = struct {
 
                 return self.loadByRef(elem_ptr, elem_ty, elem_ty.abiAlignment(mod), false);
             } else {
-                const lhs_index = Air.refToIndex(bin_op.lhs).?;
                 const elem_llvm_ty = try o.lowerType(elem_ty);
-                if (self.air.instructions.items(.tag)[lhs_index] == .load) {
-                    const load_data = self.air.instructions.items(.data)[lhs_index];
-                    const load_ptr = load_data.ty_op.operand;
-                    const load_ptr_tag = self.air.instructions.items(.tag)[Air.refToIndex(load_ptr).?];
-                    switch (load_ptr_tag) {
-                        .struct_field_ptr, .struct_field_ptr_index_0, .struct_field_ptr_index_1, .struct_field_ptr_index_2, .struct_field_ptr_index_3 => {
-                            const load_ptr_inst = try self.resolveInst(load_ptr);
-                            const gep = self.builder.buildInBoundsGEP(array_llvm_ty, load_ptr_inst, &indices, indices.len, "");
-                            return self.builder.buildLoad(elem_llvm_ty, gep, "");
-                        },
-                        else => {},
+                if (Air.refToIndex(bin_op.lhs)) |lhs_index| {
+                    if (self.air.instructions.items(.tag)[lhs_index] == .load) {
+                        const load_data = self.air.instructions.items(.data)[lhs_index];
+                        const load_ptr = load_data.ty_op.operand;
+                        if (Air.refToIndex(load_ptr)) |load_ptr_index| {
+                            const load_ptr_tag = self.air.instructions.items(.tag)[load_ptr_index];
+                            switch (load_ptr_tag) {
+                                .struct_field_ptr, .struct_field_ptr_index_0, .struct_field_ptr_index_1, .struct_field_ptr_index_2, .struct_field_ptr_index_3 => {
+                                    const load_ptr_inst = try self.resolveInst(load_ptr);
+                                    const gep = self.builder.buildInBoundsGEP(array_llvm_ty, load_ptr_inst, &indices, indices.len, "");
+                                    return self.builder.buildLoad(elem_llvm_ty, gep, "");
+                                },
+                                else => {},
+                            }
+                        }
                     }
                 }
                 const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_ty, array_llvm_val, &indices, indices.len, "");
