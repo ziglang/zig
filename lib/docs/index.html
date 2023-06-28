@@ -25,8 +25,8 @@
         --search-bg-color-focus: #ffffff;
         --search-sh-color: rgba(0, 0, 0, 0.18);
         --search-other-results-color: rgb(100, 100, 100);
-        --help-sh-color: rgba(0, 0, 0, 0.75);
-        --help-bg-color: #aaa;
+        --modal-sh-color: rgba(0, 0, 0, 0.75);
+        --modal-bg-color: #aaa;
       }
 
       html, body { margin: 0; padding: 0; height: 100%; }
@@ -99,7 +99,7 @@
         flex-shrink: 1;
       }
 
-      .help-modal {
+      .modal-container {
         z-index: 400;
       }
 
@@ -412,8 +412,8 @@
         padding: 1px 1em;
       }
 
-      /* help modal */
-      .help-modal {
+      /* modals */
+      .modal-container {
         display: flex;
         width: 100%;
         height: 100%;
@@ -426,29 +426,36 @@
         backdrop-filter: blur(0.3em);
       }
 
-      .help-modal > .modal {
+      .modal-container > .modal {
         max-width: 97vw;
         max-height: 97vh;
         overflow: auto;
         font-size: 1rem;
         color: #fff;
-        background-color: var(--help-bg-color);
+        background-color: var(--modal-bg-color);
         border: 0.125rem solid #000;
-        box-shadow: 0 0.5rem 2.5rem 0.3rem var(--help-sh-color);
+        box-shadow: 0 0.5rem 2.5rem 0.3rem var(--modal-sh-color);
       }
 
-      .help-modal h1 {
+      .modal-container h1 {
         margin: 0.75em 2.5em 1em 2.5em;
         font-size: 1.5em;
         text-align: center;
       }
 
-      .help-modal dt, .help-modal dd {
+      .modal-container dt, .modal-container dd {
         display: inline;
         margin: 0 0.2em;
       }
 
-      .help-modal dl {
+      .modal-container dl {
+        margin-left: 0.5em;
+        margin-right: 0.5em;
+      }
+
+      .prefs-list {
+        list-style: none;
+        padding: 0;
         margin-left: 0.5em;
         margin-right: 0.5em;
       }
@@ -539,8 +546,8 @@
           --search-bg-color-focus: #000;
           --search-sh-color: rgba(255, 255, 255, 0.28);
           --search-other-results-color: rgba(255, 255, 255, 0.28);
-          --help-sh-color: rgba(142, 142, 142, 0.5);
-          --help-bg-color: #333;
+          --modal-sh-color: rgba(142, 142, 142, 0.5);
+          --modal-bg-color: #333;
         }
 
         .docs pre {
@@ -677,13 +684,13 @@
     </style>
   </head>
   <body class="canvas">
-    <div class="banner">
+    <div id="banner" class="banner">
       This is a beta autodoc build; expect bugs and missing information.
       <a href="https://github.com/ziglang/zig/wiki/How-to-contribute-to-Autodoc">Report an Issue</a>,
       <a href="https://github.com/ziglang/zig/wiki/How-to-contribute-to-Autodoc">Contribute</a>,
       <a href="https://github.com/ziglang/zig/wiki/How-to-read-the-standard-library-source-code">Learn more about stdlib source code</a>.
     </div>
-    <div class="flex-main">
+    <div id="main" class="flex-main">
       <div class="flex-filler"></div>
       <div class="flex-left sidebar">
         <nav>
@@ -758,7 +765,7 @@
         <div class="wrap">
           <section class="docs" style="padding-top: 1.5rem; padding-bottom:0;">
           <div style="position: relative">
-            <span id="searchPlaceholder"><kbd>/</kbd> or <kbd>s</kbd> to search, <kbd>?</kbd> for more options</span>
+            <span id="searchPlaceholder"><!-- populated by setPrefSlashSearch --></span>
             <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
           </div>
           </section>
@@ -872,17 +879,28 @@
       </div>
     </div>
     <div id="helpModal" class="hidden">
-      <div class="help-modal">
+      <div class="modal-container">
         <div class="modal">
           <h1>Keyboard Shortcuts</h1>
           <dl><dt><kbd>?</kbd></dt><dd>Toggle this help modal</dd></dl>
-          <dl><dt><kbd>s</kbd> or <kbd>/</kbd></dt><dd>Focus the search field</dd></dl>
+          <dl><dt id="searchKeys"><!-- populated by setPrefSlashSearch --></dt><dd>Focus the search field</dd></dl>
           <div style="margin-left: 1em">
             <dl><dt><kbd>↑</kbd></dt><dd>Move up in search results</dd></dl>
             <dl><dt><kbd>↓</kbd></dt><dd>Move down in search results</dd></dl>
             <dl><dt><kbd>⏎</kbd></dt><dd>Go to active search result</dd></dl>
           </div>
+          <dl><dt><kbd>p</kbd></dt><dd>Open preferences</dd></dl>
           <dl><dt><kbd>Esc</kbd></dt><dd>Clear focus; close this modal</dd></dl>
+        </div>
+      </div>
+    </div>
+    <div id="prefsModal" class="hidden">
+      <div class="modal-container">
+        <div class="modal">
+          <h1>Preferences</h1>
+          <ul class="prefs-list">
+            <li><input id="prefSlashSearch" type="checkbox"><label for="prefSlashSearch">Enable <kbd>/</kbd> for search</label></li>
+          </ul>
         </div>
       </div>
     </div>

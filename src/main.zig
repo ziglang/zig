@@ -1096,7 +1096,7 @@ fn buildOutputType(
                         dead_strip_dylibs = true;
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         linker_script = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "--version-script")) {
+                    } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                         version_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--library") or mem.eql(u8, arg, "-l")) {
                         // We don't know whether this library is part of libc or libc++ until
@@ -1930,7 +1930,7 @@ fn buildOutputType(
                     mem.eql(u8, arg, "-export-dynamic"))
                 {
                     rdynamic = true;
-                } else if (mem.eql(u8, arg, "--version-script")) {
+                } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                     version_script = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "-O")) {
                     const opt = linker_args_it.nextOrFatal();
