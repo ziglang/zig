@@ -26,6 +26,14 @@
         --dark-search-other-results-color: rgba(255, 255, 255, 0.28);
         --dark-modal-sh-color: rgba(142, 142, 142, 0.5);
         --dark-modal-bg-color: #333;
+        --dark-token-kw-color: #eee;
+        --dark-token-str-color: #2e5;
+        --dark-token-builtin-color: #ff894c;
+        --dark-token-comment-color: #aa7;
+        --dark-token-fn-color: #e33;
+        --dark-token-null-color: #ff8080;
+        --dark-token-number-color: #ff8080;
+        --dark-token-type-color: #68f;
 
         /* light */
         --light-tx-color: #141414;
@@ -47,6 +55,14 @@
         --light-search-other-results-color: rgb(100, 100, 100);
         --light-modal-sh-color: rgba(0, 0, 0, 0.75);
         --light-modal-bg-color: #aaa;
+        --light-token-kw-color: #333;
+        --light-token-str-color: #d14;
+        --light-token-builtin-color: #0086b3;
+        --light-token-comment-color: #777;
+        --light-token-fn-color: #900;
+        --light-token-null-color: #008080;
+        --light-token-number-color: #008080;
+        --light-token-type-color: #458;
       }
 
       :root {
@@ -72,6 +88,15 @@
         --search-other-results-color: var(--dark-search-other-results-color);
         --modal-sh-color: var(--dark-modal-sh-color);
         --modal-bg-color: var(--dark-modal-bg-color);
+
+        --token-kw-color: var(--dark-token-kw-color);
+        --token-str-color: var(--dark-token-str-color);
+        --token-builtin-color: var(--dark-token-builtin-color);
+        --token-comment-color: var(--dark-token-comment-color);
+        --token-fn-color: var(--dark-token-fn-color);
+        --token-null-color: var(--dark-token-null-color);
+        --token-number-color: var(--dark-token-number-color);
+        --token-type-color: var(--dark-token-type-color);
       }
 
       body[data-colortheme='light'] {
@@ -95,6 +120,14 @@
         --modal-sh-color: var(--light-modal-sh-color);
         --modal-bg-color: var(--light-modal-bg-color);
 
+        --token-kw-color: var(--light-token-kw-color);
+        --token-str-color: var(--light-token-str-color);
+        --token-builtin-color: var(--light-token-builtin-color);
+        --token-comment-color: var(--light-token-comment-color);
+        --token-fn-color: var(--light-token-fn-color);
+        --token-null-color: var(--light-token-null-color);
+        --token-number-color: var(--light-token-number-color);
+        --token-type-color: var(--light-token-type-color);
       }
 
       html, body { margin: 0; padding: 0; height: 100%; }
@@ -566,34 +599,33 @@
         display: none;
       }
 
-      /* TODO: Change tokens to use CSS variables */
       /* tokens */
       .tok-kw {
-          color: #333;
+          color: var(--token-kw-color);
           font-weight: bold;
       }
       .tok-str {
-          color: #d14;
+          color: var(--token-str-color);
       }
       .tok-builtin {
-          color: #0086b3;
+          color: var(--token-builtin-color);
       }
       .tok-comment {
-          color: #777;
+          color: var(--token-comment-color);
           font-style: italic;
       }
       .tok-fn {
-          color: #900;
+          color: var(--token-fn-color);
           font-weight: bold;
       }
       .tok-null {
-          color: #008080;
+          color: var(--token-null-color);
       }
       .tok-number {
-          color: #008080;
+          color: var(--token-number-color);
       }
       .tok-type {
-          color: #458;
+          color: var(--token-type-color);
           font-weight: bold;
       }
 
@@ -608,30 +640,6 @@
         }
         #listSearchResults li.selected a {
           color: #fff;
-        }
-        .tok-kw {
-            color: #eee;
-        }
-        .tok-str {
-            color: #2e5;
-        }
-        .tok-builtin {
-            color: #ff894c;
-        }
-        .tok-comment {
-            color: #aa7;
-        }
-        .tok-fn {
-            color: #e33;
-        }
-        .tok-null {
-            color: #ff8080;
-        }
-        .tok-number {
-            color: #ff8080;
-        }
-        .tok-type {
-            color: #68f;
         }
       }
 
