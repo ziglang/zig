@@ -25926,9 +25926,13 @@ fn structFieldPtrByIndex(
                 ptr_ty_data.packed_offset = .{ .host_size = 0, .bit_offset = 0 };
             }
         }
-    } else if (struct_obj.layout == .Extern and field_index == 0) {
-        // This is the first field in memory, so can inherit the struct alignment
-        ptr_ty_data.flags.alignment = Alignment.fromByteUnits(parent_align);
+    } else if (struct_obj.layout == .Extern) {
+        // For extern structs, field aligment might be bigger than type's natural alignment. Eg, in
+        // `extern struct { x: u32, y: u16 }` the second field is aligned as u32.
+        const field_offset = struct_ty.structFieldOffset(field_index, mod);
+        ptr_ty_data.flags.alignment = Alignment.fromByteUnits(
+            if (parent_align == 0) 0 else std.math.gcd(field_offset, parent_align),
+        );
     } else {
         // Our alignment is capped at the field alignment
         const field_align = try sema.structFieldAlignment(field, struct_obj.layout);
