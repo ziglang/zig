@@ -10,6 +10,7 @@
         /* dark */
         --dark-tx-color: #bbb;
         --dark-bg-color: #111;
+        --dark-doc-pre-color: #2a2a2a;
         --dark-link-color: #88f;
         --dark-sidebar-sh-color: rgba(128, 128, 128, 0.09);
         --dark-sidebar-mod-bg-color: #333;
@@ -29,6 +30,7 @@
         /* light */
         --light-tx-color: #141414;
         --light-bg-color: #ffffff;
+        --light-doc-pre-color: #f5f5f5;
         --light-link-color: #2A6286;
         --light-sidebar-sh-color: rgba(0, 0, 0, 0.09);
         --light-sidebar-mod-bg-color: #f1f1f1;
@@ -40,6 +42,7 @@
         --light-sidebar-modlnk-bg-color-active: #FFBB4D;
         --light-search-bg-color: #f3f3f3;
         --light-search-bg-color-focus: #ffffff;
+        --light-search-border-bottom-color: #ffbb4d;
         --light-search-sh-color: rgba(0, 0, 0, 0.18);
         --light-search-other-results-color: rgb(100, 100, 100);
         --light-modal-sh-color: rgba(0, 0, 0, 0.75);
@@ -52,6 +55,7 @@
         --mono: "Source Code Pro", monospace;
         --tx-color: var(--dark-tx-color);
         --bg-color: var(--dark-bg-color);
+        --doc-pre-color: var(--dark-doc-pre-color);
         --link-color: var(--dark-link-color);
         --sidebar-sh-color: var(--dark-sidebar-sh-color);
         --sidebar-mod-bg-color: var(--dark-sidebar-mod-bg-color);
@@ -63,6 +67,7 @@
         --sidebar-modlnk-bg-color-active: var(--dark-sidebar-modlnk-bg-color-active);
         --search-bg-color: var(--dark-search-bg-color);
         --search-bg-color-focus: var(--dark-search-bg-color-focus);
+        --search-border-bottom-color: var(--dark-search-border-bottom-color);
         --search-sh-color: var(--dark-search-sh-color);
         --search-other-results-color: var(--dark-search-other-results-color);
         --modal-sh-color: var(--dark-modal-sh-color);
@@ -72,6 +77,7 @@
       body[data-colortheme='light'] {
         --tx-color: var(--light-tx-color);
         --bg-color: var(--light-bg-color);
+        --doc-pre-color: var(--light-doc-pre-color);
         --link-color: var(--light-link-color);
         --sidebar-sh-color: var(--light-sidebar-sh-color);
         --sidebar-mod-bg-color: var(--light-sidebar-mod-bg-color);
@@ -83,6 +89,7 @@
         --sidebar-modlnk-bg-color-active: var(--light-sidebar-modlnk-bg-color-active);
         --search-bg-color: var(--light-search-bg-color);
         --search-bg-color-focus: var(--light-search-bg-color-focus);
+        --search-border-bottom-color: var(--light-search-border-bottom-color);
         --search-sh-color: var(--light-search-sh-color);
         --search-other-results-color: var(--light-search-other-results-color);
         --modal-sh-color: var(--light-modal-sh-color);
@@ -300,7 +307,7 @@
 
       .docs .search:focus {
         background-color: var(--search-bg-color-focus);
-        border-bottom-color: #ffbb4d;
+        border-bottom-color: var(--search-border-bottom-color);
         box-shadow: 0 0.3em 1em 0.125em var(--search-sh-color);
       }
 
@@ -353,7 +360,7 @@
       .docs pre {
         font-family: var(--mono);
         font-size: 1em;
-        background-color: #F5F5F5;
+        background-color: var(--doc-pre-color);
         padding: 1em;
         overflow-x: auto;
       }
@@ -381,25 +388,25 @@
         margin: 0;
         padding: 0;
         overflow: hidden;
-        background-color: #f1f1f1;
+        background-color: var(--sidebar-mod-bg-color);
       }
       #listNav li {
         float:left;
       }
       #listNav li a {
         display: block;
-        color: #000;
+        color: var(--sidebar-modlnk-tx-color-active);
         text-align: center;
         padding: .5em .8em;
         text-decoration: none;
       }
       #listNav li a:hover {
-        background-color: #555;
-        color: #fff;
+        background-color: var(--sidebar-modlnk-bg-color-hover);
+        color: var(--sidebar-modlnk-tx-color-hover);
       }
       #listNav li a.active {
-        background-color: #FFBB4D;
-        color: #000;
+        background-color: var(--sidebar-modlnk-bg-color-active);
+        color: var(--sidebar-modlnk-tx-color-active);
       }
 
       #listSearchResults li.selected {
@@ -559,6 +566,7 @@
         display: none;
       }
 
+      /* TODO: Change tokens to use CSS variables */
       /* tokens */
       .tok-kw {
           color: #333;
@@ -592,25 +600,8 @@
       /* dark mode */
       @media (prefers-color-scheme: dark) {
 
-        .docs pre {
-          background-color:#2A2A2A;
-        }
         .fieldDocs {
           border-color:#2A2A2A;
-        }
-        #listNav {
-          background-color: #333;
-        }
-        #listNav li a {
-          color: #fff;
-        }
-        #listNav li a:hover {
-          background-color: #555;
-          color: #fff;
-        }
-        #listNav li a.active {
-          background-color: #FFBB4D;
-          color: #000;
         }
         #listSearchResults li.selected {
           background-color: #000;
@@ -758,8 +749,8 @@
               </g>
             </g>
             <style>
-            #text { fill: #121212 }
-            @media (prefers-color-scheme: dark) { #text { fill: #f2f2f2 } }
+            body[data-colortheme='light'] #text { fill: #121212 }
+            body[data-colortheme='dark'] #text { fill: #f2f2f2 }
             </style>
             <g id="text">
               <g>
