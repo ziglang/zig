@@ -400,35 +400,53 @@ fn gpRegisterOffset(comptime reg_index: comptime_int) usize {
     return @offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "gregs") + @sizeOf(usize) * reg_index;
 }
 
-pub inline fn getcontext(context: *ucontext_t) usize {
+fn getContextInternal() callconv(.Naked) void {
+    // TODO: Read GS/FS registers?
     asm volatile (
-        \\ movq %%r8, (%[r8_offset])(%[context])
-        \\ movq %%r9, (%[r9_offset])(%[context])
-        \\ movq %%r10, (%[r10_offset])(%[context])
-        \\ movq %%r11, (%[r11_offset])(%[context])
-        \\ movq %%r12, (%[r12_offset])(%[context])
-        \\ movq %%r13, (%[r13_offset])(%[context])
-        \\ movq %%r14, (%[r14_offset])(%[context])
-        \\ movq %%r15, (%[r15_offset])(%[context])
-        \\ movq %%rdi, (%[rdi_offset])(%[context])
-        \\ movq %%rsi, (%[rsi_offset])(%[context])
-        \\ movq %%rbp, (%[rbp_offset])(%[context])
-        \\ movq %%rbx, (%[rbx_offset])(%[context])
-        \\ movq %%rdx, (%[rdx_offset])(%[context])
-        \\ movq %%rax, (%[rax_offset])(%[context])
-        \\ movq %%rcx, (%[rcx_offset])(%[context])
-        \\ movq %%rsp, (%[rsp_offset])(%[context])
-        \\ leaq (%%rip), %%rcx
-        \\ movq %%rcx, (%[rip_offset])(%[context])
+        \\ movq $0, (%[flags_offset])(%%rdi)
+        \\ movq $0, (%[link_offset])(%%rdi)
+        \\ movq %%r8, (%[r8_offset])(%%rdi)
+        \\ movq %%r9, (%[r9_offset])(%%rdi)
+        \\ movq %%r10, (%[r10_offset])(%%rdi)
+        \\ movq %%r11, (%[r11_offset])(%%rdi)
+        \\ movq %%r12, (%[r12_offset])(%%rdi)
+        \\ movq %%r13, (%[r13_offset])(%%rdi)
+        \\ movq %%r14, (%[r14_offset])(%%rdi)
+        \\ movq %%r15, (%[r15_offset])(%%rdi)
+        \\ movq %%rdi, (%[rdi_offset])(%%rdi)
+        \\ movq %%rsi, (%[rsi_offset])(%%rdi)
+        \\ movq %%rbp, (%[rbp_offset])(%%rdi)
+        \\ movq %%rbx, (%[rbx_offset])(%%rdi)
+        \\ movq %%rdx, (%[rdx_offset])(%%rdi)
+        \\ movq %%rax, (%[rax_offset])(%%rdi)
+        \\ movq %%rcx, (%[rcx_offset])(%%rdi)
+        \\ movq (%%rsp), %%rcx
+        \\ movq %%rcx, (%[rip_offset])(%%rdi)
+        \\ leaq 8(%%rsp), %%rcx
+        \\ movq %%rcx, (%[rsp_offset])(%%rdi)
         \\ pushfq
-        \\ popq (%[efl_offset])(%[context])
-        \\ leaq (%[fpmem_offset])(%[context]), %%rcx
-        \\ movq %%rcx, (%[fpstate_offset])(%[context])
+        \\ popq (%[efl_offset])(%%rdi)
+        \\ leaq (%[fpmem_offset])(%%rdi), %%rcx
+        \\ movq %%rcx, (%[fpstate_offset])(%%rdi)
         \\ fnstenv (%%rcx)
         \\ fldenv (%%rcx)
-        \\ stmxcsr (%[mxcsr_offset])(%[context])
+        \\ stmxcsr (%[mxcsr_offset])(%%rdi)
+        \\ leaq (%[stack_offset])(%%rdi), %%rsi
+        \\ movq %%rdi, %%r8
+        \\ xorq %%rdi, %%rdi
+        \\ movq %[sigaltstack], %%rax
+        \\ syscall
+        \\ cmpq $0, %%rax
+        \\ jne return
+        \\ movq %[sigprocmask], %%rax
+        \\ xorq %%rsi, %%rsi
+        \\ leaq (%[sigmask_offset])(%%r8), %%rdx
+        \\ movq %[sigset_size], %%r10
+        \\ syscall
+        \\ return:
         :
-        : [context] "{rdi}" (context),
+        : [flags_offset] "p" (@offsetOf(ucontext_t, "flags")),
+          [link_offset] "p" (@offsetOf(ucontext_t, "link")),
           [r8_offset] "p" (comptime gpRegisterOffset(REG.R8)),
           [r9_offset] "p" (comptime gpRegisterOffset(REG.R9)),
           [r10_offset] "p" (comptime gpRegisterOffset(REG.R10)),
@@ -450,17 +468,24 @@ pub inline fn getcontext(context: *ucontext_t) usize {
           [fpstate_offset] "p" (@offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "fpregs")),
           [fpmem_offset] "p" (@offsetOf(ucontext_t, "fpregs_mem")),
           [mxcsr_offset] "p" (@offsetOf(ucontext_t, "fpregs_mem") + @offsetOf(fpstate, "mxcsr")),
-        : "memory", "rcx"
+          [sigaltstack] "i" (@intFromEnum(linux.SYS.sigaltstack)),
+          [stack_offset] "p" (@offsetOf(ucontext_t, "stack")),
+          [sigprocmask] "i" (@intFromEnum(linux.SYS.rt_sigprocmask)),
+          [sigmask_offset] "p" (@offsetOf(ucontext_t, "sigmask")),
+          [sigset_size] "i" (linux.NSIG / 8),
+        : "memory", "rcx", "rdx", "rdi", "rsi", "r8", "r10", "r11"
     );
+}
 
-    // TODO: Read GS/FS registers?
-
-    // TODO: `flags` isn't present in the getcontext man page, figure out what to write here
-    context.flags = 0;
-    context.link = null;
-
-    const altstack_result = linux.sigaltstack(null, &context.stack);
-    if (altstack_result != 0) return altstack_result;
-
-    return linux.sigprocmask(0, null, &context.sigmask);
+pub inline fn getcontext(context: *ucontext_t) usize {
+    // This method is used so that getContextInternal can control
+    // its prologue in order to read RSP from a constant offset
+    // The unused &getContextInternal input is required so the function is included in the binary.
+    return asm volatile (
+        \\ call os.linux.x86_64.getContextInternal
+        : [ret] "={rax}" (-> usize),
+        : [context] "{rdi}" (context),
+          [getContextInternal] "X" (&getContextInternal),
+        : "memory", "rcx", "rdx", "rdi", "rsi", "r8", "r10", "r11"
+    );
 }

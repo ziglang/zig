@@ -136,7 +136,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 pub const StackTraceContext = blk: {
     if (native_os == .windows) {
         break :blk std.os.windows.CONTEXT;
-    } else if (@hasDecl(os.system, "ucontext_t")) {
+    } else if (StackIterator.supports_context) {
         break :blk os.ucontext_t;
     } else {
         break :blk void;
