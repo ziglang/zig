@@ -6,27 +6,88 @@
     <title>Documentation - Zig</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg==">
     <style>
+      html {
+        /* dark */
+        --dark-tx-color: #bbb;
+        --dark-bg-color: #111;
+        --dark-link-color: #88f;
+        --dark-sidebar-sh-color: rgba(128, 128, 128, 0.09);
+        --dark-sidebar-mod-bg-color: #333;
+        --dark-sidebar-modlnk-tx-color: #fff;
+        --dark-sidebar-modlnk-tx-color-hover: #fff;
+        --dark-sidebar-modlnk-tx-color-active: #000;
+        --dark-sidebar-modlnk-bg-color: transparent;
+        --dark-sidebar-modlnk-bg-color-hover: #555;
+        --dark-sidebar-modlnk-bg-color-active: #FFBB4D;
+        --dark-search-bg-color: #3c3c3c;
+        --dark-search-bg-color-focus: #000;
+        --dark-search-sh-color: rgba(255, 255, 255, 0.28);
+        --dark-search-other-results-color: rgba(255, 255, 255, 0.28);
+        --dark-modal-sh-color: rgba(142, 142, 142, 0.5);
+        --dark-modal-bg-color: #333;
+
+        /* light */
+        --light-tx-color: #141414;
+        --light-bg-color: #ffffff;
+        --light-link-color: #2A6286;
+        --light-sidebar-sh-color: rgba(0, 0, 0, 0.09);
+        --light-sidebar-mod-bg-color: #f1f1f1;
+        --light-sidebar-modlnk-tx-color: #141414;
+        --light-sidebar-modlnk-tx-color-hover: #fff;
+        --light-sidebar-modlnk-tx-color-active: #000;
+        --light-sidebar-modlnk-bg-color: transparent;
+        --light-sidebar-modlnk-bg-color-hover: #555;
+        --light-sidebar-modlnk-bg-color-active: #FFBB4D;
+        --light-search-bg-color: #f3f3f3;
+        --light-search-bg-color-focus: #ffffff;
+        --light-search-sh-color: rgba(0, 0, 0, 0.18);
+        --light-search-other-results-color: rgb(100, 100, 100);
+        --light-modal-sh-color: rgba(0, 0, 0, 0.75);
+        --light-modal-bg-color: #aaa;
+      }
+
       :root {
         font-size: 1em;
         --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
         --mono: "Source Code Pro", monospace;
-        --tx-color: #141414;
-        --bg-color: #ffffff;
-        --link-color: #2A6286;
-        --sidebar-sh-color: rgba(0, 0, 0, 0.09);
-        --sidebar-mod-bg-color: #f1f1f1;
-        --sidebar-modlnk-tx-color: #141414;
-        --sidebar-modlnk-tx-color-hover: #fff;
-        --sidebar-modlnk-tx-color-active: #000;
-        --sidebar-modlnk-bg-color: transparent;
-        --sidebar-modlnk-bg-color-hover: #555;
-        --sidebar-modlnk-bg-color-active: #FFBB4D;
-        --search-bg-color: #f3f3f3;
-        --search-bg-color-focus: #ffffff;
-        --search-sh-color: rgba(0, 0, 0, 0.18);
-        --search-other-results-color: rgb(100, 100, 100);
-        --modal-sh-color: rgba(0, 0, 0, 0.75);
-        --modal-bg-color: #aaa;
+        --tx-color: var(--dark-tx-color);
+        --bg-color: var(--dark-bg-color);
+        --link-color: var(--dark-link-color);
+        --sidebar-sh-color: var(--dark-sidebar-sh-color);
+        --sidebar-mod-bg-color: var(--dark-sidebar-mod-bg-color);
+        --sidebar-modlnk-tx-color: var(--dark-sidebar-modlnk-tx-color);
+        --sidebar-modlnk-tx-color-hover: var(--dark-sidebar-modlnk-tx-color-hover);
+        --sidebar-modlnk-tx-color-active: var(--dark-sidebar-modlnk-tx-color-active);
+        --sidebar-modlnk-bg-color: var(--dark-sidebar-modlnk-bg-color);
+        --sidebar-modlnk-bg-color-hover: var(--dark-sidebar-modlnk-bg-color-hover);
+        --sidebar-modlnk-bg-color-active: var(--dark-sidebar-modlnk-bg-color-active);
+        --search-bg-color: var(--dark-search-bg-color);
+        --search-bg-color-focus: var(--dark-search-bg-color-focus);
+        --search-sh-color: var(--dark-search-sh-color);
+        --search-other-results-color: var(--dark-search-other-results-color);
+        --modal-sh-color: var(--dark-modal-sh-color);
+        --modal-bg-color: var(--dark-modal-bg-color);
+      }
+
+      body[data-colortheme='light'] {
+        --tx-color: var(--light-tx-color);
+        --bg-color: var(--light-bg-color);
+        --link-color: var(--light-link-color);
+        --sidebar-sh-color: var(--light-sidebar-sh-color);
+        --sidebar-mod-bg-color: var(--light-sidebar-mod-bg-color);
+        --sidebar-modlnk-tx-color: var(--light-sidebar-modlnk-tx-color);
+        --sidebar-modlnk-tx-color-hover: var(--light-sidebar-modlnk-tx-color-hover);
+        --sidebar-modlnk-tx-color-active: var(--light-sidebar-modlnk-tx-color-active);
+        --sidebar-modlnk-bg-color: var(--light-sidebar-modlnk-bg-color);
+        --sidebar-modlnk-bg-color-hover: var(--light-sidebar-modlnk-bg-color-hover);
+        --sidebar-modlnk-bg-color-active: var(--light-sidebar-modlnk-bg-color-active);
+        --search-bg-color: var(--light-search-bg-color);
+        --search-bg-color-focus: var(--light-search-bg-color-focus);
+        --search-sh-color: var(--light-search-sh-color);
+        --search-other-results-color: var(--light-search-other-results-color);
+        --modal-sh-color: var(--light-modal-sh-color);
+        --modal-bg-color: var(--light-modal-bg-color);
+
       }
 
       html, body { margin: 0; padding: 0; height: 100%; }
@@ -530,25 +591,6 @@
 
       /* dark mode */
       @media (prefers-color-scheme: dark) {
-        :root {
-          --tx-color: #bbb;
-          --bg-color: #111;
-          --link-color: #88f;
-          --sidebar-sh-color: rgba(128, 128, 128, 0.09);
-          --sidebar-mod-bg-color: #333;
-          --sidebar-modlnk-tx-color: #fff;
-          --sidebar-modlnk-tx-color-hover: #fff;
-          --sidebar-modlnk-tx-color-active: #000;
-          --sidebar-modlnk-bg-color: transparent;
-          --sidebar-modlnk-bg-color-hover: #555;
-          --sidebar-modlnk-bg-color-active: #FFBB4D;
-          --search-bg-color: #3c3c3c;
-          --search-bg-color-focus: #000;
-          --search-sh-color: rgba(255, 255, 255, 0.28);
-          --search-other-results-color: rgba(255, 255, 255, 0.28);
-          --modal-sh-color: rgba(142, 142, 142, 0.5);
-          --modal-bg-color: #333;
-        }
 
         .docs pre {
           background-color:#2A2A2A;
@@ -683,7 +725,7 @@
       }
     </style>
   </head>
-  <body class="canvas">
+  <body class="canvas" data-colorTheme="auto">
     <div id="banner" class="banner">
       This is a beta autodoc build; expect bugs and missing information.
       <a href="https://github.com/ziglang/zig/wiki/How-to-contribute-to-Autodoc">Report an Issue</a>,
@@ -900,6 +942,14 @@
           <h1>Preferences</h1>
           <ul class="prefs-list">
             <li><input id="prefSlashSearch" type="checkbox"><label for="prefSlashSearch">Enable <kbd>/</kbd> for search</label></li>
+            <li>
+              <select id="prefColorMode" name="prefColorMode">
+                <option value="auto">Auto</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+              <label for="prefColorMode">Color Mode</label>
+            </li>
           </ul>
         </div>
       </div>
