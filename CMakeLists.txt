@@ -689,17 +689,28 @@ target_link_libraries(zigcpp LINK_PUBLIC
     ${CMAKE_THREAD_LIBS_INIT}
 )
 
-string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" HOST_TARGET_ARCH)
-if(HOST_TARGET_ARCH STREQUAL "amd64")
-  set(HOST_TARGET_ARCH "x86_64")
-elseif(HOST_TARGET_ARCH STREQUAL "arm64")
-  set(HOST_TARGET_ARCH "aarch64")
+string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" ZIG_HOST_TARGET_ARCH)
+if(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
+  set(ZIG_HOST_TARGET_ARCH "x86_64")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "arm64")
+  set(ZIG_HOST_TARGET_ARCH "aarch64")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7l")
+  set(ZIG_HOST_TARGET_ARCH "arm")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7b")
+  set(ZIG_HOST_TARGET_ARCH "armeb")
 endif()
-string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" HOST_TARGET_OS)
-if(HOST_TARGET_OS STREQUAL "darwin")
-  set(HOST_TARGET_OS "macos")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(eb)?$")
+  include(CheckSymbolExists)
+  check_symbol_exists(__thumb__ "" ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
+  if(ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
+    string(REGEX REPLACE "^arm" "thumb" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
+  endif()
 endif()
-set(HOST_TARGET_TRIPLE "${HOST_TARGET_ARCH}-${HOST_TARGET_OS}")
+string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
+if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
+  set(ZIG_HOST_TARGET_OS "macos")
+endif()
+set(ZIG_HOST_TARGET_TRIPLE "${ZIG_HOST_TARGET_ARCH}-${ZIG_HOST_TARGET_OS}" CACHE STRING "Host zig target triple.")
 
 if(MSVC)
   set(ZIG_WASM2C_COMPILE_FLAGS "")
@@ -749,7 +760,7 @@ set(BUILD_ZIG2_ARGS
   --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
   --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
   --deps build_options
-  -target "${HOST_TARGET_TRIPLE}"
+  -target "${ZIG_HOST_TARGET_TRIPLE}"
 )
 
 add_custom_command(
@@ -767,7 +778,7 @@ set(BUILD_COMPILER_RT_ARGS
   --name compiler_rt -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
   --deps build_options
-  -target "${HOST_TARGET_TRIPLE}"
+  -target "${ZIG_HOST_TARGET_TRIPLE}"
 )
 
 add_custom_command(

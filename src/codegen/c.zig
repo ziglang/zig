@@ -732,9 +732,7 @@ pub const DeclGen = struct {
                     // All unsigned ints matching float types are pre-allocated.
                     const repr_ty = mod.intType(.unsigned, bits) catch unreachable;
 
-                    try writer.writeAll("zig_cast_");
-                    try dg.renderTypeForBuiltinFnName(writer, ty);
-                    try writer.writeAll(" zig_make_");
+                    try writer.writeAll("zig_make_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
                     try writer.writeByte('(');
                     switch (bits) {
@@ -1049,9 +1047,6 @@ pub const DeclGen = struct {
 
                 const repr_val = try mod.intValue_big(repr_ty, repr_val_big.toConst());
 
-                try writer.writeAll("zig_cast_");
-                try dg.renderTypeForBuiltinFnName(writer, ty);
-                try writer.writeByte(' ');
                 var empty = true;
                 if (std.math.isFinite(f128_val)) {
                     try writer.writeAll("zig_make_");

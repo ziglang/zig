@@ -3178,17 +3178,11 @@ zig_bitCast_float(f64, uint64_t)
 zig_bitCast_float(f80, zig_u128)
 zig_bitCast_float(f128, zig_u128)
 
-#define zig_cast_f16 (zig_f16)
-#define zig_cast_f32 (zig_f32)
-#define zig_cast_f64 (zig_f64)
-
-#if _MSC_VER && !zig_has_f128
+#define zig_cast_f16
+#define zig_cast_f32
+#define zig_cast_f64
 #define zig_cast_f80
 #define zig_cast_f128
-#else
-#define zig_cast_f80 (zig_f80)
-#define zig_cast_f128 (zig_f128)
-#endif
 
 #define zig_convert_builtin(ExternResType, ResType, operation, ExternArgType, ArgType, version) \
     zig_extern ExternResType zig_expand_concat(zig_expand_concat(zig_expand_concat(__##operation, \
