@@ -17,7 +17,7 @@ pub fn syscall0(number: SYS) usize {
         \\ svc #0
         \\ ldr r7, [%[tmp], #4]
         : [ret] "={r0}" (-> usize),
-        : [tmp] "{r1}" (buf),
+        : [tmp] "{r1}" (&buf),
         : "memory"
     );
 }
@@ -32,7 +32,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         \\ svc #0
         \\ ldr r7, [%[tmp], #4]
         : [ret] "={r0}" (-> usize),
-        : [tmp] "{r1}" (buf),
+        : [tmp] "{r1}" (&buf),
           [arg1] "{r0}" (arg1),
         : "memory"
     );
@@ -48,7 +48,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         \\ svc #0
         \\ ldr r7, [%[tmp], #4]
         : [ret] "={r0}" (-> usize),
-        : [tmp] "{r2}" (buf),
+        : [tmp] "{r2}" (&buf),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
         : "memory"
@@ -65,7 +65,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         \\ svc #0
         \\ ldr r7, [%[tmp], #4]
         : [ret] "={r0}" (-> usize),
-        : [tmp] "{r3}" (buf),
+        : [tmp] "{r3}" (&buf),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
@@ -83,7 +83,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         \\ svc #0
         \\ ldr r7, [%[tmp], #4]
         : [ret] "={r0}" (-> usize),
-        : [tmp] "{r4}" (buf),
+        : [tmp] "{r4}" (&buf),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
@@ -102,7 +102,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
         \\ svc #0
         \\ ldr r7, [%[tmp], #4]
         : [ret] "={r0}" (-> usize),
-        : [tmp] "{r5}" (buf),
+        : [tmp] "{r5}" (&buf),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
@@ -130,7 +130,7 @@ pub fn syscall6(
         \\ svc #0
         \\ ldr r7, [%[tmp], #4]
         : [ret] "={r0}" (-> usize),
-        : [tmp] "{r6}" (buf),
+        : [tmp] "{r6}" (&buf),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
