@@ -83,29 +83,83 @@ pub const XxHash64 = struct {
         std.debug.assert(partial.len < 32);
         var acc = unfinished +% @as(u64, byte_count) +% @as(u64, partial.len);
 
-        var pos: usize = 0;
-        while (pos + 8 <= partial.len) : (pos += 8) {
-            const lane = mem.readIntLittle(u64, partial[pos..][0..8]);
-            acc ^= round(0, lane);
-            acc = rotl(u64, acc, 27) *% prime_1;
-            acc +%= prime_4;
+        switch (partial.len) {
+            inline 0, 1, 2, 3 => |count| {
+                inline for (0..count) |i| acc = finalize1(acc, partial[i]);
+                return avalanche(acc);
+            },
+            inline 4, 5, 6, 7 => |count| {
+                acc = finalize4(acc, partial[0..4]);
+                inline for (4..count + 4) |i| acc = finalize1(acc, partial[i]);
+                return avalanche(acc);
+            },
+            inline 8, 9, 10, 11 => |count| {
+                acc = finalize8(acc, partial[0..8]);
+                inline for (8..count) |i| acc = finalize1(acc, partial[i]);
+                return avalanche(acc);
+            },
+            inline 12, 13, 14, 15 => |count| {
+                acc = finalize8(acc, partial[0..8]);
+                acc = finalize4(acc, partial[8..12]);
+                inline for (12..count) |i| acc = finalize1(acc, partial[i]);
+                return avalanche(acc);
+            },
+            inline 16, 17, 18, 19 => |count| {
+                acc = finalize8(acc, partial[0..8]);
+                acc = finalize8(acc, partial[8..16]);
+                inline for (16..count) |i| acc = finalize1(acc, partial[i]);
+                return avalanche(acc);
+            },
+            inline 20, 21, 22, 23 => |count| {
+                acc = finalize8(acc, partial[0..8]);
+                acc = finalize8(acc, partial[8..16]);
+                acc = finalize4(acc, partial[16..20]);
+                inline for (20..count) |i| acc = finalize1(acc, partial[i]);
+                return avalanche(acc);
+            },
+            inline 24, 25, 26, 27 => |count| {
+                acc = finalize8(acc, partial[0..8]);
+                acc = finalize8(acc, partial[8..16]);
+                acc = finalize8(acc, partial[16..24]);
+                inline for (24..count) |i| acc = finalize1(acc, partial[i]);
+                return avalanche(acc);
+            },
+            inline 28, 29, 30, 31 => |count| {
+                acc = finalize8(acc, partial[0..8]);
+                acc = finalize8(acc, partial[8..16]);
+                acc = finalize8(acc, partial[16..24]);
+                acc = finalize4(acc, partial[24..28]);
+                inline for (28..count) |i| acc = finalize1(acc, partial[i]);
+                return avalanche(acc);
+            },
+            else => unreachable,
         }
+    }
 
-        if (pos + 4 <= partial.len) {
-            const lane = @as(u64, mem.readIntLittle(u32, partial[pos..][0..4]));
-            acc ^= lane *% prime_1;
-            acc = rotl(u64, acc, 23) *% prime_2;
-            acc +%= prime_3;
-            pos += 4;
-        }
+    inline fn finalize8(v: u64, bytes: *const [8]u8) u64 {
+        var acc = v;
+        const lane = mem.readIntLittle(u64, bytes);
+        acc ^= round(0, lane);
+        acc = rotl(u64, acc, 27) *% prime_1;
+        acc +%= prime_4;
+        return acc;
+    }
 
-        while (pos < partial.len) : (pos += 1) {
-            const lane = @as(u64, partial[pos]);
-            acc ^= lane *% prime_5;
-            acc = rotl(u64, acc, 11) *% prime_1;
-        }
+    inline fn finalize4(v: u64, bytes: *const [4]u8) u64 {
+        var acc = v;
+        const lane = @as(u64, mem.readIntLittle(u32, bytes));
+        acc ^= lane *% prime_1;
+        acc = rotl(u64, acc, 23) *% prime_2;
+        acc +%= prime_3;
+        return acc;
+    }
 
-        return avalanche(acc);
+    inline fn finalize1(v: u64, byte: u8) u64 {
+        var acc = v;
+        const lane = @as(u64, byte);
+        acc ^= lane *% prime_5;
+        acc = rotl(u64, acc, 11) *% prime_1;
+        return acc;
     }
 
     inline fn avalanche(value: u64) u64 {
