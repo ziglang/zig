@@ -117,6 +117,10 @@ pub const Node = extern union {
         import_c_builtin,
         /// @intCast(operand)
         int_cast,
+        /// @constCast(operand)
+        const_cast,
+        /// @volatileCast(operand)
+        volatile_cast,
         /// @import("std").zig.c_translation.promoteIntLiteral(value, type, base)
         helpers_promoteIntLiteral,
         /// @import("std").zig.c_translation.signedRemainder(lhs, rhs)
@@ -278,6 +282,8 @@ pub const Node = extern union {
                 .ptr_from_int,
                 .ptr_cast,
                 .int_cast,
+                .const_cast,
+                .volatile_cast,
                 => Payload.UnOp,
 
                 .add,
@@ -1315,6 +1321,14 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.int_cast).?.data;
             return renderBuiltinCall(c, "@intCast", &.{payload});
         },
+        .const_cast => {
+            const payload = node.castTag(.const_cast).?.data;
+            return renderBuiltinCall(c, "@constCast", &.{payload});
+        },
+        .volatile_cast => {
+            const payload = node.castTag(.volatile_cast).?.data;
+            return renderBuiltinCall(c, "@volatileCast", &.{payload});
+        },
         .signed_remainder => {
             const payload = node.castTag(.signed_remainder).?.data;
             const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "signedRemainder" });
@@ -2291,6 +2305,8 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .div_trunc,
         .signed_remainder,
         .int_cast,
+        .const_cast,
+        .volatile_cast,
         .as,
         .truncate,
         .bit_cast,
