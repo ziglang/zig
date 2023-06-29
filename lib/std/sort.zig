@@ -34,7 +34,9 @@ pub fn insertion(
 
 /// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case.
 /// O(1) memory (no allocator required).
-/// Sorts in ascending order with respect to the given `lessThan` function.
+/// `context` must have methods `swap` and `lessThan`,
+/// which each take 2 `usize` parameters indicating the index of an item.
+/// Sorts in ascending order with respect to `lessThan`.
 pub fn insertionContext(a: usize, b: usize, context: anytype) void {
     assert(a <= b);
 
@@ -73,7 +75,9 @@ pub fn heap(
 
 /// Unstable in-place sort. O(n*log(n)) best case, worst case and average case.
 /// O(1) memory (no allocator required).
-/// Sorts in ascending order with respect to the given `lessThan` function.
+/// `context` must have methods `swap` and `lessThan`,
+/// which each take 2 `usize` parameters indicating the index of an item.
+/// Sorts in ascending order with respect to `lessThan`.
 pub fn heapContext(a: usize, b: usize, context: anytype) void {
     assert(a <= b);
     // build the heap in linear time.
@@ -366,7 +370,7 @@ test "sort with context in the middle of a slice" {
                 const slice = buf[0..case[0].len];
                 @memcpy(slice, case[0]);
                 sortFn(range.start, range.end, Context{ .items = slice });
-                try testing.expectEqualSlices(i32, slice[range.start..range.end], case[1][range.start..range.end]);
+                try testing.expectEqualSlices(i32, case[1][range.start..range.end], slice[range.start..range.end]);
             }
         }
     }

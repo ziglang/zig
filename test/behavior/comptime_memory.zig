@@ -438,3 +438,15 @@ test "type pun extern struct" {
     @as(*u8, @ptrCast(&s)).* = 72;
     try testing.expectEqual(@as(u8, 72), s.f);
 }
+
+test "type pun @ptrFromInt" {
+    const p: *u8 = @ptrFromInt(42);
+    // note that expectEqual hides the bug
+    try testing.expect(@as(*const [*]u8, @ptrCast(&p)).* == @as([*]u8, @ptrFromInt(42)));
+}
+
+test "type pun null pointer-like optional" {
+    const p: ?*u8 = null;
+    // note that expectEqual hides the bug
+    try testing.expect(@as(*const ?*i8, @ptrCast(&p)).* == null);
+}

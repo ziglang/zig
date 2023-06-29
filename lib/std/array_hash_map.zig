@@ -216,7 +216,7 @@ pub fn ArrayHashMap(
 
         /// Returns the number of total elements which may be present before it is
         /// no longer guaranteed that no allocations will be performed.
-        pub fn capacity(self: *Self) usize {
+        pub fn capacity(self: Self) usize {
             return self.unmanaged.capacity();
         }
 

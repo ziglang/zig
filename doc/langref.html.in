@@ -737,6 +737,11 @@ pub fn main() void {
         </tr>
 
         <tr>
+            <th scope="row">{#syntax#}c_char{#endsyntax#}</th>
+          <td><code class="c">char</code></td>
+          <td>for ABI compatibility with C</td>
+        </tr>
+        <tr>
             <th scope="row">{#syntax#}c_short{#endsyntax#}</th>
           <td><code class="c">short</code></td>
           <td>for ABI compatibility with C</td>
@@ -6641,19 +6646,19 @@ test "coercion from homogenous tuple to array" {
       <ul>
           <li>{#link|@bitCast#} - change type but maintain bit representation</li>
           <li>{#link|@alignCast#} - make a pointer have more alignment</li>
-          <li>{#link|@intFromBool#} - convert true to 1 and false to 0</li>
-          <li>{#link|@intFromEnum#} - obtain the integer tag value of an enum or tagged union</li>
-          <li>{#link|@errSetCast#} - convert to a smaller error set</li>
-          <li>{#link|@intFromError#} - obtain the integer value of an error code</li>
-          <li>{#link|@floatCast#} - convert a larger float to a smaller float</li>
-          <li>{#link|@intFromFloat#} - obtain the integer part of a float value</li>
-          <li>{#link|@intCast#} - convert between integer types</li>
           <li>{#link|@enumFromInt#} - obtain an enum value based on its integer tag value</li>
           <li>{#link|@errorFromInt#} - obtain an error code based on its integer value</li>
+          <li>{#link|@errSetCast#} - convert to a smaller error set</li>
+          <li>{#link|@floatCast#} - convert a larger float to a smaller float</li>
           <li>{#link|@floatFromInt#} - convert an integer to a float value</li>
+          <li>{#link|@intCast#} - convert between integer types</li>
+          <li>{#link|@intFromBool#} - convert true to 1 and false to 0</li>
+          <li>{#link|@intFromEnum#} - obtain the integer tag value of an enum or tagged union</li>
+          <li>{#link|@intFromError#} - obtain the integer value of an error code</li>
+          <li>{#link|@intFromFloat#} - obtain the integer part of a float value</li>
+          <li>{#link|@intFromPtr#} - obtain the address of a pointer</li>
           <li>{#link|@ptrFromInt#} - convert an address to a pointer</li>
           <li>{#link|@ptrCast#} - convert between pointer types</li>
-          <li>{#link|@intFromPtr#} - obtain the address of a pointer</li>
           <li>{#link|@truncate#} - convert between integer types, chopping off bits</li>
       </ul>
       {#header_close#}
@@ -7902,14 +7907,6 @@ comptime {
       {#see_also|@offsetOf#}
       {#header_close#}
 
-      {#header_open|@intFromBool#}
-      <pre>{#syntax#}@intFromBool(value: bool) u1{#endsyntax#}</pre>
-      <p>
-      Converts {#syntax#}true{#endsyntax#} to {#syntax#}@as(u1, 1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
-                  {#syntax#}@as(u1, 0){#endsyntax#}.
-      </p>
-      {#header_close#}
-
       {#header_open|@bitSizeOf#}
       <pre>{#syntax#}@bitSizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
@@ -8351,6 +8348,7 @@ test "main" {
       <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divTrunc{#endsyntax#}.</p>
       {#see_also|@divFloor|@divExact#}
       {#header_close#}
+
       {#header_open|@embedFile#}
       <pre>{#syntax#}@embedFile(comptime path: []const u8) *const [N:0]u8{#endsyntax#}</pre>
       <p>
@@ -8366,17 +8364,32 @@ test "main" {
       {#see_also|@import#}
       {#header_close#}
 
-      {#header_open|@intFromEnum#}
-      <pre>{#syntax#}@intFromEnum(enum_or_tagged_union: anytype) anytype{#endsyntax#}</pre>
+      {#header_open|@enumFromInt#}
+      <pre>{#syntax#}@enumFromInt(integer: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts an enumeration value into its integer tag type. When a tagged union is passed,
-      the tag value is used as the enumeration value.
+      Converts an integer into an {#link|enum#} value. The return type is the inferred result type.
       </p>
       <p>
-      If there is only one possible enum value, the result is a {#syntax#}comptime_int{#endsyntax#}
-      known at {#link|comptime#}.
+      Attempting to convert an integer which represents no value in the chosen enum type invokes
+      safety-checked {#link|Undefined Behavior#}.
       </p>
-      {#see_also|@enumFromInt#}
+      {#see_also|@intFromEnum#}
+      {#header_close#}
+
+      {#header_open|@errorFromInt#}
+      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      <p>
+      Converts from the integer representation of an error into {#link|The Global Error Set#} type.
+      </p>
+      <p>
+      It is generally recommended to avoid this
+      cast, as the integer representation of an error is not stable across source code changes.
+      </p>
+      <p>
+      Attempting to convert an integer that does not correspond to any error results in
+      safety-protected {#link|Undefined Behavior#}.
+      </p>
+      {#see_also|@intFromError#}
       {#header_close#}
 
       {#header_open|@errorName#}
@@ -8399,26 +8412,6 @@ test "main" {
       function that calls a function with an error or error union return type, returns a
       stack trace object. Otherwise returns {#link|null#}.
       </p>
-      {#header_close#}
-
-      {#header_open|@intFromError#}
-      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
-      <p>
-      Supports the following types:
-      </p>
-      <ul>
-          <li>{#link|The Global Error Set#}</li>
-          <li>{#link|Error Set Type#}</li>
-          <li>{#link|Error Union Type#}</li>
-      </ul>
-      <p>
-      Converts an error to the integer representation of an error.
-      </p>
-      <p>
-      It is generally recommended to avoid this
-      cast, as the integer representation of an error is not stable across source code changes.
-      </p>
-      {#see_also|@errorFromInt#}
       {#header_close#}
 
       {#header_open|@errSetCast#}
@@ -8545,16 +8538,12 @@ test "decl access by string" {
       </p>
       {#header_close#}
 
-      {#header_open|@intFromFloat#}
-      <pre>{#syntax#}@intFromFloat(float: anytype) anytype{#endsyntax#}</pre>
+      {#header_open|@floatFromInt#}
+      <pre>{#syntax#}@floatFromInt(int: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts the integer part of a floating point number to the inferred result type.
+      Converts an integer to the closest floating point representation. The return type is the inferred result type.
+			To convert the other way, use {#link|@intFromFloat#}. This cast is always safe.
       </p>
-      <p>
-      If the integer part of the floating point number cannot fit in the destination type,
-      it invokes safety-checked {#link|Undefined Behavior#}.
-      </p>
-      {#see_also|@floatFromInt#}
       {#header_close#}
 
       {#header_open|@frameAddress#}
@@ -8686,54 +8675,66 @@ test "integer cast panic" {
       </p>
       {#header_close#}
 
-      {#header_open|@enumFromInt#}
-      <pre>{#syntax#}@enumFromInt(integer: anytype) anytype{#endsyntax#}</pre>
+      {#header_open|@intFromBool#}
+      <pre>{#syntax#}@intFromBool(value: bool) u1{#endsyntax#}</pre>
       <p>
-      Converts an integer into an {#link|enum#} value. The return type is the inferred result type.
+      Converts {#syntax#}true{#endsyntax#} to {#syntax#}@as(u1, 1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
+                  {#syntax#}@as(u1, 0){#endsyntax#}.
       </p>
-      <p>
-      Attempting to convert an integer which represents no value in the chosen enum type invokes
-      safety-checked {#link|Undefined Behavior#}.
-      </p>
-      {#see_also|@intFromEnum#}
       {#header_close#}
 
-      {#header_open|@errorFromInt#}
-      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      {#header_open|@intFromEnum#}
+      <pre>{#syntax#}@intFromEnum(enum_or_tagged_union: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts from the integer representation of an error into {#link|The Global Error Set#} type.
+      Converts an enumeration value into its integer tag type. When a tagged union is passed,
+      the tag value is used as the enumeration value.
+      </p>
+      <p>
+      If there is only one possible enum value, the result is a {#syntax#}comptime_int{#endsyntax#}
+      known at {#link|comptime#}.
+      </p>
+      {#see_also|@enumFromInt#}
+      {#header_close#}
+
+      {#header_open|@intFromError#}
+      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <p>
+      Supports the following types:
+      </p>
+      <ul>
+          <li>{#link|The Global Error Set#}</li>
+          <li>{#link|Error Set Type#}</li>
+          <li>{#link|Error Union Type#}</li>
+      </ul>
+      <p>
+      Converts an error to the integer representation of an error.
       </p>
       <p>
       It is generally recommended to avoid this
       cast, as the integer representation of an error is not stable across source code changes.
       </p>
-      <p>
-      Attempting to convert an integer that does not correspond to any error results in
-      safety-protected {#link|Undefined Behavior#}.
-      </p>
-      {#see_also|@intFromError#}
+      {#see_also|@errorFromInt#}
       {#header_close#}
 
-      {#header_open|@floatFromInt#}
-      <pre>{#syntax#}@floatFromInt(int: anytype) anytype{#endsyntax#}</pre>
+      {#header_open|@intFromFloat#}
+      <pre>{#syntax#}@intFromFloat(float: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts an integer to the closest floating point representation. The return type is the inferred result type.
-			To convert the other way, use {#link|@intFromFloat#}. This cast is always safe.
+      Converts the integer part of a floating point number to the inferred result type.
       </p>
+      <p>
+      If the integer part of the floating point number cannot fit in the destination type,
+      it invokes safety-checked {#link|Undefined Behavior#}.
+      </p>
+      {#see_also|@floatFromInt#}
       {#header_close#}
 
-      {#header_open|@ptrFromInt#}
-      <pre>{#syntax#}@ptrFromInt(address: usize) anytype{#endsyntax#}</pre>
+      {#header_open|@intFromPtr#}
+      <pre>{#syntax#}@intFromPtr(value: anytype) usize{#endsyntax#}</pre>
       <p>
-      Converts an integer to a {#link|pointer|Pointers#}. The return type is the inferred result type.
-			To convert the other way, use {#link|@intFromPtr#}. Casting an address of 0 to a destination type
-      which in not {#link|optional|Optional Pointers#} and does not have the {#syntax#}allowzero{#endsyntax#} attribute will result in a
-      {#link|Pointer Cast Invalid Null#} panic when runtime safety checks are enabled.
+      Converts {#syntax#}value{#endsyntax#} to a {#syntax#}usize{#endsyntax#} which is the address of the pointer.
+      {#syntax#}value{#endsyntax#} can be {#syntax#}*T{#endsyntax#} or {#syntax#}?*T{#endsyntax#}.
       </p>
-      <p>
-      If the destination pointer type does not allow address zero and {#syntax#}address{#endsyntax#}
-      is zero, this invokes safety-checked {#link|Undefined Behavior#}.
-      </p>
+      <p>To convert the other way, use {#link|@ptrFromInt#}</p>
       {#header_close#}
 
       {#header_open|@max#}
@@ -8950,14 +8951,18 @@ pub const PrefetchOptions = struct {
       </ul>
       {#header_close#}
 
-      {#header_open|@intFromPtr#}
-      <pre>{#syntax#}@intFromPtr(value: anytype) usize{#endsyntax#}</pre>
+      {#header_open|@ptrFromInt#}
+      <pre>{#syntax#}@ptrFromInt(address: usize) anytype{#endsyntax#}</pre>
       <p>
-      Converts {#syntax#}value{#endsyntax#} to a {#syntax#}usize{#endsyntax#} which is the address of the pointer.
-      {#syntax#}value{#endsyntax#} can be {#syntax#}*T{#endsyntax#} or {#syntax#}?*T{#endsyntax#}.
+      Converts an integer to a {#link|pointer|Pointers#}. The return type is the inferred result type.
+			To convert the other way, use {#link|@intFromPtr#}. Casting an address of 0 to a destination type
+      which in not {#link|optional|Optional Pointers#} and does not have the {#syntax#}allowzero{#endsyntax#} attribute will result in a
+      {#link|Pointer Cast Invalid Null#} panic when runtime safety checks are enabled.
       </p>
-      <p>To convert the other way, use {#link|@ptrFromInt#}</p>
-
+      <p>
+      If the destination pointer type does not allow address zero and {#syntax#}address{#endsyntax#}
+      is zero, this invokes safety-checked {#link|Undefined Behavior#}.
+      </p>
       {#header_close#}
 
       {#header_open|@rem#}
@@ -10813,6 +10818,7 @@ lib.addCSourceFile("src/lib.c", &[_][]const u8{
       These have guaranteed C ABI compatibility and can be used like any other type.
       </p>
       <ul>
+          <li>{#syntax#}c_char{#endsyntax#}</li>
           <li>{#syntax#}c_short{#endsyntax#}</li>
           <li>{#syntax#}c_ushort{#endsyntax#}</li>
           <li>{#syntax#}c_int{#endsyntax#}</li>

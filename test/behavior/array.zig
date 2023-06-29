@@ -719,3 +719,45 @@ test "pointer to array has ptr field" {
     try std.testing.expect(arr.ptr[3] == 40);
     try std.testing.expect(arr.ptr[4] == 50);
 }
+
+test "discarded array init preserves result location" {
+    const S = struct {
+        fn f(p: *u32) u16 {
+            p.* += 1;
+            return 0;
+        }
+    };
+
+    var x: u32 = 0;
+    _ = [2]u8{
+        @intCast(S.f(&x)),
+        @intCast(S.f(&x)),
+    };
+
+    // Ensure function was run
+    try expect(x == 2);
+}
+
+test "array init with no result location has result type" {
+    const x = .{ .foo = [2]u16{
+        @intCast(10),
+        @intCast(20),
+    } };
+
+    try expect(x.foo.len == 2);
+    try expect(x.foo[0] == 10);
+    try expect(x.foo[1] == 20);
+}
+
+test "slicing array of zero-sized values" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var arr: [32]u0 = undefined;
+    for (arr[0..]) |*zero|
+        zero.* = 0;
+    for (arr[0..]) |zero|
+        try expect(zero == 0);
+}

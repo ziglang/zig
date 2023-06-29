@@ -12,6 +12,11 @@ test "thread local variable" {
     }; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .macos) {
+        // Fails due to register hazards.
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         threadlocal var t: i32 = 1234;
     };

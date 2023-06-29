@@ -73,6 +73,8 @@ else if (builtin.os.tag == .openbsd)
     OpenbsdImpl
 else if (builtin.os.tag == .dragonfly)
     DragonflyImpl
+else if (builtin.target.isWasm())
+    WasmImpl
 else if (std.Thread.use_pthreads)
     PosixImpl
 else
@@ -443,6 +445,49 @@ const DragonflyImpl = struct {
         // We are fine with the address being bad (e.g. for Semaphore.post() where Semaphore.wait() frees the Semaphore)
         const addr = @as(*const volatile c_int, @ptrCast(&ptr.value));
         _ = os.dragonfly.umtx_wakeup(addr, to_wake);
+    }
+};
+
+const WasmImpl = struct {
+    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
+        if (!comptime std.Target.wasm.featureSetHas(builtin.target.cpu.features, .atomics)) {
+            @compileError("WASI target missing cpu feature 'atomics'");
+        }
+        const to: i64 = if (timeout) |to| @intCast(to) else -1;
+        const result = asm (
+            \\local.get %[ptr]
+            \\local.get %[expected]
+            \\local.get %[timeout]
+            \\memory.atomic.wait32 0
+            \\local.set %[ret]
+            : [ret] "=r" (-> u32),
+            : [ptr] "r" (&ptr.value),
+              [expected] "r" (@as(i32, @bitCast(expect))),
+              [timeout] "r" (to),
+        );
+        switch (result) {
+            0 => {}, // ok
+            1 => {}, // expected =! loaded
+            2 => return error.Timeout,
+            else => unreachable,
+        }
+    }
+
+    fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+        if (!comptime std.Target.wasm.featureSetHas(builtin.target.cpu.features, .atomics)) {
+            @compileError("WASI target missing cpu feature 'atomics'");
+        }
+        assert(max_waiters != 0);
+        const woken_count = asm (
+            \\local.get %[ptr]
+            \\local.get %[waiters]
+            \\memory.atomic.notify 0
+            \\local.set %[ret]
+            : [ret] "=r" (-> u32),
+            : [ptr] "r" (&ptr.value),
+              [waiters] "r" (max_waiters),
+        );
+        _ = woken_count; // can be 0 when linker flag 'shared-memory' is not enabled
     }
 };
 

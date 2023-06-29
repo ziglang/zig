@@ -121,21 +121,8 @@ pub fn generateZirData(self: *Autodoc) !void {
             try self.types.append(
                 self.arena,
                 switch (ip_index) {
-                    else => blk: {
-                        // TODO: map the remaining refs to a correct type
-                        //       instead of just assinging "array" to them.
-                        break :blk .{
-                            .Array = .{
-                                .len = .{
-                                    .int = .{
-                                        .value = 1,
-                                        .negated = false,
-                                    },
-                                },
-                                .child = .{ .type = 0 },
-                            },
-                        };
-                    },
+                    .u0_type,
+                    .i0_type,
                     .u1_type,
                     .u8_type,
                     .i8_type,
@@ -151,6 +138,7 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .i128_type,
                     .usize_type,
                     .isize_type,
+                    .c_char_type,
                     .c_short_type,
                     .c_ushort_type,
                     .c_int_type,
@@ -181,10 +169,10 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .anyopaque_type => .{
                         .ComptimeExpr = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
+
                     .bool_type => .{
                         .Bool = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
-
                     .noreturn_type => .{
                         .NoReturn = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
@@ -200,11 +188,104 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .anyerror_type => .{
                         .ErrorSet = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
-                    // should be an Enum but if we don't analyze std we don't get the ast node
-                    // since it's std.builtin.CallingConvention
-                    .calling_convention_type => .{
+                    // should be different types but if we don't analyze std we don't get the ast nodes etc.
+                    // since they're defined in std.builtin
+                    .calling_convention_type,
+                    .atomic_order_type,
+                    .atomic_rmw_op_type,
+                    .address_space_type,
+                    .float_mode_type,
+                    .reduce_op_type,
+                    .call_modifier_type,
+                    .prefetch_options_type,
+                    .export_options_type,
+                    .extern_options_type,
+                    => .{
                         .Type = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
+                    .manyptr_u8_type => .{
+                        .Pointer = .{
+                            .size = .Many,
+                            .child = .{ .type = @intFromEnum(InternPool.Index.u8_type) },
+                            .is_mutable = true,
+                        },
+                    },
+                    .manyptr_const_u8_type => .{
+                        .Pointer = .{
+                            .size = .Many,
+                            .child = .{ .type = @intFromEnum(InternPool.Index.u8_type) },
+                        },
+                    },
+                    .manyptr_const_u8_sentinel_0_type => .{
+                        .Pointer = .{
+                            .size = .Many,
+                            .child = .{ .type = @intFromEnum(InternPool.Index.u8_type) },
+                            .sentinel = .{ .int = .{ .value = 0 } },
+                        },
+                    },
+                    .single_const_pointer_to_comptime_int_type => .{
+                        .Pointer = .{
+                            .size = .One,
+                            .child = .{ .type = @intFromEnum(InternPool.Index.comptime_int_type) },
+                        },
+                    },
+                    .slice_const_u8_type => .{
+                        .Pointer = .{
+                            .size = .Slice,
+                            .child = .{ .type = @intFromEnum(InternPool.Index.u8_type) },
+                        },
+                    },
+                    .slice_const_u8_sentinel_0_type => .{
+                        .Pointer = .{
+                            .size = .Slice,
+                            .child = .{ .type = @intFromEnum(InternPool.Index.u8_type) },
+                            .sentinel = .{ .int = .{ .value = 0 } },
+                        },
+                    },
+                    // Not fully correct
+                    // since it actually has no src or line_number
+                    .empty_struct_type => .{
+                        .Struct = .{
+                            .name = "",
+                            .src = 0,
+                            .is_tuple = false,
+                            .line_number = 0,
+                            .parent_container = null,
+                            .layout = null,
+                        },
+                    },
+                    .anyerror_void_error_union_type => .{
+                        .ErrorUnion = .{
+                            .lhs = .{ .type = @intFromEnum(InternPool.Index.anyerror_type) },
+                            .rhs = .{ .type = @intFromEnum(InternPool.Index.void_type) },
+                        },
+                    },
+                    .anyframe_type => .{
+                        .AnyFrame = .{ .name = try tmpbuf.toOwnedSlice() },
+                    },
+                    .enum_literal_type => .{
+                        .EnumLiteral = .{ .name = try tmpbuf.toOwnedSlice() },
+                    },
+                    .undefined_type => .{
+                        .Undefined = .{ .name = try tmpbuf.toOwnedSlice() },
+                    },
+                    .null_type => .{
+                        .Null = .{ .name = try tmpbuf.toOwnedSlice() },
+                    },
+                    .optional_noreturn_type => .{
+                        .Optional = .{
+                            .name = try tmpbuf.toOwnedSlice(),
+                            .child = .{ .type = @intFromEnum(InternPool.Index.noreturn_type) },
+                        },
+                    },
+                    // Poison and special tag
+                    .generic_poison_type,
+                    .var_args_param_type,
+                    => .{
+                        .Type = .{ .name = try tmpbuf.toOwnedSlice() },
+                    },
+                    // We want to catch new types added to InternPool.Index
+                    else => unreachable,
                 },
             );
         }

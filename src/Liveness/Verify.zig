@@ -44,7 +44,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .inferred_alloc,
             .inferred_alloc_comptime,
             .ret_ptr,
-            .interned,
             .breakpoint,
             .dbg_stmt,
             .dbg_inline_begin,
@@ -559,10 +558,6 @@ fn verifyOperand(self: *Verify, inst: Air.Inst.Index, op_ref: Air.Inst.Ref, dies
         assert(!dies);
         return;
     };
-    if (self.air.instructions.items(.tag)[operand] == .interned) {
-        assert(!dies);
-        return;
-    }
     if (dies) {
         if (!self.live.remove(operand)) return invalid("%{}: dead operand %{} reused and killed again", .{ inst, operand });
     } else {
@@ -583,7 +578,6 @@ fn verifyInstOperands(
 }
 
 fn verifyInst(self: *Verify, inst: Air.Inst.Index) Error!void {
-    if (self.air.instructions.items(.tag)[inst] == .interned) return;
     if (self.liveness.isUnused(inst)) {
         assert(!self.live.contains(inst));
     } else {

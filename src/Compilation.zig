@@ -557,6 +557,7 @@ pub const InitOptions = struct {
     linker_allow_shlib_undefined: ?bool = null,
     linker_bind_global_refs_locally: ?bool = null,
     linker_import_memory: ?bool = null,
+    linker_export_memory: ?bool = null,
     linker_import_symbols: bool = false,
     linker_import_table: bool = false,
     linker_export_table: bool = false,
@@ -1463,6 +1464,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .module_definition_file = options.linker_module_definition_file,
             .sort_section = options.linker_sort_section,
             .import_memory = options.linker_import_memory orelse false,
+            .export_memory = options.linker_export_memory orelse !(options.linker_import_memory orelse false),
             .import_symbols = options.linker_import_symbols,
             .import_table = options.linker_import_table,
             .export_table = options.linker_export_table,
@@ -2324,6 +2326,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     // WASM specific stuff
     man.hash.add(comp.bin_file.options.import_memory);
+    man.hash.add(comp.bin_file.options.export_memory);
     man.hash.addOptional(comp.bin_file.options.initial_memory);
     man.hash.addOptional(comp.bin_file.options.max_memory);
     man.hash.add(comp.bin_file.options.shared_memory);

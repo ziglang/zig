@@ -1832,7 +1832,6 @@ pub fn writeIntSlice(comptime T: type, buffer: []u8, value: T, endian: Endian) v
 pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value: anytype, endian: std.builtin.Endian) void {
     const T = @TypeOf(value);
     const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
-    const Log2N = std.math.Log2Int(T);
 
     const bit_shift = @as(u3, @intCast(bit_offset % 8));
     const write_size = (bit_count + bit_shift + 7) / 8;
@@ -1861,9 +1860,9 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
 
     // Write first byte, using a mask to protects bits preceding bit_offset
     const head_mask = @as(u8, 0xff) >> bit_shift;
-    write_bytes[@as(usize, @intCast(i))] &= ~(head_mask << bit_shift);
-    write_bytes[@as(usize, @intCast(i))] |= @as(u8, @intCast(@as(uN, @bitCast(remaining)) & head_mask)) << bit_shift;
-    remaining >>= @as(Log2N, @intCast(@as(u4, 8) - bit_shift));
+    write_bytes[@intCast(i)] &= ~(head_mask << bit_shift);
+    write_bytes[@intCast(i)] |= @as(u8, @intCast(@as(uN, @bitCast(remaining)) & head_mask)) << bit_shift;
+    remaining = math.shr(T, remaining, @as(u4, 8) - bit_shift);
     i += delta;
 
     // Write bytes[1..bytes.len - 1]

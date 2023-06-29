@@ -1289,10 +1289,6 @@ test "std.enums.ensureIndexer" {
     });
 }
 
-fn ascByValue(ctx: void, comptime a: EnumField, comptime b: EnumField) bool {
-    _ = ctx;
-    return a.value < b.value;
-}
 pub fn EnumIndexer(comptime E: type) type {
     if (!@typeInfo(E).Enum.is_exhaustive) {
         @compileError("Cannot create an enum indexer for a non-exhaustive enum.");
@@ -1300,7 +1296,10 @@ pub fn EnumIndexer(comptime E: type) type {
 
     const const_fields = std.meta.fields(E);
     var fields = const_fields[0..const_fields.len].*;
-    if (fields.len == 0) {
+    const min = fields[0].value;
+    const max = fields[fields.len - 1].value;
+    const fields_len = fields.len;
+    if (fields_len == 0) {
         return struct {
             pub const Key = E;
             pub const count: usize = 0;
@@ -1314,10 +1313,20 @@ pub fn EnumIndexer(comptime E: type) type {
             }
         };
     }
-    std.mem.sort(EnumField, &fields, {}, ascByValue);
-    const min = fields[0].value;
-    const max = fields[fields.len - 1].value;
-    const fields_len = fields.len;
+
+    const SortContext = struct {
+        fields: []EnumField,
+
+        pub fn lessThan(comptime ctx: @This(), comptime a: usize, comptime b: usize) bool {
+            return ctx.fields[a].value < ctx.fields[b].value;
+        }
+
+        pub fn swap(comptime ctx: @This(), comptime a: usize, comptime b: usize) void {
+            return std.mem.swap(EnumField, &ctx.fields[a], &ctx.fields[b]);
+        }
+    };
+    std.sort.insertionContext(0, fields_len, SortContext{ .fields = &fields });
+
     if (max - min == fields.len - 1) {
         return struct {
             pub const Key = E;
