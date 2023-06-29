@@ -992,7 +992,6 @@ pub const Struct = struct {
         is_comptime: bool,
 
         /// Returns the field alignment. If the struct is packed, returns 0.
-        /// Keep implementation in sync with `Sema.structFieldAlignment`.
         pub fn alignment(
             field: Field,
             mod: *Module,
