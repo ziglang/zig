@@ -84,7 +84,7 @@ const normal_usage =
     \\
     \\Commands:
     \\
-    \\  build            Build project from build.zig
+    \\  build            Build project from build.zig with subcommands to run, test etc.
     \\  init-exe         Initialize a `zig build` application in the cwd
     \\  init-lib         Initialize a `zig build` library in the cwd
     \\
