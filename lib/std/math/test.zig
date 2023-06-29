@@ -5,7 +5,7 @@ const math = std.math;
 const nan = math.nan;
 
 // Change to '.info' to enable verbose output.
-pub const log_level: std.log.Level = .warn;
+pub const log_level: std.log.Level = .info;
 
 // Include all tests.
 comptime {
