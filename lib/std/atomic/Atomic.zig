@@ -128,7 +128,7 @@ pub fn Atomic(comptime T: type) type {
             if (success == .Unordered or failure == .Unordered) {
                 @compileError(@tagName(Ordering.Unordered) ++ " is only allowed on atomic loads and stores");
             }
-        
+
             comptime var success_is_stronger = switch (failure) {
                 .SeqCst => success == .SeqCst,
                 .AcqRel => @compileError(@tagName(failure) ++ " implies " ++ @tagName(Ordering.Release) ++ " which is only allowed on success"),
@@ -137,7 +137,7 @@ pub fn Atomic(comptime T: type) type {
                 .Monotonic => true,
                 .Unordered => unreachable,
             };
-        
+
             if (!success_is_stronger) {
                 @compileError(@tagName(success) ++ " must be stronger than " ++ @tagName(failure));
             }
