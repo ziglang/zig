@@ -18,7 +18,6 @@ const Hash = struct {
     name: []const u8,
     has_iterative_api: bool = true,
     has_crypto_api: bool = false,
-    has_small_api: bool = false,
     has_anytype_api: ?[]const comptime_int = null,
     init_u8s: ?[]const u8 = null,
     init_u64: ?u64 = null,
@@ -29,14 +28,12 @@ const hashes = [_]Hash{
         .ty = hash.XxHash64,
         .name = "xxhash64",
         .init_u64 = 0,
-        .has_small_api = true,
         .has_anytype_api = @as([]const comptime_int, &[_]comptime_int{ 8, 16, 32, 48, 64, 80, 96, 112, 128 }),
     },
     Hash{
         .ty = hash.XxHash32,
         .name = "xxhash32",
         .init_u64 = 0,
-        .has_small_api = true,
         .has_anytype_api = @as([]const comptime_int, &[_]comptime_int{ 8, 16, 32, 48, 64, 80, 96, 112, 128 }),
     },
     Hash{
@@ -411,12 +408,12 @@ pub fn main() !void {
 
     inline for (hashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) loop: {
-            if (!test_iterative_only or H.has_iterative_api or H.has_small_api) {
+            if (!test_iterative_only or H.has_iterative_api) {
                 try stdout.print("{s}\n", .{H.name});
 
                 // Always reseed prior to every call so we are hashing the same buffer contents.
                 // This allows easier comparison between different implementations.
-                if (H.has_iterative_api and !test_small_only) {
+                if (H.has_iterative_api) {
                     prng.seed(seed);
                     const result = try benchmarkHash(H, count, allocator);
                     try stdout.print("   iterative: {:5} MiB/s [{x:0<16}]\n", .{ result.throughput / (1 * MiB), result.hash });
@@ -434,14 +431,6 @@ pub fn main() !void {
                         });
 
                         if (test_small_only) break :loop;
-                        if (H.has_small_api and size <= H.ty.small_key_max_size) {
-                            prng.seed(seed);
-                            const result = try benchmarkHashSmallApi(H, size, count, allocator);
-                            try stdout.print("   small api: {:5} MiB/s [{x:0<16}]\n", .{
-                                result.throughput / (1 * MiB),
-                                result.hash,
-                            });
-                        }
                         if (H.has_anytype_api) |sizes| {
                             inline for (sizes) |exact_size| {
                                 if (size == exact_size) {
@@ -471,18 +460,6 @@ pub fn main() !void {
                         });
 
                         if (test_small_only) break :loop;
-                        if (H.has_small_api) {
-                            try stdout.print("   small api:\n", .{});
-                            for (1..H.ty.small_key_max_size + 1) |size| {
-                                prng.seed(seed);
-                                const result = try benchmarkHashSmallApi(H, size, count, allocator);
-                                try stdout.print("       {d: >3}B {:5} MiB/s [{x:0<16}]\n", .{
-                                    size,
-                                    result.throughput / (1 * MiB),
-                                    result.hash,
-                                });
-                            }
-                        }
                         if (H.has_anytype_api) |sizes| {
                             try stdout.print("       array:\n", .{});
                             inline for (sizes) |exact_size| {
