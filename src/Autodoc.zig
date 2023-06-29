@@ -1620,10 +1620,18 @@ fn walkInstruction(
             const rhs_index = self.exprs.items.len;
             try self.exprs.append(self.arena, rhs.expr);
 
+            var lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.lhs,
+                false,
+            );
+
             self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(tags[inst_index]), .param = rhs_index } };
 
             return DocData.WalkResult{
-                .typeRef = rhs.typeRef orelse .{ .type = @intFromEnum(Ref.type_type) },
+                .typeRef = lhs.typeRef orelse .{ .type = @intFromEnum(Ref.type_type) },
                 .expr = .{ .builtinIndex = bin_index },
             };
         },
