@@ -887,12 +887,8 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) OpenSelfDebugInfoError!DebugI
     }
 }
 
-fn readCoffDebugInfo(allocator: mem.Allocator, coff_bytes: []const u8) !ModuleDebugInfo {
+fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebugInfo {
     nosuspend {
-        const coff_obj = try allocator.create(coff.Coff);
-        defer allocator.destroy(coff_obj);
-        coff_obj.* = try coff.Coff.init(coff_bytes);
-
         var di = ModuleDebugInfo{
             .base_address = undefined,
             .coff_image_base = coff_obj.getImageBase(),
@@ -908,9 +904,14 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_bytes: []const u8) !ModuleDe
             errdefer for (sections) |section| if (section) |s| if (s.owned) allocator.free(s.data);
 
             inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
-                sections[i] = .{
-                    .data = try coff_obj.getSectionDataAlloc("." ++ section.name, allocator),
-                    .owned = true,
+                sections[i] = if (coff_obj.getSectionDataAlloc("." ++ section.name, allocator)) |data| blk: {
+                    break :blk .{
+                        .data = data,
+                        .owned = true,
+                    };
+                } else |err| blk: {
+                    if (err == error.MissingCoffSection) break :blk null;
+                    return err;
                 };
             }
 
@@ -920,7 +921,7 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_bytes: []const u8) !ModuleDe
                 .is_macho = false,
             };
 
-            try DW.openDwarfDebugInfo(&dwarf, allocator, coff_bytes);
+            try DW.openDwarfDebugInfo(&dwarf, allocator, coff_obj.data);
             di.debug_data = PdbOrDwarf{ .dwarf = dwarf };
             return di;
         }
@@ -1358,6 +1359,21 @@ pub const WindowsModuleInfo = struct {
     base_address: usize,
     size: u32,
     name: []const u8,
+    handle: windows.HMODULE,
+
+    // Set when the image file needed to be mapped from disk
+    mapped_file: ?struct {
+        file: File,
+        section_handle: windows.HANDLE,
+        section_view: []const u8,
+
+        pub fn deinit(self: @This()) void {
+            const process_handle = windows.kernel32.GetCurrentProcess();
+            assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @constCast(@ptrCast(self.section_view.ptr))) == .SUCCESS);
+            windows.CloseHandle(self.section_handle);
+            self.file.close();
+        }
+    } = null,
 };
 
 pub const DebugInfo = struct {
@@ -1373,6 +1389,8 @@ pub const DebugInfo = struct {
         };
 
         if (native_os == .windows) {
+            errdefer debug_info.modules.deinit(allocator);
+
             const handle = windows.kernel32.CreateToolhelp32Snapshot(windows.TH32CS_SNAPMODULE | windows.TH32CS_SNAPMODULE32, 0);
             if (handle == windows.INVALID_HANDLE_VALUE) {
                 switch (windows.kernel32.GetLastError()) {
@@ -1390,9 +1408,16 @@ pub const DebugInfo = struct {
             var module_valid = true;
             while (module_valid) {
                 const module_info = try debug_info.modules.addOne(allocator);
-                module_info.base_address = @intFromPtr(module_entry.modBaseAddr);
-                module_info.size = module_entry.modBaseSize;
-                module_info.name = allocator.dupe(u8, mem.sliceTo(&module_entry.szModule, 0)) catch &.{};
+                const name = allocator.dupe(u8, mem.sliceTo(&module_entry.szModule, 0)) catch &.{};
+                errdefer allocator.free(name);
+
+                module_info.* = .{
+                    .base_address = @intFromPtr(module_entry.modBaseAddr),
+                    .size = module_entry.modBaseSize,
+                    .name = name,
+                    .handle = module_entry.hModule,
+                };
+
                 module_valid = windows.kernel32.Module32Next(handle, &module_entry) == 1;
             }
         }
@@ -1411,6 +1436,7 @@ pub const DebugInfo = struct {
         if (native_os == .windows) {
             for (self.modules.items) |module| {
                 self.allocator.free(module.name);
+                if (module.mapped_file) |mapped_file| mapped_file.deinit();
             }
             self.modules.deinit(self.allocator);
         }
@@ -1500,17 +1526,85 @@ pub const DebugInfo = struct {
     }
 
     fn lookupModuleWin32(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        for (self.modules.items) |module| {
+        for (self.modules.items) |*module| {
             if (address >= module.base_address and address < module.base_address + module.size) {
                 if (self.address_map.get(module.base_address)) |obj_di| {
                     return obj_di;
                 }
 
-                const mapped_module = @as([*]const u8, @ptrFromInt(module.base_address))[0..module.size];
                 const obj_di = try self.allocator.create(ModuleDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
 
-                obj_di.* = try readCoffDebugInfo(self.allocator, mapped_module);
+                const mapped_module = @as([*]const u8, @ptrFromInt(module.base_address))[0..module.size];
+                var coff_obj = try coff.Coff.init(mapped_module);
+
+                // The string table is not mapped into memory by the loader, so if a section name is in the
+                // string table then we have to map the full image file from disk. This can happen when
+                // a binary is produced with -gdwarf, since the section names are longer than 8 bytes.
+                if (coff_obj.strtabRequired()) {
+                    var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
+                    // openFileAbsoluteW requires the prefix to be present
+                    mem.copy(u16, name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
+
+                    const process_handle = windows.kernel32.GetCurrentProcess();
+                    const len = windows.kernel32.K32GetModuleFileNameExW(
+                        process_handle,
+                        module.handle,
+                        @ptrCast(&name_buffer[4]),
+                        windows.PATH_MAX_WIDE,
+                    );
+
+                    if (len == 0) return error.MissingDebugInfo;
+                    const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
+                        error.FileNotFound => return error.MissingDebugInfo,
+                        else => return err,
+                    };
+                    errdefer coff_file.close();
+
+                    var section_handle: windows.HANDLE = undefined;
+                    const create_section_rc = windows.ntdll.NtCreateSection(
+                        &section_handle,
+                        windows.STANDARD_RIGHTS_REQUIRED | windows.SECTION_QUERY | windows.SECTION_MAP_READ,
+                        null,
+                        null,
+                        windows.PAGE_READONLY,
+                        // The documentation states that if no AllocationAttribute is specified, then SEC_COMMIT is the default.
+                        // In practice, this isn't the case and specifying 0 will result in INVALID_PARAMETER_6.
+                        windows.SEC_COMMIT,
+                        coff_file.handle,
+                    );
+                    if (create_section_rc != .SUCCESS) return error.MissingDebugInfo;
+                    errdefer windows.CloseHandle(section_handle);
+
+                    var coff_len: usize = 0;
+                    var base_ptr: usize = 0;
+                    const map_section_rc = windows.ntdll.NtMapViewOfSection(
+                        section_handle,
+                        process_handle,
+                        @ptrCast(&base_ptr),
+                        null,
+                        0,
+                        null,
+                        &coff_len,
+                        .ViewUnmap,
+                        0,
+                        windows.PAGE_READONLY,
+                    );
+                    if (map_section_rc != .SUCCESS) return error.MissingDebugInfo;
+                    errdefer assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @ptrFromInt(base_ptr)) == .SUCCESS);
+
+                    const section_view = @as([*]const u8, @ptrFromInt(base_ptr))[0..coff_len];
+                    coff_obj = try coff.Coff.init(section_view);
+
+                    module.mapped_file = .{
+                        .file = coff_file,
+                        .section_handle = section_handle,
+                        .section_view = section_view,
+                    };
+                }
+                errdefer if (module.mapped_file) |mapped_file| mapped_file.deinit();
+
+                obj_di.* = try readCoffDebugInfo(self.allocator, &coff_obj);
                 obj_di.base_address = module.base_address;
 
                 try self.address_map.putNoClobber(module.base_address, obj_di);

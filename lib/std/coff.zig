@@ -1214,6 +1214,11 @@ pub const Coff = struct {
         return Strtab{ .buffer = self.data[offset..][0..size] };
     }
 
+    pub fn strtabRequired(self: *const Coff) bool {
+        for (self.getSectionHeaders()) |*sect_hdr| if (sect_hdr.getName() == null) return true;
+        return false;
+    }
+
     pub fn getSectionHeaders(self: *const Coff) []align(1) const SectionHeader {
         const coff_header = self.getCoffHeader();
         const offset = self.coff_header_offset + @sizeOf(CoffHeader) + coff_header.size_of_optional_header;
