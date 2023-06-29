@@ -316,7 +316,7 @@ pub const Ip6Address = extern struct {
                 .addr = undefined,
             },
         };
-        var ip_slice: *[16]u8 = result.sa.addr[0..];
+        var ip_slice = result.sa.addr[0..];
 
         var tail: [16]u8 = undefined;
 
@@ -431,7 +431,7 @@ pub const Ip6Address = extern struct {
                 .addr = undefined,
             },
         };
-        var ip_slice: *[16]u8 = result.sa.addr[0..];
+        var ip_slice = result.sa.addr[0..];
 
         var tail: [16]u8 = undefined;
 

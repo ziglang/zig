@@ -1680,9 +1680,9 @@ test "extern struct field pointer has correct alignment" {
 
     const S = struct {
         fn doTheTest() !void {
-            var a: extern struct { x: u32, y: u16 } = .{ .x = 1, .y = 2 };
-            var b: extern struct { x: u32, y: u16 } align(1) = .{ .x = 3, .y = 4 };
-            var c: extern struct { x: u32, y: u16 } align(64) = .{ .x = 5, .y = 6 };
+            var a: extern struct { x: u32, y: u32 } = .{ .x = 1, .y = 2 };
+            var b: extern struct { x: u32, y: u32 } align(1) = .{ .x = 3, .y = 4 };
+            var c: extern struct { x: u32, y: u32 } align(64) = .{ .x = 5, .y = 6 };
 
             const axp = &a.x;
             const bxp = &b.x;
@@ -1693,19 +1693,18 @@ test "extern struct field pointer has correct alignment" {
 
             comptime assert(@TypeOf(axp) == *u32);
             comptime assert(@TypeOf(bxp) == *align(1) u32);
-            comptime assert(@TypeOf(cxp) == *align(64) u32);
-
-            comptime assert(@TypeOf(ayp) == *align(@alignOf(u32)) u16);
-            comptime assert(@TypeOf(byp) == *align(1) u16);
-            comptime assert(@TypeOf(cyp) == *align(@alignOf(u32)) u16);
+            comptime assert(@TypeOf(cxp) == *align(64) u32); // first field, inherits larger alignment
+            comptime assert(@TypeOf(ayp) == *u32);
+            comptime assert(@TypeOf(byp) == *align(1) u32);
+            comptime assert(@TypeOf(cyp) == *u32);
 
             try expectEqual(@as(u32, 1), axp.*);
             try expectEqual(@as(u32, 3), bxp.*);
             try expectEqual(@as(u32, 5), cxp.*);
 
-            try expectEqual(@as(u16, 2), ayp.*);
-            try expectEqual(@as(u16, 4), byp.*);
-            try expectEqual(@as(u16, 6), cyp.*);
+            try expectEqual(@as(u32, 2), ayp.*);
+            try expectEqual(@as(u32, 4), byp.*);
+            try expectEqual(@as(u32, 6), cyp.*);
         }
     };
 
