@@ -1027,6 +1027,9 @@ pub const File = struct {
             for (comp.c_object_table.keys()) |key| {
                 _ = try man.addFile(key.status.success.object_path, null);
             }
+            for (comp.win32_resource_table.keys()) |key| {
+                _ = try man.addFile(key.status.success.res_path, null);
+            }
             try man.addOptionalFile(module_obj_path);
             try man.addOptionalFile(compiler_rt_path);
 
@@ -1056,7 +1059,7 @@ pub const File = struct {
             };
         }
 
-        const num_object_files = base.options.objects.len + comp.c_object_table.count() + 2;
+        const num_object_files = base.options.objects.len + comp.c_object_table.count() + comp.win32_resource_table.count() + 2;
         var object_files = try std.ArrayList([*:0]const u8).initCapacity(base.allocator, num_object_files);
         defer object_files.deinit();
 
@@ -1065,6 +1068,9 @@ pub const File = struct {
         }
         for (comp.c_object_table.keys()) |key| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.object_path));
+        }
+        for (comp.win32_resource_table.keys()) |key| {
+            object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.res_path));
         }
         if (module_obj_path) |p| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));

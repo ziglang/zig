@@ -472,6 +472,7 @@ const usage_build_generic =
     \\  -D[macro]=[value]         Define C [macro] to [value] (1 if [value] omitted)
     \\  --libc [file]             Provide a file which specifies libc paths
     \\  -cflags [flags] --        Set extra flags for the next positional C source files
+    \\  -rcflags [flags] --       Set extra flags for the next positional .rc source files
     \\
     \\Link Options:
     \\  -l[lib], --library [lib]       Link against system library (only if actually used)
@@ -919,11 +920,13 @@ fn buildOutputType(
     var wasi_emulated_libs = std.ArrayList(wasi_libc.CRTFile).init(arena);
     var clang_argv = std.ArrayList([]const u8).init(arena);
     var extra_cflags = std.ArrayList([]const u8).init(arena);
+    var extra_rcflags = std.ArrayList([]const u8).init(arena);
     // These are before resolving sysroot.
     var lib_dir_args = std.ArrayList([]const u8).init(arena);
     var rpath_list = std.ArrayList([]const u8).init(arena);
     var symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{};
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
+    var rc_source_files = std.ArrayList(Compilation.RcSourceFile).init(arena);
     var link_objects = std.ArrayList(Compilation.LinkObject).init(arena);
     var framework_dirs = std.ArrayList([]const u8).init(arena);
     var frameworks: std.StringArrayHashMapUnmanaged(Framework) = .{};
@@ -1041,6 +1044,15 @@ fn buildOutputType(
                             };
                             if (mem.eql(u8, next_arg, "--")) break;
                             try extra_cflags.append(next_arg);
+                        }
+                    } else if (mem.eql(u8, arg, "-rcflags")) {
+                        extra_rcflags.shrinkRetainingCapacity(0);
+                        while (true) {
+                            const next_arg = args_iter.next() orelse {
+                                fatal("expected -- after -rcflags", .{});
+                            };
+                            if (mem.eql(u8, next_arg, "--")) break;
+                            try extra_rcflags.append(next_arg);
                         }
                     } else if (mem.eql(u8, arg, "--color")) {
                         const next_arg = args_iter.next() orelse {
@@ -1599,6 +1611,12 @@ fn buildOutputType(
                             .ext = file_ext,
                         });
                     },
+                    .rc => {
+                        try rc_source_files.append(.{
+                            .src_path = arg,
+                            .extra_flags = try arena.dupe([]const u8, extra_rcflags.items),
+                        });
+                    },
                     .zig => {
                         if (root_src_file) |other| {
                             fatal("found another zig file '{s}' after root source file '{s}'", .{ arg, other });
@@ -1690,6 +1708,9 @@ fn buildOutputType(
                         }),
                         .def => {
                             linker_module_definition_file = it.only_arg;
+                        },
+                        .rc => {
+                            try rc_source_files.append(.{ .src_path = it.only_arg });
                         },
                         .zig => {
                             if (root_src_file) |other| {
@@ -2933,6 +2954,7 @@ fn buildOutputType(
     if (output_mode == .Obj and (object_format == .coff or object_format == .macho)) {
         const total_obj_count = c_source_files.items.len +
             @intFromBool(root_src_file != null) +
+            rc_source_files.items.len +
             link_objects.items.len;
         if (total_obj_count > 1) {
             fatal("{s} does not support linking multiple objects into one", .{@tagName(object_format)});
@@ -3319,6 +3341,7 @@ fn buildOutputType(
         .rpath_list = rpath_list.items,
         .symbol_wrap_set = symbol_wrap_set,
         .c_source_files = c_source_files.items,
+        .rc_source_files = rc_source_files.items,
         .link_objects = link_objects.items,
         .framework_dirs = framework_dirs.items,
         .frameworks = resolved_frameworks.items,

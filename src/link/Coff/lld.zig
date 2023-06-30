@@ -72,6 +72,9 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
         }
+        for (comp.win32_resource_table.keys()) |key| {
+            _ = try man.addFile(key.status.success.res_path, null);
+        }
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.addOptional(self.base.options.stack_size_override);
@@ -266,6 +269,10 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
         for (comp.c_object_table.keys()) |key| {
             try argv.append(key.status.success.object_path);
+        }
+
+        for (comp.win32_resource_table.keys()) |key| {
+            try argv.append(key.status.success.res_path);
         }
 
         if (module_obj_path) |p| {
