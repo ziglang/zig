@@ -889,13 +889,13 @@ pub const cmsghdr = extern struct {
     cmsg_type: c_int,
 };
 pub const msghdr = extern struct {
-    msg_name: ?*anyopaque,
-    msg_namelen: socklen_t,
-    msg_iov: [*]iovec,
-    msg_iovlen: c_int,
-    msg_control: ?*anyopaque,
-    msg_controllen: socklen_t,
-    msg_flags: c_int,
+    name: ?*anyopaque,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: c_int,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    flags: c_int,
 };
 pub const cmsgcred = extern struct {
     cmcred_pid: pid_t,
