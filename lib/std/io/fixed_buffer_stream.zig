@@ -15,21 +15,10 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub const ReadError = error{};
         pub const WriteError = error{NoSpaceLeft};
         pub const SeekError = error{};
-        pub const GetSeekPosError = error{};
 
         pub const Reader = io.Reader(*Self, ReadError, read);
         pub const Writer = io.Writer(*Self, WriteError, write);
         pub const Seeker = io.Seeker(*Self, SeekError, seek);
-
-        pub const SeekableStream = io.SeekableStream(
-            *Self,
-            SeekError,
-            GetSeekPosError,
-            seekTo,
-            seekBy,
-            getPos,
-            getEndPos,
-        );
 
         const Self = @This();
 
@@ -38,10 +27,6 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         }
 
         pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-
-        pub fn seekableStream(self: *Self) SeekableStream {
             return .{ .context = self };
         }
 
@@ -102,33 +87,12 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return .{ .context = self };
         }
 
-        pub fn seekTo(self: *Self, pos: u64) SeekError!void {
-            self.pos = if (std.math.cast(usize, pos)) |x| @min(self.buffer.len, x) else self.buffer.len;
-        }
-
-        pub fn seekBy(self: *Self, amt: i64) SeekError!void {
-            if (amt < 0) {
-                const abs_amt = std.math.absCast(amt);
-                const abs_amt_usize = std.math.cast(usize, abs_amt) orelse std.math.maxInt(usize);
-                if (abs_amt_usize > self.pos) {
-                    self.pos = 0;
-                } else {
-                    self.pos -= abs_amt_usize;
-                }
-            } else {
-                const amt_usize = std.math.cast(usize, amt) orelse std.math.maxInt(usize);
-                const new_pos = std.math.add(usize, self.pos, amt_usize) catch std.math.maxInt(usize);
-                self.pos = @min(self.buffer.len, new_pos);
-            }
-        }
-
-        pub fn getEndPos(self: *Self) GetSeekPosError!u64 {
-            return self.buffer.len;
-        }
-
-        pub fn getPos(self: *Self) GetSeekPosError!u64 {
-            return self.pos;
-        }
+        // Deprecations
+        pub const seekableStream = @compileError("Deprecated; use seeker() instead.");
+        pub const seekTo = @compileError("Deprecated; use seeker().seekTo instead.");
+        pub const seekBy = @compileError("Deprecated; use seeker().seekBy instead.");
+        pub const getEndPos = @compileError("Deprecated; use seeker().getEndPos instead.");
+        pub const getPos = @compileError("Deprecated; use seeker().getPos instead.");
 
         pub fn getWritten(self: Self) Buffer {
             return self.buffer[0..self.pos];

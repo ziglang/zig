@@ -264,7 +264,7 @@ fn emitElf(
     switch (options.ofmt) {
         .raw => {
             for (binary_elf_output.sections.items) |section| {
-                try out_file.seekTo(section.binaryOffset);
+                try out_file.seeker().seekTo(section.binaryOffset);
                 try writeBinaryElfSection(in_file, out_file, section);
             }
             try padFile(out_file, options.pad_to);
@@ -612,7 +612,7 @@ fn containsValidAddressRange(segments: []*BinaryElfSegment) bool {
 
 fn padFile(f: File, opt_size: ?u64) !void {
     const size = opt_size orelse return;
-    try f.setEndPos(size);
+    try f.seeker().setEndPos(size);
 }
 
 test "HexWriter.Record.Address has correct payload and checksum" {
@@ -1340,7 +1340,7 @@ const ElfFileHelper = struct {
     fn computeFileCrc(file: File) !u32 {
         var buf: [8000]u8 = undefined;
 
-        try file.seekTo(0);
+        try file.seeker().seekTo(0);
         var hasher = std.hash.Crc32.init();
         while (true) {
             const bytes_read = try file.read(&buf);

@@ -986,7 +986,7 @@ pub fn parseDylib(
     const reader = file.reader();
     const fat_offset = math.cast(usize, try fat.getLibraryOffset(reader, cpu_arch)) orelse
         return error.Overflow;
-    try file.seekTo(fat_offset);
+    try file.seeker().seekTo(fat_offset);
     file_size -= fat_offset;
 
     const contents = try file.readToEndAllocOptions(gpa, file_size, file_size, @alignOf(u64), null);
@@ -1004,7 +1004,7 @@ pub fn parseDylib(
         contents,
     ) catch |err| switch (err) {
         error.EndOfStream, error.NotDylib => {
-            try file.seekTo(0);
+            try file.seeker().seekTo(0);
 
             var lib_stub = LibStub.loadFromFile(gpa, file) catch {
                 dylib.deinit(gpa);
@@ -3267,13 +3267,13 @@ fn writeDyldInfoData(self: *MachO) !void {
     const writer = stream.writer();
 
     try rebase.write(writer);
-    try stream.seekTo(bind_off - rebase_off);
+    try stream.seeker().seekTo(bind_off - rebase_off);
 
     try bind.write(writer);
-    try stream.seekTo(lazy_bind_off - rebase_off);
+    try stream.seeker().seekTo(lazy_bind_off - rebase_off);
 
     try lazy_bind.write(writer);
-    try stream.seekTo(export_off - rebase_off);
+    try stream.seeker().seekTo(export_off - rebase_off);
 
     _ = try trie.write(writer);
 
@@ -3916,7 +3916,7 @@ pub fn findFirst(comptime T: type, haystack: []align(1) const T, start: usize, p
 //     });
 //     defer out_file.close();
 
-//     if (out_file.seekFromEnd(-1)) {
+//     if (out_file.seeker().seekFromEnd(-1)) {
 //         try out_file.writer().writeByte(',');
 //     } else |err| switch (err) {
 //         error.Unseekable => try out_file.writer().writeByte('['),

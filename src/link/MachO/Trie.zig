@@ -128,7 +128,7 @@ pub const Node = struct {
     /// Recursively parses the node from the input byte stream.
     fn read(self: *Node, allocator: Allocator, reader: anytype) Trie.ReadError!usize {
         self.node_dirty = true;
-        const trie_offset = try reader.context.getPos();
+        const trie_offset = try reader.context.seeker().getPos();
         self.trie_offset = trie_offset;
 
         var nread: usize = 0;
@@ -151,7 +151,7 @@ pub const Node = struct {
         const nedges = try reader.readByte();
         self.base.node_count += nedges;
 
-        nread += (try reader.context.getPos()) - trie_offset;
+        nread += (try reader.context.seeker().getPos()) - trie_offset;
 
         var i: usize = 0;
         while (i < nedges) : (i += 1) {
@@ -169,10 +169,10 @@ pub const Node = struct {
             };
 
             const seek_to = try leb.readULEB128(u64, reader);
-            const return_pos = try reader.context.getPos();
+            const return_pos = try reader.context.seeker().getPos();
 
             nread += return_pos - edge_start_pos;
-            try reader.context.seekTo(seek_to);
+            try reader.context.seeker().seekTo(seek_to);
 
             const node = try allocator.create(Node);
             node.* = .{ .base = self.base };
@@ -183,7 +183,7 @@ pub const Node = struct {
                 .to = node,
                 .label = label,
             });
-            try reader.context.seekTo(return_pos);
+            try reader.context.seeker().seekTo(return_pos);
         }
 
         return nread;
@@ -543,7 +543,7 @@ test "write Trie to a byte stream" {
     }
     {
         // Writing finalized trie again should yield the same result.
-        try stream.seekTo(0);
+        try stream.seeker().seekTo(0);
         _ = try trie.write(stream.writer());
         try expectEqualHexStrings(&exp_buffer, buffer);
     }

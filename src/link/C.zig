@@ -331,7 +331,7 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     for (decl_values) |decl| f.appendBufAssumeCapacity(decl.code.items);
 
     const file = self.base.file.?;
-    try file.setEndPos(f.file_size);
+    try file.seeker().setEndPos(f.file_size);
     try file.pwritevAll(f.all_buffers.items, 0);
 }
 
@@ -615,7 +615,7 @@ pub fn flushEmitH(module: *Module) !void {
     });
     defer file.close();
 
-    try file.setEndPos(file_size);
+    try file.seeker().setEndPos(file_size);
     try file.pwritevAll(all_buffers.items, 0);
 }
 

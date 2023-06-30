@@ -381,21 +381,21 @@ test "readAllAlloc" {
 
     const write_buf: []const u8 = "this is a test.\nthis is a test.\nthis is a test.\nthis is a test.\n";
     try file.writeAll(write_buf);
-    try file.seekTo(0);
+    try file.seeker().seekTo(0);
 
     // max_bytes > file_size
     const buf2 = try file.readToEndAlloc(testing.allocator, 1024);
     defer testing.allocator.free(buf2);
     try testing.expectEqual(write_buf.len, buf2.len);
     try testing.expect(std.mem.eql(u8, write_buf, buf2));
-    try file.seekTo(0);
+    try file.seeker().seekTo(0);
 
     // max_bytes == file_size
     const buf3 = try file.readToEndAlloc(testing.allocator, write_buf.len);
     defer testing.allocator.free(buf3);
     try testing.expectEqual(write_buf.len, buf3.len);
     try testing.expect(std.mem.eql(u8, write_buf, buf3));
-    try file.seekTo(0);
+    try file.seeker().rewind();
 
     // max_bytes < file_size
     try testing.expectError(error.FileTooBig, file.readToEndAlloc(testing.allocator, write_buf.len - 1));
@@ -809,8 +809,8 @@ test "writev, readv" {
     defer src_file.close();
 
     try src_file.writevAll(&write_vecs);
-    try testing.expectEqual(@as(u64, line1.len + line2.len), try src_file.getEndPos());
-    try src_file.seekTo(0);
+    try testing.expectEqual(@as(u64, line1.len + line2.len), try src_file.seeker().getEndPos());
+    try src_file.seeker().seekTo(0);
     const read = try src_file.readvAll(&read_vecs);
     try testing.expectEqual(@as(usize, line1.len + line2.len), read);
     try testing.expectEqualStrings(&buf1, "line2\n");
@@ -851,7 +851,7 @@ test "pwritev, preadv" {
     defer src_file.close();
 
     try src_file.pwritevAll(&write_vecs, 16);
-    try testing.expectEqual(@as(u64, 16 + line1.len + line2.len), try src_file.getEndPos());
+    try testing.expectEqual(@as(u64, 16 + line1.len + line2.len), try src_file.seeker().getEndPos());
     const read = try src_file.preadvAll(&read_vecs, 16);
     try testing.expectEqual(@as(usize, line1.len + line2.len), read);
     try testing.expectEqualStrings(&buf1, "line2\n");

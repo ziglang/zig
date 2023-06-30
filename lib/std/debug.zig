@@ -1161,7 +1161,7 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
     nosuspend {
         defer file.close();
 
-        const file_len = math.cast(usize, try file.getEndPos()) orelse math.maxInt(usize);
+        const file_len = math.cast(usize, try file.seeker().getEndPos()) orelse math.maxInt(usize);
         const mapped_mem = try os.mmap(
             null,
             file_len,

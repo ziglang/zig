@@ -3623,7 +3623,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     }
 
     // The cache is definitely stale so delete the contents to avoid an underwrite later.
-    cache_file.setEndPos(0) catch |err| switch (err) {
+    cache_file.seeker().setEndPos(0) catch |err| switch (err) {
         error.FileTooBig => unreachable, // 0 is not too big
 
         else => |e| return e,

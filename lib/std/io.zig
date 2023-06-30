@@ -109,7 +109,9 @@ pub const Reader = @import("io/reader.zig").Reader;
 pub const Writer = @import("io/writer.zig").Writer;
 pub const Seeker = @import("io/seeker.zig").Seeker;
 pub const Whence = @import("io/seeker.zig").Whence;
-pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
+
+// Deprecations
+pub const SeekableStream = @compileError("Deprecated; use Seeker instead.");
 
 pub const BufferedWriter = @import("io/buffered_writer.zig").BufferedWriter;
 pub const bufferedWriter = @import("io/buffered_writer.zig").bufferedWriter;
@@ -433,7 +435,6 @@ test {
     _ = @import("io/writer.zig");
     _ = @import("io/seeker.zig");
     _ = @import("io/peek_stream.zig");
-    _ = @import("io/seekable_stream.zig");
     _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");
 }

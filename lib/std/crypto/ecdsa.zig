@@ -170,7 +170,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 }
                 try readDerInt(&sig.r, reader);
                 try readDerInt(&sig.s, reader);
-                if (fb.getPos() catch unreachable != der.len) return error.InvalidEncoding;
+                if (fb.seeker().getPos() catch unreachable != der.len) return error.InvalidEncoding;
 
                 return sig;
             }

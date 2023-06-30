@@ -44,7 +44,7 @@ test "write a file, read it, then delete it" {
         var file = try tmp.dir.openFile(tmp_file_name, .{});
         defer file.close();
 
-        const file_size = try file.getEndPos();
+        const file_size = try file.seeker().getEndPos();
         const expected_file_size: u64 = "begin".len + data.len + "end".len;
         try expectEqual(expected_file_size, file_size);
 
@@ -119,17 +119,18 @@ test "File seek ops" {
     try file.writeAll(&([_]u8{0x55} ** 8192));
 
     // Seek to the end
-    try file.seekFromEnd(0);
-    try expect((try file.getPos()) == try file.getEndPos());
+    var seeker = file.seeker();
+    try seeker.seekFromEnd(0);
+    try expect((try seeker.getPos()) == try seeker.getEndPos());
     // Negative delta
-    try file.seekBy(-4096);
-    try expect((try file.getPos()) == 4096);
+    try seeker.seekBy(-4096);
+    try expect((try seeker.getPos()) == 4096);
     // Positive delta
-    try file.seekBy(10);
-    try expect((try file.getPos()) == 4106);
+    try seeker.seekBy(10);
+    try expect((try seeker.getPos()) == 4106);
     // Absolute position
-    try file.seekTo(1234);
-    try expect((try file.getPos()) == 1234);
+    try seeker.seekTo(1234);
+    try expect((try seeker.getPos()) == 1234);
 }
 
 test "setEndPos" {
@@ -144,18 +145,19 @@ test "setEndPos" {
     }
 
     // Verify that the file size changes and the file offset is not moved
-    try std.testing.expect((try file.getEndPos()) == 0);
-    try std.testing.expect((try file.getPos()) == 0);
-    try file.setEndPos(8192);
-    try std.testing.expect((try file.getEndPos()) == 8192);
-    try std.testing.expect((try file.getPos()) == 0);
-    try file.seekTo(100);
-    try file.setEndPos(4096);
-    try std.testing.expect((try file.getEndPos()) == 4096);
-    try std.testing.expect((try file.getPos()) == 100);
-    try file.setEndPos(0);
-    try std.testing.expect((try file.getEndPos()) == 0);
-    try std.testing.expect((try file.getPos()) == 100);
+    var seeker = file.seeker();
+    try std.testing.expect((try seeker.getEndPos()) == 0);
+    try std.testing.expect((try seeker.getPos()) == 0);
+    try seeker.setEndPos(8192);
+    try std.testing.expect((try seeker.getEndPos()) == 8192);
+    try std.testing.expect((try seeker.getPos()) == 0);
+    try seeker.seekTo(100);
+    try seeker.setEndPos(4096);
+    try std.testing.expect((try seeker.getEndPos()) == 4096);
+    try std.testing.expect((try seeker.getPos()) == 100);
+    try seeker.setEndPos(0);
+    try std.testing.expect((try seeker.getEndPos()) == 0);
+    try std.testing.expect((try seeker.getPos()) == 100);
 }
 
 test "updateTimes" {

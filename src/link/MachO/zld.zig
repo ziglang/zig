@@ -141,7 +141,7 @@ pub const Zld = struct {
         const cpu_arch = self.options.target.cpu.arch;
         const reader = file.reader();
         const fat_offset = try fat.getLibraryOffset(reader, cpu_arch);
-        try reader.context.seekTo(fat_offset);
+        try file.seeker().seekTo(fat_offset);
 
         var archive = Archive{
             .name = name,
@@ -214,7 +214,7 @@ pub const Zld = struct {
         const reader = file.reader();
         const fat_offset = math.cast(usize, try fat.getLibraryOffset(reader, cpu_arch)) orelse
             return error.Overflow;
-        try file.seekTo(fat_offset);
+        try file.seeker().seekTo(fat_offset);
         file_size -= fat_offset;
 
         const contents = try file.readToEndAllocOptions(gpa, file_size, file_size, @alignOf(u64), null);
@@ -232,7 +232,7 @@ pub const Zld = struct {
             contents,
         ) catch |err| switch (err) {
             error.EndOfStream, error.NotDylib => {
-                try file.seekTo(0);
+                try file.seeker().seekTo(0);
 
                 var lib_stub = LibStub.loadFromFile(gpa, file) catch {
                     dylib.deinit(gpa);
@@ -2145,15 +2145,16 @@ pub const Zld = struct {
 
         var stream = std.io.fixedBufferStream(buffer);
         const writer = stream.writer();
+        const seeker = stream.seeker();
 
         try rebase.write(writer);
-        try stream.seekTo(bind_off - rebase_off);
+        try seeker.seekTo(bind_off - rebase_off);
 
         try bind.write(writer);
-        try stream.seekTo(lazy_bind_off - rebase_off);
+        try seeker.seekTo(lazy_bind_off - rebase_off);
 
         try lazy_bind.write(writer);
-        try stream.seekTo(export_off - rebase_off);
+        try seeker.seekTo(export_off - rebase_off);
 
         _ = try trie.write(writer);
 

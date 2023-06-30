@@ -926,7 +926,7 @@ test "POSIX file locking with fcntl" {
     // Create a temporary lock file
     var file = try tmp.dir.createFile("lock", .{ .read = true });
     defer file.close();
-    try file.setEndPos(2);
+    try file.seeker().setEndPos(2);
     const fd = file.handle;
 
     // Place an exclusive lock on the first byte, and a shared lock on the second byte:

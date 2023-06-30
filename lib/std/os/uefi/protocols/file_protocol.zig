@@ -19,15 +19,48 @@ pub const FileProtocol = extern struct {
     _flush: *const fn (*const FileProtocol) callconv(.C) Status,
 
     pub const SeekError = error{SeekError};
-    pub const GetSeekPosError = error{GetSeekPosError};
     pub const ReadError = error{ReadError};
     pub const WriteError = error{WriteError};
 
-    pub const SeekableStream = io.SeekableStream(*const FileProtocol, SeekError, GetSeekPosError, seekTo, seekBy, getPos, getEndPos);
     pub const Reader = io.Reader(*const FileProtocol, ReadError, readFn);
     pub const Writer = io.Writer(*const FileProtocol, WriteError, writeFn);
+    pub const Seeker = io.Seeker(*const FileProtocol, SeekError, seekFn);
 
-    pub fn seekableStream(self: *FileProtocol) SeekableStream {
+    // Deprecations
+    pub const seekableStream = @compileError("Deprecated; use seeker() instead.");
+    pub const seekTo = @compileError("Deprecated; use seeker().seekTo instead.");
+    pub const seekBy = @compileError("Deprecated; use seeker().seekBy instead.");
+    pub const getEndPos = @compileError("Deprecated; use seeker().getEndPos instead.");
+    pub const getPos = @compileError("Deprecated; use seeker().getPos instead.");
+
+    fn seekFn(self: *const FileProtocol, whence: io.Whence) SeekError!u64 {
+        var pos: u64 = undefined;
+        switch (whence) {
+            .start => |offset| {
+                pos = @intCast(offset);
+                if (.Success != self.setPosition(pos)) return error.SeekError;
+            },
+            .current, .end => |offset| {
+                if (whence == .end and .Success != self.setPosition(efi_file_position_end_of_file)) return error.SeekError;
+                if (.Success != self.getPosition(&pos)) return error.SeekError;
+                if (offset != 0) {
+                    pos = @intCast(@max(@as(i64, @intCast(pos)) + offset, 0));
+                    if (.Success != self.setPosition(offset)) return error.SeekError;
+                }
+            },
+            .get_end_pos => {
+                var oldpos: u64 = undefined;
+                if (.Success != self.getPosition(&oldpos)) return error.SeekError;
+                if (.Success != self.setPosition(efi_file_position_end_of_file)) return error.SeekError;
+                if (.Success != self.getPosition(&pos)) return error.SeekError;
+                if (.Success != self.setPosition(oldpos)) return error.SeekError;
+            },
+            .set_end_pos => {},
+        }
+        return pos;
+    }
+
+    pub fn seeker(self: *FileProtocol) Seeker {
         return .{ .context = self };
     }
 
@@ -75,44 +108,8 @@ pub const FileProtocol = extern struct {
         return self._get_position(self, position);
     }
 
-    fn getPos(self: *const FileProtocol) GetSeekPosError!u64 {
-        var pos: u64 = undefined;
-        if (.Success != self.getPosition(&pos)) return GetSeekPosError.GetSeekPosError;
-        return pos;
-    }
-
-    fn getEndPos(self: *const FileProtocol) GetSeekPosError!u64 {
-        // preserve the old file position
-        var pos: u64 = undefined;
-        if (.Success != self.getPosition(&pos)) return GetSeekPosError.GetSeekPosError;
-        // seek to end of file to get position = file size
-        if (.Success != self.setPosition(efi_file_position_end_of_file)) return GetSeekPosError.GetSeekPosError;
-        // restore the old position
-        if (.Success != self.setPosition(pos)) return GetSeekPosError.GetSeekPosError;
-        // return the file size = position
-        return pos;
-    }
-
     pub fn setPosition(self: *const FileProtocol, position: u64) Status {
         return self._set_position(self, position);
-    }
-
-    fn seekTo(self: *const FileProtocol, pos: u64) SeekError!void {
-        if (.Success != self.setPosition(pos)) return SeekError.SeekError;
-    }
-
-    fn seekBy(self: *const FileProtocol, offset: i64) SeekError!void {
-        // save the old position and calculate the delta
-        var pos: u64 = undefined;
-        if (.Success != self.getPosition(&pos)) return SeekError.SeekError;
-        const seek_back = offset < 0;
-        const amt = std.math.absCast(offset);
-        if (seek_back) {
-            pos += amt;
-        } else {
-            pos -= amt;
-        }
-        if (.Success != self.setPosition(pos)) return SeekError.SeekError;
     }
 
     pub fn getInfo(self: *const FileProtocol, information_type: *align(8) const Guid, buffer_size: *usize, buffer: [*]u8) Status {

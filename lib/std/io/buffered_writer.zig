@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 
 const io = std.io;
 const mem = std.mem;
+const meta = std.meta;
 
 pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) type {
     return struct {
@@ -19,14 +20,15 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
             self.end = 0;
         }
 
-        usingnamespace if (@hasDecl(WriterType, "seeker")) struct {
-            pub const Seeker = io.Seeker(*Self, WriterType.SeekError, seek);
+        pub const Container = if (meta.trait.isContainer(WriterType)) WriterType else meta.Child(WriterType);
+        usingnamespace if (@hasDecl(Container, "seeker")) struct {
+            pub const Seeker = io.Seeker(*Self, Container.SeekError, seek);
 
             pub fn seeker(self: *Self) Seeker {
                 return .{ .context = self };
             }
 
-            pub fn seek(self: *Self, whence: io.Whence) WriterType.SeekError!u64 {
+            pub fn seek(self: *Self, whence: io.Whence) Container.SeekError!u64 {
                 switch (whence) {
                     .start => {
                         try self.flush();

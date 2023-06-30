@@ -215,10 +215,10 @@ pub fn addCertsFromFilePath(
     return addCertsFromFile(cb, gpa, file);
 }
 
-pub const AddCertsFromFileError = Allocator.Error || fs.File.GetSeekPosError || fs.File.ReadError || ParseCertError || std.base64.Error || error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
+pub const AddCertsFromFileError = Allocator.Error || fs.File.SeekError || fs.File.ReadError || ParseCertError || std.base64.Error || error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
 
 pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFromFileError!void {
-    const size = try file.getEndPos();
+    const size = try file.seeker().getEndPos();
 
     // We borrow `bytes` as a temporary buffer for the base64-encoded data.
     // This is possible by computing the decoded length and reserving the space

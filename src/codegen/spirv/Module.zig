@@ -375,8 +375,8 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
         file_size += bytes.len;
     }
 
-    try file.seekTo(0);
-    try file.setEndPos(file_size);
+    try file.seeker().seekTo(0);
+    try file.seeker().setEndPos(file_size);
     try file.pwritevAll(&iovc_buffers, 0);
 }
 

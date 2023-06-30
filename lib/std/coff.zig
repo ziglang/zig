@@ -1075,9 +1075,10 @@ pub const Coff = struct {
 
         var stream = std.io.fixedBufferStream(data);
         const reader = stream.reader();
-        try stream.seekTo(pe_pointer_offset);
+        const seeker = stream.seeker();
+        try seeker.seekTo(pe_pointer_offset);
         var coff_header_offset = try reader.readIntLittle(u32);
-        try stream.seekTo(coff_header_offset);
+        try seeker.seekTo(coff_header_offset);
         var buf: [4]u8 = undefined;
         try reader.readNoEof(&buf);
         const is_image = mem.eql(u8, pe_magic, &buf);
@@ -1109,7 +1110,8 @@ pub const Coff = struct {
 
         var stream = std.io.fixedBufferStream(self.data);
         const reader = stream.reader();
-        try stream.seekTo(debug_dir.virtual_address);
+        const seeker = stream.seeker();
+        try seeker.seekTo(debug_dir.virtual_address);
 
         // Find the correct DebugDirectoryEntry, and where its data is stored.
         // It can be in any section.
@@ -1118,7 +1120,7 @@ pub const Coff = struct {
         blk: while (i < debug_dir_entry_count) : (i += 1) {
             const debug_dir_entry = try reader.readStruct(DebugDirectoryEntry);
             if (debug_dir_entry.type == .CODEVIEW) {
-                try stream.seekTo(debug_dir_entry.address_of_raw_data);
+                try seeker.seekTo(debug_dir_entry.address_of_raw_data);
                 break :blk;
             }
         }

@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const io = std.io;
 const mem = std.mem;
+const meta = std.meta;
 const assert = std.debug.assert;
 const testing = std.testing;
 
@@ -43,14 +44,15 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
             return .{ .context = self };
         }
 
-        usingnamespace if (@hasDecl(ReaderType, "seeker")) struct {
-            pub const Seeker = io.Seeker(*Self, ReaderType.SeekError, seek);
+        pub const Container = if (meta.trait.isContainer(ReaderType)) ReaderType else meta.Child(ReaderType);
+        usingnamespace if (@hasDecl(Container, "seeker")) struct {
+            pub const Seeker = io.Seeker(*Self, Container.SeekError, seek);
 
             pub fn seeker(self: *Self) Seeker {
                 return .{ .context = self };
             }
 
-            pub fn seek(self: *Self, whence: io.Whence) ReaderType.SeekError!u64 {
+            pub fn seek(self: *Self, whence: io.Whence) Container.SeekError!u64 {
                 switch (whence) {
                     .start, .current, .end => |offset| {
                         if (whence != .current or offset != 0) {

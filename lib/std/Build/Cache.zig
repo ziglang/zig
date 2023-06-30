@@ -850,7 +850,7 @@ pub const Manifest = struct {
                 });
             }
 
-            try manifest_file.setEndPos(contents.items.len);
+            try manifest_file.seeker().setEndPos(contents.items.len);
             try manifest_file.pwriteAll(contents.items, 0);
         }
 

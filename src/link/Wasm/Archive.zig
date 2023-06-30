@@ -195,11 +195,11 @@ fn parseNameTable(archive: *Archive, allocator: Allocator, reader: anytype) !voi
 /// From a given file offset, starts reading for a file header.
 /// When found, parses the object file into an `Object` and returns it.
 pub fn parseObject(archive: Archive, allocator: Allocator, file_offset: u32) !Object {
-    try archive.file.seekTo(file_offset);
+    try archive.file.seeker().seekTo(file_offset);
     const reader = archive.file.reader();
     const header = try reader.readStruct(ar_hdr);
-    const current_offset = try archive.file.getPos();
-    try archive.file.seekTo(0);
+    const current_offset = try archive.file.seeker().getPos();
+    try archive.file.seeker().seekTo(0);
 
     if (!mem.eql(u8, &header.ar_fmag, ARFMAG)) {
         log.err("invalid header delimiter: expected '{s}', found '{s}'", .{ ARFMAG, header.ar_fmag });
@@ -218,6 +218,6 @@ pub fn parseObject(archive: Archive, allocator: Allocator, file_offset: u32) !Ob
     errdefer object_file.close();
 
     const object_file_size = try header.size();
-    try object_file.seekTo(current_offset);
+    try object_file.seeker().seekTo(current_offset);
     return Object.create(allocator, object_file, name, object_file_size);
 }

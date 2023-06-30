@@ -23,7 +23,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
     const db_header = try reader.readStructBig(ApplDbHeader);
     assert(mem.eql(u8, "kych", &@as([4]u8, @bitCast(db_header.signature))));
 
-    try stream.seekTo(db_header.schema_offset);
+    try stream.seeker().seekTo(db_header.schema_offset);
 
     const db_schema = try reader.readStructBig(ApplDbSchema);
 
@@ -38,7 +38,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
     const now_sec = std.time.timestamp();
 
     for (table_list) |table_offset| {
-        try stream.seekTo(db_header.schema_offset + table_offset);
+        try stream.seeker().seekTo(db_header.schema_offset + table_offset);
 
         const table_header = try reader.readStructBig(TableHeader);
 
@@ -55,7 +55,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
         }
 
         for (record_list) |record_offset| {
-            try stream.seekTo(db_header.schema_offset + table_offset + record_offset);
+            try stream.seeker().seekTo(db_header.schema_offset + table_offset + record_offset);
 
             const cert_header = try reader.readStructBig(X509CertHeader);
 

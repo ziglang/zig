@@ -255,47 +255,45 @@ pub const File = struct {
         return false;
     }
 
-    pub const SetEndPosError = os.TruncateError;
+    pub const SeekError = os.TruncateError || os.SeekError || os.FStatError;
 
-    /// Shrinks or expands the file.
-    /// The file offset after this call is left unchanged.
-    pub fn setEndPos(self: File, length: u64) SetEndPosError!void {
-        try os.ftruncate(self.handle, length);
-    }
-
-    pub const SeekError = os.SeekError;
-
-    /// Repositions read/write file offset relative to the current offset.
-    /// TODO: integrate with async I/O
-    pub fn seekBy(self: File, offset: i64) SeekError!void {
-        return os.lseek_CUR(self.handle, offset);
-    }
-
-    /// Repositions read/write file offset relative to the end.
-    /// TODO: integrate with async I/O
-    pub fn seekFromEnd(self: File, offset: i64) SeekError!void {
-        return os.lseek_END(self.handle, offset);
-    }
-
-    /// Repositions read/write file offset relative to the beginning.
-    /// TODO: integrate with async I/O
-    pub fn seekTo(self: File, offset: u64) SeekError!void {
-        return os.lseek_SET(self.handle, offset);
-    }
-
-    pub const GetSeekPosError = os.SeekError || os.FStatError;
+    // Deprecations
+    pub const seekableStream = @compileError("Deprecated; use seeker() instead.");
+    pub const seekTo = @compileError("Deprecated; use seeker().seekTo instead.");
+    pub const seekBy = @compileError("Deprecated; use seeker().seekBy instead.");
+    pub const getEndPos = @compileError("Deprecated; use seeker().getEndPos instead.");
+    pub const getPos = @compileError("Deprecated; use seeker().getPos instead.");
 
     /// TODO: integrate with async I/O
-    pub fn getPos(self: File) GetSeekPosError!u64 {
-        return os.lseek_CUR_get(self.handle);
-    }
-
-    /// TODO: integrate with async I/O
-    pub fn getEndPos(self: File) GetSeekPosError!u64 {
-        if (builtin.os.tag == .windows) {
-            return windows.GetFileSizeEx(self.handle);
+    /// Seeking to an offset before the start of the file is an error.
+    /// Seeking to any positive offset may be allowed, but if the new offset exceeds
+    /// the size of the underlying object the behavior of subsequent I/O operations
+    /// is implementation-dependent.
+    pub fn seek(self: File, whence: io.Whence) SeekError!u64 {
+        switch (whence) {
+            .start => |offset| {
+                try os.lseek_SET(self.handle, offset);
+                return offset;
+            },
+            .current => |offset| {
+                if (offset != 0) {
+                    try os.lseek_CUR(self.handle, offset);
+                }
+            },
+            .end => |offset| {
+                try os.lseek_END(self.handle, offset);
+            },
+            .get_end_pos => {
+                if (builtin.os.tag == .windows) {
+                    return windows.GetFileSizeEx(self.handle);
+                }
+                return (try self.stat()).size;
+            },
+            .set_end_pos => |length| {
+                try os.ftruncate(self.handle, length);
+            },
         }
-        return (try self.stat()).size;
+        return os.lseek_CUR_get(self.handle);
     }
 
     pub const ModeError = os.FStatError;
@@ -1441,17 +1439,9 @@ pub const File = struct {
         return .{ .context = file };
     }
 
-    pub const SeekableStream = io.SeekableStream(
-        File,
-        SeekError,
-        GetSeekPosError,
-        seekTo,
-        seekBy,
-        getPos,
-        getEndPos,
-    );
+    pub const Seeker = io.Seeker(File, SeekError, seek);
 
-    pub fn seekableStream(file: File) SeekableStream {
+    pub fn seeker(file: File) Seeker {
         return .{ .context = file };
     }
 

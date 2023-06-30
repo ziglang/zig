@@ -2059,7 +2059,7 @@ fn findVcpkgRoot(allocator: Allocator) !?[]const u8 {
     const file = fs.cwd().openFile(path_file, .{}) catch return null;
     defer file.close();
 
-    const size = @as(usize, @intCast(try file.getEndPos()));
+    const size: usize = @intCast(try file.seeker().getEndPos());
     const vcpkg_path = try allocator.alloc(u8, size);
     const size_read = try file.read(vcpkg_path);
     std.debug.assert(size == size_read);

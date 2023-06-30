@@ -883,7 +883,7 @@ const Msf = struct {
             return error.InvalidDebugInfo;
         if (superblock.FreeBlockMapBlock != 1 and superblock.FreeBlockMapBlock != 2)
             return error.InvalidDebugInfo;
-        const file_len = try file.getEndPos();
+        const file_len = try file.seeker().getEndPos();
         if (superblock.NumBlocks * superblock.BlockSize != file_len)
             return error.InvalidDebugInfo;
         switch (superblock.BlockSize) {
@@ -896,7 +896,7 @@ const Msf = struct {
         if (dir_block_count > superblock.BlockSize / @sizeOf(u32))
             return error.UnhandledBigDirectoryStream; // cf. BlockMapAddr comment.
 
-        try file.seekTo(superblock.BlockSize * superblock.BlockMapAddr);
+        try file.seeker().seekTo(superblock.BlockSize * superblock.BlockMapAddr);
         var dir_blocks = try allocator.alloc(u32, dir_block_count);
         for (dir_blocks) |*b| {
             b.* = try in.readIntLittle(u32);
@@ -1043,7 +1043,7 @@ const MsfStream = struct {
         var block = self.blocks[block_id];
         var offset = self.pos % self.block_size;
 
-        try self.in_file.seekTo(block * self.block_size + offset);
+        try self.in_file.seeker().seekTo(block * self.block_size + offset);
         const in = self.in_file.reader();
 
         var size: usize = 0;
@@ -1060,7 +1060,7 @@ const MsfStream = struct {
                 block_id += 1;
                 if (block_id >= self.blocks.len) break; // End of Stream
                 block = self.blocks[block_id];
-                try self.in_file.seekTo(block * self.block_size);
+                try self.in_file.seeker().seekTo(block * self.block_size);
             }
         }
 

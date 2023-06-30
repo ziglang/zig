@@ -3488,8 +3488,8 @@ fn writeToFile(
     // if everything succeeded as expected. So populate with 0's for now.
     try binary_writer.writeAll(&[_]u8{0} ** 8);
     // (Re)set file pointer to 0
-    try wasm.base.file.?.setEndPos(0);
-    try wasm.base.file.?.seekTo(0);
+    try wasm.base.file.?.seeker().setEndPos(0);
+    try wasm.base.file.?.seeker().seekTo(0);
 
     // Type section
     if (wasm.func_types.items.len != 0) {

@@ -189,7 +189,7 @@ pub fn parseObject(
     offset: u32,
 ) !Object {
     const reader = self.file.reader();
-    try reader.context.seekTo(self.fat_offset + offset);
+    try reader.context.seeker().seekTo(self.fat_offset + offset);
 
     const object_header = try reader.readStruct(ar_hdr);
 
