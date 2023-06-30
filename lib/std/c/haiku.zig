@@ -173,25 +173,25 @@ pub const Flock = extern struct {
 
 pub const msghdr = extern struct {
     /// optional address
-    msg_name: ?*sockaddr,
+    name: ?*sockaddr,
 
     /// size of address
-    msg_namelen: socklen_t,
+    namelen: socklen_t,
 
     /// scatter/gather array
-    msg_iov: [*]iovec,
+    iov: [*]iovec,
 
     /// # elements in msg_iov
-    msg_iovlen: i32,
+    iovlen: i32,
 
     /// ancillary data
-    msg_control: ?*anyopaque,
+    control: ?*anyopaque,
 
     /// ancillary data buffer len
-    msg_controllen: socklen_t,
+    controllen: socklen_t,
 
     /// flags on received message
-    msg_flags: i32,
+    flags: i32,
 };
 
 pub const off_t = i64;
