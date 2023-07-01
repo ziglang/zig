@@ -1630,8 +1630,6 @@ fn walkInstruction(
 
             self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(tags[inst_index]), .param = rhs_index } };
 
-            std.debug.print("lhs: {any}\n\n", .{lhs});
-            std.debug.print("lhs typeref: {any}\n\n", .{lhs.typeRef});
             return DocData.WalkResult{
                 .typeRef = lhs.expr,
                 .expr = .{ .builtinIndex = bin_index },
