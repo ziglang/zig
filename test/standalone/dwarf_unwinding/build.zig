@@ -1,0 +1,37 @@
+const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    if (!std.debug.StackIterator.supports_context) return;
+
+    const c_shared_lib = b.addSharedLibrary(.{
+        .name = "c_shared_lib",
+        .target = target,
+        .optimize = optimize,
+    });
+
+    if (target.isWindows()) c_shared_lib.defineCMacro("LIB_API", "__declspec(dllexport)");
+
+    c_shared_lib.strip = false;
+    c_shared_lib.addCSourceFile("shared_lib.c", &.{"-fomit-frame-pointer"});
+    c_shared_lib.linkLibC();
+
+    const exe = b.addExecutable(.{
+        .name = "main",
+        .root_source_file = .{ .path = "main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe.omit_frame_pointer = true;
+    exe.linkLibrary(c_shared_lib);
+    b.installArtifact(exe);
+
+    const run_cmd = b.addRunArtifact(exe);
+    test_step.dependOn(&run_cmd.step);
+}
