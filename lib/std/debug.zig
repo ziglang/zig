@@ -420,7 +420,7 @@ pub fn writeStackTrace(
     }
 }
 
-inline fn getContext(context: *StackTraceContext) bool {
+pub inline fn getContext(context: *StackTraceContext) bool {
     if (native_os == .windows) {
         context.* = std.mem.zeroes(windows.CONTEXT);
         windows.ntdll.RtlCaptureContext(context);
