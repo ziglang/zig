@@ -413,7 +413,12 @@ pub extern "c" fn timer_delete(timerid: c.timer_t) c_int;
 pub extern "c" fn timer_settime(timerid: c.timer_t, flags: c_int, new_value: *const c.itimerspec, old_value: *c.itimerspec) c_int;
 pub extern "c" fn timer_gettime(timerid: c.timer_t, flags: c_int, curr_value: *c.itimerspec) c_int;
 
-pub extern "c" fn getcontext(ucp: *std.os.ucontext_t) c_int;
+pub usingnamespace if (builtin.os.tag == .linux and builtin.target.isMusl()) struct {
+    // musl does not implement getcontext
+    const getcontext = std.os.linux.getcontext;
+} else struct {
+    extern "c" fn getcontext(ucp: *std.os.ucontext_t) c_int;
+};
 
 pub const max_align_t = if (builtin.abi == .msvc)
     f64
