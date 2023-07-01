@@ -417,6 +417,8 @@ test "inline while with @call" {
 }
 
 test "method call as parameter type" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn foo(x: anytype, y: @TypeOf(x).Inner()) @TypeOf(y) {
             return y;
