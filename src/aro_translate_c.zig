@@ -192,8 +192,8 @@ fn prepopulateGlobalNameTable(c: *Context) !void {
     const node_types = c.tree.nodes.items(.ty);
     const node_data = c.tree.nodes.items(.data);
     for (c.tree.root_decls) |node| {
-        const data = node_data[@enumToInt(node)];
-        const decl_name = switch (node_tags[@enumToInt(node)]) {
+        const data = node_data[@intFromEnum(node)];
+        const decl_name = switch (node_tags[@intFromEnum(node)]) {
             .typedef => @panic("TODO"),
 
             .static_assert,
@@ -202,7 +202,7 @@ fn prepopulateGlobalNameTable(c: *Context) !void {
             .struct_decl,
             .union_decl,
             => blk: {
-                const ty = node_types[@enumToInt(node)];
+                const ty = node_types[@intFromEnum(node)];
                 const name_id = ty.data.record.name;
                 break :blk c.mapper.lookup(name_id);
             },
@@ -210,7 +210,7 @@ fn prepopulateGlobalNameTable(c: *Context) !void {
             .enum_decl_two,
             .enum_decl,
             => blk: {
-                const ty = node_types[@enumToInt(node)];
+                const ty = node_types[@intFromEnum(node)];
                 const name_id = ty.data.@"enum".name;
                 break :blk c.mapper.lookup(name_id);
             },
@@ -240,8 +240,8 @@ fn transTopLevelDecls(c: *Context) !void {
     const node_tags = c.tree.nodes.items(.tag);
     const node_data = c.tree.nodes.items(.data);
     for (c.tree.root_decls) |node| {
-        const data = node_data[@enumToInt(node)];
-        switch (node_tags[@enumToInt(node)]) {
+        const data = node_data[@intFromEnum(node)];
+        switch (node_tags[@intFromEnum(node)]) {
             .typedef => {
                 try transTypeDef(c, &c.global_scope.base, node);
             },
@@ -255,16 +255,14 @@ fn transTopLevelDecls(c: *Context) !void {
                 try transRecordDecl(c, &c.global_scope.base, node);
             },
 
-            .enum_decl_two,
-            => {
+            .enum_decl_two => {
                 var fields = [2]NodeIndex{ data.bin.lhs, data.bin.rhs };
                 var field_count: u8 = 0;
                 if (fields[0] != .none) field_count += 1;
                 if (fields[1] != .none) field_count += 1;
                 try transEnumDecl(c, &c.global_scope.base, node, fields[0..field_count]);
             },
-            .enum_decl,
-            => {
+            .enum_decl => {
                 const fields = c.tree.data[data.range.start..data.range.end];
                 try transEnumDecl(c, &c.global_scope.base, node, fields);
             },
@@ -309,9 +307,9 @@ fn transVarDecl(_: *Context, _: NodeIndex, _: ?usize) Error!void {
 }
 fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: []const NodeIndex) Error!void {
     const node_types = c.tree.nodes.items(.ty);
-    const ty = node_types[@enumToInt(enum_decl)];
+    const ty = node_types[@intFromEnum(enum_decl)];
     const node_data = c.tree.nodes.items(.data);
-    if (c.decl_table.get(@ptrToInt(ty.data.@"enum"))) |_|
+    if (c.decl_table.get(@intFromPtr(ty.data.@"enum"))) |_|
         return; // Avoid processing this decl twice
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
@@ -319,7 +317,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
     var is_unnamed = false;
     var bare_name: []const u8 = c.mapper.lookup(ty.data.@"enum".name);
     var name = bare_name;
-    if (c.unnamed_typedefs.get(@ptrToInt(ty.data.@"enum"))) |typedef_name| {
+    if (c.unnamed_typedefs.get(@intFromPtr(ty.data.@"enum"))) |typedef_name| {
         bare_name = typedef_name;
         name = typedef_name;
     } else {
@@ -330,7 +328,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
         name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
-    try c.decl_table.putNoClobber(c.gpa, @ptrToInt(ty.data.@"enum"), name);
+    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(ty.data.@"enum"), name);
 
     const enum_type_node = if (!ty.data.@"enum".isIncomplete()) blk: {
         for (ty.data.@"enum".fields, field_nodes) |field, field_node| {
@@ -348,7 +346,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
                 .name = enum_val_name,
                 .is_public = toplevel,
                 .type = enum_const_type_node,
-                .value = transExpr(c, node_data[@enumToInt(field_node)].decl.node, .used) catch @panic("TODO"),
+                .value = transExpr(c, node_data[@intFromEnum(field_node)].decl.node, .used) catch @panic("TODO"),
             });
             if (toplevel)
                 try addTopLevelDecl(c, enum_val_name, enum_const_def)
@@ -365,14 +363,14 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
             else => |e| return e,
         };
     } else blk: {
-        try c.opaque_demotes.put(c.gpa, @ptrToInt(ty.data.@"enum"), {});
+        try c.opaque_demotes.put(c.gpa, @intFromPtr(ty.data.@"enum"), {});
         break :blk ZigTag.opaque_literal.init();
     };
 
     const is_pub = toplevel and !is_unnamed;
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
-        .base = .{ .tag = ([2]ZigTag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
+        .base = .{ .tag = ([2]ZigTag{ .var_simple, .pub_var_simple })[@intFromBool(is_pub)] },
         .data = .{
             .init = enum_type_node,
             .name = name,
@@ -427,7 +425,7 @@ fn transStmt(c: *Context, node: NodeIndex) TransError!void {
 
 fn transExpr(c: *Context, node: NodeIndex, result_used: ResultUsed) TransError!ZigNode {
     std.debug.assert(node != .none);
-    const ty = c.tree.nodes.items(.ty)[@enumToInt(node)];
+    const ty = c.tree.nodes.items(.ty)[@intFromEnum(node)];
     if (c.tree.value_map.get(node)) |val| {
         // TODO handle other values
         const str = try std.fmt.allocPrint(c.arena, "{d}", .{val.data.int});
@@ -439,7 +437,7 @@ fn transExpr(c: *Context, node: NodeIndex, result_used: ResultUsed) TransError!Z
         return maybeSuppressResult(c, result_used, as_node);
     }
     const node_tags = c.tree.nodes.items(.tag);
-    switch (node_tags[@enumToInt(node)]) {
+    switch (node_tags[@intFromEnum(node)]) {
         else => unreachable, // Not an expression.
     }
     return .none;
