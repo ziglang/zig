@@ -136,7 +136,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 pub const StackTraceContext = blk: {
     if (native_os == .windows) {
         break :blk std.os.windows.CONTEXT;
-    } else if (StackIterator.supports_context) {
+    } else if (have_ucontext) {
         break :blk os.ucontext_t;
     } else {
         break :blk void;
@@ -420,6 +420,18 @@ pub fn writeStackTrace(
     }
 }
 
+pub const have_getcontext = @hasDecl(os.system, "getcontext") and
+    (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
+    .x86, .x86_64 => true,
+    else => false,
+});
+
+pub const have_ucontext = @hasDecl(os.system, "ucontext_t") and
+    (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
+    .mips, .mipsel, .mips64, .mips64el, .riscv64 => false,
+    else => true,
+});
+
 pub inline fn getContext(context: *StackTraceContext) bool {
     if (native_os == .windows) {
         context.* = std.mem.zeroes(windows.CONTEXT);
@@ -427,13 +439,7 @@ pub inline fn getContext(context: *StackTraceContext) bool {
         return true;
     }
 
-    const supports_getcontext = @hasDecl(os.system, "getcontext") and
-        (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
-        .x86, .x86_64 => true,
-        else => false,
-    });
-
-    return supports_getcontext and os.system.getcontext(context) == 0;
+    return have_getcontext and os.system.getcontext(context) == 0;
 }
 
 pub const StackIterator = struct {
@@ -445,13 +451,7 @@ pub const StackIterator = struct {
     // When DebugInfo and a register context is available, this iterator can unwind
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer).
     debug_info: ?*DebugInfo,
-    dwarf_context: if (supports_context) DW.UnwindContext else void = undefined,
-
-    pub const supports_context = @hasDecl(os.system, "ucontext_t") and
-        (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
-        .mips, .mipsel, .mips64, .mips64el, .riscv64 => false,
-        else => true,
-    });
+    dwarf_context: if (have_ucontext) DW.UnwindContext else void = undefined,
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
         if (native_arch == .sparc64) {
@@ -476,7 +476,7 @@ pub const StackIterator = struct {
     }
 
     pub fn deinit(self: *StackIterator) void {
-        if (supports_context) {
+        if (have_ucontext) {
             if (self.debug_info) |debug_info| {
                 self.dwarf_context.deinit(debug_info.allocator);
             }
@@ -574,7 +574,7 @@ pub const StackIterator = struct {
     }
 
     fn next_internal(self: *StackIterator) ?usize {
-        if (supports_context and self.debug_info != null) {
+        if (have_ucontext and self.debug_info != null) {
             if (self.dwarf_context.pc == 0) return null;
             if (self.next_dwarf()) |return_address| {
                 return return_address;

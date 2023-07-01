@@ -7,31 +7,46 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    if (!std.debug.StackIterator.supports_context) return;
+    // Test unwinding pure zig code (no libc)
+    {
+        const exe = b.addExecutable(.{
+            .name = "zig_unwind",
+            .root_source_file = .{ .path = "zig_unwind.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
 
-    const c_shared_lib = b.addSharedLibrary(.{
-        .name = "c_shared_lib",
-        .target = target,
-        .optimize = optimize,
-    });
+        exe.omit_frame_pointer = true;
 
-    if (target.isWindows()) c_shared_lib.defineCMacro("LIB_API", "__declspec(dllexport)");
+        const run_cmd = b.addRunArtifact(exe);
+        test_step.dependOn(&run_cmd.step);
+    }
 
-    c_shared_lib.strip = false;
-    c_shared_lib.addCSourceFile("shared_lib.c", &.{"-fomit-frame-pointer"});
-    c_shared_lib.linkLibC();
+    // Test unwinding through a C shared library
+    {
+        const c_shared_lib = b.addSharedLibrary(.{
+            .name = "c_shared_lib",
+            .target = target,
+            .optimize = optimize,
+        });
 
-    const exe = b.addExecutable(.{
-        .name = "main",
-        .root_source_file = .{ .path = "main.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
+        if (target.isWindows()) c_shared_lib.defineCMacro("LIB_API", "__declspec(dllexport)");
 
-    exe.omit_frame_pointer = true;
-    exe.linkLibrary(c_shared_lib);
-    b.installArtifact(exe);
+        c_shared_lib.strip = false;
+        c_shared_lib.addCSourceFile("shared_lib.c", &.{"-fomit-frame-pointer"});
+        c_shared_lib.linkLibC();
 
-    const run_cmd = b.addRunArtifact(exe);
-    test_step.dependOn(&run_cmd.step);
+        const exe = b.addExecutable(.{
+            .name = "shared_lib_unwind",
+            .root_source_file = .{ .path = "shared_lib_unwind.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
+
+        exe.omit_frame_pointer = true;
+        exe.linkLibrary(c_shared_lib);
+
+        const run_cmd = b.addRunArtifact(exe);
+        test_step.dependOn(&run_cmd.step);
+    }
 }
