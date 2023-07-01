@@ -806,7 +806,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
             // Didn't have boot_services, just fallback to whatever.
             std.os.abort();
         },
-        .cuda => std.os.abort(),
+        .cuda, .amdhsa => std.os.abort(),
         else => {
             const first_trace_addr = ret_addr orelse @returnAddress();
             std.debug.panicImpl(error_return_trace, first_trace_addr, msg);
