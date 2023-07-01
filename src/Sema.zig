@@ -25879,6 +25879,9 @@ fn structFieldPtrByIndex(
 
     const target = mod.getTarget();
 
+    const parent_align = struct_ptr_ty_info.flags.alignment.toByteUnitsOptional() orelse
+        try sema.typeAbiAlignment(struct_ptr_ty_info.child.toType());
+
     if (struct_obj.layout == .Packed) {
         comptime assert(Type.packed_struct_layout_version == 2);
 
@@ -25900,8 +25903,6 @@ fn structFieldPtrByIndex(
             ptr_ty_data.packed_offset.bit_offset += struct_ptr_ty_info.packed_offset.bit_offset;
         }
 
-        const parent_align = struct_ptr_ty_info.flags.alignment.toByteUnitsOptional() orelse
-            struct_ptr_ty_info.child.toType().abiAlignment(mod);
         ptr_ty_data.flags.alignment = Alignment.fromByteUnits(parent_align);
 
         // If the field happens to be byte-aligned, simplify the pointer type.
@@ -25925,8 +25926,13 @@ fn structFieldPtrByIndex(
                 ptr_ty_data.packed_offset = .{ .host_size = 0, .bit_offset = 0 };
             }
         }
+    } else if (struct_obj.layout == .Extern and field_index == 0) {
+        // This is the first field in memory, so can inherit the struct alignment
+        ptr_ty_data.flags.alignment = Alignment.fromByteUnits(parent_align);
     } else {
-        ptr_ty_data.flags.alignment = field.abi_align;
+        // Our alignment is capped at the field alignment
+        const field_align = try sema.structFieldAlignment(field, struct_obj.layout);
+        ptr_ty_data.flags.alignment = Alignment.fromByteUnits(@min(field_align, parent_align));
     }
 
     const ptr_field_ty = try mod.ptrType(ptr_ty_data);
@@ -26097,6 +26103,7 @@ fn unionFieldPtr(
     assert(unresolved_union_ty.zigTypeTag(mod) == .Union);
 
     const union_ptr_ty = sema.typeOf(union_ptr);
+    const union_ptr_info = union_ptr_ty.ptrInfo(mod);
     const union_ty = try sema.resolveTypeFields(unresolved_union_ty);
     const union_obj = mod.typeToUnion(union_ty).?;
     const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_name_src);
@@ -26104,10 +26111,16 @@ fn unionFieldPtr(
     const ptr_field_ty = try mod.ptrType(.{
         .child = field.ty.toIntern(),
         .flags = .{
-            .is_const = !union_ptr_ty.ptrIsMutable(mod),
-            .is_volatile = union_ptr_ty.isVolatilePtr(mod),
-            .address_space = union_ptr_ty.ptrAddressSpace(mod),
+            .is_const = union_ptr_info.flags.is_const,
+            .is_volatile = union_ptr_info.flags.is_volatile,
+            .address_space = union_ptr_info.flags.address_space,
+            .alignment = if (union_obj.layout == .Auto) blk: {
+                const union_align = union_ptr_info.flags.alignment.toByteUnitsOptional() orelse try sema.typeAbiAlignment(union_ty);
+                const field_align = try sema.unionFieldAlignment(field);
+                break :blk InternPool.Alignment.fromByteUnits(@min(union_align, field_align));
+            } else union_ptr_info.flags.alignment,
         },
+        .packed_offset = union_ptr_info.packed_offset,
     });
     const enum_field_index = @as(u32, @intCast(union_obj.tag_ty.enumFieldIndex(field_name, mod).?));
 
@@ -35972,6 +35985,28 @@ fn unionFieldAlignment(sema: *Sema, field: Module.Union.Field) !u32 {
         0
     else
         field.abi_align.toByteUnitsOptional() orelse try sema.typeAbiAlignment(field.ty)));
+}
+
+/// Keep implementation in sync with `Module.Struct.Field.alignment`.
+fn structFieldAlignment(sema: *Sema, field: Module.Struct.Field, layout: std.builtin.Type.ContainerLayout) !u32 {
+    const mod = sema.mod;
+    if (field.abi_align.toByteUnitsOptional()) |a| {
+        assert(layout != .Packed);
+        return @as(u32, @intCast(a));
+    }
+    switch (layout) {
+        .Packed => return 0,
+        .Auto => if (mod.getTarget().ofmt != .c) {
+            return sema.typeAbiAlignment(field.ty);
+        },
+        .Extern => {},
+    }
+    // extern
+    const ty_abi_align = try sema.typeAbiAlignment(field.ty);
+    if (field.ty.isAbiInt(mod) and field.ty.intInfo(mod).bits >= 128) {
+        return @max(ty_abi_align, 16);
+    }
+    return ty_abi_align;
 }
 
 /// Synchronize logic with `Type.isFnOrHasRuntimeBits`.
