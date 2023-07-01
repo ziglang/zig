@@ -84,6 +84,37 @@ pub fn LinearFifo(
             if (buffer_type == .Dynamic) self.allocator.free(self.buf);
         }
 
+        pub usingnamespace switch (buffer_type) {
+            .Static => struct {
+                pub fn clone(self: Self) Self {
+                    return self;
+                }
+            },
+            .Slice => struct {
+                pub fn clone(self: Self, buf: []T) !Self {
+                    if (buf.len != self.buf.len) return error.BufferSizeMismatch;
+                    var tmp = self;
+                    tmp.buf = buf;
+                    @memcpy(tmp.buf, self.buf);
+                    return tmp;
+                }
+            },
+            .Dynamic => struct {
+                pub fn clone(self: Self) !Self {
+                    var tmp = self;
+                    tmp.buf = try self.allocator.dupe(T, self.buf);
+                    return tmp;
+                }
+
+                pub fn cloneWithAllocator(self: Self, allocator: std.mem.Allocator) !Self {
+                    var tmp = self;
+                    tmp.buf = try allocator.dupe(T, self.buf);
+                    tmp.allocator = allocator;
+                    return tmp;
+                }
+            },
+        };
+
         pub fn realign(self: *Self) void {
             if (self.buf.len - self.head >= self.count) {
                 mem.copyForwards(T, self.buf[0..self.count], self.buf[self.head..][0..self.count]);
@@ -545,4 +576,36 @@ test "LinearFifo" {
             }
         }
     }
+}
+
+test "LinearFifo clone()" {
+    var arr: [5]u8 = .{ 0, 1, 2, 3, 4 };
+    var buf: [5]u8 = undefined;
+    var small_buf: [1]u8 = undefined;
+
+    var static = LinearFifo(u8, .{ .Static = 5 }).init();
+    static.buf[0] = 0;
+    var slice = LinearFifo(u8, .Slice).init(&arr);
+    var dynamic = LinearFifo(u8, .Dynamic).init(testing.allocator);
+    defer dynamic.deinit();
+    try dynamic.writeItem(0);
+    try dynamic.writeItem(1);
+    try dynamic.writeItem(2);
+
+    var static_clone = static.clone();
+    try testing.expect(std.mem.eql(u8, &static.buf, &static_clone.buf));
+    static_clone.buf[0] = 10;
+    try testing.expect(!std.mem.eql(u8, &static.buf, &static_clone.buf));
+
+    try testing.expect(slice.clone(&small_buf) == error.BufferSizeMismatch);
+    var slice_clone = try slice.clone(&buf);
+    try testing.expect(std.mem.eql(u8, slice.buf, slice_clone.buf));
+    slice_clone.buf[0] = 10;
+    try testing.expect(!std.mem.eql(u8, slice.buf, slice_clone.buf));
+
+    var dynamic_clone = try dynamic.clone();
+    defer dynamic_clone.deinit();
+    try testing.expect(std.mem.eql(u8, dynamic.buf, dynamic_clone.buf));
+    dynamic_clone.buf[0] = 10;
+    try testing.expect(!std.mem.eql(u8, dynamic.buf, dynamic_clone.buf));
 }
