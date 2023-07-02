@@ -50,7 +50,7 @@ pub fn deinit(cb: *Bundle, gpa: Allocator) void {
     cb.* = undefined;
 }
 
-pub const RescanError = RescanLinuxError || RescanMacError || RescanWindowsError;
+pub const RescanError = RescanLinuxError || RescanMacError || RescanBSDError || RescanWindowsError;
 
 /// Clears the set of certificates and then scans the host operating system
 /// file system standard locations for certificates.
@@ -60,18 +60,20 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) RescanError!void {
     switch (builtin.os.tag) {
         .linux => return rescanLinux(cb, gpa),
         .macos => return rescanMac(cb, gpa),
-        .openbsd => return rescanOpenBSD(cb, gpa),
+        .freebsd, .openbsd => return rescanBSD(cb, gpa, "/etc/ssl/cert.pem"),
+        .netbsd => return rescanBSD(cb, gpa, "/etc/openssl/certs/ca-certificates.crt"),
+        .dragonfly => return rescanBSD(cb, gpa, "/usr/local/etc/ssl/cert.pem"),
         .windows => return rescanWindows(cb, gpa),
         else => {},
     }
 }
 
-pub const rescanMac = @import("Bundle/macos.zig").rescanMac;
-pub const RescanMacError = @import("Bundle/macos.zig").RescanMacError;
+const rescanMac = @import("Bundle/macos.zig").rescanMac;
+const RescanMacError = @import("Bundle/macos.zig").RescanMacError;
 
-pub const RescanLinuxError = AddCertsFromFilePathError || AddCertsFromDirPathError;
+const RescanLinuxError = AddCertsFromFilePathError || AddCertsFromDirPathError;
 
-pub fn rescanLinux(cb: *Bundle, gpa: Allocator) RescanLinuxError!void {
+fn rescanLinux(cb: *Bundle, gpa: Allocator) RescanLinuxError!void {
     // Possible certificate files; stop after finding one.
     const cert_file_paths = [_][]const u8{
         "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu/Gentoo etc.
@@ -113,22 +115,18 @@ pub fn rescanLinux(cb: *Bundle, gpa: Allocator) RescanLinuxError!void {
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
-pub const RescanOpenBSDError = AddCertsFromFilePathError;
+const RescanBSDError = AddCertsFromFilePathError;
 
-pub fn rescanOpenBSD(cb: *Bundle, gpa: Allocator) RescanOpenBSDError!void {
-    const cert_file_path = "/etc/ssl/cert.pem";
-
+fn rescanBSD(cb: *Bundle, gpa: Allocator, cert_file_path: []const u8) RescanBSDError!void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
-
-    addCertsFromFilePathAbsolute(cb, gpa, cert_file_path) catch |err| return err;
-
+    try addCertsFromFilePathAbsolute(cb, gpa, cert_file_path);
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
-pub const RescanWindowsError = Allocator.Error || ParseCertError || std.os.UnexpectedError || error{FileNotFound};
+const RescanWindowsError = Allocator.Error || ParseCertError || std.os.UnexpectedError || error{FileNotFound};
 
-pub fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
+fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
 
