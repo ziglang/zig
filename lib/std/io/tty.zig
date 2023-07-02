@@ -20,6 +20,8 @@ pub fn detectConfig(file: File) Config {
 
     if (force_color == false) return .no_color;
 
+    if (file.supportsAnsiEscapeCodes()) return .escape_codes;
+
     if (native_os == .windows and file.isTty()) {
         var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
         if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
@@ -31,11 +33,7 @@ pub fn detectConfig(file: File) Config {
         } };
     }
 
-    if (force_color == true or file.supportsAnsiEscapeCodes()) {
-        return .escape_codes;
-    }
-
-    return .no_color;
+    return if (force_color == true) .escape_codes else .no_color;
 }
 
 pub const Color = enum {
