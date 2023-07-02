@@ -387,6 +387,13 @@ test "BoundedArray" {
     try testing.expectEqualStrings(s, a.constSlice());
 }
 
+test "BoundedArray sizeOf" {
+    // Just sanity check size on one CPU
+    if (@import("builtin").cpu.arch != .x86_64)
+        return;
+    try testing.expectEqual(@sizeOf(BoundedArray(u8, 3)), 16);
+}
+
 test "BoundedArrayAligned" {
     var a = try BoundedArrayAligned(u8, 16, 4).init(0);
     try a.append(0);
