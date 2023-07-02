@@ -2435,18 +2435,25 @@ pub const Object = struct {
             .ty = ty.toType(),
             .val = null_opt_usize.toValue(),
         });
+        const llvm_wanted_addrspace = toLlvmAddressSpace(.generic, target);
+        const llvm_actual_addrspace = toLlvmGlobalAddressSpace(.generic, target);
         const global = o.llvm_module.addGlobalInAddressSpace(
             llvm_init.typeOf(),
             "",
-            toLlvmGlobalAddressSpace(.generic, target),
+            llvm_actual_addrspace,
         );
         global.setLinkage(.Internal);
         global.setUnnamedAddr(.True);
         global.setAlignment(ty.toType().abiAlignment(mod));
         global.setInitializer(llvm_init);
 
-        o.null_opt_addr = global;
-        return global;
+        const addrspace_casted_global = if (llvm_wanted_addrspace != llvm_actual_addrspace)
+            global.constAddrSpaceCast(o.context.pointerType(llvm_wanted_addrspace))
+        else
+            global;
+
+        o.null_opt_addr = addrspace_casted_global;
+        return addrspace_casted_global;
     }
 
     /// If the llvm function does not exist, create it.
