@@ -1754,7 +1754,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             os.munmap(self.mapped_memory);
         }
 
-        fn loadOFile(self: *@This(), allocator: mem.Allocator, o_file_path: []const u8) !OFileInfo {
+        fn loadOFile(self: *@This(), allocator: mem.Allocator, o_file_path: []const u8) !*OFileInfo {
             const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
             const mapped_mem = try mapWholeFile(o_file);
 
@@ -1799,11 +1799,11 @@ pub const ModuleDebugInfo = switch (native_os) {
 
             var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
             for (segcmd.?.getSections()) |sect| {
-                const name = sect.sectName();
+                if (!std.mem.eql(u8, "__DWARF", sect.segName())) continue;
 
                 var section_index: ?usize = null;
                 inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
-                    if (mem.eql(u8, "__" ++ section.name, name)) section_index = i;
+                    if (mem.eql(u8, "__" ++ section.name, sect.sectName())) section_index = i;
                 }
                 if (section_index == null) continue;
 
@@ -1834,65 +1834,31 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
 
             // Add the debug info to the cache
-            try self.ofiles.putNoClobber(o_file_path, info);
+            const result = try self.ofiles.getOrPut(o_file_path);
+            assert(!result.found_existing);
+            result.value_ptr.* = info;
 
-            return info;
-        }
-
-        fn getOFileForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*OFileInfo {
-            nosuspend {
-                const relocated_address = address - self.base_address;
-                const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse
-                    return null;
-
-                const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
-                var o_file_info = self.ofiles.get(o_file_path) orelse
-                    (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
-                    error.FileNotFound,
-                    error.MissingDebugInfo,
-                    error.InvalidDebugInfo,
-                    => return null,
-                    else => return err,
-                });
-
-                return &o_file_info.di;
-            }
+            return result.value_ptr;
         }
 
         pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
             nosuspend {
-                // Translate the VA into an address into this object
-                const relocated_address = address - self.base_address;
-
-                // Find the .o file where this symbol is defined
-                const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse
-                    return SymbolInfo{};
-                const addr_off = relocated_address - symbol.addr;
+                const result = try self.getOFileInfoForAddress(allocator, address);
+                if (result.symbol == null) return .{};
 
                 // Take the symbol name from the N_FUN STAB entry, we're going to
                 // use it if we fail to find the DWARF infos
-                const stab_symbol = mem.sliceTo(self.strings[symbol.strx..], 0);
-                const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
-
-                // Check if its debug infos are already in the cache
-                var o_file_info = self.ofiles.get(o_file_path) orelse
-                    (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
-                    error.FileNotFound,
-                    error.MissingDebugInfo,
-                    error.InvalidDebugInfo,
-                    => {
-                        return SymbolInfo{ .symbol_name = stab_symbol };
-                    },
-                    else => return err,
-                });
-                const o_file_di = &o_file_info.di;
+                const stab_symbol = mem.sliceTo(self.strings[result.symbol.?.strx..], 0);
+                if (result.o_file_info == null) return .{ .symbol_name = stab_symbol };
 
                 // Translate again the address, this time into an address inside the
                 // .o file
-                const relocated_address_o = o_file_info.addr_table.get(stab_symbol) orelse return SymbolInfo{
+                const relocated_address_o = result.o_file_info.?.addr_table.get(stab_symbol) orelse return .{
                     .symbol_name = "???",
                 };
 
+                const addr_off = result.relocated_address - result.symbol.?.addr;
+                const o_file_di = &result.o_file_info.?.di;
                 if (o_file_di.findCompileUnit(relocated_address_o)) |compile_unit| {
                     return SymbolInfo{
                         .symbol_name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
@@ -1919,29 +1885,47 @@ pub const ModuleDebugInfo = switch (native_os) {
                     },
                     else => return err,
                 }
-
-                unreachable;
             }
         }
 
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const DW.DwarfInfo {
+        fn getOFileInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !struct {
+            relocated_address: usize,
+            symbol: ?*const MachoSymbol = null,
+            o_file_info: ?*OFileInfo = null,
+        } {
             nosuspend {
+                // Translate the VA into an address into this object
                 const relocated_address = address - self.base_address;
-                const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse
-                    return null;
 
+                // Find the .o file where this symbol is defined
+                const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse return .{
+                    .relocated_address = relocated_address,
+                };
+
+                // Check if its debug infos are already in the cache
                 const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
-                var o_file_info = self.ofiles.get(o_file_path) orelse
+                var o_file_info = self.ofiles.getPtr(o_file_path) orelse
                     (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
                     error.FileNotFound,
                     error.MissingDebugInfo,
                     error.InvalidDebugInfo,
-                    => return null,
+                    => return .{
+                        .relocated_address = relocated_address,
+                        .symbol = symbol,
+                    },
                     else => return err,
                 });
 
-                return &o_file_info.di;
+                return .{
+                    .relocated_address = relocated_address,
+                    .symbol = symbol,
+                    .o_file_info = o_file_info,
+                };
             }
+        }
+
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const DW.DwarfInfo {
+            return if ((try self.getOFileInfoForAddress(allocator, address)).o_file_info) |o_file_info| &o_file_info.di else null;
         }
     },
     .uefi, .windows => struct {
