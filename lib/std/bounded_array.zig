@@ -39,8 +39,7 @@ pub fn BoundedArrayAligned(
 ) type {
     return struct {
         const Self = @This();
-        /// Smallest integer type that is able to hold values from 0 to `buffer_capacity`.
-        const Len = std.meta.Int(.unsigned, std.math.log2_int(u16, buffer_capacity) + 1);
+        const Len = std.math.IntFittingRange(0, buffer_capacity);
 
         buffer: [buffer_capacity]T align(alignment) = undefined,
         len: Len = 0,
