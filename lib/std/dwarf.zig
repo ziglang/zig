@@ -1886,10 +1886,13 @@ pub const ExceptionFrameHeader = struct {
                 .data_rel_base = eh_frame_hdr_ptr,
             }, builtin.cpu.arch.endian()) orelse return badDwarf();
 
-            if (pc >= pc_begin) left = mid;
-            if (pc == pc_begin) break;
-
-            len /= 2;
+            if (pc < pc_begin) {
+                len /= 2;
+            } else {
+                left = mid;
+                if (pc == pc_begin) break;
+                len -= len / 2;
+            }
         }
 
         try stream.seekTo(left * entry_size);
