@@ -717,7 +717,6 @@ pub const DwarfInfo = struct {
     }
 
     pub fn getSymbolName(di: *DwarfInfo, address: u64) ?[]const u8 {
-        // TODO: Can this be binary searched?
         for (di.func_list.items) |*func| {
             if (func.pc_range) |range| {
                 if (address >= range.start and address < range.end) {
@@ -835,37 +834,56 @@ pub const DwarfInfo = struct {
                             break :x null;
                         };
 
-                        const pc_range = x: {
-                            if (die_obj.getAttrAddr(di, AT.low_pc, compile_unit)) |low_pc| {
-                                if (die_obj.getAttr(AT.high_pc)) |high_pc_value| {
-                                    const pc_end = switch (high_pc_value.*) {
-                                        FormValue.Address => |value| value,
-                                        FormValue.Const => |value| b: {
-                                            const offset = try value.asUnsignedLe();
-                                            break :b (low_pc + offset);
-                                        },
-                                        else => return badDwarf(),
-                                    };
-                                    break :x PcRange{
+                        var found_range = if (die_obj.getAttrAddr(di, AT.low_pc, compile_unit)) |low_pc| blk: {
+                            if (die_obj.getAttr(AT.high_pc)) |high_pc_value| {
+                                const pc_end = switch (high_pc_value.*) {
+                                    FormValue.Address => |value| value,
+                                    FormValue.Const => |value| b: {
+                                        const offset = try value.asUnsignedLe();
+                                        break :b (low_pc + offset);
+                                    },
+                                    else => return badDwarf(),
+                                };
+
+                                try di.func_list.append(allocator, Func{
+                                    .name = fn_name,
+                                    .pc_range = .{
                                         .start = low_pc,
                                         .end = pc_end,
-                                    };
-                                } else {
-                                    break :x null;
-                                }
-                            } else |err| {
-                                if (err != error.MissingDebugInfo) return err;
-                                break :x null;
+                                    },
+                                });
                             }
+
+                            break :blk true;
+                        } else |err| blk: {
+                            if (err != error.MissingDebugInfo) return err;
+                            break :blk false;
                         };
 
-                        // TODO: Debug issue where `puts` in Ubuntu's libc was not found
-                        //if (fn_name != null and pc_range != null) debug.print("func_list: {s} -> 0x{x}-0x{x}\n", .{fn_name.?, pc_range.?.start, pc_range.?.end});
+                        if (die_obj.getAttr(AT.ranges)) |ranges_value| blk: {
+                            var iter = DebugRangeIterator.init(ranges_value, di, &compile_unit) catch |err| {
+                                if (err != error.MissingDebugInfo) return err;
+                                break :blk;
+                            };
 
-                        try di.func_list.append(allocator, Func{
-                            .name = fn_name,
-                            .pc_range = pc_range,
-                        });
+                            while (try iter.next()) |range| {
+                                found_range = true;
+                                try di.func_list.append(allocator, Func{
+                                    .name = fn_name,
+                                    .pc_range = .{
+                                        .start = range.start_addr,
+                                        .end = range.end_addr,
+                                    },
+                                });
+                            }
+                        }
+
+                        if (!found_range) {
+                            try di.func_list.append(allocator, Func{
+                                .name = fn_name,
+                                .pc_range = null,
+                            });
+                        }
                     },
                     else => {},
                 }
@@ -966,17 +984,18 @@ pub const DwarfInfo = struct {
         }
     }
 
-    pub fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
-        for (di.compile_unit_list.items) |*compile_unit| {
-            if (compile_unit.pc_range) |range| {
-                if (target_address >= range.start and target_address < range.end) return compile_unit;
-            }
+    const DebugRangeIterator = struct {
+        base_address: u64,
+        section_type: DwarfSection,
+        di: *DwarfInfo,
+        compile_unit: *const CompileUnit,
+        stream: io.FixedBufferStream([]const u8),
 
-            const opt_debug_ranges = if (compile_unit.version >= 5) di.section(.debug_rnglists) else di.section(.debug_ranges);
-            const debug_ranges = opt_debug_ranges orelse continue;
+        pub fn init(ranges_value: *const FormValue, di: *DwarfInfo, compile_unit: *const CompileUnit) !@This() {
+            const section_type = if (compile_unit.version >= 5) DwarfSection.debug_rnglists else DwarfSection.debug_ranges;
+            const debug_ranges = di.section(section_type) orelse return error.MissingDebugInfo;
 
-            const ranges_val = compile_unit.die.getAttr(AT.ranges) orelse continue;
-            const ranges_offset = switch (ranges_val.*) {
+            const ranges_offset = switch (ranges_value.*) {
                 .SecOffset => |off| off,
                 .Const => |c| try c.asUnsignedLe(),
                 .RangeListOffset => |idx| off: {
@@ -996,8 +1015,7 @@ pub const DwarfInfo = struct {
             };
 
             var stream = io.fixedBufferStream(debug_ranges);
-            const in = &stream.reader();
-            const seekable = &stream.seekableStream();
+            try stream.seekTo(ranges_offset);
 
             // All the addresses in the list are relative to the value
             // specified by DW_AT.low_pc or to some other value encoded
@@ -1008,86 +1026,122 @@ pub const DwarfInfo = struct {
                 else => return err,
             };
 
-            try seekable.seekTo(ranges_offset);
+            return .{
+                .base_address = base_address,
+                .section_type = section_type,
+                .di = di,
+                .compile_unit = compile_unit,
+                .stream = stream,
+            };
+        }
 
-            if (compile_unit.version >= 5) {
-                while (true) {
+        // Returns the next range in the list, or null if the end was reached.
+        pub fn next(self: *@This()) !?struct{ start_addr: u64, end_addr: u64 } {
+            const in = self.stream.reader();
+            switch (self.section_type) {
+                .debug_rnglists => {
                     const kind = try in.readByte();
                     switch (kind) {
-                        RLE.end_of_list => break,
+                        RLE.end_of_list => return null,
                         RLE.base_addressx => {
                             const index = try leb.readULEB128(usize, in);
-                            base_address = try di.readDebugAddr(compile_unit.*, index);
+                            self.base_address = try self.di.readDebugAddr(self.compile_unit.*, index);
+                            return try self.next();
                         },
                         RLE.startx_endx => {
                             const start_index = try leb.readULEB128(usize, in);
-                            const start_addr = try di.readDebugAddr(compile_unit.*, start_index);
+                            const start_addr = try self.di.readDebugAddr(self.compile_unit.*, start_index);
 
                             const end_index = try leb.readULEB128(usize, in);
-                            const end_addr = try di.readDebugAddr(compile_unit.*, end_index);
+                            const end_addr = try self.di.readDebugAddr(self.compile_unit.*, end_index);
 
-                            if (target_address >= start_addr and target_address < end_addr) {
-                                return compile_unit;
-                            }
+                            return .{
+                                .start_addr = start_addr,
+                                .end_addr = end_addr,
+                            };
                         },
                         RLE.startx_length => {
                             const start_index = try leb.readULEB128(usize, in);
-                            const start_addr = try di.readDebugAddr(compile_unit.*, start_index);
+                            const start_addr = try self.di.readDebugAddr(self.compile_unit.*, start_index);
 
                             const len = try leb.readULEB128(usize, in);
                             const end_addr = start_addr + len;
 
-                            if (target_address >= start_addr and target_address < end_addr) {
-                                return compile_unit;
-                            }
+                            return .{
+                                .start_addr = start_addr,
+                                .end_addr = end_addr,
+                            };
                         },
                         RLE.offset_pair => {
                             const start_addr = try leb.readULEB128(usize, in);
                             const end_addr = try leb.readULEB128(usize, in);
+
                             // This is the only kind that uses the base address
-                            if (target_address >= base_address + start_addr and target_address < base_address + end_addr) {
-                                return compile_unit;
-                            }
+                            return .{
+                                .start_addr = self.base_address + start_addr,
+                                .end_addr = self.base_address + end_addr,
+                            };
                         },
                         RLE.base_address => {
-                            base_address = try in.readInt(usize, di.endian);
+                            self.base_address = try in.readInt(usize, self.di.endian);
+                            return try self.next();
                         },
                         RLE.start_end => {
-                            const start_addr = try in.readInt(usize, di.endian);
-                            const end_addr = try in.readInt(usize, di.endian);
-                            if (target_address >= start_addr and target_address < end_addr) {
-                                return compile_unit;
-                            }
+                            const start_addr = try in.readInt(usize, self.di.endian);
+                            const end_addr = try in.readInt(usize, self.di.endian);
+
+                            return .{
+                                .start_addr = start_addr,
+                                .end_addr = end_addr,
+                            };
                         },
                         RLE.start_length => {
-                            const start_addr = try in.readInt(usize, di.endian);
+                            const start_addr = try in.readInt(usize, self.di.endian);
                             const len = try leb.readULEB128(usize, in);
                             const end_addr = start_addr + len;
-                            if (target_address >= start_addr and target_address < end_addr) {
-                                return compile_unit;
-                            }
+
+                            return .{
+                                .start_addr = start_addr,
+                                .end_addr = end_addr,
+                            };
                         },
                         else => return badDwarf(),
                     }
-                }
-            } else {
-                while (true) {
-                    const begin_addr = try in.readInt(usize, di.endian);
-                    const end_addr = try in.readInt(usize, di.endian);
-                    if (begin_addr == 0 and end_addr == 0) {
-                        break;
-                    }
+                },
+                .debug_ranges => {
+                    const start_addr = try in.readInt(usize, self.di.endian);
+                    const end_addr = try in.readInt(usize, self.di.endian);
+                    if (start_addr == 0 and end_addr == 0) return null;
+
                     // This entry selects a new value for the base address
-                    if (begin_addr == math.maxInt(usize)) {
-                        base_address = end_addr;
-                        continue;
+                    if (start_addr == math.maxInt(usize)) {
+                        self.base_address = end_addr;
+                        return try self.next();
                     }
-                    if (target_address >= base_address + begin_addr and target_address < base_address + end_addr) {
-                        return compile_unit;
-                    }
-                }
+
+                    return .{
+                        .start_addr = self.base_address + start_addr,
+                        .end_addr = self.base_address + end_addr,
+                    };
+                },
+                else => unreachable,
             }
         }
+    };
+
+    pub fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
+        for (di.compile_unit_list.items) |*compile_unit| {
+            if (compile_unit.pc_range) |range| {
+                if (target_address >= range.start and target_address < range.end) return compile_unit;
+            }
+
+            const ranges_value = compile_unit.die.getAttr(AT.ranges) orelse continue;
+            var iter = DebugRangeIterator.init(ranges_value, di, compile_unit) catch continue;
+            while (try iter.next()) |range| {
+                if (target_address >= range.start_addr and target_address < range.end_addr) return compile_unit;
+            }
+        }
+
         return missingDwarf();
     }
 
@@ -1566,7 +1620,6 @@ pub const DwarfInfo = struct {
                     }
                 }
 
-                // TODO: Avoiding sorting if has_eh_frame_hdr exists
                 std.mem.sort(FrameDescriptionEntry, di.fde_list.items, {}, struct {
                     fn lessThan(ctx: void, a: FrameDescriptionEntry, b: FrameDescriptionEntry) bool {
                         _ = ctx;

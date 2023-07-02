@@ -245,7 +245,8 @@ pub fn regBytes(ucontext_ptr: anytype, reg_number: u8, reg_ctx: ?RegisterContext
 }
 
 /// Returns the ABI-defined default value this register has in the unwinding table
-/// before running any of the CIE instructions.
+/// before running any of the CIE instructions. The DWARF spec defines these values
+//  to be undefined, but allows ABI authors to override that default.
 pub fn getRegDefaultValue(reg_number: u8, out: []u8) void {
     // TODO: Implement any ABI-specific rules for the default value for registers
     _ = reg_number;
