@@ -36375,7 +36375,7 @@ fn float128IntPartToBigInt(
 
     // The float is reduced in rational.setFloat, so we assert that denominator is equal to one
     const big_one = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
-    assert(rational.q.toConst().eqAbs(big_one));
+    assert(rational.q.toConst().eqlAbs(big_one));
 
     if (is_negative) {
         rational.negate();
