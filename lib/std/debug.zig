@@ -182,6 +182,9 @@ pub fn dumpStackTraceFromBase(context: *const StackTraceContext) void {
         printSourceAtAddress(debug_info, stderr, it.dwarf_context.pc, tty_config) catch return;
 
         while (it.next()) |return_address| {
+            if (it.getLastError()) |unwind_error|
+                printUnwindError(debug_info, stderr, unwind_error.address, unwind_error.err, tty_config) catch {};
+
             // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
             // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
             // an overflow. We do not need to signal `StackIterator` as it will correctly detect this
@@ -225,7 +228,9 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
         }
         stack_trace.index = slice.len;
     } else {
-        // TODO: This should use the DWARF unwinder if .eh_frame_hdr is available (so that full debug info parsing isn't required)
+        // TODO: This should use the DWARF unwinder if .eh_frame_hdr is available (so that full debug info parsing isn't required).
+        //       A new path for loading DebugInfo needs to be created which will only attempt to parse in-memory sections, because
+        //       stopping to load other debug info (ie. source line info) from disk here is not required for unwinding.
         var it = StackIterator.init(first_address, null);
         defer it.deinit();
         for (stack_trace.instruction_addresses, 0..) |*addr, i| {
@@ -442,6 +447,11 @@ pub inline fn getContext(context: *StackTraceContext) bool {
     return have_getcontext and os.system.getcontext(context) == 0;
 }
 
+pub const UnwindError = if (have_ucontext)
+    @typeInfo(@typeInfo(@TypeOf(StackIterator.next_dwarf)).Fn.return_type.?).ErrorUnion.error_set
+else
+    void;
+
 pub const StackIterator = struct {
     // Skip every frame before this address is found.
     first_address: ?usize,
@@ -452,6 +462,8 @@ pub const StackIterator = struct {
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer).
     debug_info: ?*DebugInfo,
     dwarf_context: if (have_ucontext) DW.UnwindContext else void = undefined,
+    last_error: if (have_ucontext) ?UnwindError else void = undefined,
+    last_error_address: if (have_ucontext) usize else void = undefined,
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
         if (native_arch == .sparc64) {
@@ -472,6 +484,7 @@ pub const StackIterator = struct {
         var iterator = init(first_address, null);
         iterator.debug_info = debug_info;
         iterator.dwarf_context = try DW.UnwindContext.init(context, &isValidMemory);
+        iterator.last_error = null;
         return iterator;
     }
 
@@ -481,6 +494,23 @@ pub const StackIterator = struct {
                 self.dwarf_context.deinit(debug_info.allocator);
             }
         }
+    }
+
+    pub fn getLastError(self: *StackIterator) ?struct {
+        address: usize,
+        err: UnwindError,
+    } {
+        if (have_ucontext) {
+            if (self.last_error) |err| {
+                self.last_error = null;
+                return .{
+                    .address = self.last_error_address,
+                    .err = err,
+                };
+            }
+        }
+
+        return null;
     }
 
     // Offset of the saved BP wrt the frame pointer.
@@ -579,14 +609,10 @@ pub const StackIterator = struct {
             if (self.next_dwarf()) |return_address| {
                 return return_address;
             } else |err| {
-                if (err != error.MissingFDE) print("DWARF unwind error: {}\n", .{err});
+                self.last_error = err;
+                self.last_error_address = self.dwarf_context.pc;
 
-                // Fall back to fp unwinding on the first failure,
-                // as the register context won't be updated
-
-                // TODO: Could still attempt dwarf unwinding after this, maybe marking non-updated registers as
-                //       invalid, so the unwind only fails if it requires out of date registers?
-
+                // Fall back to fp unwinding on the first failure, as the register context won't have been updated
                 self.fp = self.dwarf_context.getFp() catch 0;
                 self.debug_info = null;
             }
@@ -640,6 +666,9 @@ pub fn writeCurrentStackTrace(
     defer it.deinit();
 
     while (it.next()) |return_address| {
+        if (it.getLastError()) |unwind_error|
+            try printUnwindError(debug_info, out_stream, unwind_error.address, unwind_error.err, tty_config);
+
         // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
         // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
         // an overflow. We do not need to signal `StackIterator` as it will correctly detect this
@@ -783,6 +812,17 @@ fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usiz
         tty_config,
         printLineFromFileAnyOs,
     );
+}
+
+pub fn printUnwindError(debug_info: *DebugInfo, out_stream: anytype, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
+    const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
+    try tty_config.setColor(out_stream, .dim);
+    if (err != error.MissingDebugInfo) {
+        try out_stream.print("Unwind information for {s} was not available ({}), trace may be incomplete\n\n", .{ module_name, err });
+    } else {
+        try out_stream.print("Unwind information for {s} was not available, trace may be incomplete\n\n", .{module_name});
+    }
+    try tty_config.setColor(out_stream, .reset);
 }
 
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
@@ -1099,16 +1139,14 @@ pub fn readElfDebugInfo(
                 ) catch break :blk;
 
                 for (global_debug_directories) |global_directory| {
-                    // TODO: joinBuf would be ideal (with a fs.MAX_PATH_BYTES buffer)
                     const path = try fs.path.join(allocator, &.{ global_directory, ".build-id", &id_prefix_buf, filename });
                     defer allocator.free(path);
-                    // TODO: Remove
-                    std.debug.print("  Loading external debug info from {s}\n", .{path});
+
                     return readElfDebugInfo(allocator, path, null, separate_debug_crc, &sections, mapped_mem) catch continue;
                 }
             }
 
-            // use the path from .gnu_debuglink, in the search order as gdb
+            // use the path from .gnu_debuglink, in the same search order as gdb
             if (separate_debug_filename) |separate_filename| blk: {
                 if (elf_filename != null and mem.eql(u8, elf_filename.?, separate_filename)) return error.MissingDebugInfo;
 
@@ -1456,6 +1494,9 @@ pub const DebugInfo = struct {
         }
     }
 
+    // Returns the module name for a given address.
+    // This can be called when getModuleForAddress fails, so implementations should provide
+    // a path that doesn't rely on any side-effects of successful module lookup.
     pub fn getModuleNameForAddress(self: *DebugInfo, address: usize) ?[]const u8 {
         if (comptime builtin.target.isDarwin()) {
             return null;
@@ -1466,7 +1507,7 @@ pub const DebugInfo = struct {
         } else if (comptime builtin.target.isWasm()) {
             return null;
         } else {
-            return null;
+            return self.lookupModuleNameDl(address);
         }
     }
 
@@ -1621,6 +1662,44 @@ pub const DebugInfo = struct {
                 return module.name;
             }
         }
+        return null;
+    }
+
+    fn lookupModuleNameDl(self: *DebugInfo, address: usize) ?[]const u8 {
+        _ = self;
+
+        var ctx: struct {
+            // Input
+            address: usize,
+            // Output
+            name: []const u8 = "",
+        } = .{ .address = address };
+        const CtxTy = @TypeOf(ctx);
+
+        if (os.dl_iterate_phdr(&ctx, error{Found}, struct {
+            fn callback(info: *os.dl_phdr_info, size: usize, context: *CtxTy) !void {
+                _ = size;
+                if (context.address < info.dlpi_addr) return;
+                const phdrs = info.dlpi_phdr[0..info.dlpi_phnum];
+                for (phdrs) |*phdr| {
+                    if (phdr.p_type != elf.PT_LOAD) continue;
+
+                    const seg_start = info.dlpi_addr +% phdr.p_vaddr;
+                    const seg_end = seg_start + phdr.p_memsz;
+                    if (context.address >= seg_start and context.address < seg_end) {
+                        context.name = mem.sliceTo(info.dlpi_name, 0) orelse "";
+                        break;
+                    }
+                } else return;
+
+                return error.Found;
+            }
+        }.callback)) {
+            return null;
+        } else |err| switch (err) {
+            error.Found => return fs.path.basename(ctx.name),
+        }
+
         return null;
     }
 

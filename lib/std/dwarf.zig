@@ -1036,7 +1036,7 @@ pub const DwarfInfo = struct {
         }
 
         // Returns the next range in the list, or null if the end was reached.
-        pub fn next(self: *@This()) !?struct{ start_addr: u64, end_addr: u64 } {
+        pub fn next(self: *@This()) !?struct { start_addr: u64, end_addr: u64 } {
             const in = self.stream.reader();
             switch (self.section_type) {
                 .debug_rnglists => {
