@@ -7049,7 +7049,7 @@ pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
             if (big.positive) return @as(u16, @intCast(big.bitCountAbs() + @intFromBool(sign)));
 
             // Zero is still a possibility, in which case unsigned is fine
-            if (big.eqZero()) return 0;
+            if (big.eqlZero()) return 0;
 
             return @as(u16, @intCast(big.bitCountTwosComp()));
         },

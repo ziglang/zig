@@ -205,7 +205,7 @@ pub const Rational = struct {
         const ebias = (1 << (esize - 1)) - 1;
         const emin = 1 - ebias;
 
-        if (self.p.eqZero()) {
+        if (self.p.eqlZero()) {
             return 0;
         }
 
@@ -294,7 +294,7 @@ pub const Rational = struct {
 
         try self.reduce();
 
-        if (self.q.eqZero()) {
+        if (self.q.eqlZero()) {
             @panic("cannot set rational with denominator = 0");
         }
     }
@@ -434,7 +434,7 @@ pub const Rational = struct {
     ///
     /// Returns an error if memory could not be allocated.
     pub fn div(r: *Rational, a: Rational, b: Rational) !void {
-        if (b.p.eqZero()) {
+        if (b.p.eqlZero()) {
             @panic("division by zero");
         }
 

@@ -1771,7 +1771,7 @@ pub const Value = struct {
                 .ptr => |ptr| switch (ptr.addr) {
                     .int => {
                         var buf: BigIntSpace = undefined;
-                        return val.toBigInt(&buf, mod).eqZero();
+                        return val.toBigInt(&buf, mod).eqlZero();
                     },
                     else => false,
                 },

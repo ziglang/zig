@@ -147,9 +147,12 @@ pub const Mutable = struct {
         };
     }
 
+    // TODO: remove after release of 0.11
+    pub const eqZero = @compileError("use eqlZero");
+
     /// Returns true if `a == 0`.
-    pub fn eqZero(self: Mutable) bool {
-        return self.toConst().eqZero();
+    pub fn eqlZero(self: Mutable) bool {
+        return self.toConst().eqlZero();
     }
 
     /// Asserts that the allocator owns the limbs memory. If this is not the case,
@@ -420,10 +423,10 @@ pub const Mutable = struct {
     ///
     /// Asserts r has enough elements to hold the result. The upper bound is `@max(a.limbs.len, b.limbs.len)`.
     fn addCarry(r: *Mutable, a: Const, b: Const) bool {
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             r.copy(b);
             return false;
-        } else if (b.eqZero()) {
+        } else if (b.eqlZero()) {
             r.copy(a);
             return false;
         } else if (a.positive != b.positive) {
@@ -556,11 +559,11 @@ pub const Mutable = struct {
     ///
     /// Asserts r has enough elements to hold the result. The upper bound is `@max(a.limbs.len, b.limbs.len)`.
     fn subCarry(r: *Mutable, a: Const, b: Const) bool {
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             r.copy(b);
             r.positive = !b.positive;
             return false;
-        } else if (b.eqZero()) {
+        } else if (b.eqlZero()) {
             r.copy(a);
             return false;
         } else if (a.positive != b.positive) {
@@ -1002,7 +1005,7 @@ pub const Mutable = struct {
             // Else:
             //   @rem(a - 1, b) = @rem(a + b - 1, b) = @rem(b - 1, b) = b - 1
             //   => @mod(a, -b) = b - 1 - b + 1 = 0
-            if (!r.eqZero()) {
+            if (!r.eqlZero()) {
                 q.addScalar(q.toConst(), -1);
                 r.positive = true;
                 r.sub(r.toConst(), y.toConst().abs());
@@ -1033,7 +1036,7 @@ pub const Mutable = struct {
             // Else :
             //   @rem(a - 1, b) = b - 1
             //   => @mod(-a, b) = -(b - 1) + b - 1 = 0
-            if (!r.eqZero()) {
+            if (!r.eqlZero()) {
                 q.addScalar(q.toConst(), -1);
                 r.positive = false;
                 r.add(r.toConst(), y.toConst().abs());
@@ -1119,7 +1122,7 @@ pub const Mutable = struct {
         // 0-bit integers.
         if (bit_count <= shift) {
             // In this case, there is only no overflow if `a` is zero.
-            if (a.eqZero()) {
+            if (a.eqlZero()) {
                 r.set(0);
             } else {
                 r.setTwosCompIntLimit(if (a.positive) .max else .min, signedness, bit_count);
@@ -1214,10 +1217,10 @@ pub const Mutable = struct {
     /// Asserts that r has enough limbs to store the result. Upper bound is `@max(a.limbs.len, b.limbs.len)`.
     pub fn bitOr(r: *Mutable, a: Const, b: Const) void {
         // Trivial cases, llsignedor does not support zero.
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             r.copy(b);
             return;
-        } else if (b.eqZero()) {
+        } else if (b.eqlZero()) {
             r.copy(a);
             return;
         }
@@ -1239,10 +1242,10 @@ pub const Mutable = struct {
     /// If a and b are negative, the upper bound is `@max(a.limbs.len, b.limbs.len) + 1`.
     pub fn bitAnd(r: *Mutable, a: Const, b: Const) void {
         // Trivial cases, llsignedand does not support zero.
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             r.copy(a);
             return;
-        } else if (b.eqZero()) {
+        } else if (b.eqlZero()) {
             r.copy(b);
             return;
         }
@@ -1264,10 +1267,10 @@ pub const Mutable = struct {
     /// but not both, the upper bound is `@max(a.limbs.len, b.limbs.len) + 1`.
     pub fn bitXor(r: *Mutable, a: Const, b: Const) void {
         // Trivial cases, because llsignedxor does not support negative zero.
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             r.copy(b);
             return;
-        } else if (b.eqZero()) {
+        } else if (b.eqlZero()) {
             r.copy(a);
             return;
         }
@@ -1330,7 +1333,7 @@ pub const Mutable = struct {
             else => {},
         }
 
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             // 0^b = 0
             return r.set(0);
         } else if (a.limbs.len == 1 and a.limbs[0] == 1) {
@@ -1442,7 +1445,7 @@ pub const Mutable = struct {
         var tmp_x = try Managed.init(limbs_buffer.allocator);
         defer tmp_x.deinit();
 
-        while (y.len() > 1 and !y.eqZero()) {
+        while (y.len() > 1 and !y.eqlZero()) {
             assert(x.isPositive() and y.isPositive());
             assert(x.len() >= y.len());
 
@@ -1506,7 +1509,7 @@ pub const Mutable = struct {
         // euclidean algorithm
         assert(x.toConst().order(y.toConst()) != .lt);
 
-        while (!y.toConst().eqZero()) {
+        while (!y.toConst().eqlZero()) {
             try t_big.divTrunc(&r, &x, &y);
             x.swap(&y);
             y.swap(&r);
@@ -1517,7 +1520,7 @@ pub const Mutable = struct {
 
     // Truncates by default.
     fn div(q: *Mutable, r: *Mutable, x: *Mutable, y: *Mutable) void {
-        assert(!y.eqZero()); // division by zero
+        assert(!y.eqlZero()); // division by zero
         assert(q != r); // illegal aliasing
 
         const q_positive = (x.positive == y.positive);
@@ -1745,7 +1748,7 @@ pub const Mutable = struct {
         }
 
         const req_limbs = calcTwosCompLimbCount(bit_count);
-        if (req_limbs == 0 or a.eqZero()) {
+        if (req_limbs == 0 or a.eqlZero()) {
             r.set(0);
             return;
         }
@@ -1776,7 +1779,7 @@ pub const Mutable = struct {
         const req_limbs = calcTwosCompLimbCount(bit_count);
 
         // Handle 0-bit integers.
-        if (req_limbs == 0 or a.eqZero()) {
+        if (req_limbs == 0 or a.eqlZero()) {
             r.set(0);
             return;
         }
@@ -2121,7 +2124,7 @@ pub const Const = struct {
     }
 
     pub fn fitsInTwosComp(self: Const, signedness: Signedness, bit_count: usize) bool {
-        if (self.eqZero()) {
+        if (self.eqlZero()) {
             return true;
         }
         if (signedness == .unsigned and !self.positive) {
@@ -2159,7 +2162,7 @@ pub const Const = struct {
         switch (@typeInfo(T)) {
             .Int => |info| {
                 // Make sure -0 is handled correctly.
-                if (self.eqZero()) return 0;
+                if (self.eqlZero()) return 0;
 
                 const UT = std.meta.Int(.unsigned, info.bits);
 
@@ -2253,7 +2256,7 @@ pub const Const = struct {
         assert(base >= 2);
         assert(base <= 16);
 
-        if (self.eqZero()) {
+        if (self.eqlZero()) {
             return allocator.dupe(u8, "0");
         }
         const string = try allocator.alloc(u8, self.sizeInBaseUpperBound(base));
@@ -2278,7 +2281,7 @@ pub const Const = struct {
         assert(base >= 2);
         assert(base <= 16);
 
-        if (self.eqZero()) {
+        if (self.eqlZero()) {
             string[0] = '0';
             return 1;
         }
@@ -2478,20 +2481,25 @@ pub const Const = struct {
         return order(lhs, rhs.toConst());
     }
 
+    // TODO: remove after release of 0.11
+    pub const eqZero = @compileError("use eqlZero");
+    pub const eqAbs = @compileError("use eqlAbs");
+    pub const eq = @compileError("use eql");
+
     /// Returns true if `a == 0`.
-    pub fn eqZero(a: Const) bool {
+    pub fn eqlZero(a: Const) bool {
         var d: Limb = 0;
         for (a.limbs) |limb| d |= limb;
         return d == 0;
     }
 
     /// Returns true if `|a| == |b|`.
-    pub fn eqAbs(a: Const, b: Const) bool {
+    pub fn eqlAbs(a: Const, b: Const) bool {
         return orderAbs(a, b) == .eq;
     }
 
     /// Returns true if `a == b`.
-    pub fn eq(a: Const, b: Const) bool {
+    pub fn eql(a: Const, b: Const) bool {
         return order(a, b) == .eq;
     }
 
@@ -2822,19 +2830,24 @@ pub const Managed = struct {
         return a.toConst().order(b.toConst());
     }
 
+    // TODO: remove after release of 0.11
+    pub const eqZero = @compileError("use eqlZero");
+    pub const eqAbs = @compileError("use eqlAbs");
+    pub const eq = @compileError("use eql");
+
     /// Returns true if a == 0.
-    pub fn eqZero(a: Managed) bool {
-        return a.toConst().eqZero();
+    pub fn eqlZero(a: Managed) bool {
+        return a.toConst().eqlZero();
     }
 
     /// Returns true if |a| == |b|.
-    pub fn eqAbs(a: Managed, b: Managed) bool {
-        return a.toConst().eqAbs(b.toConst());
+    pub fn eqlAbs(a: Managed, b: Managed) bool {
+        return a.toConst().eqlAbs(b.toConst());
     }
 
     /// Returns true if a == b.
-    pub fn eq(a: Managed, b: Managed) bool {
-        return a.toConst().eq(b.toConst());
+    pub fn eql(a: Managed, b: Managed) bool {
+        return a.toConst().eql(b.toConst());
     }
 
     /// Normalize a possible sequence of leading zeros.

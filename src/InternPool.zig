@@ -1037,7 +1037,7 @@ pub const Key = union(enum) {
                     .big_int => |aa| switch (b_info.storage) {
                         .u64 => |bb| aa.orderAgainstScalar(bb) == .eq,
                         .i64 => |bb| aa.orderAgainstScalar(bb) == .eq,
-                        .big_int => |bb| aa.eq(bb),
+                        .big_int => |bb| aa.eql(bb),
                         .lazy_align, .lazy_size => false,
                     },
                     .lazy_align => |aa| switch (b_info.storage) {
