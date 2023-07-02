@@ -433,7 +433,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
         } else struct {};
 
-        /// Returns true if there were leaks; false otherwise.
+        /// Returns `Check.leak` if there were leaks; `Check.ok` otherwise.
         pub fn deinit(self: *Self) Check {
             const leaks = if (config.safety) self.detectLeaks() else false;
             if (config.retain_metadata) {
