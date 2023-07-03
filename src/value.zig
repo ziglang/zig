@@ -616,7 +616,7 @@ pub const Value = struct {
             .Int, .Enum => {
                 const int_info = ty.intInfo(mod);
                 const bits = int_info.bits;
-                const byte_count = (bits + 7) / 8;
+                const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
 
                 var bigint_buffer: BigIntSpace = undefined;
                 const bigint = val.toBigInt(&bigint_buffer, mod);
@@ -859,7 +859,7 @@ pub const Value = struct {
                 };
                 const int_info = int_ty.intInfo(mod);
                 const bits = int_info.bits;
-                const byte_count = (bits + 7) / 8;
+                const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
                 if (bits == 0 or buffer.len == 0) return mod.getCoerced(try mod.intValue(int_ty, 0), ty);
 
                 if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
