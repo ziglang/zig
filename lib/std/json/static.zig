@@ -34,6 +34,16 @@ pub const ParseOptions = struct {
     /// The default for `parseFromTokenSource` with a `*std.json.Reader` is `std.json.default_max_value_len`.
     /// Ignored for `parseFromValue` and `parseFromValueLeaky`.
     max_value_len: ?usize = null,
+
+    /// If false, calling any parseFromSlice* or parseFromTokenSource* functions
+    /// where the given json object is only partially parsed is an assertion failure.
+    /// Setting this to true allows parseFrom* functions to parse only part of a json.
+    allow_partial: bool = false,
+
+    /// If false, dynamic elements will be duplicated when parsing,
+    /// even if they could be referenced in the buffer.
+    /// This is useful when parsing using a temporary Reader buffer.
+    trust_buffer: bool = true,
 };
 
 pub fn Parsed(comptime T: type) type {
@@ -125,7 +135,9 @@ pub fn parseFromTokenSourceLeaky(
 
     const value = try internalParse(T, allocator, scanner_or_reader, resolved_options);
 
-    assert(.end_of_document == try scanner_or_reader.next());
+    if (!resolved_options.allow_partial) {
+        assert(.end_of_document == try scanner_or_reader.next());
+    }
 
     return value;
 }
@@ -196,7 +208,12 @@ fn internalParse(
             };
         },
         .Float, .ComptimeFloat => {
-            const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
+            const token = try source.nextAllocMax(
+                allocator,
+                if (options.trust_buffer) .alloc_if_needed else .alloc_always,
+                options.max_value_len.?,
+            );
+
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
@@ -205,7 +222,12 @@ fn internalParse(
             return try std.fmt.parseFloat(T, slice);
         },
         .Int, .ComptimeInt => {
-            const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
+            const token = try source.nextAllocMax(
+                allocator,
+                if (options.trust_buffer) .alloc_if_needed else .alloc_always,
+                options.max_value_len.?,
+            );
+
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
@@ -229,7 +251,12 @@ fn internalParse(
                 return T.jsonParse(allocator, source, options);
             }
 
-            const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
+            const token = try source.nextAllocMax(
+                allocator,
+                if (options.trust_buffer) .alloc_if_needed else .alloc_always,
+                options.max_value_len.?,
+            );
+
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
@@ -247,7 +274,12 @@ fn internalParse(
             if (.object_begin != try source.next()) return error.UnexpectedToken;
 
             var result: ?T = null;
-            var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
+            var name_token: ?Token = try source.nextAllocMax(
+                allocator,
+                if (options.trust_buffer) .alloc_if_needed else .alloc_always,
+                options.max_value_len.?,
+            );
+
             const field_name = switch (name_token.?) {
                 inline .string, .allocated_string => |slice| slice,
                 else => return error.UnexpectedToken,
@@ -305,7 +337,12 @@ fn internalParse(
             var fields_seen = [_]bool{false} ** structInfo.fields.len;
 
             while (true) {
-                var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
+                var name_token: ?Token = try source.nextAllocMax(
+                    allocator,
+                    if (options.trust_buffer) .alloc_if_needed else .alloc_always,
+                    options.max_value_len.?,
+                );
+
                 const field_name = switch (name_token.?) {
                     .object_end => break, // No more fields.
                     inline .string, .allocated_string => |slice| slice,
@@ -459,7 +496,11 @@ fn internalParse(
                                 return try value_list.toOwnedSliceSentinel(@as(*const u8, @ptrCast(sentinel_ptr)).*);
                             }
                             if (ptrInfo.is_const) {
-                                switch (try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?)) {
+                                switch (try source.nextAllocMax(
+                                    allocator,
+                                    if (options.trust_buffer) .alloc_if_needed else .alloc_always,
+                                    options.max_value_len.?,
+                                )) {
                                     inline .string, .allocated_string => |slice| return slice,
                                     else => unreachable,
                                 }
