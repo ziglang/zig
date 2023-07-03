@@ -134,6 +134,8 @@ pub fn encodeJsonStringChars(chars: []const u8, options: StringifyOptions, write
     }
 }
 
+/// If `value` has a method called `jsonStringify`, this will call that method instead of the
+/// default implementation, passing it the `options` and `out_stream` parameters.
 pub fn stringify(
     value: anytype,
     options: StringifyOptions,
