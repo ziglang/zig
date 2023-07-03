@@ -165,7 +165,7 @@ pub fn BoundedArrayAligned(
         /// This operation is O(N).
         pub fn insertSlice(self: *Self, i: usize, items: []const T) error{Overflow}!void {
             try self.ensureUnusedCapacity(items.len);
-            self.len += @intCast(items.len);
+            self.len = @intCast(self.len + items.len);
             mem.copyBackwards(T, self.slice()[i + items.len .. self.len], self.constSlice()[i .. self.len - items.len]);
             @memcpy(self.slice()[i..][0..items.len], items);
         }
@@ -195,7 +195,7 @@ pub fn BoundedArrayAligned(
                 for (self.constSlice()[after_range..], 0..) |item, i| {
                     self.slice()[after_subrange..][i] = item;
                 }
-                self.len -= @intCast(len - new_items.len);
+                self.len = @intCast(self.len - len + new_items.len);
             }
         }
 
@@ -246,7 +246,7 @@ pub fn BoundedArrayAligned(
         /// enough to store the new items.
         pub fn appendSliceAssumeCapacity(self: *Self, items: []const T) void {
             const old_len = self.len;
-            self.len += @intCast(items.len);
+            self.len = @intCast(self.len + items.len);
             @memcpy(self.slice()[old_len..][0..items.len], items);
         }
 
@@ -263,7 +263,7 @@ pub fn BoundedArrayAligned(
         pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
             const old_len = self.len;
             assert(self.len + n <= buffer_capacity);
-            self.len += @intCast(n);
+            self.len = @intCast(self.len + n);
             @memset(self.slice()[old_len..self.len], value);
         }
 
