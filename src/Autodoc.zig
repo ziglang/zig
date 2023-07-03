@@ -435,6 +435,7 @@ pub fn generateZirData(self: *Autodoc) !void {
     var docs_dir = try self.comp_module.comp.zig_lib_directory.handle.openDir("docs", .{});
     defer docs_dir.close();
     try docs_dir.copyFile("main.js", output_dir, "main.js", .{});
+    try docs_dir.copyFile("ziglexer.js", output_dir, "ziglexer.js", .{});
     try docs_dir.copyFile("commonmark.js", output_dir, "commonmark.js", .{});
     try docs_dir.copyFile("index.html", output_dir, "index.html", .{});
 }

@@ -680,7 +680,88 @@
       .banner a {
         color: black;
         text-decoration: underline;
+    }
+
+  </style>
+
+  <style>
+     pre{
+        --zig-keyword: #333;
+        --zig-identifier: 'black'; 
       }
+      
+      @media (prefers-color-scheme: dark) { 
+        pre {
+          --zig-keyword: 'white';
+          --zig-identifier: 'purple'; 
+        }
+      }
+    
+      .zig_keyword_addrspace,
+      .zig_keyword_align,
+      .zig_keyword_allowzero,
+      .zig_keyword_and,
+      .zig_keyword_anyframe,
+      .zig_keyword_anytype,
+      .zig_keyword_asm,
+      .zig_keyword_async,
+      .zig_keyword_await,
+      .zig_keyword_break,
+      .zig_keyword_callconv,
+      .zig_keyword_catch,
+      .zig_keyword_comptime,
+      .zig_keyword_const,
+      .zig_keyword_continue,
+      .zig_keyword_defer,
+      .zig_keyword_else,
+      .zig_keyword_enum,
+      .zig_keyword_errdefer,
+      .zig_keyword_error,
+      .zig_keyword_export,
+      .zig_keyword_extern,
+      .zig_keyword_fn,
+      .zig_keyword_for,
+      .zig_keyword_if,
+      .zig_keyword_inline,
+      .zig_keyword_noalias,
+      .zig_keyword_noinline,
+      .zig_keyword_nosuspend,
+      .zig_keyword_opaque,
+      .zig_keyword_or,
+      .zig_keyword_orelse,
+      .zig_keyword_packed,
+      .zig_keyword_pub,
+      .zig_keyword_resume,
+      .zig_keyword_return,
+      .zig_keyword_linksection,
+      .zig_keyword_struct,
+      .zig_keyword_suspend,
+      .zig_keyword_switch,
+      .zig_keyword_test,
+      .zig_keyword_threadlocal,
+      .zig_keyword_try,
+      .zig_keyword_union,
+      .zig_keyword_unreachable,
+      .zig_keyword_usingnamespace,
+      .zig_keyword_var,
+      .zig_keyword_volatile,
+      .zig_keyword_while {
+          color: var(--zig-keyword);
+          font-weight: bold;
+      }
+
+      .zig_doc_comment, .zig_container_doc_comment {
+          color: #545454;
+          font-style: italic;
+      }
+
+      .zig_builtin {
+          color: #005C7A;
+      }
+
+      .zig_string_literal {
+          color: #d14;
+      }    
     </style>
   </head>
   <body class="canvas">
@@ -906,6 +987,7 @@
     </div>
     <script src="data.js"></script>
     <script src="commonmark.js"></script>
+    <script src="ziglexer.js"></script>
     <script src="main.js"></script>
   </body>
 </html>
