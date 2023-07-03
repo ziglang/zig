@@ -8634,6 +8634,41 @@ pub const FuncGen = struct {
         const len = self.sliceOrArrayLenInBytes(dest_slice, dest_ptr_ty);
         const dest_ptr = self.sliceOrArrayPtr(dest_slice, dest_ptr_ty);
         const is_volatile = src_ptr_ty.isVolatilePtr(mod) or dest_ptr_ty.isVolatilePtr(mod);
+
+        // When bulk-memory is enabled, this will be lowered to WebAssembly's memory.copy instruction.
+        // This instruction will trap on an invalid address, regardless of the length.
+        // For this reason we must add a safety-check for 0-sized slices as its pointer field can be undefined.
+        // We only have to do this for slices as arrays will have a valid pointer.
+        if (o.target.isWasm() and
+            std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory) and
+            (src_ptr_ty.isSlice(mod) or dest_ptr_ty.isSlice(mod)))
+        {
+            const parent_block = self.context.createBasicBlock("Block");
+
+            const llvm_usize_ty = self.context.intType(o.target.ptrBitWidth());
+            const cond = try self.cmp(len, llvm_usize_ty.constInt(0, .False), Type.usize, .eq);
+            const then_block = self.context.appendBasicBlock(self.llvm_func, "Then");
+            const else_block = self.context.appendBasicBlock(self.llvm_func, "Else");
+            _ = self.builder.buildCondBr(cond, then_block, else_block);
+
+            self.builder.positionBuilderAtEnd(then_block);
+            _ = self.builder.buildBr(parent_block);
+
+            self.builder.positionBuilderAtEnd(else_block);
+            _ = self.builder.buildMemCpy(
+                dest_ptr,
+                dest_ptr_ty.ptrAlignment(mod),
+                src_ptr,
+                src_ptr_ty.ptrAlignment(mod),
+                len,
+                is_volatile,
+            );
+            _ = self.builder.buildBr(parent_block);
+            self.llvm_func.appendExistingBasicBlock(parent_block);
+            self.builder.positionBuilderAtEnd(parent_block);
+            return null;
+        }
+
         _ = self.builder.buildMemCpy(
             dest_ptr,
             dest_ptr_ty.ptrAlignment(mod),
