@@ -31,6 +31,29 @@ pub const thread_state = extern struct {
     gs: u64,
 };
 
+const stmm_reg = [16]u8;
+const xmm_reg = [16]u8;
+pub const float_state = extern struct {
+    reserved: [2]c_int,
+    fcw: u16,
+    fsw: u16,
+    ftw: u8,
+    rsrv1: u8,
+    fop: u16,
+    ip: u32,
+    cs: u16,
+    rsrv2: u16,
+    dp: u32,
+    ds: u16,
+    rsrv3: u16,
+    mxcsr: u32,
+    mxcsrmask: u32,
+    stmm: [8]stmm_reg,
+    xmm: [16]xmm_reg,
+    rsrv4: [96]u8,
+    reserved1: c_int,
+};
+
 pub const THREAD_STATE = 4;
 pub const THREAD_STATE_COUNT: c.mach_msg_type_number_t = @sizeOf(thread_state) / @sizeOf(c_int);
 

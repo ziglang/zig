@@ -1705,28 +1705,53 @@ pub const DwarfInfo = struct {
 
         if (!context.isValidMemory(context.cfa.?)) return error.InvalidCFA;
 
-        // Update the context with the previous frame's values
-        var next_ucontext = context.ucontext;
+        // Buffering the modifications is done because copying the ucontext is not portable,
+        // some implementations (ie. darwin) use internal pointers to the mcontext.
+        var arena = std.heap.ArenaAllocator.init(context.allocator);
+        defer arena.deinit();
+        const update_allocator = arena.allocator();
 
+        const RegisterUpdate = struct {
+            // Backed by ucontext
+            old_value: []u8,
+            // Backed by arena
+            new_value: []const u8,
+            prev: ?*@This(),
+        };
+
+        var update_tail: ?*RegisterUpdate = null;
         var has_next_ip = false;
         for (context.vm.rowColumns(row.*)) |column| {
             if (column.register) |register| {
-                const dest = try abi.regBytes(&next_ucontext, register, context.reg_ctx);
                 if (register == cie.return_address_register) {
                     has_next_ip = column.rule != .undefined;
                 }
+
+                const old_value = try abi.regBytes(&context.ucontext, register, context.reg_ctx);
+                const new_value = try update_allocator.alloc(u8, old_value.len);
+
+                const prev = update_tail;
+                update_tail = try update_allocator.create(RegisterUpdate);
+                update_tail.?.* = .{
+                    .old_value = old_value,
+                    .new_value = new_value,
+                    .prev = prev,
+                };
 
                 try column.resolveValue(
                     context,
                     compile_unit,
                     &context.ucontext,
                     context.reg_ctx,
-                    dest,
+                    new_value,
                 );
             }
         }
 
-        context.ucontext = next_ucontext;
+        while (update_tail) |tail| {
+            @memcpy(tail.old_value, tail.new_value);
+            update_tail = tail.prev;
+        }
 
         if (has_next_ip) {
             context.pc = mem.readIntSliceNative(usize, try abi.regBytes(&context.ucontext, comptime abi.ipRegNum(), context.reg_ctx));

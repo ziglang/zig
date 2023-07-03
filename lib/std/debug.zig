@@ -444,7 +444,10 @@ pub inline fn getContext(context: *StackTraceContext) bool {
         return true;
     }
 
-    return have_getcontext and os.system.getcontext(context) == 0;
+    const result = have_getcontext and os.system.getcontext(context) == 0;
+    if (native_os == .macos) assert(context.mcsize == @sizeOf(std.c.mcontext_t));
+
+    return result;
 }
 
 pub const UnwindError = if (have_ucontext)
@@ -553,6 +556,7 @@ pub const StackIterator = struct {
         if (native_os == .freestanding) return true;
 
         const aligned_address = address & ~@as(usize, @intCast((mem.page_size - 1)));
+        if (aligned_address == 0) return false;
         const aligned_memory = @as([*]align(mem.page_size) u8, @ptrFromInt(aligned_address))[0..mem.page_size];
 
         if (native_os != .windows) {
@@ -815,11 +819,7 @@ fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usiz
 pub fn printUnwindError(debug_info: *DebugInfo, out_stream: anytype, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
     try tty_config.setColor(out_stream, .dim);
-    if (err != error.MissingDebugInfo) {
-        try out_stream.print("Unwind information for {s} was not available ({}), trace may be incomplete\n\n", .{ module_name, err });
-    } else {
-        try out_stream.print("Unwind information for {s} was not available, trace may be incomplete\n\n", .{module_name});
-    }
+    try out_stream.print("Unwind information for {s} was not available ({}), trace may be incomplete\n\n", .{ module_name, err });
     try tty_config.setColor(out_stream, .reset);
 }
 
@@ -1309,6 +1309,7 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
 
     return ModuleDebugInfo{
         .base_address = undefined,
+        .vmaddr_slide = undefined,
         .mapped_memory = mapped_mem,
         .ofiles = ModuleDebugInfo.OFileTable.init(allocator),
         .symbols = symbols,
@@ -1514,11 +1515,10 @@ pub const DebugInfo = struct {
 
         var i: u32 = 0;
         while (i < image_count) : (i += 1) {
-            const base_address = std.c._dyld_get_image_vmaddr_slide(i);
-
-            if (address < base_address) continue;
-
             const header = std.c._dyld_get_image_header(i) orelse continue;
+            const base_address = @intFromPtr(header);
+            if (address < base_address) continue;
+            const vmaddr_slide = std.c._dyld_get_image_vmaddr_slide(i);
 
             var it = macho.LoadCommandIterator{
                 .ncmds = header.ncmds,
@@ -1527,14 +1527,16 @@ pub const DebugInfo = struct {
                     @ptrFromInt(@intFromPtr(header) + @sizeOf(macho.mach_header_64)),
                 )[0..header.sizeofcmds]),
             };
+
             while (it.next()) |cmd| switch (cmd.cmd()) {
                 .SEGMENT_64 => {
                     const segment_cmd = cmd.cast(macho.segment_command_64).?;
-                    const rebased_address = address - base_address;
+                    if (!mem.eql(u8, "__TEXT", segment_cmd.segName())) continue;
+
+                    const original_address = address - vmaddr_slide;
                     const seg_start = segment_cmd.vmaddr;
                     const seg_end = seg_start + segment_cmd.vmsize;
-
-                    if (rebased_address >= seg_start and rebased_address < seg_end) {
+                    if (original_address >= seg_start and original_address < seg_end) {
                         if (self.address_map.get(base_address)) |obj_di| {
                             return obj_di;
                         }
@@ -1551,6 +1553,7 @@ pub const DebugInfo = struct {
                         };
                         obj_di.* = try readMachODebugInfo(self.allocator, macho_file);
                         obj_di.base_address = base_address;
+                        obj_di.vmaddr_slide = vmaddr_slide;
 
                         try self.address_map.putNoClobber(base_address, obj_di);
 
@@ -1808,6 +1811,7 @@ pub const DebugInfo = struct {
 pub const ModuleDebugInfo = switch (native_os) {
     .macos, .ios, .watchos, .tvos => struct {
         base_address: usize,
+        vmaddr_slide: usize,
         mapped_memory: []align(mem.page_size) const u8,
         symbols: []const MachoSymbol,
         strings: [:0]const u8,
@@ -1972,7 +1976,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         } {
             nosuspend {
                 // Translate the VA into an address into this object
-                const relocated_address = address - self.base_address;
+                const relocated_address = address - self.vmaddr_slide;
 
                 // Find the .o file where this symbol is defined
                 const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse return .{

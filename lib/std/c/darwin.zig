@@ -148,11 +148,13 @@ pub const ucontext_t = extern struct {
     link: ?*ucontext_t,
     mcsize: u64,
     mcontext: *mcontext_t,
+    __mcontext_data: mcontext_t,
 };
 
 pub const mcontext_t = extern struct {
     es: arch_bits.exception_state,
     ss: arch_bits.thread_state,
+    fs: arch_bits.float_state,
 };
 
 extern "c" fn __error() *c_int;

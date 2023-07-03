@@ -68,38 +68,41 @@ pub fn regBytes(ucontext_ptr: anytype, reg_number: u8, reg_ctx: ?RegisterContext
     var m = &ucontext_ptr.mcontext;
 
     return switch (builtin.cpu.arch) {
-        .x86 => switch (reg_number) {
-            0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EAX]),
-            1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ECX]),
-            2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EDX]),
-            3 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBX]),
-            4...5 => if (reg_ctx) |r| bytes: {
-                if (reg_number == 4) {
-                    break :bytes if (r.eh_frame and r.is_macho)
-                        mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBP])
-                    else
-                        mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESP]);
-                } else {
-                    break :bytes if (r.eh_frame and r.is_macho)
-                        mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESP])
-                    else
-                        mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBP]);
-                }
-            } else error.RegisterContextRequired,
-            6 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESI]),
-            7 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EDI]),
-            8 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EIP]),
-            9 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EFL]),
-            10 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.CS]),
-            11 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.SS]),
-            12 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.DS]),
-            13 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ES]),
-            14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.FS]),
-            15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.GS]),
-            16...23 => error.InvalidRegister, // TODO: Support loading ST0-ST7 from mcontext.fpregs
-            // TODO: Map TRAPNO, ERR, UESP
-            32...39 => error.InvalidRegister, // TODO: Support loading XMM0-XMM7 from mcontext.fpregs
-            else => error.InvalidRegister,
+        .x86 => switch (builtin.os.tag) {
+            .linux, .netbsd, .solaris => switch (reg_number) {
+                0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EAX]),
+                1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ECX]),
+                2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EDX]),
+                3 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBX]),
+                4...5 => if (reg_ctx) |r| bytes: {
+                    if (reg_number == 4) {
+                        break :bytes if (r.eh_frame and r.is_macho)
+                            mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBP])
+                        else
+                            mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESP]);
+                    } else {
+                        break :bytes if (r.eh_frame and r.is_macho)
+                            mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESP])
+                        else
+                            mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBP]);
+                    }
+                } else error.RegisterContextRequired,
+                6 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESI]),
+                7 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EDI]),
+                8 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EIP]),
+                9 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EFL]),
+                10 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.CS]),
+                11 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.SS]),
+                12 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.DS]),
+                13 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ES]),
+                14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.FS]),
+                15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.GS]),
+                16...23 => error.InvalidRegister, // TODO: Support loading ST0-ST7 from mcontext.fpregs
+                // TODO: Map TRAPNO, ERR, UESP
+                32...39 => error.InvalidRegister, // TODO: Support loading XMM0-XMM7 from mcontext.fpregs
+                else => error.InvalidRegister,
+            },
+            else => error.UnimplementedOs,
         },
         .x86_64 => switch (builtin.os.tag) {
             .linux, .netbsd, .solaris => switch (reg_number) {
