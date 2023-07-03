@@ -483,16 +483,14 @@ pub const StackIterator = struct {
     pub fn initWithContext(first_address: ?usize, debug_info: *DebugInfo, context: *const os.ucontext_t) !StackIterator {
         var iterator = init(first_address, null);
         iterator.debug_info = debug_info;
-        iterator.dwarf_context = try DW.UnwindContext.init(context, &isValidMemory);
+        iterator.dwarf_context = try DW.UnwindContext.init(debug_info.allocator, context, &isValidMemory);
         iterator.last_error = null;
         return iterator;
     }
 
     pub fn deinit(self: *StackIterator) void {
-        if (have_ucontext) {
-            if (self.debug_info) |debug_info| {
-                self.dwarf_context.deinit(debug_info.allocator);
-            }
+        if (have_ucontext and self.debug_info != null) {
+            self.dwarf_context.deinit();
         }
     }
 
@@ -599,7 +597,7 @@ pub const StackIterator = struct {
         if (try module.getDwarfInfoForAddress(self.debug_info.?.allocator, self.dwarf_context.pc)) |di| {
             self.dwarf_context.reg_ctx.eh_frame = true;
             self.dwarf_context.reg_ctx.is_macho = di.is_macho;
-            return di.unwindFrame(self.debug_info.?.allocator, &self.dwarf_context, module.base_address);
+            return di.unwindFrame(&self.dwarf_context, module.base_address);
         } else return error.MissingDebugInfo;
     }
 

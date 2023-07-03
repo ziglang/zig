@@ -163,15 +163,9 @@ const PcRange = struct {
 const Func = struct {
     pc_range: ?PcRange,
     name: ?[]const u8,
-
-    fn deinit(func: *Func, allocator: mem.Allocator) void {
-        if (func.name) |name| {
-            allocator.free(name);
-        }
-    }
 };
 
-const CompileUnit = struct {
+pub const CompileUnit = struct {
     version: u16,
     is_64: bool,
     die: *Die,
@@ -181,6 +175,7 @@ const CompileUnit = struct {
     addr_base: usize,
     rnglists_base: usize,
     loclists_base: usize,
+    frame_base: ?*const FormValue,
 };
 
 const AbbrevTable = std.ArrayList(AbbrevTableEntry);
@@ -216,7 +211,7 @@ const AbbrevAttr = struct {
     payload: i64,
 };
 
-const FormValue = union(enum) {
+pub const FormValue = union(enum) {
     Address: u64,
     AddrOffset: usize,
     Block: []u8,
@@ -298,7 +293,7 @@ const Die = struct {
 
     fn getAttrAddr(
         self: *const Die,
-        di: *DwarfInfo,
+        di: *const DwarfInfo,
         id: u64,
         compile_unit: CompileUnit,
     ) error{ InvalidDebugInfo, MissingDebugInfo }!u64 {
@@ -708,9 +703,6 @@ pub const DwarfInfo = struct {
             allocator.destroy(cu.die);
         }
         di.compile_unit_list.deinit(allocator);
-        for (di.func_list.items) |*func| {
-            func.deinit(allocator);
-        }
         di.func_list.deinit(allocator);
         di.cie_map.deinit(allocator);
         di.fde_list.deinit(allocator);
@@ -793,6 +785,7 @@ pub const DwarfInfo = struct {
                             .addr_base = if (die_obj.getAttr(AT.addr_base)) |fv| try fv.getUInt(usize) else 0,
                             .rnglists_base = if (die_obj.getAttr(AT.rnglists_base)) |fv| try fv.getUInt(usize) else 0,
                             .loclists_base = if (die_obj.getAttr(AT.loclists_base)) |fv| try fv.getUInt(usize) else 0,
+                            .frame_base = die_obj.getAttr(AT.frame_base),
                         };
                     },
                     TAG.subprogram, TAG.inlined_subroutine, TAG.subroutine, TAG.entry_point => {
@@ -802,8 +795,7 @@ pub const DwarfInfo = struct {
                             // Prevent endless loops
                             while (depth > 0) : (depth -= 1) {
                                 if (this_die_obj.getAttr(AT.name)) |_| {
-                                    const name = try this_die_obj.getAttrString(di, AT.name, di.section(.debug_str), compile_unit);
-                                    break :x try allocator.dupe(u8, name);
+                                    break :x try this_die_obj.getAttrString(di, AT.name, di.section(.debug_str), compile_unit);
                                 } else if (this_die_obj.getAttr(AT.abstract_origin)) |_| {
                                     // Follow the DIE it points to and repeat
                                     const ref_offset = try this_die_obj.getAttrRef(AT.abstract_origin);
@@ -834,7 +826,7 @@ pub const DwarfInfo = struct {
                             break :x null;
                         };
 
-                        var found_range = if (die_obj.getAttrAddr(di, AT.low_pc, compile_unit)) |low_pc| blk: {
+                        var range_added = if (die_obj.getAttrAddr(di, AT.low_pc, compile_unit)) |low_pc| blk: {
                             if (die_obj.getAttr(AT.high_pc)) |high_pc_value| {
                                 const pc_end = switch (high_pc_value.*) {
                                     FormValue.Address => |value| value,
@@ -852,9 +844,11 @@ pub const DwarfInfo = struct {
                                         .end = pc_end,
                                     },
                                 });
+
+                                break :blk true;
                             }
 
-                            break :blk true;
+                            break :blk false;
                         } else |err| blk: {
                             if (err != error.MissingDebugInfo) return err;
                             break :blk false;
@@ -867,7 +861,7 @@ pub const DwarfInfo = struct {
                             };
 
                             while (try iter.next()) |range| {
-                                found_range = true;
+                                range_added = true;
                                 try di.func_list.append(allocator, Func{
                                     .name = fn_name,
                                     .pc_range = .{
@@ -878,7 +872,7 @@ pub const DwarfInfo = struct {
                             }
                         }
 
-                        if (!found_range) {
+                        if (fn_name != null and !range_added) {
                             try di.func_list.append(allocator, Func{
                                 .name = fn_name,
                                 .pc_range = null,
@@ -952,6 +946,7 @@ pub const DwarfInfo = struct {
                 .addr_base = if (compile_unit_die.getAttr(AT.addr_base)) |fv| try fv.getUInt(usize) else 0,
                 .rnglists_base = if (compile_unit_die.getAttr(AT.rnglists_base)) |fv| try fv.getUInt(usize) else 0,
                 .loclists_base = if (compile_unit_die.getAttr(AT.loclists_base)) |fv| try fv.getUInt(usize) else 0,
+                .frame_base = compile_unit_die.getAttr(AT.frame_base),
             };
 
             compile_unit.pc_range = x: {
@@ -987,11 +982,11 @@ pub const DwarfInfo = struct {
     const DebugRangeIterator = struct {
         base_address: u64,
         section_type: DwarfSection,
-        di: *DwarfInfo,
+        di: *const DwarfInfo,
         compile_unit: *const CompileUnit,
         stream: io.FixedBufferStream([]const u8),
 
-        pub fn init(ranges_value: *const FormValue, di: *DwarfInfo, compile_unit: *const CompileUnit) !@This() {
+        pub fn init(ranges_value: *const FormValue, di: *const DwarfInfo, compile_unit: *const CompileUnit) !@This() {
             const section_type = if (compile_unit.version >= 5) DwarfSection.debug_rnglists else DwarfSection.debug_ranges;
             const debug_ranges = di.section(section_type) orelse return error.MissingDebugInfo;
 
@@ -1129,7 +1124,7 @@ pub const DwarfInfo = struct {
         }
     };
 
-    pub fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
+    pub fn findCompileUnit(di: *const DwarfInfo, target_address: u64) !*const CompileUnit {
         for (di.compile_unit_list.items) |*compile_unit| {
             if (compile_unit.pc_range) |range| {
                 if (target_address >= range.start and target_address < range.end) return compile_unit;
@@ -1630,7 +1625,7 @@ pub const DwarfInfo = struct {
         }
     }
 
-    pub fn unwindFrame(di: *const DwarfInfo, allocator: mem.Allocator, context: *UnwindContext, module_base_address: usize) !usize {
+    pub fn unwindFrame(di: *const DwarfInfo, context: *UnwindContext, module_base_address: usize) !usize {
         if (!comptime abi.isSupportedArch(builtin.target.cpu.arch)) return error.UnsupportedCpuArchitecture;
         if (context.pc == 0) return 0;
 
@@ -1678,10 +1673,11 @@ pub const DwarfInfo = struct {
             cie = di.cie_map.get(fde.cie_length_offset) orelse return error.MissingCIE;
         }
 
+        const compile_unit: ?*const CompileUnit = di.findCompileUnit(fde.pc_begin) catch null;
         context.vm.reset();
         context.reg_ctx.eh_frame = cie.version != 4;
 
-        _ = try context.vm.runToNative(allocator, mapped_pc, cie, fde);
+        _ = try context.vm.runToNative(context.allocator, mapped_pc, cie, fde);
         const row = &context.vm.current_row;
 
         context.cfa = switch (row.cfa.rule) {
@@ -1690,12 +1686,19 @@ pub const DwarfInfo = struct {
                 const value = mem.readIntSliceNative(usize, try abi.regBytes(&context.ucontext, register, context.reg_ctx));
                 break :blk try call_frame.applyOffset(value, offset);
             },
-            .expression => |expression| {
+            .expression => |expression| blk: {
+                context.stack_machine.reset();
+                const value = try context.stack_machine.run(
+                    expression,
+                    context.allocator,
+                    compile_unit,
+                    &context.ucontext,
+                    context.reg_ctx,
+                    context.cfa orelse 0,
+                );
 
-                // TODO: Evaluate expression
-                _ = expression;
-
-                return error.UnimplementedTODO;
+                if (value != .generic) return error.InvalidExpressionValue;
+                break :blk value.generic;
             },
             else => return error.InvalidCFARule,
         };
@@ -1713,7 +1716,13 @@ pub const DwarfInfo = struct {
                     has_next_ip = column.rule != .undefined;
                 }
 
-                try column.resolveValue(context.*, dest);
+                try column.resolveValue(
+                    context,
+                    compile_unit,
+                    &context.ucontext,
+                    context.reg_ctx,
+                    dest,
+                );
             }
         }
 
@@ -1738,16 +1747,19 @@ pub const DwarfInfo = struct {
 };
 
 pub const UnwindContext = struct {
+    allocator: mem.Allocator,
     cfa: ?usize,
     pc: usize,
     ucontext: os.ucontext_t,
     reg_ctx: abi.RegisterContext,
     isValidMemory: *const fn (address: usize) bool,
     vm: call_frame.VirtualMachine = .{},
+    stack_machine: expressions.StackMachine(.{ .call_frame_mode = true }) = .{},
 
-    pub fn init(ucontext: *const os.ucontext_t, isValidMemory: *const fn (address: usize) bool) !UnwindContext {
+    pub fn init(allocator: mem.Allocator, ucontext: *const os.ucontext_t, isValidMemory: *const fn (address: usize) bool) !UnwindContext {
         const pc = mem.readIntSliceNative(usize, try abi.regBytes(ucontext, abi.ipRegNum(), null));
         return .{
+            .allocator = allocator,
             .cfa = null,
             .pc = pc,
             .ucontext = ucontext.*,
@@ -1756,8 +1768,9 @@ pub const UnwindContext = struct {
         };
     }
 
-    pub fn deinit(self: *UnwindContext, allocator: mem.Allocator) void {
-        self.vm.deinit(allocator);
+    pub fn deinit(self: *UnwindContext) void {
+        self.vm.deinit(self.allocator);
+        self.stack_machine.deinit(self.allocator);
     }
 
     pub fn getFp(self: *const UnwindContext) !usize {

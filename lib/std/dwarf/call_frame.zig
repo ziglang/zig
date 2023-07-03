@@ -183,9 +183,9 @@ pub const Instruction = union(Opcode) {
     offset_extended_sf: InstructionType(.{ .register = .uleb128_register, .offset = .sleb128_offset }),
     def_cfa_sf: InstructionType(.{ .register = .uleb128_register, .offset = .sleb128_offset }),
     def_cfa_offset_sf: InstructionType(.{ .offset = .sleb128_offset }),
-    val_offset: InstructionType(.{ .a = .uleb128_offset, .b = .uleb128_offset }),
-    val_offset_sf: InstructionType(.{ .a = .uleb128_offset, .b = .sleb128_offset }),
-    val_expression: InstructionType(.{ .a = .uleb128_offset, .block = .block }),
+    val_offset: InstructionType(.{ .register = .uleb128_register, .offset = .uleb128_offset }),
+    val_offset_sf: InstructionType(.{ .register = .uleb128_register, .offset = .sleb128_offset }),
+    val_expression: InstructionType(.{ .register = .uleb128_register, .block = .block }),
 
     fn readOperands(
         self: *Instruction,
@@ -292,7 +292,14 @@ pub const VirtualMachine = struct {
         rule: RegisterRule = .{ .default = {} },
 
         /// Resolves the register rule and places the result into `out` (see dwarf.abi.regBytes)
-        pub fn resolveValue(self: Column, context: dwarf.UnwindContext, out: []u8) !void {
+        pub fn resolveValue(
+            self: Column,
+            context: *dwarf.UnwindContext,
+            compile_unit: ?*const dwarf.CompileUnit,
+            ucontext: *const std.os.ucontext_t,
+            reg_ctx: abi.RegisterContext,
+            out: []u8,
+        ) !void {
             switch (self.rule) {
                 .default => {
                     const register = self.register orelse return error.InvalidRegister;
@@ -321,14 +328,21 @@ pub const VirtualMachine = struct {
                     @memcpy(out, try abi.regBytes(&context.ucontext, register, context.reg_ctx));
                 },
                 .expression => |expression| {
-                    // TODO
-                    _ = expression;
-                    unreachable;
+                    context.stack_machine.reset();
+                    const value = try context.stack_machine.run(expression, context.allocator, compile_unit, ucontext, reg_ctx, context.cfa.?);
+
+                    if (value != .generic) return error.InvalidExpressionValue;
+                    if (!context.isValidMemory(value.generic)) return error.InvalidExpressionAddress;
+
+                    const ptr: *usize = @ptrFromInt(value.generic);
+                    mem.writeIntSliceNative(usize, out, ptr.*);
                 },
                 .val_expression => |expression| {
-                    // TODO
-                    _ = expression;
-                    unreachable;
+                    context.stack_machine.reset();
+                    const value = try context.stack_machine.run(expression, context.allocator, compile_unit, ucontext, reg_ctx, context.cfa.?);
+
+                    if (value != .generic) return error.InvalidExpressionValue;
+                    mem.writeIntSliceNative(usize, out, value.generic);
                 },
                 .architectural => return error.UnimplementedRule,
             }
@@ -546,12 +560,16 @@ pub const VirtualMachine = struct {
             .def_cfa_offset => |i| {
                 try self.resolveCopyOnWrite(allocator);
                 if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .val_offset) return error.InvalidOperation;
-                self.current_row.cfa.rule = .{ .val_offset = @intCast(i.operands.offset) };
+                self.current_row.cfa.rule = .{
+                    .val_offset = @intCast(i.operands.offset),
+                };
             },
             .def_cfa_offset_sf => |i| {
                 try self.resolveCopyOnWrite(allocator);
                 if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .val_offset) return error.InvalidOperation;
-                self.current_row.cfa.rule = .{ .val_offset = i.operands.offset * cie.data_alignment_factor };
+                self.current_row.cfa.rule = .{
+                    .val_offset = i.operands.offset * cie.data_alignment_factor,
+                };
             },
             .def_cfa_expression => |i| {
                 try self.resolveCopyOnWrite(allocator);
@@ -567,17 +585,26 @@ pub const VirtualMachine = struct {
                     .expression = i.operands.block,
                 };
             },
-            .val_offset => {
-                // TODO: Implement
-                unreachable;
+            .val_offset => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.operands.register);
+                column.rule = .{
+                    .val_offset = @as(i64, @intCast(i.operands.offset)) * cie.data_alignment_factor,
+                };
             },
-            .val_offset_sf => {
-                // TODO: Implement
-                unreachable;
+            .val_offset_sf => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.operands.register);
+                column.rule = .{
+                    .val_offset = i.operands.offset * cie.data_alignment_factor,
+                };
             },
-            .val_expression => {
-                // TODO: Implement
-                unreachable;
+            .val_expression => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.operands.register);
+                column.rule = .{
+                    .val_expression = i.operands.block,
+                };
             },
         }
 
