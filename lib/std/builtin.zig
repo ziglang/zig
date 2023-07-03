@@ -741,7 +741,8 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         builtin.zig_backend == .stage2_x86_64 or
         builtin.zig_backend == .stage2_x86 or
         builtin.zig_backend == .stage2_riscv64 or
-        builtin.zig_backend == .stage2_sparc64)
+        builtin.zig_backend == .stage2_sparc64 or
+        builtin.zig_backend == .stage2_spirv64)
     {
         while (true) {
             @breakpoint();
@@ -806,7 +807,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
             // Didn't have boot_services, just fallback to whatever.
             std.os.abort();
         },
-        .cuda => std.os.abort(),
+        .cuda, .amdhsa => std.os.abort(),
         else => {
             const first_trace_addr = ret_addr orelse @returnAddress();
             std.debug.panicImpl(error_return_trace, first_trace_addr, msg);

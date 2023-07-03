@@ -4063,12 +4063,12 @@ fn transCreateCompoundAssign(
     return block_scope.complete(c);
 }
 
-// Casting away const or volatile requires us to use @ptrFromInt
 fn removeCVQualifiers(c: *Context, dst_type_node: Node, expr: Node) Error!Node {
-    const int_from_ptr = try Tag.int_from_ptr.create(c.arena, expr);
+    const const_casted = try Tag.const_cast.create(c.arena, expr);
+    const volatile_casted = try Tag.volatile_cast.create(c.arena, const_casted);
     return Tag.as.create(c.arena, .{
         .lhs = dst_type_node,
-        .rhs = try Tag.ptr_from_int.create(c.arena, int_from_ptr),
+        .rhs = try Tag.ptr_cast.create(c.arena, volatile_casted),
     });
 }
 

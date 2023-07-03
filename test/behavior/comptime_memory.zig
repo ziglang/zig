@@ -433,6 +433,8 @@ test "dereference undefined pointer to zero-bit type" {
 }
 
 test "type pun extern struct" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = extern struct { f: u8 };
     comptime var s = S{ .f = 123 };
     @as(*u8, @ptrCast(&s)).* = 72;

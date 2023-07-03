@@ -13,7 +13,7 @@ pub const _errno = _errnop;
 
 pub extern "c" fn find_directory(which: directory_which, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) status_t;
 
-pub extern "c" fn find_path(codePointer: *const u8, baseDirectory: path_base_directory, subPath: [*:0]const u8, pathBuffer: [*:0]u8, bufferSize: usize) status_t;
+pub extern "c" fn find_path(codePointer: ?*const u8, baseDirectory: path_base_directory, subPath: ?[*:0]const u8, pathBuffer: [*:0]u8, bufferSize: usize) status_t;
 
 pub extern "c" fn find_thread(thread_name: ?*anyopaque) i32;
 
@@ -173,25 +173,25 @@ pub const Flock = extern struct {
 
 pub const msghdr = extern struct {
     /// optional address
-    msg_name: ?*sockaddr,
+    name: ?*sockaddr,
 
     /// size of address
-    msg_namelen: socklen_t,
+    namelen: socklen_t,
 
     /// scatter/gather array
-    msg_iov: [*]iovec,
+    iov: [*]iovec,
 
     /// # elements in msg_iov
-    msg_iovlen: i32,
+    iovlen: i32,
 
     /// ancillary data
-    msg_control: ?*anyopaque,
+    control: ?*anyopaque,
 
     /// ancillary data buffer len
-    msg_controllen: socklen_t,
+    controllen: socklen_t,
 
     /// flags on received message
-    msg_flags: i32,
+    flags: i32,
 };
 
 pub const off_t = i64;

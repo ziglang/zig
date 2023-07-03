@@ -3473,11 +3473,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
         \\pub export fn bar(arg_a: [*c]const c_int) void {
         \\    var a = arg_a;
-        \\    foo(@as([*c]c_int, @ptrFromInt(@intFromPtr(a))));
+        \\    foo(@as([*c]c_int, @ptrCast(@volatileCast(@constCast(a)))));
         \\}
         \\pub export fn baz(arg_a: [*c]volatile c_int) void {
         \\    var a = arg_a;
-        \\    foo(@as([*c]c_int, @ptrFromInt(@intFromPtr(a))));
+        \\    foo(@as([*c]c_int, @ptrCast(@volatileCast(@constCast(a)))));
         \\}
     });
 

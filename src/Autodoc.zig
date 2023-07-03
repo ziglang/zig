@@ -1601,7 +1601,40 @@ fn walkInstruction(
                 .expr = .{ .builtinIndex = bin_index },
             };
         },
+        .truncate => {
+            // in the ZIR this node is a builtin `bin` but we want send it as a `un` builtin
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
 
+            var rhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.rhs,
+                false,
+            );
+
+            const bin_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .builtin = .{ .param = 0 } });
+
+            const rhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, rhs.expr);
+
+            var lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.lhs,
+                false,
+            );
+
+            self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(tags[inst_index]), .param = rhs_index } };
+
+            return DocData.WalkResult{
+                .typeRef = lhs.expr,
+                .expr = .{ .builtinIndex = bin_index },
+            };
+        },
         .int_from_float,
         .float_from_int,
         .ptr_from_int,
@@ -1609,7 +1642,6 @@ fn walkInstruction(
         .float_cast,
         .int_cast,
         .ptr_cast,
-        .truncate,
         .has_decl,
         .has_field,
         .div_exact,
