@@ -91,7 +91,6 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         pub fn reset(pool: *Pool) void {
             // TODO: Potentially store all allocated objects in a list as well, allowing to
             //       just move them into the free list instead of actually releasing the memory.
-            const allocator = pool.arena.child_allocator;
 
             _ = pool.arena.reset(.free_all);
 
