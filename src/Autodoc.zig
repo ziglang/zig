@@ -797,7 +797,7 @@ const DocData = struct {
         }
     };
 
-    /// An Expr represents the (untyped) result of analizing instructions.
+    /// An Expr represents the (untyped) result of analyzing instructions.
     /// The data is normalized, which means that an Expr that results in a
     /// type definition will hold an index into `self.types`.
     pub const Expr = union(enum) {
@@ -1262,6 +1262,12 @@ fn walkInstruction(
                 .expr = .{ .int_big = .{ .value = as_string } },
             };
         },
+        .@"unreachable" => {
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @intFromEnum(Ref.noreturn_type) },
+                .expr = .{ .@"unreachable" = .{} },
+            };
+        },
 
         .slice_start => {
             const pl_node = data[inst_index].pl_node;
@@ -1580,6 +1586,7 @@ fn walkInstruction(
         .frame_size,
         .int_from_ptr,
         .bit_not,
+        .bool_not,
         // @check
         .clz,
         .ctz,
@@ -1600,6 +1607,40 @@ fn walkInstruction(
             return DocData.WalkResult{
                 .typeRef = param.typeRef orelse .{ .type = @intFromEnum(Ref.type_type) },
                 .expr = .{ .builtinIndex = bin_index },
+            };
+        },
+        .bool_br_and, .bool_br_or => {
+            const bool_br = data[inst_index].bool_br;
+
+            const bin_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
+
+            const lhs = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                bool_br.lhs,
+                false,
+            );
+            const lhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, lhs.expr);
+
+            const extra = file.zir.extraData(Zir.Inst.Block, bool_br.payload_index);
+            const rhs = try self.walkInstruction(
+                file,
+                parent_scope,
+                parent_src,
+                file.zir.extra[extra.end..][extra.data.body_len - 1],
+                false,
+            );
+            const rhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, rhs.expr);
+
+            self.exprs.items[bin_index] = .{ .binOp = .{ .name = @tagName(tags[inst_index]), .lhs = lhs_index, .rhs = rhs_index } };
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @intFromEnum(Ref.bool_type) },
+                .expr = .{ .binOpIndex = bin_index },
             };
         },
         .truncate => {
@@ -2356,6 +2397,16 @@ fn walkInstruction(
                     });
                     return res;
                 },
+                need_type,
+            );
+        },
+        .break_inline => {
+            const @"break" = data[inst_index].@"break";
+            return try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                @"break".operand,
                 need_type,
             );
         },
