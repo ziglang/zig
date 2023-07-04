@@ -4,6 +4,7 @@
 const Plan9 = @This();
 const link = @import("../link.zig");
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const aout = @import("Plan9/aout.zig");
 const codegen = @import("../codegen.zig");
@@ -344,12 +345,12 @@ fn addPathComponents(self: *Plan9, path: []const u8, a: *std.ArrayList(u8)) !voi
     }
 }
 
-pub fn updateFunc(self: *Plan9, mod: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
-    const func = mod.funcPtr(func_index);
+    const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
     self.freeUnnamedConsts(decl_index);
@@ -908,7 +909,7 @@ pub fn freeDecl(self: *Plan9, decl_index: Module.Decl.Index) void {
     // in the deleteUnusedDecl function.
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
-    const is_fn = decl.val.getFunctionIndex(mod) != .none;
+    const is_fn = decl.val.isFuncBody(mod);
     if (is_fn) {
         var symidx_and_submap = self.fn_decl_table.get(decl.getFileScope(mod)).?;
         var submap = symidx_and_submap.functions;

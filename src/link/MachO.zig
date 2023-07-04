@@ -1845,7 +1845,7 @@ fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
     self.markRelocsDirtyByTarget(target);
 }
 
-pub fn updateFunc(self: *MachO, mod: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -1855,7 +1855,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: Module.Fn.Index, air: 
     const tracy = trace(@src());
     defer tracy.end();
 
-    const func = mod.funcPtr(func_index);
+    const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
 

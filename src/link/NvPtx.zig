@@ -13,6 +13,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
@@ -68,7 +69,7 @@ pub fn deinit(self: *NvPtx) void {
     self.base.allocator.free(self.ptx_file_name);
 }
 
-pub fn updateFunc(self: *NvPtx, module: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *NvPtx, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (!build_options.have_llvm) return;
     try self.llvm_object.updateFunc(module, func_index, air, liveness);
 }

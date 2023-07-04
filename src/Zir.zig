@@ -90,13 +90,24 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
     };
 }
 
-/// Given an index into `string_bytes` returns the null-terminated string found there.
+/// TODO migrate to use this for type safety
+pub const NullTerminatedString = enum(u32) {
+    _,
+};
+
+/// TODO: migrate to nullTerminatedString2 for type safety
 pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
-    var end: usize = index;
+    return nullTerminatedString2(code, @enumFromInt(index));
+}
+
+/// Given an index into `string_bytes` returns the null-terminated string found there.
+pub fn nullTerminatedString2(code: Zir, index: NullTerminatedString) [:0]const u8 {
+    const start = @intFromEnum(index);
+    var end: u32 = start;
     while (code.string_bytes[end] != 0) {
         end += 1;
     }
-    return code.string_bytes[index..end :0];
+    return code.string_bytes[start..end :0];
 }
 
 pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {

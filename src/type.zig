@@ -255,7 +255,7 @@ pub const Type = struct {
                 const func = ies.func;
 
                 try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
-                const owner_decl = mod.declPtr(mod.funcPtr(func).owner_decl);
+                const owner_decl = mod.funcOwnerDeclPtr(func);
                 try owner_decl.renderFullyQualifiedName(mod, writer);
                 try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
             },
@@ -367,7 +367,8 @@ pub const Type = struct {
                     try writer.writeAll("noinline ");
                 }
                 try writer.writeAll("fn(");
-                for (fn_info.param_types, 0..) |param_ty, i| {
+                const param_types = fn_info.param_types.get(&mod.intern_pool);
+                for (param_types, 0..) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
                     if (std.math.cast(u5, i)) |index| {
                         if (fn_info.paramIsComptime(index)) {
@@ -384,7 +385,7 @@ pub const Type = struct {
                     }
                 }
                 if (fn_info.is_var_args) {
-                    if (fn_info.param_types.len != 0) {
+                    if (param_types.len != 0) {
                         try writer.writeAll(", ");
                     }
                     try writer.writeAll("...");

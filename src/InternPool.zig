@@ -34,19 +34,13 @@ allocated_unions: std.SegmentedList(Module.Union, 0) = .{},
 /// When a Union object is freed from `allocated_unions`, it is pushed into this stack.
 unions_free_list: std.ArrayListUnmanaged(Module.Union.Index) = .{},
 
-/// Fn objects are stored in this data structure because:
-/// * They need to be mutated after creation.
-allocated_funcs: std.SegmentedList(Module.Fn, 0) = .{},
-/// When a Fn object is freed from `allocated_funcs`, it is pushed into this stack.
-funcs_free_list: std.ArrayListUnmanaged(Module.Fn.Index) = .{},
-
 /// InferredErrorSet objects are stored in this data structure because:
 /// * They contain pointers such as the errors map and the set of other inferred error sets.
 /// * They need to be mutated after creation.
-allocated_inferred_error_sets: std.SegmentedList(Module.Fn.InferredErrorSet, 0) = .{},
+allocated_inferred_error_sets: std.SegmentedList(Module.InferredErrorSet, 0) = .{},
 /// When a Struct object is freed from `allocated_inferred_error_sets`, it is
 /// pushed into this stack.
-inferred_error_sets_free_list: std.ArrayListUnmanaged(Module.Fn.InferredErrorSet.Index) = .{},
+inferred_error_sets_free_list: std.ArrayListUnmanaged(Module.InferredErrorSet.Index) = .{},
 
 /// Some types such as enums, structs, and unions need to store mappings from field names
 /// to field index, or value to field index. In such cases, they will store the underlying
@@ -73,6 +67,7 @@ const Hash = std.hash.Wyhash;
 
 const InternPool = @This();
 const Module = @import("Module.zig");
+const Zir = @import("Zir.zig");
 const Sema = @import("Sema.zig");
 
 const KeyAdapter = struct {
@@ -224,7 +219,7 @@ pub const Key = union(enum) {
     enum_type: EnumType,
     func_type: FuncType,
     error_set_type: ErrorSetType,
-    inferred_error_set_type: Module.Fn.InferredErrorSet.Index,
+    inferred_error_set_type: Module.InferredErrorSet.Index,
 
     /// Typed `undefined`. This will never be `none`; untyped `undefined` is represented
     /// via `simple_value` and has a named `Index` tag for it.
@@ -487,7 +482,7 @@ pub const Key = union(enum) {
     };
 
     pub const FuncType = struct {
-        param_types: []Index,
+        param_types: Index.Slice,
         return_type: Index,
         /// Tells whether a parameter is comptime. See `paramIsComptime` helper
         /// method for accessing this.
@@ -541,10 +536,61 @@ pub const Key = union(enum) {
         lib_name: OptionalNullTerminatedString,
     };
 
-    /// Extern so it can be hashed by reinterpreting memory.
-    pub const Func = extern struct {
+    pub const Func = struct {
+        /// In the case of a generic function, this type will potentially have fewer parameters
+        /// than the generic owner's type, because the comptime parameters will be deleted.
         ty: Index,
-        index: Module.Fn.Index,
+        /// Index into extra array of the `FuncAnalysis` corresponding to this function.
+        /// Used for mutating that data.
+        analysis_extra_index: u32,
+        /// Index into extra array of the `zir_body_inst` corresponding to this function.
+        /// Used for mutating that data.
+        zir_body_inst_extra_index: u32,
+        /// When a generic function is instantiated, branch_quota is inherited from the
+        /// active Sema context. Importantly, this value is also updated when an existing
+        /// generic function instantiation is found and called.
+        /// This field contains the index into the extra array of this value,
+        /// so that it can be mutated.
+        /// This will be 0 when the function is not a generic function instantiation.
+        branch_quota_extra_index: u32,
+        /// The Decl that corresponds to the function itself.
+        owner_decl: Module.Decl.Index,
+        /// The ZIR instruction that is a function instruction. Use this to find
+        /// the body. We store this rather than the body directly so that when ZIR
+        /// is regenerated on update(), we can map this to the new corresponding
+        /// ZIR instruction.
+        zir_body_inst: Zir.Inst.Index,
+        /// Relative to owner Decl.
+        lbrace_line: u32,
+        /// Relative to owner Decl.
+        rbrace_line: u32,
+        lbrace_column: u32,
+        rbrace_column: u32,
+
+        /// The `func_decl` which is the generic function from whence this instance was spawned.
+        /// If this is `none` it means the function is not a generic instantiation.
+        generic_owner: Index,
+        /// If this is a generic function instantiation, this will be non-empty.
+        /// Corresponds to the parameters of the `generic_owner` type, which
+        /// may have more parameters than `ty`.
+        /// Each element is the comptime-known value the generic function was instantiated with,
+        /// or `none` if the element is runtime-known.
+        /// TODO: as a follow-up optimization, don't store `none` values here since that data
+        /// is redundant with `comptime_bits` stored elsewhere.
+        comptime_args: Index.Slice,
+
+        /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
+        pub fn analysis(func: *const Func, ip: *const InternPool) *FuncAnalysis {
+            return @ptrCast(&ip.extra.items[func.analysis_extra_index]);
+        }
+
+        pub fn zirBodyInst(func: *const Func, ip: *const InternPool) *Zir.Inst.Index {
+            return @ptrCast(&ip.extra.items[func.zir_body_inst_extra_index]);
+        }
+
+        pub fn branchQuota(func: *const Func, ip: *const InternPool) *u32 {
+            return &ip.extra.items[func.zir_body_inst_extra_index];
+        }
     };
 
     pub const Int = struct {
@@ -679,7 +725,7 @@ pub const Key = union(enum) {
     };
 
     pub const MemoizedCall = struct {
-        func: Module.Fn.Index,
+        func: Index,
         arg_values: []const Index,
         result: Index,
     };
@@ -695,7 +741,6 @@ pub const Key = union(enum) {
         return switch (key) {
             // TODO: assert no padding in these types
             inline .ptr_type,
-            .func,
             .array_type,
             .vector_type,
             .opt_type,
@@ -723,20 +768,11 @@ pub const Key = union(enum) {
             },
 
             .runtime_value => |x| Hash.hash(seed, asBytes(&x.val)),
-            .opaque_type => |x| Hash.hash(seed, asBytes(&x.decl)),
 
-            .enum_type => |enum_type| {
-                var hasher = Hash.init(seed);
-                std.hash.autoHash(&hasher, enum_type.decl);
-                return hasher.final();
-            },
-
-            .variable => |variable| {
-                var hasher = Hash.init(seed);
-                std.hash.autoHash(&hasher, variable.decl);
-                return hasher.final();
-            },
-            .extern_func => |x| Hash.hash(seed, asBytes(&x.ty) ++ asBytes(&x.decl)),
+            inline .opaque_type,
+            .enum_type,
+            .variable,
+            => |x| Hash.hash(seed, asBytes(&x.decl)),
 
             .int => |int| {
                 var hasher = Hash.init(seed);
@@ -875,7 +911,9 @@ pub const Key = union(enum) {
 
             .func_type => |func_type| {
                 var hasher = Hash.init(seed);
-                for (func_type.param_types) |param_type| std.hash.autoHash(&hasher, param_type);
+                for (func_type.param_types.get(ip)) |param_type| {
+                    std.hash.autoHash(&hasher, param_type);
+                }
                 std.hash.autoHash(&hasher, func_type.return_type);
                 std.hash.autoHash(&hasher, func_type.comptime_bits);
                 std.hash.autoHash(&hasher, func_type.noalias_bits);
@@ -893,6 +931,19 @@ pub const Key = union(enum) {
                 for (memoized_call.arg_values) |arg| std.hash.autoHash(&hasher, arg);
                 return hasher.final();
             },
+
+            .func => |func| {
+                if (func.generic_owner == .none)
+                    return Hash.hash(seed, asBytes(&func.owner_decl) ++ asBytes(&func.ty));
+
+                var hasher = Hash.init(seed);
+                std.hash.autoHash(&hasher, func.generic_owner);
+                for (func.comptime_args.get(ip)) |arg| std.hash.autoHash(&hasher, arg);
+                std.hash.autoHash(&hasher, func.ty);
+                return hasher.final();
+            },
+
+            .extern_func => |x| Hash.hash(seed, asBytes(&x.ty) ++ asBytes(&x.decl)),
         };
     }
 
@@ -993,7 +1044,17 @@ pub const Key = union(enum) {
             },
             .func => |a_info| {
                 const b_info = b.func;
-                return a_info.ty == b_info.ty and a_info.index == b_info.index;
+
+                if (a_info.generic_owner != b_info.generic_owner)
+                    return false;
+
+                if (a_info.ty != b_info.ty)
+                    return false;
+
+                if (a_info.generic_owner == .none)
+                    return a_info.owner_decl == b_info.owner_decl;
+
+                return std.mem.eql(Index, a_info.comptime_args.get(ip), b_info.comptime_args.get(ip));
             },
 
             .ptr => |a_info| {
@@ -1155,7 +1216,7 @@ pub const Key = union(enum) {
             .func_type => |a_info| {
                 const b_info = b.func_type;
 
-                return std.mem.eql(Index, a_info.param_types, b_info.param_types) and
+                return std.mem.eql(Index, a_info.param_types.get(ip), b_info.param_types.get(ip)) and
                     a_info.return_type == b_info.return_type and
                     a_info.comptime_bits == b_info.comptime_bits and
                     a_info.noalias_bits == b_info.noalias_bits and
@@ -1360,6 +1421,18 @@ pub const Index = enum(u32) {
 
     _,
 
+    /// An array of `Index` existing within the `extra` array.
+    /// This type exists to provide a struct with lifetime that is
+    /// not invalidated when items are added to the `InternPool`.
+    pub const Slice = struct {
+        start: u32,
+        len: u32,
+
+        pub fn get(slice: Slice, ip: *const InternPool) []Index {
+            return @ptrCast(ip.extra.items[slice.start..][0..slice.len]);
+        }
+    };
+
     pub fn toType(i: Index) @import("type.zig").Type {
         assert(i != .none);
         return .{ .ip_index = i };
@@ -1390,6 +1463,7 @@ pub const Index = enum(u32) {
 
     /// This function is used in the debugger pretty formatters in tools/ to fetch the
     /// Tag to encoding mapping to facilitate fancy debug printing for this type.
+    /// TODO merge this with `Tag.Payload`.
     fn dbHelper(self: *Index, tag_to_encoding_map: *struct {
         const DataIsIndex = struct { data: Index };
         const DataIsExtraIndexOfEnumExplicit = struct {
@@ -1427,11 +1501,11 @@ pub const Index = enum(u32) {
         type_error_union: struct { data: *Key.ErrorUnionType },
         type_error_set: struct {
             const @"data.names_len" = opaque {};
-            data: *ErrorSet,
+            data: *Tag.ErrorSet,
             @"trailing.names.len": *@"data.names_len",
             trailing: struct { names: []NullTerminatedString },
         },
-        type_inferred_error_set: struct { data: Module.Fn.InferredErrorSet.Index },
+        type_inferred_error_set: struct { data: Module.InferredErrorSet.Index },
         type_enum_auto: struct {
             const @"data.fields_len" = opaque {};
             data: *EnumAuto,
@@ -1451,7 +1525,7 @@ pub const Index = enum(u32) {
         type_union_safety: struct { data: Module.Union.Index },
         type_function: struct {
             const @"data.params_len" = opaque {};
-            data: *TypeFunction,
+            data: *Tag.TypeFunction,
             @"trailing.param_types.len": *@"data.params_len",
             trailing: struct { param_types: []Index },
         },
@@ -1497,7 +1571,8 @@ pub const Index = enum(u32) {
         float_comptime_float: struct { data: *Float128 },
         variable: struct { data: *Tag.Variable },
         extern_func: struct { data: *Key.ExternFunc },
-        func: struct { data: *Tag.Func },
+        func_decl: struct { data: *Tag.FuncDecl },
+        func_instance: struct { data: *Tag.FuncInstance },
         only_possible_value: DataIsIndex,
         union_value: struct { data: *Key.Union },
         bytes: struct { data: *Bytes },
@@ -1826,7 +1901,7 @@ pub const Tag = enum(u8) {
     /// data is payload to `ErrorSet`.
     type_error_set,
     /// The inferred error set type of a function.
-    /// data is `Module.Fn.InferredErrorSet.Index`.
+    /// data is `Module.InferredErrorSet.Index`.
     type_inferred_error_set,
     /// An enum type with auto-numbered tag values.
     /// The enum is exhaustive.
@@ -2005,11 +2080,16 @@ pub const Tag = enum(u8) {
     /// data is extra index to Variable.
     variable,
     /// An extern function.
-    /// data is extra index to Key.ExternFunc.
+    /// data is extra index to ExternFunc.
     extern_func,
-    /// A regular function.
-    /// data is extra index to Func.
-    func,
+    /// A non-extern function corresponding directly to the AST node from whence it originated.
+    /// data is extra index to `FuncDecl`.
+    /// Only the owner Decl is used for hashing and equality because the other
+    /// fields can get patched up during incremental compilation.
+    func_decl,
+    /// A generic function instantiation.
+    /// data is extra index to `FuncInstance`.
+    func_instance,
     /// This represents the only possible value for *some* types which have
     /// only one possible value. Not all only-possible-values are encoded this way;
     /// for example structs which have all comptime fields are not encoded this way.
@@ -2114,7 +2194,8 @@ pub const Tag = enum(u8) {
             .float_comptime_float => unreachable,
             .variable => Variable,
             .extern_func => ExternFunc,
-            .func => Func,
+            .func_decl => FuncDecl,
+            .func_instance => FuncInstance,
             .only_possible_value => unreachable,
             .union_value => Union,
             .bytes => Bytes,
@@ -2150,36 +2231,93 @@ pub const Tag = enum(u8) {
         /// The type of the aggregate.
         ty: Index,
     };
+
+    pub const FuncDecl = struct {
+        analysis: FuncAnalysis,
+        owner_decl: Module.Decl.Index,
+        ty: Index,
+        zir_body_inst: Zir.Inst.Index,
+        lbrace_line: u32,
+        rbrace_line: u32,
+        lbrace_column: u32,
+        rbrace_column: u32,
+    };
+
+    /// Trailing:
+    /// 0. For each parameter of generic_owner: Index
+    ///   - comptime parameter: the comptime-known value
+    ///   - anytype parameter: the type of the runtime-known value
+    ///   - otherwise: `none`
+    pub const FuncInstance = struct {
+        analysis: FuncAnalysis,
+        // Needed by the linker for codegen. Not part of hashing or equality.
+        owner_decl: Module.Decl.Index,
+        ty: Index,
+        branch_quota: u32,
+        /// Points to a `FuncDecl`.
+        generic_owner: Index,
+    };
+
+    /// Trailing:
+    /// 0. name: NullTerminatedString for each names_len
+    pub const ErrorSet = struct {
+        names_len: u32,
+        /// Maps error names to declaration index.
+        names_map: MapIndex,
+    };
+
+    /// Trailing:
+    /// 0. comptime_bits: u32, // if has_comptime_bits
+    /// 1. noalias_bits: u32, // if has_noalias_bits
+    /// 2. param_type: Index for each params_len
+    pub const TypeFunction = struct {
+        params_len: u32,
+        return_type: Index,
+        flags: Flags,
+
+        pub const Flags = packed struct(u32) {
+            alignment: Alignment,
+            cc: std.builtin.CallingConvention,
+            is_var_args: bool,
+            is_generic: bool,
+            has_comptime_bits: bool,
+            has_noalias_bits: bool,
+            is_noinline: bool,
+            align_is_generic: bool,
+            cc_is_generic: bool,
+            section_is_generic: bool,
+            addrspace_is_generic: bool,
+            _: u9 = 0,
+        };
+    };
 };
 
-/// Trailing:
-/// 0. name: NullTerminatedString for each names_len
-pub const ErrorSet = struct {
-    names_len: u32,
-    /// Maps error names to declaration index.
-    names_map: MapIndex,
-};
+/// State that is mutable during semantic analysis. This data is not used for
+/// equality or hashing.
+pub const FuncAnalysis = packed struct(u32) {
+    state: State,
+    is_cold: bool,
+    is_noinline: bool,
+    calls_or_awaits_errorable_fn: bool,
+    stack_alignment: Alignment,
+    _: u15 = 0,
 
-/// Trailing:
-/// 0. param_type: Index for each params_len
-pub const TypeFunction = struct {
-    params_len: u32,
-    return_type: Index,
-    comptime_bits: u32,
-    noalias_bits: u32,
-    flags: Flags,
-
-    pub const Flags = packed struct(u32) {
-        alignment: Alignment,
-        cc: std.builtin.CallingConvention,
-        is_var_args: bool,
-        is_generic: bool,
-        is_noinline: bool,
-        align_is_generic: bool,
-        cc_is_generic: bool,
-        section_is_generic: bool,
-        addrspace_is_generic: bool,
-        _: u11 = 0,
+    pub const State = enum(u8) {
+        /// This function has not yet undergone analysis, because we have not
+        /// seen a potential runtime call. It may be analyzed in future.
+        none,
+        /// Analysis for this function has been queued, but not yet completed.
+        queued,
+        /// This function intentionally only has ZIR generated because it is marked
+        /// inline, which means no runtime version of the function will be generated.
+        inline_only,
+        in_progress,
+        /// There will be a corresponding ErrorMsg in Module.failed_decls
+        sema_failure,
+        /// This function might be OK but it depends on another Decl which did not
+        /// successfully complete semantic analysis.
+        dependency_failure,
+        success,
     };
 };
 
@@ -2499,7 +2637,7 @@ pub const Float128 = struct {
 /// Trailing:
 /// 0. arg value: Index for each args_len
 pub const MemoizedCall = struct {
-    func: Module.Fn.Index,
+    func: Index,
     args_len: u32,
     result: Index,
 };
@@ -2552,9 +2690,6 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
 
     ip.unions_free_list.deinit(gpa);
     ip.allocated_unions.deinit(gpa);
-
-    ip.funcs_free_list.deinit(gpa);
-    ip.allocated_funcs.deinit(gpa);
 
     ip.inferred_error_sets_free_list.deinit(gpa);
     ip.allocated_inferred_error_sets.deinit(gpa);
@@ -2625,21 +2760,21 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
 
         .type_error_union => .{ .error_union_type = ip.extraData(Key.ErrorUnionType, data) },
         .type_error_set => {
-            const error_set = ip.extraDataTrail(ErrorSet, data);
+            const error_set = ip.extraDataTrail(Tag.ErrorSet, data);
             const names_len = error_set.data.names_len;
             const names = ip.extra.items[error_set.end..][0..names_len];
             return .{ .error_set_type = .{
-                .names = @as([]const NullTerminatedString, @ptrCast(names)),
+                .names = @ptrCast(names),
                 .names_map = error_set.data.names_map.toOptional(),
             } };
         },
         .type_inferred_error_set => .{
-            .inferred_error_set_type = @as(Module.Fn.InferredErrorSet.Index, @enumFromInt(data)),
+            .inferred_error_set_type = @enumFromInt(data),
         },
 
         .type_opaque => .{ .opaque_type = ip.extraData(Key.OpaqueType, data) },
         .type_struct => {
-            const struct_index = @as(Module.Struct.OptionalIndex, @enumFromInt(data));
+            const struct_index: Module.Struct.OptionalIndex = @enumFromInt(data);
             const namespace = if (struct_index.unwrap()) |i|
                 ip.structPtrConst(i).namespace.toOptional()
             else
@@ -2661,9 +2796,9 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             const values = ip.extra.items[type_struct_anon.end + fields_len ..][0..fields_len];
             const names = ip.extra.items[type_struct_anon.end + 2 * fields_len ..][0..fields_len];
             return .{ .anon_struct_type = .{
-                .types = @as([]const Index, @ptrCast(types)),
-                .values = @as([]const Index, @ptrCast(values)),
-                .names = @as([]const NullTerminatedString, @ptrCast(names)),
+                .types = @ptrCast(types),
+                .values = @ptrCast(values),
+                .names = @ptrCast(names),
             } };
         },
         .type_tuple_anon => {
@@ -2672,8 +2807,8 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             const types = ip.extra.items[type_struct_anon.end..][0..fields_len];
             const values = ip.extra.items[type_struct_anon.end + fields_len ..][0..fields_len];
             return .{ .anon_struct_type = .{
-                .types = @as([]const Index, @ptrCast(types)),
-                .values = @as([]const Index, @ptrCast(values)),
+                .types = @ptrCast(types),
+                .values = @ptrCast(values),
                 .names = &.{},
             } };
         },
@@ -2957,7 +3092,12 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             } };
         },
         .extern_func => .{ .extern_func = ip.extraData(Tag.ExternFunc, data) },
-        .func => .{ .func = ip.extraData(Tag.Func, data) },
+        .func_instance => {
+            @panic("TODO");
+        },
+        .func_decl => {
+            @panic("TODO");
+        },
         .only_possible_value => {
             const ty = @as(Index, @enumFromInt(data));
             const ty_item = ip.items.get(@intFromEnum(ty));
@@ -3063,25 +3203,39 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
 }
 
 fn indexToKeyFuncType(ip: *const InternPool, data: u32) Key.FuncType {
-    const type_function = ip.extraDataTrail(TypeFunction, data);
-    const param_types = @as(
-        []Index,
-        @ptrCast(ip.extra.items[type_function.end..][0..type_function.data.params_len]),
-    );
+    const type_function = ip.extraDataTrail(Tag.TypeFunction, data);
+    var index: usize = type_function.end;
+    const comptime_bits: u32 = if (!type_function.data.flags.has_comptime_bits) 0 else b: {
+        const x = ip.extra.items[index];
+        index += 1;
+        break :b x;
+    };
+    const noalias_bits: u32 = if (!type_function.data.flags.has_noalias_bits) 0 else b: {
+        const x = ip.extra.items[index];
+        index += 1;
+        break :b x;
+    };
     return .{
-        .param_types = param_types,
+        .param_types = .{
+            .start = @intCast(index),
+            .len = type_function.data.params_len,
+        },
         .return_type = type_function.data.return_type,
-        .comptime_bits = type_function.data.comptime_bits,
-        .noalias_bits = type_function.data.noalias_bits,
+        .comptime_bits = comptime_bits,
+        .noalias_bits = noalias_bits,
         .alignment = type_function.data.flags.alignment,
         .cc = type_function.data.flags.cc,
         .is_var_args = type_function.data.flags.is_var_args,
-        .is_generic = type_function.data.flags.is_generic,
         .is_noinline = type_function.data.flags.is_noinline,
         .align_is_generic = type_function.data.flags.align_is_generic,
         .cc_is_generic = type_function.data.flags.cc_is_generic,
         .section_is_generic = type_function.data.flags.section_is_generic,
         .addrspace_is_generic = type_function.data.flags.addrspace_is_generic,
+        .is_generic = comptime_bits != 0 or
+            type_function.data.flags.align_is_generic or
+            type_function.data.flags.cc_is_generic or
+            type_function.data.flags.section_is_generic or
+            type_function.data.flags.addrspace_is_generic,
     };
 }
 
@@ -3224,10 +3378,10 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             const names_map = try ip.addMap(gpa);
             try addStringsToMap(ip, gpa, names_map, error_set_type.names);
             const names_len = @as(u32, @intCast(error_set_type.names.len));
-            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(ErrorSet).Struct.fields.len + names_len);
+            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.ErrorSet).Struct.fields.len + names_len);
             ip.items.appendAssumeCapacity(.{
                 .tag = .type_error_set,
-                .data = ip.addExtraAssumeCapacity(ErrorSet{
+                .data = ip.addExtraAssumeCapacity(Tag.ErrorSet{
                     .names_len = names_len,
                     .names_map = names_map,
                 }),
@@ -3369,36 +3523,9 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             }
         },
 
-        .func_type => |func_type| {
-            assert(func_type.return_type != .none);
-            for (func_type.param_types) |param_type| assert(param_type != .none);
-
-            const params_len = @as(u32, @intCast(func_type.param_types.len));
-
-            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(TypeFunction).Struct.fields.len +
-                params_len);
-            ip.items.appendAssumeCapacity(.{
-                .tag = .type_function,
-                .data = ip.addExtraAssumeCapacity(TypeFunction{
-                    .params_len = params_len,
-                    .return_type = func_type.return_type,
-                    .comptime_bits = func_type.comptime_bits,
-                    .noalias_bits = func_type.noalias_bits,
-                    .flags = .{
-                        .alignment = func_type.alignment,
-                        .cc = func_type.cc,
-                        .is_var_args = func_type.is_var_args,
-                        .is_generic = func_type.is_generic,
-                        .is_noinline = func_type.is_noinline,
-                        .align_is_generic = func_type.align_is_generic,
-                        .cc_is_generic = func_type.cc_is_generic,
-                        .section_is_generic = func_type.section_is_generic,
-                        .addrspace_is_generic = func_type.addrspace_is_generic,
-                    },
-                }),
-            });
-            ip.extra.appendSliceAssumeCapacity(@as([]const u32, @ptrCast(func_type.param_types)));
-        },
+        .func_type => unreachable, // use getFuncType() instead
+        .extern_func => unreachable, // use getExternFunc() instead
+        .func => unreachable, // use getFuncInstance() or getFuncDecl() instead
 
         .variable => |variable| {
             const has_init = variable.init != .none;
@@ -3419,16 +3546,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 }),
             });
         },
-
-        .extern_func => |extern_func| ip.items.appendAssumeCapacity(.{
-            .tag = .extern_func,
-            .data = try ip.addExtra(gpa, @as(Tag.ExternFunc, extern_func)),
-        }),
-
-        .func => |func| ip.items.appendAssumeCapacity(.{
-            .tag = .func,
-            .data = try ip.addExtra(gpa, @as(Tag.Func, func)),
-        }),
 
         .ptr => |ptr| {
             const ptr_type = ip.indexToKey(ptr.ty).ptr_type;
@@ -4068,6 +4185,147 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
     return @as(Index, @enumFromInt(ip.items.len - 1));
 }
 
+/// This is equivalent to `Key.FuncType` but adjusted to have a slice for `param_types`.
+pub const GetFuncTypeKey = struct {
+    param_types: []Index,
+    return_type: Index,
+    comptime_bits: u32,
+    noalias_bits: u32,
+    alignment: Alignment,
+    cc: std.builtin.CallingConvention,
+    is_var_args: bool,
+    is_generic: bool,
+    is_noinline: bool,
+    align_is_generic: bool,
+    cc_is_generic: bool,
+    section_is_generic: bool,
+    addrspace_is_generic: bool,
+};
+
+pub fn getFuncType(ip: *InternPool, gpa: Allocator, key: GetFuncTypeKey) Allocator.Error!Index {
+    // Validate input parameters.
+    assert(key.return_type != .none);
+    for (key.param_types) |param_type| assert(param_type != .none);
+
+    // The strategy here is to add the function type unconditionally, then to
+    // ask if it already exists, and if so, revert the lengths of the mutated
+    // arrays. This is similar to what `getOrPutTrailingString` does.
+    const prev_extra_len = ip.extra.items.len;
+    const params_len: u32 = @intCast(key.param_types.len);
+
+    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.TypeFunction).Struct.fields.len +
+        @intFromBool(key.comptime_bits != 0) +
+        @intFromBool(key.noalias_bits != 0) +
+        params_len);
+    try ip.items.ensureUnusedCapacity(gpa, 1);
+
+    ip.items.appendAssumeCapacity(.{
+        .tag = .type_function,
+        .data = ip.addExtraAssumeCapacity(Tag.TypeFunction{
+            .params_len = params_len,
+            .return_type = key.return_type,
+            .flags = .{
+                .alignment = key.alignment,
+                .cc = key.cc,
+                .is_var_args = key.is_var_args,
+                .has_comptime_bits = key.comptime_bits != 0,
+                .has_noalias_bits = key.noalias_bits != 0,
+                .is_generic = key.is_generic,
+                .is_noinline = key.is_noinline,
+                .align_is_generic = key.align_is_generic,
+                .cc_is_generic = key.cc_is_generic,
+                .section_is_generic = key.section_is_generic,
+                .addrspace_is_generic = key.addrspace_is_generic,
+            },
+        }),
+    });
+    if (key.comptime_bits != 0) ip.extra.appendAssumeCapacity(key.comptime_bits);
+    if (key.noalias_bits != 0) ip.extra.appendAssumeCapacity(key.noalias_bits);
+    ip.extra.appendSliceAssumeCapacity(@ptrCast(key.param_types));
+
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const gop = try ip.map.getOrPutAdapted(gpa, Key{
+        .func_type = indexToKeyFuncType(ip, @intCast(ip.items.len - 1)),
+    }, adapter);
+    if (!gop.found_existing) return @enumFromInt(ip.items.len - 1);
+
+    // An existing function type was found; undo the additions to our two arrays.
+    ip.items.len -= 1;
+    ip.extra.items.len = prev_extra_len;
+    return @enumFromInt(gop.index);
+}
+
+pub const GetExternFuncKey = struct {
+    param_types: []const Index,
+    noalias_bits: u32,
+    return_type: Index,
+    cc: std.builtin.CallingConvention,
+    alignment: Alignment,
+    is_var_args: bool,
+    decl: Module.Decl.Index,
+    lib_name: OptionalNullTerminatedString,
+};
+
+pub fn getExternFunc(ip: *InternPool, gpa: Allocator, key: GetExternFuncKey) Allocator.Error!Index {
+    _ = ip;
+    _ = gpa;
+    _ = key;
+    @panic("TODO");
+}
+
+pub const GetFuncDeclKey = struct {
+    param_types: []const Index,
+    noalias_bits: u32,
+    comptime_bits: u32,
+    return_type: Index,
+    inferred_error_set: bool,
+    /// null means generic.
+    cc: ?std.builtin.CallingConvention,
+    /// null means generic.
+    alignment: ?Alignment,
+    section: Section,
+    /// null means generic
+    address_space: ?std.builtin.AddressSpace,
+    is_var_args: bool,
+    is_generic: bool,
+    is_noinline: bool,
+    zir_body_inst: Zir.Inst.Index,
+    lbrace_line: u32,
+    rbrace_line: u32,
+    lbrace_column: u32,
+    rbrace_column: u32,
+
+    pub const Section = union(enum) {
+        generic,
+        default,
+        explicit: InternPool.NullTerminatedString,
+    };
+};
+
+pub fn getFuncDecl(ip: *InternPool, gpa: Allocator, key: GetFuncDeclKey) Allocator.Error!Index {
+    _ = ip;
+    _ = gpa;
+    _ = key;
+    @panic("TODO");
+}
+
+pub const GetFuncInstanceKey = struct {
+    param_types: []const Index,
+    noalias_bits: u32,
+    return_type: Index,
+    cc: std.builtin.CallingConvention,
+    alignment: Alignment,
+    is_noinline: bool,
+    generic_owner: Index,
+};
+
+pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, key: GetFuncInstanceKey) Allocator.Error!Index {
+    _ = ip;
+    _ = gpa;
+    _ = key;
+    @panic("TODO");
+}
+
 /// Provides API for completing an enum type after calling `getIncompleteEnum`.
 pub const IncompleteEnumType = struct {
     index: Index,
@@ -4347,7 +4605,6 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             Module.Decl.Index => @intFromEnum(@field(extra, field.name)),
             Module.Namespace.Index => @intFromEnum(@field(extra, field.name)),
             Module.Namespace.OptionalIndex => @intFromEnum(@field(extra, field.name)),
-            Module.Fn.Index => @intFromEnum(@field(extra, field.name)),
             MapIndex => @intFromEnum(@field(extra, field.name)),
             OptionalMapIndex => @intFromEnum(@field(extra, field.name)),
             RuntimeIndex => @intFromEnum(@field(extra, field.name)),
@@ -4356,7 +4613,7 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             OptionalNullTerminatedString => @intFromEnum(@field(extra, field.name)),
             i32 => @as(u32, @bitCast(@field(extra, field.name))),
             Tag.TypePointer.Flags => @as(u32, @bitCast(@field(extra, field.name))),
-            TypeFunction.Flags => @as(u32, @bitCast(@field(extra, field.name))),
+            Tag.TypeFunction.Flags => @as(u32, @bitCast(@field(extra, field.name))),
             Tag.TypePointer.PackedOffset => @as(u32, @bitCast(@field(extra, field.name))),
             Tag.TypePointer.VectorIndex => @intFromEnum(@field(extra, field.name)),
             Tag.Variable.Flags => @as(u32, @bitCast(@field(extra, field.name))),
@@ -4411,23 +4668,28 @@ fn extraDataTrail(ip: *const InternPool, comptime T: type, index: usize) struct 
         const int32 = ip.extra.items[i + index];
         @field(result, field.name) = switch (field.type) {
             u32 => int32,
-            Index => @as(Index, @enumFromInt(int32)),
-            Module.Decl.Index => @as(Module.Decl.Index, @enumFromInt(int32)),
-            Module.Namespace.Index => @as(Module.Namespace.Index, @enumFromInt(int32)),
-            Module.Namespace.OptionalIndex => @as(Module.Namespace.OptionalIndex, @enumFromInt(int32)),
-            Module.Fn.Index => @as(Module.Fn.Index, @enumFromInt(int32)),
-            MapIndex => @as(MapIndex, @enumFromInt(int32)),
-            OptionalMapIndex => @as(OptionalMapIndex, @enumFromInt(int32)),
-            RuntimeIndex => @as(RuntimeIndex, @enumFromInt(int32)),
-            String => @as(String, @enumFromInt(int32)),
-            NullTerminatedString => @as(NullTerminatedString, @enumFromInt(int32)),
-            OptionalNullTerminatedString => @as(OptionalNullTerminatedString, @enumFromInt(int32)),
-            i32 => @as(i32, @bitCast(int32)),
-            Tag.TypePointer.Flags => @as(Tag.TypePointer.Flags, @bitCast(int32)),
-            TypeFunction.Flags => @as(TypeFunction.Flags, @bitCast(int32)),
-            Tag.TypePointer.PackedOffset => @as(Tag.TypePointer.PackedOffset, @bitCast(int32)),
-            Tag.TypePointer.VectorIndex => @as(Tag.TypePointer.VectorIndex, @enumFromInt(int32)),
-            Tag.Variable.Flags => @as(Tag.Variable.Flags, @bitCast(int32)),
+
+            Index,
+            Module.Decl.Index,
+            Module.Namespace.Index,
+            Module.Namespace.OptionalIndex,
+            MapIndex,
+            OptionalMapIndex,
+            RuntimeIndex,
+            String,
+            NullTerminatedString,
+            OptionalNullTerminatedString,
+            Tag.TypePointer.VectorIndex,
+            => @enumFromInt(int32),
+
+            i32,
+            Tag.TypePointer.Flags,
+            Tag.TypeFunction.Flags,
+            Tag.TypePointer.PackedOffset,
+            Tag.Variable.Flags,
+            FuncAnalysis,
+            => @bitCast(int32),
+
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
     }
@@ -4627,11 +4889,15 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                     .decl = extern_func.decl,
                     .lib_name = extern_func.lib_name,
                 } }),
-            .func => |func| if (ip.isFunctionType(new_ty))
-                return ip.get(gpa, .{ .func = .{
-                    .ty = new_ty,
-                    .index = func.index,
-                } }),
+
+            .func => |func| {
+                if (func.generic_owner == .none) {
+                    @panic("TODO");
+                } else {
+                    @panic("TODO");
+                }
+            },
+
             .int => |int| switch (ip.indexToKey(new_ty)) {
                 .enum_type => |enum_type| return ip.get(gpa, .{ .enum_tag = .{
                     .ty = new_ty,
@@ -4886,20 +5152,12 @@ pub fn indexToFuncType(ip: *const InternPool, val: Index) ?Key.FuncType {
     }
 }
 
-pub fn indexToFunc(ip: *const InternPool, val: Index) Module.Fn.OptionalIndex {
-    assert(val != .none);
-    const tags = ip.items.items(.tag);
-    if (tags[@intFromEnum(val)] != .func) return .none;
-    const datas = ip.items.items(.data);
-    return ip.extraData(Tag.Func, datas[@intFromEnum(val)]).index.toOptional();
-}
-
-pub fn indexToInferredErrorSetType(ip: *const InternPool, val: Index) Module.Fn.InferredErrorSet.OptionalIndex {
+pub fn indexToInferredErrorSetType(ip: *const InternPool, val: Index) Module.InferredErrorSet.OptionalIndex {
     assert(val != .none);
     const tags = ip.items.items(.tag);
     if (tags[@intFromEnum(val)] != .type_inferred_error_set) return .none;
     const datas = ip.items.items(.data);
-    return @as(Module.Fn.InferredErrorSet.Index, @enumFromInt(datas[@intFromEnum(val)])).toOptional();
+    return @as(Module.InferredErrorSet.Index, @enumFromInt(datas[@intFromEnum(val)])).toOptional();
 }
 
 /// includes .comptime_int_type
@@ -4994,12 +5252,10 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
         (@sizeOf(Module.Struct) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl));
     const unions_size = ip.allocated_unions.len *
         (@sizeOf(Module.Union) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl));
-    const funcs_size = ip.allocated_funcs.len *
-        (@sizeOf(Module.Fn) + @sizeOf(Module.Decl));
 
     // TODO: map overhead size is not taken into account
     const total_size = @sizeOf(InternPool) + items_size + extra_size + limbs_size +
-        structs_size + unions_size + funcs_size;
+        structs_size + unions_size;
 
     std.debug.print(
         \\InternPool size: {d} bytes
@@ -5008,7 +5264,6 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
         \\  {d} limbs: {d} bytes
         \\  {d} structs: {d} bytes
         \\  {d} unions: {d} bytes
-        \\  {d} funcs: {d} bytes
         \\
     , .{
         total_size,
@@ -5022,8 +5277,6 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
         structs_size,
         ip.allocated_unions.len,
         unions_size,
-        ip.allocated_funcs.len,
-        funcs_size,
     });
 
     const tags = ip.items.items(.tag);
@@ -5049,10 +5302,10 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             .type_anyframe => 0,
             .type_error_union => @sizeOf(Key.ErrorUnionType),
             .type_error_set => b: {
-                const info = ip.extraData(ErrorSet, data);
-                break :b @sizeOf(ErrorSet) + (@sizeOf(u32) * info.names_len);
+                const info = ip.extraData(Tag.ErrorSet, data);
+                break :b @sizeOf(Tag.ErrorSet) + (@sizeOf(u32) * info.names_len);
             },
-            .type_inferred_error_set => @sizeOf(Module.Fn.InferredErrorSet),
+            .type_inferred_error_set => @sizeOf(Module.InferredErrorSet),
             .type_enum_explicit, .type_enum_nonexhaustive => @sizeOf(EnumExplicit),
             .type_enum_auto => @sizeOf(EnumAuto),
             .type_opaque => @sizeOf(Key.OpaqueType),
@@ -5080,8 +5333,8 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             => @sizeOf(Module.Union) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl),
 
             .type_function => b: {
-                const info = ip.extraData(TypeFunction, data);
-                break :b @sizeOf(TypeFunction) + (@sizeOf(Index) * info.params_len);
+                const info = ip.extraData(Tag.TypeFunction, data);
+                break :b @sizeOf(Tag.TypeFunction) + (@sizeOf(Index) * info.params_len);
             },
 
             .undef => 0,
@@ -5130,7 +5383,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             },
             .aggregate => b: {
                 const info = ip.extraData(Tag.Aggregate, data);
-                const fields_len = @as(u32, @intCast(ip.aggregateTypeLenIncludingSentinel(info.ty)));
+                const fields_len: u32 = @intCast(ip.aggregateTypeLenIncludingSentinel(info.ty));
                 break :b @sizeOf(Tag.Aggregate) + (@sizeOf(Index) * fields_len);
             },
             .repeated => @sizeOf(Repeated),
@@ -5145,7 +5398,14 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             .float_comptime_float => @sizeOf(Float128),
             .variable => @sizeOf(Tag.Variable) + @sizeOf(Module.Decl),
             .extern_func => @sizeOf(Tag.ExternFunc) + @sizeOf(Module.Decl),
-            .func => @sizeOf(Tag.Func) + @sizeOf(Module.Fn) + @sizeOf(Module.Decl),
+            .func_decl => @sizeOf(Tag.Func) + @sizeOf(Module.Decl),
+            .func_instance => b: {
+                const info = ip.extraData(Tag.FuncInstance, data);
+                const ty = ip.typeOf(info.generic_owner);
+                const params_len = ip.indexToKey(ty).func_type.param_types.len;
+                break :b @sizeOf(Tag.FuncInstance) + @sizeOf(Index) * params_len +
+                    @sizeOf(Module.Decl);
+            },
             .only_possible_value => 0,
             .union_value => @sizeOf(Key.Union),
 
@@ -5249,7 +5509,8 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
             .float_comptime_float,
             .variable,
             .extern_func,
-            .func,
+            .func_decl,
+            .func_instance,
             .union_value,
             .memoized_call,
             => try w.print("{d}", .{data}),
@@ -5284,19 +5545,11 @@ pub fn unionPtrConst(ip: *const InternPool, index: Module.Union.Index) *const Mo
     return ip.allocated_unions.at(@intFromEnum(index));
 }
 
-pub fn funcPtr(ip: *InternPool, index: Module.Fn.Index) *Module.Fn {
-    return ip.allocated_funcs.at(@intFromEnum(index));
-}
-
-pub fn funcPtrConst(ip: *const InternPool, index: Module.Fn.Index) *const Module.Fn {
-    return ip.allocated_funcs.at(@intFromEnum(index));
-}
-
-pub fn inferredErrorSetPtr(ip: *InternPool, index: Module.Fn.InferredErrorSet.Index) *Module.Fn.InferredErrorSet {
+pub fn inferredErrorSetPtr(ip: *InternPool, index: Module.InferredErrorSet.Index) *Module.InferredErrorSet {
     return ip.allocated_inferred_error_sets.at(@intFromEnum(index));
 }
 
-pub fn inferredErrorSetPtrConst(ip: *const InternPool, index: Module.Fn.InferredErrorSet.Index) *const Module.Fn.InferredErrorSet {
+pub fn inferredErrorSetPtrConst(ip: *const InternPool, index: Module.InferredErrorSet.Index) *const Module.InferredErrorSet {
     return ip.allocated_inferred_error_sets.at(@intFromEnum(index));
 }
 
@@ -5344,43 +5597,21 @@ pub fn destroyUnion(ip: *InternPool, gpa: Allocator, index: Module.Union.Index) 
     };
 }
 
-pub fn createFunc(
-    ip: *InternPool,
-    gpa: Allocator,
-    initialization: Module.Fn,
-) Allocator.Error!Module.Fn.Index {
-    if (ip.funcs_free_list.popOrNull()) |index| {
-        ip.allocated_funcs.at(@intFromEnum(index)).* = initialization;
-        return index;
-    }
-    const ptr = try ip.allocated_funcs.addOne(gpa);
-    ptr.* = initialization;
-    return @as(Module.Fn.Index, @enumFromInt(ip.allocated_funcs.len - 1));
-}
-
-pub fn destroyFunc(ip: *InternPool, gpa: Allocator, index: Module.Fn.Index) void {
-    ip.funcPtr(index).* = undefined;
-    ip.funcs_free_list.append(gpa, index) catch {
-        // In order to keep `destroyFunc` a non-fallible function, we ignore memory
-        // allocation failures here, instead leaking the Fn until garbage collection.
-    };
-}
-
 pub fn createInferredErrorSet(
     ip: *InternPool,
     gpa: Allocator,
-    initialization: Module.Fn.InferredErrorSet,
-) Allocator.Error!Module.Fn.InferredErrorSet.Index {
+    initialization: Module.InferredErrorSet,
+) Allocator.Error!Module.InferredErrorSet.Index {
     if (ip.inferred_error_sets_free_list.popOrNull()) |index| {
         ip.allocated_inferred_error_sets.at(@intFromEnum(index)).* = initialization;
         return index;
     }
     const ptr = try ip.allocated_inferred_error_sets.addOne(gpa);
     ptr.* = initialization;
-    return @as(Module.Fn.InferredErrorSet.Index, @enumFromInt(ip.allocated_inferred_error_sets.len - 1));
+    return @as(Module.InferredErrorSet.Index, @enumFromInt(ip.allocated_inferred_error_sets.len - 1));
 }
 
-pub fn destroyInferredErrorSet(ip: *InternPool, gpa: Allocator, index: Module.Fn.InferredErrorSet.Index) void {
+pub fn destroyInferredErrorSet(ip: *InternPool, gpa: Allocator, index: Module.InferredErrorSet.Index) void {
     ip.inferredErrorSetPtr(index).* = undefined;
     ip.inferred_error_sets_free_list.append(gpa, index) catch {
         // In order to keep `destroyInferredErrorSet` a non-fallible function, we ignore memory
@@ -5620,7 +5851,8 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
             .enum_tag,
             .variable,
             .extern_func,
-            .func,
+            .func_decl,
+            .func_instance,
             .union_value,
             .bytes,
             .aggregate,
@@ -5704,7 +5936,7 @@ pub fn funcReturnType(ip: *const InternPool, ty: Index) Index {
     };
     assert(child_item.tag == .type_function);
     return @as(Index, @enumFromInt(ip.extra.items[
-        child_item.data + std.meta.fieldIndex(TypeFunction, "return_type").?
+        child_item.data + std.meta.fieldIndex(Tag.TypeFunction, "return_type").?
     ]));
 }
 
@@ -5712,7 +5944,7 @@ pub fn isNoReturn(ip: *const InternPool, ty: Index) bool {
     return switch (ty) {
         .noreturn_type => true,
         else => switch (ip.items.items(.tag)[@intFromEnum(ty)]) {
-            .type_error_set => ip.extra.items[ip.items.items(.data)[@intFromEnum(ty)] + std.meta.fieldIndex(ErrorSet, "names_len").?] == 0,
+            .type_error_set => ip.extra.items[ip.items.items(.data)[@intFromEnum(ty)] + std.meta.fieldIndex(Tag.ErrorSet, "names_len").?] == 0,
             else => false,
         },
     };
@@ -5969,7 +6201,8 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
             .float_comptime_float,
             .variable,
             .extern_func,
-            .func,
+            .func_decl,
+            .func_instance,
             .only_possible_value,
             .union_value,
             .bytes,
@@ -5981,4 +6214,40 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         },
         .none => unreachable, // special tag
     };
+}
+
+pub fn isFuncBody(ip: *const InternPool, i: Index) bool {
+    assert(i != .none);
+    return switch (ip.items.items(.tag)[@intFromEnum(i)]) {
+        .func_decl, .func_instance => true,
+        else => false,
+    };
+}
+
+pub fn funcAnalysis(ip: *const InternPool, i: Index) *FuncAnalysis {
+    assert(i != .none);
+    const item = ip.items.get(@intFromEnum(i));
+    const extra_index = switch (item.tag) {
+        .func_decl => item.data + std.meta.fieldIndex(Tag.FuncDecl, "analysis").?,
+        .func_instance => item.data + std.meta.fieldIndex(Tag.FuncInstance, "analysis").?,
+        else => unreachable,
+    };
+    return @ptrCast(&ip.extra.items[extra_index]);
+}
+
+pub fn funcZirBodyInst(ip: *const InternPool, i: Index) Zir.Inst.Index {
+    assert(i != .none);
+    const item = ip.items.get(@intFromEnum(i));
+    const zir_body_inst_field_index = std.meta.fieldIndex(Tag.FuncDecl, "zir_body_inst").?;
+    const extra_index = switch (item.tag) {
+        .func_decl => item.data + zir_body_inst_field_index,
+        .func_instance => b: {
+            const generic_owner_field_index = std.meta.fieldIndex(Tag.FuncInstance, "generic_owner").?;
+            const func_decl_index = ip.extra.items[item.data + generic_owner_field_index];
+            assert(ip.items.items(.tag)[func_decl_index] == .func_decl);
+            break :b ip.items.items(.data)[func_decl_index] + zir_body_inst_field_index;
+        },
+        else => unreachable,
+    };
+    return ip.extra.items[extra_index];
 }

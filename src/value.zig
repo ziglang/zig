@@ -473,12 +473,15 @@ pub const Value = struct {
         };
     }
 
-    pub fn getFunction(val: Value, mod: *Module) ?*Module.Fn {
-        return mod.funcPtrUnwrap(val.getFunctionIndex(mod));
+    pub fn isFuncBody(val: Value, mod: *Module) bool {
+        return mod.intern_pool.isFuncBody(val.toIntern());
     }
 
-    pub fn getFunctionIndex(val: Value, mod: *Module) Module.Fn.OptionalIndex {
-        return if (val.ip_index != .none) mod.intern_pool.indexToFunc(val.toIntern()) else .none;
+    pub fn getFunction(val: Value, mod: *Module) ?InternPool.Key.Func {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .func => |x| x,
+            else => null,
+        };
     }
 
     pub fn getExternFunc(val: Value, mod: *Module) ?InternPool.Key.ExternFunc {
@@ -1462,7 +1465,7 @@ pub const Value = struct {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .variable => |variable| variable.decl,
             .extern_func => |extern_func| extern_func.decl,
-            .func => |func| mod.funcPtr(func.index).owner_decl,
+            .func => |func| func.owner_decl,
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl| decl,
                 .mut_decl => |mut_decl| mut_decl.decl,

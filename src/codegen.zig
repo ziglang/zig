@@ -67,7 +67,7 @@ pub const DebugInfoOutput = union(enum) {
 pub fn generateFunction(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    func_index: Module.Fn.Index,
+    func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),

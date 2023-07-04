@@ -1003,7 +1003,7 @@ pub const Inst = struct {
         },
         ty_fn: struct {
             ty: Ref,
-            func: Module.Fn.Index,
+            func: InternPool.Index,
         },
         br: struct {
             block_inst: Index,
