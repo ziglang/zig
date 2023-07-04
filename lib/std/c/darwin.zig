@@ -151,11 +151,7 @@ pub const ucontext_t = extern struct {
     __mcontext_data: mcontext_t,
 };
 
-pub const mcontext_t = extern struct {
-    es: arch_bits.exception_state,
-    ss: arch_bits.thread_state,
-    fs: arch_bits.float_state,
-};
+pub const mcontext_t = arch_bits.mcontext_t;
 
 extern "c" fn __error() *c_int;
 pub extern "c" fn NSVersionOfRunTimeLibrary(library_name: [*:0]const u8) u32;

@@ -445,7 +445,14 @@ pub inline fn getContext(context: *StackTraceContext) bool {
     }
 
     const result = have_getcontext and os.system.getcontext(context) == 0;
-    if (native_os == .macos) assert(context.mcsize == @sizeOf(std.c.mcontext_t));
+    if (native_os == .macos) {
+        // TODO: Temp, to discover this size via aarch64 CI
+        if (context.mcsize != @sizeOf(std.c.mcontext_t)) {
+            print("context.mcsize does not match! {} vs {}\n", .{ context.mcsize, @sizeOf(std.c.mcontext_t)});
+        }
+
+        assert(context.mcsize == @sizeOf(std.c.mcontext_t));
+    }
 
     return result;
 }

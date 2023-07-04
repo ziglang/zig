@@ -1,5 +1,11 @@
 const c = @import("../darwin.zig");
 
+pub const mcontext_t = extern struct {
+    es: exception_state,
+    ss: thread_state,
+    fs: float_state,
+};
+
 pub const exception_state = extern struct {
     trapno: u16,
     cpu: u16,
