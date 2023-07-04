@@ -46,6 +46,14 @@ pub fn sleep(nanoseconds: u64) void {
         return;
     }
 
+    if (builtin.os.tag == .uefi) {
+        const boot_services = os.uefi.system_table.boot_services.?;
+        const us_from_ns = nanoseconds / ns_per_us;
+        const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
+        _ = boot_services.stall(us);
+        return;
+    }
+
     const s = nanoseconds / ns_per_s;
     const ns = nanoseconds % ns_per_s;
     std.os.nanosleep(s, ns);
