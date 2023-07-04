@@ -260,23 +260,6 @@ fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions
     if (vos.expected_remaining.len > 0) return error.NotEnoughData;
 }
 
-test "stringify struct with custom stringify that returns a custom error" {
-    var ret = stringify(struct {
-        field: Field = .{},
-
-        pub const Field = struct {
-            field: ?[]*Field = null,
-
-            const Self = @This();
-            pub fn jsonStringify(_: Self, _: StringifyOptions, _: anytype) error{CustomError}!void {
-                return error.CustomError;
-            }
-        };
-    }{}, StringifyOptions{}, std.io.null_writer);
-
-    try std.testing.expectError(error.CustomError, ret);
-}
-
 test "stringify alloc" {
     const allocator = std.testing.allocator;
     const expected =

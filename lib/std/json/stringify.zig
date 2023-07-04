@@ -140,7 +140,7 @@ pub fn stringify(
     value: anytype,
     options: StringifyOptions,
     out_stream: anytype,
-) !void {
+) @TypeOf(out_stream).Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .Float, .ComptimeFloat => {
