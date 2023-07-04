@@ -1344,7 +1344,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try transitive_deps.seen_steps.put(&self.step, {});
     try transitive_deps.add(self.link_objects.items);
 
-    var prev_has_extra_flags = false;
+    var prev_has_cflags = false;
 
     for (transitive_deps.link_objects.items) |link_object| {
         switch (link_object) {
@@ -1413,20 +1413,20 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             },
 
             .assembly_file => |asm_file| {
-                if (prev_has_extra_flags) {
-                    try zig_args.append("-extra-cflags");
+                if (prev_has_cflags) {
+                    try zig_args.append("-cflags");
                     try zig_args.append("--");
-                    prev_has_extra_flags = false;
+                    prev_has_cflags = false;
                 }
                 try zig_args.append(asm_file.getPath(b));
             },
 
             .c_source_file => |c_source_file| {
                 if (c_source_file.args.len == 0) {
-                    if (prev_has_extra_flags) {
+                    if (prev_has_cflags) {
                         try zig_args.append("-cflags");
                         try zig_args.append("--");
-                        prev_has_extra_flags = false;
+                        prev_has_cflags = false;
                     }
                 } else {
                     try zig_args.append("-cflags");
@@ -1434,16 +1434,17 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         try zig_args.append(arg);
                     }
                     try zig_args.append("--");
+                    prev_has_cflags = true;
                 }
                 try zig_args.append(c_source_file.source.getPath(b));
             },
 
             .c_source_files => |c_source_files| {
                 if (c_source_files.flags.len == 0) {
-                    if (prev_has_extra_flags) {
+                    if (prev_has_cflags) {
                         try zig_args.append("-cflags");
                         try zig_args.append("--");
-                        prev_has_extra_flags = false;
+                        prev_has_cflags = false;
                     }
                 } else {
                     try zig_args.append("-cflags");
@@ -1451,6 +1452,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         try zig_args.append(flag);
                     }
                     try zig_args.append("--");
+                    prev_has_cflags = true;
                 }
                 for (c_source_files.files) |file| {
                     try zig_args.append(b.pathFromRoot(file));
