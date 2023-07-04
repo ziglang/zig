@@ -54,7 +54,7 @@ pub const Inst = struct {
         /// If either operand is NaN, the result value is undefined.
         /// Uses the `bin_op` field.
         add_optimized,
-        /// Twos complement wrapping integer addition.
+        /// Two's complement wrapping integer addition.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
@@ -83,7 +83,7 @@ pub const Inst = struct {
         /// If either operand is NaN, the result value is undefined.
         /// Uses the `bin_op` field.
         sub_optimized,
-        /// Twos complement wrapping integer subtraction.
+        /// Two's complement wrapping integer subtraction.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
@@ -112,7 +112,7 @@ pub const Inst = struct {
         /// If either operand is NaN, the result value is undefined.
         /// Uses the `bin_op` field.
         mul_optimized,
-        /// Twos complement wrapping integer multiplication.
+        /// Two's complement wrapping integer multiplication.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
@@ -310,65 +310,65 @@ pub const Inst = struct {
         call_never_tail,
         /// Same as `call` except with the `never_inline` attribute.
         call_never_inline,
-        /// Count leading zeroes of an integer according to its representation in twos complement.
+        /// Count leading zeroes of an integer according to its representation in two's complement.
         /// Result type will always be an unsigned integer big enough to fit the answer.
         /// Uses the `ty_op` field.
         clz,
-        /// Count trailing zeroes of an integer according to its representation in twos complement.
+        /// Count trailing zeroes of an integer according to its representation in two's complement.
         /// Result type will always be an unsigned integer big enough to fit the answer.
         /// Uses the `ty_op` field.
         ctz,
-        /// Count number of 1 bits in an integer according to its representation in twos complement.
+        /// Count number of 1 bits in an integer according to its representation in two's complement.
         /// Result type will always be an unsigned integer big enough to fit the answer.
         /// Uses the `ty_op` field.
         popcount,
-        /// Reverse the bytes in an integer according to its representation in twos complement.
+        /// Reverse the bytes in an integer according to its representation in two's complement.
         /// Uses the `ty_op` field.
         byte_swap,
-        /// Reverse the bits in an integer according to its representation in twos complement.
+        /// Reverse the bits in an integer according to its representation in two's complement.
         /// Uses the `ty_op` field.
         bit_reverse,
 
-        /// Square root of a floating point number.
+        /// Square root of a float or a vector of floats.
         /// Uses the `un_op` field.
         sqrt,
-        /// Sine function on a floating point number.
+        /// Sine function on a float or a vector of floats.
         /// Uses the `un_op` field.
         sin,
-        /// Cosine function on a floating point number.
+        /// Cosine function on a float or a vector of floats.
         /// Uses the `un_op` field.
         cos,
-        /// Tangent function on a floating point number.
+        /// Tangent function on a float or a vector of floats.
         /// Uses the `un_op` field.
         tan,
-        /// Base e exponential of a floating point number.
+        /// Base e exponential of a float or a vector of floats.
         /// Uses the `un_op` field.
         exp,
-        /// Base 2 exponential of a floating point number.
+        /// Base 2 exponential of a float or a vector of floats.
         /// Uses the `un_op` field.
         exp2,
-        /// Natural (base e) logarithm of a floating point number.
+        /// Natural (base e) logarithm of a float or a vector of floats.
         /// Uses the `un_op` field.
         log,
-        /// Base 2 logarithm of a floating point number.
+        /// Base 2 logarithm of a float or a vector of floats.
         /// Uses the `un_op` field.
         log2,
-        /// Base 10 logarithm of a floating point number.
+        /// Base 10 logarithm of a float or a vector of floats.
         /// Uses the `un_op` field.
         log10,
-        /// Aboslute value of a floating point number.
+        /// Absolute value of a float or vector of floats.
         /// Uses the `un_op` field.
         fabs,
-        /// Floor: rounds a floating pointer number down to the nearest integer.
+        /// Rounds a float or a vector of floats down to the nearest integer.
         /// Uses the `un_op` field.
         floor,
-        /// Ceiling: rounds a floating pointer number up to the nearest integer.
+        /// Rounds a float or a vector of floats up to the nearest integer.
         /// Uses the `un_op` field.
         ceil,
-        /// Rounds a floating pointer number to the nearest integer.
+        /// Rounds a float or a vector of floats to the nearest integer, away from zero.
         /// Uses the `un_op` field.
         round,
-        /// Rounds a floating pointer number to the nearest integer towards zero.
+        /// Rounds a float or a vector of floats to the nearest integer, towards zero.
         /// Uses the `un_op` field.
         trunc_float,
         /// Float negation. This affects the sign of zero, inf, and NaN, which is impossible
@@ -787,7 +787,6 @@ pub const Inst = struct {
         /// Uses the `pl_op` field, payload represents the index of the target memory.
         /// The operand is unused and always set to `Ref.none`.
         wasm_memory_size,
-
         /// Implements @wasmMemoryGrow builtin.
         /// Result type is always `i32`,
         /// Uses the `pl_op` field, payload represents the index of the target memory.
@@ -804,8 +803,7 @@ pub const Inst = struct {
 
         /// Returns pointer to current error return trace.
         err_return_trace,
-
-        /// Sets the operand as the current error return trace,
+        /// Sets the operand as the current error return trace.
         set_err_return_trace,
 
         /// Convert the address space of a pointer.
