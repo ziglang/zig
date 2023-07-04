@@ -17,6 +17,6 @@ fn x() void {}
 // :6:23: error: expected type 'usize', found 'bool'
 //
 // Compile Log Output:
-// @as(bool, true), @as(comptime_int, 20), @as(u32, [runtime value]), @as(fn() void, (function 'x'))
+// @as(bool, true), @as(comptime_int, 20), @as(u32, [runtime value]), @as(fn () void, (function 'x'))
 // @as(comptime_int, 1000)
 // @as(comptime_int, 1234)

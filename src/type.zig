@@ -364,7 +364,7 @@ pub const Type = struct {
                 if (fn_info.is_noinline) {
                     try writer.writeAll("noinline ");
                 }
-                try writer.writeAll("fn(");
+                try writer.writeAll("fn (");
                 const param_types = fn_info.param_types.get(&mod.intern_pool);
                 for (param_types, 0..) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");

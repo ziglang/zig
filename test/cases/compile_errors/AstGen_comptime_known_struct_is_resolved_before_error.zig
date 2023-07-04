@@ -16,4 +16,4 @@ pub export fn entry() void {
 // :8:12: error: variable of type 'tmp.S1' must be const or comptime
 // :2:8: note: struct requires comptime because of this field
 // :5:8: note: struct requires comptime because of this field
-// :5:8: note: use '*const fn() void' for a function pointer type
+// :5:8: note: use '*const fn () void' for a function pointer type

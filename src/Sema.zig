@@ -6722,7 +6722,7 @@ fn zirCall(
     {
         const return_ty = sema.typeOf(call_inst);
         if (modifier != .always_tail and return_ty.isNoReturn(mod))
-            return call_inst; // call to "fn(...) noreturn", don't pop
+            return call_inst; // call to "fn (...) noreturn", don't pop
 
         // TODO: we don't fix up the error trace for always_tail correctly, we should be doing it
         // *before* the recursive call. This will be a bit tricky to do and probably requires

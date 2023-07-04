@@ -1269,10 +1269,10 @@ pub fn ensureIndexer(comptime T: type) void {
         if (@TypeOf(T.Key) != type) @compileError("Indexer.Key must be a type.");
         if (!@hasDecl(T, "count")) @compileError("Indexer must have decl count: usize.");
         if (@TypeOf(T.count) != usize) @compileError("Indexer.count must be a usize.");
-        if (!@hasDecl(T, "indexOf")) @compileError("Indexer.indexOf must be a fn(Key)usize.");
-        if (@TypeOf(T.indexOf) != fn (T.Key) usize) @compileError("Indexer must have decl indexOf: fn(Key)usize.");
-        if (!@hasDecl(T, "keyForIndex")) @compileError("Indexer must have decl keyForIndex: fn(usize)Key.");
-        if (@TypeOf(T.keyForIndex) != fn (usize) T.Key) @compileError("Indexer.keyForIndex must be a fn(usize)Key.");
+        if (!@hasDecl(T, "indexOf")) @compileError("Indexer.indexOf must be a fn (Key) usize.");
+        if (@TypeOf(T.indexOf) != fn (T.Key) usize) @compileError("Indexer must have decl indexOf: fn (Key) usize.");
+        if (!@hasDecl(T, "keyForIndex")) @compileError("Indexer must have decl keyForIndex: fn (usize) Key.");
+        if (@TypeOf(T.keyForIndex) != fn (usize) T.Key) @compileError("Indexer.keyForIndex must be a fn (usize) Key.");
     }
 }
 

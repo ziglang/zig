@@ -8,4 +8,4 @@ export fn entry() void {
 // backend=stage1
 // target=native
 //
-// tmp.zig:1:9: error: parameter of type 'fn(anytype) anytype' must be declared comptime
+// tmp.zig:1:9: error: parameter of type 'fn (anytype) anytype' must be declared comptime

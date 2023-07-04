@@ -2255,11 +2255,11 @@ test "pointer" {
     const FnPtr = *align(1) const fn () void;
     {
         const value = @as(FnPtr, @ptrFromInt(0xdeadbeef));
-        try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+        try expectFmt("pointer: fn () void@deadbeef\n", "pointer: {}\n", .{value});
     }
     {
         const value = @as(FnPtr, @ptrFromInt(0xdeadbeef));
-        try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+        try expectFmt("pointer: fn () void@deadbeef\n", "pointer: {}\n", .{value});
     }
 }
 
