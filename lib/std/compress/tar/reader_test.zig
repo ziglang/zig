@@ -72,7 +72,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 200,
                 .mtime = try unixTime(1392395740, 0),
-                .type = @enumFromInt(FileType, 0x53),
+                .type = @as(FileType, @enumFromInt(0x53)),
                 .linkname = "",
                 .uname = "david",
                 .gname = "david",
@@ -86,7 +86,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 200,
                 .mtime = try unixTime(1392342187, 0),
-                .type = @enumFromInt(FileType, 0x30),
+                .type = @as(FileType, @enumFromInt(0x30)),
                 .linkname = "",
                 .uname = "david",
                 .gname = "david",
@@ -105,7 +105,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 200,
                 .mtime = try unixTime(1392340456, 0),
-                .type = @enumFromInt(FileType, 0x30),
+                .type = @as(FileType, @enumFromInt(0x30)),
                 .linkname = "",
                 .uname = "david",
                 .gname = "david",
@@ -125,7 +125,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 200,
                 .mtime = try unixTime(1392337404, 0),
-                .type = @enumFromInt(FileType, 0x30),
+                .type = @as(FileType, @enumFromInt(0x30)),
                 .linkname = "",
                 .uname = "david",
                 .gname = "david",
@@ -145,7 +145,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 4,
                 .mtime = try unixTime(1392398319, 0),
-                .type = @enumFromInt(FileType, 0x30),
+                .type = @as(FileType, @enumFromInt(0x30)),
                 .linkname = "",
                 .uname = "david",
                 .gname = "david",
@@ -426,7 +426,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 14,
                 .mtime = try unixTime(1441973427, 0),
-                .type = @enumFromInt(FileType, 'D'),
+                .type = @as(FileType, @enumFromInt('D')),
                 .uname = "rawr",
                 .gname = "dsnet",
                 .atime = try unixTime(1441974501, 0),
@@ -452,7 +452,7 @@ test "std.tar validate testdata headers" {
                 .gid = 1000,
                 .size = 536870912,
                 .mtime = try unixTime(1441973427, 0),
-                .type = @enumFromInt(FileType, 'S'),
+                .type = @as(FileType, @enumFromInt('S')),
                 .uname = "rawr",
                 .gname = "dsnet",
                 .atime = try unixTime(1441991948, 0),
@@ -467,7 +467,7 @@ test "std.tar validate testdata headers" {
                 .name = "bar",
                 .linkname = "PAX4/PAX4/long-linkpath-name",
                 .mtime = try unixTime(0, 0),
-                .type = @enumFromInt(tar.FileType, '2'),
+                .type = @as(tar.FileType, @enumFromInt('2')),
                 .pax_recs = &.{
                     "linkpath", "PAX4/PAX4/long-linkpath-name",
                 },
@@ -715,14 +715,14 @@ test "std.tar validate testdata headers" {
             }
 
             if (actual.size == -1) continue;
-            const block_size = std.mem.alignForward(usize, @intCast(usize, actual.size), 512);
+            const block_size = std.mem.alignForward(usize, @as(usize, @intCast(actual.size)), 512);
             // validate checksums if exist or skip over file contents
             if (test_case.chksums.len > i) {
                 var h = std.crypto.hash.Md5.init(.{});
                 const content = try talloc.alloc(u8, block_size);
                 defer talloc.free(content);
                 _ = try reader.read(content);
-                h.update(content[0..@intCast(usize, actual.size)]);
+                h.update(content[0..@intCast(actual.size)]);
                 var hbuf: [16]u8 = undefined;
                 h.final(&hbuf);
                 const hex = std.fmt.bytesToHex(hbuf, .lower);

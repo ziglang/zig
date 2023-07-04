@@ -24,7 +24,7 @@ pub const FileType = enum(u8) {
     gnu_long_link = 'K',
     _,
 
-    pub const sentinel = @enumFromInt(FileType, 0xff);
+    pub const sentinel: FileType = @enumFromInt(0xff);
 
     pub const NamedTypesBitset = std.StaticBitSet(128);
 
@@ -89,9 +89,9 @@ fn parseNumeric(b: []const u8) !i64 {
         if (x >= 0x8000_0000_0000_0000) return error.Overflow;
 
         return if (inv == 0)
-            @bitCast(i64, x)
+            @as(i64, @bitCast(x))
         else
-            ~@bitCast(i64, x);
+            ~@as(i64, @bitCast(x));
     }
 
     return try parseOctal(b);
@@ -303,8 +303,8 @@ pub fn mergePax(kv: [2][]const u8, hdr: *Header) !void {
         .linkname => hdr.linkname = v,
         .uname => hdr.uname = v,
         .gname => hdr.gname = v,
-        .uid => hdr.uid = @truncate(i32, try fmt.parseInt(i64, v, 10)),
-        .gid => hdr.gid = @truncate(i32, try fmt.parseInt(i64, v, 10)),
+        .uid => hdr.uid = @truncate(try fmt.parseInt(i64, v, 10)),
+        .gid => hdr.gid = @truncate(try fmt.parseInt(i64, v, 10)),
         .atime => hdr.atime = try parsePaxTime(v),
         .ctime => hdr.ctime = try parsePaxTime(v),
         .mtime => hdr.mtime = try parsePaxTime(v),
@@ -453,10 +453,9 @@ pub const Header = struct {
     }
 
     fn fieldDefault(comptime field: std.builtin.Type.StructField) field.type {
-        return @ptrCast(
-            *const field.type,
-            @alignCast(@alignOf(field.type), field.default_value),
-        ).*;
+        return @as(*const field.type, @ptrCast(
+            @alignCast(field.default_value),
+        )).*;
     }
 
     /// copy all fields from `new_hdr` to `hdr`, but skipping any fields that
@@ -505,11 +504,7 @@ pub const Header = struct {
 };
 
 pub fn unixTime(tv_sec: i64, tv_nsec: i64) !i128 {
-    const result = @bitCast(i128, [_]i64{
-        try math.mul(i64, tv_sec, time.ns_per_s),
-        tv_nsec,
-    });
-    return result;
+    return @bitCast([_]i64{ try math.mul(i64, tv_sec, time.ns_per_s), tv_nsec });
 }
 
 pub const block_len = 512;
@@ -545,29 +540,29 @@ const V7Header = extern struct {
             else
                 bytes_[i];
             unsigned += c;
-            signed += @bitCast(i8, c);
+            signed += @as(i8, @bitCast(c));
         }
         return .{ unsigned, signed };
     }
 
     inline fn ustar(h: *const V7Header) *const UstarHeader {
-        return @ptrCast(*const UstarHeader, h);
+        return @ptrCast(h);
     }
     inline fn star(h: *const V7Header) *const StarHeader {
-        return @ptrCast(*const StarHeader, h);
+        return @ptrCast(h);
     }
     inline fn gnu(h: *const V7Header) *const GnuHeader {
-        return @ptrCast(*const GnuHeader, h);
+        return @ptrCast(h);
     }
     inline fn bytes(h: *const V7Header) *const [block_len]u8 {
-        return @ptrCast(*const [block_len]u8, h);
+        return @ptrCast(h);
     }
 
     // Magics used to identify various formats.
     const magic_gnu = "ustar ";
     const version_gnu = " \x00";
     const magic_version_gnu = mem.readIntBig(u64, magic_gnu ++ version_gnu);
-    const magic_ustar = @truncate(u48, mem.readIntBig(u64, "ustar\x00\x00\x00") >> 16);
+    const magic_ustar: u48 = @truncate(mem.readIntBig(u64, "ustar\x00\x00\x00") >> 16);
     const version_ustar = "00"; // unused. left only for documentation
     const trailer_star = mem.readIntBig(u32, "tar\x00");
 
@@ -578,7 +573,7 @@ const V7Header = extern struct {
             return fmt_unknown;
 
         const magic_version = h.ustar().magicVersion();
-        const magic = @truncate(u48, magic_version >> 16);
+        const magic: u48 = @truncate(magic_version >> 16);
 
         return if (magic == magic_ustar and
             mem.readIntBig(u32, &h.star().trailer) == trailer_star)
@@ -607,7 +602,7 @@ const UstarHeader = extern struct {
     __padding: [12]u8,
 
     pub fn magicVersion(ustar: *const UstarHeader) u64 {
-        return mem.readIntBig(u64, @ptrCast([*]const u8, &ustar.magic)[0..8]);
+        return mem.readIntBig(u64, @as([*]const u8, @ptrCast(&ustar.magic))[0..8]);
     }
 
     comptime {
@@ -722,14 +717,14 @@ pub fn HeaderIterator(comptime Reader: type) type {
                     .gnu_long_name => {
                         format.setIntersection(fmt_gnu);
                         gnu_long_name = mem.sliceTo(try self.readBlocks(
-                            @intCast(usize, hdr.size),
+                            @intCast(hdr.size),
                             &self.name_buf,
                         ), 0);
                     },
                     .gnu_long_link => {
                         format.setIntersection(fmt_gnu);
                         gnu_long_link = mem.sliceTo(try self.readBlocks(
-                            @intCast(usize, hdr.size),
+                            @intCast(hdr.size),
                             &self.linkname_buf,
                         ), 0);
                     },
@@ -779,11 +774,11 @@ pub fn HeaderIterator(comptime Reader: type) type {
                 want -= block_len;
             }
             if (want != 0) return error.UnexpectedEndOfStream;
-            return outbuf.items[0..@intCast(usize, size)];
+            return outbuf.items[0..@intCast(size)];
         }
 
         inline fn v7Header(self: Self) *const V7Header {
-            return @ptrCast(*const V7Header, self.buf);
+            return @ptrCast(self.buf);
         }
 
         /// Reads n bytes from reader. Returns the following depending on n:
@@ -1011,7 +1006,7 @@ const Pax = struct {
 
 /// return the most significant, 'top' half of the time as an i64
 fn truncateTime(t: i128) i64 {
-    return @truncate(i64, t >> 64);
+    return @truncate(t >> 64);
 }
 
 const is_windows = builtin.os.tag == .windows;
@@ -1036,7 +1031,7 @@ fn setFileProperties(file: fs.File, header: Header, options: Options) !void {
             //        match gnu tar behavior on linux while using
             //        header.mode does not
             const mode = try file.mode(); // header.mode
-            var modebits = std.StaticBitSet(32){ .mask = @intCast(u32, mode) };
+            var modebits = std.StaticBitSet(32){ .mask = @intCast(mode) };
             // copy the user exe bit to the group and other exe bits
             // these bit indices count from the right:
             //   u   g   o
