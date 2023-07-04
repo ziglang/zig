@@ -14,7 +14,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
 
         pub const ReadError = error{};
         pub const WriteError = error{NoSpaceLeft};
-        pub const SeekError = error{};
+        pub const SeekError = error{OperationNotSupported};
 
         pub const Reader = io.Reader(*Self, ReadError, read);
         pub const Writer = io.Writer(*Self, WriteError, write);
@@ -78,7 +78,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
                 .get_end_pos => {
                     return @intCast(self.buffer.len);
                 },
-                .set_end_pos => {},
+                .set_end_pos => return error.OperationNotSupported,
             }
             return @intCast(self.pos);
         }

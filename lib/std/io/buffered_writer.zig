@@ -21,28 +21,32 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
         }
 
         pub const Container = if (meta.trait.isContainer(WriterType)) WriterType else meta.Child(WriterType);
-        usingnamespace if (@hasDecl(Container, "seeker")) struct {
-            pub const Seeker = io.Seeker(*Self, Container.SeekError, seek);
+        pub const Seeker = if (@hasDecl(Container, "seeker"))
+            io.Seeker(*Self, Container.SeekError, seek)
+        else
+            @compileError("must implement Seeker interface for " ++ @typeName(Container));
 
-            pub fn seeker(self: *Self) Seeker {
-                return .{ .context = self };
+        pub fn seeker(self: *Self) Seeker {
+            return .{ .context = self };
+        }
+
+        pub fn seek(self: *Self, whence: io.Whence) Container.SeekError!u64 {
+            if (comptime !@hasDecl(Container, "seeker")) {
+                @compileError("must implement Seeker interface for " ++ @typeName(Container));
             }
-
-            pub fn seek(self: *Self, whence: io.Whence) Container.SeekError!u64 {
-                switch (whence) {
-                    .start => {
+            switch (whence) {
+                .start => {
+                    try self.flush();
+                },
+                .current, .end => |offset| {
+                    if (whence != .current or offset != 0) {
                         try self.flush();
-                    },
-                    .current, .end => |offset| {
-                        if (whence != .current or offset != 0) {
-                            try self.flush();
-                        }
-                    },
-                    .get_end_pos, .set_end_pos => {},
-                }
-                return self.unbuffered_writer.seeker().seek(whence);
+                    }
+                },
+                .get_end_pos, .set_end_pos => {},
             }
-        } else struct {};
+            return self.unbuffered_writer.seeker().seek(whence);
+        }
 
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };

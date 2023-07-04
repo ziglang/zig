@@ -45,27 +45,31 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
         }
 
         pub const Container = if (meta.trait.isContainer(ReaderType)) ReaderType else meta.Child(ReaderType);
-        usingnamespace if (@hasDecl(Container, "seeker")) struct {
-            pub const Seeker = io.Seeker(*Self, Container.SeekError, seek);
+        pub const Seeker = if (@hasDecl(Container, "seeker"))
+            io.Seeker(*Self, Container.SeekError, seek)
+        else
+            @compileError("must implement Seeker interface for " ++ @typeName(Container));
 
-            pub fn seeker(self: *Self) Seeker {
-                return .{ .context = self };
-            }
+        pub fn seeker(self: *Self) Seeker {
+            return .{ .context = self };
+        }
 
-            pub fn seek(self: *Self, whence: io.Whence) Container.SeekError!u64 {
-                switch (whence) {
-                    .start, .current, .end => |offset| {
-                        if (whence != .current or offset != 0) {
-                            self.pushback = 0;
-                            self.end = 0;
-                            self.start = 0;
-                        }
-                    },
-                    .get_end_pos, .set_end_pos => {},
-                }
-                return self.unbuffered_reader.seeker().seek(whence);
+        pub fn seek(self: *Self, whence: io.Whence) Container.SeekError!u64 {
+            if (comptime !@hasDecl(Container, "seeker")) {
+                @compileError("must implement Seeker interface for " ++ @typeName(Container));
             }
-        } else struct {};
+            switch (whence) {
+                .start, .current, .end => |offset| {
+                    if (whence != .current or offset != 0) {
+                        self.pushback = 0;
+                        self.end = 0;
+                        self.start = 0;
+                    }
+                },
+                .get_end_pos, .set_end_pos => {},
+            }
+            return self.unbuffered_reader.seeker().seek(whence);
+        }
     };
 }
 

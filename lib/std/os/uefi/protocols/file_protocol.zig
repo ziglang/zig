@@ -55,7 +55,7 @@ pub const FileProtocol = extern struct {
                 if (.Success != self.getPosition(&pos)) return error.SeekError;
                 if (.Success != self.setPosition(oldpos)) return error.SeekError;
             },
-            .set_end_pos => {},
+            .set_end_pos => return error.SeekError,
         }
         return pos;
     }
