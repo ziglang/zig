@@ -323,6 +323,7 @@ pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) ![:0]T {
 
 /// TODO replace callsites with `@log2` after this proposal is implemented:
 /// https://github.com/ziglang/zig/issues/13642
+// TODO: replace with @log2
 inline fn log2a(x: anytype) switch (@typeInfo(@TypeOf(x))) {
     .Int => math.Log2Int(@TypeOf(x)),
     .ComptimeInt => comptime_int,

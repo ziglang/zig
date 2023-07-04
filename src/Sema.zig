@@ -19491,7 +19491,7 @@ fn zirUnaryMath(
     block: *Block,
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
-    comptime eval: fn (Value, Type, Allocator, *Module) Allocator.Error!Value,
+    comptime eval: fn (Value, Type, Allocator, *Module) (Allocator.Error || error{is_zero})!Value,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -19502,16 +19502,54 @@ fn zirUnaryMath(
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_ty = sema.typeOf(operand);
 
-    switch (operand_ty.zigTypeTag(mod)) {
-        .ComptimeFloat, .Float => {},
-        .Vector => {
-            const scalar_ty = operand_ty.scalarType(mod);
-            switch (scalar_ty.zigTypeTag(mod)) {
-                .ComptimeFloat, .Float => {},
-                else => return sema.fail(block, operand_src, "expected vector of floats or float type, found '{}'", .{scalar_ty.fmt(sema.mod)}),
-            }
-        },
-        else => return sema.fail(block, operand_src, "expected vector of floats or float type, found '{}'", .{operand_ty.fmt(sema.mod)}),
+    ok: {
+        switch (operand_ty.zigTypeTag(mod)) {
+            .ComptimeFloat, .Float => break :ok,
+            .ComptimeInt, .Int => {
+                switch (air_tag) {
+                    .log2 => {
+                        if (try sema.resolveDefinedValue(block, operand_src, operand)) |operand_resolved| {
+                            var operand_big_space: Value.BigIntSpace = undefined;
+                            const operand_big = try operand_resolved.toBigIntAdvanced(&operand_big_space, mod, sema);
+                            if (!operand_big.positive) {
+                                return sema.fail(block, operand_src, "@log2 integer operand must be positive", .{});
+                            }
+                            if (operand_big.eqlZero()) {
+                                return sema.fail(block, operand_src, "@log2 integer operand cannot be zero", .{});
+                            }
+                        } else {
+                            const info = operand_ty.intInfo(mod);
+                            if (info.signedness != .unsigned) {
+                                return sema.fail(block, operand_src, "@log2 integer operand must be unsigned", .{});
+                            }
+                            if (block.wantSafety()) {
+                                const zero = try sema.addConstant(try mod.intValue(operand_ty, 0));
+                                const ok = try block.addBinOp(.cmp_neq, operand, zero);
+                                try sema.addSafetyCheck(block, ok, .log2_zero);
+                            }
+                        }
+                        break :ok;
+                    },
+                    else => {},
+                }
+            },
+            .Vector => {
+                const scalar_ty = operand_ty.scalarType(mod);
+                switch (scalar_ty.zigTypeTag(mod)) {
+                    .ComptimeFloat, .Float => break :ok,
+                    else => {},
+                }
+            },
+            else => {},
+        }
+        switch (air_tag) {
+            .log2 => {
+                return sema.fail(block, operand_src, "expected integer, float, or vector of floats, found '{}'", .{operand_ty.fmt(sema.mod)});
+            },
+            else => {
+                return sema.fail(block, operand_src, "expected float or vector of floats, found '{}'", .{operand_ty.fmt(sema.mod)});
+            },
+        }
     }
 
     switch (operand_ty.zigTypeTag(mod)) {
@@ -19529,7 +19567,10 @@ fn zirUnaryMath(
                 const elems = try sema.arena.alloc(InternPool.Index, vec_len);
                 for (elems, 0..) |*elem, i| {
                     const elem_val = try val.elemValue(sema.mod, i);
-                    elem.* = try (try eval(elem_val, scalar_ty, sema.arena, sema.mod)).intern(scalar_ty, mod);
+                    elem.* = try (eval(elem_val, scalar_ty, sema.arena, sema.mod) catch |err| switch (err) {
+                        error.is_zero => unreachable,
+                        else => |other| return other,
+                    }).intern(scalar_ty, mod);
                 }
                 return sema.addConstant((try mod.intern(.{ .aggregate = .{
                     .ty = result_ty.toIntern(),
@@ -19540,16 +19581,32 @@ fn zirUnaryMath(
             try sema.requireRuntimeBlock(block, operand_src, null);
             return block.addUnOp(air_tag, operand);
         },
-        .ComptimeFloat, .Float => {
+        .ComptimeFloat, .Float, .ComptimeInt, .Int => {
             if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
                 if (operand_val.isUndef(mod))
                     return sema.addConstUndef(operand_ty);
-                const result_val = try eval(operand_val, operand_ty, sema.arena, sema.mod);
+                const result_val = eval(operand_val, operand_ty, sema.arena, sema.mod) catch |err| switch (err) {
+                    error.is_zero => {
+                        assert(eval == Value.log2);
+                        return sema.fail(block, operand_src, "@log2 integer operand cannot be zero", .{});
+                    },
+                    else => |other| return other,
+                };
                 return sema.addConstant(result_val);
             }
 
             try sema.requireRuntimeBlock(block, operand_src, null);
-            return block.addUnOp(air_tag, operand);
+            const result = try block.addUnOp(air_tag, operand);
+            switch (operand_ty.zigTypeTag(mod)) {
+                .ComptimeInt, .Int => {
+                    const required_bits = std.math.log2_int(u64, operand_ty.bitSize(mod));
+                    return block.addBitCast(
+                        try mod.intType(.unsigned, required_bits),
+                        result,
+                    );
+                },
+                else => return result,
+            }
         },
         else => unreachable,
     }

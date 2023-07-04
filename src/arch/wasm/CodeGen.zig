@@ -2611,7 +2611,7 @@ fn airBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
 }
 
 /// Performs a binary operation on the given `WValue`'s
-/// NOTE: THis leaves the value on top of the stack.
+/// NOTE: This leaves the value on top of the stack.
 fn binOp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
     assert(!(lhs != .stack and rhs == .stack));
@@ -2776,9 +2776,19 @@ const FloatOp = enum {
 };
 
 fn airUnaryFloatOp(func: *CodeGen, inst: Air.Inst.Index, op: FloatOp) InnerError!void {
+    const mod = func.bin_file.base.options.module.?;
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
     const ty = func.typeOf(un_op);
+
+    switch (op) {
+        .log2 => {
+            if (ty.zigTypeTag(mod) == .Int) {
+                return func.fail("TODO: implement @log2 for integers", .{});
+            }
+        },
+        else => {},
+    }
 
     const result = try (try func.floatOp(op, ty, &.{operand})).toLocal(func, ty);
     func.finishAir(inst, result, &.{un_op});

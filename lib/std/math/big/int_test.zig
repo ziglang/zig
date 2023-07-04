@@ -476,6 +476,20 @@ test "big.int abs" {
     try testing.expect((try a.to(u32)) == 5);
 }
 
+test "big.int log2" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    try a.setString(10, "322339239083928382323808921308908120819");
+    try testing.expect(a.toConst().log2() == 127);
+
+    try a.setString(10, "9999999999999999999999");
+    try testing.expect(a.toConst().log2() == 73);
+
+    try a.setString(10, "123");
+    try testing.expect(a.toConst().log2() == 6);
+}
+
 test "big.int negate" {
     var a = try Managed.initSet(testing.allocator, 5);
     defer a.deinit();

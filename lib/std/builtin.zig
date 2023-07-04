@@ -872,6 +872,7 @@ pub const panic_messages = struct {
     pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
     pub const memcpy_alias = "@memcpy arguments alias";
     pub const noreturn_returned = "'noreturn' function returned";
+    pub const log2_zero = "@log2 received zero integer argument";
 };
 
 pub noinline fn returnError(st: *StackTrace) void {

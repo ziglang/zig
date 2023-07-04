@@ -350,7 +350,7 @@ pub const Inst = struct {
         /// Natural (base e) logarithm of a float or a vector of floats.
         /// Uses the `un_op` field.
         log,
-        /// Base 2 logarithm of a float or a vector of floats.
+        /// Base 2 logarithm of an integer, float, or a vector of floats.
         /// Uses the `un_op` field.
         log2,
         /// Base 10 logarithm of a float or a vector of floats.

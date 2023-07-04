@@ -9403,11 +9403,11 @@ fn doTheTest() !void {
       {#header_open|@log2#}
       <pre>{#syntax#}@log2(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Returns the logarithm to the base 2 of a floating point number. Uses a dedicated hardware instruction
+      Returns the logarithm to the base 2 of an integer or a floating point number. Uses a dedicated hardware instruction
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats.
+      Supports {#link|Integers}, {#link|Floats#}, and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@log10#}

@@ -3551,36 +3551,52 @@ pub const Value = struct {
         } })).toValue();
     }
 
-    pub fn log2(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
-            const scalar_ty = float_type.scalarType(mod);
+    pub fn log2(val: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
+        if (ty.zigTypeTag(mod) == .Vector) {
+            const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try log2Scalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
             return (try mod.intern(.{ .aggregate = .{
-                .ty = float_type.toIntern(),
+                .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
             } })).toValue();
         }
-        return log2Scalar(val, float_type, mod);
+        return log2Scalar(val, ty, mod);
     }
 
-    fn log2Scalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
-        const target = mod.getTarget();
-        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
-            16 => .{ .f16 = @log2(val.toFloat(f16, mod)) },
-            32 => .{ .f32 = @log2(val.toFloat(f32, mod)) },
-            64 => .{ .f64 = @log2(val.toFloat(f64, mod)) },
-            80 => .{ .f80 = @log2(val.toFloat(f80, mod)) },
-            128 => .{ .f128 = @log2(val.toFloat(f128, mod)) },
+    fn log2Scalar(val: Value, ty: Type, mod: *Module) (Allocator.Error || error{is_zero})!Value {
+        switch (ty.zigTypeTag(mod)) {
+            .ComptimeInt, .Int => {
+                switch (mod.intern_pool.indexToKey(val.toIntern()).int.storage) {
+                    .u64 => |int| {
+                        if (int == 0)
+                            return error.is_zero;
+                        return try mod.intValue(ty, std.math.log2_int(u64, int));
+                    },
+                    .big_int => |big_int| return try mod.intValue(ty, big_int.log2()),
+                    else => unreachable,
+                }
+            },
+            .ComptimeFloat, .Float => {
+                const target = mod.getTarget();
+                const storage: InternPool.Key.Float.Storage = switch (ty.floatBits(target)) {
+                    16 => .{ .f16 = @log2(val.toFloat(f16, mod)) },
+                    32 => .{ .f32 = @log2(val.toFloat(f32, mod)) },
+                    64 => .{ .f64 = @log2(val.toFloat(f64, mod)) },
+                    80 => .{ .f80 = @log2(val.toFloat(f80, mod)) },
+                    128 => .{ .f128 = @log2(val.toFloat(f128, mod)) },
+                    else => unreachable,
+                };
+                return (try mod.intern(.{ .float = .{
+                    .ty = ty.toIntern(),
+                    .storage = storage,
+                } })).toValue();
+            },
             else => unreachable,
-        };
-        return (try mod.intern(.{ .float = .{
-            .ty = float_type.toIntern(),
-            .storage = storage,
-        } })).toValue();
+        }
     }
 
     pub fn log10(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {

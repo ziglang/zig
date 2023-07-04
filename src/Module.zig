@@ -218,6 +218,7 @@ pub const PanicId = enum {
     memcpy_len_mismatch,
     memcpy_alias,
     noreturn_returned,
+    log2_zero,
 
     pub const len = @typeInfo(PanicId).Enum.fields.len;
 };

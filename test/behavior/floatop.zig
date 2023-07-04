@@ -430,12 +430,17 @@ test "@log2" {
 }
 
 fn testLog2() !void {
-    inline for ([_]type{ f16, f32, f64 }) |ty| {
-        const eps = epsForType(ty);
+    inline for ([_]type{ f16, f32, f64, comptime_float, u16, u32, u64, comptime_int }) |ty| {
+        try expect(@log2(@as(ty, 1)) == 0);
         try expect(@log2(@as(ty, 4)) == 2);
-        try expect(math.approxEqAbs(ty, @log2(@as(ty, 6)), 2.5849625007212, eps));
-        try expect(math.approxEqAbs(ty, @log2(@as(ty, 10)), 3.3219280948874, eps));
+        if (@typeInfo(ty) == .Float or @typeInfo(ty) == .ComptimeFloat) {
+            const eps = epsForType(ty);
+            try expect(math.approxEqAbs(ty, @log2(@as(ty, 6)), 2.5849625007212, eps));
+            try expect(math.approxEqAbs(ty, @log2(@as(ty, 10)), 3.3219280948874, eps));
+        }
     }
+    try expect(@log2(239230928938092208920890892800832) == 107);
+    try expect(@log2(823823892839289389238928923) == 89);
 }
 
 test "@log2 with vectors" {

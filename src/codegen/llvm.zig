@@ -8693,9 +8693,46 @@ pub const FuncGen = struct {
     }
 
     fn airUnaryOp(self: *FuncGen, inst: Air.Inst.Index, comptime op: FloatOp) !?*llvm.Value {
+        const o = self.dg.object;
+        const mod = o.module;
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = try self.resolveInst(un_op);
         const operand_ty = self.typeOf(un_op);
+
+        switch (op) {
+            .log2 => {
+                if (operand_ty.zigTypeTag(mod) == .Int) {
+                    // TODO: should we just do this in compiler_rt and generate a call to that function or something?
+                    // This is doing: `(operand_type_bit_count - 1) - @clz(operand)`.
+
+                    const bit_count = operand_ty.bitSize(mod);
+                    const int_llvm_ty = self.context.intType(@intCast(bit_count));
+                    const bits_const = int_llvm_ty.constInt(bit_count - 1, .False);
+                    const lhs = bits_const;
+
+                    const operand_llvm_ty = try o.lowerType(operand_ty);
+                    const fn_val = self.getIntrinsic("llvm.ctlz", &.{operand_llvm_ty});
+                    const llvm_i1 = self.context.intType(1);
+                    const params = [_]*llvm.Value{ operand, llvm_i1.constNull() };
+                    const rhs = self.builder.buildCall(fn_val.globalGetValueType(), fn_val, &params, params.len, .C, .Auto, "");
+
+                    const result_ty = self.typeOfIndex(inst);
+                    const result_bits = result_ty.intInfo(mod).bits;
+                    const res = self.builder.buildNUWSub(lhs, rhs, "");
+
+                    const bit_count_log2 = std.math.log2_int(u64, bit_count);
+                    if (bit_count_log2 < result_bits) {
+                        const dest_ty = self.context.intType(@intCast(bit_count_log2));
+                        return self.builder.buildTrunc(res, dest_ty, "");
+                    } else if (bit_count_log2 > result_bits) {
+                        unreachable;
+                    } else {
+                        return res;
+                    }
+                }
+            },
+            else => {},
+        }
 
         return self.buildFloatOp(op, operand_ty, 1, .{operand});
     }

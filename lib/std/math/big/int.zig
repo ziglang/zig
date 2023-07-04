@@ -2025,6 +2025,11 @@ pub const Const = struct {
         };
     }
 
+    pub fn log2(self: Const) usize {
+        const bit_len = (self.limbs.len * @bitSizeOf(Limb)) - @clz(self.limbs[self.limbs.len - 1]);
+        return bit_len - 1;
+    }
+
     pub fn negate(self: Const) Const {
         return .{
             .limbs = self.limbs,
@@ -2081,7 +2086,7 @@ pub const Const = struct {
     /// two's complement with the given integer width (bit_count).
     /// This includes the leading sign bit, which will be set for negative values.
     ///
-    /// Asserts that bit_count is enough to represent value in two's compliment
+    /// Asserts that bit_count is enough to represent the value in two's complement
     /// and that the final result fits in a usize.
     /// Asserts that there are no trailing empty limbs on the most significant end,
     /// i.e. that limb count matches `calcLimbLen()` and zero is not negative.

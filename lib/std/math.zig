@@ -127,7 +127,7 @@ pub const snan = @import("math/nan.zig").snan;
 ///
 /// NaN values are never considered equal to any value.
 pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
-    assert(@typeInfo(T) == .Float);
+    assert(@typeInfo(T) == .Float or @typeInfo(T) == .ComptimeFloat);
     assert(tolerance >= 0);
 
     // Fast path for equal values (and signed zeros and infinites).
@@ -155,7 +155,7 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
 ///
 /// NaN values are never considered equal to any value.
 pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
-    assert(@typeInfo(T) == .Float);
+    assert(@typeInfo(T) == .Float or @typeInfo(T) == .ComptimeFloat);
     assert(tolerance > 0);
 
     // Fast path for equal values (and signed zeros and infinites).
@@ -246,6 +246,7 @@ pub const expm1 = @import("math/expm1.zig").expm1;
 pub const ilogb = @import("math/ilogb.zig").ilogb;
 pub const ln = @import("math/ln.zig").ln;
 pub const log = @import("math/log.zig").log;
+// TODO: replace with @log2
 pub const log2 = @import("math/log2.zig").log2;
 pub const log10 = @import("math/log10.zig").log10;
 pub const log10_int = @import("math/log10.zig").log10_int;
@@ -1279,6 +1280,7 @@ fn testCeilPowerOfTwo() !void {
 
 /// Return the log base 2 of integer value x, rounding down to the
 /// nearest integer.
+// TODO: replace with @log2
 pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
     if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
         @compileError("log2_int requires an unsigned integer, found " ++ @typeName(T));

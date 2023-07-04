@@ -7005,6 +7005,12 @@ fn airUnFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CVal
     const inst_ty = f.typeOfIndex(inst);
     const inst_scalar_ty = inst_ty.scalarType(mod);
 
+    if (mem.eql(u8, operation, "log2")) {
+        if (inst_ty.zigTypeTag(mod) == .Int) {
+            return f.fail("TODO: implement @log2 for integers", .{});
+        }
+    }
+
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
     const v = try Vectorize.start(f, inst, writer, inst_ty);
