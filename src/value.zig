@@ -1853,7 +1853,7 @@ pub const Value = struct {
         return floatFromIntScalar(val, float_ty, mod, opt_sema);
     }
 
-    pub fn floatFromIntScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
+    fn floatFromIntScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef => (try mod.intern(.{ .undef = float_ty.toIntern() })).toValue(),
             .int => |int| switch (int.storage) {
@@ -1932,7 +1932,7 @@ pub const Value = struct {
     }
 
     /// Supports integers only; asserts neither operand is undefined.
-    pub fn intAddSatScalar(
+    fn intAddSatScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -1982,7 +1982,7 @@ pub const Value = struct {
     }
 
     /// Supports integers only; asserts neither operand is undefined.
-    pub fn intSubSatScalar(
+    fn intSubSatScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2040,7 +2040,7 @@ pub const Value = struct {
         return intMulWithOverflowScalar(lhs, rhs, ty, arena, mod);
     }
 
-    pub fn intMulWithOverflowScalar(
+    fn intMulWithOverflowScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2100,7 +2100,7 @@ pub const Value = struct {
     }
 
     /// Supports both floats and ints; handles undefined.
-    pub fn numberMulWrapScalar(
+    fn numberMulWrapScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2146,7 +2146,7 @@ pub const Value = struct {
     }
 
     /// Supports (vectors of) integers only; asserts neither operand is undefined.
-    pub fn intMulSatScalar(
+    fn intMulSatScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2222,7 +2222,7 @@ pub const Value = struct {
     }
 
     /// operands must be integers; handles undefined.
-    pub fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
+    fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
         if (val.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
         if (ty.toIntern() == .bool_type) return makeBool(!val.toBool());
 
@@ -2265,7 +2265,7 @@ pub const Value = struct {
     }
 
     /// operands must be integers; handles undefined.
-    pub fn bitwiseAndScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
+    fn bitwiseAndScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
         if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
         if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() and rhs.toBool());
 
@@ -2304,7 +2304,7 @@ pub const Value = struct {
     }
 
     /// operands must be integers; handles undefined.
-    pub fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
+    fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
         if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
         if (ty.toIntern() == .bool_type) return makeBool(!(lhs.toBool() and rhs.toBool()));
 
@@ -2332,7 +2332,7 @@ pub const Value = struct {
     }
 
     /// operands must be integers; handles undefined.
-    pub fn bitwiseOrScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
+    fn bitwiseOrScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
         if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
         if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() or rhs.toBool());
 
@@ -2370,7 +2370,7 @@ pub const Value = struct {
     }
 
     /// operands must be integers; handles undefined.
-    pub fn bitwiseXorScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
+    fn bitwiseXorScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
         if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
         if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() != rhs.toBool());
 
@@ -2435,7 +2435,7 @@ pub const Value = struct {
         return intDivScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn intDivScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
+    fn intDivScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -2483,7 +2483,7 @@ pub const Value = struct {
         return intDivFloorScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn intDivFloorScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
+    fn intDivFloorScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -2525,7 +2525,7 @@ pub const Value = struct {
         return intModScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn intModScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
+    fn intModScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -2599,7 +2599,7 @@ pub const Value = struct {
         return floatRemScalar(lhs, rhs, float_type, mod);
     }
 
-    pub fn floatRemScalar(lhs: Value, rhs: Value, float_type: Type, mod: *Module) !Value {
+    fn floatRemScalar(lhs: Value, rhs: Value, float_type: Type, mod: *Module) !Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @rem(lhs.toFloat(f16, mod), rhs.toFloat(f16, mod)) },
@@ -2632,7 +2632,7 @@ pub const Value = struct {
         return floatModScalar(lhs, rhs, float_type, mod);
     }
 
-    pub fn floatModScalar(lhs: Value, rhs: Value, float_type: Type, mod: *Module) !Value {
+    fn floatModScalar(lhs: Value, rhs: Value, float_type: Type, mod: *Module) !Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @mod(lhs.toFloat(f16, mod), rhs.toFloat(f16, mod)) },
@@ -2693,7 +2693,7 @@ pub const Value = struct {
         return intMulScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn intMulScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
+    fn intMulScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.toIntern() != .comptime_int_type) {
             const res = try intMulWithOverflowScalar(lhs, rhs, ty, allocator, mod);
             if (res.overflow_bit.compareAllWithZero(.neq, mod)) return error.Overflow;
@@ -2760,7 +2760,7 @@ pub const Value = struct {
         return intTruncScalar(val, ty, allocator, signedness, @as(u16, @intCast(bits.toUnsignedInt(mod))), mod);
     }
 
-    pub fn intTruncScalar(
+    fn intTruncScalar(
         val: Value,
         ty: Type,
         allocator: Allocator,
@@ -2800,7 +2800,7 @@ pub const Value = struct {
         return shlScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn shlScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
+    fn shlScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -2857,7 +2857,7 @@ pub const Value = struct {
         return shlWithOverflowScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn shlWithOverflowScalar(
+    fn shlWithOverflowScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2911,7 +2911,7 @@ pub const Value = struct {
         return shlSatScalar(lhs, rhs, ty, arena, mod);
     }
 
-    pub fn shlSatScalar(
+    fn shlSatScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2961,7 +2961,7 @@ pub const Value = struct {
         return shlTruncScalar(lhs, rhs, ty, arena, mod);
     }
 
-    pub fn shlTruncScalar(
+    fn shlTruncScalar(
         lhs: Value,
         rhs: Value,
         ty: Type,
@@ -2991,7 +2991,7 @@ pub const Value = struct {
         return shrScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn shrScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
+    fn shrScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3043,7 +3043,7 @@ pub const Value = struct {
         return floatNegScalar(val, float_type, mod);
     }
 
-    pub fn floatNegScalar(
+    fn floatNegScalar(
         val: Value,
         float_type: Type,
         mod: *Module,
@@ -3086,7 +3086,7 @@ pub const Value = struct {
         return floatAddScalar(lhs, rhs, float_type, mod);
     }
 
-    pub fn floatAddScalar(
+    fn floatAddScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
@@ -3130,7 +3130,7 @@ pub const Value = struct {
         return floatSubScalar(lhs, rhs, float_type, mod);
     }
 
-    pub fn floatSubScalar(
+    fn floatSubScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
@@ -3174,7 +3174,7 @@ pub const Value = struct {
         return floatDivScalar(lhs, rhs, float_type, mod);
     }
 
-    pub fn floatDivScalar(
+    fn floatDivScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
@@ -3218,7 +3218,7 @@ pub const Value = struct {
         return floatDivFloorScalar(lhs, rhs, float_type, mod);
     }
 
-    pub fn floatDivFloorScalar(
+    fn floatDivFloorScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
@@ -3262,7 +3262,7 @@ pub const Value = struct {
         return floatDivTruncScalar(lhs, rhs, float_type, mod);
     }
 
-    pub fn floatDivTruncScalar(
+    fn floatDivTruncScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
@@ -3306,7 +3306,7 @@ pub const Value = struct {
         return floatMulScalar(lhs, rhs, float_type, mod);
     }
 
-    pub fn floatMulScalar(
+    fn floatMulScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
@@ -3343,7 +3343,7 @@ pub const Value = struct {
         return sqrtScalar(val, float_type, mod);
     }
 
-    pub fn sqrtScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn sqrtScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @sqrt(val.toFloat(f16, mod)) },
@@ -3375,7 +3375,7 @@ pub const Value = struct {
         return sinScalar(val, float_type, mod);
     }
 
-    pub fn sinScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn sinScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @sin(val.toFloat(f16, mod)) },
@@ -3407,7 +3407,7 @@ pub const Value = struct {
         return cosScalar(val, float_type, mod);
     }
 
-    pub fn cosScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn cosScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @cos(val.toFloat(f16, mod)) },
@@ -3439,7 +3439,7 @@ pub const Value = struct {
         return tanScalar(val, float_type, mod);
     }
 
-    pub fn tanScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn tanScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @tan(val.toFloat(f16, mod)) },
@@ -3471,7 +3471,7 @@ pub const Value = struct {
         return expScalar(val, float_type, mod);
     }
 
-    pub fn expScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn expScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @exp(val.toFloat(f16, mod)) },
@@ -3503,7 +3503,7 @@ pub const Value = struct {
         return exp2Scalar(val, float_type, mod);
     }
 
-    pub fn exp2Scalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn exp2Scalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @exp2(val.toFloat(f16, mod)) },
@@ -3535,7 +3535,7 @@ pub const Value = struct {
         return logScalar(val, float_type, mod);
     }
 
-    pub fn logScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn logScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @log(val.toFloat(f16, mod)) },
@@ -3567,7 +3567,7 @@ pub const Value = struct {
         return log2Scalar(val, float_type, mod);
     }
 
-    pub fn log2Scalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn log2Scalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @log2(val.toFloat(f16, mod)) },
@@ -3599,7 +3599,7 @@ pub const Value = struct {
         return log10Scalar(val, float_type, mod);
     }
 
-    pub fn log10Scalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn log10Scalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @log10(val.toFloat(f16, mod)) },
@@ -3631,7 +3631,7 @@ pub const Value = struct {
         return fabsScalar(val, float_type, mod);
     }
 
-    pub fn fabsScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn fabsScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @fabs(val.toFloat(f16, mod)) },
@@ -3663,7 +3663,7 @@ pub const Value = struct {
         return floorScalar(val, float_type, mod);
     }
 
-    pub fn floorScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn floorScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @floor(val.toFloat(f16, mod)) },
@@ -3695,7 +3695,7 @@ pub const Value = struct {
         return ceilScalar(val, float_type, mod);
     }
 
-    pub fn ceilScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn ceilScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @ceil(val.toFloat(f16, mod)) },
@@ -3727,7 +3727,7 @@ pub const Value = struct {
         return roundScalar(val, float_type, mod);
     }
 
-    pub fn roundScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn roundScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @round(val.toFloat(f16, mod)) },
@@ -3759,7 +3759,7 @@ pub const Value = struct {
         return truncScalar(val, float_type, mod);
     }
 
-    pub fn truncScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
+    fn truncScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
             16 => .{ .f16 = @trunc(val.toFloat(f16, mod)) },
@@ -3800,7 +3800,7 @@ pub const Value = struct {
         return mulAddScalar(float_type, mulend1, mulend2, addend, mod);
     }
 
-    pub fn mulAddScalar(
+    fn mulAddScalar(
         float_type: Type,
         mulend1: Value,
         mulend2: Value,
