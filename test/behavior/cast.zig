@@ -1194,7 +1194,7 @@ test "implicit ptr to *anyopaque" {
     try expect(c.* == 1);
 }
 
-test "return null from fn() anyerror!?&T" {
+test "return null from fn () anyerror!?&T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;

@@ -5251,8 +5251,8 @@ test "zig fmt: make single-line if no trailing comma, fmt: off" {
         \\    }
         \\}
         \\
-        \\const fn_no_comma = fn(i32, i32)void;
-        \\const fn_trailing_comma = fn(i32, i32,)void;
+        \\const fn_no_comma = fn (i32, i32) void;
+        \\const fn_trailing_comma = fn (i32, i32,) void;
         \\
         \\fn fn_calls() void {
         \\    fn add(x: i32, y: i32,) i32 { x + y };
