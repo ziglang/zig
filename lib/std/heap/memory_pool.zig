@@ -93,9 +93,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
             //       just move them into the free list instead of actually releasing the memory.
             const allocator = pool.arena.child_allocator;
 
-            // TODO: Replace with "pool.arena.reset()" when implemented.
-            pool.arena.deinit();
-            pool.arena = std.heap.ArenaAllocator.init(allocator);
+            _ = pool.arena.reset(.free_all);
 
             pool.free_list = null;
         }
