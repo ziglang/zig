@@ -22919,7 +22919,7 @@ fn zirMulAdd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     switch (ty.scalarType(mod).zigTypeTag(mod)) {
         .ComptimeFloat, .Float => {},
-        else => return sema.fail(block, src, "expected vector of floats or float type, found '{}'", .{ty.fmt(sema.mod)}),
+        else => return sema.fail(block, src, "expected float or vector of floats, found '{}'", .{ty.fmt(sema.mod)}),
     }
 
     const runtime_src = if (maybe_mulend1) |mulend1_val| rs: {

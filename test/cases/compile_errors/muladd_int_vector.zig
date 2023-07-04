@@ -6,4 +6,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :2:9: error: expected vector of floats or float type, found '@Vector(1, u32)'
+// :2:9: error: expected float or vector of floats, found '@Vector(1, u32)'
