@@ -6500,11 +6500,11 @@ fn forExpr(
                     return astgen.failTok(ident_tok, "cannot capture reference to range", .{});
                 }
                 const start_node = node_data[input].lhs;
-                const start_val = try expr(parent_gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, start_node);
+                const start_val = try expr(parent_gz, scope, .{ .rl = .{ .ty = .usize_type } }, start_node);
 
                 const end_node = node_data[input].rhs;
                 const end_val = if (end_node != 0)
-                    try expr(parent_gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_data[input].rhs)
+                    try expr(parent_gz, scope, .{ .rl = .{ .ty = .usize_type } }, node_data[input].rhs)
                 else
                     .none;
 
@@ -10339,8 +10339,8 @@ fn nodeUsesAnonNameStrategy(tree: *const Ast, node: Ast.Node.Index) bool {
 
 /// Applies `rl` semantics to `result`. Expressions which do not do their own handling of
 /// result locations must call this function on their result.
-/// As an example, if the `ResultLoc` is `ptr`, it will write the result to the pointer.
-/// If the `ResultLoc` is `ty`, it will coerce the result to the type.
+/// As an example, if `ri.rl` is `.ptr`, it will write the result to the pointer.
+/// If `ri.rl` is `.ty`, it will coerce the result to the type.
 /// Assumes nothing stacked on `gz`.
 fn rvalue(
     gz: *GenZir,
