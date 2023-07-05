@@ -872,7 +872,7 @@ test "json parse partial" {
     try testing.expectEqual(try scanner.next(), .object_end);
 }
 
-test "json parse trust buffer" {
+test "json parse allocate when streaming" {
     const T = struct {
         not_const: []u8,
         is_const: []const u8,
@@ -890,7 +890,7 @@ test "json parse trust buffer" {
     var stream = std.io.fixedBufferStream(str);
     var json_reader = jsonReader(std.testing.allocator, stream.reader());
 
-    const options = ParseOptions{ .trust_buffer = false };
+    const options = ParseOptions{ .allocate = .alloc_always };
     const parsed = parseFromTokenSourceLeaky(T, arena.allocator(), &json_reader, options) catch |err| {
         json_reader.deinit();
         return err;
