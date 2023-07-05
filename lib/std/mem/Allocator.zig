@@ -113,7 +113,7 @@ pub fn destroy(self: Allocator, ptr: anytype) void {
     const T = info.child;
     if (@sizeOf(T) == 0) return;
     const non_const_ptr = @as([*]u8, @ptrCast(@constCast(ptr)));
-    self.rawFree(non_const_ptr[0..@sizeOf(T)], math.log2(info.alignment), @returnAddress());
+    self.rawFree(non_const_ptr[0..@sizeOf(T)], log2a(info.alignment), @returnAddress());
 }
 
 /// Allocates an array of `n` items of type `T` and sets all the
@@ -192,7 +192,7 @@ pub fn alignedAlloc(
     return self.allocAdvancedWithRetAddr(T, alignment, n, @returnAddress());
 }
 
-pub fn allocAdvancedWithRetAddr(
+pub inline fn allocAdvancedWithRetAddr(
     self: Allocator,
     comptime T: type,
     /// null means naturally aligned
@@ -201,23 +201,26 @@ pub fn allocAdvancedWithRetAddr(
     return_address: usize,
 ) Error![]align(alignment orelse @alignOf(T)) T {
     const a = alignment orelse @alignOf(T);
+    const ptr: [*]align(a) T = @ptrCast(try self.allocWithSizeAndAlignment(@sizeOf(T), a, n, return_address));
+    return ptr[0..n];
+}
 
+fn allocWithSizeAndAlignment(self: Allocator, comptime size: usize, comptime alignment: u29, n: usize, return_address: usize) Error![*]align(alignment) u8 {
     // The Zig Allocator interface is not intended to solve alignments beyond
     // the minimum OS page size. For these use cases, the caller must use OS
     // APIs directly.
-    comptime assert(a <= mem.page_size);
+    comptime assert(alignment <= mem.page_size);
 
     if (n == 0) {
-        const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), a);
-        return @as([*]align(a) T, @ptrFromInt(ptr))[0..0];
+        const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), alignment);
+        return @ptrFromInt(ptr);
     }
 
-    const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
-    const byte_ptr = self.rawAlloc(byte_count, log2a(a), return_address) orelse return Error.OutOfMemory;
+    const byte_count = math.mul(usize, size, n) catch return Error.OutOfMemory;
+    const byte_ptr = self.rawAlloc(byte_count, log2a(alignment), return_address) orelse return Error.OutOfMemory;
     // TODO: https://github.com/ziglang/zig/issues/4298
     @memset(byte_ptr[0..byte_count], undefined);
-    const byte_slice: []align(a) u8 = @alignCast(byte_ptr[0..byte_count]);
-    return mem.bytesAsSlice(T, byte_slice);
+    return @alignCast(byte_ptr);
 }
 
 /// Requests to modify the size of an allocation. It is guaranteed to not move
