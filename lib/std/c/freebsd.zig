@@ -2819,7 +2819,7 @@ pub const ptrace_cs_remote = extern struct {
     args: *isize,
 };
 
-pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: [*:0]u8, data: c_int) c_int;
+pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: ?[*]u8, data: c_int) c_int;
 
 /// TODO refines if necessary
 pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
