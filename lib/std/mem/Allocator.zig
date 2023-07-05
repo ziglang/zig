@@ -213,14 +213,14 @@ fn allocWithSizeAndAlignment(self: Allocator, comptime size: usize, comptime ali
 
     if (n == 0) {
         const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), alignment);
-        return @ptrFromInt(ptr);
+        return @as([*]align(alignment) u8, @ptrFromInt(ptr));
     }
 
     const byte_count = math.mul(usize, size, n) catch return Error.OutOfMemory;
     const byte_ptr = self.rawAlloc(byte_count, log2a(alignment), return_address) orelse return Error.OutOfMemory;
     // TODO: https://github.com/ziglang/zig/issues/4298
     @memset(byte_ptr[0..byte_count], undefined);
-    return @alignCast(byte_ptr);
+    return @as([*]align(alignment) u8, @alignCast(byte_ptr));
 }
 
 /// Requests to modify the size of an allocation. It is guaranteed to not move
