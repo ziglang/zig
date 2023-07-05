@@ -218,13 +218,7 @@ pub const Instruction = union(Opcode) {
                 break :blk result;
             },
             Opcode.lo_user...Opcode.hi_user => error.UnimplementedUserOpcode,
-            else => |opcode| blk: {
-
-                // TODO: Remove this
-                std.debug.print("Opcode {x}\n", .{opcode});
-
-                break :blk error.InvalidOpcode;
-            },
+            else => error.InvalidOpcode,
         };
     }
 };
@@ -295,9 +289,7 @@ pub const VirtualMachine = struct {
         pub fn resolveValue(
             self: Column,
             context: *dwarf.UnwindContext,
-            compile_unit: ?*const dwarf.CompileUnit,
-            ucontext: *const std.os.ucontext_t,
-            reg_ctx: abi.RegisterContext,
+            expression_context: dwarf.expressions.ExpressionContext,
             out: []u8,
         ) !void {
             switch (self.rule) {
@@ -311,9 +303,9 @@ pub const VirtualMachine = struct {
                 .same_value => {},
                 .offset => |offset| {
                     if (context.cfa) |cfa| {
-                        const ptr: *const usize = @ptrFromInt(try applyOffset(cfa, offset));
-
-                        // TODO: context.isValidMemory(ptr)
+                        const addr = try applyOffset(cfa, offset);
+                        if (expression_context.isValidMemory) |isValidMemory| if (!isValidMemory(addr)) return error.InvalidAddress;
+                        const ptr: *const usize = @ptrFromInt(addr);
                         mem.writeIntSliceNative(usize, out, ptr.*);
                     } else return error.InvalidCFA;
                 },
@@ -329,7 +321,7 @@ pub const VirtualMachine = struct {
                 },
                 .expression => |expression| {
                     context.stack_machine.reset();
-                    const value = try context.stack_machine.run(expression, context.allocator, compile_unit, ucontext, reg_ctx, context.cfa.?);
+                    const value = try context.stack_machine.run(expression, context.allocator, expression_context, context.cfa.?);
 
                     if (value != .generic) return error.InvalidExpressionValue;
                     if (!context.isValidMemory(value.generic)) return error.InvalidExpressionAddress;
@@ -339,12 +331,12 @@ pub const VirtualMachine = struct {
                 },
                 .val_expression => |expression| {
                     context.stack_machine.reset();
-                    const value = try context.stack_machine.run(expression, context.allocator, compile_unit, ucontext, reg_ctx, context.cfa.?);
+                    const value = try context.stack_machine.run(expression, context.allocator, expression_context, context.cfa.?);
 
                     if (value != .generic) return error.InvalidExpressionValue;
                     mem.writeIntSliceNative(usize, out, value.generic);
                 },
-                .architectural => return error.UnimplementedRule,
+                .architectural => return error.UnimplementedRegisterRule,
             }
         }
     };

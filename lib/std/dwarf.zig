@@ -1673,7 +1673,14 @@ pub const DwarfInfo = struct {
             cie = di.cie_map.get(fde.cie_length_offset) orelse return error.MissingCIE;
         }
 
-        const compile_unit: ?*const CompileUnit = di.findCompileUnit(fde.pc_begin) catch null;
+        var expression_context = .{
+            .isValidMemory = context.isValidMemory,
+            .compile_unit = di.findCompileUnit(fde.pc_begin) catch null,
+            .ucontext = &context.ucontext,
+            .reg_ctx = context.reg_ctx,
+            .cfa = context.cfa,
+        };
+
         context.vm.reset();
         context.reg_ctx.eh_frame = cie.version != 4;
 
@@ -1691,9 +1698,7 @@ pub const DwarfInfo = struct {
                 const value = try context.stack_machine.run(
                     expression,
                     context.allocator,
-                    compile_unit,
-                    &context.ucontext,
-                    context.reg_ctx,
+                    expression_context,
                     context.cfa orelse 0,
                 );
 
@@ -1704,6 +1709,7 @@ pub const DwarfInfo = struct {
         };
 
         if (!context.isValidMemory(context.cfa.?)) return error.InvalidCFA;
+        expression_context.cfa = context.cfa;
 
         // Buffering the modifications is done because copying the ucontext is not portable,
         // some implementations (ie. darwin) use internal pointers to the mcontext.
@@ -1740,9 +1746,7 @@ pub const DwarfInfo = struct {
 
                 try column.resolveValue(
                     context,
-                    compile_unit,
-                    &context.ucontext,
-                    context.reg_ctx,
+                    expression_context,
                     new_value,
                 );
             }
