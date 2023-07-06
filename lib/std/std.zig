@@ -196,6 +196,8 @@ pub const options = struct {
         options_override.side_channels_mitigations
     else
         crypto.default_side_channels_mitigations;
+
+    pub const log_exec: bool = if (@hasDecl(options_override, "log_exec")) options_override.log_exec else false;
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
