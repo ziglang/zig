@@ -107,7 +107,7 @@ pub inline fn iota(comptime T: type, comptime len: usize) @Vector(len, T) {
 pub fn repeat(comptime len: usize, vec: anytype) @Vector(len, std.meta.Child(@TypeOf(vec))) {
     const Child = std.meta.Child(@TypeOf(vec));
 
-    return @shuffle(Child, vec, undefined, iota(i32, len) % @splat(len, @as(i32, @intCast(vectorLength(@TypeOf(vec))))));
+    return @shuffle(Child, vec, undefined, iota(i32, len) % @as(@Vector(len, i32), @splat(@intCast(vectorLength(@TypeOf(vec))))));
 }
 
 /// Returns a vector containing all elements of the first vector at the lower indices followed by all elements of the second vector
@@ -147,11 +147,12 @@ pub fn interlace(vecs: anytype) @Vector(vectorLength(@TypeOf(vecs[0])) * vecs.le
     const len = a_len + b_len;
 
     const indices = comptime blk: {
+        const Vi32 = @Vector(len, i32);
         const count_up = iota(i32, len);
-        const cycle = @divFloor(count_up, @splat(len, @as(i32, @intCast(vecs_arr.len))));
-        const select_mask = repeat(len, join(@splat(a_vec_count, true), @splat(b_vec_count, false)));
-        const a_indices = count_up - cycle * @splat(len, @as(i32, @intCast(b_vec_count)));
-        const b_indices = shiftElementsRight(count_up - cycle * @splat(len, @as(i32, @intCast(a_vec_count))), a_vec_count, 0);
+        const cycle = @divFloor(count_up, @as(Vi32, @splat(@intCast(vecs_arr.len))));
+        const select_mask = repeat(len, join(@as(@Vector(a_vec_count, bool), @splat(true)), @as(@Vector(b_vec_count, bool), @splat(false))));
+        const a_indices = count_up - cycle * @as(Vi32, @splat(@intCast(b_vec_count)));
+        const b_indices = shiftElementsRight(count_up - cycle * @as(Vi32, @splat(@intCast(a_vec_count))), a_vec_count, 0);
         break :blk @select(i32, select_mask, a_indices, ~b_indices);
     };
 
@@ -174,7 +175,7 @@ pub fn deinterlace(
 
     comptime var i: usize = 0; // for-loops don't work for this, apparently.
     inline while (i < out.len) : (i += 1) {
-        const indices = comptime iota(i32, vec_len) * @splat(vec_len, @as(i32, @intCast(vec_count))) + @splat(vec_len, @as(i32, @intCast(i)));
+        const indices = comptime iota(i32, vec_len) * @as(@Vector(vec_len, i32), @splat(@intCast(vec_count))) + @as(@Vector(vec_len, i32), @splat(@intCast(i)));
         out[i] = @shuffle(Child, interlaced, undefined, indices);
     }
 
@@ -191,7 +192,7 @@ pub fn extract(
 
     std.debug.assert(@as(comptime_int, @intCast(first)) + @as(comptime_int, @intCast(count)) <= len);
 
-    return @shuffle(Child, vec, undefined, iota(i32, count) + @splat(count, @as(i32, @intCast(first))));
+    return @shuffle(Child, vec, undefined, iota(i32, count) + @as(@Vector(count, i32), @splat(@intCast(first))));
 }
 
 test "vector patterns" {
@@ -236,17 +237,18 @@ pub fn shiftElementsRight(vec: anytype, comptime amount: VectorCount(@TypeOf(vec
     // It may be possible to implement shifts and rotates with a runtime-friendly slice of two joined vectors, as the length of the
     // slice would be comptime-known. This would permit vector shifts and rotates by a non-comptime-known amount.
     // However, I am unsure whether compiler optimizations would handle that well enough on all platforms.
-    const len = vectorLength(@TypeOf(vec));
+    const V = @TypeOf(vec);
+    const len = vectorLength(V);
 
-    return mergeShift(@splat(len, shift_in), vec, len - amount);
+    return mergeShift(@as(V, @splat(shift_in)), vec, len - amount);
 }
 
 /// Elements are shifted leftwards (towards lower indices). New elements are added to the right, and the leftmost elements are cut off
 /// so that no elements with indices below 0 remain.
 pub fn shiftElementsLeft(vec: anytype, comptime amount: VectorCount(@TypeOf(vec)), shift_in: std.meta.Child(@TypeOf(vec))) @TypeOf(vec) {
-    const len = vectorLength(@TypeOf(vec));
+    const V = @TypeOf(vec);
 
-    return mergeShift(vec, @splat(len, shift_in), amount);
+    return mergeShift(vec, @as(V, @splat(shift_in)), amount);
 }
 
 /// Elements are shifted leftwards (towards lower indices). Elements that leave to the left will reappear to the right in the same order.
@@ -263,7 +265,7 @@ pub fn reverseOrder(vec: anytype) @TypeOf(vec) {
     const Child = std.meta.Child(@TypeOf(vec));
     const len = vectorLength(@TypeOf(vec));
 
-    return @shuffle(Child, vec, undefined, @splat(len, @as(i32, @intCast(len)) - 1) - iota(i32, len));
+    return @shuffle(Child, vec, undefined, @as(@Vector(len, i32), @splat(@as(i32, @intCast(len)) - 1)) - iota(i32, len));
 }
 
 test "vector shifting" {
@@ -283,7 +285,8 @@ pub fn firstTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
     if (!@reduce(.Or, vec)) {
         return null;
     }
-    const indices = @select(IndexInt, vec, iota(IndexInt, len), @splat(len, ~@as(IndexInt, 0)));
+    const all_max: @Vector(len, IndexInt) = @splat(~@as(IndexInt, 0));
+    const indices = @select(IndexInt, vec, iota(IndexInt, len), all_max);
     return @reduce(.Min, indices);
 }
 
@@ -294,7 +297,9 @@ pub fn lastTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
     if (!@reduce(.Or, vec)) {
         return null;
     }
-    const indices = @select(IndexInt, vec, iota(IndexInt, len), @splat(len, @as(IndexInt, 0)));
+
+    const all_zeroes: @Vector(len, IndexInt) = @splat(0);
+    const indices = @select(IndexInt, vec, iota(IndexInt, len), all_zeroes);
     return @reduce(.Max, indices);
 }
 
@@ -302,26 +307,29 @@ pub fn countTrues(vec: anytype) VectorCount(@TypeOf(vec)) {
     const len = vectorLength(@TypeOf(vec));
     const CountIntType = VectorCount(@TypeOf(vec));
 
-    const one_if_true = @select(CountIntType, vec, @splat(len, @as(CountIntType, 1)), @splat(len, @as(CountIntType, 0)));
+    const all_ones: @Vector(len, CountIntType) = @splat(1);
+    const all_zeroes: @Vector(len, CountIntType) = @splat(0);
+
+    const one_if_true = @select(CountIntType, vec, all_ones, all_zeroes);
     return @reduce(.Add, one_if_true);
 }
 
 pub fn firstIndexOfValue(vec: anytype, value: std.meta.Child(@TypeOf(vec))) ?VectorIndex(@TypeOf(vec)) {
-    const len = vectorLength(@TypeOf(vec));
+    const V = @TypeOf(vec);
 
-    return firstTrue(vec == @splat(len, value));
+    return firstTrue(vec == @as(V, @splat(value)));
 }
 
 pub fn lastIndexOfValue(vec: anytype, value: std.meta.Child(@TypeOf(vec))) ?VectorIndex(@TypeOf(vec)) {
-    const len = vectorLength(@TypeOf(vec));
+    const V = @TypeOf(vec);
 
-    return lastTrue(vec == @splat(len, value));
+    return lastTrue(vec == @as(V, @splat(value)));
 }
 
 pub fn countElementsWithValue(vec: anytype, value: std.meta.Child(@TypeOf(vec))) VectorCount(@TypeOf(vec)) {
-    const len = vectorLength(@TypeOf(vec));
+    const V = @TypeOf(vec);
 
-    return countTrues(vec == @splat(len, value));
+    return countTrues(vec == @as(V, @splat(value)));
 }
 
 test "vector searching" {
@@ -370,7 +378,6 @@ pub fn prefixScanWithFunc(
 pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: anytype) @TypeOf(vec) {
     const VecType = @TypeOf(vec);
     const Child = std.meta.Child(VecType);
-    const len = vectorLength(VecType);
 
     const identity = comptime switch (@typeInfo(Child)) {
         .Bool => switch (op) {
@@ -397,8 +404,8 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
     const fn_container = struct {
         fn opFn(a: VecType, b: VecType) VecType {
             return if (Child == bool) switch (op) {
-                .And => @select(bool, a, b, @splat(len, false)),
-                .Or => @select(bool, a, @splat(len, true), b),
+                .And => @select(bool, a, b, @as(VecType, @splat(false))),
+                .Or => @select(bool, a, @as(VecType, @splat(true)), b),
                 .Xor => a != b,
                 else => unreachable,
             } else switch (op) {
@@ -431,7 +438,9 @@ test "vector prefix scan" {
     const float_base = @Vector(4, f32){ 2, 0.5, -10, 6.54321 };
     const bool_base = @Vector(4, bool){ true, false, true, false };
 
-    try std.testing.expectEqual(iota(u8, 32) + @splat(32, @as(u8, 1)), prefixScan(.Add, 1, @splat(32, @as(u8, 1))));
+    const ones: @Vector(32, u8) = @splat(1);
+
+    try std.testing.expectEqual(iota(u8, 32) + ones, prefixScan(.Add, 1, ones));
     try std.testing.expectEqual(@Vector(4, i32){ 11, 3, 1, 1 }, prefixScan(.And, 1, int_base));
     try std.testing.expectEqual(@Vector(4, i32){ 11, 31, 31, -1 }, prefixScan(.Or, 1, int_base));
     try std.testing.expectEqual(@Vector(4, i32){ 11, 28, 21, -2 }, prefixScan(.Xor, 1, int_base));
