@@ -102,8 +102,8 @@ pub inline fn rawFree(self: Allocator, buf: []u8, log2_buf_align: u8, ret_addr: 
 /// Call `destroy` with the result to free the memory.
 pub fn create(self: Allocator, comptime T: type) Error!*T {
     if (@sizeOf(T) == 0) return @as(*T, @ptrFromInt(math.maxInt(usize)));
-    const slice = try self.allocAdvancedWithRetAddr(T, null, 1, @returnAddress());
-    return &slice[0];
+    const ptr: *T = @ptrCast(try self.allocBytesWithAlignment(@alignOf(T), @sizeOf(T), @returnAddress()));
+    return ptr;
 }
 
 /// `ptr` should be the return value of `create`, or otherwise
@@ -206,17 +206,21 @@ pub inline fn allocAdvancedWithRetAddr(
 }
 
 fn allocWithSizeAndAlignment(self: Allocator, comptime size: usize, comptime alignment: u29, n: usize, return_address: usize) Error![*]align(alignment) u8 {
+    const byte_count = math.mul(usize, size, n) catch return Error.OutOfMemory;
+    return self.allocBytesWithAlignment(alignment, byte_count, return_address);
+}
+
+fn allocBytesWithAlignment(self: Allocator, comptime alignment: u29, byte_count: usize, return_address: usize) Error![*]align(alignment) u8 {
     // The Zig Allocator interface is not intended to solve alignments beyond
     // the minimum OS page size. For these use cases, the caller must use OS
     // APIs directly.
     comptime assert(alignment <= mem.page_size);
 
-    if (n == 0) {
+    if (byte_count == 0) {
         const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), alignment);
         return @as([*]align(alignment) u8, @ptrFromInt(ptr));
     }
 
-    const byte_count = math.mul(usize, size, n) catch return Error.OutOfMemory;
     const byte_ptr = self.rawAlloc(byte_count, log2a(alignment), return_address) orelse return Error.OutOfMemory;
     // TODO: https://github.com/ziglang/zig/issues/4298
     @memset(byte_ptr[0..byte_count], undefined);
