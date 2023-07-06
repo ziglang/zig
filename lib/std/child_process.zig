@@ -162,6 +162,7 @@ pub const ChildProcess = struct {
 
     /// First argument in argv is the executable.
     pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
+        if (std.options.log_exec) std.log.scoped(.exec).debug("{s}", .{argv});
         return .{
             .allocator = allocator,
             .argv = argv,
@@ -321,7 +322,6 @@ pub const ChildProcess = struct {
         max_output_bytes: usize = 50 * 1024,
         expand_arg0: Arg0Expand = .no_expand,
     }) ExecError!ExecResult {
-        if (std.options.log_exec) std.log.scoped(.exec).debug("{s}", .{argv});
         var child = ChildProcess.init(args.argv, args.allocator);
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
