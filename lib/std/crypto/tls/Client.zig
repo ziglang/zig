@@ -595,11 +595,14 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     const key = try Ecdsa.PublicKey.fromSec1(main_cert_pub_key);
                                     try sig.verify(verify_bytes, key);
                                 },
-                                .rsa_pss_rsae_sha256 => {
+                                inline .rsa_pss_rsae_sha256,
+                                .rsa_pss_rsae_sha384,
+                                .rsa_pss_rsae_sha512,
+                                => |comptime_scheme| {
                                     if (main_cert_pub_key_algo != .rsaEncryption)
                                         return error.TlsBadSignatureScheme;
 
-                                    const Hash = crypto.hash.sha2.Sha256;
+                                    const Hash = SchemeHash(comptime_scheme);
                                     const rsa = Certificate.rsa;
                                     const components = try rsa.PublicKey.parseDer(main_cert_pub_key);
                                     const exponent = components.exponent;
@@ -1291,6 +1294,15 @@ fn SchemeEcdsa(comptime scheme: tls.SignatureScheme) type {
         .ecdsa_secp256r1_sha256 => crypto.sign.ecdsa.EcdsaP256Sha256,
         .ecdsa_secp384r1_sha384 => crypto.sign.ecdsa.EcdsaP384Sha384,
         .ecdsa_secp521r1_sha512 => crypto.sign.ecdsa.EcdsaP512Sha512,
+        else => @compileError("bad scheme"),
+    };
+}
+
+fn SchemeHash(comptime scheme: tls.SignatureScheme) type {
+    return switch (scheme) {
+        .rsa_pss_rsae_sha256 => crypto.hash.sha2.Sha256,
+        .rsa_pss_rsae_sha384 => crypto.hash.sha2.Sha384,
+        .rsa_pss_rsae_sha512 => crypto.hash.sha2.Sha512,
         else => @compileError("bad scheme"),
     };
 }
