@@ -230,6 +230,10 @@ pub const build_cases = [_]BuildCase{
         .build_root = "test/standalone/cmakedefine",
         .import = @import("standalone/cmakedefine/build.zig"),
     },
+    .{
+        .build_root = "test/standalone/zerolength_check",
+        .import = @import("standalone/zerolength_check/build.zig"),
+    },
 };
 
 const std = @import("std");
