@@ -110,6 +110,7 @@ pub const Options = struct {
     /// other objects.
     /// Otherwise (depending on `use_lld`) this link code directly outputs and updates the final binary.
     use_llvm: bool,
+    use_lib_llvm: bool,
     link_libc: bool,
     link_libcpp: bool,
     link_libunwind: bool,

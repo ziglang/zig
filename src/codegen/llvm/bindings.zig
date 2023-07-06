@@ -40,20 +40,41 @@ pub const Context = opaque {
     pub const halfType = LLVMHalfTypeInContext;
     extern fn LLVMHalfTypeInContext(C: *Context) *Type;
 
+    pub const bfloatType = LLVMBFloatTypeInContext;
+    extern fn LLVMBFloatTypeInContext(C: *Context) *Type;
+
     pub const floatType = LLVMFloatTypeInContext;
     extern fn LLVMFloatTypeInContext(C: *Context) *Type;
 
     pub const doubleType = LLVMDoubleTypeInContext;
     extern fn LLVMDoubleTypeInContext(C: *Context) *Type;
 
-    pub const x86FP80Type = LLVMX86FP80TypeInContext;
-    extern fn LLVMX86FP80TypeInContext(C: *Context) *Type;
-
     pub const fp128Type = LLVMFP128TypeInContext;
     extern fn LLVMFP128TypeInContext(C: *Context) *Type;
 
+    pub const x86_fp80Type = LLVMX86FP80TypeInContext;
+    extern fn LLVMX86FP80TypeInContext(C: *Context) *Type;
+
+    pub const ppc_fp128Type = LLVMPPCFP128TypeInContext;
+    extern fn LLVMPPCFP128TypeInContext(C: *Context) *Type;
+
+    pub const x86_amxType = LLVMX86AMXTypeInContext;
+    extern fn LLVMX86AMXTypeInContext(C: *Context) *Type;
+
+    pub const x86_mmxType = LLVMX86MMXTypeInContext;
+    extern fn LLVMX86MMXTypeInContext(C: *Context) *Type;
+
     pub const voidType = LLVMVoidTypeInContext;
     extern fn LLVMVoidTypeInContext(C: *Context) *Type;
+
+    pub const labelType = LLVMLabelTypeInContext;
+    extern fn LLVMLabelTypeInContext(C: *Context) *Type;
+
+    pub const tokenType = LLVMTokenTypeInContext;
+    extern fn LLVMTokenTypeInContext(C: *Context) *Type;
+
+    pub const metadataType = LLVMMetadataTypeInContext;
+    extern fn LLVMMetadataTypeInContext(C: *Context) *Type;
 
     pub const structType = LLVMStructTypeInContext;
     extern fn LLVMStructTypeInContext(
@@ -1071,6 +1092,9 @@ pub const TargetData = opaque {
 
     pub const abiSizeOfType = LLVMABISizeOfType;
     extern fn LLVMABISizeOfType(TD: *TargetData, Ty: *Type) c_ulonglong;
+
+    pub const stringRep = LLVMCopyStringRepOfTargetData;
+    extern fn LLVMCopyStringRepOfTargetData(TD: *TargetData) [*:0]const u8;
 };
 
 pub const CodeModel = enum(c_int) {
