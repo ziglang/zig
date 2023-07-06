@@ -209,7 +209,7 @@ fn internalParse(
             };
         },
         .Float, .ComptimeFloat => {
-            const token = try source.nextAllocMax(allocator, options.allocate, options.max_value_len.?);
+            const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
@@ -218,7 +218,7 @@ fn internalParse(
             return try std.fmt.parseFloat(T, slice);
         },
         .Int, .ComptimeInt => {
-            const token = try source.nextAllocMax(allocator, options.allocate, options.max_value_len.?);
+            const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
@@ -242,7 +242,7 @@ fn internalParse(
                 return T.jsonParse(allocator, source, options);
             }
 
-            const token = try source.nextAllocMax(allocator, options.allocate, options.max_value_len.?);
+            const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
@@ -260,10 +260,13 @@ fn internalParse(
             if (.object_begin != try source.next()) return error.UnexpectedToken;
 
             var result: ?T = null;
-            var name_token: ?Token = try source.nextAllocMax(allocator, options.allocate, options.max_value_len.?);
+            var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             const field_name = switch (name_token.?) {
                 inline .string, .allocated_string => |slice| slice,
-                else => return error.UnexpectedToken,
+                else => {
+                    freeAllocated(allocator, name_token.?);
+                    return error.UnexpectedToken;
+                },
             };
 
             inline for (unionInfo.fields) |u_field| {
@@ -272,7 +275,6 @@ fn internalParse(
                     // (Recursing into internalParse() might trigger more allocations.)
                     freeAllocated(allocator, name_token.?);
                     name_token = null;
-
                     if (u_field.type == void) {
                         // void isn't really a json type, but we can support void payload union tags with {} as a value.
                         if (.object_begin != try source.next()) return error.UnexpectedToken;
@@ -286,6 +288,7 @@ fn internalParse(
                 }
             } else {
                 // Didn't match anything.
+                freeAllocated(allocator, name_token.?);
                 return error.UnknownField;
             }
 
@@ -318,11 +321,17 @@ fn internalParse(
             var fields_seen = [_]bool{false} ** structInfo.fields.len;
 
             while (true) {
-                var name_token: ?Token = try source.nextAllocMax(allocator, options.allocate, options.max_value_len.?);
+                var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
                 const field_name = switch (name_token.?) {
-                    .object_end => break, // No more fields.
                     inline .string, .allocated_string => |slice| slice,
-                    else => return error.UnexpectedToken,
+                    .object_end => { // No more fields.
+                        freeAllocated(allocator, name_token.?);
+                        break;
+                    },
+                    else => {
+                        freeAllocated(allocator, name_token.?);
+                        return error.UnexpectedToken;
+                    },
                 };
 
                 inline for (structInfo.fields, 0..) |field, i| {
@@ -332,7 +341,6 @@ fn internalParse(
                         // (Recursing into internalParse() might trigger more allocations.)
                         freeAllocated(allocator, name_token.?);
                         name_token = null;
-
                         if (fields_seen[i]) {
                             switch (options.duplicate_field_behavior) {
                                 .use_first => {
