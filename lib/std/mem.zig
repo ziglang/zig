@@ -276,7 +276,8 @@ pub fn zeroes(comptime T: type) T {
                     return null;
                 },
                 .One, .Many => {
-                    @compileError("Can't set a non nullable pointer to zero.");
+                    if (ptr_info.is_allowzero) return @ptrFromInt(0);
+                    @compileError("Only nullable and allowzero pointers can be set to zero.");
                 },
             }
         },
