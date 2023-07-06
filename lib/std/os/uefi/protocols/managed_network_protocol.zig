@@ -6,16 +6,17 @@ const Status = uefi.Status;
 const Time = uefi.Time;
 const SimpleNetworkMode = uefi.protocols.SimpleNetworkMode;
 const MacAddress = uefi.protocols.MacAddress;
+const cc = uefi.cc;
 
 pub const ManagedNetworkProtocol = extern struct {
-    _get_mode_data: *const fn (*const ManagedNetworkProtocol, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) callconv(.C) Status,
-    _configure: *const fn (*const ManagedNetworkProtocol, ?*const ManagedNetworkConfigData) callconv(.C) Status,
-    _mcast_ip_to_mac: *const fn (*const ManagedNetworkProtocol, bool, *const anyopaque, *MacAddress) callconv(.C) Status,
-    _groups: *const fn (*const ManagedNetworkProtocol, bool, ?*const MacAddress) callconv(.C) Status,
-    _transmit: *const fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status,
-    _receive: *const fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status,
-    _cancel: *const fn (*const ManagedNetworkProtocol, ?*const ManagedNetworkCompletionToken) callconv(.C) Status,
-    _poll: *const fn (*const ManagedNetworkProtocol) callconv(.C) Status,
+    _get_mode_data: *const fn (*const ManagedNetworkProtocol, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) callconv(cc) Status,
+    _configure: *const fn (*const ManagedNetworkProtocol, ?*const ManagedNetworkConfigData) callconv(cc) Status,
+    _mcast_ip_to_mac: *const fn (*const ManagedNetworkProtocol, bool, *const anyopaque, *MacAddress) callconv(cc) Status,
+    _groups: *const fn (*const ManagedNetworkProtocol, bool, ?*const MacAddress) callconv(cc) Status,
+    _transmit: *const fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(cc) Status,
+    _receive: *const fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(cc) Status,
+    _cancel: *const fn (*const ManagedNetworkProtocol, ?*const ManagedNetworkCompletionToken) callconv(cc) Status,
+    _poll: *const fn (*const ManagedNetworkProtocol) callconv(cc) Status,
 
     /// Returns the operational parameters for the current MNP child driver.
     /// May also support returning the underlying SNP driver mode data.
