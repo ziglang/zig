@@ -2055,15 +2055,9 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             const decl = module.declPtr(decl_index);
             assert(decl.deletion_flag);
             assert(decl.dependants.count() == 0);
-            const is_anon = if (decl.zir_decl_index == 0) blk: {
-                break :blk module.namespacePtr(decl.src_namespace).anon_decls.swapRemove(decl_index);
-            } else false;
+            assert(decl.zir_decl_index != 0);
 
             try module.clearDecl(decl_index, null);
-
-            if (is_anon) {
-                module.destroyDecl(decl_index);
-            }
         }
 
         try module.processExports();

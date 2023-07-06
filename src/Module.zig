@@ -87,7 +87,9 @@ import_table: std.StringArrayHashMapUnmanaged(*File) = .{},
 /// Keys are fully resolved file paths. This table owns the keys and values.
 embed_table: std.StringHashMapUnmanaged(*EmbedFile) = .{},
 
-/// Stores all Type and Value objects; periodically garbage collected.
+/// Stores all Type and Value objects.
+/// The idea is that this will be periodically garbage-collected, but such logic
+/// is not yet implemented.
 intern_pool: InternPool = .{},
 
 /// To be eliminated in a future commit by moving more data into InternPool.
@@ -151,25 +153,6 @@ compile_log_text: ArrayListUnmanaged(u8) = .{},
 emit_h: ?*GlobalEmitH,
 
 test_functions: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
-
-/// Rather than allocating Decl objects with an Allocator, we instead allocate
-/// them with this SegmentedList. This provides four advantages:
-///  * Stable memory so that one thread can access a Decl object while another
-///    thread allocates additional Decl objects from this list.
-///  * It allows us to use u32 indexes to reference Decl objects rather than
-///    pointers, saving memory in Type, Value, and dependency sets.
-///  * Using integers to reference Decl objects rather than pointers makes
-///    serialization trivial.
-///  * It provides a unique integer to be used for anonymous symbol names, avoiding
-///    multi-threaded contention on an atomic counter.
-allocated_decls: std.SegmentedList(Decl, 0) = .{},
-/// When a Decl object is freed from `allocated_decls`, it is pushed into this stack.
-decls_free_list: ArrayListUnmanaged(Decl.Index) = .{},
-
-/// Same pattern as with `allocated_decls`.
-allocated_namespaces: std.SegmentedList(Namespace, 0) = .{},
-/// Same pattern as with `decls_free_list`.
-namespaces_free_list: ArrayListUnmanaged(Namespace.Index) = .{},
 
 global_assembly: std.AutoHashMapUnmanaged(Decl.Index, []u8) = .{},
 
@@ -313,6 +296,9 @@ pub const CaptureScope = struct {
     }
 
     pub fn incRef(self: *CaptureScope) void {
+        // TODO: wtf is reference counting doing in my beautiful codebase? 😠
+        // seriously though, let's change this to rely on InternPool garbage
+        // collection instead.
         self.refs += 1;
     }
 
@@ -1427,11 +1413,9 @@ pub const Namespace = struct {
     /// Direct children of the namespace. Used during an update to detect
     /// which decls have been added/removed from source.
     /// Declaration order is preserved via entry order.
-    /// Key memory is owned by `decl.name`.
-    /// Anonymous decls are not stored here; they are kept in `anon_decls` instead.
+    /// These are only declarations named directly by the AST; anonymous
+    /// declarations are not stored here.
     decls: std.ArrayHashMapUnmanaged(Decl.Index, void, DeclContext, true) = .{},
-
-    anon_decls: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
 
     /// Key is usingnamespace Decl itself. To find the namespace being included,
     /// the Decl Value has to be resolved as a Type which has a Namespace.
@@ -1487,18 +1471,11 @@ pub const Namespace = struct {
         var decls = ns.decls;
         ns.decls = .{};
 
-        var anon_decls = ns.anon_decls;
-        ns.anon_decls = .{};
-
         for (decls.keys()) |decl_index| {
             mod.destroyDecl(decl_index);
         }
         decls.deinit(gpa);
 
-        for (anon_decls.keys()) |key| {
-            mod.destroyDecl(key);
-        }
-        anon_decls.deinit(gpa);
         ns.usingnamespace_set.deinit(gpa);
     }
 
@@ -1512,9 +1489,6 @@ pub const Namespace = struct {
         var decls = ns.decls;
         ns.decls = .{};
 
-        var anon_decls = ns.anon_decls;
-        ns.anon_decls = .{};
-
         // TODO rework this code to not panic on OOM.
         // (might want to coordinate with the clearDecl function)
 
@@ -1523,12 +1497,6 @@ pub const Namespace = struct {
             mod.destroyDecl(child_decl);
         }
         decls.deinit(gpa);
-
-        for (anon_decls.keys()) |child_decl| {
-            mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
-            mod.destroyDecl(child_decl);
-        }
-        anon_decls.deinit(gpa);
 
         ns.usingnamespace_set.deinit(gpa);
     }
@@ -3195,13 +3163,8 @@ pub fn deinit(mod: *Module) void {
 
     mod.test_functions.deinit(gpa);
 
-    mod.decls_free_list.deinit(gpa);
-    mod.allocated_decls.deinit(gpa);
     mod.global_assembly.deinit(gpa);
     mod.reference_table.deinit(gpa);
-
-    mod.namespaces_free_list.deinit(gpa);
-    mod.allocated_namespaces.deinit(gpa);
 
     mod.memoized_decls.deinit(gpa);
     mod.intern_pool.deinit(gpa);
@@ -3210,6 +3173,8 @@ pub fn deinit(mod: *Module) void {
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
     const gpa = mod.gpa;
+    const ip = &mod.intern_pool;
+
     {
         const decl = mod.declPtr(decl_index);
         _ = mod.test_functions.swapRemove(decl_index);
@@ -3228,12 +3193,10 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
         if (decl.src_scope) |scope| scope.decRef(gpa);
         decl.dependants.deinit(gpa);
         decl.dependencies.deinit(gpa);
-        decl.* = undefined;
     }
-    mod.decls_free_list.append(gpa, decl_index) catch {
-        // In order to keep `destroyDecl` a non-fallible function, we ignore memory
-        // allocation failures here, instead leaking the Decl until garbage collection.
-    };
+
+    ip.destroyDecl(gpa, decl_index);
+
     if (mod.emit_h) |mod_emit_h| {
         const decl_emit_h = mod_emit_h.declPtr(decl_index);
         decl_emit_h.fwd_decl.deinit(gpa);
@@ -3242,11 +3205,11 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
 }
 
 pub fn declPtr(mod: *Module, index: Decl.Index) *Decl {
-    return mod.allocated_decls.at(@intFromEnum(index));
+    return mod.intern_pool.declPtr(index);
 }
 
 pub fn namespacePtr(mod: *Module, index: Namespace.Index) *Namespace {
-    return mod.allocated_namespaces.at(@intFromEnum(index));
+    return mod.intern_pool.namespacePtr(index);
 }
 
 pub fn unionPtr(mod: *Module, index: Union.Index) *Union {
@@ -3738,9 +3701,6 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
 
         if (decl.getOwnedInnerNamespace(mod)) |namespace| {
             for (namespace.decls.keys()) |sub_decl| {
-                try decl_stack.append(gpa, sub_decl);
-            }
-            for (namespace.anon_decls.keys()) |sub_decl| {
                 try decl_stack.append(gpa, sub_decl);
             }
         }
@@ -5202,21 +5162,19 @@ pub fn clearDecl(
 }
 
 /// This function is exclusively called for anonymous decls.
+/// All resources referenced by anonymous decls are owned by InternPool
+/// so there is no cleanup to do here.
 pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
-    const decl = mod.declPtr(decl_index);
+    const gpa = mod.gpa;
+    const ip = &mod.intern_pool;
 
-    assert(!mod.declIsRoot(decl_index));
-    assert(mod.namespacePtr(decl.src_namespace).anon_decls.swapRemove(decl_index));
+    ip.destroyDecl(gpa, decl_index);
 
-    const dependants = decl.dependants.keys();
-    for (dependants) |dep| {
-        mod.declPtr(dep).removeDependency(decl_index);
+    if (mod.emit_h) |mod_emit_h| {
+        const decl_emit_h = mod_emit_h.declPtr(decl_index);
+        decl_emit_h.fwd_decl.deinit(gpa);
+        decl_emit_h.* = undefined;
     }
-
-    for (decl.dependencies.keys()) |dep| {
-        mod.declPtr(dep).removeDependant(decl_index);
-    }
-    mod.destroyDecl(decl_index);
 }
 
 /// We don't perform a deletion here, because this Decl or another one
@@ -5233,7 +5191,6 @@ pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
     const decl = mod.declPtr(decl_index);
 
     assert(!mod.declIsRoot(decl_index));
-    assert(mod.namespacePtr(decl.src_namespace).anon_decls.swapRemove(decl_index));
 
     // An aborted decl must not have dependants -- they must have
     // been aborted first and removed from this list.
@@ -5545,21 +5502,11 @@ fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
 }
 
 pub fn createNamespace(mod: *Module, initialization: Namespace) !Namespace.Index {
-    if (mod.namespaces_free_list.popOrNull()) |index| {
-        mod.allocated_namespaces.at(@intFromEnum(index)).* = initialization;
-        return index;
-    }
-    const ptr = try mod.allocated_namespaces.addOne(mod.gpa);
-    ptr.* = initialization;
-    return @as(Namespace.Index, @enumFromInt(mod.allocated_namespaces.len - 1));
+    return mod.intern_pool.createNamespace(mod.gpa, initialization);
 }
 
 pub fn destroyNamespace(mod: *Module, index: Namespace.Index) void {
-    mod.namespacePtr(index).* = undefined;
-    mod.namespaces_free_list.append(mod.gpa, index) catch {
-        // In order to keep `destroyNamespace` a non-fallible function, we ignore memory
-        // allocation failures here, instead leaking the Namespace until garbage collection.
-    };
+    return mod.intern_pool.destroyNamespace(mod.gpa, index);
 }
 
 pub fn createStruct(mod: *Module, initialization: Struct) Allocator.Error!Struct.Index {
@@ -5584,29 +5531,9 @@ pub fn allocateNewDecl(
     src_node: Ast.Node.Index,
     src_scope: ?*CaptureScope,
 ) !Decl.Index {
-    const decl_and_index: struct {
-        new_decl: *Decl,
-        decl_index: Decl.Index,
-    } = if (mod.decls_free_list.popOrNull()) |decl_index| d: {
-        break :d .{
-            .new_decl = mod.declPtr(decl_index),
-            .decl_index = decl_index,
-        };
-    } else d: {
-        const decl = try mod.allocated_decls.addOne(mod.gpa);
-        errdefer mod.allocated_decls.shrinkRetainingCapacity(mod.allocated_decls.len - 1);
-        if (mod.emit_h) |mod_emit_h| {
-            const decl_emit_h = try mod_emit_h.allocated_emit_h.addOne(mod.gpa);
-            decl_emit_h.* = .{};
-        }
-        break :d .{
-            .new_decl = decl,
-            .decl_index = @as(Decl.Index, @enumFromInt(mod.allocated_decls.len - 1)),
-        };
-    };
-
-    if (src_scope) |scope| scope.incRef();
-    decl_and_index.new_decl.* = .{
+    const ip = &mod.intern_pool;
+    const gpa = mod.gpa;
+    const decl_index = try ip.createDecl(gpa, .{
         .name = undefined,
         .src_namespace = namespace,
         .src_node = src_node,
@@ -5629,9 +5556,18 @@ pub fn allocateNewDecl(
         .has_align = false,
         .alive = false,
         .kind = .anon,
-    };
+    });
 
-    return decl_and_index.decl_index;
+    if (mod.emit_h) |mod_emit_h| {
+        if (@intFromEnum(decl_index) >= mod_emit_h.allocated_emit_h.len) {
+            try mod_emit_h.allocated_emit_h.append(gpa, .{});
+            assert(@intFromEnum(decl_index) == mod_emit_h.allocated_emit_h.len);
+        }
+    }
+
+    if (src_scope) |scope| scope.incRef();
+
+    return decl_index;
 }
 
 pub fn getErrorValue(
@@ -5667,7 +5603,7 @@ pub fn createAnonymousDeclFromDecl(
     const name = try mod.intern_pool.getOrPutStringFmt(mod.gpa, "{}__anon_{d}", .{
         src_decl.name.fmt(&mod.intern_pool), @intFromEnum(new_decl_index),
     });
-    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, tv, name);
+    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, tv, name);
     return new_decl_index;
 }
 
@@ -5675,7 +5611,6 @@ pub fn initNewAnonDecl(
     mod: *Module,
     new_decl_index: Decl.Index,
     src_line: u32,
-    namespace: Namespace.Index,
     typed_value: TypedValue,
     name: InternPool.NullTerminatedString,
 ) Allocator.Error!void {
@@ -5692,8 +5627,6 @@ pub fn initNewAnonDecl(
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
-
-    try mod.namespacePtr(namespace).anon_decls.putNoClobber(mod.gpa, new_decl_index, {});
 }
 
 pub fn errNoteNonLazy(

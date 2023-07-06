@@ -20,6 +20,25 @@ limbs: std.ArrayListUnmanaged(u64) = .{},
 /// `string_bytes` array is agnostic to either usage.
 string_bytes: std.ArrayListUnmanaged(u8) = .{},
 
+/// Rather than allocating Decl objects with an Allocator, we instead allocate
+/// them with this SegmentedList. This provides four advantages:
+///  * Stable memory so that one thread can access a Decl object while another
+///    thread allocates additional Decl objects from this list.
+///  * It allows us to use u32 indexes to reference Decl objects rather than
+///    pointers, saving memory in Type, Value, and dependency sets.
+///  * Using integers to reference Decl objects rather than pointers makes
+///    serialization trivial.
+///  * It provides a unique integer to be used for anonymous symbol names, avoiding
+///    multi-threaded contention on an atomic counter.
+allocated_decls: std.SegmentedList(Module.Decl, 0) = .{},
+/// When a Decl object is freed from `allocated_decls`, it is pushed into this stack.
+decls_free_list: std.ArrayListUnmanaged(Module.Decl.Index) = .{},
+
+/// Same pattern as with `allocated_decls`.
+allocated_namespaces: std.SegmentedList(Module.Namespace, 0) = .{},
+/// Same pattern as with `decls_free_list`.
+namespaces_free_list: std.ArrayListUnmanaged(Module.Namespace.Index) = .{},
+
 /// Struct objects are stored in this data structure because:
 /// * They contain pointers such as the field maps.
 /// * They need to be mutated after creation.
@@ -2694,6 +2713,12 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.inferred_error_sets_free_list.deinit(gpa);
     ip.allocated_inferred_error_sets.deinit(gpa);
 
+    ip.decls_free_list.deinit(gpa);
+    ip.allocated_decls.deinit(gpa);
+
+    ip.namespaces_free_list.deinit(gpa);
+    ip.allocated_namespaces.deinit(gpa);
+
     for (ip.maps.items) |*map| map.deinit(gpa);
     ip.maps.deinit(gpa);
 
@@ -4274,6 +4299,7 @@ pub fn getExternFunc(ip: *InternPool, gpa: Allocator, key: GetExternFuncKey) All
 }
 
 pub const GetFuncDeclKey = struct {
+    fn_owner_decl: Module.Decl.Index,
     param_types: []const Index,
     noalias_bits: u32,
     comptime_bits: u32,
@@ -4303,9 +4329,36 @@ pub const GetFuncDeclKey = struct {
 };
 
 pub fn getFuncDecl(ip: *InternPool, gpa: Allocator, key: GetFuncDeclKey) Allocator.Error!Index {
-    _ = ip;
-    _ = gpa;
-    _ = key;
+    const fn_owner_decl = ip.declPtr(key.fn_owner_decl);
+    const decl_index = try ip.createDecl(gpa, .{
+        .name = undefined,
+        .src_namespace = fn_owner_decl.src_namespace,
+        .src_node = fn_owner_decl.src_node,
+        .src_line = fn_owner_decl.src_line,
+        .has_tv = true,
+        .owns_tv = true,
+        .ty = @panic("TODO"),
+        .val = @panic("TODO"),
+        .alignment = .none,
+        .@"linksection" = fn_owner_decl.@"linksection",
+        .@"addrspace" = fn_owner_decl.@"addrspace",
+        .analysis = .complete,
+        .deletion_flag = false,
+        .zir_decl_index = fn_owner_decl.zir_decl_index,
+        .src_scope = fn_owner_decl.src_scope,
+        .generation = 0,
+        .is_pub = fn_owner_decl.is_pub,
+        .is_exported = fn_owner_decl.is_exported,
+        .has_linksection_or_addrspace = fn_owner_decl.has_linksection_or_addrspace,
+        .has_align = fn_owner_decl.has_align,
+        .alive = true,
+        .kind = .anon,
+    });
+    // TODO better names for generic function instantiations
+    const decl_name = try ip.getOrPutStringFmt(gpa, "{}__anon_{d}", .{
+        fn_owner_decl.name.fmt(ip), @intFromEnum(decl_index),
+    });
+    ip.declPtr(decl_index).name = decl_name;
     @panic("TODO");
 }
 
@@ -5553,6 +5606,14 @@ pub fn inferredErrorSetPtrConst(ip: *const InternPool, index: Module.InferredErr
     return ip.allocated_inferred_error_sets.at(@intFromEnum(index));
 }
 
+pub fn declPtr(ip: *InternPool, index: Module.Decl.Index) *Module.Decl {
+    return ip.allocated_decls.at(@intFromEnum(index));
+}
+
+pub fn namespacePtr(ip: *InternPool, index: Module.Namespace.Index) *Module.Namespace {
+    return ip.allocated_namespaces.at(@intFromEnum(index));
+}
+
 pub fn createStruct(
     ip: *InternPool,
     gpa: Allocator,
@@ -5616,6 +5677,50 @@ pub fn destroyInferredErrorSet(ip: *InternPool, gpa: Allocator, index: Module.In
     ip.inferred_error_sets_free_list.append(gpa, index) catch {
         // In order to keep `destroyInferredErrorSet` a non-fallible function, we ignore memory
         // allocation failures here, instead leaking the InferredErrorSet until garbage collection.
+    };
+}
+
+pub fn createDecl(
+    ip: *InternPool,
+    gpa: Allocator,
+    initialization: Module.Decl,
+) Allocator.Error!Module.Decl.Index {
+    if (ip.decls_free_list.popOrNull()) |index| {
+        ip.allocated_decls.at(@intFromEnum(index)).* = initialization;
+        return index;
+    }
+    const ptr = try ip.allocated_decls.addOne(gpa);
+    ptr.* = initialization;
+    return @as(Module.Decl.Index, @enumFromInt(ip.allocated_decls.len - 1));
+}
+
+pub fn destroyDecl(ip: *InternPool, gpa: Allocator, index: Module.Decl.Index) void {
+    ip.declPtr(index).* = undefined;
+    ip.decls_free_list.append(gpa, index) catch {
+        // In order to keep `destroyDecl` a non-fallible function, we ignore memory
+        // allocation failures here, instead leaking the Decl until garbage collection.
+    };
+}
+
+pub fn createNamespace(
+    ip: *InternPool,
+    gpa: Allocator,
+    initialization: Module.Namespace,
+) Allocator.Error!Module.Namespace.Index {
+    if (ip.namespaces_free_list.popOrNull()) |index| {
+        ip.allocated_namespaces.at(@intFromEnum(index)).* = initialization;
+        return index;
+    }
+    const ptr = try ip.allocated_namespaces.addOne(gpa);
+    ptr.* = initialization;
+    return @as(Module.Namespace.Index, @enumFromInt(ip.allocated_namespaces.len - 1));
+}
+
+pub fn destroyNamespace(ip: *InternPool, gpa: Allocator, index: Module.Namespace.Index) void {
+    ip.namespacePtr(index).* = undefined;
+    ip.namespaces_free_list.append(gpa, index) catch {
+        // In order to keep `destroyNamespace` a non-fallible function, we ignore memory
+        // allocation failures here, instead leaking the Namespace until garbage collection.
     };
 }
 

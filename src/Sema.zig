@@ -2891,12 +2891,12 @@ fn createAnonymousDeclTypeNamed(
             const name = mod.intern_pool.getOrPutStringFmt(gpa, "{}__{s}_{d}", .{
                 src_decl.name.fmt(&mod.intern_pool), anon_prefix, @intFromEnum(new_decl_index),
             }) catch unreachable;
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
+            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, typed_value, name);
             return new_decl_index;
         },
         .parent => {
             const name = mod.declPtr(block.src_decl).name;
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
+            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, typed_value, name);
             return new_decl_index;
         },
         .func => {
@@ -2932,7 +2932,7 @@ fn createAnonymousDeclTypeNamed(
 
             try writer.writeByte(')');
             const name = try mod.intern_pool.getOrPutString(gpa, buf.items);
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
+            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, typed_value, name);
             return new_decl_index;
         },
         .dbg_var => {
@@ -2948,7 +2948,7 @@ fn createAnonymousDeclTypeNamed(
                         src_decl.name.fmt(&mod.intern_pool), zir_data[i].str_op.getStr(sema.code),
                     });
 
-                    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
+                    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, typed_value, name);
                     return new_decl_index;
                 },
                 else => {},
@@ -7393,11 +7393,12 @@ fn instantiateGenericCall(
     const ip = &mod.intern_pool;
 
     const func_val = try sema.resolveConstValue(block, func_src, func, "generic function being called must be comptime-known");
-    const module_fn = switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
-        .func => |x| x,
-        .ptr => |ptr| mod.intern_pool.indexToKey(mod.declPtr(ptr.addr.decl).val.toIntern()).func,
+    const generic_owner = switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
+        .func => func_val.toIntern(),
+        .ptr => |ptr| mod.declPtr(ptr.addr.decl).val.toIntern(),
         else => unreachable,
     };
+    const generic_owner_func = mod.intern_pool.indexToKey(generic_owner).func;
 
     // Even though there may already be a generic instantiation corresponding
     // to this callsite, we must evaluate the expressions of the generic
@@ -7407,11 +7408,11 @@ fn instantiateGenericCall(
     // The actual monomorphization happens via adding `func_instance` to
     // `InternPool`.
 
-    const fn_owner_decl = mod.declPtr(module_fn.owner_decl);
+    const fn_owner_decl = mod.declPtr(generic_owner_func.owner_decl);
     const namespace_index = fn_owner_decl.src_namespace;
     const namespace = mod.namespacePtr(namespace_index);
     const fn_zir = namespace.file_scope.zir;
-    const fn_info = fn_zir.getFnInfo(module_fn.zir_body_inst);
+    const fn_info = fn_zir.getFnInfo(generic_owner_func.zir_body_inst);
 
     const comptime_args = try sema.arena.alloc(InternPool.Index, uncasted_args.len);
     @memset(comptime_args, .none);
@@ -7434,7 +7435,7 @@ fn instantiateGenericCall(
         .fn_ret_ty = Type.void,
         .owner_func_index = .none,
         .comptime_args = comptime_args,
-        .generic_owner = module_fn.generic_owner,
+        .generic_owner = generic_owner,
         .branch_quota = sema.branch_quota,
         .branch_count = sema.branch_count,
         .comptime_mutable_decls = sema.comptime_mutable_decls,
@@ -7444,7 +7445,7 @@ fn instantiateGenericCall(
     var child_block: Block = .{
         .parent = null,
         .sema = &child_sema,
-        .src_decl = module_fn.owner_decl,
+        .src_decl = generic_owner_func.owner_decl,
         .namespace = namespace_index,
         .wip_capture_scope = block.wip_capture_scope,
         .instructions = .{},
@@ -8737,7 +8738,13 @@ fn funcCommon(
             if (inferred_error_set)
                 try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
 
+            const fn_owner_decl = if (sema.generic_owner != .none)
+                mod.funcOwnerDeclIndex(sema.generic_owner)
+            else
+                sema.owner_decl_index;
+
             break :i try ip.getFuncDecl(gpa, .{
+                .fn_owner_decl = fn_owner_decl,
                 .param_types = param_types,
                 .noalias_bits = noalias_bits,
                 .comptime_bits = comptime_bits,
@@ -34628,7 +34635,7 @@ fn generateUnionTagTypeNumbered(
     errdefer mod.destroyDecl(new_decl_index);
     const fqn = try union_obj.getFullyQualifiedName(mod);
     const name = try mod.intern_pool.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(&mod.intern_pool)});
-    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, block.namespace, .{
+    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, .{
         .ty = Type.noreturn,
         .val = Value.@"unreachable",
     }, name);
@@ -34679,7 +34686,7 @@ fn generateUnionTagTypeSimple(
         errdefer mod.destroyDecl(new_decl_index);
         const fqn = try union_obj.getFullyQualifiedName(mod);
         const name = try mod.intern_pool.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(&mod.intern_pool)});
-        try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, block.namespace, .{
+        try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, .{
             .ty = Type.noreturn,
             .val = Value.@"unreachable",
         }, name);
