@@ -321,6 +321,7 @@ pub const ChildProcess = struct {
         max_output_bytes: usize = 50 * 1024,
         expand_arg0: Arg0Expand = .no_expand,
     }) ExecError!ExecResult {
+        if (std.options.log_exec) std.log.scoped(.exec).debug("{s}", .{argv});
         var child = ChildProcess.init(args.argv, args.allocator);
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
