@@ -579,12 +579,6 @@ pub const PROT = struct {
     pub const READ = 1;
     pub const WRITE = 2;
     pub const EXEC = 4;
-    pub fn MPROTECT(flag: u32) u32 {
-        return flag << 3;
-    }
-    pub fn MPROTECT_EXTRACT(flag: u32) u32 {
-        return (flag >> 3) & 0x7;
-    }
 };
 
 pub const CLOCK = struct {
@@ -625,16 +619,6 @@ pub const MAP = struct {
     pub const ALIGNMENT_1TB = MAP.ALIGNED(40);
     pub const ALIGNMENT_256TB = MAP.ALIGNED(48);
     pub const ALIGNMENT_64PB = MAP.ALIGNED(56);
-};
-
-pub const MADV = struct {
-    pub const NORMAL = 0;
-    pub const RANDOM = 1;
-    pub const SEQUENTIAL = 2;
-    pub const WILLNEED = 3;
-    pub const DONTNEED = 4;
-    pub const SPACEAVAIL = 5;
-    pub const FREE = 6;
 };
 
 pub const MSF = struct {
