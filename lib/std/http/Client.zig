@@ -92,16 +92,15 @@ pub const ConnectionPool = struct {
 
         if (node.data.closing) {
             node.data.deinit(client);
-
             return client.allocator.destroy(node);
         }
 
-        if (pool.free_len + 1 >= pool.free_size) {
+        if (pool.free_len >= pool.free_size) {
             const popped = pool.free.popFirst() orelse unreachable;
+            pool.free_len -= 1;
 
             popped.data.deinit(client);
-
-            return client.allocator.destroy(popped);
+            client.allocator.destroy(popped);
         }
 
         if (node.data.proxied) {
