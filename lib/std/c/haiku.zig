@@ -1071,5 +1071,3 @@ pub const sigevent = extern struct {
 
 /// TODO refines if necessary
 pub const PTHREAD_STACK_MIN = 2 * 4096;
-
-pub extern "c" fn malloc_usable_size(?*anyopaque) usize;
