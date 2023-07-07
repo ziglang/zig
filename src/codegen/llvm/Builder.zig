@@ -17,6 +17,7 @@ string_indices: std.ArrayListUnmanaged(u32) = .{},
 
 types: std.AutoArrayHashMapUnmanaged(String, Type) = .{},
 next_unnamed_type: String = @enumFromInt(0),
+next_unique_type_id: std.AutoHashMapUnmanaged(String, u32) = .{},
 type_map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
 type_data: std.ArrayListUnmanaged(Type.Data) = .{},
 type_extra: std.ArrayListUnmanaged(u32) = .{},
@@ -109,8 +110,10 @@ pub const Type = enum(u32) {
     i1,
     i8,
     i16,
+    i29,
     i32,
     i64,
+    i80,
     i128,
     ptr,
 
@@ -173,17 +176,18 @@ pub const Type = enum(u32) {
         if (std.enums.tagName(Type, data.type)) |name| return writer.writeAll(name);
         const type_data = data.builder.type_data.items[@intFromEnum(data.type)];
         switch (type_data.tag) {
+            .integer => try writer.print("i{d}", .{type_data.data}),
             .named_structure => {
                 const extra = data.builder.typeExtraData(NamedStructure, type_data.data);
-                if (comptime std.mem.eql(u8, fmt_str, "")) try writer.print("%{}", .{
-                    extra.id.fmt(data.builder),
-                }) else if (comptime std.mem.eql(u8, fmt_str, "+")) switch (extra.child) {
+                if (comptime std.mem.eql(u8, fmt_str, "")) switch (extra.child) {
                     .none => try writer.writeAll("opaque"),
                     else => try format(.{
                         .type = extra.child,
                         .builder = data.builder,
                     }, fmt_str, fmt_opts, writer),
-                } else @compileError("invalid format string: '" ++ fmt_str ++ "'");
+                } else if (comptime std.mem.eql(u8, fmt_str, "%")) try writer.print("%{}", .{
+                    extra.id.fmt(data.builder),
+                }) else @compileError("invalid format string: '" ++ fmt_str ++ "'");
             },
             else => try writer.print("<type 0x{X}>", .{@intFromEnum(data.type)}),
         }
@@ -220,7 +224,7 @@ pub const Linkage = enum {
 };
 
 pub const Preemption = enum {
-    none,
+    default,
     dso_preemptable,
     dso_local,
 
@@ -230,7 +234,7 @@ pub const Preemption = enum {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (self == .none) return;
+        if (self == .default) return;
         try writer.writeAll(@tagName(self));
         try writer.writeByte(' ');
     }
@@ -271,7 +275,7 @@ pub const DllStorageClass = enum {
 };
 
 pub const ThreadLocal = enum {
-    none,
+    default,
     generaldynamic,
     localdynamic,
     initialexec,
@@ -283,7 +287,7 @@ pub const ThreadLocal = enum {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (self == .none) return;
+        if (self == .default) return;
         try writer.writeAll("thread_local");
         if (self != .generaldynamic) {
             try writer.writeByte('(');
@@ -295,7 +299,7 @@ pub const ThreadLocal = enum {
 };
 
 pub const UnnamedAddr = enum {
-    none,
+    default,
     unnamed_addr,
     local_unnamed_addr,
 
@@ -305,14 +309,14 @@ pub const UnnamedAddr = enum {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (self == .none) return;
+        if (self == .default) return;
         try writer.writeAll(@tagName(self));
         try writer.writeByte(' ');
     }
 };
 
 pub const AddrSpace = enum(u24) {
-    none,
+    default,
     _,
 
     pub fn format(
@@ -321,13 +325,13 @@ pub const AddrSpace = enum(u24) {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (self == .none) return;
+        if (self == .default) return;
         try writer.print("addrspace({d}) ", .{@intFromEnum(self)});
     }
 };
 
 pub const ExternallyInitialized = enum {
-    none,
+    default,
     externally_initialized,
 
     pub fn format(
@@ -336,7 +340,7 @@ pub const ExternallyInitialized = enum {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (self == .none) return;
+        if (self == .default) return;
         try writer.writeAll(@tagName(self));
         try writer.writeByte(' ');
     }
@@ -369,12 +373,12 @@ pub const Alignment = enum(u6) {
 
 pub const Global = struct {
     linkage: Linkage = .default,
-    preemption: Preemption = .none,
+    preemption: Preemption = .default,
     visibility: Visibility = .default,
     dll_storage_class: DllStorageClass = .default,
-    unnamed_addr: UnnamedAddr = .none,
-    addr_space: AddrSpace = .none,
-    externally_initialized: ExternallyInitialized = .none,
+    unnamed_addr: UnnamedAddr = .default,
+    addr_space: AddrSpace = .default,
+    externally_initialized: ExternallyInitialized = .default,
     type: Type,
     alignment: Alignment = .default,
     kind: union(enum) {
@@ -459,7 +463,7 @@ pub const Alias = struct {
 
 pub const Object = struct {
     global: Global.Index,
-    thread_local: ThreadLocal = .none,
+    thread_local: ThreadLocal = .default,
     mutability: enum { global, constant } = .global,
     init: void = {},
 
@@ -525,7 +529,7 @@ pub fn init(self: *Builder) Allocator.Error!void {
                 @field(llvm.Context, simple_field.name ++ "Type")(self.llvm_context),
             );
         }
-        inline for (.{ 1, 8, 16, 32, 64, 128 }) |bits| assert(self.intTypeAssumeCapacity(bits) ==
+        inline for (.{ 1, 8, 16, 29, 32, 64, 80, 128 }) |bits| assert(self.intTypeAssumeCapacity(bits) ==
             @field(Type, std.fmt.comptimePrint("i{d}", .{bits})));
         inline for (.{0}) |addr_space|
             assert(self.pointerTypeAssumeCapacity(@enumFromInt(addr_space)) == .ptr);
@@ -541,6 +545,7 @@ pub fn deinit(self: *Builder) void {
     self.string_indices.deinit(self.gpa);
 
     self.types.deinit(self.gpa);
+    self.next_unique_type_id.deinit(self.gpa);
     self.type_map.deinit(self.gpa);
     self.type_data.deinit(self.gpa);
     self.type_extra.deinit(self.gpa);
@@ -596,13 +601,18 @@ pub fn fmtAssumeCapacity(self: *Builder, comptime fmt_str: []const u8, fmt_args:
 }
 
 pub fn opaqueType(self: *Builder, name: String) Allocator.Error!Type {
+    try self.string_map.ensureUnusedCapacity(self.gpa, 1);
+    try self.string_bytes.ensureUnusedCapacity(self.gpa, name.toSlice(self).?.len +
+        comptime std.fmt.count("{d}" ++ .{0}, .{std.math.maxInt(u32)}));
+    try self.string_indices.ensureUnusedCapacity(self.gpa, 1);
     try self.types.ensureUnusedCapacity(self.gpa, 1);
+    try self.next_unique_type_id.ensureUnusedCapacity(self.gpa, 1);
     try self.ensureUnusedCapacityTypes(1, Type.NamedStructure);
     return self.opaqueTypeAssumeCapacity(name);
 }
 
 pub fn intType(self: *Builder, bits: u24) Allocator.Error!Type {
-    try self.ensureUnusedCapacityTypes(1);
+    try self.ensureUnusedCapacityTypes(1, null);
     return self.intTypeAssumeCapacity(bits);
 }
 
@@ -695,27 +705,39 @@ fn opaqueTypeAssumeCapacity(self: *Builder, name: String) Type {
                 lhs == ctx.builder.typeExtraData(Type.NamedStructure, rhs_data.data).id;
         }
     };
-    const id = if (name == .none) name: {
-        const next_name = self.next_unnamed_type;
-        assert(next_name != .none);
-        self.next_unnamed_type = @enumFromInt(@intFromEnum(next_name) + 1);
-        break :name next_name;
-    } else name: {
-        assert(name.toIndex() != null);
-        break :name name;
-    };
-    const gop = self.type_map.getOrPutAssumeCapacityAdapted(id, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.type_data.appendAssumeCapacity(.{
-            .tag = .named_structure,
-            .data = self.addTypeExtraAssumeCapacity(Type.NamedStructure{ .id = id, .child = .none }),
-        });
+    var id = name;
+    if (name == .none) {
+        id = self.next_unnamed_type;
+        assert(id != .none);
+        self.next_unnamed_type = @enumFromInt(@intFromEnum(id) + 1);
+    } else assert(name.toIndex() != null);
+    while (true) {
+        const type_gop = self.types.getOrPutAssumeCapacity(id);
+        if (!type_gop.found_existing) {
+            const gop = self.type_map.getOrPutAssumeCapacityAdapted(id, Adapter{ .builder = self });
+            assert(!gop.found_existing);
+            gop.key_ptr.* = {};
+            gop.value_ptr.* = {};
+            self.type_data.appendAssumeCapacity(.{
+                .tag = .named_structure,
+                .data = self.addTypeExtraAssumeCapacity(Type.NamedStructure{
+                    .id = id,
+                    .child = .none,
+                }),
+            });
+            const result: Type = @enumFromInt(gop.index);
+            type_gop.value_ptr.* = result;
+            if (self.useLibLlvm()) self.llvm_types.appendAssumeCapacity(
+                self.llvm_context.structCreateNamed(id.toSlice(self) orelse ""),
+            );
+            return result;
+        }
+
+        const unique_gop = self.next_unique_type_id.getOrPutAssumeCapacity(name);
+        if (!unique_gop.found_existing) unique_gop.value_ptr.* = 2;
+        id = self.fmtAssumeCapacity("{s}.{d}", .{ name.toSlice(self).?, unique_gop.value_ptr.* });
+        unique_gop.value_ptr.* += 1;
     }
-    const result: Type = @enumFromInt(gop.index);
-    self.types.putAssumeCapacityNoClobber(id, result);
-    return result;
 }
 
 fn intTypeAssumeCapacity(self: *Builder, bits: u24) Type {
@@ -786,7 +808,7 @@ pub fn dump(self: *Builder, writer: anytype) @TypeOf(writer).Error!void {
     , .{self.target_triple.fmt(self)});
     try writer.writeByte('\n');
     for (self.types.keys(), self.types.values()) |id, ty| try writer.print(
-        \\%{} = type {+}
+        \\%{} = type {}
         \\
     , .{ id.fmt(self), ty.fmt(self) });
     try writer.writeByte('\n');

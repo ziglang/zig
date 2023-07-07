@@ -1612,6 +1612,13 @@ pub const address_space = struct {
         pub const constant_buffer_14: c_uint = 22;
         pub const constant_buffer_15: c_uint = 23;
     };
+
+    // See llvm/lib/Target/WebAssembly/Utils/WebAssemblyTypeUtilities.h
+    pub const wasm = struct {
+        pub const variable = 1;
+        pub const externref = 10;
+        pub const funcref = 20;
+    };
 };
 
 pub const DIEnumerator = opaque {};

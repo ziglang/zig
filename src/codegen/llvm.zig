@@ -328,6 +328,212 @@ pub fn supportsTailCall(target: std.Target) bool {
     }
 }
 
+const DataLayoutBuilder = struct {
+    target: std.Target,
+
+    pub fn format(
+        self: DataLayoutBuilder,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        const is_aarch64_windows = self.target.cpu.arch == .aarch64 and self.target.os.tag == .windows;
+        try writer.print("{c}-m:{c}", .{
+            @as(u8, switch (self.target.cpu.arch.endian()) {
+                .Little => 'e',
+                .Big => 'E',
+            }),
+            @as(u8, if (self.target.cpu.arch.isMIPS())
+                'm' // Mips mangling: Private symbols get a $ prefix.
+            else switch (self.target.ofmt) {
+                .elf => 'e', // ELF mangling: Private symbols get a `.L` prefix.
+                //.goff => 'l', // GOFF mangling: Private symbols get a `@` prefix.
+                .macho => 'o', // Mach-O mangling: Private symbols get `L` prefix.
+                // Other symbols get a `_` prefix.
+                .coff => switch (self.target.os.tag) {
+                    .windows => switch (self.target.cpu.arch) {
+                        .x86 => 'x', // Windows x86 COFF mangling: Private symbols get the usual prefix.
+                        // Regular C symbols get a `_` prefix. Functions with `__stdcall`, `__fastcall`,
+                        // and `__vectorcall` have custom mangling that appends `@N` where N is the
+                        // number of bytes used to pass parameters. C++ symbols starting with `?` are
+                        // not mangled in any way.
+                        else => 'w', // Windows COFF mangling: Similar to x, except that normal C
+                        // symbols do not receive a `_` prefix.
+                    },
+                    else => 'e',
+                },
+                //.xcoff => 'a', // XCOFF mangling: Private symbols get a `L..` prefix.
+                else => 'e',
+            }),
+        });
+        var any_non_integral = false;
+        const ptr_bit_width = self.target.ptrBitWidth();
+        var default_info = struct { size: u16, abi: u16, pref: u16, idx: u16 }{
+            .size = 64,
+            .abi = 64,
+            .pref = 64,
+            .idx = 64,
+        };
+        const address_space_info = llvmAddressSpaceInfo(self.target);
+        assert(address_space_info[0].llvm == llvm.address_space.default);
+        for (address_space_info) |info| {
+            const is_default = info.llvm == llvm.address_space.default;
+            if (info.non_integral) {
+                assert(!is_default);
+                any_non_integral = true;
+            }
+            const size = info.size orelse ptr_bit_width;
+            const abi = info.abi orelse ptr_bit_width;
+            const pref = info.pref orelse abi;
+            const idx = info.idx orelse size;
+            const matches_default =
+                size == default_info.size and
+                abi == default_info.abi and
+                pref == default_info.pref and
+                idx == default_info.idx;
+            if (is_default) default_info = .{
+                .size = size,
+                .abi = abi,
+                .pref = pref,
+                .idx = idx,
+            };
+            if (!info.force_in_data_layout and matches_default and
+                self.target.cpu.arch != .riscv64 and !is_aarch64_windows) continue;
+            try writer.writeAll("-p");
+            if (!is_default) try writer.print("{d}", .{info.llvm});
+            try writer.print(":{d}:{d}", .{ size, abi });
+            if (pref != abi or idx != size) {
+                try writer.print(":{d}", .{pref});
+                if (idx != size) try writer.print(":{d}", .{idx});
+            }
+        }
+        if (self.target.cpu.arch.isARM() or self.target.cpu.arch.isThumb())
+            try writer.writeAll("-Fi8"); // for thumb interwork
+        try self.typeAlignment(.integer, 8, 8, 8, false, writer);
+        try self.typeAlignment(.integer, 16, 16, 16, false, writer);
+        try self.typeAlignment(.integer, 32, if (is_aarch64_windows) 0 else 32, 32, false, writer);
+        try self.typeAlignment(.integer, 64, 32, 64, false, writer);
+        try self.typeAlignment(.integer, 128, 32, 64, false, writer);
+        if (backendSupportsF16(self.target)) try self.typeAlignment(.float, 16, 16, 16, false, writer);
+        try self.typeAlignment(.float, 32, 32, 32, false, writer);
+        try self.typeAlignment(.float, 64, 64, 64, false, writer);
+        if (backendSupportsF80(self.target)) try self.typeAlignment(.float, 80, 0, 0, false, writer);
+        try self.typeAlignment(.float, 128, 128, 128, false, writer);
+        try self.typeAlignment(.vector, 64, 64, 64, false, writer);
+        try self.typeAlignment(.vector, 128, 128, 128, false, writer);
+        if (self.target.os.tag != .windows) try self.typeAlignment(.aggregate, 0, 0, 64, false, writer);
+        for (@as([]const u24, switch (self.target.cpu.arch) {
+            .aarch64_32,
+            .arm,
+            .armeb,
+            .mips,
+            .mipsel,
+            .powerpc,
+            .powerpcle,
+            .thumb,
+            .thumbeb,
+            .riscv32,
+            => &.{32},
+            .aarch64,
+            .aarch64_be,
+            .mips64,
+            .mips64el,
+            .powerpc64,
+            .powerpc64le,
+            .riscv64,
+            .wasm32,
+            .wasm64,
+            => &.{ 32, 64 },
+            .x86 => &.{ 8, 16, 32 },
+            .x86_64 => &.{ 8, 16, 32, 64 },
+            else => &.{},
+        }), 0..) |natural, index| switch (index) {
+            0 => try writer.print("-n{d}", .{natural}),
+            else => try writer.print(":{d}", .{natural}),
+        };
+        if (self.target.os.tag == .windows) try self.typeAlignment(.aggregate, 0, 0, 64, false, writer);
+        const stack_abi = self.target.stackAlignment() * 8;
+        if (self.target.os.tag == .windows or stack_abi != ptr_bit_width)
+            try writer.print("-S{d}", .{stack_abi});
+        try self.typeAlignment(.vector, 256, 128, 128, true, writer);
+        try self.typeAlignment(.vector, 512, 128, 128, true, writer);
+        if (any_non_integral) {
+            try writer.writeAll("-ni");
+            for (address_space_info) |info| if (info.non_integral)
+                try writer.print(":{d}", .{info.llvm});
+        }
+    }
+
+    fn typeAlignment(
+        self: DataLayoutBuilder,
+        kind: enum { integer, vector, float, aggregate },
+        size: u24,
+        default_abi: u24,
+        default_pref: u24,
+        force_pref: bool,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        var abi = default_abi;
+        var pref = default_pref;
+        if (kind == .float and size == 80) {
+            abi = 128;
+            pref = 128;
+        }
+        for (@as([]const std.Target.CType, switch (kind) {
+            .integer => &.{ .char, .short, .int, .long, .longlong },
+            .float => &.{ .float, .double, .longdouble },
+            .vector, .aggregate => &.{},
+        })) |cty| {
+            if (self.target.c_type_bit_size(cty) != size) continue;
+            abi = self.target.c_type_alignment(cty) * 8;
+            pref = self.target.c_type_preferred_alignment(cty) * 8;
+            break;
+        }
+        switch (kind) {
+            .integer => {
+                abi = @min(abi, self.target.maxIntAlignment() * 8);
+                switch (self.target.os.tag) {
+                    .linux => switch (self.target.cpu.arch) {
+                        .aarch64, .aarch64_be, .mips, .mipsel => pref = @max(pref, 32),
+                        else => {},
+                    },
+                    else => {},
+                }
+                switch (self.target.cpu.arch) {
+                    .aarch64, .aarch64_be, .riscv64 => switch (size) {
+                        128 => {
+                            abi = size;
+                            pref = size;
+                        },
+                        else => {},
+                    },
+                    else => {},
+                }
+            },
+            .vector => if (self.target.cpu.arch.isARM() or self.target.cpu.arch.isThumb()) {
+                switch (size) {
+                    128 => abi = 64,
+                    else => {},
+                }
+            } else if (self.target.cpu.arch.isPPC64()) {
+                abi = size;
+                pref = size;
+            },
+            .float => {},
+            .aggregate => if (self.target.os.tag == .windows or
+                self.target.cpu.arch.isARM() or self.target.cpu.arch.isThumb())
+            {
+                pref = @min(pref, self.target.ptrBitWidth());
+            },
+        }
+        if (abi == default_abi and pref == default_pref) return;
+        try writer.print("-{c}", .{@tagName(kind)[0]});
+        if (size != 0) try writer.print("{d}", .{size});
+        try writer.print(":{d}", .{abi});
+        if (pref != abi or force_pref) try writer.print(":{d}", .{pref});
+    }
+};
+
 /// TODO can this be done with simpler logic / different API binding?
 fn deleteLlvmGlobal(llvm_global: *llvm.Value) void {
     if (llvm_global.globalGetValueType().getTypeKind() == .Function) {
@@ -530,12 +736,17 @@ pub const Object = struct {
         try builder.init();
         errdefer builder.deinit();
         builder.source_filename = try builder.string(options.root_name);
-        builder.data_layout = rep: {
+        builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = options.target }});
+        builder.target_triple = try builder.string(llvm_target_triple);
+
+        if (std.debug.runtime_safety) {
             const rep = target_data.stringRep();
             defer llvm.disposeMessage(rep);
-            break :rep try builder.string(std.mem.span(rep));
-        };
-        builder.target_triple = try builder.string(llvm_target_triple);
+            std.testing.expectEqualStrings(
+                std.mem.span(rep),
+                builder.data_layout.toSlice(&builder).?,
+            ) catch unreachable;
+        }
 
         return Object{
             .gpa = gpa,
@@ -768,6 +979,10 @@ pub const Object = struct {
         if (comp.verbose_llvm_ir) |path| {
             if (std.mem.eql(u8, path, "-")) {
                 self.llvm_module.dump();
+
+                const writer = std.io.getStdErr().writer();
+                try writer.writeAll("\n" ++ "-" ** 200 ++ "\n\n");
+                try self.builder.dump(writer);
             } else {
                 const path_z = try comp.gpa.dupeZ(u8, path);
                 defer comp.gpa.free(path_z);
@@ -835,12 +1050,6 @@ pub const Object = struct {
         log.debug("emit LLVM object asm={s} bin={s} ir={s} bc={s}", .{
             emit_asm_msg, emit_bin_msg, emit_llvm_ir_msg, emit_llvm_bc_msg,
         });
-
-        {
-            const writer = std.io.getStdErr().writer();
-            try writer.writeAll("\n" ++ "-" ** 200 ++ "\n\n");
-            try self.builder.dump(writer);
-        }
 
         // Unfortunately, LLVM shits the bed when we ask for both binary and assembly.
         // So we call the entire pipeline multiple times if this is requested.
@@ -1311,7 +1520,7 @@ pub const Object = struct {
             try global_index.rename(&self.builder, decl_name);
             const decl_name_slice = decl_name.toSlice(&self.builder).?;
             const global = global_index.ptr(&self.builder);
-            global.unnamed_addr = .none;
+            global.unnamed_addr = .default;
             llvm_global.setUnnamedAddr(.False);
             global.linkage = .external;
             llvm_global.setLinkage(.External);
@@ -2674,11 +2883,15 @@ pub const Object = struct {
 
         const target = mod.getTarget();
 
-        const llvm_type = try o.lowerLlvmType(decl.ty);
+        const ty = try o.lowerType(decl.ty);
+        const llvm_type = if (ty != .none)
+            o.builder.llvm_types.items[@intFromEnum(ty)]
+        else
+            try o.lowerLlvmType(decl.ty);
         const llvm_actual_addrspace = toLlvmGlobalAddressSpace(decl.@"addrspace", target);
 
         var global = Builder.Global{
-            .type = .void,
+            .type = if (ty != .none) ty else .void,
             .kind = .{ .object = @enumFromInt(o.builder.objects.items.len) },
         };
         var object = Builder.Object{
@@ -2698,7 +2911,7 @@ pub const Object = struct {
 
         // This is needed for declarations created by `@extern`.
         if (is_extern) {
-            global.unnamed_addr = .none;
+            global.unnamed_addr = .default;
             llvm_global.setUnnamedAddr(.False);
             global.linkage = .external;
             llvm_global.setLinkage(.External);
@@ -2708,7 +2921,7 @@ pub const Object = struct {
                     object.thread_local = .generaldynamic;
                     llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
                 } else {
-                    object.thread_local = .none;
+                    object.thread_local = .default;
                     llvm_global.setThreadLocalMode(.NotThreadLocal);
                 }
                 if (variable.is_weak_linkage) {
@@ -2962,9 +3175,9 @@ pub const Object = struct {
                 const name = try o.builder.string(mod.intern_pool.stringToSlice(
                     try struct_obj.getFullyQualifiedName(mod),
                 ));
-                _ = try o.builder.opaqueType(name);
+                const ty = try o.builder.opaqueType(name);
 
-                const llvm_struct_ty = o.context.structCreateNamed(name.toSlice(&o.builder).?);
+                const llvm_struct_ty = o.builder.llvm_types.items[@intFromEnum(ty)];
                 gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
 
                 assert(struct_obj.haveFieldTypes());
@@ -3101,16 +3314,6 @@ pub const Object = struct {
         }
     }
 
-    fn lowerType(o: *Object, t: Type) Allocator.Error!Builder.Type {
-        const mod = o.module;
-        switch (t.toIntern()) {
-            .void_type, .noreturn_type => return .void,
-            else => switch (mod.intern_pool.indexToKey(t.toIntern())) {
-                else => return .none,
-            },
-        }
-    }
-
     fn lowerLlvmTypeFn(o: *Object, fn_ty: Type) Allocator.Error!*llvm.Type {
         const mod = o.module;
         const ip = &mod.intern_pool;
@@ -3204,6 +3407,149 @@ pub const Object = struct {
             o.context.intType(8);
 
         return llvm_elem_ty;
+    }
+
+    fn lowerType(o: *Object, t: Type) Allocator.Error!Builder.Type {
+        const mod = o.module;
+        const target = mod.getTarget();
+        return switch (t.toIntern()) {
+            .u0_type, .i0_type => unreachable,
+            inline .u1_type,
+            .u8_type,
+            .i8_type,
+            .u16_type,
+            .i16_type,
+            .u29_type,
+            .u32_type,
+            .i32_type,
+            .u64_type,
+            .i64_type,
+            .u80_type,
+            .u128_type,
+            .i128_type,
+            => |tag| @field(Builder.Type, "i" ++ @tagName(tag)[1 .. @tagName(tag).len - "_type".len]),
+            .usize_type, .isize_type => try o.builder.intType(target.ptrBitWidth()),
+            inline .c_char_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            => |tag| try o.builder.intType(target.c_type_bit_size(
+                @field(std.Target.CType, @tagName(tag)["c_".len .. @tagName(tag).len - "_type".len]),
+            )),
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f80_type,
+            .f128_type,
+            => switch (t.floatBits(target)) {
+                16 => if (backendSupportsF16(target)) .half else .i16,
+                32 => .float,
+                64 => .double,
+                80 => if (backendSupportsF80(target)) .x86_fp80 else .i80,
+                128 => .fp128,
+                else => unreachable,
+            },
+            .anyopaque_type => unreachable,
+            .bool_type => .i1,
+            .void_type => .void,
+            .type_type => unreachable,
+            .anyerror_type => .i16,
+            .comptime_int_type, .comptime_float_type, .noreturn_type => unreachable,
+            .anyframe_type => @panic("TODO implement lowerType for AnyFrame types"),
+            .null_type,
+            .undefined_type,
+            .enum_literal_type,
+            .atomic_order_type,
+            .atomic_rmw_op_type,
+            .calling_convention_type,
+            .address_space_type,
+            .float_mode_type,
+            .reduce_op_type,
+            .call_modifier_type,
+            .prefetch_options_type,
+            .export_options_type,
+            .extern_options_type,
+            .type_info_type,
+            => unreachable,
+            .manyptr_u8_type,
+            .manyptr_const_u8_type,
+            .manyptr_const_u8_sentinel_0_type,
+            .single_const_pointer_to_comptime_int_type,
+            => .ptr,
+            .slice_const_u8_type, .slice_const_u8_sentinel_0_type => .none,
+            .optional_noreturn_type => unreachable,
+            .anyerror_void_error_union_type => .i16,
+            .generic_poison_type, .empty_struct_type => unreachable,
+            // values, not types
+            .undef,
+            .zero,
+            .zero_usize,
+            .zero_u8,
+            .one,
+            .one_usize,
+            .one_u8,
+            .four_u8,
+            .negative_one,
+            .calling_convention_c,
+            .calling_convention_inline,
+            .void_value,
+            .unreachable_value,
+            .null_value,
+            .bool_true,
+            .bool_false,
+            .empty_struct,
+            .generic_poison,
+            .var_args_param_type,
+            .none,
+            => unreachable,
+            else => switch (mod.intern_pool.indexToKey(t.toIntern())) {
+                .int_type => |int_type| try o.builder.intType(int_type.bits),
+                .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
+                    .One, .Many, .C => try o.builder.pointerType(@enumFromInt(
+                        toLlvmAddressSpace(ptr_type.flags.address_space, target),
+                    )),
+                    .Slice => .none,
+                },
+                .array_type, .vector_type, .opt_type => .none,
+                .anyframe_type => @panic("TODO implement lowerType for AnyFrame types"),
+                .error_union_type => .none,
+                .simple_type => unreachable,
+                .struct_type,
+                .anon_struct_type,
+                .union_type,
+                .opaque_type,
+                => .none,
+                .enum_type => |enum_type| try o.lowerType(enum_type.tag_ty.toType()),
+                .func_type, .error_set_type, .inferred_error_set_type => .none,
+                // values, not types
+                .undef,
+                .runtime_value,
+                .simple_value,
+                .variable,
+                .extern_func,
+                .func,
+                .int,
+                .err,
+                .error_union,
+                .enum_literal,
+                .enum_tag,
+                .empty_enum_value,
+                .float,
+                .ptr,
+                .opt,
+                .aggregate,
+                .un,
+                // memoization, not types
+                .memoized_call,
+                => unreachable,
+            },
+        };
     }
 
     fn lowerValue(o: *Object, arg_tv: TypedValue) Error!*llvm.Value {
@@ -10606,44 +10952,63 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.Ca
 
 /// Convert a zig-address space to an llvm address space.
 fn toLlvmAddressSpace(address_space: std.builtin.AddressSpace, target: std.Target) c_uint {
+    for (llvmAddressSpaceInfo(target)) |info| if (info.zig == address_space) return info.llvm;
+    unreachable;
+}
+
+const AddressSpaceInfo = struct {
+    zig: ?std.builtin.AddressSpace,
+    llvm: c_uint,
+    non_integral: bool = false,
+    size: ?u16 = null,
+    abi: ?u16 = null,
+    pref: ?u16 = null,
+    idx: ?u16 = null,
+    force_in_data_layout: bool = false,
+};
+fn llvmAddressSpaceInfo(target: std.Target) []const AddressSpaceInfo {
     return switch (target.cpu.arch) {
-        .x86, .x86_64 => switch (address_space) {
-            .generic => llvm.address_space.default,
-            .gs => llvm.address_space.x86.gs,
-            .fs => llvm.address_space.x86.fs,
-            .ss => llvm.address_space.x86.ss,
-            else => unreachable,
+        .x86, .x86_64 => &.{
+            .{ .zig = .generic, .llvm = llvm.address_space.default },
+            .{ .zig = .gs, .llvm = llvm.address_space.x86.gs },
+            .{ .zig = .fs, .llvm = llvm.address_space.x86.fs },
+            .{ .zig = .ss, .llvm = llvm.address_space.x86.ss },
+            .{ .zig = null, .llvm = llvm.address_space.x86.ptr32_sptr, .size = 32, .abi = 32, .force_in_data_layout = true },
+            .{ .zig = null, .llvm = llvm.address_space.x86.ptr32_uptr, .size = 32, .abi = 32, .force_in_data_layout = true },
+            .{ .zig = null, .llvm = llvm.address_space.x86.ptr64, .size = 64, .abi = 64, .force_in_data_layout = true },
         },
-        .nvptx, .nvptx64 => switch (address_space) {
-            .generic => llvm.address_space.default,
-            .global => llvm.address_space.nvptx.global,
-            .constant => llvm.address_space.nvptx.constant,
-            .param => llvm.address_space.nvptx.param,
-            .shared => llvm.address_space.nvptx.shared,
-            .local => llvm.address_space.nvptx.local,
-            else => unreachable,
+        .nvptx, .nvptx64 => &.{
+            .{ .zig = .generic, .llvm = llvm.address_space.default },
+            .{ .zig = .global, .llvm = llvm.address_space.nvptx.global },
+            .{ .zig = .constant, .llvm = llvm.address_space.nvptx.constant },
+            .{ .zig = .param, .llvm = llvm.address_space.nvptx.param },
+            .{ .zig = .shared, .llvm = llvm.address_space.nvptx.shared },
+            .{ .zig = .local, .llvm = llvm.address_space.nvptx.local },
         },
-        .amdgcn => switch (address_space) {
-            .generic => llvm.address_space.amdgpu.flat,
-            .global => llvm.address_space.amdgpu.global,
-            .constant => llvm.address_space.amdgpu.constant,
-            .shared => llvm.address_space.amdgpu.local,
-            .local => llvm.address_space.amdgpu.private,
-            else => unreachable,
+        .amdgcn => &.{
+            .{ .zig = .generic, .llvm = llvm.address_space.amdgpu.flat },
+            .{ .zig = .global, .llvm = llvm.address_space.amdgpu.global },
+            .{ .zig = .constant, .llvm = llvm.address_space.amdgpu.constant },
+            .{ .zig = .shared, .llvm = llvm.address_space.amdgpu.local },
+            .{ .zig = .local, .llvm = llvm.address_space.amdgpu.private },
         },
-        .avr => switch (address_space) {
-            .generic => llvm.address_space.default,
-            .flash => llvm.address_space.avr.flash,
-            .flash1 => llvm.address_space.avr.flash1,
-            .flash2 => llvm.address_space.avr.flash2,
-            .flash3 => llvm.address_space.avr.flash3,
-            .flash4 => llvm.address_space.avr.flash4,
-            .flash5 => llvm.address_space.avr.flash5,
-            else => unreachable,
+        .avr => &.{
+            .{ .zig = .generic, .llvm = llvm.address_space.default },
+            .{ .zig = .flash, .llvm = llvm.address_space.avr.flash },
+            .{ .zig = .flash1, .llvm = llvm.address_space.avr.flash1 },
+            .{ .zig = .flash2, .llvm = llvm.address_space.avr.flash2 },
+            .{ .zig = .flash3, .llvm = llvm.address_space.avr.flash3 },
+            .{ .zig = .flash4, .llvm = llvm.address_space.avr.flash4 },
+            .{ .zig = .flash5, .llvm = llvm.address_space.avr.flash5 },
         },
-        else => switch (address_space) {
-            .generic => llvm.address_space.default,
-            else => unreachable,
+        .wasm32, .wasm64 => &.{
+            .{ .zig = .generic, .llvm = llvm.address_space.default },
+            .{ .zig = null, .llvm = llvm.address_space.wasm.variable, .non_integral = true },
+            .{ .zig = null, .llvm = llvm.address_space.wasm.externref, .non_integral = true, .size = 8, .abi = 8 },
+            .{ .zig = null, .llvm = llvm.address_space.wasm.funcref, .non_integral = true, .size = 8, .abi = 8 },
+        },
+        else => &.{
+            .{ .zig = .generic, .llvm = llvm.address_space.default },
         },
     };
 }
