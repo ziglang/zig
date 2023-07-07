@@ -4050,7 +4050,7 @@ pub const HOST = struct {
     pub const EXTMOD_INFO64_COUNT = HostCount(vm_extmod_statistics_data_t);
 };
 
-pub const host_basic_info = extern struct {
+pub const host_basic_info = packed struct(u32) {
     max_cpus: integer_t,
     avail_cpus: integer_t,
     memory_size: natural_t,
