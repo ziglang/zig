@@ -1535,12 +1535,15 @@ pub fn mbind(addr: ?*anyopaque, len: u32, mode: i32, nodemask: *const u32, maxno
     return syscall6(.mbind, @intFromPtr(addr), len, @as(usize, @bitCast(@as(isize, mode))), @intFromPtr(nodemask), maxnode, flags);
 }
 
+<<<<<<< HEAD
 pub fn sched_setaffinity(pid: pid_t, size: usize, set: *const cpu_set_t) usize {
     const rc = syscall3(.sched_setaffinity, @as(usize, @bitCast(@as(isize, pid))), size, @intFromPtr(set));
     if (@as(isize, @bitCast(rc)) < 0) return rc;
     return 0;
 }
 
+=======
+>>>>>>> parent of c7bf8bab3 (std.os: adding linux's sched_setaffinity and its wrapper)
 pub fn epoll_create() usize {
     return epoll_create1(0);
 }
@@ -3596,11 +3599,6 @@ pub const CPU_SETSIZE = 128;
 pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
 pub const cpu_count_t = std.meta.Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
 
-fn cpu_mask(s: usize) cpu_count_t {
-    var x = s & (CPU_SETSIZE * 8);
-    return @as(cpu_count_t, @intCast(1)) << @as(u4, @intCast(x));
-}
-
 pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     var sum: cpu_count_t = 0;
     for (set) |x| {
@@ -3609,6 +3607,7 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     return sum;
 }
 
+<<<<<<< HEAD
 pub fn CPU_ZERO(set: *cpu_set_t) void {
     @memset(set, 0);
 }
@@ -3635,6 +3634,8 @@ pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
     }
 }
 
+=======
+>>>>>>> parent of c7bf8bab3 (std.os: adding linux's sched_setaffinity and its wrapper)
 pub const MINSIGSTKSZ = switch (native_arch) {
     .x86, .x86_64, .arm, .mipsel => 2048,
     .aarch64 => 5120,
