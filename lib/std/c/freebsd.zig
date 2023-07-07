@@ -10,6 +10,7 @@ pub const cpuset_t = extern struct {
     __bits: [(CPU_SETSIZE + (@bitSizeOf(c_long) - 1)) / @bitSizeOf(c_long)]c_long,
 };
 
+// TODO: can eventually serve for the domainset_t's type too.
 fn __BIT_COUNT(bits: []const c_long) c_long {
     var count: c_long = 0;
     for (bits) |b| {
@@ -2543,18 +2544,8 @@ pub const DOMAINSET = struct {
     pub const POLICY_MAX = DOMAINSET.POLICY_INTERLEAVE;
 };
 
-pub const DOMAINSET_SIZE = 256;
 pub const domainset_t = extern struct {
-    __bits: [(DOMAINSET_SIZE + (@sizeOf(domainset) - 1)) / @bitSizeOf(domainset)]domainset,
-};
-
-pub fn DOMAINSET_COUNT(set: domainset_t) c_int {
-    return @as(c_int, @intCast(__BIT_COUNT(set.__bits[0..])));
-}
-
-pub const domainset = extern struct {
     link: LIST_ENTRY,
-    mask: domainset_t,
     policy: u16,
     prefer: domainid_t,
     cnt: domainid_t,
