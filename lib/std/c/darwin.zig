@@ -4138,15 +4138,3 @@ pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
     .arm, .aarch64 => 16 * 1024,
     else => 8 * 1024,
 };
-
-pub const _SYS_NAMELEN = 256;
-
-pub const utsname = extern struct {
-    sysname: [255:0]u8,
-    nodename: [255:0]u8,
-    release: [255:0]u8,
-    version: [255:0]u8,
-    machine: [255:0]u8,
-};
-
-pub extern "c" fn uname(u: *utsname) c_int;
