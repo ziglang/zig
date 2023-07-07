@@ -5900,3 +5900,8 @@ pub const PTRACE = struct {
     pub const SECCOMP_GET_METADATA = 0x420d;
     pub const GET_SYSCALL_INFO = 0x420e;
 };
+
+pub const linger = extern struct {
+    l_onoff: i32,
+    l_linger: i32,
+};

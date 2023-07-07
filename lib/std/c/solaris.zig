@@ -1950,3 +1950,8 @@ pub const sigevent = extern struct {
 pub const PTHREAD_STACK_MIN = if (@sizeOf(usize) == 8) 8 * 1024 else 4 * 1024;
 
 pub const timer_t = *opaque {};
+
+pub const linger = extern struct {
+    l_onoff: i32,
+    l_linger: i32,
+};

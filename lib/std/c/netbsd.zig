@@ -1741,3 +1741,8 @@ pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: ?*anyopaque, data: c_
 pub const PTHREAD_STACK_MIN = 16 * 1024;
 
 pub const timer_t = *opaque {};
+
+pub const linger = extern struct {
+    l_onoff: i32,
+    l_linger: i32,
+};

@@ -1651,3 +1651,8 @@ pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
     .mips64 => 1 << 14,
     else => 1 << 12,
 };
+
+pub const linger = extern struct {
+    l_onoff: i32,
+    l_linger: i32,
+};

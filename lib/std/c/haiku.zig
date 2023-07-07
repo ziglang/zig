@@ -1073,3 +1073,8 @@ pub const sigevent = extern struct {
 pub const PTHREAD_STACK_MIN = 2 * 4096;
 
 pub extern "c" fn malloc_usable_size(?*anyopaque) usize;
+
+pub const linger = extern struct {
+    l_onoff: i32,
+    l_linger: i32,
+};

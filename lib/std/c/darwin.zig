@@ -4173,3 +4173,8 @@ pub const utsname = extern struct {
 };
 
 pub extern "c" fn uname(u: *utsname) c_int;
+
+pub const linger = extern struct {
+    l_onoff: i32,
+    l_linger: i32,
+};
