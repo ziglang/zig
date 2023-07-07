@@ -2445,8 +2445,8 @@ pub const PROC = struct {
     // x86_64-only constants
     pub const KPTI = switch (builtin.cpu.arch) {
         .x86_64 => struct {
-            pub const CTL = PROC.PROCCTL_MD_MIN;
-            pub const STATUS = PROC.PROCCTL_MD_MIN + 1;
+            pub const CTL = PROC.PROCCTL_MD_MIND;
+            pub const STATUS = PROC.PROCCTL_MD_MIND + 1;
             pub const CTL_ENABLE_ON_EXEC = 1;
             pub const CTL_DISABLE_ON_EXEC = 2;
             pub const STATUS_ACTIVE = 0x80000000;
@@ -2455,8 +2455,8 @@ pub const PROC = struct {
     };
     pub const LA = switch (builtin.cpu.arch) {
         .x86_64 => struct {
-            pub const CTL = PROC.PROCCTL_MD_MIN + 2;
-            pub const STATUS = PROC.PROCCTL_MD_MIN + 3;
+            pub const CTL = PROC.PROCCTL_MD_MIND + 2;
+            pub const STATUS = PROC.PROCCTL_MD_MIND + 3;
             pub const CTL_LA48_ON_EXEC = 1;
             pub const CTL_LA57_ON_EXEC = 2;
             pub const CTL_DEFAULT_ON_EXEC = 3;
