@@ -13,19 +13,6 @@ pub const cpulevel_t = c_int;
 pub const cpuwhich_t = c_int;
 pub const id_t = i64;
 
-pub const CPU_LEVEL_ROOT: cpulevel_t = 1;
-pub const CPU_LEVEL_CPUSET: cpulevel_t = 2;
-pub const CPU_LEVEL_WHICH: cpulevel_t = 3;
-pub const CPU_WHICH_TID: cpuwhich_t = 1;
-pub const CPU_WHICH_PID: cpuwhich_t = 2;
-pub const CPU_WHICH_CPUSET: cpuwhich_t = 3;
-pub const CPU_WHICH_IRQ: cpuwhich_t = 4;
-pub const CPU_WHICH_JAIL: cpuwhich_t = 5;
-pub const CPU_WHICH_DOMAIN: cpuwhich_t = 6;
-pub const CPU_WHICH_INTRHANDLER: cpuwhich_t = 7;
-pub const CPU_WHICH_ITHREAD: cpuwhich_t = 8;
-pub const CPU_WHICH_TIDPID: cpuwhich_t = 8;
-
 extern "c" fn __error() *c_int;
 pub const _errno = __error;
 
