@@ -147,6 +147,12 @@ pub const Value = union(enum) {
             }
         }
     }
+
+    pub fn jsonParseFromValue(allocator: Allocator, source: Value, options: ParseOptions) !@This() {
+        _ = allocator;
+        _ = options;
+        return source;
+    }
 };
 
 fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, value_: Value) !?Value {
