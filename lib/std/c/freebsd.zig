@@ -9,20 +9,6 @@ pub const CPU_SETSIZE = 256;
 pub const cpuset_t = extern struct {
     __bits: [(CPU_SETSIZE + (@bitSizeOf(c_long) - 1)) / @bitSizeOf(c_long)]c_long,
 };
-
-// TODO: can eventually serve for the domainset_t's type too.
-fn __BIT_COUNT(bits: []const c_long) c_long {
-    var count: c_long = 0;
-    for (bits) |b| {
-        count += @popCount(b);
-    }
-    return count;
-}
-
-pub fn CPU_COUNT(set: cpuset_t) c_int {
-    return @as(c_int, @intCast(__BIT_COUNT(set.__bits[0..])));
-}
-
 pub const cpulevel_t = c_int;
 pub const cpuwhich_t = c_int;
 pub const id_t = i64;
