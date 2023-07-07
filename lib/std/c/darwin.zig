@@ -903,21 +903,6 @@ pub const EAI = enum(c_int) {
 
 pub const EAI_MAX = 15;
 
-pub const qos_class_t = enum(c_uint) {
-    /// highest priority QOS class for critical tasks
-    QOS_CLASS_USER_INTERACTIVE = 0x21,
-    /// slightly more moderate priority QOS class
-    QOS_CLASS_USER_INITIATED = 0x19,
-    /// default QOS class when none is set
-    QOS_CLASS_DEFAULT = 0x15,
-    /// more energy efficient QOS class than default
-    QOS_CLASS_UTILITY = 0x11,
-    /// QOS class more appropriate for background tasks
-    QOS_CLASS_BACKGROUND = 0x09,
-    /// QOS class as a return value
-    QOS_CLASS_UNSPECIFIED = 0x00,
-};
-
 pub const pthread_mutex_t = extern struct {
     __sig: c_long = 0x32AAABA7,
     __opaque: [__PTHREAD_MUTEX_SIZE__]u8 = [_]u8{0} ** __PTHREAD_MUTEX_SIZE__,
@@ -942,10 +927,6 @@ pub const pthread_attr_t = extern struct {
 pub extern "c" fn pthread_threadid_np(thread: ?std.c.pthread_t, thread_id: *u64) c_int;
 pub extern "c" fn pthread_setname_np(name: [*:0]const u8) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
-pub extern "c" fn pthread_attr_set_qos_class_np(attr: *pthread_attr_t, qos_class: qos_class_t, relative_priority: c_int) c_int;
-pub extern "c" fn pthread_attr_get_qos_class_np(attr: *pthread_attr_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
-pub extern "c" fn pthread_set_qos_class_self_np(qos_class: qos_class_t, relative_priority: c_int) c_int;
-pub extern "c" fn pthread_get_qos_class_np(pthread: std.c.pthread_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
 
 pub const CCryptorStatus = enum(i32) {
     /// Operation completed
