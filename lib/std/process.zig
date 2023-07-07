@@ -1163,32 +1163,6 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
         .linux => {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
         },
-        .freebsd => {
-            var physmem: c_ulong = undefined;
-            var len: usize = @sizeOf(c_ulong);
-            os.sysctlbynameZ("hw.physmem", &physmem, &len, null, 0) catch |err| switch (err) {
-                error.NameTooLong, error.UnknownName => unreachable,
-                else => |e| return e,
-            };
-            return @as(usize, @intCast(physmem));
-        },
-        .openbsd => {
-            const mib: [2]c_int = [_]c_int{
-                std.os.CTL.HW,
-                std.os.HW.PHYSMEM64,
-            };
-            var physmem: i64 = undefined;
-            var len: usize = @sizeOf(@TypeOf(physmem));
-            std.os.sysctl(&mib, &physmem, &len, null, 0) catch |err| switch (err) {
-                error.NameTooLong => unreachable, // constant, known good value
-                error.PermissionDenied => unreachable, // only when setting values,
-                error.SystemResources => unreachable, // memory already on the stack
-                error.UnknownName => unreachable, // constant, known good value
-                else => return error.UnknownTotalSystemMemory,
-            };
-            assert(physmem >= 0);
-            return @as(usize, @bitCast(physmem));
-        },
         .windows => {
             var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;
             const rc = std.os.windows.ntdll.NtQuerySystemInformation(
