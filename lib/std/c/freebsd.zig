@@ -1825,45 +1825,6 @@ pub const AT = struct {
     pub const REMOVEDIR = 0x0800;
     /// Fail if not under dirfd
     pub const BENEATH = 0x1000;
-    /// elf_common constants
-    pub const NULL = 0;
-    pub const IGNORE = 1;
-    pub const EXECFD = 2;
-    pub const PHDR = 3;
-    pub const PHENT = 4;
-    pub const PHNUM = 5;
-    pub const PAGESZ = 6;
-    pub const BASE = 7;
-    pub const FLAGS = 8;
-    pub const ENTRY = 9;
-    pub const NOTELF = 10;
-    pub const UID = 11;
-    pub const EUID = 12;
-    pub const GID = 13;
-    pub const EGID = 14;
-    pub const EXECPATH = 15;
-    pub const CANARY = 16;
-    pub const CANARYLEN = 17;
-    pub const OSRELDATE = 18;
-    pub const NCPUS = 19;
-    pub const PAGESIZES = 20;
-    pub const PAGESIZESLEN = 21;
-    pub const TIMEKEEP = 22;
-    pub const STACKPROT = 23;
-    pub const EHDRFLAGS = 24;
-    pub const HWCAP = 25;
-    pub const HWCAP2 = 26;
-    pub const BSDFLAGS = 27;
-    pub const ARGC = 28;
-    pub const ARGV = 29;
-    pub const ENVC = 30;
-    pub const ENVV = 31;
-    pub const PS_STRINGS = 32;
-    pub const FXRNG = 33;
-    pub const KPRLOAD = 34;
-    pub const USRSTACKBASE = 35;
-    pub const USRSTACKLIM = 36;
-    pub const COUNT = 37;
 };
 
 pub const addrinfo = extern struct {
@@ -2357,5 +2318,3 @@ pub const shm_largeconf = extern struct {
 };
 
 pub extern "c" fn shm_create_largepage(path: [*:0]const u8, flags: c_int, psind: c_int, alloc_policy: c_int, mode: mode_t) c_int;
-
-pub extern "c" fn elf_aux_info(aux: c_int, buf: ?*anyopaque, buflen: c_int) c_int;
