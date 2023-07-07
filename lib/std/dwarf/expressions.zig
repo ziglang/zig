@@ -263,12 +263,12 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             expression: []const u8,
             allocator: std.mem.Allocator,
             context: ExpressionContext,
-            initial_value: usize,
-        ) !Value {
-            try self.stack.append(allocator, .{ .generic = initial_value });
+            initial_value: ?usize,
+        ) !?Value {
+            if (initial_value) |i| try self.stack.append(allocator, .{ .generic = i });
             var stream = std.io.fixedBufferStream(expression);
             while (try self.step(&stream, allocator, context)) {}
-            if (self.stack.items.len == 0) return error.InvalidExpression;
+            if (self.stack.items.len == 0) return null;
             return self.stack.items[self.stack.items.len - 1];
         }
 
@@ -412,7 +412,11 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                         OP.xderef,
                         OP.xderef_size,
                         OP.xderef_type,
-                        => try self.stack.pop().asIntegral(),
+                        => blk: {
+                            _ = self.stack.pop();
+                            if (self.stack.items.len == 0) return error.InvalidExpression;
+                            break :blk try self.stack.items[self.stack.items.len - 1].asIntegral();
+                        },
                         else => null,
                     };
 
@@ -424,7 +428,9 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
 
                     const operand = try readOperand(stream, opcode);
                     const size = switch (opcode) {
-                        OP.deref => @sizeOf(addr_type),
+                        OP.deref,
+                        OP.xderef,
+                        => @sizeOf(addr_type),
                         OP.deref_size,
                         OP.xderef_size,
                         => operand.?.type_size,
@@ -442,16 +448,21 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                         else => return error.InvalidExpression,
                     })) orelse return error.InvalidExpression;
 
-                    if (opcode == OP.deref_type) {
-                        self.stack.items[self.stack.items.len - 1] = .{
-                            .regval_type = .{
-                                .type_offset = operand.?.deref_type.type_offset,
-                                .type_size = operand.?.deref_type.size,
-                                .value = value,
-                            },
-                        };
-                    } else {
-                        self.stack.items[self.stack.items.len - 1] = .{ .generic = value };
+                    switch (opcode) {
+                        OP.deref_type,
+                        OP.xderef_type,
+                        => {
+                            self.stack.items[self.stack.items.len - 1] = .{
+                                .regval_type = .{
+                                    .type_offset = operand.?.deref_type.type_offset,
+                                    .type_size = operand.?.deref_type.size,
+                                    .value = value,
+                                },
+                            };
+                        },
+                        else => {
+                            self.stack.items[self.stack.items.len - 1] = .{ .generic = value };
+                        },
                     }
                 },
                 OP.push_object_address,
@@ -759,7 +770,7 @@ pub fn Builder(comptime options: ExpressionOptions) type {
                 OP.ne,
                 OP.nop,
                 => try writer.writeByte(opcode),
-                else => @compileError("This opcode requires operands, use write<Opcode>() instead"),
+                else => @compileError("This opcode requires operands, use `write<Opcode>()` instead"),
             }
         }
 
@@ -836,7 +847,7 @@ pub fn Builder(comptime options: ExpressionOptions) type {
 
         pub fn writeBreg(writer: anytype, register: u8, offset: anytype) !void {
             if (register > 31) return error.InvalidRegister;
-            try writer.writeByte(OP.reg0 + register);
+            try writer.writeByte(OP.breg0 + register);
             try leb.writeILEB128(writer, offset);
         }
 
@@ -848,7 +859,7 @@ pub fn Builder(comptime options: ExpressionOptions) type {
 
         pub fn writeRegvalType(writer: anytype, register: anytype, offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
-            try writer.writeByte(OP.bregx);
+            try writer.writeByte(OP.regval_type);
             try leb.writeULEB128(writer, register);
             try leb.writeULEB128(writer, offset);
         }
@@ -996,35 +1007,36 @@ test "DWARF expressions" {
 
     // Constants
     {
+        stack_machine.reset();
         program.clearRetainingCapacity();
 
-        const expected = [_]comptime_int{
+        const input = [_]comptime_int{
             1,
             -1,
-            0x0fff,
-            -0x0fff,
-            0x0fffffff,
-            -0x0fffffff,
-            0x0fffffffffffffff,
-            -0x0fffffffffffffff,
-            0x8000000,
-            -0x8000000,
+            @as(usize, @truncate(0x0fff)),
+            @as(isize, @truncate(-0x0fff)),
+            @as(usize, @truncate(0x0fffffff)),
+            @as(isize, @truncate(-0x0fffffff)),
+            @as(usize, @truncate(0x0fffffffffffffff)),
+            @as(isize, @truncate(-0x0fffffffffffffff)),
+            @as(usize, @truncate(0x8000000)),
+            @as(isize, @truncate(-0x8000000)),
             @as(usize, @truncate(0x12345678_12345678)),
             @as(usize, @truncate(0xffffffff_ffffffff)),
             @as(usize, @truncate(0xeeeeeeee_eeeeeeee)),
         };
 
-        try b.writeConst(writer, u8, expected[0]);
-        try b.writeConst(writer, i8, expected[1]);
-        try b.writeConst(writer, u16, expected[2]);
-        try b.writeConst(writer, i16, expected[3]);
-        try b.writeConst(writer, u32, expected[4]);
-        try b.writeConst(writer, i32, expected[5]);
-        try b.writeConst(writer, u64, expected[6]);
-        try b.writeConst(writer, i64, expected[7]);
-        try b.writeConst(writer, u28, expected[8]);
-        try b.writeConst(writer, i28, expected[9]);
-        try b.writeAddr(writer, expected[10]);
+        try b.writeConst(writer, u8, input[0]);
+        try b.writeConst(writer, i8, input[1]);
+        try b.writeConst(writer, u16, input[2]);
+        try b.writeConst(writer, i16, input[3]);
+        try b.writeConst(writer, u32, input[4]);
+        try b.writeConst(writer, i32, input[5]);
+        try b.writeConst(writer, u64, input[6]);
+        try b.writeConst(writer, i64, input[7]);
+        try b.writeConst(writer, u28, input[8]);
+        try b.writeConst(writer, i28, input[9]);
+        try b.writeAddr(writer, input[10]);
 
         var mock_compile_unit: dwarf.CompileUnit = undefined;
         mock_compile_unit.addr_base = 1;
@@ -1033,8 +1045,8 @@ test "DWARF expressions" {
         defer mock_debug_addr.deinit();
 
         try mock_debug_addr.writer().writeIntNative(u16, 0);
-        try mock_debug_addr.writer().writeIntNative(usize, expected[11]);
-        try mock_debug_addr.writer().writeIntNative(usize, expected[12]);
+        try mock_debug_addr.writer().writeIntNative(usize, input[11]);
+        try mock_debug_addr.writer().writeIntNative(usize, input[12]);
 
         const context = ExpressionContext{
             .compile_unit = &mock_compile_unit,
@@ -1054,26 +1066,311 @@ test "DWARF expressions" {
         try testing.expectEqual(die_offset, const_type.type_offset);
         try testing.expectEqualSlices(u8, type_bytes, const_type.value_bytes);
 
-        try testing.expectEqual(@as(usize, expected[12]), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(usize, expected[11]), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(usize, expected[10]), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(isize, @truncate(expected[9])), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(usize, @truncate(expected[8])), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(isize, @truncate(expected[7])), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(usize, @truncate(expected[6])), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(isize, @truncate(expected[5])), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(usize, @truncate(expected[4])), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(isize, @truncate(expected[3])), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(usize, @truncate(expected[2])), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(isize, @truncate(expected[1])), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
-        try testing.expectEqual(@as(usize, @truncate(expected[0])), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        const expected = .{
+            .{ usize, input[12], usize },
+            .{ usize, input[11], usize },
+            .{ usize, input[10], usize },
+            .{ isize, input[9], isize },
+            .{ usize, input[8], usize },
+            .{ isize, input[7], isize },
+            .{ usize, input[6], usize },
+            .{ isize, input[5], isize },
+            .{ usize, input[4], usize },
+            .{ isize, input[3], isize },
+            .{ usize, input[2], usize },
+            .{ isize, input[1], isize },
+            .{ usize, input[0], usize },
+        };
+
+        inline for (expected) |e| {
+            try testing.expectEqual(@as(e[0], e[1]), @as(e[2], @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        }
     }
 
     // Register values
-    if (@TypeOf(std.debug.ThreadContext) != void) {
-        var thread_context: std.debug.ThreadContext = undefined;
-        _ = thread_context;
+    if (@sizeOf(std.debug.ThreadContext) != 0) {
+        stack_machine.reset();
+        program.clearRetainingCapacity();
 
-        // TODO: Test fbreg, breg0..31, bregx, regval_type
+        const reg_context = abi.RegisterContext{
+            .eh_frame = true,
+            .is_macho = builtin.os.tag == .macos,
+        };
+        var thread_context: std.debug.ThreadContext = undefined;
+        const context = ExpressionContext{
+            .thread_context = &thread_context,
+            .reg_context = reg_context,
+        };
+
+        // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
+
+        mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, 0, reg_context), 0xee);
+        mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.fpRegNum(reg_context), reg_context), 1);
+        mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.spRegNum(reg_context), reg_context), 2);
+        mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.ipRegNum(), reg_context), 3);
+
+        try b.writeBreg(writer, abi.fpRegNum(reg_context), @as(usize, 100));
+        try b.writeBreg(writer, abi.spRegNum(reg_context), @as(usize, 200));
+        try b.writeBregx(writer, abi.ipRegNum(), @as(usize, 300));
+        try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 400));
+
+        _ = try stack_machine.run(program.items, allocator, context, 0);
+
+        const regval_type = stack_machine.stack.popOrNull().?.regval_type;
+        try testing.expectEqual(@as(usize, 400), regval_type.type_offset);
+        try testing.expectEqual(@as(u8, @sizeOf(usize)), regval_type.type_size);
+        try testing.expectEqual(@as(usize, 0xee), regval_type.value);
+
+        try testing.expectEqual(@as(usize, 303), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 202), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 101), stack_machine.stack.popOrNull().?.generic);
+    }
+
+    // Stack operations
+    {
+        var context = ExpressionContext{};
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u8, 1);
+        try b.writeOpcode(writer, OP.dup);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 1), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 1), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u8, 1);
+        try b.writeOpcode(writer, OP.drop);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expect(stack_machine.stack.popOrNull() == null);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u8, 4);
+        try b.writeConst(writer, u8, 5);
+        try b.writeConst(writer, u8, 6);
+        try b.writePick(writer, 2);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 4), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u8, 4);
+        try b.writeConst(writer, u8, 5);
+        try b.writeConst(writer, u8, 6);
+        try b.writeOpcode(writer, OP.over);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 5), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u8, 5);
+        try b.writeConst(writer, u8, 6);
+        try b.writeOpcode(writer, OP.swap);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 5), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 6), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u8, 4);
+        try b.writeConst(writer, u8, 5);
+        try b.writeConst(writer, u8, 6);
+        try b.writeOpcode(writer, OP.rot);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 5), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 4), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 6), stack_machine.stack.popOrNull().?.generic);
+
+        const deref_target: usize = @truncate(0xffeeffee_ffeeffee);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeAddr(writer, @intFromPtr(&deref_target));
+        try b.writeOpcode(writer, OP.deref);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(deref_target, stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeLiteral(writer, 0);
+        try b.writeAddr(writer, @intFromPtr(&deref_target));
+        try b.writeOpcode(writer, OP.xderef);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(deref_target, stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeAddr(writer, @intFromPtr(&deref_target));
+        try b.writeDerefSize(writer, 1);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeLiteral(writer, 0);
+        try b.writeAddr(writer, @intFromPtr(&deref_target));
+        try b.writeXDerefSize(writer, 1);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), stack_machine.stack.popOrNull().?.generic);
+
+        const type_offset: usize = @truncate(0xaabbaabb_aabbaabb);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeAddr(writer, @intFromPtr(&deref_target));
+        try b.writeDerefType(writer, 1, type_offset);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        const deref_type = stack_machine.stack.popOrNull().?.regval_type;
+        try testing.expectEqual(type_offset, deref_type.type_offset);
+        try testing.expectEqual(@as(u8, 1), deref_type.type_size);
+        try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), deref_type.value);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeLiteral(writer, 0);
+        try b.writeAddr(writer, @intFromPtr(&deref_target));
+        try b.writeXDerefType(writer, 1, type_offset);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        const xderef_type = stack_machine.stack.popOrNull().?.regval_type;
+        try testing.expectEqual(type_offset, xderef_type.type_offset);
+        try testing.expectEqual(@as(u8, 1), xderef_type.type_size);
+        try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), xderef_type.value);
+
+        // TODO: Test OP.push_object_address
+        // TODO: Test OP.form_tls_address
+
+        context.cfa = @truncate(0xccddccdd_ccddccdd);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeOpcode(writer, OP.call_frame_cfa);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(context.cfa.?, stack_machine.stack.popOrNull().?.generic);
+    }
+
+    // Arithmetic and Logical Operations
+    {
+        var context = ExpressionContext{};
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, i16, -4096);
+        try b.writeOpcode(writer, OP.abs);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 4096), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 0xff0f);
+        try b.writeConst(writer, u16, 0xf0ff);
+        try b.writeOpcode(writer, OP.@"and");
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 0xf00f), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, i16, -404);
+        try b.writeConst(writer, i16, 100);
+        try b.writeOpcode(writer, OP.div);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(isize, -404 / 100), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 200);
+        try b.writeConst(writer, u16, 50);
+        try b.writeOpcode(writer, OP.minus);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 150), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 123);
+        try b.writeConst(writer, u16, 100);
+        try b.writeOpcode(writer, OP.mod);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 23), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 0xff);
+        try b.writeConst(writer, u16, 0xee);
+        try b.writeOpcode(writer, OP.mul);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 0xed12), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 5);
+        try b.writeOpcode(writer, OP.neg);
+        try b.writeConst(writer, i16, -6);
+        try b.writeOpcode(writer, OP.neg);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 6), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(isize, -5), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 0xff0f);
+        try b.writeOpcode(writer, OP.not);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(~@as(usize, 0xff0f), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 0xff0f);
+        try b.writeConst(writer, u16, 0xf0ff);
+        try b.writeOpcode(writer, OP.@"or");
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 0xffff), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, i16, 402);
+        try b.writeConst(writer, i16, 100);
+        try b.writeOpcode(writer, OP.plus);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 502), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 4096);
+        try b.writePlusUconst(writer, @as(usize, 8192));
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 4096 + 8192), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 0xfff);
+        try b.writeConst(writer, u16, 1);
+        try b.writeOpcode(writer, OP.shl);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 0xfff << 1), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 0xfff);
+        try b.writeConst(writer, u16, 1);
+        try b.writeOpcode(writer, OP.shr);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 0xfff >> 1), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 0xfff);
+        try b.writeConst(writer, u16, 1);
+        try b.writeOpcode(writer, OP.shr);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, @bitCast(@as(isize, 0xfff) >> 1)), stack_machine.stack.popOrNull().?.generic);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConst(writer, u16, 0xf0ff);
+        try b.writeConst(writer, u16, 0xff0f);
+        try b.writeOpcode(writer, OP.xor);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 0x0ff0), stack_machine.stack.popOrNull().?.generic);
     }
 }

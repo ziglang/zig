@@ -322,19 +322,22 @@ pub const VirtualMachine = struct {
                 .expression => |expression| {
                     context.stack_machine.reset();
                     const value = try context.stack_machine.run(expression, context.allocator, expression_context, context.cfa.?);
+                    const addr = if (value) |v| blk: {
+                        if (v != .generic) return error.InvalidExpressionValue;
+                        break :blk v.generic;
+                    } else return error.NoExpressionValue;
 
-                    if (value != .generic) return error.InvalidExpressionValue;
-                    if (!context.isValidMemory(value.generic)) return error.InvalidExpressionAddress;
-
-                    const ptr: *usize = @ptrFromInt(value.generic);
+                    if (!context.isValidMemory(addr)) return error.InvalidExpressionAddress;
+                    const ptr: *usize = @ptrFromInt(addr);
                     mem.writeIntSliceNative(usize, out, ptr.*);
                 },
                 .val_expression => |expression| {
                     context.stack_machine.reset();
                     const value = try context.stack_machine.run(expression, context.allocator, expression_context, context.cfa.?);
-
-                    if (value != .generic) return error.InvalidExpressionValue;
-                    mem.writeIntSliceNative(usize, out, value.generic);
+                    if (value) |v| {
+                        if (v != .generic) return error.InvalidExpressionValue;
+                        mem.writeIntSliceNative(usize, out, v.generic);
+                    } else return error.NoExpressionValue;
                 },
                 .architectural => return error.UnimplementedRegisterRule,
             }

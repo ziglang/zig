@@ -1518,10 +1518,10 @@ pub const DebugInfo = struct {
 
     // Returns the module name for a given address.
     // This can be called when getModuleForAddress fails, so implementations should provide
-    // a path that doesn't rely on any side-effects of successful module lookup.
+    // a path that doesn't rely on any side-effects of a prior successful module lookup.
     pub fn getModuleNameForAddress(self: *DebugInfo, address: usize) ?[]const u8 {
         if (comptime builtin.target.isDarwin()) {
-            return null;
+            return self.lookupModuleNameDyld(address);
         } else if (native_os == .windows) {
             return self.lookupModuleNameWin32(address);
         } else if (native_os == .haiku) {
@@ -1588,6 +1588,44 @@ pub const DebugInfo = struct {
         }
 
         return error.MissingDebugInfo;
+    }
+
+    fn lookupModuleNameDyld(self: *DebugInfo, address: usize) ?[]const u8 {
+        _ = self;
+        const image_count = std.c._dyld_image_count();
+
+        var i: u32 = 0;
+        while (i < image_count) : (i += 1) {
+            const header = std.c._dyld_get_image_header(i) orelse continue;
+            const base_address = @intFromPtr(header);
+            if (address < base_address) continue;
+            const vmaddr_slide = std.c._dyld_get_image_vmaddr_slide(i);
+
+            var it = macho.LoadCommandIterator{
+                .ncmds = header.ncmds,
+                .buffer = @alignCast(@as(
+                    [*]u8,
+                    @ptrFromInt(@intFromPtr(header) + @sizeOf(macho.mach_header_64)),
+                )[0..header.sizeofcmds]),
+            };
+
+            while (it.next()) |cmd| switch (cmd.cmd()) {
+                .SEGMENT_64 => {
+                    const segment_cmd = cmd.cast(macho.segment_command_64).?;
+                    if (!mem.eql(u8, "__TEXT", segment_cmd.segName())) continue;
+
+                    const original_address = address - vmaddr_slide;
+                    const seg_start = segment_cmd.vmaddr;
+                    const seg_end = seg_start + segment_cmd.vmsize;
+                    if (original_address >= seg_start and original_address < seg_end) {
+                        return mem.sliceTo(std.c._dyld_get_image_name(i), 0);
+                    }
+                },
+                else => {},
+            };
+        }
+
+        return null;
     }
 
     fn lookupModuleWin32(self: *DebugInfo, address: usize) !*ModuleDebugInfo {

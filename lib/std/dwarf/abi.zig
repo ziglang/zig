@@ -110,10 +110,13 @@ pub fn regBytes(thread_context_ptr: anytype, reg_number: u8, reg_context: ?Regis
                 0...30 => mem.asBytes(&thread_context_ptr.DUMMYUNIONNAME.X[reg_number]),
                 31 => mem.asBytes(&thread_context_ptr.Sp),
                 32 => mem.asBytes(&thread_context_ptr.Pc),
+                else => error.InvalidRegister,
             },
             else => error.UnimplementedArch,
         };
     }
+
+    if (!std.debug.have_ucontext) return error.ThreadContextNotSupported;
 
     const ucontext_ptr = thread_context_ptr;
     var m = &ucontext_ptr.mcontext;

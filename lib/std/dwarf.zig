@@ -1699,11 +1699,13 @@ pub const DwarfInfo = struct {
                     expression,
                     context.allocator,
                     expression_context,
-                    context.cfa orelse 0,
+                    context.cfa,
                 );
 
-                if (value != .generic) return error.InvalidExpressionValue;
-                break :blk value.generic;
+                if (value) |v| {
+                    if (v != .generic) return error.InvalidExpressionValue;
+                    break :blk v.generic;
+                } else return error.NoExpressionValue;
             },
             else => return error.InvalidCFARule,
         };
