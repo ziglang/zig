@@ -146,11 +146,11 @@ pub const CC = enum(u8) {
     pass_by_reference = 0x4,
     pass_by_value = 0x5,
 
-    lo_user = 0x40,
-    hi_user = 0xff,
-
     GNU_renesas_sh = 0x40,
     GNU_borland_fastcall_i386 = 0x41,
+
+    pub const lo_user = 0x40;
+    pub const hi_user = 0xff;
 };
 
 pub const Format = enum { @"32", @"64" };
@@ -1676,13 +1676,13 @@ pub const DwarfInfo = struct {
         var expression_context = .{
             .isValidMemory = context.isValidMemory,
             .compile_unit = di.findCompileUnit(fde.pc_begin) catch null,
-            .ucontext = &context.ucontext,
-            .reg_ctx = context.reg_ctx,
+            .thread_context = &context.thread_context,
+            .reg_context = context.reg_context,
             .cfa = context.cfa,
         };
 
         context.vm.reset();
-        context.reg_ctx.eh_frame = cie.version != 4;
+        context.reg_context.eh_frame = cie.version != 4;
 
         _ = try context.vm.runToNative(context.allocator, mapped_pc, cie, fde);
         const row = &context.vm.current_row;
@@ -1690,7 +1690,7 @@ pub const DwarfInfo = struct {
         context.cfa = switch (row.cfa.rule) {
             .val_offset => |offset| blk: {
                 const register = row.cfa.register orelse return error.InvalidCFARule;
-                const value = mem.readIntSliceNative(usize, try abi.regBytes(&context.ucontext, register, context.reg_ctx));
+                const value = mem.readIntSliceNative(usize, try abi.regBytes(&context.thread_context, register, context.reg_context));
                 break :blk try call_frame.applyOffset(value, offset);
             },
             .expression => |expression| blk: {
@@ -1711,14 +1711,14 @@ pub const DwarfInfo = struct {
         if (!context.isValidMemory(context.cfa.?)) return error.InvalidCFA;
         expression_context.cfa = context.cfa;
 
-        // Buffering the modifications is done because copying the ucontext is not portable,
+        // Buffering the modifications is done because copying the thread context is not portable,
         // some implementations (ie. darwin) use internal pointers to the mcontext.
         var arena = std.heap.ArenaAllocator.init(context.allocator);
         defer arena.deinit();
         const update_allocator = arena.allocator();
 
         const RegisterUpdate = struct {
-            // Backed by ucontext
+            // Backed by thread_context
             old_value: []u8,
             // Backed by arena
             new_value: []const u8,
@@ -1733,7 +1733,7 @@ pub const DwarfInfo = struct {
                     has_next_ip = column.rule != .undefined;
                 }
 
-                const old_value = try abi.regBytes(&context.ucontext, register, context.reg_ctx);
+                const old_value = try abi.regBytes(&context.thread_context, register, context.reg_context);
                 const new_value = try update_allocator.alloc(u8, old_value.len);
 
                 const prev = update_tail;
@@ -1758,12 +1758,12 @@ pub const DwarfInfo = struct {
         }
 
         if (has_next_ip) {
-            context.pc = mem.readIntSliceNative(usize, try abi.regBytes(&context.ucontext, comptime abi.ipRegNum(), context.reg_ctx));
+            context.pc = mem.readIntSliceNative(usize, try abi.regBytes(&context.thread_context, comptime abi.ipRegNum(), context.reg_context));
         } else {
             context.pc = 0;
         }
 
-        mem.writeIntSliceNative(usize, try abi.regBytes(&context.ucontext, abi.spRegNum(context.reg_ctx), context.reg_ctx), context.cfa.?);
+        mem.writeIntSliceNative(usize, try abi.regBytes(&context.thread_context, abi.spRegNum(context.reg_context), context.reg_context), context.cfa.?);
 
         // The call instruction will have pushed the address of the instruction that follows the call as the return address
         // However, this return address may be past the end of the function if the caller was `noreturn`.
@@ -1779,20 +1779,24 @@ pub const UnwindContext = struct {
     allocator: mem.Allocator,
     cfa: ?usize,
     pc: usize,
-    ucontext: os.ucontext_t,
-    reg_ctx: abi.RegisterContext,
+    thread_context: debug.ThreadContext,
+    reg_context: abi.RegisterContext,
     isValidMemory: *const fn (address: usize) bool,
     vm: call_frame.VirtualMachine = .{},
     stack_machine: expressions.StackMachine(.{ .call_frame_context = true }) = .{},
 
-    pub fn init(allocator: mem.Allocator, ucontext: *const os.ucontext_t, isValidMemory: *const fn (address: usize) bool) !UnwindContext {
-        const pc = mem.readIntSliceNative(usize, try abi.regBytes(ucontext, abi.ipRegNum(), null));
+    pub fn init(allocator: mem.Allocator, thread_context: *const debug.ThreadContext, isValidMemory: *const fn (address: usize) bool) !UnwindContext {
+        const pc = mem.readIntSliceNative(usize, try abi.regBytes(thread_context, abi.ipRegNum(), null));
+
+        if (builtin.os.tag == .macos) @compileError("Fix below TODO");
+
         return .{
             .allocator = allocator,
             .cfa = null,
             .pc = pc,
-            .ucontext = ucontext.*,
-            .reg_ctx = undefined,
+            // TODO: This is broken on macos, need a function that knows how to copy the OSs mcontext properly
+            .thread_context = thread_context.*,
+            .reg_context = undefined,
             .isValidMemory = isValidMemory,
         };
     }
@@ -1803,7 +1807,7 @@ pub const UnwindContext = struct {
     }
 
     pub fn getFp(self: *const UnwindContext) !usize {
-        return mem.readIntSliceNative(usize, try abi.regBytes(&self.ucontext, abi.fpRegNum(self.reg_ctx), self.reg_ctx));
+        return mem.readIntSliceNative(usize, try abi.regBytes(&self.thread_context, abi.fpRegNum(self.reg_context), self.reg_context));
     }
 };
 
@@ -2387,4 +2391,8 @@ fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
     } else {
         return math.add(usize, field_ptr, @as(usize, @intCast(pc_rel_offset)));
     }
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

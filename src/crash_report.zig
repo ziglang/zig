@@ -271,7 +271,7 @@ const StackContext = union(enum) {
     current: struct {
         ret_addr: ?usize,
     },
-    exception: *const debug.StackTraceContext,
+    exception: *const debug.ThreadContext,
     not_supported: void,
 
     pub fn dumpStackTrace(ctx: @This()) void {

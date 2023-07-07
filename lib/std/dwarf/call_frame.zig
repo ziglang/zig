@@ -2,10 +2,10 @@ const builtin = @import("builtin");
 const std = @import("../std.zig");
 const mem = std.mem;
 const debug = std.debug;
-const leb = @import("../leb128.zig");
-const abi = @import("abi.zig");
-const dwarf = @import("../dwarf.zig");
-const expressions = @import("expressions.zig");
+const leb = std.leb;
+const dwarf = std.dwarf;
+const abi = dwarf.abi;
+const expressions = dwarf.expressions;
 const assert = std.debug.assert;
 
 const Opcode = enum(u8) {
@@ -315,9 +315,9 @@ pub const VirtualMachine = struct {
                     } else return error.InvalidCFA;
                 },
                 .register => |register| {
-                    const src = try abi.regBytes(&context.ucontext, register, context.reg_ctx);
+                    const src = try abi.regBytes(&context.thread_context, register, context.reg_context);
                     if (src.len != out.len) return error.RegisterTypeMismatch;
-                    @memcpy(out, try abi.regBytes(&context.ucontext, register, context.reg_ctx));
+                    @memcpy(out, try abi.regBytes(&context.thread_context, register, context.reg_context));
                 },
                 .expression => |expression| {
                     context.stack_machine.reset();

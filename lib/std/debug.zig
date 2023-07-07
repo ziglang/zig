@@ -133,7 +133,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     }
 }
 
-pub const StackTraceContext = blk: {
+pub const ThreadContext = blk: {
     if (native_os == .windows) {
         break :blk std.os.windows.CONTEXT;
     } else if (have_ucontext) {
@@ -146,7 +146,7 @@ pub const StackTraceContext = blk: {
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
-pub fn dumpStackTraceFromBase(context: *const StackTraceContext) void {
+pub fn dumpStackTraceFromBase(context: *const ThreadContext) void {
     nosuspend {
         if (comptime builtin.target.isWasm()) {
             if (native_os == .wasi) {
@@ -437,7 +437,7 @@ pub const have_ucontext = @hasDecl(os.system, "ucontext_t") and
     else => true,
 });
 
-pub inline fn getContext(context: *StackTraceContext) bool {
+pub inline fn getContext(context: *ThreadContext) bool {
     if (native_os == .windows) {
         context.* = std.mem.zeroes(windows.CONTEXT);
         windows.ntdll.RtlCaptureContext(context);
@@ -606,8 +606,8 @@ pub const StackIterator = struct {
     fn next_dwarf(self: *StackIterator) !usize {
         const module = try self.debug_info.?.getModuleForAddress(self.dwarf_context.pc);
         if (try module.getDwarfInfoForAddress(self.debug_info.?.allocator, self.dwarf_context.pc)) |di| {
-            self.dwarf_context.reg_ctx.eh_frame = true;
-            self.dwarf_context.reg_ctx.is_macho = di.is_macho;
+            self.dwarf_context.reg_context.eh_frame = true;
+            self.dwarf_context.reg_context.is_macho = di.is_macho;
             return di.unwindFrame(&self.dwarf_context, module.base_address);
         } else return error.MissingDebugInfo;
     }
@@ -663,7 +663,7 @@ pub fn writeCurrentStackTrace(
     tty_config: io.tty.Config,
     start_addr: ?usize,
 ) !void {
-    var context: StackTraceContext = undefined;
+    var context: ThreadContext = undefined;
     const has_context = getContext(&context);
     if (native_os == .windows) {
         return writeStackTraceWindows(out_stream, debug_info, tty_config, &context, start_addr);

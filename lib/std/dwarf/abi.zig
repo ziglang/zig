@@ -3,11 +3,6 @@ const std = @import("../std.zig");
 const os = std.os;
 const mem = std.mem;
 
-pub const RegisterContext = struct {
-    eh_frame: bool,
-    is_macho: bool,
-};
-
 pub fn isSupportedArch(arch: std.Target.Cpu.Arch) bool {
     return switch (arch) {
         .x86,
@@ -29,10 +24,10 @@ pub fn ipRegNum() u8 {
     };
 }
 
-pub fn fpRegNum(reg_ctx: RegisterContext) u8 {
+pub fn fpRegNum(reg_context: RegisterContext) u8 {
     return switch (builtin.cpu.arch) {
         // GCC on OS X did the opposite of ELF for these registers (only in .eh_frame), and that is now the convention for MachO
-        .x86 => if (reg_ctx.eh_frame and reg_ctx.is_macho) 4 else 5,
+        .x86 => if (reg_context.eh_frame and reg_context.is_macho) 4 else 5,
         .x86_64 => 6,
         .arm => 11,
         .aarch64 => 29,
@@ -40,9 +35,9 @@ pub fn fpRegNum(reg_ctx: RegisterContext) u8 {
     };
 }
 
-pub fn spRegNum(reg_ctx: RegisterContext) u8 {
+pub fn spRegNum(reg_context: RegisterContext) u8 {
     return switch (builtin.cpu.arch) {
-        .x86 => if (reg_ctx.eh_frame and reg_ctx.is_macho) 5 else 4,
+        .x86 => if (reg_context.eh_frame and reg_context.is_macho) 5 else 4,
         .x86_64 => 7,
         .arm => 13,
         .aarch64 => 31,
@@ -52,21 +47,76 @@ pub fn spRegNum(reg_ctx: RegisterContext) u8 {
 
 fn RegBytesReturnType(comptime ContextPtrType: type) type {
     const info = @typeInfo(ContextPtrType);
-    if (info != .Pointer or info.Pointer.child != os.ucontext_t) {
-        @compileError("Expected a pointer to ucontext_t, got " ++ @typeName(@TypeOf(ContextPtrType)));
+    if (info != .Pointer or info.Pointer.child != std.debug.ThreadContext) {
+        @compileError("Expected a pointer to std.debug.ThreadContext, got " ++ @typeName(@TypeOf(ContextPtrType)));
     }
 
     return if (info.Pointer.is_const) return []const u8 else []u8;
 }
 
+pub const RegisterContext = struct {
+    eh_frame: bool,
+    is_macho: bool,
+};
+
 /// Returns a slice containing the backing storage for `reg_number`.
 ///
-/// `reg_ctx` describes in what context the register number is used, as it can have different
+/// `reg_context` describes in what context the register number is used, as it can have different
 /// meanings depending on the DWARF container. It is only required when getting the stack or
 /// frame pointer register on some architectures.
-pub fn regBytes(ucontext_ptr: anytype, reg_number: u8, reg_ctx: ?RegisterContext) !RegBytesReturnType(@TypeOf(ucontext_ptr)) {
-    var m = &ucontext_ptr.mcontext;
+pub fn regBytes(thread_context_ptr: anytype, reg_number: u8, reg_context: ?RegisterContext) !RegBytesReturnType(@TypeOf(thread_context_ptr)) {
+    if (builtin.os.tag == .windows) {
+        return switch (builtin.cpu.arch) {
+            .x86 => switch (reg_number) {
+                0 => mem.asBytes(&thread_context_ptr.Eax),
+                1 => mem.asBytes(&thread_context_ptr.Ecx),
+                2 => mem.asBytes(&thread_context_ptr.Edx),
+                3 => mem.asBytes(&thread_context_ptr.Ebx),
+                4 => mem.asBytes(&thread_context_ptr.Esp),
+                5 => mem.asBytes(&thread_context_ptr.Ebp),
+                6 => mem.asBytes(&thread_context_ptr.Esi),
+                7 => mem.asBytes(&thread_context_ptr.Edi),
+                8 => mem.asBytes(&thread_context_ptr.Eip),
+                9 => mem.asBytes(&thread_context_ptr.EFlags),
+                10 => mem.asBytes(&thread_context_ptr.SegCs),
+                11 => mem.asBytes(&thread_context_ptr.SegSs),
+                12 => mem.asBytes(&thread_context_ptr.SegDs),
+                13 => mem.asBytes(&thread_context_ptr.SegEs),
+                14 => mem.asBytes(&thread_context_ptr.SegFs),
+                15 => mem.asBytes(&thread_context_ptr.SegGs),
+                else => error.InvalidRegister,
+            },
+            .x86_64 => switch (reg_number) {
+                0 => mem.asBytes(&thread_context_ptr.Rax),
+                1 => mem.asBytes(&thread_context_ptr.Rdx),
+                2 => mem.asBytes(&thread_context_ptr.Rcx),
+                3 => mem.asBytes(&thread_context_ptr.Rbx),
+                4 => mem.asBytes(&thread_context_ptr.Rsi),
+                5 => mem.asBytes(&thread_context_ptr.Rdi),
+                6 => mem.asBytes(&thread_context_ptr.Rbp),
+                7 => mem.asBytes(&thread_context_ptr.Rsp),
+                8 => mem.asBytes(&thread_context_ptr.R8),
+                9 => mem.asBytes(&thread_context_ptr.R9),
+                10 => mem.asBytes(&thread_context_ptr.R10),
+                11 => mem.asBytes(&thread_context_ptr.R11),
+                12 => mem.asBytes(&thread_context_ptr.R12),
+                13 => mem.asBytes(&thread_context_ptr.R13),
+                14 => mem.asBytes(&thread_context_ptr.R14),
+                15 => mem.asBytes(&thread_context_ptr.R15),
+                16 => mem.asBytes(&thread_context_ptr.Rip),
+                else => error.InvalidRegister,
+            },
+            .aarch64 => switch (reg_number) {
+                0...30 => mem.asBytes(&thread_context_ptr.DUMMYUNIONNAME.X[reg_number]),
+                31 => mem.asBytes(&thread_context_ptr.Sp),
+                32 => mem.asBytes(&thread_context_ptr.Pc),
+            },
+            else => error.UnimplementedArch,
+        };
+    }
 
+    const ucontext_ptr = thread_context_ptr;
+    var m = &ucontext_ptr.mcontext;
     return switch (builtin.cpu.arch) {
         .x86 => switch (builtin.os.tag) {
             .linux, .netbsd, .solaris => switch (reg_number) {
@@ -74,7 +124,7 @@ pub fn regBytes(ucontext_ptr: anytype, reg_number: u8, reg_ctx: ?RegisterContext
                 1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ECX]),
                 2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EDX]),
                 3 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBX]),
-                4...5 => if (reg_ctx) |r| bytes: {
+                4...5 => if (reg_context) |r| bytes: {
                     if (reg_number == 4) {
                         break :bytes if (r.eh_frame and r.is_macho)
                             mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBP])
@@ -98,7 +148,6 @@ pub fn regBytes(ucontext_ptr: anytype, reg_number: u8, reg_ctx: ?RegisterContext
                 14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.FS]),
                 15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.GS]),
                 16...23 => error.InvalidRegister, // TODO: Support loading ST0-ST7 from mcontext.fpregs
-                // TODO: Map TRAPNO, ERR, UESP
                 32...39 => error.InvalidRegister, // TODO: Support loading XMM0-XMM7 from mcontext.fpregs
                 else => error.InvalidRegister,
             },
