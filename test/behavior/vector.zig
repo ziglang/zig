@@ -299,8 +299,7 @@ test "vector @splat" {
     const S = struct {
         fn testForT(comptime N: comptime_int, v: anytype) !void {
             const T = @TypeOf(v);
-            var vec = @splat(N, v);
-            try expect(@Vector(N, T) == @TypeOf(vec));
+            var vec: @Vector(N, T) = @splat(v);
             var as_array = @as([N]T, vec);
             for (as_array) |elem| try expect(v == elem);
         }
@@ -458,26 +457,28 @@ test "vector comparison operators" {
     const S = struct {
         fn doTheTest() !void {
             {
-                var v1: @Vector(4, bool) = [_]bool{ true, false, true, false };
-                var v2: @Vector(4, bool) = [_]bool{ false, true, false, true };
-                try expect(mem.eql(bool, &@as([4]bool, @splat(4, true)), &@as([4]bool, v1 == v1)));
-                try expect(mem.eql(bool, &@as([4]bool, @splat(4, false)), &@as([4]bool, v1 == v2)));
-                try expect(mem.eql(bool, &@as([4]bool, @splat(4, true)), &@as([4]bool, v1 != v2)));
-                try expect(mem.eql(bool, &@as([4]bool, @splat(4, false)), &@as([4]bool, v2 != v2)));
+                const V = @Vector(4, bool);
+                var v1: V = [_]bool{ true, false, true, false };
+                var v2: V = [_]bool{ false, true, false, true };
+                try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(true))), &@as([4]bool, v1 == v1)));
+                try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(false))), &@as([4]bool, v1 == v2)));
+                try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(true))), &@as([4]bool, v1 != v2)));
+                try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(false))), &@as([4]bool, v2 != v2)));
             }
             {
-                var v1 = @splat(4, @as(u32, 0xc0ffeeee));
+                const V = @Vector(4, bool);
+                var v1: @Vector(4, u32) = @splat(0xc0ffeeee);
                 var v2: @Vector(4, c_uint) = v1;
-                var v3 = @splat(4, @as(u32, 0xdeadbeef));
-                try expect(mem.eql(bool, &@as([4]bool, @splat(4, true)), &@as([4]bool, v1 == v2)));
-                try expect(mem.eql(bool, &@as([4]bool, @splat(4, false)), &@as([4]bool, v1 == v3)));
-                try expect(mem.eql(bool, &@as([4]bool, @splat(4, true)), &@as([4]bool, v1 != v3)));
-                try expect(mem.eql(bool, &@as([4]bool, @splat(4, false)), &@as([4]bool, v1 != v2)));
+                var v3: @Vector(4, u32) = @splat(0xdeadbeef);
+                try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(true))), &@as([4]bool, v1 == v2)));
+                try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(false))), &@as([4]bool, v1 == v3)));
+                try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(true))), &@as([4]bool, v1 != v3)));
+                try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(false))), &@as([4]bool, v1 != v2)));
             }
             {
                 // Comptime-known LHS/RHS
                 var v1: @Vector(4, u32) = [_]u32{ 2, 1, 2, 1 };
-                const v2 = @splat(4, @as(u32, 2));
+                const v2: @Vector(4, u32) = @splat(2);
                 const v3: @Vector(4, bool) = [_]bool{ true, false, true, false };
                 try expect(mem.eql(bool, &@as([4]bool, v3), &@as([4]bool, v1 == v2)));
                 try expect(mem.eql(bool, &@as([4]bool, v3), &@as([4]bool, v2 == v1)));
@@ -847,8 +848,10 @@ test "vector @reduce comptime" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    const value = @Vector(4, i32){ 1, -1, 1, -1 };
-    const result = value > @splat(4, @as(i32, 0));
+    const V = @Vector(4, i32);
+
+    const value = V{ 1, -1, 1, -1 };
+    const result = value > @as(V, @splat(0));
     // result is { true, false, true, false };
     try comptime expect(@TypeOf(result) == @Vector(4, bool));
     const is_all_true = @reduce(.And, result);
@@ -1270,7 +1273,7 @@ test "array operands to shuffle are coerced to vectors" {
     const mask = [5]i32{ -1, 0, 1, 2, 3 };
 
     var a = [5]u32{ 3, 5, 7, 9, 0 };
-    var b = @shuffle(u32, a, @splat(5, @as(u24, 0)), mask);
+    var b = @shuffle(u32, a, @as(@Vector(5, u24), @splat(0)), mask);
     try expectEqual([_]u32{ 0, 3, 5, 7, 9 }, b);
 }
 
