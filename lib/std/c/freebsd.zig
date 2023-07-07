@@ -2588,31 +2588,3 @@ pub const domainset = extern struct {
 
 pub extern "c" fn cpuset_getdomain(level: cpulevel_t, which: cpuwhich_t, id: id_t, len: usize, domain: *domainset_t, r: *c_int) c_int;
 pub extern "c" fn cpuset_setdomain(level: cpulevel_t, which: cpuwhich_t, id: id_t, len: usize, domain: *const domainset_t, r: c_int) c_int;
-
-const ioctl_cmd = enum(u32) {
-    VOID = 0x20000000,
-    OUT = 0x40000000,
-    IN = 0x80000000,
-    INOUT = ioctl_cmd.IN | ioctl_cmd.OUT,
-    DIRMASK = ioctl_cmd.VOID | ioctl_cmd.IN | ioctl_cmd.OUT,
-};
-
-fn ioImpl(cmd: ioctl_cmd, op: u8, nr: u8, comptime IT: type) u32 {
-    return @as(u32, @bitCast(@intFromEnum(cmd) | @as(u32, @intCast(@as(u8, @truncate(@sizeOf(IT))))) << 16 | @as(u32, @intCast(op)) << 8 | nr));
-}
-
-pub fn IO(op: u8, nr: u8) u32 {
-    return ioImpl(ioctl_cmd.VOID, op, nr, 0);
-}
-
-pub fn IOR(op: u8, nr: u8, comptime IT: type) u32 {
-    return ioImpl(ioctl_cmd.OUT, op, nr, @sizeOf(IT));
-}
-
-pub fn IOW(op: u8, nr: u8, comptime IT: type) u32 {
-    return ioImpl(ioctl_cmd.IN, op, nr, @sizeOf(IT));
-}
-
-pub fn IOWR(op: u8, nr: u8, comptime IT: type) u32 {
-    return ioImpl(ioctl_cmd.INOUT, op, nr, @sizeOf(IT));
-}
