@@ -3872,4 +3872,3 @@ pub const MIN = struct {
 };
 
 pub extern "c" fn mincore(addr: *align(std.mem.page_size) const anyopaque, length: usize, vec: [*]u8) c_int;
-pub extern "c" fn os_proc_available_memory() usize;
