@@ -874,35 +874,7 @@ pub extern "c" fn pthread_threadid_np(thread: ?std.c.pthread_t, thread_id: *u64)
 pub extern "c" fn pthread_setname_np(name: [*:0]const u8) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
 
-pub const CCryptorStatus = enum(i32) {
-    /// Operation completed
-    kCCSuccess = 0,
-    /// Illegal parameter
-    kCCParamError = -4300,
-    /// Provided buffer too small
-    kCCBufferTooSmall = -4301,
-    /// Failed memory allocation
-    kCCMemoryFailure = -4302,
-    /// Size alignment issue
-    kCCAlignmentError = -4303,
-    /// Decoding issue
-    kCCDecodeError = -4304,
-    /// Call not implemented
-    kCCUnimplemented = -4305,
-    kCCOverflow = -4306,
-    kCCRNGFailure = -4307,
-    /// Unspecified error
-    kCCUnspecifiedError = -4308,
-    kCCCallSequenceError = -4309,
-    kCCKeySizeError = -4310,
-    /// Invalid key
-    kCCInvalidKey = -4311,
-};
-
-pub const CCRNGStatus = CCryptorStatus;
-
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
-pub extern "c" fn CCRandomGenerateBytes(bytes: ?*anyopaque, count: usize) CCRNGStatus;
 
 // Grand Central Dispatch is exposed by libSystem.
 pub extern "c" fn dispatch_release(object: *anyopaque) void;
