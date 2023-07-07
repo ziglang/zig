@@ -29,9 +29,7 @@ pub const CPU_WHICH_TIDPID: cpuwhich_t = 8;
 extern "c" fn __error() *c_int;
 pub const _errno = __error;
 
-pub extern "c" var malloc_options: [*:0]const u8;
-
-pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) isize;
+pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn getentropy(buf_ptr: [*]u8, buf_len: usize) c_int;
@@ -44,7 +42,6 @@ pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
-pub extern "c" fn reallocf(?*anyopaque, usize) ?*anyopaque;
 
 pub extern "c" fn getpid() pid_t;
 
