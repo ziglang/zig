@@ -1070,8 +1070,10 @@ test "DWARF expressions" {
     }
 
     // Register values
-    var thread_context: std.debug.ThreadContext = undefined;
-    if (std.debug.getContext(&thread_context)) {
+    if (@TypeOf(std.debug.ThreadContext) != void) {
+        var thread_context: std.debug.ThreadContext = undefined;
+        _ = thread_context;
+
         // TODO: Test fbreg, breg0..31, bregx, regval_type
     }
 }

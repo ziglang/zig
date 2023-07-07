@@ -315,9 +315,9 @@ pub const VirtualMachine = struct {
                     } else return error.InvalidCFA;
                 },
                 .register => |register| {
-                    const src = try abi.regBytes(&context.thread_context, register, context.reg_context);
+                    const src = try abi.regBytes(context.thread_context, register, context.reg_context);
                     if (src.len != out.len) return error.RegisterTypeMismatch;
-                    @memcpy(out, try abi.regBytes(&context.thread_context, register, context.reg_context));
+                    @memcpy(out, try abi.regBytes(context.thread_context, register, context.reg_context));
                 },
                 .expression => |expression| {
                     context.stack_machine.reset();

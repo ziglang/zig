@@ -1676,7 +1676,7 @@ pub const DwarfInfo = struct {
         var expression_context = .{
             .isValidMemory = context.isValidMemory,
             .compile_unit = di.findCompileUnit(fde.pc_begin) catch null,
-            .thread_context = &context.thread_context,
+            .thread_context = context.thread_context,
             .reg_context = context.reg_context,
             .cfa = context.cfa,
         };
@@ -1690,7 +1690,7 @@ pub const DwarfInfo = struct {
         context.cfa = switch (row.cfa.rule) {
             .val_offset => |offset| blk: {
                 const register = row.cfa.register orelse return error.InvalidCFARule;
-                const value = mem.readIntSliceNative(usize, try abi.regBytes(&context.thread_context, register, context.reg_context));
+                const value = mem.readIntSliceNative(usize, try abi.regBytes(context.thread_context, register, context.reg_context));
                 break :blk try call_frame.applyOffset(value, offset);
             },
             .expression => |expression| blk: {
@@ -1733,7 +1733,7 @@ pub const DwarfInfo = struct {
                     has_next_ip = column.rule != .undefined;
                 }
 
-                const old_value = try abi.regBytes(&context.thread_context, register, context.reg_context);
+                const old_value = try abi.regBytes(context.thread_context, register, context.reg_context);
                 const new_value = try update_allocator.alloc(u8, old_value.len);
 
                 const prev = update_tail;
@@ -1758,12 +1758,12 @@ pub const DwarfInfo = struct {
         }
 
         if (has_next_ip) {
-            context.pc = mem.readIntSliceNative(usize, try abi.regBytes(&context.thread_context, comptime abi.ipRegNum(), context.reg_context));
+            context.pc = mem.readIntSliceNative(usize, try abi.regBytes(context.thread_context, comptime abi.ipRegNum(), context.reg_context));
         } else {
             context.pc = 0;
         }
 
-        mem.writeIntSliceNative(usize, try abi.regBytes(&context.thread_context, abi.spRegNum(context.reg_context), context.reg_context), context.cfa.?);
+        mem.writeIntSliceNative(usize, try abi.regBytes(context.thread_context, abi.spRegNum(context.reg_context), context.reg_context), context.cfa.?);
 
         // The call instruction will have pushed the address of the instruction that follows the call as the return address
         // However, this return address may be past the end of the function if the caller was `noreturn`.
@@ -1779,7 +1779,7 @@ pub const UnwindContext = struct {
     allocator: mem.Allocator,
     cfa: ?usize,
     pc: usize,
-    thread_context: debug.ThreadContext,
+    thread_context: *debug.ThreadContext,
     reg_context: abi.RegisterContext,
     isValidMemory: *const fn (address: usize) bool,
     vm: call_frame.VirtualMachine = .{},
@@ -1788,14 +1788,14 @@ pub const UnwindContext = struct {
     pub fn init(allocator: mem.Allocator, thread_context: *const debug.ThreadContext, isValidMemory: *const fn (address: usize) bool) !UnwindContext {
         const pc = mem.readIntSliceNative(usize, try abi.regBytes(thread_context, abi.ipRegNum(), null));
 
-        if (builtin.os.tag == .macos) @compileError("Fix below TODO");
+        const context_copy = try allocator.create(debug.ThreadContext);
+        debug.dupeContext(thread_context, context_copy);
 
         return .{
             .allocator = allocator,
             .cfa = null,
             .pc = pc,
-            // TODO: This is broken on macos, need a function that knows how to copy the OSs mcontext properly
-            .thread_context = thread_context.*,
+            .thread_context = context_copy,
             .reg_context = undefined,
             .isValidMemory = isValidMemory,
         };
@@ -1804,10 +1804,11 @@ pub const UnwindContext = struct {
     pub fn deinit(self: *UnwindContext) void {
         self.vm.deinit(self.allocator);
         self.stack_machine.deinit(self.allocator);
+        self.allocator.destroy(self.thread_context);
     }
 
     pub fn getFp(self: *const UnwindContext) !usize {
-        return mem.readIntSliceNative(usize, try abi.regBytes(&self.thread_context, abi.fpRegNum(self.reg_context), self.reg_context));
+        return mem.readIntSliceNative(usize, try abi.regBytes(self.thread_context, abi.fpRegNum(self.reg_context), self.reg_context));
     }
 };
 

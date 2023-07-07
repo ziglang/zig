@@ -133,6 +133,9 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     }
 }
 
+/// Platform-specific thread state. This contains register state, and on some platforms
+/// information about the stack. This is not safe to trivially copy, because some platforms
+/// use internal pointers within this structure. To make a copy, use `dupeContext`.
 pub const ThreadContext = blk: {
     if (native_os == .windows) {
         break :blk std.os.windows.CONTEXT;
@@ -455,6 +458,19 @@ pub inline fn getContext(context: *ThreadContext) bool {
     }
 
     return result;
+}
+
+pub fn dupeContext(source: *const ThreadContext, dest: *ThreadContext) void {
+    if (native_os == .windows) dest.* = source.*;
+    if (!have_ucontext) return {};
+
+    return switch (native_os) {
+        .macos => {
+            dest.* = source.*;
+            dest.mcontext = &dest.__mcontext_data;
+        },
+        else => dest.* = source.*,
+    };
 }
 
 pub const UnwindError = if (have_ucontext)
