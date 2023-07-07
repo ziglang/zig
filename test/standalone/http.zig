@@ -571,6 +571,30 @@ pub fn main() !void {
     // connection has been kept alive
     try testing.expect(client.connection_pool.free_len == 1);
 
+    { // issue 16282
+        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/get", .{port});
+        defer calloc.free(location);
+        const uri = try std.Uri.parse(location);
+
+        const total_connections = client.connection_pool.free_size + 64;
+        var requests = try calloc.alloc(http.Client.Request, total_connections);
+        defer calloc.free(requests);
+
+        for (0..total_connections) |i| {
+            var req = try client.request(.GET, uri, .{ .allocator = calloc }, .{});
+            req.response.parser.done = true;
+            req.connection.?.data.closing = false;
+            requests[i] = req;
+        }
+
+        for (0..total_connections) |i| {
+            requests[i].deinit();
+        }
+
+        // free connections should be full now
+        try testing.expect(client.connection_pool.free_len == client.connection_pool.free_size);
+    }
+
     client.deinit();
 
     killServer(server.socket.listen_address);
