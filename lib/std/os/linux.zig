@@ -1519,6 +1519,7 @@ pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
     return 0;
 }
 
+<<<<<<< HEAD
 pub fn getcpu(cpu: *u32, node: *u32) usize {
     return syscall3(.getcpu, @intFromPtr(cpu), @intFromPtr(node), 0);
 }
@@ -1544,6 +1545,8 @@ pub fn sched_setaffinity(pid: pid_t, size: usize, set: *const cpu_set_t) usize {
 
 =======
 >>>>>>> parent of c7bf8bab3 (std.os: adding linux's sched_setaffinity and its wrapper)
+=======
+>>>>>>> parent of 6f418c11e (linux adding some NUMA support)
 pub fn epoll_create() usize {
     return epoll_create1(0);
 }
@@ -3607,35 +3610,6 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     return sum;
 }
 
-<<<<<<< HEAD
-pub fn CPU_ZERO(set: *cpu_set_t) void {
-    @memset(set, 0);
-}
-
-pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
-    const x = cpu / @sizeOf(usize);
-    if (x < @sizeOf(cpu_set_t)) {
-        (set.*)[x] |= cpu_mask(x);
-    }
-}
-
-pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
-    const x = cpu / @sizeOf(usize);
-    if (x < @sizeOf(cpu_set_t)) {
-        return set[x] & cpu_mask(x) != 0;
-    }
-    return false;
-}
-
-pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
-    const x = cpu / @sizeOf(usize);
-    if (x < @sizeOf(cpu_set_t)) {
-        (set.*)[x] &= !cpu_mask(x);
-    }
-}
-
-=======
->>>>>>> parent of c7bf8bab3 (std.os: adding linux's sched_setaffinity and its wrapper)
 pub const MINSIGSTKSZ = switch (native_arch) {
     .x86, .x86_64, .arm, .mipsel => 2048,
     .aarch64 => 5120,
