@@ -5695,7 +5695,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (builtin.os.tag == .linux or builtin.os.tag == .macos or builtin.os.tag == .freebsd) {
+    if (builtin.os.tag == .linux) {
         const uts = uname();
         const hostname = mem.sliceTo(&uts.nodename, 0);
         const result = name_buffer[0..hostname.len];
