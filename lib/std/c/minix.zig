@@ -16,5 +16,3 @@ const __SIZEOF_PTHREAD_MUTEX_T = switch (builtin.abi) {
     },
     else => unreachable,
 };
-
-pub const PTHREAD_STACK_MIN = 16 * 1024;

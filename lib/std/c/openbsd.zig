@@ -1593,39 +1593,3 @@ pub const KERN = struct {
     pub const PROC_ENV = 3;
     pub const PROC_NENV = 4;
 };
-
-pub const HW = struct {
-    pub const MACHINE = 1;
-    pub const MODEL = 2;
-    pub const NCPU = 3;
-    pub const BYTEORDER = 4;
-    pub const PHYSMEM = 5;
-    pub const USERMEM = 6;
-    pub const PAGESIZE = 7;
-    pub const DISKNAMES = 8;
-    pub const DISKSTATS = 9;
-    pub const DISKCOUNT = 10;
-    pub const SENSORS = 11;
-    pub const CPUSPEED = 12;
-    pub const SETPERF = 13;
-    pub const VENDOR = 14;
-    pub const PRODUCT = 15;
-    pub const VERSION = 16;
-    pub const SERIALNO = 17;
-    pub const UUID = 18;
-    pub const PHYSMEM64 = 19;
-    pub const USERMEM64 = 20;
-    pub const NCPUFOUND = 21;
-    pub const ALLOWPOWERDOWN = 22;
-    pub const PERFPOLICY = 23;
-    pub const SMT = 24;
-    pub const NCPUONLINE = 25;
-    pub const POWER = 26;
-};
-
-/// TODO refines if necessary
-pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
-    .sparc64 => 1 << 13,
-    .mips64 => 1 << 14,
-    else => 1 << 12,
-};
