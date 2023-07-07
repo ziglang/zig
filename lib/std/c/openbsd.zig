@@ -251,48 +251,48 @@ pub const EAI_MAX = 15;
 
 pub const msghdr = extern struct {
     /// optional address
-    name: ?*sockaddr,
+    msg_name: ?*sockaddr,
 
     /// size of address
-    namelen: socklen_t,
+    msg_namelen: socklen_t,
 
     /// scatter/gather array
-    iov: [*]iovec,
+    msg_iov: [*]iovec,
 
     /// # elements in msg_iov
-    iovlen: c_uint,
+    msg_iovlen: c_uint,
 
     /// ancillary data
-    control: ?*anyopaque,
+    msg_control: ?*anyopaque,
 
     /// ancillary data buffer len
-    controllen: socklen_t,
+    msg_controllen: socklen_t,
 
     /// flags on received message
-    flags: c_int,
+    msg_flags: c_int,
 };
 
 pub const msghdr_const = extern struct {
     /// optional address
-    name: ?*const sockaddr,
+    msg_name: ?*const sockaddr,
 
     /// size of address
-    namelen: socklen_t,
+    msg_namelen: socklen_t,
 
     /// scatter/gather array
-    iov: [*]const iovec_const,
+    msg_iov: [*]const iovec_const,
 
     /// # elements in msg_iov
-    iovlen: c_uint,
+    msg_iovlen: c_uint,
 
     /// ancillary data
-    control: ?*const anyopaque,
+    msg_control: ?*const anyopaque,
 
     /// ancillary data buffer len
-    controllen: socklen_t,
+    msg_controllen: socklen_t,
 
     /// flags on received message
-    flags: c_int,
+    msg_flags: c_int,
 };
 
 pub const Stat = extern struct {
