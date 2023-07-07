@@ -3859,16 +3859,3 @@ pub extern "c" fn proc_listchildpids(ppid: pid_t, buffer: ?*anyopaque, buffersiz
 pub extern "c" fn proc_pidinfo(pid: c_int, flavor: c_int, arg: u64, buffer: ?*anyopaque, buffersize: c_int) c_int;
 pub extern "c" fn proc_name(pid: c_int, buffer: ?*anyopaque, buffersize: u32) c_int;
 pub extern "c" fn proc_pidpath(pid: c_int, buffer: ?*anyopaque, buffersize: u32) c_int;
-
-pub const MIN = struct {
-    pub const INCORE = 0x1;
-    pub const REFERENCED = 0x2;
-    pub const MODIFIED = 0x4;
-    pub const REFERENCED_OTHER = 0x8;
-    pub const MODIFIED_OTHER = 0x10;
-    pub const PAGED_OUT = 0x20;
-    pub const COPIED = 0x40;
-    pub const ANONYMOUS = 0x80;
-};
-
-pub extern "c" fn mincore(addr: *align(std.mem.page_size) const anyopaque, length: usize, vec: [*]u8) c_int;
