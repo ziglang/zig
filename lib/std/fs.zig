@@ -3115,7 +3115,7 @@ const CopyFileRawError = error{SystemResources} || os.CopyFileRangeError || os.S
 // No metadata is transferred over.
 fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t, maybe_size: ?u64) CopyFileRawError!void {
     if (comptime builtin.target.isDarwin()) {
-        const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE.DATA);
+        const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
         switch (os.errno(rc)) {
             .SUCCESS => return,
             .INVAL => unreachable,
