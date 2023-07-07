@@ -13,7 +13,7 @@ pub const _errno = _errnop;
 
 pub extern "c" fn find_directory(which: directory_which, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) status_t;
 
-pub extern "c" fn find_path(codePointer: ?*const u8, baseDirectory: path_base_directory, subPath: ?[*:0]const u8, pathBuffer: [*:0]u8, bufferSize: usize) status_t;
+pub extern "c" fn find_path(codePointer: *const u8, baseDirectory: path_base_directory, subPath: [*:0]const u8, pathBuffer: [*:0]u8, bufferSize: usize) status_t;
 
 pub extern "c" fn find_thread(thread_name: ?*anyopaque) i32;
 
