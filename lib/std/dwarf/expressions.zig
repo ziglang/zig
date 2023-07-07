@@ -17,6 +17,9 @@ pub const ExpressionContext = struct {
     /// The compilation unit this expression relates to, if any
     compile_unit: ?*const dwarf.CompileUnit = null,
 
+    // .debug_addr section
+    debug_addr: ?[]const u8 = null,
+
     /// Thread context
     thread_context: ?*std.debug.ThreadContext = null,
     reg_context: ?abi.RegisterContext = null,
@@ -73,15 +76,15 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             block: []const u8,
             register_type: struct {
                 register: u8,
-                type_offset: u64,
+                type_offset: addr_type,
             },
             const_type: struct {
-                type_offset: u64,
+                type_offset: addr_type,
                 value_bytes: []const u8,
             },
             deref_type: struct {
                 size: u8,
-                type_offset: u64,
+                type_offset: addr_type,
             },
         };
 
@@ -91,7 +94,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             // Typed value with a maximum size of a register
             regval_type: struct {
                 // Offset of DW_TAG_base_type DIE
-                type_offset: u64,
+                type_offset: addr_type,
                 type_size: u8,
                 value: addr_type,
             },
@@ -99,7 +102,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             // Typed value specified directly in the instruction stream
             const_type: struct {
                 // Offset of DW_TAG_base_type DIE
-                type_offset: u64,
+                type_offset: addr_type,
                 // Backed by the instruction stream
                 value_bytes: []const u8,
             },
@@ -202,7 +205,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.regval_type => blk: {
                     const register = try leb.readULEB128(u8, reader);
-                    const type_offset = try leb.readULEB128(u64, reader);
+                    const type_offset = try leb.readULEB128(addr_type, reader);
                     break :blk .{ .register_type = .{
                         .register = register,
                         .type_offset = type_offset,
@@ -232,7 +235,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     };
                 },
                 OP.const_type => blk: {
-                    const type_offset = try leb.readULEB128(u8, reader);
+                    const type_offset = try leb.readULEB128(addr_type, reader);
                     const size = try reader.readByte();
                     if (stream.pos + size > stream.buffer.len) return error.InvalidExpression;
                     const value_bytes = stream.buffer[stream.pos..][0..size];
@@ -247,7 +250,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 => .{
                     .deref_type = .{
                         .size = try reader.readByte(),
-                        .type_offset = try leb.readULEB128(u64, reader),
+                        .type_offset = try leb.readULEB128(addr_type, reader),
                     },
                 },
                 OP.lo_user...OP.hi_user => return error.UnimplementedUserOpcode,
@@ -277,7 +280,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             context: ExpressionContext,
         ) !bool {
             if (@sizeOf(usize) != @sizeOf(addr_type) or options.endian != comptime builtin.target.cpu.arch.endian())
-                @compileError("Execution of non-native address sizees / endianness is not supported");
+                @compileError("Execution of non-native address sizes / endianness is not supported");
 
             const opcode = try stream.reader().readByte();
             if (options.call_frame_context and !opcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
@@ -309,12 +312,13 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.addrx,
                 OP.constx,
                 => {
+                    if (context.compile_unit == null) return error.ExpressionRequiresCompileUnit;
+                    if (context.debug_addr == null) return error.ExpressionRequiresDebugAddr;
                     const debug_addr_index = (try readOperand(stream, opcode)).?.generic;
-
-                    // TODO: Read item from .debug_addr, this requires need DW_AT_addr_base of the compile unit, push onto stack as generic
-
-                    _ = debug_addr_index;
-                    unreachable;
+                    const offset = context.compile_unit.?.addr_base + debug_addr_index;
+                    if (offset >= context.debug_addr.?.len) return error.InvalidExpression;
+                    const value = mem.readIntSliceNative(usize, context.debug_addr.?[offset..][0..@sizeOf(usize)]);
+                    try self.stack.append(allocator, .{ .generic = value });
                 },
 
                 // 2.5.1.2: Register Values
@@ -464,7 +468,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 // 2.5.1.4: Arithmetic and Logical Operations
                 OP.abs => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const value: addr_type_signed = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
+                    const value: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = std.math.absCast(value),
                     };
@@ -478,10 +482,10 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.div => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a: addr_type_signed = @bitCast(try self.stack.pop().asIntegral());
-                    const b: addr_type_signed = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
+                    const a: isize = @bitCast(try self.stack.pop().asIntegral());
+                    const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
                     self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = @bitCast(try std.math.divTrunc(addr_type_signed, b, a)),
+                        .generic = @bitCast(try std.math.divTrunc(isize, b, a)),
                     };
                 },
                 OP.minus => {
@@ -493,16 +497,16 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.mod => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a: addr_type_signed = @bitCast(try self.stack.pop().asIntegral());
-                    const b: addr_type_signed = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
+                    const a: isize = @bitCast(try self.stack.pop().asIntegral());
+                    const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = @bitCast(@mod(b, a)),
                     };
                 },
                 OP.mul => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a: addr_type_signed = @bitCast(try self.stack.pop().asIntegral());
-                    const b: addr_type_signed = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
+                    const a: isize = @bitCast(try self.stack.pop().asIntegral());
+                    const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = @bitCast(@mulWithOverflow(a, b)[0]),
                     };
@@ -512,7 +516,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = @bitCast(
                             try std.math.negate(
-                                @as(addr_type_signed, @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral())),
+                                @as(isize, @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral())),
                             ),
                         ),
                     };
@@ -563,9 +567,9 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.shra => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
                     const a = try self.stack.pop().asIntegral();
-                    const b: addr_type_signed = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
+                    const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
                     self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = @bitCast(std.math.shr(addr_type_signed, b, a)),
+                        .generic = @bitCast(std.math.shr(isize, b, a)),
                     };
                 },
                 OP.xor => {
@@ -589,8 +593,8 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     const b = self.stack.items[self.stack.items.len - 1];
 
                     if (a == .generic and b == .generic) {
-                        const a_int: addr_type_signed = @bitCast(a.asIntegral() catch unreachable);
-                        const b_int: addr_type_signed = @bitCast(b.asIntegral() catch unreachable);
+                        const a_int: isize = @bitCast(a.asIntegral() catch unreachable);
+                        const b_int: isize = @bitCast(b.asIntegral() catch unreachable);
                         const result = @intFromBool(switch (opcode) {
                             OP.le => b_int < a_int,
                             OP.ge => b_int >= a_int,
@@ -617,7 +621,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     if (condition) {
                         const new_pos = std.math.cast(
                             usize,
-                            try std.math.add(addr_type_signed, @as(addr_type_signed, @intCast(stream.pos)), branch_offset),
+                            try std.math.add(isize, @as(isize, @intCast(stream.pos)), branch_offset),
                         ) orelse return error.InvalidExpression;
 
                         if (new_pos < 0 or new_pos >= stream.buffer.len) return error.InvalidExpression;
@@ -781,6 +785,7 @@ pub fn Builder(comptime options: ExpressionOptions) type {
                         i32 => OP.const4s,
                         u64 => OP.const8u,
                         i64 => OP.const8s,
+                        else => unreachable,
                     });
 
                     try writer.writeInt(T, value, options.endian);
@@ -987,5 +992,86 @@ test "DWARF expressions" {
             const expected = 31 - i;
             try testing.expectEqual(expected, stack_machine.stack.popOrNull().?.generic);
         }
+    }
+
+    // Constants
+    {
+        program.clearRetainingCapacity();
+
+        const expected = [_]comptime_int{
+            1,
+            -1,
+            0x0fff,
+            -0x0fff,
+            0x0fffffff,
+            -0x0fffffff,
+            0x0fffffffffffffff,
+            -0x0fffffffffffffff,
+            0x8000000,
+            -0x8000000,
+            @as(usize, @truncate(0x12345678_12345678)),
+            @as(usize, @truncate(0xffffffff_ffffffff)),
+            @as(usize, @truncate(0xeeeeeeee_eeeeeeee)),
+        };
+
+        try b.writeConst(writer, u8, expected[0]);
+        try b.writeConst(writer, i8, expected[1]);
+        try b.writeConst(writer, u16, expected[2]);
+        try b.writeConst(writer, i16, expected[3]);
+        try b.writeConst(writer, u32, expected[4]);
+        try b.writeConst(writer, i32, expected[5]);
+        try b.writeConst(writer, u64, expected[6]);
+        try b.writeConst(writer, i64, expected[7]);
+        try b.writeConst(writer, u28, expected[8]);
+        try b.writeConst(writer, i28, expected[9]);
+        try b.writeAddr(writer, expected[10]);
+
+        var mock_compile_unit: dwarf.CompileUnit = undefined;
+        mock_compile_unit.addr_base = 1;
+
+        var mock_debug_addr = std.ArrayList(u8).init(allocator);
+        defer mock_debug_addr.deinit();
+
+        try mock_debug_addr.writer().writeIntNative(u16, 0);
+        try mock_debug_addr.writer().writeIntNative(usize, expected[11]);
+        try mock_debug_addr.writer().writeIntNative(usize, expected[12]);
+
+        const context = ExpressionContext{
+            .compile_unit = &mock_compile_unit,
+            .debug_addr = mock_debug_addr.items,
+        };
+
+        try b.writeConstx(writer, @as(usize, 1));
+        try b.writeAddrx(writer, @as(usize, 1 + @sizeOf(usize)));
+
+        const die_offset: usize = @truncate(0xaabbccdd);
+        const type_bytes: []const u8 = &.{ 1, 2, 3, 4 };
+        try b.writeConstType(writer, die_offset, type_bytes.len, type_bytes);
+
+        _ = try stack_machine.run(program.items, allocator, context, 0);
+
+        const const_type = stack_machine.stack.popOrNull().?.const_type;
+        try testing.expectEqual(die_offset, const_type.type_offset);
+        try testing.expectEqualSlices(u8, type_bytes, const_type.value_bytes);
+
+        try testing.expectEqual(@as(usize, expected[12]), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(usize, expected[11]), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(usize, expected[10]), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(isize, @truncate(expected[9])), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(usize, @truncate(expected[8])), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(isize, @truncate(expected[7])), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(usize, @truncate(expected[6])), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(isize, @truncate(expected[5])), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(usize, @truncate(expected[4])), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(isize, @truncate(expected[3])), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(usize, @truncate(expected[2])), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(isize, @truncate(expected[1])), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(usize, @truncate(expected[0])), @as(usize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+    }
+
+    // Register values
+    var thread_context: std.debug.ThreadContext = undefined;
+    if (std.debug.getContext(&thread_context)) {
+        // TODO: Test fbreg, breg0..31, bregx, regval_type
     }
 }
