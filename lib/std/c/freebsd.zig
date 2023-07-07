@@ -54,9 +54,6 @@ pub extern "c" fn kinfo_getproc(pid: pid_t) ?[*]kinfo_proc;
 
 pub extern "c" fn cpuset_getaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *cpuset_t) c_int;
 pub extern "c" fn cpuset_setaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *const cpuset_t) c_int;
-pub extern "c" fn sched_getaffinity(pid: pid_t, cpusetsz: usize, cpuset: *cpuset_t) c_int;
-pub extern "c" fn sched_setaffinity(pid: pid_t, cpusetsz: usize, cpuset: *const cpuset_t) c_int;
-pub extern "c" fn sched_getcpu() c_int;
 
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
