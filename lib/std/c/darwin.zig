@@ -3946,22 +3946,6 @@ pub const host_cpu_load_info = extern struct {
 pub const host_cpu_load_info_data_t = host_cpu_load_info;
 pub const host_cpu_load_info_t = *host_cpu_load_info;
 
-pub const host_load_info = extern struct {
-    avenrun: [3]integer_t,
-    mach_factor: [3]integer_t,
-};
-
-pub const host_load_info_data_t = host_load_info;
-pub const host_load_info_t = *host_load_info;
-
-pub const host_preferred_user_arch = extern struct {
-    cpu_type: cpu_type_t,
-    cpu_subtype: cpu_subtype_t,
-};
-
-pub const host_preferred_user_arch_data_t = host_preferred_user_arch;
-pub const host_preferred_user_arch_t = *host_preferred_user_arch;
-
 pub const HOST = struct {
     pub const BASIC_INFO = 1;
     pub const SCHED_INFO = 3;
@@ -3978,8 +3962,6 @@ pub const HOST = struct {
     pub const RESOURCES_SIZES_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(kernel_resource_sizes_data_t) / @sizeOf(integer_t));
     pub const PRIORITY_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_priority_info_data_t) / @sizeOf(integer_t));
     pub const CPU_LOAD_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_cpu_load_info_data_t) / @sizeOf(integer_t));
-    pub const LOAD_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_load_info_data_t) / @sizeOf(integer_t));
-    pub const PREFERRED_USER_ARCH_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_preferred_user_arch_data_t) / @sizeOf(integer_t));
 };
 
 pub const host_basic_info = packed struct(u32) {
