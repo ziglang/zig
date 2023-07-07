@@ -33,7 +33,7 @@ pub const ExpressionOptions = struct {
     endian: std.builtin.Endian = .Little,
 
     /// Restrict the stack machine to a subset of opcodes used in call frame instructions
-    call_frame_mode: bool = false,
+    call_frame_context: bool = false,
 };
 
 /// A stack machine that can decode and run DWARF expressions.
@@ -111,13 +111,15 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     // TODO: For these two prongs, look up the type and assert it's integral?
                     .regval_type => |regval_type| regval_type.value,
                     .const_type => |const_type| {
-                        return switch (const_type.value_bytes.len) {
+                        const value: u64 = switch (const_type.value_bytes.len) {
                             1 => mem.readIntSliceNative(u8, const_type.value_bytes),
                             2 => mem.readIntSliceNative(u16, const_type.value_bytes),
                             4 => mem.readIntSliceNative(u32, const_type.value_bytes),
                             8 => mem.readIntSliceNative(u64, const_type.value_bytes),
-                            else => error.InvalidIntegralTypeLength,
+                            else => return error.InvalidIntegralTypeSize,
                         };
+
+                        return std.math.cast(addr_type, value) orelse error.TruncatedIntegralType;
                     },
                 };
             }
@@ -278,26 +280,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 @compileError("Execution of non-native address sizees / endianness is not supported");
 
             const opcode = try stream.reader().readByte();
-            if (options.call_frame_mode) {
-                // Certain opcodes are not allowed in a CFA context, see 6.4.2
-                switch (opcode) {
-                    OP.addrx,
-                    OP.call2,
-                    OP.call4,
-                    OP.call_ref,
-                    OP.const_type,
-                    OP.constx,
-                    OP.convert,
-                    OP.deref_type,
-                    OP.regval_type,
-                    OP.reinterpret,
-                    OP.push_object_address,
-                    OP.call_frame_cfa,
-                    => return error.InvalidCFAExpression,
-                    else => {},
-                }
-            }
-
+            if (options.call_frame_context and !opcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
             switch (opcode) {
 
                 // 2.5.1.1: Literal Encodings
@@ -420,7 +403,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.xderef_type,
                 => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
-                    var addr = try self.stack.pop().asIntegral();
+                    var addr = try self.stack.items[self.stack.items.len - 1].asIntegral();
                     const addr_space_identifier: ?usize = switch (opcode) {
                         OP.xderef,
                         OP.xderef_size,
@@ -447,24 +430,24 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                         else => unreachable,
                     };
 
-                    const value: u64 = switch (size) {
+                    const value: addr_type = std.math.cast(addr_type, @as(u64, switch (size) {
                         1 => @as(*const u8, @ptrFromInt(addr)).*,
                         2 => @as(*const u16, @ptrFromInt(addr)).*,
                         4 => @as(*const u32, @ptrFromInt(addr)).*,
                         8 => @as(*const u64, @ptrFromInt(addr)).*,
                         else => return error.InvalidExpression,
-                    };
+                    })) orelse return error.InvalidExpression;
 
                     if (opcode == OP.deref_type) {
-                        try self.stack.append(allocator, .{
+                        self.stack.items[self.stack.items.len - 1] = .{
                             .regval_type = .{
                                 .type_offset = operand.?.deref_type.type_offset,
                                 .type_size = operand.?.deref_type.size,
                                 .value = value,
                             },
-                        });
+                        };
                     } else {
-                        try self.stack.append(allocator, .{ .generic = value });
+                        self.stack.items[self.stack.items.len - 1] = .{ .generic = value };
                     }
                 },
                 OP.push_object_address,
@@ -738,6 +721,7 @@ pub fn Writer(options: ExpressionOptions) type {
     return struct {
         /// Zero-operand instructions
         pub fn writeOpcode(writer: anytype, comptime opcode: u8) !void {
+            if (options.call_frame_context and !comptime opcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
             switch (opcode) {
                 OP.dup,
                 OP.drop,
@@ -820,6 +804,7 @@ pub fn Writer(options: ExpressionOptions) type {
         }
 
         pub fn writeConstType(writer: anytype, die_offset: anytype, size: u8, value_bytes: []const u8) !void {
+            if (options.call_frame_context) return error.InvalidCFAOpcode;
             if (size != value_bytes.len) return error.InvalidValueSize;
             try writer.writeByte(OP.const_type);
             try leb.writeULEB128(writer, die_offset);
@@ -833,6 +818,7 @@ pub fn Writer(options: ExpressionOptions) type {
         }
 
         pub fn writeAddrx(writer: anytype, debug_addr_offset: anytype) !void {
+            if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.addrx);
             try leb.writeULEB128(writer, debug_addr_offset);
         }
@@ -856,6 +842,7 @@ pub fn Writer(options: ExpressionOptions) type {
         }
 
         pub fn writeRegvalType(writer: anytype, register: anytype, offset: anytype) !void {
+            if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.bregx);
             try leb.writeULEB128(writer, register);
             try leb.writeULEB128(writer, offset);
@@ -878,6 +865,7 @@ pub fn Writer(options: ExpressionOptions) type {
         }
 
         pub fn writeDerefType(writer: anytype, size: u8, die_offset: anytype) !void {
+            if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.deref_type);
             try writer.writeByte(size);
             try leb.writeULEB128(writer, die_offset);
@@ -909,6 +897,7 @@ pub fn Writer(options: ExpressionOptions) type {
         }
 
         pub fn writeCall(writer: anytype, comptime T: type, offset: T) !void {
+            if (options.call_frame_context) return error.InvalidCFAOpcode;
             switch (T) {
                 u16 => try writer.writeByte(OP.call2),
                 u32 => try writer.writeByte(OP.call4),
@@ -919,16 +908,19 @@ pub fn Writer(options: ExpressionOptions) type {
         }
 
         pub fn writeCallRef(writer: anytype, debug_info_offset: addr_type) !void {
+            if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.call_ref);
             try writer.writeInt(addr_type, debug_info_offset, options.endian);
         }
 
         pub fn writeConvert(writer: anytype, die_offset: anytype) !void {
+            if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.convert);
             try leb.writeULEB128(writer, die_offset);
         }
 
         pub fn writeReinterpret(writer: anytype, die_offset: anytype) !void {
+            if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.reinterpret);
             try leb.writeULEB128(writer, die_offset);
         }
@@ -942,9 +934,28 @@ pub fn Writer(options: ExpressionOptions) type {
         }
 
         // 2.6: Location Descriptions
-
         // TODO
 
+    };
+}
+
+// Certain opcodes are not allowed in a CFA context, see 6.4.2
+fn opcodeValidInCFA(opcode: u8) bool {
+    return switch (opcode) {
+        OP.addrx,
+        OP.call2,
+        OP.call4,
+        OP.call_ref,
+        OP.const_type,
+        OP.constx,
+        OP.convert,
+        OP.deref_type,
+        OP.regval_type,
+        OP.reinterpret,
+        OP.push_object_address,
+        OP.call_frame_cfa,
+        => false,
+        else => true,
     };
 }
 

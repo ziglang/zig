@@ -1783,7 +1783,7 @@ pub const UnwindContext = struct {
     reg_ctx: abi.RegisterContext,
     isValidMemory: *const fn (address: usize) bool,
     vm: call_frame.VirtualMachine = .{},
-    stack_machine: expressions.StackMachine(.{ .call_frame_mode = true }) = .{},
+    stack_machine: expressions.StackMachine(.{ .call_frame_context = true }) = .{},
 
     pub fn init(allocator: mem.Allocator, ucontext: *const os.ucontext_t, isValidMemory: *const fn (address: usize) bool) !UnwindContext {
         const pc = mem.readIntSliceNative(usize, try abi.regBytes(ucontext, abi.ipRegNum(), null));
