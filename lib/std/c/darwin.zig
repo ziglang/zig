@@ -489,10 +489,6 @@ pub const VM_REGION_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region
 pub const VM_REGION_EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
 pub const VM_REGION_TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
 
-pub fn VM_MAKE_TAG(tag: u8) u32 {
-    return @as(u32, tag) << 24;
-}
-
 pub const vm_region_basic_info_64 = extern struct {
     protection: vm_prot_t,
     max_protection: vm_prot_t,
