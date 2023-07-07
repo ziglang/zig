@@ -1163,5 +1163,3 @@ pub const sigevent = extern struct {
 };
 
 pub const PTHREAD_STACK_MIN = 16 * 1024;
-
-pub const timer_t = *opaque {};
