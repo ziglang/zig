@@ -245,6 +245,23 @@ test "Value.jsonStringify" {
     }
 }
 
+test "parseFromValue(std.json.Value,...)" {
+    const str =
+        \\{
+        \\  "int": 32,
+        \\  "float": 3.2,
+        \\  "str": "str",
+        \\  "array": [3, 2],
+        \\  "object": {}
+        \\}
+    ;
+
+    const parsed_tree = try parseFromSlice(Value, testing.allocator, str, .{});
+    defer parsed_tree.deinit();
+    const tree = try parseFromValueLeaky(Value, parsed_tree.arena.allocator(), parsed_tree.value, .{});
+    try testing.expect(std.meta.eql(parsed_tree.value, tree));
+}
+
 test "polymorphic parsing" {
     if (true) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/16108
     const doc =
