@@ -11,6 +11,9 @@ const assert = std.debug.assert;
 /// Callers should specify all the fields relevant to their context. If a field is required
 /// by the expression and it isn't in the context, error.IncompleteExpressionContext is returned.
 pub const ExpressionContext = struct {
+    /// This expression is from a DWARF64 section
+    is_64: bool = false,
+
     /// If specified, any addresses will pass through this function before being
     isValidMemory: ?*const fn (address: usize) bool = null,
 
@@ -29,6 +32,9 @@ pub const ExpressionContext = struct {
 
     /// Call frame address, if in a CFI context
     cfa: ?usize = null,
+
+    /// This expression is a sub-expression from an OP.entry_value instruction
+    entry_value_context: bool = false,
 };
 
 pub const ExpressionOptions = struct {
@@ -41,6 +47,28 @@ pub const ExpressionOptions = struct {
     /// Restrict the stack machine to a subset of opcodes used in call frame instructions
     call_frame_context: bool = false,
 };
+
+pub const ExpressionError = error{
+    UnimplementedExpressionCall,
+    UnimplementedOpcode,
+    UnimplementedUserOpcode,
+    UnimplementedTypedComparison,
+    UnimplementedTypeConversion,
+
+    UnknownExpressionOpcode,
+
+    IncompleteExpressionContext,
+
+    InvalidCFAOpcode,
+    InvalidExpression,
+    InvalidFrameBase,
+    InvalidIntegralTypeSize,
+    InvalidRegister,
+    InvalidSubExpression,
+    InvalidTypeLength,
+
+    TruncatedIntegralType,
+} || abi.AbiError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero };
 
 /// A stack machine that can decode and run DWARF expressions.
 /// Expressions can be decoded for non-native address size and endianness,
@@ -156,12 +184,14 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             }
         }
 
-        pub fn readOperand(stream: *std.io.FixedBufferStream([]const u8), opcode: u8) !?Operand {
+        pub fn readOperand(stream: *std.io.FixedBufferStream([]const u8), opcode: u8, context: ExpressionContext) !?Operand {
             const reader = stream.reader();
             return switch (opcode) {
-                OP.addr,
-                OP.call_ref,
-                => generic(try reader.readInt(addr_type, options.endian)),
+                OP.addr => generic(try reader.readInt(addr_type, options.endian)),
+                OP.call_ref => if (context.is_64)
+                    generic(try reader.readInt(u64, options.endian))
+                else
+                    generic(try reader.readInt(u32, options.endian)),
                 OP.const1u,
                 OP.pick,
                 => generic(try reader.readByte()),
@@ -267,7 +297,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             allocator: std.mem.Allocator,
             context: ExpressionContext,
             initial_value: ?usize,
-        ) !?Value {
+        ) ExpressionError!?Value {
             if (initial_value) |i| try self.stack.append(allocator, .{ .generic = i });
             var stream = std.io.fixedBufferStream(expression);
             while (try self.step(&stream, allocator, context)) {}
@@ -281,12 +311,12 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             stream: *std.io.FixedBufferStream([]const u8),
             allocator: std.mem.Allocator,
             context: ExpressionContext,
-        ) !bool {
+        ) ExpressionError!bool {
             if (@sizeOf(usize) != @sizeOf(addr_type) or options.endian != comptime builtin.target.cpu.arch.endian())
                 @compileError("Execution of non-native address sizes / endianness is not supported");
 
             const opcode = try stream.reader().readByte();
-            if (options.call_frame_context and !opcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
+            if (options.call_frame_context and !isOpcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
             switch (opcode) {
 
                 // 2.5.1.1: Literal Encodings
@@ -302,10 +332,10 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.const8s,
                 OP.constu,
                 OP.consts,
-                => try self.stack.append(allocator, .{ .generic = (try readOperand(stream, opcode)).?.generic }),
+                => try self.stack.append(allocator, .{ .generic = (try readOperand(stream, opcode, context)).?.generic }),
 
                 OP.const_type => {
-                    const const_type = (try readOperand(stream, opcode)).?.const_type;
+                    const const_type = (try readOperand(stream, opcode, context)).?.const_type;
                     try self.stack.append(allocator, .{ .const_type = .{
                         .type_offset = const_type.type_offset,
                         .value_bytes = const_type.value_bytes,
@@ -315,9 +345,9 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.addrx,
                 OP.constx,
                 => {
-                    if (context.compile_unit == null) return error.ExpressionRequiresCompileUnit;
-                    if (context.debug_addr == null) return error.ExpressionRequiresDebugAddr;
-                    const debug_addr_index = (try readOperand(stream, opcode)).?.generic;
+                    if (context.compile_unit == null) return error.IncompleteExpressionContext;
+                    if (context.debug_addr == null) return error.IncompleteExpressionContext;
+                    const debug_addr_index = (try readOperand(stream, opcode, context)).?.generic;
                     const offset = context.compile_unit.?.addr_base + debug_addr_index;
                     if (offset >= context.debug_addr.?.len) return error.InvalidExpression;
                     const value = mem.readIntSliceNative(usize, context.debug_addr.?[offset..][0..@sizeOf(usize)]);
@@ -326,10 +356,10 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
 
                 // 2.5.1.2: Register Values
                 OP.fbreg => {
-                    if (context.compile_unit == null) return error.ExpressionRequiresCompileUnit;
-                    if (context.compile_unit.?.frame_base == null) return error.ExpressionRequiresFrameBase;
+                    if (context.compile_unit == null) return error.IncompleteExpressionContext;
+                    if (context.compile_unit.?.frame_base == null) return error.IncompleteExpressionContext;
 
-                    const offset: i64 = @intCast((try readOperand(stream, opcode)).?.generic);
+                    const offset: i64 = @intCast((try readOperand(stream, opcode, context)).?.generic);
                     _ = offset;
 
                     switch (context.compile_unit.?.frame_base.?.*) {
@@ -353,7 +383,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 => {
                     if (context.thread_context == null) return error.IncompleteExpressionContext;
 
-                    const base_register = (try readOperand(stream, opcode)).?.base_register;
+                    const base_register = (try readOperand(stream, opcode, context)).?.base_register;
                     var value: i64 = @intCast(mem.readIntSliceNative(usize, try abi.regBytes(
                         context.thread_context.?,
                         base_register.base_register,
@@ -363,7 +393,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     try self.stack.append(allocator, .{ .generic = @intCast(value) });
                 },
                 OP.regval_type => {
-                    const register_type = (try readOperand(stream, opcode)).?.register_type;
+                    const register_type = (try readOperand(stream, opcode, context)).?.register_type;
                     const value = mem.readIntSliceNative(usize, try abi.regBytes(
                         context.thread_context.?,
                         register_type.register,
@@ -387,7 +417,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     _ = self.stack.pop();
                 },
                 OP.pick, OP.over => {
-                    const stack_index = if (opcode == OP.over) 1 else (try readOperand(stream, opcode)).?.generic;
+                    const stack_index = if (opcode == OP.over) 1 else (try readOperand(stream, opcode, context)).?.generic;
                     if (stack_index >= self.stack.items.len) return error.InvalidExpression;
                     try self.stack.append(allocator, self.stack.items[self.stack.items.len - 1 - stack_index]);
                 },
@@ -429,7 +459,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
 
                     if (context.isValidMemory) |isValidMemory| if (!isValidMemory(addr)) return error.InvalidExpression;
 
-                    const operand = try readOperand(stream, opcode);
+                    const operand = try readOperand(stream, opcode, context);
                     const size = switch (opcode) {
                         OP.deref,
                         OP.xderef,
@@ -469,11 +499,15 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     }
                 },
                 OP.push_object_address => {
-                    if (context.object_address == null) return error.IncompleteExpressionContext;
-                    try self.stack.append(allocator, .{ .generic = @intFromPtr(context.object_address.?) });
+                    // In sub-expressions, `push_object_address` is not meaningful (as per the
+                    // spec), so treat it like a nop
+                    if (!context.entry_value_context) {
+                        if (context.object_address == null) return error.IncompleteExpressionContext;
+                        try self.stack.append(allocator, .{ .generic = @intFromPtr(context.object_address.?) });
+                    }
                 },
                 OP.form_tls_address => {
-                    return error.UnimplementedExpressionOpcode;
+                    return error.UnimplementedOpcode;
                 },
                 OP.call_frame_cfa => {
                     if (context.cfa) |cfa| {
@@ -559,7 +593,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.plus_uconst => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const constant = (try readOperand(stream, opcode)).?.generic;
+                    const constant = (try readOperand(stream, opcode, context)).?.generic;
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = try std.math.add(addr_type, try self.stack.items[self.stack.items.len - 1].asIntegral(), constant),
                     };
@@ -628,7 +662,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     }
                 },
                 OP.skip, OP.bra => {
-                    const branch_offset = (try readOperand(stream, opcode)).?.branch_offset;
+                    const branch_offset = (try readOperand(stream, opcode, context)).?.branch_offset;
                     const condition = if (opcode == OP.bra) blk: {
                         if (self.stack.items.len == 0) return error.InvalidExpression;
                         break :blk try self.stack.pop().asIntegral() != 0;
@@ -648,7 +682,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.call4,
                 OP.call_ref,
                 => {
-                    const debug_info_offset = (try readOperand(stream, opcode)).?.generic;
+                    const debug_info_offset = (try readOperand(stream, opcode, context)).?.generic;
                     _ = debug_info_offset;
 
                     // TODO: Load a DIE entry at debug_info_offset in a .debug_info section (the spec says that it
@@ -661,7 +695,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 // 2.5.1.6: Type Conversions
                 OP.convert => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const type_offset = (try readOperand(stream, opcode)).?.generic;
+                    const type_offset = (try readOperand(stream, opcode, context)).?.generic;
 
                     // TODO: Load the DW_TAG_base_type entries in context.compile_unit and verify both types are the same size
                     const value = self.stack.items[self.stack.items.len - 1];
@@ -675,7 +709,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.reinterpret => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const type_offset = (try readOperand(stream, opcode)).?.generic;
+                    const type_offset = (try readOperand(stream, opcode, context)).?.generic;
 
                     // TODO: Load the DW_TAG_base_type entries in context.compile_unit and verify both types are the same size
                     const value = self.stack.items[self.stack.items.len - 1];
@@ -710,15 +744,29 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 // 2.5.1.7: Special Operations
                 OP.nop => {},
                 OP.entry_value => {
-                    const block = (try readOperand(stream, opcode)).?.block;
-                    _ = block;
+                    const block = (try readOperand(stream, opcode, context)).?.block;
+                    if (block.len == 0) return error.InvalidSubExpression;
 
-                    // TODO: If block is an expression, run it on a new stack. Push the resulting value onto this stack.
-                    // TODO: If block is a register location, push the value that location had before running this program onto this stack.
-                    //       This implies capturing all register values before executing this block, in case this program modifies them.
-                    // TODO: If the block contains, OP.push_object_address, treat it as OP.nop
+                    // TODO: The spec states that this sub-expression needs to observe the state (ie. registers)
+                    //       as it was upon entering the current subprogram. If this isn't being called at the
+                    //       end of a frame unwind operation, an additional ThreadContext with this state will be needed.
 
-                    return error.UnimplementedSubExpression;
+                    if (isOpcodeRegisterLocation(block[0])) {
+                        if (context.thread_context == null) return error.IncompleteExpressionContext;
+
+                        var block_stream = std.io.fixedBufferStream(block);
+                        const register = (try readOperand(&block_stream, block[0], context)).?.register;
+                        const value = mem.readIntSliceNative(usize, try abi.regBytes(context.thread_context.?, register, context.reg_context));
+                        try self.stack.append(allocator, .{ .generic = value });
+                    } else {
+                        var stack_machine: Self = .{};
+                        defer stack_machine.deinit(allocator);
+
+                        var sub_context = context;
+                        sub_context.entry_value_context = true;
+                        const result = try stack_machine.run(block, allocator, sub_context, null);
+                        try self.stack.append(allocator, result orelse return error.InvalidSubExpression);
+                    }
                 },
 
                 // These have already been handled by readOperand
@@ -745,7 +793,7 @@ pub fn Builder(comptime options: ExpressionOptions) type {
     return struct {
         /// Zero-operand instructions
         pub fn writeOpcode(writer: anytype, comptime opcode: u8) !void {
-            if (options.call_frame_context and !comptime opcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
+            if (options.call_frame_context and !comptime isOpcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
             switch (opcode) {
                 OP.dup,
                 OP.drop,
@@ -778,6 +826,7 @@ pub fn Builder(comptime options: ExpressionOptions) type {
                 OP.gt,
                 OP.ne,
                 OP.nop,
+                OP.stack_value,
                 => try writer.writeByte(opcode),
                 else => @compileError("This opcode requires operands, use `write<Opcode>()` instead"),
             }
@@ -828,12 +877,12 @@ pub fn Builder(comptime options: ExpressionOptions) type {
             try leb.writeULEB128(writer, debug_addr_offset);
         }
 
-        pub fn writeConstType(writer: anytype, die_offset: anytype, size: u8, value_bytes: []const u8) !void {
+        pub fn writeConstType(writer: anytype, die_offset: anytype, value_bytes: []const u8) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
-            if (size != value_bytes.len) return error.InvalidValueSize;
+            if (value_bytes.len > 0xff) return error.InvalidTypeLength;
             try writer.writeByte(OP.const_type);
             try leb.writeULEB128(writer, die_offset);
-            try writer.writeByte(size);
+            try writer.writeByte(@intCast(value_bytes.len));
             try writer.writeAll(value_bytes);
         }
 
@@ -932,10 +981,10 @@ pub fn Builder(comptime options: ExpressionOptions) type {
             try writer.writeInt(T, offset, options.endian);
         }
 
-        pub fn writeCallRef(writer: anytype, debug_info_offset: addr_type) !void {
+        pub fn writeCallRef(writer: anytype, comptime is_64: bool, value: if (is_64) u64 else u32) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.call_ref);
-            try writer.writeInt(addr_type, debug_info_offset, options.endian);
+            try writer.writeInt(if (is_64) u64 else u32, value, options.endian);
         }
 
         pub fn writeConvert(writer: anytype, die_offset: anytype) !void {
@@ -959,13 +1008,29 @@ pub fn Builder(comptime options: ExpressionOptions) type {
         }
 
         // 2.6: Location Descriptions
-        // TODO
+        pub fn writeReg(writer: anytype, register: u8) !void {
+            try writer.writeByte(OP.reg0 + register);
+        }
+
+        pub fn writeRegx(writer: anytype, register: anytype) !void {
+            try writer.writeByte(OP.regx);
+            try leb.writeULEB128(writer, register);
+        }
+
+        pub fn writeImplicitValue(writer: anytype, value_bytes: []const u8) !void {
+            try writer.writeByte(OP.implicit_value);
+            try leb.writeULEB128(writer, value_bytes.len);
+            try writer.writeAll(value_bytes);
+        }
+
+        // pub fn writeImplicitPointer(writer: anytype, ) void {
+        // }
 
     };
 }
 
 // Certain opcodes are not allowed in a CFA context, see 6.4.2
-fn opcodeValidInCFA(opcode: u8) bool {
+fn isOpcodeValidInCFA(opcode: u8) bool {
     return switch (opcode) {
         OP.addrx,
         OP.call2,
@@ -981,6 +1046,13 @@ fn opcodeValidInCFA(opcode: u8) bool {
         OP.call_frame_cfa,
         => false,
         else => true,
+    };
+}
+
+fn isOpcodeRegisterLocation(opcode: u8) bool {
+    return switch (opcode) {
+        OP.reg0...OP.reg31, OP.regx => true,
+        else => false,
     };
 }
 
@@ -1067,7 +1139,7 @@ test "DWARF expressions" {
 
         const die_offset: usize = @truncate(0xaabbccdd);
         const type_bytes: []const u8 = &.{ 1, 2, 3, 4 };
-        try b.writeConstType(writer, die_offset, type_bytes.len, type_bytes);
+        try b.writeConstType(writer, die_offset, type_bytes);
 
         _ = try stack_machine.run(program.items, allocator, context, 0);
 
@@ -1137,7 +1209,13 @@ test "DWARF expressions" {
             try testing.expectEqual(@as(usize, 202), stack_machine.stack.popOrNull().?.generic);
             try testing.expectEqual(@as(usize, 101), stack_machine.stack.popOrNull().?.generic);
         } else |err| {
-            if (err != error.UnimplementedArch and err != error.UnimplementedOs) return err;
+            switch (err) {
+                error.UnimplementedArch,
+                error.UnimplementedOs,
+                error.ThreadContextNotSupported,
+                => {},
+                else => return err,
+            }
         }
     }
 
@@ -1396,7 +1474,6 @@ test "DWARF expressions" {
         try testing.expectEqual(@as(usize, 0x0ff0), stack_machine.stack.popOrNull().?.generic);
     }
 
-
     // Control Flow Operations
     {
         var context = ExpressionContext{};
@@ -1436,7 +1513,6 @@ test "DWARF expressions" {
         _ = try stack_machine.run(program.items, allocator, context, null);
         try testing.expectEqual(@as(usize, 2), stack_machine.stack.popOrNull().?.generic);
 
-
         stack_machine.reset();
         program.clearRetainingCapacity();
         try b.writeLiteral(writer, 2);
@@ -1470,7 +1546,7 @@ test "DWARF expressions" {
         // Convert to generic type
         stack_machine.reset();
         program.clearRetainingCapacity();
-        try b.writeConstType(writer, @as(usize, 0), options.addr_size, &value_bytes);
+        try b.writeConstType(writer, @as(usize, 0), &value_bytes);
         try b.writeConvert(writer, @as(usize, 0));
         _ = try stack_machine.run(program.items, allocator, context, null);
         try testing.expectEqual(value, stack_machine.stack.popOrNull().?.generic);
@@ -1478,7 +1554,7 @@ test "DWARF expressions" {
         // Reinterpret to generic type
         stack_machine.reset();
         program.clearRetainingCapacity();
-        try b.writeConstType(writer, @as(usize, 0), options.addr_size, &value_bytes);
+        try b.writeConstType(writer, @as(usize, 0), &value_bytes);
         try b.writeReinterpret(writer, @as(usize, 0));
         _ = try stack_machine.run(program.items, allocator, context, null);
         try testing.expectEqual(value, stack_machine.stack.popOrNull().?.generic);
@@ -1488,7 +1564,7 @@ test "DWARF expressions" {
 
         stack_machine.reset();
         program.clearRetainingCapacity();
-        try b.writeConstType(writer, @as(usize, 0), options.addr_size, &value_bytes);
+        try b.writeConstType(writer, @as(usize, 0), &value_bytes);
         try b.writeReinterpret(writer, die_offset);
         _ = try stack_machine.run(program.items, allocator, context, null);
         const const_type = stack_machine.stack.popOrNull().?.const_type;
@@ -1506,18 +1582,59 @@ test "DWARF expressions" {
     // Special operations
     {
         var context = ExpressionContext{};
+
         stack_machine.reset();
         program.clearRetainingCapacity();
-
         try b.writeOpcode(writer, OP.nop);
         _ = try stack_machine.run(program.items, allocator, context, null);
         try testing.expect(stack_machine.stack.popOrNull() == null);
 
+        // Sub-expression
+        {
+            var sub_program = std.ArrayList(u8).init(allocator);
+            defer sub_program.deinit();
+            const sub_writer = sub_program.writer();
+            try b.writeLiteral(sub_writer, 3);
 
+            stack_machine.reset();
+            program.clearRetainingCapacity();
+            try b.writeEntryValue(writer, sub_program.items);
+            _ = try stack_machine.run(program.items, allocator, context, null);
+            try testing.expectEqual(@as(usize, 3), stack_machine.stack.popOrNull().?.generic);
+        }
 
+        // Register location description
+        const reg_context = abi.RegisterContext{
+            .eh_frame = true,
+            .is_macho = builtin.os.tag == .macos,
+        };
+        var thread_context: std.debug.ThreadContext = undefined;
+        context = ExpressionContext{
+            .thread_context = &thread_context,
+            .reg_context = reg_context,
+        };
 
+        if (abi.regBytes(&thread_context, 0, reg_context)) |reg_bytes| {
+            mem.writeIntSliceNative(usize, reg_bytes, 0xee);
+
+            var sub_program = std.ArrayList(u8).init(allocator);
+            defer sub_program.deinit();
+            const sub_writer = sub_program.writer();
+            try b.writeReg(sub_writer, 0);
+
+            stack_machine.reset();
+            program.clearRetainingCapacity();
+            try b.writeEntryValue(writer, sub_program.items);
+            _ = try stack_machine.run(program.items, allocator, context, null);
+            try testing.expectEqual(@as(usize, 0xee), stack_machine.stack.popOrNull().?.generic);
+        } else |err| {
+            switch (err) {
+                error.UnimplementedArch,
+                error.UnimplementedOs,
+                error.ThreadContextNotSupported,
+                => {},
+                else => return err,
+            }
+        }
     }
-
-
 }
-

@@ -628,7 +628,6 @@ pub const StackIterator = struct {
 
                 // TODO: Unwind using __unwind_info,
                 unreachable;
-
             },
             else => {},
         }

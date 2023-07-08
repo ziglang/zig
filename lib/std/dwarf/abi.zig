@@ -59,12 +59,23 @@ pub const RegisterContext = struct {
     is_macho: bool,
 };
 
+pub const AbiError = error{
+    InvalidRegister,
+    UnimplementedArch,
+    UnimplementedOs,
+    ThreadContextNotSupported,
+};
+
 /// Returns a slice containing the backing storage for `reg_number`.
 ///
 /// `reg_context` describes in what context the register number is used, as it can have different
 /// meanings depending on the DWARF container. It is only required when getting the stack or
 /// frame pointer register on some architectures.
-pub fn regBytes(thread_context_ptr: anytype, reg_number: u8, reg_context: ?RegisterContext) !RegBytesReturnType(@TypeOf(thread_context_ptr)) {
+pub fn regBytes(
+    thread_context_ptr: anytype,
+    reg_number: u8,
+    reg_context: ?RegisterContext,
+) AbiError!RegBytesReturnType(@TypeOf(thread_context_ptr)) {
     if (builtin.os.tag == .windows) {
         return switch (builtin.cpu.arch) {
             .x86 => switch (reg_number) {

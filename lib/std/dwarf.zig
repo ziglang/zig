@@ -1592,6 +1592,7 @@ pub const DwarfInfo = struct {
                                 entry_header.entry_bytes,
                                 -@as(i64, @intCast(@intFromPtr(binary_mem.ptr))),
                                 true,
+                                entry_header.is_64,
                                 frame_section,
                                 entry_header.length_offset,
                                 @sizeOf(usize),
@@ -1674,6 +1675,7 @@ pub const DwarfInfo = struct {
         }
 
         var expression_context = .{
+            .is_64 = cie.is_64,
             .isValidMemory = context.isValidMemory,
             .compile_unit = di.findCompileUnit(fde.pc_begin) catch null,
             .thread_context = context.thread_context,
@@ -2042,6 +2044,7 @@ pub const ExceptionFrameHeader = struct {
             cie_entry_header.entry_bytes,
             0,
             true,
+            cie_entry_header.is_64,
             .eh_frame,
             cie_entry_header.length_offset,
             @sizeOf(usize),
@@ -2135,8 +2138,8 @@ pub const CommonInformationEntry = struct {
     // This is the key that FDEs use to reference CIEs.
     length_offset: u64,
     version: u8,
-
     address_size: u8,
+    is_64: bool,
 
     // Only present in version 4
     segment_selector_size: ?u8,
@@ -2175,11 +2178,12 @@ pub const CommonInformationEntry = struct {
     /// of `pc_rel_offset` and `is_runtime`.
     ///
     /// `length_offset` specifies the offset of this CIE's length field in the
-    /// .eh_frame / .debug_framesection.
+    /// .eh_frame / .debug_frame section.
     pub fn parse(
         cie_bytes: []const u8,
         pc_rel_offset: i64,
         is_runtime: bool,
+        is_64: bool,
         dwarf_section: DwarfSection,
         length_offset: u64,
         addr_size_bytes: u8,
@@ -2280,6 +2284,7 @@ pub const CommonInformationEntry = struct {
             .length_offset = length_offset,
             .version = version,
             .address_size = address_size,
+            .is_64 = is_64,
             .segment_selector_size = segment_selector_size,
             .code_alignment_factor = code_alignment_factor,
             .data_alignment_factor = data_alignment_factor,
@@ -2316,8 +2321,8 @@ pub const FrameDescriptionEntry = struct {
     /// where the section is currently stored in memory, to where it *would* be
     /// stored at runtime: section runtime offset - backing section data base ptr.
     ///
-    /// Similarly, `is_runtime` specifies this function is being called on a runtime section, and so
-    /// indirect pointers can be followed.
+    /// Similarly, `is_runtime` specifies this function is being called on a runtime
+    /// section, and so indirect pointers can be followed.
     pub fn parse(
         fde_bytes: []const u8,
         pc_rel_offset: i64,
