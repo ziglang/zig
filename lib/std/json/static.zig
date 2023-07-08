@@ -121,13 +121,19 @@ pub fn parseFromTokenSourceLeaky(
     if (@TypeOf(scanner_or_reader.*) == Scanner) {
         assert(scanner_or_reader.is_end_of_input);
     }
-
     var resolved_options = options;
     if (resolved_options.max_value_len == null) {
         if (@TypeOf(scanner_or_reader.*) == Scanner) {
             resolved_options.max_value_len = scanner_or_reader.input.len;
         } else {
             resolved_options.max_value_len = default_max_value_len;
+        }
+    }
+    if (resolved_options.allocate == null) {
+        if (@TypeOf(scanner_or_reader.*) == Scanner) {
+            resolved_options.allocate = .alloc_if_needed;
+        } else {
+            resolved_options.allocate = .alloc_always;
         }
     }
 
@@ -189,6 +195,13 @@ pub const ParseFromValueError = std.fmt.ParseIntError || std.fmt.ParseFloatError
     LengthMismatch,
 };
 
+/// This is an internal function called recursively
+/// during the implementation of `parseFromTokenSourceLeaky` and similar.
+/// It is exposed primarily to enable custom `jsonParse()` methods to call back into the `parseFrom*` system,
+/// such as if you're implementing a custom container of type `T`;
+/// you can call `internalParse(T, ...)` for each of the container's items.
+/// Note that `null` fields are not allowed on the `options` when calling this function.
+/// (The `options` you get in your `jsonParse` method has no `null` fields.)
 pub fn innerParse(
     comptime T: type,
     allocator: Allocator,
@@ -282,7 +295,6 @@ pub fn innerParse(
                 }
             } else {
                 // Didn't match anything.
-                freeAllocated(allocator, name_token.?);
                 return error.UnknownField;
             }
 
@@ -319,7 +331,6 @@ pub fn innerParse(
                 const field_name = switch (name_token.?) {
                     inline .string, .allocated_string => |slice| slice,
                     .object_end => { // No more fields.
-                        freeAllocated(allocator, name_token.?);
                         break;
                     },
                     else => {
@@ -473,18 +484,7 @@ pub fn innerParse(
                                 return try value_list.toOwnedSliceSentinel(@as(*const u8, @ptrCast(sentinel_ptr)).*);
                             }
                             if (ptrInfo.is_const) {
-                                var allocate_when: AllocWhen = .alloc_always;
-                                if (options.allocate) |alloc_when| {
-                                    // The user specified whether or not to allocate new space for strings
-                                    allocate_when = alloc_when;
-                                } else {
-                                    // The user did not specify, do or don't allocate new space for strings
-                                    // depending on the source type.
-                                    if (@TypeOf(source.*) == Scanner) {
-                                        allocate_when = .alloc_if_needed;
-                                    }
-                                }
-                                switch (try source.nextAllocMax(allocator, allocate_when, options.max_value_len.?)) {
+                                switch (try source.nextAllocMax(allocator, options.allocate.?, options.max_value_len.?)) {
                                     inline .string, .allocated_string => |slice| return slice,
                                     else => unreachable,
                                 }
