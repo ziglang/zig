@@ -36,7 +36,9 @@ env_map: ?*EnvMap,
 /// be skipped if all output files are up-to-date and input files are
 /// unchanged.
 stdio: StdIo = .infer_from_args,
+
 /// This field must be `.none` if stdio is `inherit`.
+/// It should be only set using `setStdIn`.
 stdin: StdIn = .none,
 
 /// Additional file paths relative to build.zig that, when modified, indicate
@@ -233,6 +235,14 @@ pub fn addArgs(self: *Run, args: []const []const u8) void {
     for (args) |arg| {
         self.addArg(arg);
     }
+}
+
+pub fn setStdIn(self: *Run, stdin: StdIn) void {
+    switch (stdin) {
+        .file_source => |file_source| file_source.addStepDependencies(&self.step),
+        .bytes, .none => {},
+    }
+    self.stdin = stdin;
 }
 
 pub fn clearEnvironment(self: *Run) void {
