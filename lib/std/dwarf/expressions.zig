@@ -17,7 +17,10 @@ pub const ExpressionContext = struct {
     /// The compilation unit this expression relates to, if any
     compile_unit: ?*const dwarf.CompileUnit = null,
 
-    // .debug_addr section
+    /// When evaluating a user-presented expression, this is the address of the object being evaluated
+    object_address: ?*const anyopaque = null,
+
+    /// .debug_addr section
     debug_addr: ?[]const u8 = null,
 
     /// Thread context
@@ -465,9 +468,11 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                         },
                     }
                 },
-                OP.push_object_address,
-                OP.form_tls_address,
-                => {
+                OP.push_object_address => {
+                    if (context.object_address == null) return error.IncompleteExpressionContext;
+                    try self.stack.append(allocator, .{ .generic = @intFromPtr(context.object_address.?) });
+                },
+                OP.form_tls_address => {
                     return error.UnimplementedExpressionOpcode;
                 },
                 OP.call_frame_cfa => {
@@ -1106,28 +1111,34 @@ test "DWARF expressions" {
             .reg_context = reg_context,
         };
 
-        // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
+        // Only test register operations on arch / os that have them implemented
+        if (abi.regBytes(&thread_context, 0, reg_context)) |_| {
 
-        mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, 0, reg_context), 0xee);
-        mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.fpRegNum(reg_context), reg_context), 1);
-        mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.spRegNum(reg_context), reg_context), 2);
-        mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.ipRegNum(), reg_context), 3);
+            // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
 
-        try b.writeBreg(writer, abi.fpRegNum(reg_context), @as(usize, 100));
-        try b.writeBreg(writer, abi.spRegNum(reg_context), @as(usize, 200));
-        try b.writeBregx(writer, abi.ipRegNum(), @as(usize, 300));
-        try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 400));
+            mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, 0, reg_context), 0xee);
+            mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.fpRegNum(reg_context), reg_context), 1);
+            mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.spRegNum(reg_context), reg_context), 2);
+            mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.ipRegNum(), reg_context), 3);
 
-        _ = try stack_machine.run(program.items, allocator, context, 0);
+            try b.writeBreg(writer, abi.fpRegNum(reg_context), @as(usize, 100));
+            try b.writeBreg(writer, abi.spRegNum(reg_context), @as(usize, 200));
+            try b.writeBregx(writer, abi.ipRegNum(), @as(usize, 300));
+            try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 400));
 
-        const regval_type = stack_machine.stack.popOrNull().?.regval_type;
-        try testing.expectEqual(@as(usize, 400), regval_type.type_offset);
-        try testing.expectEqual(@as(u8, @sizeOf(usize)), regval_type.type_size);
-        try testing.expectEqual(@as(usize, 0xee), regval_type.value);
+            _ = try stack_machine.run(program.items, allocator, context, 0);
 
-        try testing.expectEqual(@as(usize, 303), stack_machine.stack.popOrNull().?.generic);
-        try testing.expectEqual(@as(usize, 202), stack_machine.stack.popOrNull().?.generic);
-        try testing.expectEqual(@as(usize, 101), stack_machine.stack.popOrNull().?.generic);
+            const regval_type = stack_machine.stack.popOrNull().?.regval_type;
+            try testing.expectEqual(@as(usize, 400), regval_type.type_offset);
+            try testing.expectEqual(@as(u8, @sizeOf(usize)), regval_type.type_size);
+            try testing.expectEqual(@as(usize, 0xee), regval_type.value);
+
+            try testing.expectEqual(@as(usize, 303), stack_machine.stack.popOrNull().?.generic);
+            try testing.expectEqual(@as(usize, 202), stack_machine.stack.popOrNull().?.generic);
+            try testing.expectEqual(@as(usize, 101), stack_machine.stack.popOrNull().?.generic);
+        } else |err| {
+            if (err != error.UnimplementedArch and err != error.UnimplementedOs) return err;
+        }
     }
 
     // Stack operations
@@ -1242,7 +1253,14 @@ test "DWARF expressions" {
         try testing.expectEqual(@as(u8, 1), xderef_type.type_size);
         try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), xderef_type.value);
 
-        // TODO: Test OP.push_object_address
+        context.object_address = &deref_target;
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeOpcode(writer, OP.push_object_address);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, @intFromPtr(context.object_address.?)), stack_machine.stack.popOrNull().?.generic);
+
         // TODO: Test OP.form_tls_address
 
         context.cfa = @truncate(0xccddccdd_ccddccdd);
@@ -1434,6 +1452,69 @@ test "DWARF expressions" {
         try testing.expect(stack_machine.stack.popOrNull() == null);
 
         // TODO: Test call2, call4, call_ref once implemented
+
+    }
+
+    // Type conversions
+    {
+        var context = ExpressionContext{};
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+
+        // TODO: Test typed OP.convert once implemented
+
+        const value: usize = @truncate(0xffeeffee_ffeeffee);
+        var value_bytes: [options.addr_size]u8 = undefined;
+        mem.writeIntSliceNative(usize, &value_bytes, value);
+
+        // Convert to generic type
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConstType(writer, @as(usize, 0), options.addr_size, &value_bytes);
+        try b.writeConvert(writer, @as(usize, 0));
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(value, stack_machine.stack.popOrNull().?.generic);
+
+        // Reinterpret to generic type
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConstType(writer, @as(usize, 0), options.addr_size, &value_bytes);
+        try b.writeReinterpret(writer, @as(usize, 0));
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(value, stack_machine.stack.popOrNull().?.generic);
+
+        // Reinterpret to new type
+        const die_offset: usize = 0xffee;
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeConstType(writer, @as(usize, 0), options.addr_size, &value_bytes);
+        try b.writeReinterpret(writer, die_offset);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        const const_type = stack_machine.stack.popOrNull().?.const_type;
+        try testing.expectEqual(die_offset, const_type.type_offset);
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeLiteral(writer, 0);
+        try b.writeReinterpret(writer, die_offset);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        const regval_type = stack_machine.stack.popOrNull().?.regval_type;
+        try testing.expectEqual(die_offset, regval_type.type_offset);
+    }
+
+    // Special operations
+    {
+        var context = ExpressionContext{};
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+
+        try b.writeOpcode(writer, OP.nop);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expect(stack_machine.stack.popOrNull() == null);
+
+
+
 
     }
 

@@ -135,7 +135,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 
 /// Platform-specific thread state. This contains register state, and on some platforms
 /// information about the stack. This is not safe to trivially copy, because some platforms
-/// use internal pointers within this structure. To make a copy, use `dupeContext`.
+/// use internal pointers within this structure. To make a copy, use `copyContext`.
 pub const ThreadContext = blk: {
     if (native_os == .windows) {
         break :blk std.os.windows.CONTEXT;
@@ -460,7 +460,7 @@ pub inline fn getContext(context: *ThreadContext) bool {
     return result;
 }
 
-pub fn dupeContext(source: *const ThreadContext, dest: *ThreadContext) void {
+pub fn copyContext(source: *const ThreadContext, dest: *ThreadContext) void {
     if (native_os == .windows) dest.* = source.*;
     if (!have_ucontext) return {};
 
@@ -474,7 +474,7 @@ pub fn dupeContext(source: *const ThreadContext, dest: *ThreadContext) void {
 }
 
 pub const UnwindError = if (have_ucontext)
-    @typeInfo(@typeInfo(@TypeOf(StackIterator.next_dwarf)).Fn.return_type.?).ErrorUnion.error_set
+    @typeInfo(@typeInfo(@TypeOf(StackIterator.next_unwind)).Fn.return_type.?).ErrorUnion.error_set
 else
     void;
 
@@ -619,11 +619,21 @@ pub const StackIterator = struct {
         }
     }
 
-    fn next_dwarf(self: *StackIterator) !usize {
+    fn next_unwind(self: *StackIterator) !usize {
         const module = try self.debug_info.?.getModuleForAddress(self.dwarf_context.pc);
+        switch (native_os) {
+            .macos, .ios, .watchos, .tvos => {
+                const o_file_info = try module.getOFileInfoForAddress(self.debug_info.?.allocator, self.dwarf_context.pc);
+                if (o_file_info.unwind_info == null) return error.MissingUnwindInfo;
+
+                // TODO: Unwind using __unwind_info,
+                unreachable;
+
+            },
+            else => {},
+        }
+
         if (try module.getDwarfInfoForAddress(self.debug_info.?.allocator, self.dwarf_context.pc)) |di| {
-            self.dwarf_context.reg_context.eh_frame = true;
-            self.dwarf_context.reg_context.is_macho = di.is_macho;
             return di.unwindFrame(&self.dwarf_context, module.base_address);
         } else return error.MissingDebugInfo;
     }
@@ -631,7 +641,7 @@ pub const StackIterator = struct {
     fn next_internal(self: *StackIterator) ?usize {
         if (have_ucontext and self.debug_info != null) {
             if (self.dwarf_context.pc == 0) return null;
-            if (self.next_dwarf()) |return_address| {
+            if (self.next_unwind()) |return_address| {
                 return return_address;
             } else |err| {
                 self.last_error = err;
@@ -1882,6 +1892,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         const OFileInfo = struct {
             di: DW.DwarfInfo,
             addr_table: std.StringHashMap(u64),
+            unwind_info: ?[]const u8,
         };
 
         fn deinit(self: *@This(), allocator: mem.Allocator) void {
@@ -1939,21 +1950,24 @@ pub const ModuleDebugInfo = switch (native_os) {
                 addr_table.putAssumeCapacityNoClobber(sym_name, sym.n_value);
             }
 
+            var unwind_info: ?[]const u8 = null;
             var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
             for (segcmd.?.getSections()) |sect| {
-                if (!std.mem.eql(u8, "__DWARF", sect.segName())) continue;
+                if (std.mem.eql(u8, "__TEXT", sect.segName()) and mem.eql(u8, "__unwind_info", sect.sectName())) {
+                    unwind_info = try chopSlice(mapped_mem, sect.offset, sect.size);
+                } else if (std.mem.eql(u8, "__DWARF", sect.segName())) {
+                    var section_index: ?usize = null;
+                    inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
+                        if (mem.eql(u8, "__" ++ section.name, sect.sectName())) section_index = i;
+                    }
+                    if (section_index == null) continue;
 
-                var section_index: ?usize = null;
-                inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
-                    if (mem.eql(u8, "__" ++ section.name, sect.sectName())) section_index = i;
+                    const section_bytes = try chopSlice(mapped_mem, sect.offset, sect.size);
+                    sections[section_index.?] = .{
+                        .data = section_bytes,
+                        .owned = false,
+                    };
                 }
-                if (section_index == null) continue;
-
-                const section_bytes = try chopSlice(mapped_mem, sect.offset, sect.size);
-                sections[section_index.?] = .{
-                    .data = section_bytes,
-                    .owned = false,
-                };
             }
 
             const missing_debug_info =
@@ -1973,6 +1987,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             var info = OFileInfo{
                 .di = di,
                 .addr_table = addr_table,
+                .unwind_info = unwind_info,
             };
 
             // Add the debug info to the cache
@@ -2030,7 +2045,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             }
         }
 
-        fn getOFileInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !struct {
+        pub fn getOFileInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !struct {
             relocated_address: usize,
             symbol: ?*const MachoSymbol = null,
             o_file_info: ?*OFileInfo = null,

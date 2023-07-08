@@ -1683,6 +1683,7 @@ pub const DwarfInfo = struct {
 
         context.vm.reset();
         context.reg_context.eh_frame = cie.version != 4;
+        context.reg_context.is_macho = di.is_macho;
 
         _ = try context.vm.runToNative(context.allocator, mapped_pc, cie, fde);
         const row = &context.vm.current_row;
@@ -1791,7 +1792,7 @@ pub const UnwindContext = struct {
         const pc = mem.readIntSliceNative(usize, try abi.regBytes(thread_context, abi.ipRegNum(), null));
 
         const context_copy = try allocator.create(debug.ThreadContext);
-        debug.dupeContext(thread_context, context_copy);
+        debug.copyContext(thread_context, context_copy);
 
         return .{
             .allocator = allocator,
