@@ -1320,29 +1320,47 @@ pub fn dump(self: *Builder, writer: anytype) @TypeOf(writer).Error!void {
     try writer.writeByte('\n');
     for (self.functions.items) |function| {
         const global = self.globals.entries.get(@intFromEnum(function.global));
+        const item = self.type_items.items[@intFromEnum(global.value.type)];
+        const extra = self.typeExtraDataTrail(Type.Function, item.data);
+        const params: []const Type =
+            @ptrCast(self.type_extra.items[extra.end..][0..extra.data.params_len]);
         try writer.print(
-            \\{s} {}{}{}{}{<}@{}{>} {}{}{{
-            \\  ret {%}
-            \\}}
-            \\
+            \\{s} {}{}{}{}{} @{}(
         , .{
             if (function.body) |_| "define" else "declare",
             global.value.linkage,
             global.value.preemption,
             global.value.visibility,
             global.value.dll_storage_class,
-            global.value.type.fmt(self),
+            extra.data.ret.fmt(self),
             global.key.fmt(self),
-            global.value.type.fmt(self),
+        });
+        for (params, 0..) |param, index| {
+            if (index > 0) try writer.writeAll(", ");
+            try writer.print("{%} %{d}", .{ param.fmt(self), index });
+        }
+        switch (item.tag) {
+            .function => {},
+            .vararg_function => {
+                if (params.len > 0) try writer.writeAll(", ");
+                try writer.writeAll("...");
+            },
+            else => unreachable,
+        }
+        try writer.print(") {}{}", .{
             global.value.unnamed_addr,
             global.value.alignment,
-            self.typeExtraData(
-                Type.Function,
-                self.type_items.items[@intFromEnum(global.value.type)].data,
-            ).ret.fmt(self),
         });
+        if (function.body) |_| try writer.print(
+            \\{{
+            \\  ret {%}
+            \\}}
+            \\
+        , .{
+            extra.data.ret.fmt(self),
+        });
+        try writer.writeByte('\n');
     }
-    try writer.writeByte('\n');
 }
 
 inline fn useLibLlvm(self: *const Builder) bool {
