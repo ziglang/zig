@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const debug = std.debug;
 const testing = std.testing;
 
@@ -18,6 +19,24 @@ noinline fn frame3(expected: *[4]usize, unwound: *[4]usize) void {
 }
 
 noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
+    if (builtin.os.tag == .macos) {
+        // Excercise different __unwind_info encodings by forcing some registers to be restored
+        switch (builtin.cpu.arch) {
+            .x86_64 => {
+                asm volatile (
+                    \\movq $3, %%rbx
+                    \\movq $12, %%r12
+                    \\movq $13, %%r13
+                    \\movq $14, %%r14
+                    \\movq $15, %%r15
+                    \\movq $6, %%rbp
+                    ::: "rbx", "r12", "r13", "r14", "r15", "rbp");
+            },
+            .aarch64 => {},
+            else => {},
+        }
+    }
+
     expected[1] = @returnAddress();
     frame3(expected, unwound);
 }

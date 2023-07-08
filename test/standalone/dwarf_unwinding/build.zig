@@ -16,6 +16,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         });
 
+        if (target.isDarwin()) exe.unwind_tables = true;
         exe.omit_frame_pointer = true;
 
         const run_cmd = b.addRunArtifact(exe);
@@ -43,6 +44,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         });
 
+        if (target.isDarwin()) exe.unwind_tables = true;
         exe.omit_frame_pointer = true;
         exe.linkLibrary(c_shared_lib);
 

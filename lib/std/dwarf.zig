@@ -1641,7 +1641,6 @@ pub const DwarfInfo = struct {
         // instead of the actual base address of the module. When using .eh_frame_hdr, PC can be used directly
         // as pointers will be decoded relative to the alreayd-mapped .eh_frame.
         var mapped_pc: usize = undefined;
-
         if (di.eh_frame_hdr) |header| {
             const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
             mapped_pc = context.pc;
@@ -1657,16 +1656,12 @@ pub const DwarfInfo = struct {
             mapped_pc = context.pc - module_base_address;
             const index = std.sort.binarySearch(FrameDescriptionEntry, mapped_pc, di.fde_list.items, {}, struct {
                 pub fn compareFn(_: void, pc: usize, mid_item: FrameDescriptionEntry) std.math.Order {
-                    if (pc < mid_item.pc_begin) {
-                        return .lt;
-                    } else {
-                        const range_end = mid_item.pc_begin + mid_item.pc_range;
-                        if (pc < range_end) {
-                            return .eq;
-                        }
+                    if (pc < mid_item.pc_begin) return .lt;
 
-                        return .gt;
-                    }
+                    const range_end = mid_item.pc_begin + mid_item.pc_range;
+                    if (pc < range_end) return .eq;
+
+                    return .gt;
                 }
             }.compareFn);
 
@@ -2000,6 +1995,7 @@ pub const ExceptionFrameHeader = struct {
             }
         }
 
+        if (len == 0) return badDwarf();
         try stream.seekTo(left * entry_size);
 
         // Read past the pc_begin field of the entry

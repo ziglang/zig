@@ -45,15 +45,6 @@ pub fn spRegNum(reg_context: RegisterContext) u8 {
     };
 }
 
-fn RegBytesReturnType(comptime ContextPtrType: type) type {
-    const info = @typeInfo(ContextPtrType);
-    if (info != .Pointer or info.Pointer.child != std.debug.ThreadContext) {
-        @compileError("Expected a pointer to std.debug.ThreadContext, got " ++ @typeName(@TypeOf(ContextPtrType)));
-    }
-
-    return if (info.Pointer.is_const) return []const u8 else []u8;
-}
-
 pub const RegisterContext = struct {
     eh_frame: bool,
     is_macho: bool,
@@ -63,8 +54,46 @@ pub const AbiError = error{
     InvalidRegister,
     UnimplementedArch,
     UnimplementedOs,
+    RegisterContextRequired,
     ThreadContextNotSupported,
 };
+
+fn RegValueReturnType(comptime ContextPtrType: type, comptime T: type) type {
+    const reg_bytes_type = comptime RegBytesReturnType(ContextPtrType);
+    const info = @typeInfo(reg_bytes_type).Pointer;
+    return @Type(.{
+        .Pointer = .{
+            .size = .One,
+            .is_const = info.is_const,
+            .is_volatile = info.is_volatile,
+            .is_allowzero = info.is_allowzero,
+            .alignment = info.alignment,
+            .address_space = info.address_space,
+            .child = T,
+            .sentinel = null,
+        },
+    });
+}
+
+pub fn regValueNative(
+    comptime T: type,
+    thread_context_ptr: anytype,
+    reg_number: u8,
+    reg_context: ?RegisterContext,
+) !RegValueReturnType(@TypeOf(thread_context_ptr), T) {
+    const reg_bytes = try regBytes(thread_context_ptr, reg_number, reg_context);
+    if (@sizeOf(T) != reg_bytes.len) return error.IncompatibleRegisterSize;
+    return mem.bytesAsValue(T, reg_bytes[0..@sizeOf(T)]);
+}
+
+fn RegBytesReturnType(comptime ContextPtrType: type) type {
+    const info = @typeInfo(ContextPtrType);
+    if (info != .Pointer or info.Pointer.child != std.debug.ThreadContext) {
+        @compileError("Expected a pointer to std.debug.ThreadContext, got " ++ @typeName(@TypeOf(ContextPtrType)));
+    }
+
+    return if (info.Pointer.is_const) return []const u8 else []u8;
+}
 
 /// Returns a slice containing the backing storage for `reg_number`.
 ///
