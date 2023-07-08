@@ -317,6 +317,9 @@ pub const Type = opaque {
     pub const vectorType = LLVMVectorType;
     extern fn LLVMVectorType(ElementType: *Type, ElementCount: c_uint) *Type;
 
+    pub const scalableVectorType = LLVMScalableVectorType;
+    extern fn LLVMScalableVectorType(ElementType: *Type, ElementCount: c_uint) *Type;
+
     pub const structSetBody = LLVMStructSetBody;
     extern fn LLVMStructSetBody(
         StructTy: *Type,
@@ -1615,9 +1618,9 @@ pub const address_space = struct {
 
     // See llvm/lib/Target/WebAssembly/Utils/WebAssemblyTypeUtilities.h
     pub const wasm = struct {
-        pub const variable = 1;
-        pub const externref = 10;
-        pub const funcref = 20;
+        pub const variable: c_uint = 1;
+        pub const externref: c_uint = 10;
+        pub const funcref: c_uint = 20;
     };
 };
 
