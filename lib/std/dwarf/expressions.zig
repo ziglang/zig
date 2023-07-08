@@ -33,7 +33,7 @@ pub const ExpressionOptions = struct {
     addr_size: u8 = @sizeOf(usize),
 
     /// Endianess of the target architecture
-    endian: std.builtin.Endian = .Little,
+    endian: std.builtin.Endian = builtin.target.cpu.arch.endian(),
 
     /// Restrict the stack machine to a subset of opcodes used in call frame instructions
     call_frame_context: bool = false,
@@ -272,7 +272,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             return self.stack.items[self.stack.items.len - 1];
         }
 
-        /// Reads an opcode and its operands from the stream and executes it
+        /// Reads an opcode and its operands from `stream`, then executes it
         pub fn step(
             self: *Self,
             stream: *std.io.FixedBufferStream([]const u8),
@@ -607,7 +607,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                         const a_int: isize = @bitCast(a.asIntegral() catch unreachable);
                         const b_int: isize = @bitCast(b.asIntegral() catch unreachable);
                         const result = @intFromBool(switch (opcode) {
-                            OP.le => b_int < a_int,
+                            OP.le => b_int <= a_int,
                             OP.ge => b_int >= a_int,
                             OP.eq => b_int == a_int,
                             OP.lt => b_int < a_int,
@@ -635,7 +635,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                             try std.math.add(isize, @as(isize, @intCast(stream.pos)), branch_offset),
                         ) orelse return error.InvalidExpression;
 
-                        if (new_pos < 0 or new_pos >= stream.buffer.len) return error.InvalidExpression;
+                        if (new_pos < 0 or new_pos > stream.buffer.len) return error.InvalidExpression;
                         stream.pos = new_pos;
                     }
                 },
@@ -657,12 +657,16 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.convert => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
                     const type_offset = (try readOperand(stream, opcode)).?.generic;
-                    _ = type_offset;
 
-                    // TODO: Load the DW_TAG_base_type entry in context.compile_unit, find a conversion operator
-                    //       from the old type to the new type, run it.
-
-                    return error.UnimplementedTypeConversion;
+                    // TODO: Load the DW_TAG_base_type entries in context.compile_unit and verify both types are the same size
+                    const value = self.stack.items[self.stack.items.len - 1];
+                    if (type_offset == 0) {
+                        self.stack.items[self.stack.items.len - 1] = .{ .generic = try value.asIntegral() };
+                    } else {
+                        // TODO: Load the DW_TAG_base_type entry in context.compile_unit, find a conversion operator
+                        //       from the old type to the new type, run it.
+                        return error.UnimplementedTypeConversion;
+                    }
                 },
                 OP.reinterpret => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
@@ -1373,4 +1377,66 @@ test "DWARF expressions" {
         _ = try stack_machine.run(program.items, allocator, context, null);
         try testing.expectEqual(@as(usize, 0x0ff0), stack_machine.stack.popOrNull().?.generic);
     }
+
+
+    // Control Flow Operations
+    {
+        var context = ExpressionContext{};
+        const expected = .{
+            .{ OP.le, 1, 1, 0 },
+            .{ OP.ge, 1, 0, 1 },
+            .{ OP.eq, 1, 0, 0 },
+            .{ OP.lt, 0, 1, 0 },
+            .{ OP.gt, 0, 0, 1 },
+            .{ OP.ne, 0, 1, 1 },
+        };
+
+        inline for (expected) |e| {
+            stack_machine.reset();
+            program.clearRetainingCapacity();
+
+            try b.writeConst(writer, u16, 0);
+            try b.writeConst(writer, u16, 0);
+            try b.writeOpcode(writer, e[0]);
+            try b.writeConst(writer, u16, 0);
+            try b.writeConst(writer, u16, 1);
+            try b.writeOpcode(writer, e[0]);
+            try b.writeConst(writer, u16, 1);
+            try b.writeConst(writer, u16, 0);
+            try b.writeOpcode(writer, e[0]);
+            _ = try stack_machine.run(program.items, allocator, context, null);
+            try testing.expectEqual(@as(usize, e[3]), stack_machine.stack.popOrNull().?.generic);
+            try testing.expectEqual(@as(usize, e[2]), stack_machine.stack.popOrNull().?.generic);
+            try testing.expectEqual(@as(usize, e[1]), stack_machine.stack.popOrNull().?.generic);
+        }
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeLiteral(writer, 2);
+        try b.writeSkip(writer, 1);
+        try b.writeLiteral(writer, 3);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 2), stack_machine.stack.popOrNull().?.generic);
+
+
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeLiteral(writer, 2);
+        try b.writeBra(writer, 1);
+        try b.writeLiteral(writer, 3);
+        try b.writeLiteral(writer, 0);
+        try b.writeBra(writer, 1);
+        try b.writeLiteral(writer, 4);
+        try b.writeLiteral(writer, 5);
+        _ = try stack_machine.run(program.items, allocator, context, null);
+        try testing.expectEqual(@as(usize, 5), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 4), stack_machine.stack.popOrNull().?.generic);
+        try testing.expect(stack_machine.stack.popOrNull() == null);
+
+        // TODO: Test call2, call4, call_ref once implemented
+
+    }
+
+
 }
+
