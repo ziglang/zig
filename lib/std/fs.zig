@@ -39,7 +39,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .plan9 => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -1160,7 +1160,9 @@ pub const Dir = struct {
             return self.openFileW(path_w.span(), flags);
         }
 
-        var os_flags: u32 = os.O.CLOEXEC;
+        var os_flags: u32 = 0;
+        if (@hasDecl(os.O, "CLOEXEC")) os_flags = os.O.CLOEXEC;
+
         // Use the O locking flags if the os supports them to acquire the lock
         // atomically.
         const has_flock_open_flags = @hasDecl(os.O, "EXLOCK");
@@ -1180,7 +1182,7 @@ pub const Dir = struct {
         if (@hasDecl(os.O, "LARGEFILE")) {
             os_flags |= os.O.LARGEFILE;
         }
-        if (!flags.allow_ctty) {
+        if (@hasDecl(os.O, "NOCTTY") and !flags.allow_ctty) {
             os_flags |= os.O.NOCTTY;
         }
         os_flags |= switch (flags.mode) {
@@ -1196,7 +1198,7 @@ pub const Dir = struct {
 
         // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
         // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
-        if (builtin.target.os.tag != .wasi) {
+        if (@hasDecl(os.system, "LOCK") and builtin.target.os.tag != .wasi) {
             if (!has_flock_open_flags and flags.lock != .none) {
                 // TODO: integrate async I/O
                 const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK.NB else @as(i32, 0);
