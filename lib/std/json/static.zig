@@ -35,16 +35,13 @@ pub const ParseOptions = struct {
     /// Ignored for `parseFromValue` and `parseFromValueLeaky`.
     max_value_len: ?usize = null,
 
-    /// If false, calling any parseFromSlice* or parseFromTokenSource* functions
-    /// where the given json object is only partially parsed is an assertion failure.
-    /// Setting this to true allows parseFrom* functions to parse only part of a json.
-    allow_partial: bool = false,
-
-    /// This determines whether parsed dynamic elements such as strings should always trigger an allocation,
-    /// or if a reference to the given buffer should be used.
-    /// If the reader or scanner's internal buffer won't outlive the result of the `parseFrom*` function,
-    /// use .alloc_always to ensure dynamic elements are duplicated into new buffers.
-    allocate: AllocWhen = .alloc_if_needed,
+    /// This determines whether strings should always be copied,
+    /// or if a reference to the given buffer should be preferred if possible.
+    /// The default for `parseFromSlice` or `parseFromTokenSource` with a `*std.json.Scanner` input
+    /// is `.alloc_if_needed`.
+    /// The default with a `*std.json.Reader` input is `.alloc_always`.
+    /// Ignored for `parseFromValue` and `parseFromValueLeaky`.
+    allocate: ?AllocWhen = null,
 };
 
 pub fn Parsed(comptime T: type) type {
@@ -134,11 +131,9 @@ pub fn parseFromTokenSourceLeaky(
         }
     }
 
-    const value = try internalParse(T, allocator, scanner_or_reader, resolved_options);
+    const value = try innerParse(T, allocator, scanner_or_reader, resolved_options);
 
-    if (!resolved_options.allow_partial) {
-        assert(.end_of_document == try scanner_or_reader.next());
-    }
+    assert(.end_of_document == try scanner_or_reader.next());
 
     return value;
 }
@@ -194,7 +189,7 @@ pub const ParseFromValueError = std.fmt.ParseIntError || std.fmt.ParseFloatError
     LengthMismatch,
 };
 
-fn internalParse(
+pub fn innerParse(
     comptime T: type,
     allocator: Allocator,
     source: anytype,
@@ -233,7 +228,7 @@ fn internalParse(
                     return null;
                 },
                 else => {
-                    return try internalParse(optionalInfo.child, allocator, source, options);
+                    return try innerParse(optionalInfo.child, allocator, source, options);
                 },
             }
         },
@@ -264,7 +259,6 @@ fn internalParse(
             const field_name = switch (name_token.?) {
                 inline .string, .allocated_string => |slice| slice,
                 else => {
-                    freeAllocated(allocator, name_token.?);
                     return error.UnexpectedToken;
                 },
             };
@@ -272,7 +266,7 @@ fn internalParse(
             inline for (unionInfo.fields) |u_field| {
                 if (std.mem.eql(u8, u_field.name, field_name)) {
                     // Free the name token now in case we're using an allocator that optimizes freeing the last allocated object.
-                    // (Recursing into internalParse() might trigger more allocations.)
+                    // (Recursing into innerParse() might trigger more allocations.)
                     freeAllocated(allocator, name_token.?);
                     name_token = null;
                     if (u_field.type == void) {
@@ -282,7 +276,7 @@ fn internalParse(
                         result = @unionInit(T, u_field.name, {});
                     } else {
                         // Recurse.
-                        result = @unionInit(T, u_field.name, try internalParse(u_field.type, allocator, source, options));
+                        result = @unionInit(T, u_field.name, try innerParse(u_field.type, allocator, source, options));
                     }
                     break;
                 }
@@ -303,7 +297,7 @@ fn internalParse(
 
                 var r: T = undefined;
                 inline for (0..structInfo.fields.len) |i| {
-                    r[i] = try internalParse(structInfo.fields[i].type, allocator, source, options);
+                    r[i] = try innerParse(structInfo.fields[i].type, allocator, source, options);
                 }
 
                 if (.array_end != try source.next()) return error.UnexpectedToken;
@@ -329,7 +323,6 @@ fn internalParse(
                         break;
                     },
                     else => {
-                        freeAllocated(allocator, name_token.?);
                         return error.UnexpectedToken;
                     },
                 };
@@ -338,7 +331,7 @@ fn internalParse(
                     if (field.is_comptime) @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ field.name);
                     if (std.mem.eql(u8, field.name, field_name)) {
                         // Free the name token now in case we're using an allocator that optimizes freeing the last allocated object.
-                        // (Recursing into internalParse() might trigger more allocations.)
+                        // (Recursing into innerParse() might trigger more allocations.)
                         freeAllocated(allocator, name_token.?);
                         name_token = null;
                         if (fields_seen[i]) {
@@ -346,14 +339,14 @@ fn internalParse(
                                 .use_first => {
                                     // Parse and ignore the redundant value.
                                     // We don't want to skip the value, because we want type checking.
-                                    _ = try internalParse(field.type, allocator, source, options);
+                                    _ = try innerParse(field.type, allocator, source, options);
                                     break;
                                 },
                                 .@"error" => return error.DuplicateField,
                                 .use_last => {},
                             }
                         }
-                        @field(r, field.name) = try internalParse(field.type, allocator, source, options);
+                        @field(r, field.name) = try innerParse(field.type, allocator, source, options);
                         fields_seen[i] = true;
                         break;
                     }
@@ -439,7 +432,7 @@ fn internalParse(
             switch (ptrInfo.size) {
                 .One => {
                     const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
-                    r.* = try internalParse(ptrInfo.child, allocator, source, options);
+                    r.* = try innerParse(ptrInfo.child, allocator, source, options);
                     return r;
                 },
                 .Slice => {
@@ -459,7 +452,7 @@ fn internalParse(
                                 }
 
                                 try arraylist.ensureUnusedCapacity(1);
-                                arraylist.appendAssumeCapacity(try internalParse(ptrInfo.child, allocator, source, options));
+                                arraylist.appendAssumeCapacity(try innerParse(ptrInfo.child, allocator, source, options));
                             }
 
                             if (ptrInfo.sentinel) |some| {
@@ -480,7 +473,18 @@ fn internalParse(
                                 return try value_list.toOwnedSliceSentinel(@as(*const u8, @ptrCast(sentinel_ptr)).*);
                             }
                             if (ptrInfo.is_const) {
-                                switch (try source.nextAllocMax(allocator, options.allocate, options.max_value_len.?)) {
+                                var allocate_when: AllocWhen = .alloc_always;
+                                if (options.allocate) |alloc_when| {
+                                    // The user specified whether or not to allocate new space for strings
+                                    allocate_when = alloc_when;
+                                } else {
+                                    // The user did not specify, do or don't allocate new space for strings
+                                    // depending on the source type.
+                                    if (@TypeOf(source.*) == Scanner) {
+                                        allocate_when = .alloc_if_needed;
+                                    }
+                                }
+                                switch (try source.nextAllocMax(allocator, allocate_when, options.max_value_len.?)) {
                                     inline .string, .allocated_string => |slice| return slice,
                                     else => unreachable,
                                 }
@@ -516,7 +520,7 @@ fn internalParseArray(
     var r: T = undefined;
     var i: usize = 0;
     while (i < len) : (i += 1) {
-        r[i] = try internalParse(Child, allocator, source, options);
+        r[i] = try innerParse(Child, allocator, source, options);
     }
 
     if (.array_end != try source.next()) return error.UnexpectedToken;

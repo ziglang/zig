@@ -7,6 +7,7 @@ const parseFromSlice = @import("./static.zig").parseFromSlice;
 const parseFromSliceLeaky = @import("./static.zig").parseFromSliceLeaky;
 const parseFromTokenSource = @import("./static.zig").parseFromTokenSource;
 const parseFromTokenSourceLeaky = @import("./static.zig").parseFromTokenSourceLeaky;
+const innerParse = @import("./static.zig").innerParse;
 const parseFromValue = @import("./static.zig").parseFromValue;
 const parseFromValueLeaky = @import("./static.zig").parseFromValueLeaky;
 const ParseOptions = @import("./static.zig").ParseOptions;
@@ -849,23 +850,22 @@ test "json parse partial" {
     try assertKey(allocator, "key1", &scanner);
 
     // Parse the inner object to an Inner struct
-    const options_partial = ParseOptions{ .allow_partial = true };
-    const inner_token = try parseFromTokenSourceLeaky(
+    const inner_token = try innerParse(
         Inner,
         arena.allocator(),
         &scanner,
-        options_partial,
+        .{ .max_value_len = scanner.input.len },
     );
     try testing.expectEqual(inner_token.num, 75);
     try testing.expectEqual(inner_token.yes, true);
 
     // Get they next key
     try assertKey(allocator, "key2", &scanner);
-    const inner_token_2 = try parseFromTokenSourceLeaky(
+    const inner_token_2 = try innerParse(
         Inner,
         arena.allocator(),
         &scanner,
-        options_partial,
+        .{ .max_value_len = scanner.input.len },
     );
     try testing.expectEqual(inner_token_2.num, 95);
     try testing.expectEqual(inner_token_2.yes, false);
@@ -890,8 +890,7 @@ test "json parse allocate when streaming" {
     var stream = std.io.fixedBufferStream(str);
     var json_reader = jsonReader(std.testing.allocator, stream.reader());
 
-    const options = ParseOptions{ .allocate = .alloc_always };
-    const parsed = parseFromTokenSourceLeaky(T, arena.allocator(), &json_reader, options) catch |err| {
+    const parsed = parseFromTokenSourceLeaky(T, arena.allocator(), &json_reader, .{}) catch |err| {
         json_reader.deinit();
         return err;
     };
