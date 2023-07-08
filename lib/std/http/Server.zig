@@ -391,7 +391,7 @@ pub const Response = struct {
     pub const DoError = Connection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
 
     /// Send the response headers.
-    pub fn do(res: *Response) !void {
+    pub fn do(res: *Response) DoError!void {
         switch (res.state) {
             .waited => res.state = .responded,
             .first, .start, .responded, .finished => unreachable,
@@ -657,7 +657,7 @@ pub fn deinit(server: *Server) void {
 pub const ListenError = std.os.SocketError || std.os.BindError || std.os.ListenError || std.os.SetSockOptError || std.os.GetSockNameError;
 
 /// Start the HTTP server listening on the given address.
-pub fn listen(server: *Server, address: net.Address) !void {
+pub fn listen(server: *Server, address: net.Address) ListenError!void {
     try server.socket.listen(address);
 }
 
