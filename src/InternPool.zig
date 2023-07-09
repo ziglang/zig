@@ -2853,7 +2853,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             .error_set_type = .anyerror_type,
             .payload_type = @enumFromInt(data),
         } },
-        .type_error_set => ip.indexToKeyErrorSetType(data),
+        .type_error_set => .{ .error_set_type = ip.extraErrorSet(data) },
         .type_inferred_error_set => .{
             .inferred_error_set_type = @enumFromInt(data),
         },
@@ -3284,15 +3284,15 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
     };
 }
 
-fn indexToKeyErrorSetType(ip: *const InternPool, data: u32) Key {
-    const error_set = ip.extraDataTrail(Tag.ErrorSet, data);
-    return .{ .error_set_type = .{
+fn extraErrorSet(ip: *const InternPool, extra_index: u32) Key.ErrorSetType {
+    const error_set = ip.extraDataTrail(Tag.ErrorSet, extra_index);
+    return .{
         .names = .{
             .start = @intCast(error_set.end),
             .len = error_set.data.names_len,
         },
         .names_map = error_set.data.names_map.toOptional(),
-    } };
+    };
 }
 
 fn extraFuncType(ip: *const InternPool, extra_index: u32) Key.FuncType {
@@ -3342,7 +3342,7 @@ fn extraFuncDecl(ip: *const InternPool, extra_index: u32) Key.Func {
         .lbrace_line = func_decl.data.lbrace_line,
         .rbrace_line = func_decl.data.rbrace_line,
         .lbrace_column = func_decl.data.lbrace_column,
-        .rbrace_column = func_decl.data.lbrace_column,
+        .rbrace_column = func_decl.data.rbrace_column,
         .generic_owner = .none,
         .comptime_args = .{ .start = 0, .len = 0 },
     };
@@ -3363,7 +3363,7 @@ fn extraFuncInstance(ip: *const InternPool, extra_index: u32) Key.Func {
         .lbrace_line = func_decl.lbrace_line,
         .rbrace_line = func_decl.rbrace_line,
         .lbrace_column = func_decl.lbrace_column,
-        .rbrace_column = func_decl.lbrace_column,
+        .rbrace_column = func_decl.rbrace_column,
         .generic_owner = fi.data.generic_owner,
         .comptime_args = .{
             .start = fi.end + @intFromBool(fi.data.analysis.inferred_error_set),
@@ -4521,7 +4521,7 @@ pub fn getFuncDeclIes(ip: *InternPool, gpa: Allocator, key: GetFuncDeclIesKey) A
             .inferred_error_set = true,
         },
         .owner_decl = key.owner_decl,
-        .ty = @enumFromInt(ip.items.len + 1),
+        .ty = @enumFromInt(ip.items.len + 3),
         .zir_body_inst = key.zir_body_inst,
         .lbrace_line = key.lbrace_line,
         .rbrace_line = key.rbrace_line,
@@ -4608,35 +4608,38 @@ pub fn getErrorSetType(
     // The strategy here is to add the type unconditionally, then to ask if it
     // already exists, and if so, revert the lengths of the mutated arrays.
     // This is similar to what `getOrPutTrailingString` does.
-    const prev_extra_len = ip.extra.items.len;
-
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.ErrorSet).Struct.fields.len + names.len);
-    try ip.items.ensureUnusedCapacity(gpa, 1);
 
-    ip.items.appendAssumeCapacity(.{
-        .tag = .type_error_set,
-        .data = ip.addExtraAssumeCapacity(Tag.ErrorSet{
-            .names_len = @intCast(names.len),
-            .names_map = @enumFromInt(ip.maps.items.len),
-        }),
+    const prev_extra_len = ip.extra.items.len;
+    errdefer ip.extra.items.len = prev_extra_len;
+
+    const error_set_extra_index = ip.addExtraAssumeCapacity(Tag.ErrorSet{
+        .names_len = @intCast(names.len),
+        .names_map = @enumFromInt(ip.maps.items.len),
     });
     ip.extra.appendSliceAssumeCapacity(@ptrCast(names));
 
     const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const key = indexToKeyErrorSetType(ip, @intCast(ip.items.len - 1));
-    const gop = try ip.map.getOrPutAdapted(gpa, key, adapter);
-    if (!gop.found_existing) {
-        _ = ip.addMap(gpa) catch {
-            ip.items.len -= 1;
-            ip.extra.items.len = prev_extra_len;
-        };
-        return @enumFromInt(ip.items.len - 1);
+    const gop = try ip.map.getOrPutAdapted(gpa, Key{
+        .error_set_type = extraErrorSet(ip, error_set_extra_index),
+    }, adapter);
+    errdefer _ = ip.map.pop();
+
+    if (gop.found_existing) {
+        ip.extra.items.len = prev_extra_len;
+        return @enumFromInt(gop.index);
     }
 
-    // An existing function type was found; undo the additions to our two arrays.
-    ip.items.len -= 1;
-    ip.extra.items.len = prev_extra_len;
-    return @enumFromInt(gop.index);
+    try ip.items.append(gpa, .{
+        .tag = .type_error_set,
+        .data = error_set_extra_index,
+    });
+    errdefer ip.items.len -= 1;
+
+    _ = try ip.addMap(gpa);
+    errdefer @compileError("don't");
+
+    return @enumFromInt(ip.items.len - 1);
 }
 
 pub const GetFuncInstanceKey = struct {
