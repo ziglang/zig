@@ -312,6 +312,8 @@ pub fn regBytes(
                 30 => mem.asBytes(&ucontext_ptr.mcontext.ss.lr),
                 31 => mem.asBytes(&ucontext_ptr.mcontext.ss.sp),
                 32 => mem.asBytes(&ucontext_ptr.mcontext.ss.pc),
+                // V0-V31
+                64...95 => mem.asBytes(&ucontext_ptr.mcontext.ns.q[reg_number - 64]),
                 else => error.InvalidRegister,
             },
             .netbsd => switch (reg_number) {

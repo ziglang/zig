@@ -2080,30 +2080,38 @@ pub const CompactUnwindEncoding = packed struct(u32) {
             frameless: packed struct(u24) {
                 stack_reg_permutation: u10,
                 stack_reg_count: u3,
-                stack_adjust: u3,
-                stack_size: u8,
+                stack: packed union {
+                    direct: packed struct(u11) {
+                        _: u3,
+                        stack_size: u8,
+                    },
+                    indirect: packed struct(u11) {
+                        stack_adjust: u3,
+                        sub_offset: u8,
+                    },
+                },
             },
             dwarf: u24,
         },
         arm64: packed union {
             frame: packed struct(u24) {
-                x_reg_pairs: packed struct {
+                x_reg_pairs: packed struct(u5) {
                     x19_x20: u1,
                     x21_x22: u1,
                     x23_x24: u1,
                     x25_x26: u1,
                     x27_x28: u1,
                 },
-                d_reg_pairs: packed struct {
+                d_reg_pairs: packed struct(u4) {
                     d8_d9: u1,
                     d10_d11: u1,
                     d12_d13: u1,
                     d14_d15: u1,
                 },
-                unused: u15,
+                _: u15,
             },
             frameless: packed struct(u24) {
-                unused: u12 = 0,
+                _: u12 = 0,
                 stack_size: u12,
             },
             dwarf: u24,
@@ -2177,7 +2185,11 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
         UNWIND_SECOND_LEVEL,
         unwind_info[start_offset..][0..@sizeOf(UNWIND_SECOND_LEVEL)],
     );
-    const raw_encoding = switch (kind.*) {
+
+    const entry: struct {
+        function_offset: usize,
+        raw_encoding: u32,
+    } = switch (kind.*) {
         .REGULAR => blk: {
             const page_header = mem.bytesAsValue(
                 unwind_info_regular_second_level_page_header,
@@ -2205,7 +2217,10 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
             }
 
             if (len == 0) return error.InvalidUnwindInfo;
-            break :blk entries[left].encoding;
+            break :blk .{
+                .function_offset = entries[left].functionOffset,
+                .raw_encoding = entries[left].encoding,
+            };
         },
         .COMPRESSED => blk: {
             const page_header = mem.bytesAsValue(
@@ -2235,9 +2250,13 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
 
             if (len == 0) return error.InvalidUnwindInfo;
             const entry = entries[left];
+            const function_offset = second_level_index.functionOffset + entry.funcOffset;
             if (entry.encodingIndex < header.commonEncodingsArrayCount) {
                 if (entry.encodingIndex >= common_encodings.len) return error.InvalidUnwindInfo;
-                break :blk common_encodings[entry.encodingIndex];
+                break :blk .{
+                    .function_offset = function_offset,
+                    .raw_encoding = common_encodings[entry.encodingIndex],
+                };
             } else {
                 const local_index = try std.math.sub(
                     u8,
@@ -2249,19 +2268,22 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
                     unwind_info[start_offset + page_header.encodingsPageOffset ..][0 .. page_header.encodingsCount * @sizeOf(compact_unwind_encoding_t)],
                 );
                 if (local_index >= local_encodings.len) return error.InvalidUnwindInfo;
-                break :blk local_encodings[local_index];
+                break :blk .{
+                    .function_offset = function_offset,
+                    .raw_encoding = local_encodings[local_index],
+                };
             }
         },
         else => return error.InvalidUnwindInfo,
     };
 
-    if (raw_encoding == 0) return error.NoUnwindInfo;
+    if (entry.raw_encoding == 0) return error.NoUnwindInfo;
     const reg_context = dwarf.abi.RegisterContext{
         .eh_frame = false,
         .is_macho = true,
     };
 
-    const encoding: CompactUnwindEncoding = @bitCast(raw_encoding);
+    const encoding: CompactUnwindEncoding = @bitCast(entry.raw_encoding);
     const new_ip = switch (builtin.cpu.arch) {
         .x86_64 => switch (encoding.mode.x86_64) {
             .OLD => return error.UnimplementedUnwindEncoding,
@@ -2283,7 +2305,7 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
                 const fp = (try abi.regValueNative(usize, context.thread_context, abi.fpRegNum(reg_context), reg_context)).*;
                 const new_sp = fp + 2 * @sizeOf(usize);
 
-                // Verify the stack range we're about to read register values from is valid
+                // Verify the stack range we're about to read register values from
                 if (!context.isValidMemory(new_sp) or !context.isValidMemory(fp - frame_offset + max_reg * @sizeOf(usize))) return error.InvalidUnwindInfo;
 
                 const ip_ptr = fp + @sizeOf(usize);
@@ -2303,10 +2325,26 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
 
                 break :blk new_ip;
             },
-            .STACK_IMMD => blk: {
+            .STACK_IMMD,
+            .STACK_IND,
+            => blk: {
                 const sp = (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).*;
+                const stack_size = if (encoding.mode.x86_64 == .STACK_IMMD)
+                    @as(usize, encoding.value.x86_64.frameless.stack.direct.stack_size) * @sizeOf(usize)
+                else stack_size: {
+                    // In .STACK_IND, the stack size is inferred from the subq instruction at the beginning of the function.
+                    const sub_offset_addr =
+                        module_base_address +
+                        entry.function_offset +
+                        encoding.value.x86_64.frameless.stack.indirect.sub_offset;
+                    if (!context.isValidMemory(sub_offset_addr)) return error.InvalidUnwindInfo;
 
-                // Decode Lehmer-coded sequence of registers.
+                    // `sub_offset_addr` points to the offset of the literal within the instruction
+                    const sub_operand = @as(*align(1) const u32, @ptrFromInt(sub_offset_addr)).*;
+                    break :stack_size sub_operand + @sizeOf(usize) * @as(usize, encoding.value.x86_64.frameless.stack.indirect.stack_adjust);
+                };
+
+                // Decode the Lehmer-coded sequence of registers.
                 // For a description of the encoding see lib/libc/include/any-macos.13-any/mach-o/compact_unwind_encoding.h
 
                 // Decode the variable-based permutation number into its digits. Each digit represents
@@ -2340,7 +2378,7 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
                         used_indices[unused_index] = true;
                     }
 
-                    var reg_addr = sp + @as(usize, (encoding.value.x86_64.frameless.stack_size - reg_count - 1)) * @sizeOf(usize);
+                    var reg_addr = sp + stack_size - @sizeOf(usize) * @as(usize, reg_count + 1);
                     if (!context.isValidMemory(reg_addr)) return error.InvalidUnwindInfo;
                     for (0..reg_count) |i| {
                         const reg_number = try dwarfRegNumber(registers[i]);
@@ -2349,7 +2387,7 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
                     }
 
                     break :reg_blk reg_addr;
-                } else sp + @as(usize, (encoding.value.x86_64.frameless.stack_size - 1)) * @sizeOf(usize);
+                } else sp + stack_size - @sizeOf(usize);
 
                 const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
                 const new_sp = ip_ptr + @sizeOf(usize);
@@ -2360,14 +2398,65 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
 
                 break :blk new_ip;
             },
-            .STACK_IND => {
-                return error.UnimplementedUnwindEncoding; // TODO
-            },
             .DWARF => return error.RequiresDWARFUnwind,
         },
-        .aarch64 => switch (encoding.mode.x86_64) {
+        .aarch64 => switch (encoding.mode.arm64) {
+            .OLD => return error.UnimplementedUnwindEncoding,
+            .FRAMELESS => blk: {
+                const sp = (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).*;
+                const new_sp = sp + encoding.value.arm64.frameless.stack_size * 16;
+                const new_ip = (try abi.regValueNative(usize, context.thread_context, 30, reg_context)).*;
+                if (!context.isValidMemory(new_sp)) return error.InvalidUnwindInfo;
+                (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).* = new_sp;
+                break :blk new_ip;
+            },
             .DWARF => return error.RequiresDWARFUnwind,
-            else => return error.UnimplementedUnwindEncoding,
+            .FRAME => {
+                const fp = (try abi.regValueNative(usize, context.thread_context, abi.fpRegNum(reg_context), reg_context)).*;
+                const new_sp = fp + 16;
+                const ip_ptr = fp + @sizeOf(usize);
+
+                const num_restored_pairs: usize =
+                    @popCount(@as(u5, @bitCast(encoding.value.arm64.frame.x_reg_pairs))) +
+                    @popCount(@as(u4, @bitCast(encoding.value.arm64.frame.d_reg_pairs)));
+                const min_reg_addr = fp - num_restored_pairs * 2 * @sizeOf(usize);
+
+                if (!context.isValidMemory(new_sp) or !context.isValidMemory(min_reg_addr)) return error.InvalidUnwindInfo;
+
+                var reg_addr = fp - @sizeOf(usize);
+                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.x_reg_pairs)).Struct.fields, 0..) |field, i| {
+                    if (@field(encoding.value.arm64.frame.x_reg_pairs, field.name) != 0) {
+                        (try abi.regValueNative(usize, context.thread_context, 19 + i, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
+                        reg_addr += @sizeOf(usize);
+                        (try abi.regValueNative(usize, context.thread_context, 20 + i, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
+                        reg_addr += @sizeOf(usize);
+                    }
+                }
+
+                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.d_reg_pairs)).Struct.fields, 0..) |field, i| {
+                    if (@field(encoding.value.arm64.frame.d_reg_pairs, field.name) != 0) {
+                        // Only the lower half of the 128-bit V registers are restored during unwinding
+                        @memcpy(
+                            try abi.regBytes(context.thread_context, 64 + 8 + i, context.reg_context),
+                            mem.asBytes(@as(*const usize, @ptrFromInt(reg_addr))),
+                        );
+                        reg_addr += @sizeOf(usize);
+                        @memcpy(
+                            try abi.regBytes(context.thread_context, 64 + 9 + i, context.reg_context),
+                            mem.asBytes(@as(*const usize, @ptrFromInt(reg_addr))),
+                        );
+                        reg_addr += @sizeOf(usize);
+                    }
+                }
+
+                const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
+                const new_fp = @as(*const usize, @ptrFromInt(fp)).*;
+
+                (try abi.regValueNative(usize, context.thread_context, abi.fpRegNum(reg_context), reg_context)).* = new_fp;
+                (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), reg_context)).* = new_ip;
+
+                return error.UnimplementedUnwindEncoding;
+            },
         },
         else => return error.UnimplementedArch,
     };

@@ -52,6 +52,12 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
 
 noinline fn frame1(expected: *[4]usize, unwound: *[4]usize) void {
     expected[2] = @returnAddress();
+
+    // Use a stack frame that is too big to encode in __unwind_info's stack-immediate encoding
+    // to exercise the stack-indirect encoding path
+    var pad: [std.math.maxInt(u8) * @sizeOf(usize) + 1]u8 = undefined;
+    _ = pad;
+
     frame2(expected, unwound);
 }
 

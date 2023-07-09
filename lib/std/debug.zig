@@ -517,9 +517,7 @@ pub const StackIterator = struct {
     }
 
     pub fn deinit(self: *StackIterator) void {
-        if (have_ucontext and self.debug_info != null) {
-            self.dwarf_context.deinit();
-        }
+        if (have_ucontext and self.debug_info != null) self.dwarf_context.deinit();
     }
 
     pub fn getLastError(self: *StackIterator) ?struct {
