@@ -7,6 +7,7 @@ const parseFromSlice = @import("./static.zig").parseFromSlice;
 const parseFromSliceLeaky = @import("./static.zig").parseFromSliceLeaky;
 const parseFromTokenSource = @import("./static.zig").parseFromTokenSource;
 const parseFromTokenSourceLeaky = @import("./static.zig").parseFromTokenSourceLeaky;
+const innerParse = @import("./static.zig").innerParse;
 const parseFromValue = @import("./static.zig").parseFromValue;
 const parseFromValueLeaky = @import("./static.zig").parseFromValueLeaky;
 const ParseOptions = @import("./static.zig").ParseOptions;
@@ -800,4 +801,103 @@ test "parse into vector" {
     try testing.expectApproxEqAbs(@as(f32, 1.5), parsed.value.vec_f32[0], 0.0000001);
     try testing.expectApproxEqAbs(@as(f32, 2.5), parsed.value.vec_f32[1], 0.0000001);
     try testing.expectEqual(@Vector(4, i32){ 4, 5, 6, 7 }, parsed.value.vec_i32);
+}
+
+fn assertKey(
+    allocator: Allocator,
+    test_string: []const u8,
+    scanner: anytype,
+) !void {
+    const token_outer = try scanner.nextAlloc(allocator, .alloc_always);
+    switch (token_outer) {
+        .allocated_string => |string| {
+            try testing.expectEqualSlices(u8, string, test_string);
+            allocator.free(string);
+        },
+        else => return error.UnexpectedToken,
+    }
+}
+test "json parse partial" {
+    const Inner = struct {
+        num: u32,
+        yes: bool,
+    };
+    var str =
+        \\{
+        \\  "outer": {
+        \\    "key1": {
+        \\      "num": 75,
+        \\      "yes": true
+        \\    },
+        \\    "key2": {
+        \\      "num": 95,
+        \\      "yes": false
+        \\    }
+        \\  }
+        \\}
+    ;
+    var allocator = testing.allocator;
+    var scanner = JsonScanner.initCompleteInput(allocator, str);
+    defer scanner.deinit();
+
+    var arena = ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    // Peel off the outer object
+    try testing.expectEqual(try scanner.next(), .object_begin);
+    try assertKey(allocator, "outer", &scanner);
+    try testing.expectEqual(try scanner.next(), .object_begin);
+    try assertKey(allocator, "key1", &scanner);
+
+    // Parse the inner object to an Inner struct
+    const inner_token = try innerParse(
+        Inner,
+        arena.allocator(),
+        &scanner,
+        .{ .max_value_len = scanner.input.len },
+    );
+    try testing.expectEqual(inner_token.num, 75);
+    try testing.expectEqual(inner_token.yes, true);
+
+    // Get they next key
+    try assertKey(allocator, "key2", &scanner);
+    const inner_token_2 = try innerParse(
+        Inner,
+        arena.allocator(),
+        &scanner,
+        .{ .max_value_len = scanner.input.len },
+    );
+    try testing.expectEqual(inner_token_2.num, 95);
+    try testing.expectEqual(inner_token_2.yes, false);
+    try testing.expectEqual(try scanner.next(), .object_end);
+}
+
+test "json parse allocate when streaming" {
+    const T = struct {
+        not_const: []u8,
+        is_const: []const u8,
+    };
+    var str =
+        \\{
+        \\  "not_const": "non const string",
+        \\  "is_const": "const string"
+        \\}
+    ;
+    var allocator = testing.allocator;
+    var arena = ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var stream = std.io.fixedBufferStream(str);
+    var json_reader = jsonReader(std.testing.allocator, stream.reader());
+
+    const parsed = parseFromTokenSourceLeaky(T, arena.allocator(), &json_reader, .{}) catch |err| {
+        json_reader.deinit();
+        return err;
+    };
+    // Deinit our reader to invalidate its buffer
+    json_reader.deinit();
+
+    // If either of these was invalidated, it would be full of '0xAA'
+    try testing.expectEqualSlices(u8, parsed.not_const, "non const string");
+    try testing.expectEqualSlices(u8, parsed.is_const, "const string");
 }
