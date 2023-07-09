@@ -48,6 +48,7 @@ pub const ExpressionOptions = struct {
     call_frame_context: bool = false,
 };
 
+// Explcitly defined to support executing sub-expressions
 pub const ExpressionError = error{
     UnimplementedExpressionCall,
     UnimplementedOpcode,
@@ -1178,20 +1179,21 @@ test "DWARF expressions" {
             .is_macho = builtin.os.tag == .macos,
         };
         var thread_context: std.debug.ThreadContext = undefined;
+        std.debug.relocateContext(&thread_context);
         const context = ExpressionContext{
             .thread_context = &thread_context,
             .reg_context = reg_context,
         };
 
         // Only test register operations on arch / os that have them implemented
-        if (abi.regBytes(&thread_context, 0, reg_context)) |_| {
+        if (abi.regBytes(&thread_context, 0, reg_context)) |reg_bytes| {
 
             // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
 
-            mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, 0, reg_context), 0xee);
-            mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.fpRegNum(reg_context), reg_context), 1);
-            mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.spRegNum(reg_context), reg_context), 2);
-            mem.writeIntSliceNative(usize, try abi.regBytes(&thread_context, abi.ipRegNum(), reg_context), 3);
+            mem.writeIntSliceNative(usize, reg_bytes, 0xee);
+            (try abi.regValueNative(usize, &thread_context, abi.fpRegNum(reg_context), reg_context)).* = 1;
+            (try abi.regValueNative(usize, &thread_context, abi.spRegNum(reg_context), reg_context)).* = 2;
+            (try abi.regValueNative(usize, &thread_context, abi.ipRegNum(), reg_context)).* = 3;
 
             try b.writeBreg(writer, abi.fpRegNum(reg_context), @as(usize, 100));
             try b.writeBreg(writer, abi.spRegNum(reg_context), @as(usize, 200));
@@ -1609,6 +1611,7 @@ test "DWARF expressions" {
             .is_macho = builtin.os.tag == .macos,
         };
         var thread_context: std.debug.ThreadContext = undefined;
+        std.debug.relocateContext(&thread_context);
         context = ExpressionContext{
             .thread_context = &thread_context,
             .reg_context = reg_context,

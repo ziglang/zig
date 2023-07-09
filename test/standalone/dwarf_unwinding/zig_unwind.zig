@@ -19,9 +19,19 @@ noinline fn frame3(expected: *[4]usize, unwound: *[4]usize) void {
 }
 
 noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
-    if (builtin.os.tag == .macos) {
-        // Excercise different __unwind_info encodings by forcing some registers to be restored
+    // Excercise different __unwind_info / DWARF CFI encodings by forcing some registers to be restored
+    if (builtin.target.ofmt != .c) {
         switch (builtin.cpu.arch) {
+            .x86 => {
+                asm volatile (
+                    \\movl $3, %%ebx
+                    \\movl $1, %%ecx
+                    \\movl $2, %%edx
+                    \\movl $7, %%edi
+                    \\movl $6, %%esi
+                    \\movl $5, %%ebp
+                    ::: "ebx", "ecx", "edx", "edi", "esi", "ebp");
+            },
             .x86_64 => {
                 asm volatile (
                     \\movq $3, %%rbx
@@ -32,7 +42,6 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
                     \\movq $6, %%rbp
                     ::: "rbx", "r12", "r13", "r14", "r15", "rbp");
             },
-            .aarch64 => {},
             else => {},
         }
     }

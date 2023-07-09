@@ -133,6 +133,12 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     }
 }
 
+pub const have_ucontext = @hasDecl(os.system, "ucontext_t") and
+    (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
+    .mips, .mipsel, .mips64, .mips64el, .riscv64 => false,
+    else => true,
+});
+
 /// Platform-specific thread state. This contains register state, and on some platforms
 /// information about the stack. This is not safe to trivially copy, because some platforms
 /// use internal pointers within this structure. To make a copy, use `copyContext`.
@@ -145,6 +151,47 @@ pub const ThreadContext = blk: {
         break :blk void;
     }
 };
+
+/// Copies one context to another, updating any internal pointers
+pub fn copyContext(source: *const ThreadContext, dest: *ThreadContext) void {
+    if (!have_ucontext) return {};
+    dest.* = source.*;
+    relocateContext(dest);
+}
+
+/// Updates any internal points in the context to reflect its current location
+pub fn relocateContext(context: *ThreadContext) void {
+    return switch (native_os) {
+        .macos => {
+            context.mcontext = &context.__mcontext_data;
+        },
+        else => {},
+    };
+}
+
+pub const have_getcontext = @hasDecl(os.system, "getcontext") and
+    (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
+    .x86, .x86_64 => true,
+    else => false,
+});
+
+/// Capture the current context. The register values in the context will reflect the
+/// state after the platform `getcontext` function returned.
+///
+/// It is valid to call this if the platform doesn't have context capturing support,
+/// in that case false will be returned.
+pub inline fn getContext(context: *ThreadContext) bool {
+    if (native_os == .windows) {
+        context.* = std.mem.zeroes(windows.CONTEXT);
+        windows.ntdll.RtlCaptureContext(context);
+        return true;
+    }
+
+    const result = have_getcontext and os.system.getcontext(context) == 0;
+    if (native_os == .macos) assert(context.mcsize == @sizeOf(std.c.mcontext_t));
+
+    return result;
+}
 
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
@@ -426,51 +473,6 @@ pub fn writeStackTrace(
         try out_stream.print("({d} additional stack frames skipped...)\n", .{dropped_frames});
         tty_config.setColor(out_stream, .reset) catch {};
     }
-}
-
-pub const have_getcontext = @hasDecl(os.system, "getcontext") and
-    (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
-    .x86, .x86_64 => true,
-    else => false,
-});
-
-pub const have_ucontext = @hasDecl(os.system, "ucontext_t") and
-    (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
-    .mips, .mipsel, .mips64, .mips64el, .riscv64 => false,
-    else => true,
-});
-
-pub inline fn getContext(context: *ThreadContext) bool {
-    if (native_os == .windows) {
-        context.* = std.mem.zeroes(windows.CONTEXT);
-        windows.ntdll.RtlCaptureContext(context);
-        return true;
-    }
-
-    const result = have_getcontext and os.system.getcontext(context) == 0;
-    if (native_os == .macos) {
-        // TODO: Temp, to discover this size via aarch64 CI
-        if (context.mcsize != @sizeOf(std.c.mcontext_t)) {
-            print("context.mcsize does not match! {} vs {}\n", .{ context.mcsize, @sizeOf(std.c.mcontext_t) });
-        }
-
-        assert(context.mcsize == @sizeOf(std.c.mcontext_t));
-    }
-
-    return result;
-}
-
-pub fn copyContext(source: *const ThreadContext, dest: *ThreadContext) void {
-    if (native_os == .windows) dest.* = source.*;
-    if (!have_ucontext) return {};
-
-    return switch (native_os) {
-        .macos => {
-            dest.* = source.*;
-            dest.mcontext = &dest.__mcontext_data;
-        },
-        else => dest.* = source.*,
-    };
 }
 
 pub const UnwindError = if (have_ucontext)
@@ -855,7 +857,7 @@ fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usiz
 pub fn printUnwindError(debug_info: *DebugInfo, out_stream: anytype, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
     try tty_config.setColor(out_stream, .dim);
-    try out_stream.print("Unwind information for {s} was not available ({}), trace may be incomplete\n\n", .{ module_name, err });
+    try out_stream.print("Unwind information for `{s}` was not available ({}), trace may be incomplete\n\n", .{ module_name, err });
     try tty_config.setColor(out_stream, .reset);
 }
 
@@ -1641,7 +1643,7 @@ pub const DebugInfo = struct {
                     const seg_start = segment_cmd.vmaddr;
                     const seg_end = seg_start + segment_cmd.vmsize;
                     if (original_address >= seg_start and original_address < seg_end) {
-                        return mem.sliceTo(std.c._dyld_get_image_name(i), 0);
+                        return fs.path.basename(mem.sliceTo(std.c._dyld_get_image_name(i), 0));
                     }
                 },
                 else => {},
