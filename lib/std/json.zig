@@ -69,6 +69,8 @@ pub const ObjectMap = @import("json/dynamic.zig").ObjectMap;
 pub const Array = @import("json/dynamic.zig").Array;
 pub const Value = @import("json/dynamic.zig").Value;
 
+pub const ArrayHashMapUnmanaged = @import("json/hashmap.zig").ArrayHashMapUnmanaged;
+
 pub const validate = @import("json/scanner.zig").validate;
 pub const Error = @import("json/scanner.zig").Error;
 pub const reader = @import("json/scanner.zig").reader;
@@ -117,6 +119,7 @@ test {
     _ = @import("json/scanner.zig");
     _ = @import("json/write_stream.zig");
     _ = @import("json/dynamic.zig");
+    _ = @import("json/hashmap_test.zig");
     _ = @import("json/static.zig");
     _ = @import("json/stringify.zig");
     _ = @import("json/JSONTestSuite_test.zig");
