@@ -8767,92 +8767,63 @@ fn funcCommon(
 
     const param_types = block.params.items(.ty);
 
-    const opt_func_index: InternPool.Index = i: {
-        if (!is_source_decl) {
-            assert(has_body);
-            assert(!is_generic);
-            assert(comptime_bits == 0);
-            assert(cc != null);
-            assert(section != .generic);
-            assert(address_space != null);
-            assert(!var_args);
-            break :i try ip.getFuncInstance(gpa, .{
-                .param_types = param_types,
-                .noalias_bits = noalias_bits,
-                .bare_return_type = bare_return_type.toIntern(),
-                .cc = cc_resolved,
-                .alignment = alignment.?,
-                .is_noinline = is_noinline,
-                .inferred_error_set = inferred_error_set,
-                .generic_owner = sema.generic_owner,
-            });
-        }
+    if (!is_source_decl) {
+        assert(has_body);
+        assert(!is_generic);
+        assert(comptime_bits == 0);
+        assert(cc != null);
+        assert(section != .generic);
+        assert(address_space != null);
+        assert(!var_args);
+        const func_index = try ip.getFuncInstance(gpa, .{
+            .param_types = param_types,
+            .noalias_bits = noalias_bits,
+            .bare_return_type = bare_return_type.toIntern(),
+            .cc = cc_resolved,
+            .alignment = alignment.?,
+            .is_noinline = is_noinline,
+            .inferred_error_set = inferred_error_set,
+            .generic_owner = sema.generic_owner,
+        });
+        return finishFunc(
+            sema,
+            block,
+            func_index,
+            .none,
+            ret_poison,
+            bare_return_type,
+            ret_ty_src,
+            cc_resolved,
+            is_source_decl,
+            ret_ty_requires_comptime,
+            func_inst,
+            cc_src,
+            is_noinline,
+            is_generic,
+            final_is_generic,
+        );
+    }
 
-        // extern_func and func_decl functions take ownership of `sema.owner_decl`.
+    // extern_func and func_decl functions take ownership of `sema.owner_decl`.
+    sema.owner_decl.@"linksection" = switch (section) {
+        .generic => .none,
+        .default => .none,
+        .explicit => |section_name| section_name.toOptional(),
+    };
+    sema.owner_decl.alignment = alignment orelse .none;
+    sema.owner_decl.@"addrspace" = address_space orelse .generic;
 
-        sema.owner_decl.@"linksection" = switch (section) {
-            .generic => .none,
-            .default => .none,
-            .explicit => |section_name| section_name.toOptional(),
-        };
-        sema.owner_decl.alignment = alignment orelse .none;
-        sema.owner_decl.@"addrspace" = address_space orelse .generic;
+    if (inferred_error_set) {
+        assert(!is_extern);
+        assert(has_body);
+        try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
+        const func_index = try ip.getFuncDeclIes(gpa, .{
+            .owner_decl = sema.owner_decl_index,
 
-        if (is_extern) {
-            assert(comptime_bits == 0);
-            assert(cc != null);
-            assert(section != .generic);
-            assert(address_space != null);
-            assert(!is_generic);
-            break :i try ip.getExternFunc(gpa, .{
-                .param_types = param_types,
-                .noalias_bits = noalias_bits,
-                .return_type = bare_return_type.toIntern(),
-                .cc = cc_resolved,
-                .alignment = alignment.?,
-                .is_var_args = var_args,
-                .decl = sema.owner_decl_index,
-                .lib_name = if (opt_lib_name) |lib_name| (try mod.intern_pool.getOrPutString(
-                    gpa,
-                    try sema.handleExternLibName(block, .{
-                        .node_offset_lib_name = src_node_offset,
-                    }, lib_name),
-                )).toOptional() else .none,
-            });
-        }
-
-        if (!has_body) break :i .none;
-
-        if (inferred_error_set) {
-            try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
-            break :i try ip.getFuncDeclIes(gpa, .{
-                .owner_decl = sema.owner_decl_index,
-
-                .param_types = param_types,
-                .noalias_bits = noalias_bits,
-                .comptime_bits = comptime_bits,
-                .bare_return_type = bare_return_type.toIntern(),
-                .cc = cc,
-                .alignment = alignment,
-                .section_is_generic = section == .generic,
-                .addrspace_is_generic = address_space == null,
-                .is_var_args = var_args,
-                .is_generic = final_is_generic,
-                .is_noinline = is_noinline,
-
-                .zir_body_inst = func_inst,
-                .lbrace_line = src_locs.lbrace_line,
-                .rbrace_line = src_locs.rbrace_line,
-                .lbrace_column = @as(u16, @truncate(src_locs.columns)),
-                .rbrace_column = @as(u16, @truncate(src_locs.columns >> 16)),
-            });
-        }
-
-        const func_ty = try ip.getFuncType(gpa, .{
             .param_types = param_types,
             .noalias_bits = noalias_bits,
             .comptime_bits = comptime_bits,
-            .return_type = bare_return_type.toIntern(),
+            .bare_return_type = bare_return_type.toIntern(),
             .cc = cc,
             .alignment = alignment,
             .section_is_generic = section == .generic,
@@ -8860,9 +8831,83 @@ fn funcCommon(
             .is_var_args = var_args,
             .is_generic = final_is_generic,
             .is_noinline = is_noinline,
-        });
 
-        break :i try ip.getFuncDecl(gpa, .{
+            .zir_body_inst = func_inst,
+            .lbrace_line = src_locs.lbrace_line,
+            .rbrace_line = src_locs.rbrace_line,
+            .lbrace_column = @as(u16, @truncate(src_locs.columns)),
+            .rbrace_column = @as(u16, @truncate(src_locs.columns >> 16)),
+        });
+        return finishFunc(
+            sema,
+            block,
+            func_index,
+            .none,
+            ret_poison,
+            bare_return_type,
+            ret_ty_src,
+            cc_resolved,
+            is_source_decl,
+            ret_ty_requires_comptime,
+            func_inst,
+            cc_src,
+            is_noinline,
+            is_generic,
+            final_is_generic,
+        );
+    }
+
+    const func_ty = try ip.getFuncType(gpa, .{
+        .param_types = param_types,
+        .noalias_bits = noalias_bits,
+        .comptime_bits = comptime_bits,
+        .return_type = bare_return_type.toIntern(),
+        .cc = cc,
+        .alignment = alignment,
+        .section_is_generic = section == .generic,
+        .addrspace_is_generic = address_space == null,
+        .is_var_args = var_args,
+        .is_generic = final_is_generic,
+        .is_noinline = is_noinline,
+    });
+
+    if (is_extern) {
+        assert(comptime_bits == 0);
+        assert(cc != null);
+        assert(section != .generic);
+        assert(address_space != null);
+        assert(!is_generic);
+        const func_index = try ip.getExternFunc(gpa, .{
+            .ty = func_ty,
+            .decl = sema.owner_decl_index,
+            .lib_name = if (opt_lib_name) |lib_name| (try mod.intern_pool.getOrPutString(
+                gpa,
+                try sema.handleExternLibName(block, .{
+                    .node_offset_lib_name = src_node_offset,
+                }, lib_name),
+            )).toOptional() else .none,
+        });
+        return finishFunc(
+            sema,
+            block,
+            func_index,
+            func_ty,
+            ret_poison,
+            bare_return_type,
+            ret_ty_src,
+            cc_resolved,
+            is_source_decl,
+            ret_ty_requires_comptime,
+            func_inst,
+            cc_src,
+            is_noinline,
+            is_generic,
+            final_is_generic,
+        );
+    }
+
+    if (has_body) {
+        const func_index = try ip.getFuncDecl(gpa, .{
             .owner_decl = sema.owner_decl_index,
             .ty = func_ty,
             .cc = cc,
@@ -8873,12 +8918,70 @@ fn funcCommon(
             .lbrace_column = @as(u16, @truncate(src_locs.columns)),
             .rbrace_column = @as(u16, @truncate(src_locs.columns >> 16)),
         });
-    };
+        return finishFunc(
+            sema,
+            block,
+            func_index,
+            func_ty,
+            ret_poison,
+            bare_return_type,
+            ret_ty_src,
+            cc_resolved,
+            is_source_decl,
+            ret_ty_requires_comptime,
+            func_inst,
+            cc_src,
+            is_noinline,
+            is_generic,
+            final_is_generic,
+        );
+    }
+
+    return finishFunc(
+        sema,
+        block,
+        .none,
+        func_ty,
+        ret_poison,
+        bare_return_type,
+        ret_ty_src,
+        cc_resolved,
+        is_source_decl,
+        ret_ty_requires_comptime,
+        func_inst,
+        cc_src,
+        is_noinline,
+        is_generic,
+        final_is_generic,
+    );
+}
+
+fn finishFunc(
+    sema: *Sema,
+    block: *Block,
+    opt_func_index: InternPool.Index,
+    func_ty: InternPool.Index,
+    ret_poison: bool,
+    bare_return_type: Type,
+    ret_ty_src: LazySrcLoc,
+    cc_resolved: std.builtin.CallingConvention,
+    is_source_decl: bool,
+    ret_ty_requires_comptime: bool,
+    func_inst: Zir.Inst.Index,
+    cc_src: LazySrcLoc,
+    is_noinline: bool,
+    is_generic: bool,
+    final_is_generic: bool,
+) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const ip = &mod.intern_pool;
+    const gpa = sema.gpa;
+    const target = mod.getTarget();
 
     const return_type: Type = if (opt_func_index == .none or ret_poison)
         bare_return_type
     else
-        ip.funcReturnType(ip.typeOf(opt_func_index)).toType();
+        ip.funcTypeReturnType(ip.typeOf(opt_func_index)).toType();
 
     if (!return_type.isValidReturnType(mod)) {
         const opaque_str = if (return_type.zigTypeTag(mod) == .Opaque) "opaque " else "";
@@ -8998,19 +9101,7 @@ fn funcCommon(
         _ = try sema.resolveTypeFields(unresolved_stack_trace_ty);
     }
 
-    return Air.internedToRef(if (opt_func_index == .none) try ip.getFuncType(gpa, .{
-        .param_types = param_types,
-        .noalias_bits = noalias_bits,
-        .comptime_bits = comptime_bits,
-        .return_type = return_type.toIntern(),
-        .cc = cc,
-        .alignment = alignment,
-        .section_is_generic = section == .generic,
-        .addrspace_is_generic = address_space == null,
-        .is_var_args = var_args,
-        .is_generic = final_is_generic,
-        .is_noinline = is_noinline,
-    }) else opt_func_index);
+    return Air.internedToRef(if (opt_func_index != .none) opt_func_index else func_ty);
 }
 
 fn zirParam(

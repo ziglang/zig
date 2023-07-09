@@ -4393,22 +4393,20 @@ pub fn getFuncType(ip: *InternPool, gpa: Allocator, key: GetFuncTypeKey) Allocat
     return @enumFromInt(ip.items.len - 1);
 }
 
-pub const GetExternFuncKey = struct {
-    param_types: []const Index,
-    noalias_bits: u32,
-    return_type: Index,
-    cc: std.builtin.CallingConvention,
-    alignment: Alignment,
-    is_var_args: bool,
-    decl: Module.Decl.Index,
-    lib_name: OptionalNullTerminatedString,
-};
-
-pub fn getExternFunc(ip: *InternPool, gpa: Allocator, key: GetExternFuncKey) Allocator.Error!Index {
-    _ = ip;
-    _ = gpa;
-    _ = key;
-    @panic("TODO");
+pub fn getExternFunc(ip: *InternPool, gpa: Allocator, key: Key.ExternFunc) Allocator.Error!Index {
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const gop = try ip.map.getOrPutAdapted(gpa, Key{ .extern_func = key }, adapter);
+    if (gop.found_existing) return @enumFromInt(gop.index);
+    errdefer _ = ip.map.pop();
+    const prev_extra_len = ip.extra.items.len;
+    const extra_index = try ip.addExtra(gpa, @as(Tag.ExternFunc, key));
+    errdefer ip.extra.items.len = prev_extra_len;
+    try ip.items.append(gpa, .{
+        .tag = .extern_func,
+        .data = extra_index,
+    });
+    errdefer ip.items.len -= 1;
+    return @enumFromInt(ip.items.len - 1);
 }
 
 pub const GetFuncDeclKey = struct {
@@ -6375,7 +6373,7 @@ pub fn aggregateTypeLenIncludingSentinel(ip: *const InternPool, ty: Index) u64 {
     };
 }
 
-pub fn funcReturnType(ip: *const InternPool, ty: Index) Index {
+pub fn funcTypeReturnType(ip: *const InternPool, ty: Index) Index {
     const item = ip.items.get(@intFromEnum(ty));
     const child_item = switch (item.tag) {
         .type_pointer => ip.items.get(ip.extra.items[

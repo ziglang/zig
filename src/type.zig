@@ -2364,7 +2364,7 @@ pub const Type = struct {
 
     /// Asserts the type is a function or a function pointer.
     pub fn fnReturnType(ty: Type, mod: *Module) Type {
-        return mod.intern_pool.funcReturnType(ty.toIntern()).toType();
+        return mod.intern_pool.funcTypeReturnType(ty.toIntern()).toType();
     }
 
     /// Asserts the type is a function.

@@ -1436,7 +1436,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand, ip);
-            return ip.funcReturnType(callee_ty.toIntern()).toType();
+            return ip.funcTypeReturnType(callee_ty.toIntern()).toType();
         },
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {
