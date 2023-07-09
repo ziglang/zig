@@ -6061,8 +6061,6 @@ pub const FuncGen = struct {
             .is_var_args = false,
             .is_generic = false,
             .is_noinline = false,
-            .align_is_generic = false,
-            .cc_is_generic = false,
             .section_is_generic = false,
             .addrspace_is_generic = false,
         });
@@ -10657,30 +10655,31 @@ fn llvmField(ty: Type, field_index: usize, mod: *Module) ?LlvmField {
 }
 
 fn firstParamSRet(fn_info: InternPool.Key.FuncType, mod: *Module) bool {
-    if (!fn_info.return_type.toType().hasRuntimeBitsIgnoreComptime(mod)) return false;
+    const return_type = fn_info.return_type.toType();
+    if (!return_type.hasRuntimeBitsIgnoreComptime(mod)) return false;
 
     const target = mod.getTarget();
     switch (fn_info.cc) {
-        .Unspecified, .Inline => return isByRef(fn_info.return_type.toType(), mod),
+        .Unspecified, .Inline => return isByRef(return_type, mod),
         .C => switch (target.cpu.arch) {
             .mips, .mipsel => return false,
             .x86_64 => switch (target.os.tag) {
-                .windows => return x86_64_abi.classifyWindows(fn_info.return_type.toType(), mod) == .memory,
-                else => return firstParamSRetSystemV(fn_info.return_type.toType(), mod),
+                .windows => return x86_64_abi.classifyWindows(return_type, mod) == .memory,
+                else => return firstParamSRetSystemV(return_type, mod),
             },
-            .wasm32 => return wasm_c_abi.classifyType(fn_info.return_type.toType(), mod)[0] == .indirect,
-            .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(fn_info.return_type.toType(), mod) == .memory,
-            .arm, .armeb => switch (arm_c_abi.classifyType(fn_info.return_type.toType(), mod, .ret)) {
+            .wasm32 => return wasm_c_abi.classifyType(return_type, mod)[0] == .indirect,
+            .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(return_type, mod) == .memory,
+            .arm, .armeb => switch (arm_c_abi.classifyType(return_type, mod, .ret)) {
                 .memory, .i64_array => return true,
                 .i32_array => |size| return size != 1,
                 .byval => return false,
             },
-            .riscv32, .riscv64 => return riscv_c_abi.classifyType(fn_info.return_type.toType(), mod) == .memory,
+            .riscv32, .riscv64 => return riscv_c_abi.classifyType(return_type, mod) == .memory,
             else => return false, // TODO investigate C ABI for other architectures
         },
-        .SysV => return firstParamSRetSystemV(fn_info.return_type.toType(), mod),
-        .Win64 => return x86_64_abi.classifyWindows(fn_info.return_type.toType(), mod) == .memory,
-        .Stdcall => return !isScalar(mod, fn_info.return_type.toType()),
+        .SysV => return firstParamSRetSystemV(return_type, mod),
+        .Win64 => return x86_64_abi.classifyWindows(return_type, mod) == .memory,
+        .Stdcall => return !isScalar(mod, return_type),
         else => return false,
     }
 }

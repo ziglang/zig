@@ -251,20 +251,19 @@ pub const Type = struct {
                 return;
             },
             .inferred_error_set_type => |index| {
-                const ies = mod.inferredErrorSetPtr(index);
-                const func = ies.func;
-
+                const func = mod.iesFuncIndex(index);
                 try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
                 const owner_decl = mod.funcOwnerDeclPtr(func);
                 try owner_decl.renderFullyQualifiedName(mod, writer);
                 try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
             },
             .error_set_type => |error_set_type| {
+                const ip = &mod.intern_pool;
                 const names = error_set_type.names;
                 try writer.writeAll("error{");
-                for (names, 0..) |name, i| {
+                for (names.get(ip), 0..) |name, i| {
                     if (i != 0) try writer.writeByte(',');
-                    try writer.print("{}", .{name.fmt(&mod.intern_pool)});
+                    try writer.print("{}", .{name.fmt(ip)});
                 }
                 try writer.writeAll("}");
             },
@@ -2051,21 +2050,19 @@ pub const Type = struct {
 
     /// Asserts that the type is an error union.
     pub fn errorUnionSet(ty: Type, mod: *Module) Type {
-        return mod.intern_pool.indexToKey(ty.toIntern()).error_union_type.error_set_type.toType();
+        return mod.intern_pool.errorUnionSet(ty.toIntern()).toType();
     }
 
     /// Returns false for unresolved inferred error sets.
     pub fn errorSetIsEmpty(ty: Type, mod: *Module) bool {
+        const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
             .anyerror_type => false,
-            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            else => switch (ip.indexToKey(ty.toIntern())) {
                 .error_set_type => |error_set_type| error_set_type.names.len == 0,
-                .inferred_error_set_type => |index| {
-                    const inferred_error_set = mod.inferredErrorSetPtr(index);
-                    // Can't know for sure.
-                    if (!inferred_error_set.is_resolved) return false;
-                    if (inferred_error_set.is_anyerror) return false;
-                    return inferred_error_set.errors.count() == 0;
+                .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+                    .none, .anyerror_type => false,
+                    else => |t| ip.indexToKey(t).error_set_type.names.len == 0,
                 },
                 else => unreachable,
             },
@@ -2076,10 +2073,11 @@ pub const Type = struct {
     /// Note that the result may be a false negative if the type did not get error set
     /// resolution prior to this call.
     pub fn isAnyError(ty: Type, mod: *Module) bool {
+        const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
             .anyerror_type => true,
             else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-                .inferred_error_set_type => |i| mod.inferredErrorSetPtr(i).is_anyerror,
+                .inferred_error_set_type => |i| ip.funcIesResolved(i).* == .anyerror_type,
                 else => false,
             },
         };
@@ -2103,13 +2101,11 @@ pub const Type = struct {
         return switch (ty) {
             .anyerror_type => true,
             else => switch (ip.indexToKey(ty)) {
-                .error_set_type => |error_set_type| {
-                    return error_set_type.nameIndex(ip, name) != null;
-                },
-                .inferred_error_set_type => |index| {
-                    const ies = ip.inferredErrorSetPtrConst(index);
-                    if (ies.is_anyerror) return true;
-                    return ies.errors.contains(name);
+                .error_set_type => |error_set_type| error_set_type.nameIndex(ip, name) != null,
+                .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+                    .anyerror_type => true,
+                    .none => false,
+                    else => |t| ip.indexToKey(t).error_set_type.nameIndex(ip, name) != null,
                 },
                 else => unreachable,
             },
@@ -2129,12 +2125,14 @@ pub const Type = struct {
                     const field_name_interned = ip.getString(name).unwrap() orelse return false;
                     return error_set_type.nameIndex(ip, field_name_interned) != null;
                 },
-                .inferred_error_set_type => |index| {
-                    const ies = ip.inferredErrorSetPtr(index);
-                    if (ies.is_anyerror) return true;
-                    // If the string is not interned, then the field certainly is not present.
-                    const field_name_interned = ip.getString(name).unwrap() orelse return false;
-                    return ies.errors.contains(field_name_interned);
+                .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+                    .anyerror_type => true,
+                    .none => false,
+                    else => |t| {
+                        // If the string is not interned, then the field certainly is not present.
+                        const field_name_interned = ip.getString(name).unwrap() orelse return false;
+                        return ip.indexToKey(t).error_set_type.nameIndex(ip, field_name_interned) != null;
+                    },
                 },
                 else => unreachable,
             },
@@ -2943,14 +2941,15 @@ pub const Type = struct {
     }
 
     // Asserts that `ty` is an error set and not `anyerror`.
+    // Asserts that `ty` is resolved if it is an inferred error set.
     pub fn errorSetNames(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .error_set_type => |x| x.names,
-            .inferred_error_set_type => |index| {
-                const inferred_error_set = mod.inferredErrorSetPtr(index);
-                assert(inferred_error_set.is_resolved);
-                assert(!inferred_error_set.is_anyerror);
-                return inferred_error_set.errors.keys();
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
+            .error_set_type => |x| x.names.get(ip),
+            .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+                .none => unreachable, // unresolved inferred error set
+                .anyerror_type => unreachable,
+                else => |t| ip.indexToKey(t).error_set_type.names.get(ip),
             },
             else => unreachable,
         };

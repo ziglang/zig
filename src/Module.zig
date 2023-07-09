@@ -1297,98 +1297,6 @@ pub const Union = struct {
     }
 };
 
-/// Some extern function struct memory is owned by the Decl's TypedValue.Managed
-/// arena allocator.
-pub const ExternFn = struct {
-    /// The Decl that corresponds to the function itself.
-    owner_decl: Decl.Index,
-    /// Library name if specified.
-    /// For example `extern "c" fn write(...) usize` would have 'c' as library name.
-    /// Allocated with Module's allocator; outlives the ZIR code.
-    lib_name: ?[*:0]const u8,
-
-    pub fn deinit(extern_fn: *ExternFn, gpa: Allocator) void {
-        if (extern_fn.lib_name) |lib_name| {
-            gpa.free(mem.sliceTo(lib_name, 0));
-        }
-    }
-};
-
-/// This struct is used to keep track of any dependencies related to functions instances
-/// that return inferred error sets. Note that a function may be associated to
-/// multiple different error sets, for example an inferred error set which
-/// this function returns, but also any inferred error sets of called inline
-/// or comptime functions.
-pub const InferredErrorSet = struct {
-    /// The function from which this error set originates.
-    func: InternPool.Index,
-
-    /// All currently known errors that this error set contains. This includes
-    /// direct additions via `return error.Foo;`, and possibly also errors that
-    /// are returned from any dependent functions. When the inferred error set is
-    /// fully resolved, this map contains all the errors that the function might return.
-    errors: NameMap = .{},
-
-    /// Other inferred error sets which this inferred error set should include.
-    inferred_error_sets: std.AutoArrayHashMapUnmanaged(InferredErrorSet.Index, void) = .{},
-
-    /// Whether the function returned anyerror. This is true if either of
-    /// the dependent functions returns anyerror.
-    is_anyerror: bool = false,
-
-    /// Whether this error set is already fully resolved. If true, resolving
-    /// can skip resolving any dependents of this inferred error set.
-    is_resolved: bool = false,
-
-    pub const NameMap = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);
-
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn toOptional(i: InferredErrorSet.Index) InferredErrorSet.OptionalIndex {
-            return @as(InferredErrorSet.OptionalIndex, @enumFromInt(@intFromEnum(i)));
-        }
-    };
-
-    pub const OptionalIndex = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn init(oi: ?InferredErrorSet.Index) InferredErrorSet.OptionalIndex {
-            return @as(InferredErrorSet.OptionalIndex, @enumFromInt(@intFromEnum(oi orelse return .none)));
-        }
-
-        pub fn unwrap(oi: InferredErrorSet.OptionalIndex) ?InferredErrorSet.Index {
-            if (oi == .none) return null;
-            return @as(InferredErrorSet.Index, @enumFromInt(@intFromEnum(oi)));
-        }
-    };
-
-    pub fn addErrorSet(
-        self: *InferredErrorSet,
-        err_set_ty: Type,
-        ip: *InternPool,
-        gpa: Allocator,
-    ) !void {
-        switch (err_set_ty.toIntern()) {
-            .anyerror_type => {
-                self.is_anyerror = true;
-            },
-            else => switch (ip.indexToKey(err_set_ty.toIntern())) {
-                .error_set_type => |error_set_type| {
-                    for (error_set_type.names) |name| {
-                        try self.errors.put(gpa, name, {});
-                    }
-                },
-                .inferred_error_set_type => |ies_index| {
-                    try self.inferred_error_sets.put(gpa, ies_index, {});
-                },
-                else => unreachable,
-            },
-        }
-    }
-};
-
 pub const DeclAdapter = struct {
     mod: *Module,
 
@@ -3220,10 +3128,6 @@ pub fn structPtr(mod: *Module, index: Struct.Index) *Struct {
     return mod.intern_pool.structPtr(index);
 }
 
-pub fn inferredErrorSetPtr(mod: *Module, index: InferredErrorSet.Index) *InferredErrorSet {
-    return mod.intern_pool.inferredErrorSetPtr(index);
-}
-
 pub fn namespacePtrUnwrap(mod: *Module, index: Namespace.OptionalIndex) ?*Namespace {
     return mod.namespacePtr(index.unwrap() orelse return null);
 }
@@ -4261,6 +4165,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
             .owner_decl_index = new_decl_index,
             .func_index = .none,
             .fn_ret_ty = Type.void,
+            .fn_ret_ty_ies = null,
             .owner_func_index = .none,
             .comptime_mutable_decls = &comptime_mutable_decls,
         };
@@ -4342,6 +4247,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         .owner_decl_index = decl_index,
         .func_index = .none,
         .fn_ret_ty = Type.void,
+        .fn_ret_ty_ies = null,
         .owner_func_index = .none,
         .comptime_mutable_decls = &comptime_mutable_decls,
     };
@@ -5289,11 +5195,18 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .owner_decl_index = decl_index,
         .func_index = func_index,
         .fn_ret_ty = fn_ty_info.return_type.toType(),
+        .fn_ret_ty_ies = null,
         .owner_func_index = func_index,
         .branch_quota = @max(func.branchQuota(ip).*, Sema.default_branch_quota),
         .comptime_mutable_decls = &comptime_mutable_decls,
     };
     defer sema.deinit();
+
+    if (func.analysis(ip).inferred_error_set) {
+        const ies = try arena.create(Sema.InferredErrorSet);
+        ies.* = .{ .func = func_index };
+        sema.fn_ret_ty_ies = ies;
+    }
 
     // reset in case calls to errorable functions are removed.
     func.analysis(ip).calls_or_awaits_errorable_fn = false;
@@ -5433,7 +5346,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
         inner_block.instructions.items.len);
     const main_block_index = sema.addExtraAssumeCapacity(Air.Block{
-        .body_len = @as(u32, @intCast(inner_block.instructions.items.len)),
+        .body_len = @intCast(inner_block.instructions.items.len),
     });
     sema.air_extra.appendSliceAssumeCapacity(inner_block.instructions.items);
     sema.air_extra.items[@intFromEnum(Air.ExtraIndex.main_block)] = main_block_index;
@@ -5445,7 +5358,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     // Crucially, this happens *after* we set the function state to success above,
     // so that dependencies on the function body will now be satisfied rather than
     // result in circular dependency errors.
-    sema.resolveFnTypes(fn_ty) catch |err| switch (err) {
+    sema.resolveFnTypes(&inner_block, LazySrcLoc.nodeOffset(0), fn_ty) catch |err| switch (err) {
         error.NeededSourceLocation => unreachable,
         error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
@@ -6595,7 +6508,8 @@ pub fn errorUnionType(mod: *Module, error_set_ty: Type, payload_ty: Type) Alloca
 
 pub fn singleErrorSetType(mod: *Module, name: InternPool.NullTerminatedString) Allocator.Error!Type {
     const names: *const [1]InternPool.NullTerminatedString = &name;
-    return (try mod.intern_pool.get(mod.gpa, .{ .error_set_type = .{ .names = names } })).toType();
+    const new_ty = try mod.intern_pool.getErrorSetType(mod.gpa, names);
+    return new_ty.toType();
 }
 
 /// Sorts `names` in place.
@@ -6609,7 +6523,7 @@ pub fn errorSetFromUnsortedNames(
         {},
         InternPool.NullTerminatedString.indexLessThan,
     );
-    const new_ty = try mod.intern(.{ .error_set_type = .{ .names = names } });
+    const new_ty = try mod.intern_pool.getErrorSetType(mod.gpa, names);
     return new_ty.toType();
 }
 
@@ -6956,22 +6870,16 @@ pub fn typeToFunc(mod: *Module, ty: Type) ?InternPool.Key.FuncType {
     return mod.intern_pool.indexToFuncType(ty.toIntern());
 }
 
-pub fn typeToInferredErrorSet(mod: *Module, ty: Type) ?*InferredErrorSet {
-    const index = typeToInferredErrorSetIndex(mod, ty).unwrap() orelse return null;
-    return mod.inferredErrorSetPtr(index);
-}
-
-pub fn typeToInferredErrorSetIndex(mod: *Module, ty: Type) InferredErrorSet.OptionalIndex {
-    if (ty.ip_index == .none) return .none;
-    return mod.intern_pool.indexToInferredErrorSetType(ty.toIntern());
-}
-
 pub fn funcOwnerDeclPtr(mod: *Module, func_index: InternPool.Index) *Decl {
     return mod.declPtr(mod.funcOwnerDeclIndex(func_index));
 }
 
 pub fn funcOwnerDeclIndex(mod: *Module, func_index: InternPool.Index) Decl.Index {
     return mod.funcInfo(func_index).owner_decl;
+}
+
+pub fn iesFuncIndex(mod: *const Module, ies_index: InternPool.Index) InternPool.Index {
+    return mod.intern_pool.iesFuncIndex(ies_index);
 }
 
 pub fn funcInfo(mod: *Module, func_index: InternPool.Index) InternPool.Key.Func {
@@ -7039,20 +6947,4 @@ pub fn getParamName(mod: *Module, func_index: InternPool.Index, index: u32) [:0]
         },
         else => unreachable,
     };
-}
-
-pub fn hasInferredErrorSet(mod: *Module, func: InternPool.Key.Func) bool {
-    const owner_decl = mod.declPtr(func.owner_decl);
-    const zir = owner_decl.getFileScope(mod).zir;
-    const zir_tags = zir.instructions.items(.tag);
-    switch (zir_tags[func.zir_body_inst]) {
-        .func => return false,
-        .func_inferred => return true,
-        .func_fancy => {
-            const inst_data = zir.instructions.items(.data)[func.zir_body_inst].pl_node;
-            const extra = zir.extraData(Zir.Inst.FuncFancy, inst_data.payload_index);
-            return extra.data.bits.is_inferred_error;
-        },
-        else => unreachable,
-    }
 }
