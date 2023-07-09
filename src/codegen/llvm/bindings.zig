@@ -280,6 +280,9 @@ pub const Value = opaque {
 
     pub const attachMetaData = ZigLLVMAttachMetaData;
     extern fn ZigLLVMAttachMetaData(GlobalVar: *Value, DIG: *DIGlobalVariableExpression) void;
+
+    pub const dump = LLVMDumpValue;
+    extern fn LLVMDumpValue(Val: *Value) void;
 };
 
 pub const Type = opaque {
@@ -353,6 +356,9 @@ pub const Type = opaque {
         ConstantIndices: [*]const *Value,
         NumIndices: c_uint,
     ) *Value;
+
+    pub const dump = LLVMDumpType;
+    extern fn LLVMDumpType(Ty: *Type) void;
 };
 
 pub const Module = opaque {
