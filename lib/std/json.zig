@@ -91,6 +91,7 @@ pub const parseFromTokenSourceLeaky = @import("json/static.zig").parseFromTokenS
 pub const innerParse = @import("json/static.zig").innerParse;
 pub const parseFromValue = @import("json/static.zig").parseFromValue;
 pub const parseFromValueLeaky = @import("json/static.zig").parseFromValueLeaky;
+pub const innerParseFromValue = @import("json/static.zig").innerParseFromValue;
 pub const ParseError = @import("json/static.zig").ParseError;
 pub const ParseFromValueError = @import("json/static.zig").ParseFromValueError;
 

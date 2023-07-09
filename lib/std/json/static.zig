@@ -145,6 +145,7 @@ pub fn parseFromTokenSourceLeaky(
 }
 
 /// Like `parseFromSlice`, but the input is an already-parsed `std.json.Value` object.
+/// Only `options.ignore_unknown_fields` is used from `options`.
 pub fn parseFromValue(
     comptime T: type,
     allocator: Allocator,
@@ -173,7 +174,7 @@ pub fn parseFromValueLeaky(
     // I guess this function doesn't need to exist,
     // but the flow of the sourcecode is easy to follow and grouped nicely with
     // this pub redirect function near the top and the implementation near the bottom.
-    return internalParseFromValue(T, allocator, source, options);
+    return innerParseFromValue(T, allocator, source, options);
 }
 
 /// The error set that will be returned when parsing from `*Source`.
@@ -199,7 +200,7 @@ pub const ParseFromValueError = std.fmt.ParseIntError || std.fmt.ParseFloatError
 /// during the implementation of `parseFromTokenSourceLeaky` and similar.
 /// It is exposed primarily to enable custom `jsonParse()` methods to call back into the `parseFrom*` system,
 /// such as if you're implementing a custom container of type `T`;
-/// you can call `internalParse(T, ...)` for each of the container's items.
+/// you can call `innerParse(T, ...)` for each of the container's items.
 /// Note that `null` fields are not allowed on the `options` when calling this function.
 /// (The `options` you get in your `jsonParse` method has no `null` fields.)
 pub fn innerParse(
@@ -528,7 +529,12 @@ fn internalParseArray(
     return r;
 }
 
-fn internalParseFromValue(
+/// This is an internal function called recursively
+/// during the implementation of `parseFromValueLeaky`.
+/// It is exposed primarily to enable custom `jsonParseFromValue()` methods to call back into the `parseFromValue*` system,
+/// such as if you're implementing a custom container of type `T`;
+/// you can call `innerParseFromValue(T, ...)` for each of the container's items.
+pub fn innerParseFromValue(
     comptime T: type,
     allocator: Allocator,
     source: Value,
@@ -571,7 +577,7 @@ fn internalParseFromValue(
         .Optional => |optionalInfo| {
             switch (source) {
                 .null => return null,
-                else => return try internalParseFromValue(optionalInfo.child, allocator, source, options),
+                else => return try innerParseFromValue(optionalInfo.child, allocator, source, options),
             }
         },
         .Enum => {
@@ -609,7 +615,7 @@ fn internalParseFromValue(
                         return @unionInit(T, u_field.name, {});
                     }
                     // Recurse.
-                    return @unionInit(T, u_field.name, try internalParseFromValue(u_field.type, allocator, kv.value_ptr.*, options));
+                    return @unionInit(T, u_field.name, try innerParseFromValue(u_field.type, allocator, kv.value_ptr.*, options));
                 }
             }
             // Didn't match anything.
@@ -623,7 +629,7 @@ fn internalParseFromValue(
 
                 var r: T = undefined;
                 inline for (0..structInfo.fields.len, source.array.items) |i, item| {
-                    r[i] = try internalParseFromValue(structInfo.fields[i].type, allocator, item, options);
+                    r[i] = try innerParseFromValue(structInfo.fields[i].type, allocator, item, options);
                 }
 
                 return r;
@@ -645,19 +651,8 @@ fn internalParseFromValue(
                 inline for (structInfo.fields, 0..) |field, i| {
                     if (field.is_comptime) @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ field.name);
                     if (std.mem.eql(u8, field.name, field_name)) {
-                        if (fields_seen[i]) {
-                            switch (options.duplicate_field_behavior) {
-                                .use_first => {
-                                    // Parse and ignore the redundant value.
-                                    // We don't want to skip the value, because we want type checking.
-                                    _ = try internalParseFromValue(field.type, allocator, kv.value_ptr.*, options);
-                                    break;
-                                },
-                                .@"error" => return error.DuplicateField,
-                                .use_last => {},
-                            }
-                        }
-                        @field(r, field.name) = try internalParseFromValue(field.type, allocator, kv.value_ptr.*, options);
+                        assert(!fields_seen[i]); // Can't have duplicate keys in a Value.object.
+                        @field(r, field.name) = try innerParseFromValue(field.type, allocator, kv.value_ptr.*, options);
                         fields_seen[i] = true;
                         break;
                     }
@@ -674,7 +669,7 @@ fn internalParseFromValue(
             switch (source) {
                 .array => |array| {
                     // Typical array.
-                    return internalParseArrayFromArrayValue(T, arrayInfo.child, arrayInfo.len, allocator, array, options);
+                    return innerParseArrayFromArrayValue(T, arrayInfo.child, arrayInfo.len, allocator, array, options);
                 },
                 .string => |s| {
                     if (arrayInfo.child != u8) return error.UnexpectedToken;
@@ -694,7 +689,7 @@ fn internalParseFromValue(
         .Vector => |vecInfo| {
             switch (source) {
                 .array => |array| {
-                    return internalParseArrayFromArrayValue(T, vecInfo.child, vecInfo.len, allocator, array, options);
+                    return innerParseArrayFromArrayValue(T, vecInfo.child, vecInfo.len, allocator, array, options);
                 },
                 else => return error.UnexpectedToken,
             }
@@ -704,7 +699,7 @@ fn internalParseFromValue(
             switch (ptrInfo.size) {
                 .One => {
                     const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
-                    r.* = try internalParseFromValue(ptrInfo.child, allocator, source, options);
+                    r.* = try innerParseFromValue(ptrInfo.child, allocator, source, options);
                     return r;
                 },
                 .Slice => {
@@ -716,7 +711,7 @@ fn internalParseFromValue(
                                 try allocator.alloc(ptrInfo.child, array.items.len);
 
                             for (array.items, r) |item, *dest| {
-                                dest.* = try internalParseFromValue(ptrInfo.child, allocator, item, options);
+                                dest.* = try innerParseFromValue(ptrInfo.child, allocator, item, options);
                             }
 
                             return r;
@@ -743,7 +738,7 @@ fn internalParseFromValue(
     }
 }
 
-fn internalParseArrayFromArrayValue(
+fn innerParseArrayFromArrayValue(
     comptime T: type,
     comptime Child: type,
     comptime len: comptime_int,
@@ -755,7 +750,7 @@ fn internalParseArrayFromArrayValue(
 
     var r: T = undefined;
     for (array.items, 0..) |item, i| {
-        r[i] = try internalParseFromValue(Child, allocator, item, options);
+        r[i] = try innerParseFromValue(Child, allocator, item, options);
     }
 
     return r;
