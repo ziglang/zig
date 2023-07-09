@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const ArrayHashMapUnmanaged = @import("hashmap.zig").ArrayHashMapUnmanaged;
+const ArrayHashMap = @import("hashmap.zig").ArrayHashMap;
 
 const parseFromSlice = @import("static.zig").parseFromSlice;
 const parseFromSliceLeaky = @import("static.zig").parseFromSliceLeaky;
@@ -21,7 +21,7 @@ test "parse json hashmap" {
         \\  "xyz": {"i": 1, "s": "w"}
         \\}
     ;
-    const parsed = try parseFromSlice(ArrayHashMapUnmanaged(T), testing.allocator, doc, .{});
+    const parsed = try parseFromSlice(ArrayHashMap(T), testing.allocator, doc, .{});
     defer parsed.deinit();
 
     try testing.expectEqual(@as(usize, 2), parsed.value.map.count());
@@ -40,17 +40,17 @@ test "parse json hashmap duplicate fields" {
         \\}
     ;
 
-    try testing.expectError(error.DuplicateField, parseFromSliceLeaky(ArrayHashMapUnmanaged(T), arena.allocator(), doc, .{
+    try testing.expectError(error.DuplicateField, parseFromSliceLeaky(ArrayHashMap(T), arena.allocator(), doc, .{
         .duplicate_field_behavior = .@"error",
     }));
 
-    const first = try parseFromSliceLeaky(ArrayHashMapUnmanaged(T), arena.allocator(), doc, .{
+    const first = try parseFromSliceLeaky(ArrayHashMap(T), arena.allocator(), doc, .{
         .duplicate_field_behavior = .use_first,
     });
     try testing.expectEqual(@as(usize, 1), first.map.count());
     try testing.expectEqual(@as(i32, 0), first.map.get("abc").?.i);
 
-    const last = try parseFromSliceLeaky(ArrayHashMapUnmanaged(T), arena.allocator(), doc, .{
+    const last = try parseFromSliceLeaky(ArrayHashMap(T), arena.allocator(), doc, .{
         .duplicate_field_behavior = .use_last,
     });
     try testing.expectEqual(@as(usize, 1), last.map.count());
@@ -58,7 +58,7 @@ test "parse json hashmap duplicate fields" {
 }
 
 test "stringify json hashmap" {
-    var value = ArrayHashMapUnmanaged(T){};
+    var value = ArrayHashMap(T){};
     defer value.deinit(testing.allocator);
     {
         const doc = try stringifyAlloc(testing.allocator, value, .{});
@@ -95,7 +95,7 @@ test "stringify json hashmap" {
 }
 
 test "stringify json hashmap whitespace" {
-    var value = ArrayHashMapUnmanaged(T){};
+    var value = ArrayHashMap(T){};
     defer value.deinit(testing.allocator);
     try value.map.put(testing.allocator, "abc", .{ .i = 0, .s = "d" });
     try value.map.put(testing.allocator, "xyz", .{ .i = 1, .s = "w" });
@@ -132,7 +132,7 @@ test "json parse from value hashmap" {
     const parsed1 = try parseFromSlice(Value, testing.allocator, doc, .{});
     defer parsed1.deinit();
 
-    const parsed2 = try parseFromValue(ArrayHashMapUnmanaged(T), testing.allocator, parsed1.value, .{});
+    const parsed2 = try parseFromValue(ArrayHashMap(T), testing.allocator, parsed1.value, .{});
     defer parsed2.deinit();
 
     try testing.expectEqualStrings("d", parsed2.value.map.get("abc").?.s);

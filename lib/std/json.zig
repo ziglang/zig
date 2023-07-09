@@ -69,7 +69,7 @@ pub const ObjectMap = @import("json/dynamic.zig").ObjectMap;
 pub const Array = @import("json/dynamic.zig").Array;
 pub const Value = @import("json/dynamic.zig").Value;
 
-pub const ArrayHashMapUnmanaged = @import("json/hashmap.zig").ArrayHashMapUnmanaged;
+pub const ArrayHashMap = @import("json/hashmap.zig").ArrayHashMap;
 
 pub const validate = @import("json/scanner.zig").validate;
 pub const Error = @import("json/scanner.zig").Error;

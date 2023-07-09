@@ -13,7 +13,7 @@ const encodeJsonString = @import("stringify.zig").encodeJsonString;
 /// `jsonParse`, `jsonParseFromValue`, and `jsonStringify`.
 /// This is useful when your JSON schema has an object with arbitrary data keys
 /// instead of comptime-known struct field names.
-pub fn ArrayHashMapUnmanaged(comptime T: type) type {
+pub fn ArrayHashMap(comptime T: type) type {
     return struct {
         map: std.StringArrayHashMapUnmanaged(T) = .{},
 
