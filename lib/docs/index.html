@@ -688,12 +688,14 @@
      pre{
         --zig-keyword: #333;
         --zig-identifier: 'black'; 
+        --zig-string-literal: #d14;
       }
       
       @media (prefers-color-scheme: dark) { 
         pre {
-          --zig-keyword: 'white';
+          --zig-keyword: #eee;
           --zig-identifier: 'purple'; 
+          --zig-string-literal: #2e5;
         }
       }
     
@@ -748,7 +750,7 @@
     .zig_keyword_anytype,
     .zig_keyword_fn
     {
-      color: #333;
+      color: var(--zig-keyword);
       font-weight: bold;
     }
 
@@ -757,7 +759,7 @@
     .zig_multiline_string_literal_line,
     .zig_char_literal
     {
-      color: #d14;
+      color: var(--zig-string-literal);
     }
 
     .zig_builtin
@@ -772,12 +774,12 @@
     }
 
     .zig_identifier {
-      color: white;
+      color: var(--zig-identifier);
       font-weight: bold;
     }
 
     .zig_number_literal {
-      color: #008080;
+      color: #ff8080;
     }
 
 
