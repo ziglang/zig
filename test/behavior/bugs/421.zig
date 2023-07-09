@@ -7,7 +7,7 @@ test "bitCast to array" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testBitCastArray();
+    try comptime testBitCastArray();
     try testBitCastArray();
 }
 
@@ -16,6 +16,6 @@ fn testBitCastArray() !void {
 }
 
 fn extractOne64(a: u128) u64 {
-    const x = @bitCast([2]u64, a);
+    const x = @as([2]u64, @bitCast(a));
     return x[1];
 }

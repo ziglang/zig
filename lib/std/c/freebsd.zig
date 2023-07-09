@@ -20,11 +20,11 @@ fn __BIT_COUNT(bits: []const c_long) c_long {
 
 fn __BIT_MASK(s: usize) c_long {
     var x = s % CPU_SETSIZE;
-    return @bitCast(c_long, @intCast(c_ulong, 1) << @intCast(u6, x));
+    return @as(c_long, @bitCast(@as(c_ulong, @intCast(1)) << @as(u6, @intCast(x))));
 }
 
 pub fn CPU_COUNT(set: cpuset_t) c_int {
-    return @intCast(c_int, __BIT_COUNT(set.__bits[0..]));
+    return @as(c_int, @intCast(__BIT_COUNT(set.__bits[0..])));
 }
 
 pub fn CPU_ZERO(set: *cpuset_t) void {
@@ -38,10 +38,10 @@ pub fn CPU_SET(cpu: usize, set: *cpuset_t) void {
     }
 }
 
-pub fn CPU_ISSET(cpu: usize, set: cpuset_t) void {
+pub fn CPU_ISSET(cpu: usize, set: cpuset_t) bool {
     const x = cpu / @sizeOf(c_long);
     if (x < @sizeOf(cpuset_t)) {
-        return set.__bits[x] & __BIT_MASK(x);
+        return set.__bits[x] & __BIT_MASK(x) != 0;
     }
     return false;
 }
@@ -75,7 +75,7 @@ pub const _errno = __error;
 
 pub extern "c" var malloc_options: [*:0]const u8;
 
-pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
+pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) isize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn getentropy(buf_ptr: [*]u8, buf_len: usize) c_int;
@@ -94,7 +94,7 @@ pub extern "c" fn getpid() pid_t;
 
 pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;
 pub extern "c" fn kinfo_getvmmap(pid: pid_t, cntp: *c_int) ?[*]kinfo_vmentry;
-pub extern "c" fn kinfo_getproc(pid: pid_t) ?[*]kinfo_proc;
+pub extern "c" fn kinfo_getproc(pid: pid_t) ?*kinfo_proc;
 pub extern "c" fn kinfo_getvmobject(cntp: *c_int) ?[*]kinfo_vmobject;
 pub extern "c" fn kinfo_getswapvmobject(cntp: *c_int) ?[*]kinfo_vmobject;
 
@@ -322,7 +322,7 @@ pub const RTLD = struct {
 
 pub const dl_phdr_info = extern struct {
     /// Module relocation base.
-    dlpi_addr: if (builtin.cpu.arch.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
+    dlpi_addr: if (builtin.target.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
     /// Module name.
     dlpi_name: ?[*:0]const u8,
     /// Pointer to module's phdr.
@@ -355,36 +355,36 @@ pub const Flock = extern struct {
 
 pub const msghdr = extern struct {
     /// Optional address.
-    msg_name: ?*sockaddr,
+    name: ?*sockaddr,
     /// Size of address.
-    msg_namelen: socklen_t,
+    namelen: socklen_t,
     /// Scatter/gather array.
-    msg_iov: [*]iovec,
+    iov: [*]iovec,
     /// Number of elements in msg_iov.
-    msg_iovlen: i32,
+    iovlen: i32,
     /// Ancillary data.
-    msg_control: ?*anyopaque,
+    control: ?*anyopaque,
     /// Ancillary data buffer length.
-    msg_controllen: socklen_t,
+    controllen: socklen_t,
     /// Flags on received message.
-    msg_flags: i32,
+    flags: i32,
 };
 
 pub const msghdr_const = extern struct {
     /// Optional address.
-    msg_name: ?*const sockaddr,
+    name: ?*const sockaddr,
     /// Size of address.
-    msg_namelen: socklen_t,
+    namelen: socklen_t,
     /// Scatter/gather array.
-    msg_iov: [*]iovec_const,
+    iov: [*]iovec_const,
     /// Number of elements in msg_iov.
-    msg_iovlen: i32,
+    iovlen: i32,
     /// Ancillary data.
-    msg_control: ?*anyopaque,
+    control: ?*anyopaque,
     /// Ancillary data buffer length.
-    msg_controllen: socklen_t,
+    controllen: socklen_t,
     /// Flags on received message.
-    msg_flags: i32,
+    flags: i32,
 };
 
 pub const Stat = extern struct {
@@ -529,7 +529,7 @@ pub const cap_rights_t = extern struct {
 
 pub const CAP = struct {
     pub fn RIGHT(idx: u6, bit: u64) u64 {
-        return (@intCast(u64, 1) << (57 + idx)) | bit;
+        return (@as(u64, @intCast(1)) << (57 + idx)) | bit;
     }
     pub const READ = CAP.RIGHT(0, 0x0000000000000001);
     pub const WRITE = CAP.RIGHT(0, 0x0000000000000002);
@@ -554,11 +554,11 @@ pub const CAP = struct {
 pub extern "c" fn __cap_rights_init(version: c_int, rights: ?*cap_rights_t, ...) ?*cap_rights_t;
 pub extern "c" fn __cap_rights_set(rights: ?*cap_rights_t, ...) ?*cap_rights_t;
 pub extern "c" fn __cap_rights_clear(rights: ?*cap_rights_t, ...) ?*cap_rights_t;
-pub extern "c" fn __cap_rights_merge(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
-pub extern "c" fn __cap_rights_remove(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
-pub extern "c" fn __cap_rights_contains(dst: ?*const cap_rights_t, src: ?*const cap_rights_t) bool;
 pub extern "c" fn __cap_rights_is_set(rights: ?*const cap_rights_t, ...) bool;
-pub extern "c" fn __cap_rights_is_valid(rights: ?*const cap_rights_t) bool;
+pub extern "c" fn cap_rights_merge(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
+pub extern "c" fn cap_rights_remove(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
+pub extern "c" fn cap_rights_contains(dst: ?*const cap_rights_t, src: ?*const cap_rights_t) bool;
+pub extern "c" fn cap_rights_is_valid(rights: ?*const cap_rights_t) bool;
 
 pub const kinfo_file = extern struct {
     /// Size of this record.
@@ -676,31 +676,31 @@ comptime {
 }
 
 pub const kinfo_vmentry = extern struct {
-    kve_structsize: c_int,
-    kve_type: c_int,
-    kve_start: u64,
-    kve_end: u64,
-    kve_offset: u64,
-    kve_vn_fileid: u64,
-    kve_vn_fsid_freebsd11: u32,
-    kve_flags: c_int,
-    kve_resident: c_int,
-    kve_private_resident: c_int,
-    kve_protection: c_int,
-    kve_ref_count: c_int,
-    kve_shadow_count: c_int,
-    kve_vn_type: c_int,
-    kve_vn_size: u64,
-    kve_vn_rdev_freebsd11: u32,
-    kve_vn_mode: u16,
-    kve_status: u16,
-    kve_type_spec: extern union {
-        _kve_vn_fsid: u64,
-        _kve_obj: u64,
+    structsize: c_int,
+    type: c_int,
+    start: u64,
+    end: u64,
+    offset: u64,
+    vn_fileid: u64,
+    vn_fsid_freebsd11: u32,
+    flags: c_int,
+    resident: c_int,
+    private_resident: c_int,
+    protection: c_int,
+    ref_count: c_int,
+    shadow_count: c_int,
+    vn_type: c_int,
+    vn_size: u64,
+    vn_rdev_freebsd11: u32,
+    vn_mode: u16,
+    status: u16,
+    type_spec: extern union {
+        _vn_fsid: u64,
+        _obj: u64,
     },
-    kve_vn_rdev: u64,
-    _kve_ispare: [8]c_int,
-    kve_rpath: [PATH_MAX]u8,
+    vn_rdev: u64,
+    _ispare: [8]c_int,
+    rpath: [PATH_MAX]u8,
 };
 
 pub const KINFO_VMENTRY_SIZE = 1160;
@@ -961,7 +961,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0010;
@@ -1013,7 +1013,7 @@ pub const W = struct {
     pub const TRAPPED = 32;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, (s & 0xff00) >> 8);
+        return @as(u8, @intCast((s & 0xff00) >> 8));
     }
     pub fn TERMSIG(s: u32) u32 {
         return s & 0x7f;
@@ -1025,7 +1025,7 @@ pub const W = struct {
         return TERMSIG(s) == 0;
     }
     pub fn IFSTOPPED(s: u32) bool {
-        return @truncate(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+        return @as(u16, @truncate((((s & 0xffff) *% 0x10001) >> 8))) > 0x7f00;
     }
     pub fn IFSIGNALED(s: u32) bool {
         return (s & 0xffff) -% 1 < 0xff;
@@ -1086,9 +1086,9 @@ pub const SIG = struct {
     pub const UNBLOCK = 2;
     pub const SETMASK = 3;
 
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -2464,8 +2464,8 @@ pub const PROC = struct {
     // x86_64-only constants
     pub const KPTI = switch (builtin.cpu.arch) {
         .x86_64 => struct {
-            pub const CTL = PROC.PROCCTL_MD_MIND;
-            pub const STATUS = PROC.PROCCTL_MD_MIND + 1;
+            pub const CTL = PROC.PROCCTL_MD_MIN;
+            pub const STATUS = PROC.PROCCTL_MD_MIN + 1;
             pub const CTL_ENABLE_ON_EXEC = 1;
             pub const CTL_DISABLE_ON_EXEC = 2;
             pub const STATUS_ACTIVE = 0x80000000;
@@ -2474,8 +2474,8 @@ pub const PROC = struct {
     };
     pub const LA = switch (builtin.cpu.arch) {
         .x86_64 => struct {
-            pub const CTL = PROC.PROCCTL_MD_MIND + 2;
-            pub const STATUS = PROC.PROCCTL_MD_MIND + 3;
+            pub const CTL = PROC.PROCCTL_MD_MIN + 2;
+            pub const STATUS = PROC.PROCCTL_MD_MIN + 3;
             pub const CTL_LA48_ON_EXEC = 1;
             pub const CTL_LA57_ON_EXEC = 2;
             pub const CTL_DEFAULT_ON_EXEC = 3;
@@ -2586,6 +2586,8 @@ pub const sigevent = extern struct {
     },
 };
 
+pub const timer_t = *opaque {};
+
 pub const MIN = struct {
     pub const INCORE = 0x1;
     pub const REFERENCED = 0x2;
@@ -2624,7 +2626,7 @@ pub const domainset_t = extern struct {
 };
 
 pub fn DOMAINSET_COUNT(set: domainset_t) c_int {
-    return @intCast(c_int, __BIT_COUNT(set.__bits[0..]));
+    return @as(c_int, @intCast(__BIT_COUNT(set.__bits[0..])));
 }
 
 pub const domainset = extern struct {
@@ -2648,7 +2650,7 @@ const ioctl_cmd = enum(u32) {
 };
 
 fn ioImpl(cmd: ioctl_cmd, op: u8, nr: u8, comptime IT: type) u32 {
-    return @bitCast(u32, @enumToInt(cmd) | @intCast(u32, @truncate(u8, @sizeOf(IT))) << 16 | @intCast(u32, op) << 8 | nr);
+    return @as(u32, @bitCast(@intFromEnum(cmd) | @as(u32, @intCast(@as(u8, @truncate(@sizeOf(IT))))) << 16 | @as(u32, @intCast(op)) << 8 | nr));
 }
 
 pub fn IO(op: u8, nr: u8) u32 {
@@ -2704,3 +2706,135 @@ pub const RF = struct {
 };
 
 pub extern "c" fn rfork(flags: c_int) c_int;
+
+pub const PTRACE = struct {
+    pub const EXC = 0x0001;
+    pub const SCE = 0x0002;
+    pub const SCX = 0x0004;
+    pub const SYSCALL = (PTRACE.SCE | PTRACE.SCX);
+    pub const FORK = 0x0008;
+    pub const LWP = 0x0010;
+    pub const VFORK = 0x0020;
+    pub const DEFAULT = PTRACE.EXEC;
+};
+
+pub const PT = struct {
+    pub const TRACE_ME = 0;
+    pub const READ_I = 1;
+    pub const READ_D = 2;
+    pub const WRITE_I = 4;
+    pub const WRITE_D = 5;
+    pub const CONTINUE = 7;
+    pub const KILL = 8;
+    pub const STEP = 9;
+    pub const ATTACH = 10;
+    pub const DETACH = 11;
+    pub const IO = 12;
+    pub const LWPINFO = 13;
+    pub const GETNUMLWPS = 14;
+    pub const GETLWPLIST = 15;
+    pub const CLEARSTEP = 16;
+    pub const SETSTEP = 17;
+    pub const SUSPEND = 18;
+    pub const RESUME = 19;
+    pub const TO_SCE = 20;
+    pub const TO_SCX = 21;
+    pub const SYSCALL = 22;
+    pub const FOLLOW_FORK = 23;
+    pub const LWP_EVENTS = 24;
+    pub const GET_EVENT_MASK = 25;
+    pub const SET_EVENT_MASK = 26;
+    pub const GET_SC_ARGS = 27;
+    pub const GET_SC_RET = 28;
+    pub const COREDUMP = 29;
+    pub const GETREGS = 33;
+    pub const SETREGS = 34;
+    pub const GETFPREGS = 35;
+    pub const SETFPREGS = 36;
+    pub const GETDBREGS = 37;
+    pub const SETDBREGS = 38;
+    pub const VM_TIMESTAMP = 40;
+    pub const VM_ENTRY = 41;
+    pub const GETREGSET = 42;
+    pub const SETREGSET = 43;
+    pub const SC_REMOTE = 44;
+    pub const FIRSTMACH = 64;
+};
+
+pub const ptrace_io_desc = extern struct {
+    op: c_int,
+    offs: ?*anyopaque,
+    addr: ?*anyopaque,
+    len: usize,
+};
+
+pub const PIOD = struct {
+    pub const READ_D = 1;
+    pub const WRITE_D = 2;
+    pub const READ_I = 3;
+    pub const WRITE_I = 4;
+};
+
+pub const ptrace_lwpinfo = extern struct {
+    lwpid: lwpid_t,
+    event: c_int,
+    flags: c_int,
+    sigmask: sigset_t,
+    siglist: sigset_t,
+    siginfo: siginfo_t,
+    tdname: [MAXCOMLEN + 1]u8,
+    child_pid: pid_t,
+    syscall_code: c_uint,
+    syscall_narg: c_uint,
+};
+
+pub const ptrace_sc_ret = extern struct {
+    retval: [2]isize,
+    err: c_int,
+};
+
+pub const ptrace_vm_entry = extern struct {
+    entry: c_int,
+    timestamp: c_int,
+    start: c_ulong,
+    end: c_ulong,
+    offset: c_ulong,
+    prot: c_uint,
+    pathlen: c_uint,
+    fileid: c_long,
+    fsid: u32,
+    pve_path: ?[*:0]u8,
+};
+
+pub const ptrace_coredump = extern struct {
+    fd: c_int,
+    flags: u32,
+    limit: isize,
+};
+
+pub const ptrace_cs_remote = extern struct {
+    ret: ptrace_sc_ret,
+    syscall: c_uint,
+    nargs: c_uint,
+    args: *isize,
+};
+
+pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: [*:0]u8, data: c_int) c_int;
+
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
+    .x86, .powerpc => 4 * 512,
+    else => 4 * 1024,
+};
+
+pub const SYS_NMLN = 256;
+
+pub const utsname = extern struct {
+    sysname: [255:0]u8,
+    nodename: [255:0]u8,
+    release: [255:0]u8,
+    version: [255:0]u8,
+    machine: [255:0]u8,
+};
+
+pub extern "c" fn uname(u: *utsname) c_int;

@@ -97,12 +97,12 @@ pub const Block = struct {
 
         /// The recommended number of AES encryption/decryption to perform in parallel for the chosen implementation.
         pub const optimal_parallel_blocks = switch (builtin.cpu.model) {
-            &cpu.westmere => 6,
-            &cpu.sandybridge, &cpu.ivybridge => 8,
-            &cpu.haswell, &cpu.broadwell => 7,
-            &cpu.cannonlake, &cpu.skylake, &cpu.skylake_avx512 => 4,
+            &cpu.westmere, &cpu.goldmont => 3,
+            &cpu.cannonlake, &cpu.skylake, &cpu.skylake_avx512, &cpu.tremont, &cpu.goldmont_plus, &cpu.cascadelake => 4,
             &cpu.icelake_client, &cpu.icelake_server, &cpu.tigerlake, &cpu.rocketlake, &cpu.alderlake => 6,
-            &cpu.znver1, &cpu.znver2, &cpu.znver3 => 8,
+            &cpu.haswell, &cpu.broadwell => 7,
+            &cpu.sandybridge, &cpu.ivybridge => 8,
+            &cpu.znver1, &cpu.znver2, &cpu.znver3, &cpu.znver4 => 8,
             else => 8,
         };
 

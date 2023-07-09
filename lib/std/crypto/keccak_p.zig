@@ -33,7 +33,7 @@ pub fn KeccakF(comptime f: u11) type {
                 0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
             };
             var rc: [max_rounds]T = undefined;
-            for (&rc, RC64[0..max_rounds]) |*t, c| t.* = @truncate(T, c);
+            for (&rc, RC64[0..max_rounds]) |*t, c| t.* = @as(T, @truncate(c));
             break :rc rc;
         };
 
@@ -75,7 +75,7 @@ pub fn KeccakF(comptime f: u11) type {
 
         /// XOR a byte into the state at a given offset.
         pub fn addByte(self: *Self, byte: u8, offset: usize) void {
-            const z = @sizeOf(T) * @truncate(math.Log2Int(T), offset % @sizeOf(T));
+            const z = @sizeOf(T) * @as(math.Log2Int(T), @truncate(offset % @sizeOf(T)));
             self.st[offset / @sizeOf(T)] ^= @as(T, byte) << z;
         }
 
@@ -214,7 +214,7 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
         pub fn absorb(self: *Self, bytes_: []const u8) void {
             var bytes = bytes_;
             if (self.offset > 0) {
-                const left = math.min(rate - self.offset, bytes.len);
+                const left = @min(rate - self.offset, bytes.len);
                 @memcpy(self.buf[self.offset..][0..left], bytes[0..left]);
                 self.offset += left;
                 if (self.offset == rate) {
@@ -249,7 +249,7 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
         pub fn squeeze(self: *Self, out: []u8) void {
             var i: usize = 0;
             while (i < out.len) : (i += rate) {
-                const left = math.min(rate, out.len - i);
+                const left = @min(rate, out.len - i);
                 self.st.extractBytes(out[i..][0..left]);
                 self.st.permuteR(rounds);
             }

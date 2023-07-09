@@ -169,7 +169,7 @@ const FutexImpl = struct {
         }
     }
 
-    inline fn lockFast(self: *@This(), comptime casFn: []const u8) bool {
+    inline fn lockFast(self: *@This(), comptime cas_fn_name: []const u8) bool {
         // On x86, use `lock bts` instead of `lock cmpxchg` as:
         // - they both seem to mark the cache-line as modified regardless: https://stackoverflow.com/a/63350048
         // - `lock bts` is smaller instruction-wise which makes it better for inlining
@@ -180,7 +180,8 @@ const FutexImpl = struct {
 
         // Acquire barrier ensures grabbing the lock happens before the critical section
         // and that the previous lock holder's critical section happens before we grab the lock.
-        return @field(self.state, casFn)(unlocked, locked, .Acquire, .Monotonic) == null;
+        const casFn = @field(@TypeOf(self.state), cas_fn_name);
+        return casFn(&self.state, unlocked, locked, .Acquire, .Monotonic) == null;
     }
 
     fn lockSlow(self: *@This()) void {
@@ -241,12 +242,12 @@ const NonAtomicCounter = struct {
     value: [2]u64 = [_]u64{ 0, 0 },
 
     fn get(self: NonAtomicCounter) u128 {
-        return @bitCast(u128, self.value);
+        return @as(u128, @bitCast(self.value));
     }
 
     fn inc(self: *NonAtomicCounter) void {
-        for (@bitCast([2]u64, self.get() + 1), 0..) |v, i| {
-            @ptrCast(*volatile u64, &self.value[i]).* = v;
+        for (@as([2]u64, @bitCast(self.get() + 1)), 0..) |v, i| {
+            @as(*volatile u64, @ptrCast(&self.value[i])).* = v;
         }
     }
 };

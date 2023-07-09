@@ -434,8 +434,8 @@ pub const Header = struct {
     }
 
     pub fn parse(hdr_buf: *align(@alignOf(Elf64_Ehdr)) const [@sizeOf(Elf64_Ehdr)]u8) !Header {
-        const hdr32 = @ptrCast(*const Elf32_Ehdr, hdr_buf);
-        const hdr64 = @ptrCast(*const Elf64_Ehdr, hdr_buf);
+        const hdr32 = @as(*const Elf32_Ehdr, @ptrCast(hdr_buf));
+        const hdr64 = @as(*const Elf64_Ehdr, @ptrCast(hdr_buf));
         if (!mem.eql(u8, hdr32.e_ident[0..4], MAGIC)) return error.InvalidElfMagic;
         if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
 
@@ -453,8 +453,8 @@ pub const Header = struct {
         };
 
         const machine = if (need_bswap) blk: {
-            const value = @enumToInt(hdr32.e_machine);
-            break :blk @intToEnum(EM, @byteSwap(value));
+            const value = @intFromEnum(hdr32.e_machine);
+            break :blk @as(EM, @enumFromInt(@byteSwap(value)));
         } else hdr32.e_machine;
 
         return @as(Header, .{
@@ -706,13 +706,13 @@ pub const Elf64_Shdr = extern struct {
     sh_entsize: Elf64_Xword,
 };
 pub const Elf32_Chdr = extern struct {
-    ch_type: Elf32_Word,
+    ch_type: COMPRESS,
     ch_size: Elf32_Word,
     ch_addralign: Elf32_Word,
 };
 pub const Elf64_Chdr = extern struct {
-    ch_type: Elf64_Word,
-    ch_reserved: Elf64_Word,
+    ch_type: COMPRESS,
+    ch_reserved: Elf64_Word = 0,
     ch_size: Elf64_Xword,
     ch_addralign: Elf64_Xword,
 };
@@ -725,10 +725,10 @@ pub const Elf32_Sym = extern struct {
     st_shndx: Elf32_Section,
 
     pub inline fn st_type(self: @This()) u4 {
-        return @truncate(u4, self.st_info);
+        return @as(u4, @truncate(self.st_info));
     }
     pub inline fn st_bind(self: @This()) u4 {
-        return @truncate(u4, self.st_info >> 4);
+        return @as(u4, @truncate(self.st_info >> 4));
     }
 };
 pub const Elf64_Sym = extern struct {
@@ -740,10 +740,10 @@ pub const Elf64_Sym = extern struct {
     st_size: Elf64_Xword,
 
     pub inline fn st_type(self: @This()) u4 {
-        return @truncate(u4, self.st_info);
+        return @as(u4, @truncate(self.st_info));
     }
     pub inline fn st_bind(self: @This()) u4 {
-        return @truncate(u4, self.st_info >> 4);
+        return @as(u4, @truncate(self.st_info >> 4));
     }
 };
 pub const Elf32_Syminfo = extern struct {
@@ -759,10 +759,10 @@ pub const Elf32_Rel = extern struct {
     r_info: Elf32_Word,
 
     pub inline fn r_sym(self: @This()) u24 {
-        return @truncate(u24, self.r_info >> 8);
+        return @as(u24, @truncate(self.r_info >> 8));
     }
     pub inline fn r_type(self: @This()) u8 {
-        return @truncate(u8, self.r_info);
+        return @as(u8, @truncate(self.r_info));
     }
 };
 pub const Elf64_Rel = extern struct {
@@ -770,10 +770,10 @@ pub const Elf64_Rel = extern struct {
     r_info: Elf64_Xword,
 
     pub inline fn r_sym(self: @This()) u32 {
-        return @truncate(u32, self.r_info >> 32);
+        return @as(u32, @truncate(self.r_info >> 32));
     }
     pub inline fn r_type(self: @This()) u32 {
-        return @truncate(u32, self.r_info);
+        return @as(u32, @truncate(self.r_info));
     }
 };
 pub const Elf32_Rela = extern struct {
@@ -782,10 +782,10 @@ pub const Elf32_Rela = extern struct {
     r_addend: Elf32_Sword,
 
     pub inline fn r_sym(self: @This()) u24 {
-        return @truncate(u24, self.r_info >> 8);
+        return @as(u24, @truncate(self.r_info >> 8));
     }
     pub inline fn r_type(self: @This()) u8 {
-        return @truncate(u8, self.r_info);
+        return @as(u8, @truncate(self.r_info));
     }
 };
 pub const Elf64_Rela = extern struct {
@@ -794,10 +794,10 @@ pub const Elf64_Rela = extern struct {
     r_addend: Elf64_Sxword,
 
     pub inline fn r_sym(self: @This()) u32 {
-        return @truncate(u32, self.r_info >> 32);
+        return @as(u32, @truncate(self.r_info >> 32));
     }
     pub inline fn r_type(self: @This()) u32 {
-        return @truncate(u32, self.r_info);
+        return @as(u32, @truncate(self.r_info));
     }
 };
 pub const Elf32_Dyn = extern struct {
@@ -1729,6 +1729,17 @@ pub const SHN_ABS = 0xfff1;
 pub const SHN_COMMON = 0xfff2;
 /// End of reserved indices
 pub const SHN_HIRESERVE = 0xffff;
+
+// Legal values for ch_type (compression algorithm).
+pub const COMPRESS = enum(u32) {
+    ZLIB = 1,
+    ZSTD = 2,
+    LOOS = 0x60000000,
+    HIOS = 0x6fffffff,
+    LOPROC = 0x70000000,
+    HIPROC = 0x7fffffff,
+    _,
+};
 
 /// AMD x86-64 relocations.
 /// No reloc

@@ -46,7 +46,7 @@ pub fn Atomic(comptime T: type) type {
                     extern "c" fn __tsan_release(addr: *anyopaque) void;
                 };
 
-                const addr = @ptrCast(*anyopaque, self);
+                const addr = @as(*anyopaque, @ptrCast(self));
                 return switch (ordering) {
                     .Unordered, .Monotonic => @compileError(@tagName(ordering) ++ " only applies to atomic loads and stores"),
                     .Acquire => tsan.__tsan_acquire(addr),
@@ -82,11 +82,11 @@ pub fn Atomic(comptime T: type) type {
         }
 
         pub inline fn store(self: *Self, value: T, comptime ordering: Ordering) void {
-            return switch (ordering) {
+            switch (ordering) {
                 .AcqRel => @compileError(@tagName(ordering) ++ " implies " ++ @tagName(Ordering.Acquire) ++ " which is only allowed on atomic loads"),
                 .Acquire => @compileError(@tagName(ordering) ++ " is only allowed on atomic loads"),
                 else => @atomicStore(T, &self.value, value, ordering),
-            };
+            }
         }
 
         pub inline fn swap(self: *Self, value: T, comptime ordering: Ordering) T {
@@ -227,7 +227,7 @@ pub fn Atomic(comptime T: type) type {
                     .Toggle => self.fetchXor(mask, ordering),
                 };
 
-                return @boolToInt(value & mask != 0);
+                return @intFromBool(value & mask != 0);
             }
 
             inline fn x86BitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
@@ -307,7 +307,7 @@ pub fn Atomic(comptime T: type) type {
                 // TODO: emit appropriate tsan fence if compiling with tsan
                 _ = ordering;
 
-                return @intCast(u1, old_bit);
+                return @as(u1, @intCast(old_bit));
             }
         });
     };
@@ -374,10 +374,6 @@ const atomic_rmw_orderings = [_]Ordering{
 };
 
 test "Atomic.swap" {
-    // TODO: Re-enable when LLVM is released with a bugfix for isel of
-    //       atomic load (currently fixed on trunk, broken on 15.0.2)
-    if (builtin.cpu.arch == .powerpc64le) return error.SkipZigTest;
-
     inline for (atomic_rmw_orderings) |ordering| {
         var x = Atomic(usize).init(5);
         try testing.expectEqual(x.swap(10, ordering), 5);
@@ -396,8 +392,8 @@ test "Atomic.swap" {
         try testing.expectEqual(a.load(.SeqCst), true);
 
         var b = Atomic(?*u8).init(null);
-        try testing.expectEqual(b.swap(@intToPtr(?*u8, @alignOf(u8)), ordering), null);
-        try testing.expectEqual(b.load(.SeqCst), @intToPtr(?*u8, @alignOf(u8)));
+        try testing.expectEqual(b.swap(@as(?*u8, @ptrFromInt(@alignOf(u8))), ordering), null);
+        try testing.expectEqual(b.load(.SeqCst), @as(?*u8, @ptrFromInt(@alignOf(u8))));
     }
 }
 
@@ -546,10 +542,9 @@ test "Atomic.bitSet" {
     inline for (atomicIntTypes()) |Int| {
         inline for (atomic_rmw_orderings) |ordering| {
             var x = Atomic(Int).init(0);
-            const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
-            for (bit_array, 0..) |_, bit_index| {
-                const bit = @intCast(std.math.Log2Int(Int), bit_index);
+            for (0..@bitSizeOf(Int)) |bit_index| {
+                const bit = @as(std.math.Log2Int(Int), @intCast(bit_index));
                 const mask = @as(Int, 1) << bit;
 
                 // setting the bit should change the bit
@@ -562,8 +557,8 @@ test "Atomic.bitSet" {
                 try testing.expect(x.load(.SeqCst) & mask != 0);
 
                 // all the previous bits should have not changed (still be set)
-                for (bit_array[0..bit_index], 0..) |_, prev_bit_index| {
-                    const prev_bit = @intCast(std.math.Log2Int(Int), prev_bit_index);
+                for (0..bit_index) |prev_bit_index| {
+                    const prev_bit = @as(std.math.Log2Int(Int), @intCast(prev_bit_index));
                     const prev_mask = @as(Int, 1) << prev_bit;
                     try testing.expect(x.load(.SeqCst) & prev_mask != 0);
                 }
@@ -576,10 +571,9 @@ test "Atomic.bitReset" {
     inline for (atomicIntTypes()) |Int| {
         inline for (atomic_rmw_orderings) |ordering| {
             var x = Atomic(Int).init(0);
-            const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
-            for (bit_array, 0..) |_, bit_index| {
-                const bit = @intCast(std.math.Log2Int(Int), bit_index);
+            for (0..@bitSizeOf(Int)) |bit_index| {
+                const bit = @as(std.math.Log2Int(Int), @intCast(bit_index));
                 const mask = @as(Int, 1) << bit;
                 x.storeUnchecked(x.loadUnchecked() | mask);
 
@@ -593,8 +587,8 @@ test "Atomic.bitReset" {
                 try testing.expect(x.load(.SeqCst) & mask == 0);
 
                 // all the previous bits should have not changed (still be reset)
-                for (bit_array[0..bit_index], 0..) |_, prev_bit_index| {
-                    const prev_bit = @intCast(std.math.Log2Int(Int), prev_bit_index);
+                for (0..bit_index) |prev_bit_index| {
+                    const prev_bit = @as(std.math.Log2Int(Int), @intCast(prev_bit_index));
                     const prev_mask = @as(Int, 1) << prev_bit;
                     try testing.expect(x.load(.SeqCst) & prev_mask == 0);
                 }
@@ -607,10 +601,9 @@ test "Atomic.bitToggle" {
     inline for (atomicIntTypes()) |Int| {
         inline for (atomic_rmw_orderings) |ordering| {
             var x = Atomic(Int).init(0);
-            const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
-            for (bit_array, 0..) |_, bit_index| {
-                const bit = @intCast(std.math.Log2Int(Int), bit_index);
+            for (0..@bitSizeOf(Int)) |bit_index| {
+                const bit = @as(std.math.Log2Int(Int), @intCast(bit_index));
                 const mask = @as(Int, 1) << bit;
 
                 // toggling the bit should change the bit
@@ -623,8 +616,8 @@ test "Atomic.bitToggle" {
                 try testing.expect(x.load(.SeqCst) & mask == 0);
 
                 // all the previous bits should have not changed (still be toggled back)
-                for (bit_array[0..bit_index], 0..) |_, prev_bit_index| {
-                    const prev_bit = @intCast(std.math.Log2Int(Int), prev_bit_index);
+                for (0..bit_index) |prev_bit_index| {
+                    const prev_bit = @as(std.math.Log2Int(Int), @intCast(prev_bit_index));
                     const prev_mask = @as(Int, 1) << prev_bit;
                     try testing.expect(x.load(.SeqCst) & prev_mask == 0);
                 }

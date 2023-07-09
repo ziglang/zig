@@ -172,9 +172,9 @@ pub const RTLD = struct {
     pub const NODELETE = 0x01000;
     pub const NOLOAD = 0x02000;
 
-    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
+    pub const NEXT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
+    pub const DEFAULT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -2)))));
+    pub const SELF = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -3)))));
 };
 
 pub const dl_phdr_info = extern struct {
@@ -253,48 +253,48 @@ pub const EAI_MAX = 15;
 
 pub const msghdr = extern struct {
     /// optional address
-    msg_name: ?*sockaddr,
+    name: ?*sockaddr,
 
     /// size of address
-    msg_namelen: socklen_t,
+    namelen: socklen_t,
 
     /// scatter/gather array
-    msg_iov: [*]iovec,
+    iov: [*]iovec,
 
     /// # elements in msg_iov
-    msg_iovlen: i32,
+    iovlen: i32,
 
     /// ancillary data
-    msg_control: ?*anyopaque,
+    control: ?*anyopaque,
 
     /// ancillary data buffer len
-    msg_controllen: socklen_t,
+    controllen: socklen_t,
 
     /// flags on received message
-    msg_flags: i32,
+    flags: i32,
 };
 
 pub const msghdr_const = extern struct {
     /// optional address
-    msg_name: ?*const sockaddr,
+    name: ?*const sockaddr,
 
     /// size of address
-    msg_namelen: socklen_t,
+    namelen: socklen_t,
 
     /// scatter/gather array
-    msg_iov: [*]const iovec_const,
+    iov: [*]const iovec_const,
 
     /// # elements in msg_iov
-    msg_iovlen: i32,
+    iovlen: i32,
 
     /// ancillary data
-    msg_control: ?*const anyopaque,
+    control: ?*const anyopaque,
 
     /// ancillary data buffer len
-    msg_controllen: socklen_t,
+    controllen: socklen_t,
 
     /// flags on received message
-    msg_flags: i32,
+    flags: i32,
 };
 
 /// The stat structure used by libc.
@@ -579,6 +579,12 @@ pub const PROT = struct {
     pub const READ = 1;
     pub const WRITE = 2;
     pub const EXEC = 4;
+    pub fn MPROTECT(flag: u32) u32 {
+        return flag << 3;
+    }
+    pub fn MPROTECT_EXTRACT(flag: u32) u32 {
+        return (flag >> 3) & 0x7;
+    }
 };
 
 pub const CLOCK = struct {
@@ -591,7 +597,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const REMAPDUP = 0x0004;
@@ -621,6 +627,16 @@ pub const MAP = struct {
     pub const ALIGNMENT_64PB = MAP.ALIGNED(56);
 };
 
+pub const MADV = struct {
+    pub const NORMAL = 0;
+    pub const RANDOM = 1;
+    pub const SEQUENTIAL = 2;
+    pub const WILLNEED = 3;
+    pub const DONTNEED = 4;
+    pub const SPACEAVAIL = 5;
+    pub const FREE = 6;
+};
+
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;
@@ -637,7 +653,7 @@ pub const W = struct {
     pub const TRAPPED = 0x00000040;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, (s >> 8) & 0xff);
+        return @as(u8, @intCast((s >> 8) & 0xff));
     }
     pub fn TERMSIG(s: u32) u32 {
         return s & 0x7f;
@@ -1090,9 +1106,9 @@ pub const winsize = extern struct {
 const NSIG = 32;
 
 pub const SIG = struct {
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -1668,3 +1684,60 @@ pub const sigevent = extern struct {
     sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
     sigev_notify_attributes: ?*pthread_attr_t,
 };
+
+pub const PTRACE = struct {
+    pub const FORK = 0x0001;
+    pub const VFORK = 0x0002;
+    pub const VFORK_DONE = 0x0004;
+    pub const LWP_CREATE = 0x0008;
+    pub const LWP_EXIT = 0x0010;
+    pub const POSIX_SPAWN = 0x0020;
+};
+
+pub const PT = struct {
+    pub const TRACE_ME = 0;
+    pub const READ_I = 1;
+    pub const READ_D = 2;
+    pub const WRITE_I = 4;
+    pub const WRITE_D = 5;
+    pub const CONTINUE = 7;
+    pub const KILL = 8;
+    pub const ATTACH = 9;
+    pub const DETACH = 10;
+    pub const IO = 11;
+    pub const DUMPCORE = 11;
+    pub const LWPINFO = 12;
+};
+
+pub const ptrace_event = extern struct {
+    set_event: c_int,
+};
+
+pub const ptrace_state = extern struct {
+    report_event: c_int,
+    _option: extern union {
+        other_pid: pid_t,
+        lwp: lwpid_t,
+    },
+};
+
+pub const ptrace_io_desc = extern struct {
+    op: c_int,
+    offs: ?*anyopaque,
+    addr: ?*anyopaque,
+    len: usize,
+};
+
+pub const PIOD = struct {
+    pub const READ_D = 1;
+    pub const WRITE_D = 2;
+    pub const READ_I = 3;
+    pub const WRITE_I = 4;
+};
+
+pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: ?*anyopaque, data: c_int) c_int;
+
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = 16 * 1024;
+
+pub const timer_t = *opaque {};

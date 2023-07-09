@@ -70,8 +70,8 @@ pub const Header = struct {
     }
 
     pub fn fileType(header: Header) FileType {
-        const result = @intToEnum(FileType, header.bytes[156]);
-        return if (result == @intToEnum(FileType, 0)) .normal else result;
+        const result = @as(FileType, @enumFromInt(header.bytes[156]));
+        return if (result == @as(FileType, @enumFromInt(0))) .normal else result;
     }
 
     fn str(header: Header, start: usize, end: usize) []const u8 {
@@ -116,8 +116,8 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
         const header: Header = .{ .bytes = buffer[start..][0..512] };
         start += 512;
         const file_size = try header.fileSize();
-        const rounded_file_size = std.mem.alignForwardGeneric(u64, file_size, 512);
-        const pad_len = @intCast(usize, rounded_file_size - file_size);
+        const rounded_file_size = std.mem.alignForward(u64, file_size, 512);
+        const pad_len = @as(usize, @intCast(rounded_file_size - file_size));
         const unstripped_file_name = try header.fullFileName(&file_name_buffer);
         switch (header.fileType()) {
             .directory => {
@@ -146,14 +146,14 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                     }
                     // Ask for the rounded up file size + 512 for the next header.
                     // TODO: https://github.com/ziglang/zig/issues/14039
-                    const ask = @intCast(usize, @min(
+                    const ask = @as(usize, @intCast(@min(
                         buffer.len - end,
                         rounded_file_size + 512 - file_off -| (end - start),
-                    ));
+                    )));
                     end += try reader.readAtLeast(buffer[end..], ask);
                     if (end - start < ask) return error.UnexpectedEndOfStream;
                     // TODO: https://github.com/ziglang/zig/issues/14039
-                    const slice = buffer[start..@intCast(usize, @min(file_size - file_off + start, end))];
+                    const slice = buffer[start..@as(usize, @intCast(@min(file_size - file_off + start, end)))];
                     try file.writeAll(slice);
                     file_off += slice.len;
                     start += slice.len;
@@ -167,7 +167,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
             },
             .global_extended_header, .extended_header => {
                 if (start + rounded_file_size > end) return error.TarHeadersTooBig;
-                start = @intCast(usize, start + rounded_file_size);
+                start = @as(usize, @intCast(start + rounded_file_size));
             },
             .hard_link => return error.TarUnsupportedFileType,
             .symbolic_link => return error.TarUnsupportedFileType,

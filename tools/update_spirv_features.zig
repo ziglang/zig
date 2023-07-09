@@ -19,7 +19,7 @@ const Version = struct {
     minor: u32,
 
     fn parse(str: []const u8) !Version {
-        var it = std.mem.split(u8, str, ".");
+        var it = std.mem.splitScalar(u8, str, '.');
 
         const major = it.first();
         const minor = it.next() orelse return error.InvalidVersion;
@@ -74,7 +74,13 @@ pub fn main() !void {
 
     const registry_path = try fs.path.join(allocator, &.{ spirv_headers_root, "include", "spirv", "unified1", "spirv.core.grammar.json" });
     const registry_json = try std.fs.cwd().readFileAlloc(allocator, registry_path, std.math.maxInt(usize));
-    const registry = try std.json.parseFromSlice(g.CoreRegistry, allocator, registry_json, .{});
+    var scanner = std.json.Scanner.initCompleteInput(allocator, registry_json);
+    var diagnostics = std.json.Diagnostics{};
+    scanner.enableDiagnostics(&diagnostics);
+    const registry = std.json.parseFromTokenSourceLeaky(g.CoreRegistry, allocator, &scanner, .{}) catch |err| {
+        std.debug.print("line,col: {},{}\n", .{ diagnostics.getLine(), diagnostics.getColumn() });
+        return err;
+    };
 
     const capabilities = for (registry.operand_kinds) |opkind| {
         if (std.mem.eql(u8, opkind.kind, "Capability"))
@@ -131,7 +137,7 @@ pub fn main() !void {
 
     for (versions, 0..) |ver, i| {
         try w.print(
-            \\    result[@enumToInt(Feature.v{0}_{1})] = .{{
+            \\    result[@intFromEnum(Feature.v{0}_{1})] = .{{
             \\        .llvm_name = null,
             \\        .description = "SPIR-V version {0}.{1}",
             \\
@@ -157,7 +163,7 @@ pub fn main() !void {
     // TODO: Extension dependencies.
     for (extensions) |ext| {
         try w.print(
-            \\    result[@enumToInt(Feature.{s})] = .{{
+            \\    result[@intFromEnum(Feature.{s})] = .{{
             \\        .llvm_name = null,
             \\        .description = "SPIR-V extension {s}",
             \\        .dependencies = featureSet(&[_]Feature{{}}),
@@ -172,7 +178,7 @@ pub fn main() !void {
     // TODO: Capability extension dependencies.
     for (capabilities) |cap| {
         try w.print(
-            \\    result[@enumToInt(Feature.{s})] = .{{
+            \\    result[@intFromEnum(Feature.{s})] = .{{
             \\        .llvm_name = null,
             \\        .description = "Enable SPIR-V capability {s}",
             \\        .dependencies = featureSet(&[_]Feature{{
@@ -227,7 +233,7 @@ fn gather_extensions(allocator: Allocator, spirv_registry_root: []const u8) ![]c
 
     var vendor_it = extensions_dir.iterate();
     while (try vendor_it.next()) |vendor_entry| {
-        std.debug.assert(vendor_entry.kind == .Directory); // If this fails, the structure of SPIRV-Registry has changed.
+        std.debug.assert(vendor_entry.kind == .directory); // If this fails, the structure of SPIRV-Registry has changed.
 
         const vendor_dir = try extensions_dir.dir.openIterableDir(vendor_entry.name, .{});
         var ext_it = vendor_dir.iterate();
@@ -303,7 +309,7 @@ fn gatherVersions(allocator: Allocator, registry: g.CoreRegistry) ![]const Versi
         }
     }
 
-    std.sort.sort(Version, versions.items, {}, Version.lessThan);
+    std.mem.sort(Version, versions.items, {}, Version.lessThan);
 
     return versions.items;
 }

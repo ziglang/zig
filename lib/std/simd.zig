@@ -61,7 +61,7 @@ pub fn suggestVectorSize(comptime T: type) ?usize {
 
 test "suggestVectorSizeForCpu works with signed and unsigned values" {
     comptime var cpu = std.Target.Cpu.baseline(std.Target.Cpu.Arch.x86_64);
-    comptime cpu.features.addFeature(@enumToInt(std.Target.x86.Feature.avx512f));
+    comptime cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.avx512f));
     const signed_integer_size = suggestVectorSizeForCpu(i32, cpu).?;
     const unsigned_integer_size = suggestVectorSizeForCpu(u32, cpu).?;
     try std.testing.expectEqual(@as(usize, 16), unsigned_integer_size);
@@ -93,8 +93,8 @@ pub inline fn iota(comptime T: type, comptime len: usize) @Vector(len, T) {
         var out: [len]T = undefined;
         for (&out, 0..) |*element, i| {
             element.* = switch (@typeInfo(T)) {
-                .Int => @intCast(T, i),
-                .Float => @intToFloat(T, i),
+                .Int => @as(T, @intCast(i)),
+                .Float => @as(T, @floatFromInt(i)),
                 else => @compileError("Can't use type " ++ @typeName(T) ++ " in iota."),
             };
         }
@@ -107,7 +107,7 @@ pub inline fn iota(comptime T: type, comptime len: usize) @Vector(len, T) {
 pub fn repeat(comptime len: usize, vec: anytype) @Vector(len, std.meta.Child(@TypeOf(vec))) {
     const Child = std.meta.Child(@TypeOf(vec));
 
-    return @shuffle(Child, vec, undefined, iota(i32, len) % @splat(len, @intCast(i32, vectorLength(@TypeOf(vec)))));
+    return @shuffle(Child, vec, undefined, iota(i32, len) % @splat(len, @as(i32, @intCast(vectorLength(@TypeOf(vec))))));
 }
 
 /// Returns a vector containing all elements of the first vector at the lower indices followed by all elements of the second vector
@@ -139,8 +139,8 @@ pub fn interlace(vecs: anytype) @Vector(vectorLength(@TypeOf(vecs[0])) * vecs.le
     const a_vec_count = (1 + vecs_arr.len) >> 1;
     const b_vec_count = vecs_arr.len >> 1;
 
-    const a = interlace(@ptrCast(*const [a_vec_count]VecType, vecs_arr[0..a_vec_count]).*);
-    const b = interlace(@ptrCast(*const [b_vec_count]VecType, vecs_arr[a_vec_count..]).*);
+    const a = interlace(@as(*const [a_vec_count]VecType, @ptrCast(vecs_arr[0..a_vec_count])).*);
+    const b = interlace(@as(*const [b_vec_count]VecType, @ptrCast(vecs_arr[a_vec_count..])).*);
 
     const a_len = vectorLength(@TypeOf(a));
     const b_len = vectorLength(@TypeOf(b));
@@ -148,10 +148,10 @@ pub fn interlace(vecs: anytype) @Vector(vectorLength(@TypeOf(vecs[0])) * vecs.le
 
     const indices = comptime blk: {
         const count_up = iota(i32, len);
-        const cycle = @divFloor(count_up, @splat(len, @intCast(i32, vecs_arr.len)));
+        const cycle = @divFloor(count_up, @splat(len, @as(i32, @intCast(vecs_arr.len))));
         const select_mask = repeat(len, join(@splat(a_vec_count, true), @splat(b_vec_count, false)));
-        const a_indices = count_up - cycle * @splat(len, @intCast(i32, b_vec_count));
-        const b_indices = shiftElementsRight(count_up - cycle * @splat(len, @intCast(i32, a_vec_count)), a_vec_count, 0);
+        const a_indices = count_up - cycle * @splat(len, @as(i32, @intCast(b_vec_count)));
+        const b_indices = shiftElementsRight(count_up - cycle * @splat(len, @as(i32, @intCast(a_vec_count))), a_vec_count, 0);
         break :blk @select(i32, select_mask, a_indices, ~b_indices);
     };
 
@@ -174,7 +174,7 @@ pub fn deinterlace(
 
     comptime var i: usize = 0; // for-loops don't work for this, apparently.
     inline while (i < out.len) : (i += 1) {
-        const indices = comptime iota(i32, vec_len) * @splat(vec_len, @intCast(i32, vec_count)) + @splat(vec_len, @intCast(i32, i));
+        const indices = comptime iota(i32, vec_len) * @splat(vec_len, @as(i32, @intCast(vec_count))) + @splat(vec_len, @as(i32, @intCast(i)));
         out[i] = @shuffle(Child, interlaced, undefined, indices);
     }
 
@@ -189,9 +189,9 @@ pub fn extract(
     const Child = std.meta.Child(@TypeOf(vec));
     const len = vectorLength(@TypeOf(vec));
 
-    std.debug.assert(@intCast(comptime_int, first) + @intCast(comptime_int, count) <= len);
+    std.debug.assert(@as(comptime_int, @intCast(first)) + @as(comptime_int, @intCast(count)) <= len);
 
-    return @shuffle(Child, vec, undefined, iota(i32, count) + @splat(count, @intCast(i32, first)));
+    return @shuffle(Child, vec, undefined, iota(i32, count) + @splat(count, @as(i32, @intCast(first))));
 }
 
 test "vector patterns" {
@@ -263,7 +263,7 @@ pub fn reverseOrder(vec: anytype) @TypeOf(vec) {
     const Child = std.meta.Child(@TypeOf(vec));
     const len = vectorLength(@TypeOf(vec));
 
-    return @shuffle(Child, vec, undefined, @splat(len, @intCast(i32, len) - 1) - iota(i32, len));
+    return @shuffle(Child, vec, undefined, @splat(len, @as(i32, @intCast(len)) - 1) - iota(i32, len));
 }
 
 test "vector shifting" {

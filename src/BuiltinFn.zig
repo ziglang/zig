@@ -12,7 +12,7 @@ pub const Tag = enum {
     atomic_store,
     bit_cast,
     bit_offset_of,
-    bool_to_int,
+    int_from_bool,
     bit_size_of,
     breakpoint,
     mul_add,
@@ -39,10 +39,10 @@ pub const Tag = enum {
     div_floor,
     div_trunc,
     embed_file,
-    enum_to_int,
+    int_from_enum,
     error_name,
     error_return_trace,
-    error_to_int,
+    int_from_error,
     err_set_cast,
     @"export",
     @"extern",
@@ -50,7 +50,7 @@ pub const Tag = enum {
     field,
     field_parent_ptr,
     float_cast,
-    float_to_int,
+    int_from_float,
     frame,
     Frame,
     frame_address,
@@ -60,10 +60,10 @@ pub const Tag = enum {
     import,
     in_comptime,
     int_cast,
-    int_to_enum,
-    int_to_error,
-    int_to_float,
-    int_to_ptr,
+    enum_from_int,
+    error_from_int,
+    float_from_int,
+    ptr_from_int,
     max,
     memcpy,
     memset,
@@ -76,7 +76,7 @@ pub const Tag = enum {
     pop_count,
     prefetch,
     ptr_cast,
-    ptr_to_int,
+    int_from_ptr,
     rem,
     return_address,
     select,
@@ -129,6 +129,8 @@ pub const MemLocRequirement = enum {
     never,
     /// The builtin always needs a memory location.
     always,
+    /// The builtin forwards the question to argument at index 0.
+    forward0,
     /// The builtin forwards the question to argument at index 1.
     forward1,
 };
@@ -168,14 +170,14 @@ pub const list = list: {
             "@addrSpaceCast",
             .{
                 .tag = .addrspace_cast,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
             "@alignCast",
             .{
                 .tag = .align_cast,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -226,8 +228,8 @@ pub const list = list: {
             "@bitCast",
             .{
                 .tag = .bit_cast,
-                .needs_mem_loc = .forward1,
-                .param_count = 2,
+                .needs_mem_loc = .forward0,
+                .param_count = 1,
             },
         },
         .{
@@ -238,9 +240,9 @@ pub const list = list: {
             },
         },
         .{
-            "@boolToInt",
+            "@intFromBool",
             .{
-                .tag = .bool_to_int,
+                .tag = .int_from_bool,
                 .param_count = 1,
             },
         },
@@ -425,9 +427,9 @@ pub const list = list: {
             },
         },
         .{
-            "@enumToInt",
+            "@intFromEnum",
             .{
-                .tag = .enum_to_int,
+                .tag = .int_from_enum,
                 .param_count = 1,
             },
         },
@@ -446,9 +448,9 @@ pub const list = list: {
             },
         },
         .{
-            "@errorToInt",
+            "@intFromError",
             .{
-                .tag = .error_to_int,
+                .tag = .int_from_error,
                 .param_count = 1,
             },
         },
@@ -457,7 +459,7 @@ pub const list = list: {
             .{
                 .tag = .err_set_cast,
                 .eval_to_error = .always,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -502,14 +504,14 @@ pub const list = list: {
             "@floatCast",
             .{
                 .tag = .float_cast,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
-            "@floatToInt",
+            "@intFromFloat",
             .{
-                .tag = .float_to_int,
-                .param_count = 2,
+                .tag = .int_from_float,
+                .param_count = 1,
             },
         },
         .{
@@ -572,36 +574,36 @@ pub const list = list: {
             "@intCast",
             .{
                 .tag = .int_cast,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
-            "@intToEnum",
+            "@enumFromInt",
             .{
-                .tag = .int_to_enum,
-                .param_count = 2,
+                .tag = .enum_from_int,
+                .param_count = 1,
             },
         },
         .{
-            "@intToError",
+            "@errorFromInt",
             .{
-                .tag = .int_to_error,
+                .tag = .error_from_int,
                 .eval_to_error = .always,
                 .param_count = 1,
             },
         },
         .{
-            "@intToFloat",
+            "@floatFromInt",
             .{
-                .tag = .int_to_float,
-                .param_count = 2,
+                .tag = .float_from_int,
+                .param_count = 1,
             },
         },
         .{
-            "@intToPtr",
+            "@ptrFromInt",
             .{
-                .tag = .int_to_ptr,
-                .param_count = 2,
+                .tag = .ptr_from_int,
+                .param_count = 1,
             },
         },
         .{
@@ -685,13 +687,13 @@ pub const list = list: {
             "@ptrCast",
             .{
                 .tag = .ptr_cast,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
-            "@ptrToInt",
+            "@intFromPtr",
             .{
-                .tag = .ptr_to_int,
+                .tag = .int_from_ptr,
                 .param_count = 1,
             },
         },
@@ -938,7 +940,7 @@ pub const list = list: {
             "@truncate",
             .{
                 .tag = .truncate,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{

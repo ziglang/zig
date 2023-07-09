@@ -1275,7 +1275,7 @@ pub const WS_EX_LAYERED = 0x00080000;
 pub const WS_EX_OVERLAPPEDWINDOW = WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE;
 pub const WS_EX_PALETTEWINDOW = WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
 
-pub const CW_USEDEFAULT = @bitCast(i32, @as(u32, 0x80000000));
+pub const CW_USEDEFAULT = @as(i32, @bitCast(@as(u32, 0x80000000)));
 
 pub extern "user32" fn CreateWindowExA(dwExStyle: DWORD, lpClassName: [*:0]const u8, lpWindowName: [*:0]const u8, dwStyle: DWORD, X: i32, Y: i32, nWidth: i32, nHeight: i32, hWindParent: ?HWND, hMenu: ?HMENU, hInstance: HINSTANCE, lpParam: ?LPVOID) callconv(WINAPI) ?HWND;
 pub fn createWindowExA(dwExStyle: u32, lpClassName: [*:0]const u8, lpWindowName: [*:0]const u8, dwStyle: u32, X: i32, Y: i32, nWidth: i32, nHeight: i32, hWindParent: ?HWND, hMenu: ?HMENU, hInstance: HINSTANCE, lpParam: ?*anyopaque) !HWND {
@@ -1350,7 +1350,7 @@ pub extern "user32" fn AdjustWindowRectEx(lpRect: *RECT, dwStyle: DWORD, bMenu: 
 pub fn adjustWindowRectEx(lpRect: *RECT, dwStyle: u32, bMenu: bool, dwExStyle: u32) !void {
     assert(dwStyle & WS_OVERLAPPED == 0);
 
-    if (AdjustWindowRectEx(lpRect, dwStyle, @boolToInt(bMenu), dwExStyle) == 0) {
+    if (AdjustWindowRectEx(lpRect, dwStyle, @intFromBool(bMenu), dwExStyle) == 0) {
         switch (GetLastError()) {
             .INVALID_PARAMETER => unreachable,
             else => |err| return windows.unexpectedError(err),

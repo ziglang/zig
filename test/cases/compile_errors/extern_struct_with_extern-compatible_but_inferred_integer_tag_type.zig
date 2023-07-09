@@ -1,3 +1,4 @@
+// zig fmt: off
 pub const E = enum {
 @"0",@"1",@"2",@"3",@"4",@"5",@"6",@"7",@"8",@"9",@"10",@"11",@"12",
 @"13",@"14",@"15",@"16",@"17",@"18",@"19",@"20",@"21",@"22",@"23",
@@ -27,6 +28,7 @@ pub const E = enum {
 @"245",@"246",@"247",@"248",@"249",@"250",@"251",@"252",@"253",
 @"254",@"255", @"256"
 };
+// zig fmt: on
 pub const S = extern struct {
     e: E,
 };
@@ -39,7 +41,7 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :31:8: error: extern structs cannot contain fields of type 'tmp.E'
-// :31:8: note: enum tag type 'u9' is not extern compatible
-// :31:8: note: only integers with power of two bits are extern compatible
-// :1:15: note: enum declared here
+// :33:8: error: extern structs cannot contain fields of type 'tmp.E'
+// :33:8: note: enum tag type 'u9' is not extern compatible
+// :33:8: note: only integers with power of two bits are extern compatible
+// :2:15: note: enum declared here

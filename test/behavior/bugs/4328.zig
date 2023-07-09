@@ -35,7 +35,7 @@ test "Extern function calls in @TypeOf" {
     };
 
     try Test.doTheTest();
-    comptime try Test.doTheTest();
+    try comptime Test.doTheTest();
 }
 
 test "Peer resolution of extern function calls in @TypeOf" {
@@ -52,7 +52,7 @@ test "Peer resolution of extern function calls in @TypeOf" {
     };
 
     try Test.doTheTest();
-    comptime try Test.doTheTest();
+    try comptime Test.doTheTest();
 }
 
 test "Extern function calls, dereferences and field access in @TypeOf" {
@@ -78,5 +78,5 @@ test "Extern function calls, dereferences and field access in @TypeOf" {
     };
 
     try Test.doTheTest();
-    comptime try Test.doTheTest();
+    try comptime Test.doTheTest();
 }

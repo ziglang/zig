@@ -158,6 +158,16 @@ pub extern "ntdll" fn RtlDosPathNameToNtPathName_U(
 ) callconv(WINAPI) BOOL;
 pub extern "ntdll" fn RtlFreeUnicodeString(UnicodeString: *UNICODE_STRING) callconv(WINAPI) void;
 
+/// Returns the number of bytes written to `Buffer`.
+/// If the returned count is larger than `BufferByteLength`, the buffer was too small.
+/// If the returned count is zero, an error occurred.
+pub extern "ntdll" fn RtlGetFullPathName_U(
+    FileName: [*:0]const u16,
+    BufferByteLength: ULONG,
+    Buffer: [*]u16,
+    ShortName: ?*[*:0]const u16,
+) callconv(windows.WINAPI) windows.ULONG;
+
 pub extern "ntdll" fn NtQueryDirectoryFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,

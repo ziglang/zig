@@ -1,4 +1,4 @@
-const Foo = error {
+const Foo = error{
     Bar,
     Bar,
 };

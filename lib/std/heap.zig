@@ -61,11 +61,11 @@ const CAllocator = struct {
     pub const supports_posix_memalign = @hasDecl(c, "posix_memalign");
 
     fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @intToPtr(*[*]u8, @ptrToInt(ptr) - @sizeOf(usize));
+        return @as(*[*]u8, @ptrFromInt(@intFromPtr(ptr) - @sizeOf(usize)));
     }
 
     fn alignedAlloc(len: usize, log2_align: u8) ?[*]u8 {
-        const alignment = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_align);
+        const alignment = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_align));
         if (supports_posix_memalign) {
             // The posix_memalign only accepts alignment values that are a
             // multiple of the pointer size
@@ -75,15 +75,15 @@ const CAllocator = struct {
             if (c.posix_memalign(&aligned_ptr, eff_alignment, len) != 0)
                 return null;
 
-            return @ptrCast([*]u8, aligned_ptr);
+            return @as([*]u8, @ptrCast(aligned_ptr));
         }
 
         // Thin wrapper around regular malloc, overallocate to account for
         // alignment padding and store the original malloc()'ed pointer before
         // the aligned address.
-        var unaligned_ptr = @ptrCast([*]u8, c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null);
-        const unaligned_addr = @ptrToInt(unaligned_ptr);
-        const aligned_addr = mem.alignForward(unaligned_addr + @sizeOf(usize), alignment);
+        var unaligned_ptr = @as([*]u8, @ptrCast(c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null));
+        const unaligned_addr = @intFromPtr(unaligned_ptr);
+        const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), alignment);
         var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
         getHeader(aligned_ptr).* = unaligned_ptr;
 
@@ -105,7 +105,7 @@ const CAllocator = struct {
         }
 
         const unaligned_ptr = getHeader(ptr).*;
-        const delta = @ptrToInt(ptr) - @ptrToInt(unaligned_ptr);
+        const delta = @intFromPtr(ptr) - @intFromPtr(unaligned_ptr);
         return CAllocator.malloc_size(unaligned_ptr) - delta;
     }
 
@@ -195,7 +195,7 @@ fn rawCAlloc(
     // type in C that is size 8 and has 16 byte alignment, so the alignment may
     // be 8 bytes rather than 16. Similarly if only 1 byte is requested, malloc
     // is allowed to return a 1-byte aligned pointer.
-    return @ptrCast(?[*]u8, c.malloc(len));
+    return @as(?[*]u8, @ptrCast(c.malloc(len)));
 }
 
 fn rawCResize(
@@ -249,7 +249,7 @@ pub const wasm_allocator = Allocator{
 /// Verifies that the adjusted length will still map to the full length
 pub fn alignPageAllocLen(full_len: usize, len: usize) usize {
     const aligned_len = mem.alignAllocLen(full_len, len);
-    assert(mem.alignForward(aligned_len, mem.page_size) == full_len);
+    assert(mem.alignForward(usize, aligned_len, mem.page_size) == full_len);
     return aligned_len;
 }
 
@@ -283,7 +283,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         }
 
         fn getRecordPtr(buf: []u8) *align(1) usize {
-            return @intToPtr(*align(1) usize, @ptrToInt(buf.ptr) + buf.len);
+            return @as(*align(1) usize, @ptrFromInt(@intFromPtr(buf.ptr) + buf.len));
         }
 
         fn alloc(
@@ -293,9 +293,9 @@ pub const HeapAllocator = switch (builtin.os.tag) {
             return_address: usize,
         ) ?[*]u8 {
             _ = return_address;
-            const self = @ptrCast(*HeapAllocator, @alignCast(@alignOf(HeapAllocator), ctx));
+            const self: *HeapAllocator = @ptrCast(@alignCast(ctx));
 
-            const ptr_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align);
+            const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
             const amt = n + ptr_align - 1 + @sizeOf(usize);
             const optional_heap_handle = @atomicLoad(?HeapHandle, &self.heap_handle, .SeqCst);
             const heap_handle = optional_heap_handle orelse blk: {
@@ -306,9 +306,9 @@ pub const HeapAllocator = switch (builtin.os.tag) {
                 break :blk other_hh.?; // can't be null because of the cmpxchg
             };
             const ptr = os.windows.kernel32.HeapAlloc(heap_handle, 0, amt) orelse return null;
-            const root_addr = @ptrToInt(ptr);
-            const aligned_addr = mem.alignForward(root_addr, ptr_align);
-            const buf = @intToPtr([*]u8, aligned_addr)[0..n];
+            const root_addr = @intFromPtr(ptr);
+            const aligned_addr = mem.alignForward(usize, root_addr, ptr_align);
+            const buf = @as([*]u8, @ptrFromInt(aligned_addr))[0..n];
             getRecordPtr(buf).* = root_addr;
             return buf.ptr;
         }
@@ -322,18 +322,18 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         ) bool {
             _ = log2_buf_align;
             _ = return_address;
-            const self = @ptrCast(*HeapAllocator, @alignCast(@alignOf(HeapAllocator), ctx));
+            const self: *HeapAllocator = @ptrCast(@alignCast(ctx));
 
             const root_addr = getRecordPtr(buf).*;
-            const align_offset = @ptrToInt(buf.ptr) - root_addr;
+            const align_offset = @intFromPtr(buf.ptr) - root_addr;
             const amt = align_offset + new_size + @sizeOf(usize);
             const new_ptr = os.windows.kernel32.HeapReAlloc(
                 self.heap_handle.?,
                 os.windows.HEAP_REALLOC_IN_PLACE_ONLY,
-                @intToPtr(*anyopaque, root_addr),
+                @as(*anyopaque, @ptrFromInt(root_addr)),
                 amt,
             ) orelse return false;
-            assert(new_ptr == @intToPtr(*anyopaque, root_addr));
+            assert(new_ptr == @as(*anyopaque, @ptrFromInt(root_addr)));
             getRecordPtr(buf.ptr[0..new_size]).* = root_addr;
             return true;
         }
@@ -346,21 +346,21 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         ) void {
             _ = log2_buf_align;
             _ = return_address;
-            const self = @ptrCast(*HeapAllocator, @alignCast(@alignOf(HeapAllocator), ctx));
-            os.windows.HeapFree(self.heap_handle.?, 0, @intToPtr(*anyopaque, getRecordPtr(buf).*));
+            const self: *HeapAllocator = @ptrCast(@alignCast(ctx));
+            os.windows.HeapFree(self.heap_handle.?, 0, @as(*anyopaque, @ptrFromInt(getRecordPtr(buf).*)));
         }
     },
     else => @compileError("Unsupported OS"),
 };
 
 fn sliceContainsPtr(container: []u8, ptr: [*]u8) bool {
-    return @ptrToInt(ptr) >= @ptrToInt(container.ptr) and
-        @ptrToInt(ptr) < (@ptrToInt(container.ptr) + container.len);
+    return @intFromPtr(ptr) >= @intFromPtr(container.ptr) and
+        @intFromPtr(ptr) < (@intFromPtr(container.ptr) + container.len);
 }
 
 fn sliceContainsSlice(container: []u8, slice: []u8) bool {
-    return @ptrToInt(slice.ptr) >= @ptrToInt(container.ptr) and
-        (@ptrToInt(slice.ptr) + slice.len) <= (@ptrToInt(container.ptr) + container.len);
+    return @intFromPtr(slice.ptr) >= @intFromPtr(container.ptr) and
+        (@intFromPtr(slice.ptr) + slice.len) <= (@intFromPtr(container.ptr) + container.len);
 }
 
 pub const FixedBufferAllocator = struct {
@@ -415,9 +415,9 @@ pub const FixedBufferAllocator = struct {
     }
 
     fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-        const self = @ptrCast(*FixedBufferAllocator, @alignCast(@alignOf(FixedBufferAllocator), ctx));
+        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
         _ = ra;
-        const ptr_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align);
+        const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
         const adjust_off = mem.alignPointerOffset(self.buffer.ptr + self.end_index, ptr_align) orelse return null;
         const adjusted_index = self.end_index + adjust_off;
         const new_end_index = adjusted_index + n;
@@ -433,7 +433,7 @@ pub const FixedBufferAllocator = struct {
         new_size: usize,
         return_address: usize,
     ) bool {
-        const self = @ptrCast(*FixedBufferAllocator, @alignCast(@alignOf(FixedBufferAllocator), ctx));
+        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
         _ = log2_buf_align;
         _ = return_address;
         assert(self.ownsSlice(buf)); // sanity check
@@ -462,7 +462,7 @@ pub const FixedBufferAllocator = struct {
         log2_buf_align: u8,
         return_address: usize,
     ) void {
-        const self = @ptrCast(*FixedBufferAllocator, @alignCast(@alignOf(FixedBufferAllocator), ctx));
+        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
         _ = log2_buf_align;
         _ = return_address;
         assert(self.ownsSlice(buf)); // sanity check
@@ -473,9 +473,9 @@ pub const FixedBufferAllocator = struct {
     }
 
     fn threadSafeAlloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-        const self = @ptrCast(*FixedBufferAllocator, @alignCast(@alignOf(FixedBufferAllocator), ctx));
+        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
         _ = ra;
-        const ptr_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align);
+        const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
         var end_index = @atomicLoad(usize, &self.end_index, .SeqCst);
         while (true) {
             const adjust_off = mem.alignPointerOffset(self.buffer.ptr + end_index, ptr_align) orelse return null;
@@ -537,7 +537,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             log2_ptr_align: u8,
             ra: usize,
         ) ?[*]u8 {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx));
             return FixedBufferAllocator.alloc(&self.fixed_buffer_allocator, len, log2_ptr_align, ra) orelse
                 return self.fallback_allocator.rawAlloc(len, log2_ptr_align, ra);
         }
@@ -549,7 +549,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             new_len: usize,
             ra: usize,
         ) bool {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
                 return FixedBufferAllocator.resize(&self.fixed_buffer_allocator, buf, log2_buf_align, new_len, ra);
             } else {
@@ -563,7 +563,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             log2_buf_align: u8,
             ra: usize,
         ) void {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
                 return FixedBufferAllocator.free(&self.fixed_buffer_allocator, buf, log2_buf_align, ra);
             } else {
@@ -728,14 +728,14 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
     try testing.expect(slice.len == 100);
     for (slice, 0..) |*item, i| {
         item.* = try allocator.create(i32);
-        item.*.* = @intCast(i32, i);
+        item.*.* = @as(i32, @intCast(i));
     }
 
     slice = try allocator.realloc(slice, 20000);
     try testing.expect(slice.len == 20000);
 
     for (slice[0..100], 0..) |item, i| {
-        try testing.expect(item.* == @intCast(i32, i));
+        try testing.expect(item.* == @as(i32, @intCast(i)));
         allocator.destroy(item);
     }
 
@@ -804,21 +804,21 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     align_mask = @shlWithOverflow(~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)))[0];
 
     var slice = try allocator.alignedAlloc(u8, large_align, 500);
-    try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
 
     if (allocator.resize(slice, 100)) {
         slice = slice[0..100];
     }
 
     slice = try allocator.realloc(slice, 5000);
-    try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
 
     if (allocator.resize(slice, 10)) {
         slice = slice[0..10];
     }
 
     slice = try allocator.realloc(slice, 20000);
-    try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
 
     allocator.free(slice);
 }
@@ -840,7 +840,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     // which is 16 pages, hence the 32. This test may require to increase
     // the size of the allocations feeding the `allocator` parameter if they
     // fail, because of this high over-alignment we want to have.
-    while (@ptrToInt(slice.ptr) == mem.alignForward(@ptrToInt(slice.ptr), mem.page_size * 32)) {
+    while (@intFromPtr(slice.ptr) == mem.alignForward(usize, @intFromPtr(slice.ptr), mem.page_size * 32)) {
         try stuff_to_free.append(slice);
         slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     }

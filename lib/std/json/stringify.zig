@@ -78,8 +78,8 @@ fn outputUnicodeEscape(
         assert(codepoint <= 0x10FFFF);
         // To escape an extended character that is not in the Basic Multilingual Plane,
         // the character is represented as a 12-character sequence, encoding the UTF-16 surrogate pair.
-        const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
-        const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
+        const high = @as(u16, @intCast((codepoint - 0x10000) >> 10)) + 0xD800;
+        const low = @as(u16, @intCast(codepoint & 0x3FF)) + 0xDC00;
         try out_stream.writeAll("\\u");
         try std.fmt.formatIntValue(high, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
         try out_stream.writeAll("\\u");
@@ -134,6 +134,8 @@ pub fn encodeJsonStringChars(chars: []const u8, options: StringifyOptions, write
     }
 }
 
+/// If `value` has a method called `jsonStringify`, this will call that method instead of the
+/// default implementation, passing it the `options` and `out_stream` parameters.
 pub fn stringify(
     value: anytype,
     options: StringifyOptions,
@@ -165,7 +167,7 @@ pub fn stringify(
                 return value.jsonStringify(options, out_stream);
             }
 
-            @compileError("Unable to stringify enum '" ++ @typeName(T) ++ "'");
+            return try encodeJsonString(@tagName(value), options, out_stream);
         },
         .Union => {
             if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {

@@ -983,7 +983,7 @@ fn hexDump(out: anytype, bytes: []const u8) !void {
         try printDecValue(out, offset, 8);
         try out.writeAll(":");
         try out.writeAll(" ");
-        var end1 = std.math.min(offset + n, offset + 8);
+        var end1 = @min(offset + n, offset + 8);
         for (bytes[offset..end1]) |b| {
             try out.writeAll(" ");
             try printHexValue(out, b, 2);

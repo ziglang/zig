@@ -67,7 +67,7 @@ test "array concat with undefined" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "array concat with tuple" {
@@ -154,9 +154,9 @@ test "array len field" {
     var arr = [4]u8{ 0, 0, 0, 0 };
     var ptr = &arr;
     try expect(arr.len == 4);
-    comptime try expect(arr.len == 4);
+    try comptime expect(arr.len == 4);
     try expect(ptr.len == 4);
-    comptime try expect(ptr.len == 4);
+    try comptime expect(ptr.len == 4);
     try expect(@TypeOf(arr.len) == usize);
 }
 
@@ -170,14 +170,14 @@ test "array with sentinels" {
             {
                 var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
                 try expect(zero_sized[0] == 0xde);
-                var reinterpreted = @ptrCast(*[1]u8, &zero_sized);
+                var reinterpreted = @as(*[1]u8, @ptrCast(&zero_sized));
                 try expect(reinterpreted[0] == 0xde);
             }
             var arr: [3:0x55]u8 = undefined;
             // Make sure the sentinel pointer is pointing after the last element.
             if (!is_ct) {
-                const sentinel_ptr = @ptrToInt(&arr[3]);
-                const last_elem_ptr = @ptrToInt(&arr[2]);
+                const sentinel_ptr = @intFromPtr(&arr[3]);
+                const last_elem_ptr = @intFromPtr(&arr[2]);
                 try expect((sentinel_ptr - last_elem_ptr) == 1);
             }
             // Make sure the sentinel is writeable.
@@ -186,7 +186,7 @@ test "array with sentinels" {
     };
 
     try S.doTheTest(false);
-    comptime try S.doTheTest(true);
+    try comptime S.doTheTest(true);
 }
 
 test "void arrays" {
@@ -247,7 +247,7 @@ test "single-item pointer to array indexing and slicing" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testSingleItemPtrArrayIndexSlice();
-    comptime try testSingleItemPtrArrayIndexSlice();
+    try comptime testSingleItemPtrArrayIndexSlice();
 }
 
 fn testSingleItemPtrArrayIndexSlice() !void {
@@ -300,7 +300,7 @@ test "anonymous list literal syntax" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 var s_array: [8]Sub = undefined;
@@ -347,10 +347,9 @@ test "read/write through global variable array of struct fields initialized via 
 test "implicit cast single-item pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testImplicitCastSingleItemPtr();
-    comptime try testImplicitCastSingleItemPtr();
+    try comptime testImplicitCastSingleItemPtr();
 }
 
 fn testImplicitCastSingleItemPtr() !void {
@@ -411,7 +410,7 @@ test "array literal as argument to function" {
         }
     };
     try S.entry(2);
-    comptime try S.entry(2);
+    try comptime S.entry(2);
 }
 
 test "double nested array to const slice cast in array literal" {
@@ -473,7 +472,7 @@ test "double nested array to const slice cast in array literal" {
         }
     };
     try S.entry(2);
-    comptime try S.entry(2);
+    try comptime S.entry(2);
 }
 
 test "anonymous literal in array" {
@@ -499,7 +498,7 @@ test "anonymous literal in array" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "access the null element of a null terminated array" {
@@ -516,7 +515,7 @@ test "access the null element of a null terminated array" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "type deduction for array subscript expression" {
@@ -535,14 +534,13 @@ test "type deduction for array subscript expression" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "sentinel element count towards the ABI size calculation" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -560,7 +558,7 @@ test "sentinel element count towards the ABI size calculation" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "zero-sized array with recursive type definition" {
@@ -615,7 +613,7 @@ test "type coercion of anon struct literal to array" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "type coercion of pointer to anon struct literal to pointer to array" {
@@ -648,7 +646,7 @@ test "type coercion of pointer to anon struct literal to pointer to array" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "array with comptime-only element type" {
@@ -696,7 +694,7 @@ test "array init of container level array variable" {
 test "runtime initialized sentinel-terminated array literal" {
     var c: u16 = 300;
     const f = &[_:0x9999]u16{c};
-    const g = @ptrCast(*const [4]u8, f);
+    const g = @as(*const [4]u8, @ptrCast(f));
     try std.testing.expect(g[2] == 0x99);
     try std.testing.expect(g[3] == 0x99);
 }
@@ -720,4 +718,46 @@ test "pointer to array has ptr field" {
     try std.testing.expect(arr.ptr[2] == 30);
     try std.testing.expect(arr.ptr[3] == 40);
     try std.testing.expect(arr.ptr[4] == 50);
+}
+
+test "discarded array init preserves result location" {
+    const S = struct {
+        fn f(p: *u32) u16 {
+            p.* += 1;
+            return 0;
+        }
+    };
+
+    var x: u32 = 0;
+    _ = [2]u8{
+        @intCast(S.f(&x)),
+        @intCast(S.f(&x)),
+    };
+
+    // Ensure function was run
+    try expect(x == 2);
+}
+
+test "array init with no result location has result type" {
+    const x = .{ .foo = [2]u16{
+        @intCast(10),
+        @intCast(20),
+    } };
+
+    try expect(x.foo.len == 2);
+    try expect(x.foo[0] == 10);
+    try expect(x.foo[1] == 20);
+}
+
+test "slicing array of zero-sized values" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var arr: [32]u0 = undefined;
+    for (arr[0..]) |*zero|
+        zero.* = 0;
+    for (arr[0..]) |zero|
+        try expect(zero == 0);
 }

@@ -13,5 +13,3 @@ int __fstatat_time32(int fd, const char *restrict path, struct stat32 *restrict 
 	if (!r) memcpy(st32, &st, offsetof(struct stat, st_atim));
 	return r;
 }
-
-weak_alias(fstatat, fstatat64);

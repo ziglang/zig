@@ -1390,14 +1390,88 @@ fn renderBuiltinCall(
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
 
-    // TODO remove before release of 0.11.0
+    // TODO remove before release of 0.12.0
     const slice = tree.tokenSlice(builtin_token);
+    const rewrite_two_param_cast = params.len == 2 and for ([_][]const u8{
+        "@bitCast",
+        "@errSetCast",
+        "@floatCast",
+        "@intCast",
+        "@ptrCast",
+        "@intFromFloat",
+        "@floatToInt",
+        "@enumFromInt",
+        "@intToEnum",
+        "@floatFromInt",
+        "@intToFloat",
+        "@ptrFromInt",
+        "@intToPtr",
+        "@truncate",
+    }) |name| {
+        if (mem.eql(u8, slice, name)) break true;
+    } else false;
+
+    if (rewrite_two_param_cast) {
+        const after_last_param_token = tree.lastToken(params[1]) + 1;
+        if (token_tags[after_last_param_token] != .comma) {
+            // Render all on one line, no trailing comma.
+            try ais.writer().writeAll("@as");
+            try renderToken(ais, tree, builtin_token + 1, .none); // (
+            try renderExpression(gpa, ais, tree, params[0], .comma_space);
+        } else {
+            // Render one param per line.
+            try ais.writer().writeAll("@as");
+            ais.pushIndent();
+            try renderToken(ais, tree, builtin_token + 1, .newline); // (
+            try renderExpression(gpa, ais, tree, params[0], .comma);
+        }
+    }
+    // Corresponding logic below builtin name rewrite below
+
+    // TODO remove before release of 0.11.0
     if (mem.eql(u8, slice, "@maximum")) {
         try ais.writer().writeAll("@max");
     } else if (mem.eql(u8, slice, "@minimum")) {
         try ais.writer().writeAll("@min");
+    }
+    // TODO remove before release of 0.12.0
+    else if (mem.eql(u8, slice, "@boolToInt")) {
+        try ais.writer().writeAll("@intFromBool");
+    } else if (mem.eql(u8, slice, "@enumToInt")) {
+        try ais.writer().writeAll("@intFromEnum");
+    } else if (mem.eql(u8, slice, "@errorToInt")) {
+        try ais.writer().writeAll("@intFromError");
+    } else if (mem.eql(u8, slice, "@floatToInt")) {
+        try ais.writer().writeAll("@intFromFloat");
+    } else if (mem.eql(u8, slice, "@intToEnum")) {
+        try ais.writer().writeAll("@enumFromInt");
+    } else if (mem.eql(u8, slice, "@intToError")) {
+        try ais.writer().writeAll("@errorFromInt");
+    } else if (mem.eql(u8, slice, "@intToFloat")) {
+        try ais.writer().writeAll("@floatFromInt");
+    } else if (mem.eql(u8, slice, "@intToPtr")) {
+        try ais.writer().writeAll("@ptrFromInt");
+    } else if (mem.eql(u8, slice, "@ptrToInt")) {
+        try ais.writer().writeAll("@intFromPtr");
     } else {
         try renderToken(ais, tree, builtin_token, .none); // @name
+    }
+
+    if (rewrite_two_param_cast) {
+        // Matches with corresponding logic above builtin name rewrite
+        const after_last_param_token = tree.lastToken(params[1]) + 1;
+        try ais.writer().writeAll("(");
+        try renderExpression(gpa, ais, tree, params[1], .none);
+        try ais.writer().writeAll(")");
+        if (token_tags[after_last_param_token] != .comma) {
+            // Render all on one line, no trailing comma.
+            return renderToken(ais, tree, after_last_param_token, space); // )
+        } else {
+            // Render one param per line.
+            ais.popIndent();
+            try renderToken(ais, tree, after_last_param_token, .newline); // ,
+            return renderToken(ais, tree, after_last_param_token + 1, space); // )
+        }
     }
 
     if (params.len == 0) {
@@ -1703,7 +1777,7 @@ fn renderSwitchCase(
 
     if (switch_case.payload_token) |payload_token| {
         try renderToken(ais, tree, payload_token - 1, .none); // pipe
-        const ident = payload_token + @boolToInt(token_tags[payload_token] == .asterisk);
+        const ident = payload_token + @intFromBool(token_tags[payload_token] == .asterisk);
         if (token_tags[payload_token] == .asterisk) {
             try renderToken(ais, tree, payload_token, .none); // asterisk
         }
@@ -1960,7 +2034,7 @@ fn renderArrayInit(
 
                 if (!this_contains_newline) {
                     const column = column_counter % row_size;
-                    column_widths[column] = std.math.max(column_widths[column], width);
+                    column_widths[column] = @max(column_widths[column], width);
 
                     const expr_last_token = tree.lastToken(expr) + 1;
                     const next_expr = section_exprs[i + 1];
@@ -1980,7 +2054,7 @@ fn renderArrayInit(
 
                 if (!contains_newline) {
                     const column = column_counter % row_size;
-                    column_widths[column] = std.math.max(column_widths[column], width);
+                    column_widths[column] = @max(column_widths[column], width);
                 }
             }
         }
@@ -1995,7 +2069,7 @@ fn renderArrayInit(
             if (!expr_newlines[i]) {
                 try ais.writer().writeAll(expr_text);
             } else {
-                var by_line = std.mem.split(u8, expr_text, "\n");
+                var by_line = std.mem.splitScalar(u8, expr_text, '\n');
                 var last_line_was_empty = false;
                 try ais.writer().writeAll(by_line.first());
                 while (by_line.next()) |line| {
@@ -2645,7 +2719,7 @@ fn renderIdentifier(ais: *Ais, tree: Ast, token_index: Ast.TokenIndex, space: Sp
     while (contents_i < contents.len and buf_i < longest_keyword_or_primitive_len) {
         if (contents[contents_i] == '\\') {
             const res = std.zig.string_literal.parseEscapeSequence(contents, &contents_i).success;
-            buf[buf_i] = @intCast(u8, res);
+            buf[buf_i] = @as(u8, @intCast(res));
             buf_i += 1;
         } else {
             buf[buf_i] = contents[contents_i];
@@ -2699,7 +2773,7 @@ fn renderIdentifierContents(writer: anytype, bytes: []const u8) !void {
                 switch (res) {
                     .success => |codepoint| {
                         if (codepoint <= 0x7f) {
-                            const buf = [1]u8{@intCast(u8, codepoint)};
+                            const buf = [1]u8{@as(u8, @intCast(codepoint))};
                             try std.fmt.format(writer, "{}", .{std.zig.fmtEscapes(&buf)});
                         } else {
                             try writer.writeAll(escape_sequence);

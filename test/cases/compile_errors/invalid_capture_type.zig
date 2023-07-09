@@ -1,5 +1,7 @@
 export fn f1() void {
-    if (true) |x| { _ = x; }
+    if (true) |x| {
+        _ = x;
+    }
 }
 export fn f2() void {
     if (@as(usize, 5)) |_| {}
@@ -19,6 +21,6 @@ export fn f5() void {
 // target=native
 //
 // :2:9: error: expected optional type, found 'bool'
-// :5:9: error: expected optional type, found 'usize'
-// :8:9: error: expected error union type, found 'usize'
-// :14:9: error: expected error union type, found 'error{Foo}'
+// :7:9: error: expected optional type, found 'usize'
+// :10:9: error: expected error union type, found 'usize'
+// :16:9: error: expected error union type, found 'error{Foo}'

@@ -36,20 +36,20 @@ const Members = struct {
 fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
     try p.extra_data.appendSlice(p.gpa, list);
     return Node.SubRange{
-        .start = @intCast(Node.Index, p.extra_data.items.len - list.len),
-        .end = @intCast(Node.Index, p.extra_data.items.len),
+        .start = @as(Node.Index, @intCast(p.extra_data.items.len - list.len)),
+        .end = @as(Node.Index, @intCast(p.extra_data.items.len)),
     };
 }
 
 fn addNode(p: *Parse, elem: Ast.Node) Allocator.Error!Node.Index {
-    const result = @intCast(Node.Index, p.nodes.len);
+    const result = @as(Node.Index, @intCast(p.nodes.len));
     try p.nodes.append(p.gpa, elem);
     return result;
 }
 
 fn setNode(p: *Parse, i: usize, elem: Ast.Node) Node.Index {
     p.nodes.set(i, elem);
-    return @intCast(Node.Index, i);
+    return @as(Node.Index, @intCast(i));
 }
 
 fn reserveNode(p: *Parse, tag: Ast.Node.Tag) !usize {
@@ -72,7 +72,7 @@ fn unreserveNode(p: *Parse, node_index: usize) void {
 fn addExtra(p: *Parse, extra: anytype) Allocator.Error!Node.Index {
     const fields = std.meta.fields(@TypeOf(extra));
     try p.extra_data.ensureUnusedCapacity(p.gpa, fields.len);
-    const result = @intCast(u32, p.extra_data.items.len);
+    const result = @as(u32, @intCast(p.extra_data.items.len));
     inline for (fields) |field| {
         comptime assert(field.type == Node.Index);
         p.extra_data.appendAssumeCapacity(@field(extra, field.name));
@@ -1202,10 +1202,10 @@ fn parseForStatement(p: *Parse) !Node.Index {
         .main_token = for_token,
         .data = .{
             .lhs = (try p.listToSpan(p.scratch.items[scratch_top..])).start,
-            .rhs = @bitCast(u32, Node.For{
-                .inputs = @intCast(u31, inputs),
+            .rhs = @as(u32, @bitCast(Node.For{
+                .inputs = @as(u31, @intCast(inputs)),
                 .has_else = has_else,
-            }),
+            })),
         },
     });
 }
@@ -1486,7 +1486,7 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
 
     while (true) {
         const tok_tag = p.token_tags[p.tok_i];
-        const info = operTable[@intCast(usize, @enumToInt(tok_tag))];
+        const info = operTable[@as(usize, @intCast(@intFromEnum(tok_tag)))];
         if (info.prec < min_prec) {
             break;
         }
@@ -2087,10 +2087,10 @@ fn parseForExpr(p: *Parse) !Node.Index {
         .main_token = for_token,
         .data = .{
             .lhs = (try p.listToSpan(p.scratch.items[scratch_top..])).start,
-            .rhs = @bitCast(u32, Node.For{
-                .inputs = @intCast(u31, inputs),
+            .rhs = @as(u32, @bitCast(Node.For{
+                .inputs = @as(u31, @intCast(inputs)),
                 .has_else = has_else,
-            }),
+            })),
         },
     });
 }
@@ -2862,10 +2862,10 @@ fn parseForTypeExpr(p: *Parse) !Node.Index {
         .main_token = for_token,
         .data = .{
             .lhs = (try p.listToSpan(p.scratch.items[scratch_top..])).start,
-            .rhs = @bitCast(u32, Node.For{
-                .inputs = @intCast(u31, inputs),
+            .rhs = @as(u32, @bitCast(Node.For{
+                .inputs = @as(u31, @intCast(inputs)),
                 .has_else = has_else,
-            }),
+            })),
         },
     });
 }

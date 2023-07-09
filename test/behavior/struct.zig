@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const native_endian = builtin.target.cpu.arch.endian();
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
@@ -11,7 +12,6 @@ top_level_field: i32,
 test "top level fields" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var instance = @This(){
         .top_level_field = 1234,
@@ -93,7 +93,7 @@ test "structs" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var foo: StructFoo = undefined;
-    @memset(@ptrCast([*]u8, &foo)[0..@sizeOf(StructFoo)], 0);
+    @memset(@as([*]u8, @ptrCast(&foo))[0..@sizeOf(StructFoo)], 0);
     foo.a += 1;
     foo.b = foo.a == 1;
     try testFoo(foo);
@@ -122,8 +122,6 @@ test "struct byval assign" {
 }
 
 test "call struct static method" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const result = StructWithNoFields.add(3, 4);
     try expect(result == 7);
 }
@@ -271,7 +269,7 @@ test "struct field init with catch" {
         };
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 const blah: packed struct {
@@ -429,7 +427,6 @@ test "packed struct 24bits" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .wasm32) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -482,14 +479,14 @@ test "runtime struct initialization of bitfield" {
         .y = x1,
     };
     const s2 = Nibbles{
-        .x = @intCast(u4, x2),
-        .y = @intCast(u4, x2),
+        .x = @as(u4, @intCast(x2)),
+        .y = @as(u4, @intCast(x2)),
     };
 
     try expect(s1.x == x1);
     try expect(s1.y == x1);
-    try expect(s2.x == @intCast(u4, x2));
-    try expect(s2.y == @intCast(u4, x2));
+    try expect(s2.x == @as(u4, @intCast(x2)));
+    try expect(s2.y == @as(u4, @intCast(x2)));
 }
 
 var x1 = @as(u4, 1);
@@ -518,8 +515,8 @@ test "packed struct fields are ordered from LSB to MSB" {
 
     var all: u64 = 0x7765443322221111;
     var bytes: [8]u8 align(@alignOf(Bitfields)) = undefined;
-    @memcpy(bytes[0..8], @ptrCast([*]u8, &all));
-    var bitfields = @ptrCast(*Bitfields, &bytes).*;
+    @memcpy(bytes[0..8], @as([*]u8, @ptrCast(&all)));
+    var bitfields = @as(*Bitfields, @ptrCast(&bytes)).*;
 
     try expect(bitfields.f1 == 0x1111);
     try expect(bitfields.f2 == 0x2222);
@@ -533,7 +530,6 @@ test "packed struct fields are ordered from LSB to MSB" {
 test "implicit cast packed struct field to const ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -606,7 +602,7 @@ test "bit field access" {
     try expect(getA(&data) == 1);
     try expect(getB(&data) == 2);
     try expect(getC(&data) == 3);
-    comptime try expect(@sizeOf(BitField1) == 1);
+    try comptime expect(@sizeOf(BitField1) == 1);
 
     data.b += 1;
     try expect(data.b == 3);
@@ -743,7 +739,7 @@ test "packed struct with u0 field access" {
         f0: u0,
     };
     var s = S{ .f0 = 0 };
-    comptime try expect(s.f0 == 0);
+    try comptime expect(s.f0 == 0);
 }
 
 test "access to global struct fields" {
@@ -820,7 +816,7 @@ test "fn with C calling convention returns struct by value" {
         }
     };
     try S.entry();
-    comptime try S.entry();
+    try comptime S.entry();
 }
 
 test "non-packed struct with u128 entry in union" {
@@ -841,7 +837,7 @@ test "non-packed struct with u128 entry in union" {
 
     var sx: S = undefined;
     var s = &sx;
-    try expect(@ptrToInt(&s.f2) - @ptrToInt(&s.f1) == @offsetOf(S, "f2"));
+    try expect(@intFromPtr(&s.f2) - @intFromPtr(&s.f1) == @offsetOf(S, "f2"));
     var v2 = U{ .Num = 123 };
     s.f2 = v2;
     try expect(s.f2.Num == 123);
@@ -892,7 +888,7 @@ test "anonymous struct literal syntax" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "fully anonymous struct" {
@@ -914,7 +910,7 @@ test "fully anonymous struct" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "fully anonymous list literal" {
@@ -931,7 +927,7 @@ test "fully anonymous list literal" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "tuple assigned to variable" {
@@ -958,7 +954,7 @@ test "comptime struct field" {
     comptime std.debug.assert(@sizeOf(T) == 4);
 
     var foo: T = undefined;
-    comptime try expect(foo.b == 1234);
+    try comptime expect(foo.b == 1234);
 }
 
 test "tuple element initialized with fn call" {
@@ -977,7 +973,7 @@ test "tuple element initialized with fn call" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "struct with union field" {
@@ -1036,7 +1032,7 @@ test "type coercion of anon struct literal to struct" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "type coercion of pointer to anon struct literal to pointer to struct" {
@@ -1074,14 +1070,13 @@ test "type coercion of pointer to anon struct literal to pointer to struct" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "packed struct with undefined initializers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -1107,7 +1102,7 @@ test "packed struct with undefined initializers" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "for loop over pointers to struct, getting field from struct pointer" {
@@ -1172,7 +1167,7 @@ test "anon init through error unions and optionals" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "anon init through optional" {
@@ -1192,7 +1187,7 @@ test "anon init through optional" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "anon init through error union" {
@@ -1212,7 +1207,7 @@ test "anon init through error union" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "typed init through error unions and optionals" {
@@ -1239,7 +1234,7 @@ test "typed init through error unions and optionals" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "initialize struct with empty literal" {
@@ -1284,7 +1279,7 @@ test "packed struct aggregate init" {
 
     const S = struct {
         fn foo(a: i2, b: i6) u8 {
-            return @bitCast(u8, P{ .a = a, .b = b });
+            return @as(u8, @bitCast(P{ .a = a, .b = b }));
         }
 
         const P = packed struct {
@@ -1292,7 +1287,7 @@ test "packed struct aggregate init" {
             b: i6,
         };
     };
-    const result = @bitCast(u8, S.foo(1, 2));
+    const result = @as(u8, @bitCast(S.foo(1, 2)));
     try expect(result == 9);
 }
 
@@ -1314,7 +1309,7 @@ test "packed struct field access via pointer" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "store to comptime field" {
@@ -1368,7 +1363,7 @@ test "under-aligned struct field" {
     };
     var runtime: usize = 1234;
     const ptr = &S{ .events = 0, .data = .{ .u64 = runtime } };
-    const array = @ptrCast(*const [12]u8, ptr);
+    const array = @as(*const [12]u8, @ptrCast(ptr));
     const result = std.mem.readIntNative(u64, array[4..12]);
     try expect(result == 1234);
 }
@@ -1419,7 +1414,7 @@ test "fieldParentPtr of a zero-bit field" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "struct field has a pointer to an aligned version of itself" {
@@ -1639,4 +1634,81 @@ test "instantiate struct with comptime field" {
 
         comptime std.debug.assert(things.foo == 1);
     }
+}
+
+test "struct field pointer has correct alignment" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var a: struct { x: u32 } = .{ .x = 123 };
+            var b: struct { x: u32 } align(1) = .{ .x = 456 };
+            var c: struct { x: u32 } align(64) = .{ .x = 789 };
+
+            const ap = &a.x;
+            const bp = &b.x;
+            const cp = &c.x;
+
+            comptime assert(@TypeOf(ap) == *u32);
+            comptime assert(@TypeOf(bp) == *align(1) u32);
+            comptime assert(@TypeOf(cp) == *u32); // undefined layout, cannot inherit larger alignment
+
+            try expectEqual(@as(u32, 123), ap.*);
+            try expectEqual(@as(u32, 456), bp.*);
+            try expectEqual(@as(u32, 789), cp.*);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "extern struct field pointer has correct alignment" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var a: extern struct { x: u32, y: u16 } = .{ .x = 1, .y = 2 };
+            var b: extern struct { x: u32, y: u16 } align(1) = .{ .x = 3, .y = 4 };
+            var c: extern struct { x: u32, y: u16 } align(64) = .{ .x = 5, .y = 6 };
+
+            const axp = &a.x;
+            const bxp = &b.x;
+            const cxp = &c.x;
+            const ayp = &a.y;
+            const byp = &b.y;
+            const cyp = &c.y;
+
+            comptime assert(@TypeOf(axp) == *u32);
+            comptime assert(@TypeOf(bxp) == *align(1) u32);
+            comptime assert(@TypeOf(cxp) == *align(64) u32);
+
+            comptime assert(@TypeOf(ayp) == *align(@alignOf(u32)) u16);
+            comptime assert(@TypeOf(byp) == *align(1) u16);
+            comptime assert(@TypeOf(cyp) == *align(@alignOf(u32)) u16);
+
+            try expectEqual(@as(u32, 1), axp.*);
+            try expectEqual(@as(u32, 3), bxp.*);
+            try expectEqual(@as(u32, 5), cxp.*);
+
+            try expectEqual(@as(u16, 2), ayp.*);
+            try expectEqual(@as(u16, 4), byp.*);
+            try expectEqual(@as(u16, 6), cyp.*);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }

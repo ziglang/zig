@@ -50,7 +50,7 @@ pub fn deinit(cb: *Bundle, gpa: Allocator) void {
     cb.* = undefined;
 }
 
-pub const RescanError = RescanLinuxError || RescanMacError || RescanWindowsError;
+pub const RescanError = RescanLinuxError || RescanMacError || RescanBSDError || RescanWindowsError;
 
 /// Clears the set of certificates and then scans the host operating system
 /// file system standard locations for certificates.
@@ -60,17 +60,20 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) RescanError!void {
     switch (builtin.os.tag) {
         .linux => return rescanLinux(cb, gpa),
         .macos => return rescanMac(cb, gpa),
+        .freebsd, .openbsd => return rescanBSD(cb, gpa, "/etc/ssl/cert.pem"),
+        .netbsd => return rescanBSD(cb, gpa, "/etc/openssl/certs/ca-certificates.crt"),
+        .dragonfly => return rescanBSD(cb, gpa, "/usr/local/etc/ssl/cert.pem"),
         .windows => return rescanWindows(cb, gpa),
         else => {},
     }
 }
 
-pub const rescanMac = @import("Bundle/macos.zig").rescanMac;
-pub const RescanMacError = @import("Bundle/macos.zig").RescanMacError;
+const rescanMac = @import("Bundle/macos.zig").rescanMac;
+const RescanMacError = @import("Bundle/macos.zig").RescanMacError;
 
-pub const RescanLinuxError = AddCertsFromFilePathError || AddCertsFromDirPathError;
+const RescanLinuxError = AddCertsFromFilePathError || AddCertsFromDirPathError;
 
-pub fn rescanLinux(cb: *Bundle, gpa: Allocator) RescanLinuxError!void {
+fn rescanLinux(cb: *Bundle, gpa: Allocator) RescanLinuxError!void {
     // Possible certificate files; stop after finding one.
     const cert_file_paths = [_][]const u8{
         "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu/Gentoo etc.
@@ -112,9 +115,18 @@ pub fn rescanLinux(cb: *Bundle, gpa: Allocator) RescanLinuxError!void {
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
-pub const RescanWindowsError = Allocator.Error || ParseCertError || std.os.UnexpectedError || error{FileNotFound};
+const RescanBSDError = AddCertsFromFilePathError;
 
-pub fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
+fn rescanBSD(cb: *Bundle, gpa: Allocator, cert_file_path: []const u8) RescanBSDError!void {
+    cb.bytes.clearRetainingCapacity();
+    cb.map.clearRetainingCapacity();
+    try addCertsFromFilePathAbsolute(cb, gpa, cert_file_path);
+    cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
+}
+
+const RescanWindowsError = Allocator.Error || ParseCertError || std.os.UnexpectedError || error{FileNotFound};
+
+fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
 
@@ -131,7 +143,7 @@ pub fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
 
     var ctx = w.crypt32.CertEnumCertificatesInStore(store, null);
     while (ctx) |context| : (ctx = w.crypt32.CertEnumCertificatesInStore(store, ctx)) {
-        const decoded_start = @intCast(u32, cb.bytes.items.len);
+        const decoded_start = @as(u32, @intCast(cb.bytes.items.len));
         const encoded_cert = context.pbCertEncoded[0..context.cbCertEncoded];
         try cb.bytes.appendSlice(gpa, encoded_cert);
         try cb.parseCert(gpa, decoded_start, now_sec);
@@ -169,7 +181,7 @@ pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir
     var it = iterable_dir.iterate();
     while (try it.next()) |entry| {
         switch (entry.kind) {
-            .File, .SymLink => {},
+            .file, .sym_link => {},
             else => continue,
         }
 
@@ -213,7 +225,7 @@ pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFrom
     const needed_capacity = std.math.cast(u32, decoded_size_upper_bound + size) orelse
         return error.CertificateAuthorityBundleTooBig;
     try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
-    const end_reserved = @intCast(u32, cb.bytes.items.len + decoded_size_upper_bound);
+    const end_reserved = @as(u32, @intCast(cb.bytes.items.len + decoded_size_upper_bound));
     const buffer = cb.bytes.allocatedSlice()[end_reserved..];
     const end_index = try file.readAll(buffer);
     const encoded_bytes = buffer[0..end_index];
@@ -230,7 +242,7 @@ pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFrom
             return error.MissingEndCertificateMarker;
         start_index = cert_end + end_marker.len;
         const encoded_cert = mem.trim(u8, encoded_bytes[cert_start..cert_end], " \t\r\n");
-        const decoded_start = @intCast(u32, cb.bytes.items.len);
+        const decoded_start = @as(u32, @intCast(cb.bytes.items.len));
         const dest_buf = cb.bytes.allocatedSlice()[decoded_start..];
         cb.bytes.items.len += try base64.decode(dest_buf, encoded_cert);
         try cb.parseCert(gpa, decoded_start, now_sec);
@@ -244,10 +256,16 @@ pub fn parseCert(cb: *Bundle, gpa: Allocator, decoded_start: u32, now_sec: i64) 
     // the subject name, we pre-parse all of them to make sure and only
     // include in the bundle ones that we know will parse. This way we can
     // use `catch unreachable` later.
-    const parsed_cert = try Certificate.parse(.{
+    const parsed_cert = Certificate.parse(.{
         .buffer = cb.bytes.items,
         .index = decoded_start,
-    });
+    }) catch |err| switch (err) {
+        error.CertificateHasUnrecognizedObjectId => {
+            cb.bytes.items.len = decoded_start;
+            return;
+        },
+        else => |e| return e,
+    };
     if (now_sec > parsed_cert.validity.not_after) {
         // Ignore expired cert.
         cb.bytes.items.len = decoded_start;

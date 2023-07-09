@@ -24,21 +24,21 @@ test "@TypeOf() with multiple arguments" {
         var var_1: u32 = undefined;
         var var_2: u8 = undefined;
         var var_3: u64 = undefined;
-        comptime try expect(@TypeOf(var_1, var_2, var_3) == u64);
+        try comptime expect(@TypeOf(var_1, var_2, var_3) == u64);
     }
     {
         var var_1: f16 = undefined;
         var var_2: f32 = undefined;
         var var_3: f64 = undefined;
-        comptime try expect(@TypeOf(var_1, var_2, var_3) == f64);
+        try comptime expect(@TypeOf(var_1, var_2, var_3) == f64);
     }
     {
         var var_1: u16 = undefined;
-        comptime try expect(@TypeOf(var_1, 0xffff) == u16);
+        try comptime expect(@TypeOf(var_1, 0xffff) == u16);
     }
     {
         var var_1: f32 = undefined;
-        comptime try expect(@TypeOf(var_1, 3.1415) == f32);
+        try comptime expect(@TypeOf(var_1, 3.1415) == f32);
     }
 }
 
@@ -48,7 +48,7 @@ fn fn1(alpha: bool) void {
 }
 
 test "lazy @sizeOf result is checked for definedness" {
-    _ = fn1;
+    _ = &fn1;
 }
 
 const A = struct {
@@ -92,15 +92,15 @@ test "@offsetOf" {
 
     // // Normal struct fields can be moved/padded
     var a: A = undefined;
-    try expect(@ptrToInt(&a.a) - @ptrToInt(&a) == @offsetOf(A, "a"));
-    try expect(@ptrToInt(&a.b) - @ptrToInt(&a) == @offsetOf(A, "b"));
-    try expect(@ptrToInt(&a.c) - @ptrToInt(&a) == @offsetOf(A, "c"));
-    try expect(@ptrToInt(&a.d) - @ptrToInt(&a) == @offsetOf(A, "d"));
-    try expect(@ptrToInt(&a.e) - @ptrToInt(&a) == @offsetOf(A, "e"));
-    try expect(@ptrToInt(&a.f) - @ptrToInt(&a) == @offsetOf(A, "f"));
-    try expect(@ptrToInt(&a.g) - @ptrToInt(&a) == @offsetOf(A, "g"));
-    try expect(@ptrToInt(&a.h) - @ptrToInt(&a) == @offsetOf(A, "h"));
-    try expect(@ptrToInt(&a.i) - @ptrToInt(&a) == @offsetOf(A, "i"));
+    try expect(@intFromPtr(&a.a) - @intFromPtr(&a) == @offsetOf(A, "a"));
+    try expect(@intFromPtr(&a.b) - @intFromPtr(&a) == @offsetOf(A, "b"));
+    try expect(@intFromPtr(&a.c) - @intFromPtr(&a) == @offsetOf(A, "c"));
+    try expect(@intFromPtr(&a.d) - @intFromPtr(&a) == @offsetOf(A, "d"));
+    try expect(@intFromPtr(&a.e) - @intFromPtr(&a) == @offsetOf(A, "e"));
+    try expect(@intFromPtr(&a.f) - @intFromPtr(&a) == @offsetOf(A, "f"));
+    try expect(@intFromPtr(&a.g) - @intFromPtr(&a) == @offsetOf(A, "g"));
+    try expect(@intFromPtr(&a.h) - @intFromPtr(&a) == @offsetOf(A, "h"));
+    try expect(@intFromPtr(&a.i) - @intFromPtr(&a) == @offsetOf(A, "i"));
 }
 
 test "@bitOffsetOf" {
@@ -140,8 +140,6 @@ test "@sizeOf(T) == 0 doesn't force resolving struct size" {
 }
 
 test "@TypeOf() has no runtime side effects" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn foo(comptime T: type, ptr: *T) T {
             ptr.* += 1;
@@ -150,13 +148,12 @@ test "@TypeOf() has no runtime side effects" {
     };
     var data: i32 = 0;
     const T = @TypeOf(S.foo(i32, &data));
-    comptime try expect(T == i32);
+    try comptime expect(T == i32);
     try expect(data == 0);
 }
 
 test "branching logic inside @TypeOf" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         var data: i32 = 0;
@@ -166,7 +163,7 @@ test "branching logic inside @TypeOf" {
         }
     };
     const T = @TypeOf(S.foo() catch undefined);
-    comptime try expect(T == i32);
+    try comptime expect(T == i32);
     try expect(S.data == 0);
 }
 
@@ -234,12 +231,12 @@ test "@sizeOf comparison against zero" {
 
 test "hardcoded address in typeof expression" {
     const S = struct {
-        fn func() @TypeOf(@intToPtr(*[]u8, 0x10).*[0]) {
+        fn func() @TypeOf(@as(*[]u8, @ptrFromInt(0x10)).*[0]) {
             return 0;
         }
     };
     try expect(S.func() == 0);
-    comptime try expect(S.func() == 0);
+    try comptime expect(S.func() == 0);
 }
 
 test "array access of generic param in typeof expression" {
@@ -249,13 +246,13 @@ test "array access of generic param in typeof expression" {
         }
     };
     try expect(S.first("a") == 'a');
-    comptime try expect(S.first("a") == 'a');
+    try comptime expect(S.first("a") == 'a');
 }
 
 test "lazy size cast to float" {
     {
         const S = struct { a: u8 };
-        try expect(@intToFloat(f32, @sizeOf(S)) == 1.0);
+        try expect(@as(f32, @floatFromInt(@sizeOf(S))) == 1.0);
     }
     {
         const S = struct { a: u8 };

@@ -99,7 +99,7 @@ fn dumpStatusReport() !void {
         allocator,
         anal.body,
         anal.body_index,
-        block.namespace.file_scope,
+        mod.namespacePtr(block.namespace).file_scope,
         block_src_decl.src_node,
         6, // indent
         stderr,
@@ -108,7 +108,7 @@ fn dumpStatusReport() !void {
         else => |e| return e,
     };
     try stderr.writeAll("    For full context, use the command\n      zig ast-check -t ");
-    try writeFilePath(block.namespace.file_scope, stderr);
+    try writeFilePath(mod.namespacePtr(block.namespace).file_scope, stderr);
     try stderr.writeAll("\n\n");
 
     var parent = anal.parent;
@@ -121,7 +121,7 @@ fn dumpStatusReport() !void {
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
-            curr.block.namespace.file_scope,
+            mod.namespacePtr(curr.block.namespace).file_scope,
             curr_block_src_decl.src_node,
             6, // indent
             stderr,
@@ -148,7 +148,7 @@ fn writeFilePath(file: *Module.File, stream: anytype) !void {
 }
 
 fn writeFullyQualifiedDeclWithFile(mod: *Module, decl: *Decl, stream: anytype) !void {
-    try writeFilePath(decl.getFileScope(), stream);
+    try writeFilePath(decl.getFileScope(mod), stream);
     try stream.writeAll(": ");
     try decl.renderFullyQualifiedDebugName(mod, stream);
 }
@@ -186,11 +186,11 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     PanicSwitch.preDispatch();
 
     const addr = switch (builtin.os.tag) {
-        .linux => @ptrToInt(info.fields.sigfault.addr),
-        .freebsd, .macos => @ptrToInt(info.addr),
-        .netbsd => @ptrToInt(info.info.reason.fault.addr),
-        .openbsd => @ptrToInt(info.data.fault.addr),
-        .solaris => @ptrToInt(info.reason.fault.addr),
+        .linux => @intFromPtr(info.fields.sigfault.addr),
+        .freebsd, .macos => @intFromPtr(info.addr),
+        .netbsd => @intFromPtr(info.info.reason.fault.addr),
+        .openbsd => @intFromPtr(info.data.fault.addr),
+        .solaris => @intFromPtr(info.reason.fault.addr),
         else => @compileError("TODO implement handleSegfaultPosix for new POSIX OS"),
     };
 
@@ -204,49 +204,49 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
 
     const stack_ctx: StackContext = switch (builtin.cpu.arch) {
         .x86 => ctx: {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.gregs[os.REG.EIP]);
-            const bp = @intCast(usize, ctx.mcontext.gregs[os.REG.EBP]);
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            const ip = @as(usize, @intCast(ctx.mcontext.gregs[os.REG.EIP]));
+            const bp = @as(usize, @intCast(ctx.mcontext.gregs[os.REG.EBP]));
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
         },
         .x86_64 => ctx: {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
             const ip = switch (builtin.os.tag) {
-                .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
-                .freebsd => @intCast(usize, ctx.mcontext.rip),
-                .openbsd => @intCast(usize, ctx.sc_rip),
-                .macos => @intCast(usize, ctx.mcontext.ss.rip),
+                .linux, .netbsd, .solaris => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.RIP])),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.rip)),
+                .openbsd => @as(usize, @intCast(ctx.sc_rip)),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.rip)),
                 else => unreachable,
             };
             const bp = switch (builtin.os.tag) {
-                .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
-                .openbsd => @intCast(usize, ctx.sc_rbp),
-                .freebsd => @intCast(usize, ctx.mcontext.rbp),
-                .macos => @intCast(usize, ctx.mcontext.ss.rbp),
+                .linux, .netbsd, .solaris => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.RBP])),
+                .openbsd => @as(usize, @intCast(ctx.sc_rbp)),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.rbp)),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.rbp)),
                 else => unreachable,
             };
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
         },
         .arm => ctx: {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.arm_pc);
-            const bp = @intCast(usize, ctx.mcontext.arm_fp);
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            const ip = @as(usize, @intCast(ctx.mcontext.arm_pc));
+            const bp = @as(usize, @intCast(ctx.mcontext.arm_fp));
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
         },
         .aarch64 => ctx: {
-            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
             const ip = switch (native_os) {
-                .macos => @intCast(usize, ctx.mcontext.ss.pc),
-                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
-                .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
-                else => @intCast(usize, ctx.mcontext.pc),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.pc)),
+                .netbsd => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.PC])),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.gpregs.elr)),
+                else => @as(usize, @intCast(ctx.mcontext.pc)),
             };
             // x29 is the ABI-designated frame pointer
             const bp = switch (native_os) {
-                .macos => @intCast(usize, ctx.mcontext.ss.fp),
-                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
-                .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
-                else => @intCast(usize, ctx.mcontext.regs[29]),
+                .macos => @as(usize, @intCast(ctx.mcontext.ss.fp)),
+                .netbsd => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.FP])),
+                .freebsd => @as(usize, @intCast(ctx.mcontext.gpregs.x[os.REG.FP])),
+                else => @as(usize, @intCast(ctx.mcontext.regs[29])),
             };
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
         },
@@ -279,7 +279,7 @@ fn handleSegfaultWindowsExtra(info: *os.windows.EXCEPTION_POINTERS, comptime msg
         const regs = info.ContextRecord.getRegs();
         break :ctx StackContext{ .exception = .{ .bp = regs.bp, .ip = regs.ip } };
     } else ctx: {
-        const addr = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
+        const addr = @intFromPtr(info.ExceptionRecord.ExceptionAddress);
         break :ctx StackContext{ .current = .{ .ret_addr = addr } };
     };
 

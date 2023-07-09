@@ -19,17 +19,17 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
-    result[@enumToInt(Feature.alu32)] = .{
+    result[@intFromEnum(Feature.alu32)] = .{
         .llvm_name = "alu32",
         .description = "Enable ALU32 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.dummy)] = .{
+    result[@intFromEnum(Feature.dummy)] = .{
         .llvm_name = "dummy",
         .description = "unused feature",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.dwarfris)] = .{
+    result[@intFromEnum(Feature.dwarfris)] = .{
         .llvm_name = "dwarfris",
         .description = "Disable MCAsmInfo DwarfUsesRelocationsAcrossSections",
         .dependencies = featureSet(&[_]Feature{}),

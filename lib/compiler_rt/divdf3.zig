@@ -47,52 +47,52 @@ inline fn div(a: f64, b: f64) f64 {
     const absMask = signBit - 1;
     const exponentMask = absMask ^ significandMask;
     const qnanRep = exponentMask | quietBit;
-    const infRep = @bitCast(Z, std.math.inf(f64));
+    const infRep = @as(Z, @bitCast(std.math.inf(f64)));
 
-    const aExponent = @truncate(u32, (@bitCast(Z, a) >> significandBits) & maxExponent);
-    const bExponent = @truncate(u32, (@bitCast(Z, b) >> significandBits) & maxExponent);
-    const quotientSign: Z = (@bitCast(Z, a) ^ @bitCast(Z, b)) & signBit;
+    const aExponent = @as(u32, @truncate((@as(Z, @bitCast(a)) >> significandBits) & maxExponent));
+    const bExponent = @as(u32, @truncate((@as(Z, @bitCast(b)) >> significandBits) & maxExponent));
+    const quotientSign: Z = (@as(Z, @bitCast(a)) ^ @as(Z, @bitCast(b))) & signBit;
 
-    var aSignificand: Z = @bitCast(Z, a) & significandMask;
-    var bSignificand: Z = @bitCast(Z, b) & significandMask;
+    var aSignificand: Z = @as(Z, @bitCast(a)) & significandMask;
+    var bSignificand: Z = @as(Z, @bitCast(b)) & significandMask;
     var scale: i32 = 0;
 
     // Detect if a or b is zero, denormal, infinity, or NaN.
     if (aExponent -% 1 >= maxExponent - 1 or bExponent -% 1 >= maxExponent - 1) {
-        const aAbs: Z = @bitCast(Z, a) & absMask;
-        const bAbs: Z = @bitCast(Z, b) & absMask;
+        const aAbs: Z = @as(Z, @bitCast(a)) & absMask;
+        const bAbs: Z = @as(Z, @bitCast(b)) & absMask;
 
         // NaN / anything = qNaN
-        if (aAbs > infRep) return @bitCast(f64, @bitCast(Z, a) | quietBit);
+        if (aAbs > infRep) return @as(f64, @bitCast(@as(Z, @bitCast(a)) | quietBit));
         // anything / NaN = qNaN
-        if (bAbs > infRep) return @bitCast(f64, @bitCast(Z, b) | quietBit);
+        if (bAbs > infRep) return @as(f64, @bitCast(@as(Z, @bitCast(b)) | quietBit));
 
         if (aAbs == infRep) {
             // infinity / infinity = NaN
             if (bAbs == infRep) {
-                return @bitCast(f64, qnanRep);
+                return @as(f64, @bitCast(qnanRep));
             }
             // infinity / anything else = +/- infinity
             else {
-                return @bitCast(f64, aAbs | quotientSign);
+                return @as(f64, @bitCast(aAbs | quotientSign));
             }
         }
 
         // anything else / infinity = +/- 0
-        if (bAbs == infRep) return @bitCast(f64, quotientSign);
+        if (bAbs == infRep) return @as(f64, @bitCast(quotientSign));
 
         if (aAbs == 0) {
             // zero / zero = NaN
             if (bAbs == 0) {
-                return @bitCast(f64, qnanRep);
+                return @as(f64, @bitCast(qnanRep));
             }
             // zero / anything else = +/- zero
             else {
-                return @bitCast(f64, quotientSign);
+                return @as(f64, @bitCast(quotientSign));
             }
         }
         // anything else / zero = +/- infinity
-        if (bAbs == 0) return @bitCast(f64, infRep | quotientSign);
+        if (bAbs == 0) return @as(f64, @bitCast(infRep | quotientSign));
 
         // one or both of a or b is denormal, the other (if applicable) is a
         // normal number.  Renormalize one or both of a and b, and set scale to
@@ -106,13 +106,13 @@ inline fn div(a: f64, b: f64) f64 {
     // won't hurt anything.)
     aSignificand |= implicitBit;
     bSignificand |= implicitBit;
-    var quotientExponent: i32 = @bitCast(i32, aExponent -% bExponent) +% scale;
+    var quotientExponent: i32 = @as(i32, @bitCast(aExponent -% bExponent)) +% scale;
 
     // Align the significand of b as a Q31 fixed-point number in the range
     // [1, 2.0) and get a Q32 approximate reciprocal using a small minimax
     // polynomial approximation: reciprocal = 3/4 + 1/sqrt(2) - b/2.  This
     // is accurate to about 3.5 binary digits.
-    const q31b: u32 = @truncate(u32, bSignificand >> 21);
+    const q31b: u32 = @as(u32, @truncate(bSignificand >> 21));
     var recip32 = @as(u32, 0x7504f333) -% q31b;
 
     // Now refine the reciprocal estimate using a Newton-Raphson iteration:
@@ -123,12 +123,12 @@ inline fn div(a: f64, b: f64) f64 {
     // with each iteration, so after three iterations, we have about 28 binary
     // digits of accuracy.
     var correction32: u32 = undefined;
-    correction32 = @truncate(u32, ~(@as(u64, recip32) *% q31b >> 32) +% 1);
-    recip32 = @truncate(u32, @as(u64, recip32) *% correction32 >> 31);
-    correction32 = @truncate(u32, ~(@as(u64, recip32) *% q31b >> 32) +% 1);
-    recip32 = @truncate(u32, @as(u64, recip32) *% correction32 >> 31);
-    correction32 = @truncate(u32, ~(@as(u64, recip32) *% q31b >> 32) +% 1);
-    recip32 = @truncate(u32, @as(u64, recip32) *% correction32 >> 31);
+    correction32 = @as(u32, @truncate(~(@as(u64, recip32) *% q31b >> 32) +% 1));
+    recip32 = @as(u32, @truncate(@as(u64, recip32) *% correction32 >> 31));
+    correction32 = @as(u32, @truncate(~(@as(u64, recip32) *% q31b >> 32) +% 1));
+    recip32 = @as(u32, @truncate(@as(u64, recip32) *% correction32 >> 31));
+    correction32 = @as(u32, @truncate(~(@as(u64, recip32) *% q31b >> 32) +% 1));
+    recip32 = @as(u32, @truncate(@as(u64, recip32) *% correction32 >> 31));
 
     // recip32 might have overflowed to exactly zero in the preceding
     // computation if the high word of b is exactly 1.0.  This would sabotage
@@ -138,12 +138,12 @@ inline fn div(a: f64, b: f64) f64 {
 
     // We need to perform one more iteration to get us to 56 binary digits;
     // The last iteration needs to happen with extra precision.
-    const q63blo: u32 = @truncate(u32, bSignificand << 11);
+    const q63blo: u32 = @as(u32, @truncate(bSignificand << 11));
     var correction: u64 = undefined;
     var reciprocal: u64 = undefined;
     correction = ~(@as(u64, recip32) *% q31b +% (@as(u64, recip32) *% q63blo >> 32)) +% 1;
-    const cHi = @truncate(u32, correction >> 32);
-    const cLo = @truncate(u32, correction);
+    const cHi = @as(u32, @truncate(correction >> 32));
+    const cLo = @as(u32, @truncate(correction));
     reciprocal = @as(u64, recip32) *% cHi +% (@as(u64, recip32) *% cLo >> 32);
 
     // We already adjusted the 32-bit estimate, now we need to adjust the final
@@ -195,33 +195,33 @@ inline fn div(a: f64, b: f64) f64 {
 
     if (writtenExponent >= maxExponent) {
         // If we have overflowed the exponent, return infinity.
-        return @bitCast(f64, infRep | quotientSign);
+        return @as(f64, @bitCast(infRep | quotientSign));
     } else if (writtenExponent < 1) {
         if (writtenExponent == 0) {
             // Check whether the rounded result is normal.
-            const round = @boolToInt((residual << 1) > bSignificand);
+            const round = @intFromBool((residual << 1) > bSignificand);
             // Clear the implicit bit.
             var absResult = quotient & significandMask;
             // Round.
             absResult += round;
             if ((absResult & ~significandMask) != 0) {
                 // The rounded result is normal; return it.
-                return @bitCast(f64, absResult | quotientSign);
+                return @as(f64, @bitCast(absResult | quotientSign));
             }
         }
         // Flush denormals to zero.  In the future, it would be nice to add
         // code to round them correctly.
-        return @bitCast(f64, quotientSign);
+        return @as(f64, @bitCast(quotientSign));
     } else {
-        const round = @boolToInt((residual << 1) > bSignificand);
+        const round = @intFromBool((residual << 1) > bSignificand);
         // Clear the implicit bit
         var absResult = quotient & significandMask;
         // Insert the exponent
-        absResult |= @bitCast(Z, @as(SignedZ, writtenExponent)) << significandBits;
+        absResult |= @as(Z, @bitCast(@as(SignedZ, writtenExponent))) << significandBits;
         // Round
         absResult +%= round;
         // Insert the sign and return
-        return @bitCast(f64, absResult | quotientSign);
+        return @as(f64, @bitCast(absResult | quotientSign));
     }
 }
 

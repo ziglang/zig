@@ -457,12 +457,12 @@ pub const ImportLookupEntry32 = struct {
 
     pub fn getImportByName(raw: u32) ?ByName {
         if (mask & raw != 0) return null;
-        return @bitCast(ByName, raw);
+        return @as(ByName, @bitCast(raw));
     }
 
     pub fn getImportByOrdinal(raw: u32) ?ByOrdinal {
         if (mask & raw == 0) return null;
-        return @bitCast(ByOrdinal, raw);
+        return @as(ByOrdinal, @bitCast(raw));
     }
 };
 
@@ -483,12 +483,12 @@ pub const ImportLookupEntry64 = struct {
 
     pub fn getImportByName(raw: u64) ?ByName {
         if (mask & raw != 0) return null;
-        return @bitCast(ByName, raw);
+        return @as(ByName, @bitCast(raw));
     }
 
     pub fn getImportByOrdinal(raw: u64) ?ByOrdinal {
         if (mask & raw == 0) return null;
-        return @bitCast(ByOrdinal, raw);
+        return @as(ByOrdinal, @bitCast(raw));
     }
 };
 
@@ -1105,7 +1105,7 @@ pub const Coff = struct {
         assert(self.is_image);
 
         const data_dirs = self.getDataDirectories();
-        const debug_dir = data_dirs[@enumToInt(DirectoryEntry.DEBUG)];
+        const debug_dir = data_dirs[@intFromEnum(DirectoryEntry.DEBUG)];
 
         var stream = std.io.fixedBufferStream(self.data);
         const reader = stream.reader();
@@ -1146,25 +1146,25 @@ pub const Coff = struct {
     }
 
     pub fn getCoffHeader(self: Coff) CoffHeader {
-        return @ptrCast(*align(1) const CoffHeader, self.data[self.coff_header_offset..][0..@sizeOf(CoffHeader)]).*;
+        return @as(*align(1) const CoffHeader, @ptrCast(self.data[self.coff_header_offset..][0..@sizeOf(CoffHeader)])).*;
     }
 
     pub fn getOptionalHeader(self: Coff) OptionalHeader {
         assert(self.is_image);
         const offset = self.coff_header_offset + @sizeOf(CoffHeader);
-        return @ptrCast(*align(1) const OptionalHeader, self.data[offset..][0..@sizeOf(OptionalHeader)]).*;
+        return @as(*align(1) const OptionalHeader, @ptrCast(self.data[offset..][0..@sizeOf(OptionalHeader)])).*;
     }
 
     pub fn getOptionalHeader32(self: Coff) OptionalHeaderPE32 {
         assert(self.is_image);
         const offset = self.coff_header_offset + @sizeOf(CoffHeader);
-        return @ptrCast(*align(1) const OptionalHeaderPE32, self.data[offset..][0..@sizeOf(OptionalHeaderPE32)]).*;
+        return @as(*align(1) const OptionalHeaderPE32, @ptrCast(self.data[offset..][0..@sizeOf(OptionalHeaderPE32)])).*;
     }
 
     pub fn getOptionalHeader64(self: Coff) OptionalHeaderPE64 {
         assert(self.is_image);
         const offset = self.coff_header_offset + @sizeOf(CoffHeader);
-        return @ptrCast(*align(1) const OptionalHeaderPE64, self.data[offset..][0..@sizeOf(OptionalHeaderPE64)]).*;
+        return @as(*align(1) const OptionalHeaderPE64, @ptrCast(self.data[offset..][0..@sizeOf(OptionalHeaderPE64)])).*;
     }
 
     pub fn getImageBase(self: Coff) u64 {
@@ -1193,7 +1193,7 @@ pub const Coff = struct {
             else => unreachable, // We assume we have validated the header already
         };
         const offset = self.coff_header_offset + @sizeOf(CoffHeader) + size;
-        return @ptrCast([*]align(1) const ImageDataDirectory, self.data[offset..])[0..self.getNumberOfDataDirectories()];
+        return @as([*]align(1) const ImageDataDirectory, @ptrCast(self.data[offset..]))[0..self.getNumberOfDataDirectories()];
     }
 
     pub fn getSymtab(self: *const Coff) ?Symtab {
@@ -1217,7 +1217,7 @@ pub const Coff = struct {
     pub fn getSectionHeaders(self: *const Coff) []align(1) const SectionHeader {
         const coff_header = self.getCoffHeader();
         const offset = self.coff_header_offset + @sizeOf(CoffHeader) + coff_header.size_of_optional_header;
-        return @ptrCast([*]align(1) const SectionHeader, self.data.ptr + offset)[0..coff_header.number_of_sections];
+        return @as([*]align(1) const SectionHeader, @ptrCast(self.data.ptr + offset))[0..coff_header.number_of_sections];
     }
 
     pub fn getSectionHeadersAlloc(self: *const Coff, allocator: mem.Allocator) ![]SectionHeader {
@@ -1303,9 +1303,9 @@ pub const Symtab = struct {
         return .{
             .name = raw[0..8].*,
             .value = mem.readIntLittle(u32, raw[8..12]),
-            .section_number = @intToEnum(SectionNumber, mem.readIntLittle(u16, raw[12..14])),
-            .type = @bitCast(SymType, mem.readIntLittle(u16, raw[14..16])),
-            .storage_class = @intToEnum(StorageClass, raw[16]),
+            .section_number = @as(SectionNumber, @enumFromInt(mem.readIntLittle(u16, raw[12..14]))),
+            .type = @as(SymType, @bitCast(mem.readIntLittle(u16, raw[14..16]))),
+            .storage_class = @as(StorageClass, @enumFromInt(raw[16])),
             .number_of_aux_symbols = raw[17],
         };
     }
@@ -1333,7 +1333,7 @@ pub const Symtab = struct {
     fn asWeakExtDef(raw: []const u8) WeakExternalDefinition {
         return .{
             .tag_index = mem.readIntLittle(u32, raw[0..4]),
-            .flag = @intToEnum(WeakExternalFlag, mem.readIntLittle(u32, raw[4..8])),
+            .flag = @as(WeakExternalFlag, @enumFromInt(mem.readIntLittle(u32, raw[4..8]))),
             .unused = raw[8..18].*,
         };
     }
@@ -1351,7 +1351,7 @@ pub const Symtab = struct {
             .number_of_linenumbers = mem.readIntLittle(u16, raw[6..8]),
             .checksum = mem.readIntLittle(u32, raw[8..12]),
             .number = mem.readIntLittle(u16, raw[12..14]),
-            .selection = @intToEnum(ComdatSelection, raw[14]),
+            .selection = @as(ComdatSelection, @enumFromInt(raw[14])),
             .unused = raw[15..18].*,
         };
     }
@@ -1384,6 +1384,6 @@ pub const Strtab = struct {
 
     pub fn get(self: Strtab, off: u32) []const u8 {
         assert(off < self.buffer.len);
-        return mem.sliceTo(@ptrCast([*:0]const u8, self.buffer.ptr + off), 0);
+        return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.buffer.ptr + off)), 0);
     }
 };

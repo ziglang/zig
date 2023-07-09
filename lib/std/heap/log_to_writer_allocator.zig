@@ -34,7 +34,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             log2_ptr_align: u8,
             ra: usize,
         ) ?[*]u8 {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx));
             self.writer.print("alloc : {}", .{len}) catch {};
             const result = self.parent_allocator.rawAlloc(len, log2_ptr_align, ra);
             if (result != null) {
@@ -52,7 +52,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             new_len: usize,
             ra: usize,
         ) bool {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx));
             if (new_len <= buf.len) {
                 self.writer.print("shrink: {} to {}\n", .{ buf.len, new_len }) catch {};
             } else {
@@ -77,7 +77,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             log2_buf_align: u8,
             ra: usize,
         ) void {
-            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx));
             self.writer.print("free  : {}\n", .{buf.len}) catch {};
             self.parent_allocator.rawFree(buf, log2_buf_align, ra);
         }

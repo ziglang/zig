@@ -8,5 +8,5 @@ comptime {
 }
 
 pub fn __extenddfxf2(a: f64) callconv(.C) f80 {
-    return extend_f80(f64, @bitCast(u64, a));
+    return extend_f80(f64, @as(u64, @bitCast(a)));
 }

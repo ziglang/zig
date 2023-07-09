@@ -1,7 +1,11 @@
 export fn foo() void {
-    while (bar()) |x| {_ = x;}
+    while (bar()) |x| {
+        _ = x;
+    }
 }
-fn bar() bool { return true; }
+fn bar() bool {
+    return true;
+}
 
 // error
 // backend=stage2

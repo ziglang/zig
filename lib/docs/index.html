@@ -25,8 +25,8 @@
         --search-bg-color-focus: #ffffff;
         --search-sh-color: rgba(0, 0, 0, 0.18);
         --search-other-results-color: rgb(100, 100, 100);
-        --help-sh-color: rgba(0, 0, 0, 0.75);
-        --help-bg-color: #aaa;
+        --modal-sh-color: rgba(0, 0, 0, 0.75);
+        --modal-bg-color: #aaa;
       }
 
       html, body { margin: 0; padding: 0; height: 100%; }
@@ -99,7 +99,7 @@
         flex-shrink: 1;
       }
 
-      .help-modal {
+      .modal-container {
         z-index: 400;
       }
 
@@ -412,8 +412,8 @@
         padding: 1px 1em;
       }
 
-      /* help modal */
-      .help-modal {
+      /* modals */
+      .modal-container {
         display: flex;
         width: 100%;
         height: 100%;
@@ -426,29 +426,36 @@
         backdrop-filter: blur(0.3em);
       }
 
-      .help-modal > .modal {
+      .modal-container > .modal {
         max-width: 97vw;
         max-height: 97vh;
         overflow: auto;
         font-size: 1rem;
         color: #fff;
-        background-color: var(--help-bg-color);
+        background-color: var(--modal-bg-color);
         border: 0.125rem solid #000;
-        box-shadow: 0 0.5rem 2.5rem 0.3rem var(--help-sh-color);
+        box-shadow: 0 0.5rem 2.5rem 0.3rem var(--modal-sh-color);
       }
 
-      .help-modal h1 {
+      .modal-container h1 {
         margin: 0.75em 2.5em 1em 2.5em;
         font-size: 1.5em;
         text-align: center;
       }
 
-      .help-modal dt, .help-modal dd {
+      .modal-container dt, .modal-container dd {
         display: inline;
         margin: 0 0.2em;
       }
 
-      .help-modal dl {
+      .modal-container dl {
+        margin-left: 0.5em;
+        margin-right: 0.5em;
+      }
+
+      .prefs-list {
+        list-style: none;
+        padding: 0;
         margin-left: 0.5em;
         margin-right: 0.5em;
       }
@@ -539,8 +546,8 @@
           --search-bg-color-focus: #000;
           --search-sh-color: rgba(255, 255, 255, 0.28);
           --search-other-results-color: rgba(255, 255, 255, 0.28);
-          --help-sh-color: rgba(142, 142, 142, 0.5);
-          --help-bg-color: #333;
+          --modal-sh-color: rgba(142, 142, 142, 0.5);
+          --modal-bg-color: #333;
         }
 
         .docs pre {
@@ -673,17 +680,118 @@
       .banner a {
         color: black;
         text-decoration: underline;
+    }
+
+  </style>
+
+  <style>
+     pre{
+        --zig-keyword: #333;
+        --zig-identifier: 'black'; 
       }
+      
+      @media (prefers-color-scheme: dark) { 
+        pre {
+          --zig-keyword: 'white';
+          --zig-identifier: 'purple'; 
+        }
+      }
+    
+
+    .zig_keyword_addrspace,
+    .zig_keyword_align,
+    .zig_keyword_and,
+    .zig_keyword_asm,
+    .zig_keyword_async,
+    .zig_keyword_await,
+    .zig_keyword_break,
+    .zig_keyword_catch,
+    .zig_keyword_comptime,
+    .zig_keyword_const,
+    .zig_keyword_continue,
+    .zig_keyword_defer,
+    .zig_keyword_else,
+    .zig_keyword_enum,
+    .zig_keyword_errdefer,
+    .zig_keyword_error,
+    .zig_keyword_export,
+    .zig_keyword_extern,
+    .zig_keyword_for,
+    .zig_keyword_if,
+    .zig_keyword_inline,
+    .zig_keyword_noalias,
+    .zig_keyword_noinline,
+    .zig_keyword_nosuspend,
+    .zig_keyword_opaque,
+    .zig_keyword_or,
+    .zig_keyword_orelse,
+    .zig_keyword_packed,
+    .zig_keyword_anyframe,
+    .zig_keyword_pub,
+    .zig_keyword_resume,
+    .zig_keyword_return,
+    .zig_keyword_linksection,
+    .zig_keyword_callconv,
+    .zig_keyword_struct,
+    .zig_keyword_suspend,
+    .zig_keyword_switch,
+    .zig_keyword_test,
+    .zig_keyword_threadlocal,
+    .zig_keyword_try,
+    .zig_keyword_union,
+    .zig_keyword_unreachable,
+    .zig_keyword_usingnamespace,
+    .zig_keyword_var,
+    .zig_keyword_volatile,
+    .zig_keyword_allowzero,
+    .zig_keyword_while,
+    .zig_keyword_anytype,
+    .zig_keyword_fn
+    {
+      color: #333;
+      font-weight: bold;
+    }
+
+
+    .zig_string_literal,
+    .zig_multiline_string_literal_line,
+    .zig_char_literal
+    {
+      color: #d14;
+    }
+
+    .zig_builtin
+    {
+      color: #0086b3;
+    }
+
+    .zig_doc_comment,
+    .zig_container_doc_comment {
+      color: #545454;
+      font-style: italic;
+    }
+
+    .zig_identifier {
+      color: white;
+      font-weight: bold;
+    }
+
+    .zig_number_literal {
+      color: #008080;
+    }
+
+
+   
     </style>
   </head>
   <body class="canvas">
-    <div class="banner">
+    <div id="banner" class="banner">
       This is a beta autodoc build; expect bugs and missing information.
       <a href="https://github.com/ziglang/zig/wiki/How-to-contribute-to-Autodoc">Report an Issue</a>,
       <a href="https://github.com/ziglang/zig/wiki/How-to-contribute-to-Autodoc">Contribute</a>,
       <a href="https://github.com/ziglang/zig/wiki/How-to-read-the-standard-library-source-code">Learn more about stdlib source code</a>.
     </div>
-    <div class="flex-main">
+    <div id="main" class="flex-main">
       <div class="flex-filler"></div>
       <div class="flex-left sidebar">
         <nav>
@@ -758,7 +866,7 @@
         <div class="wrap">
           <section class="docs" style="padding-top: 1.5rem; padding-bottom:0;">
           <div style="position: relative">
-            <span id="searchPlaceholder"><kbd>s</kbd> to search, <kbd>?</kbd> for more options</span>
+            <span id="searchPlaceholder"><!-- populated by setPrefSlashSearch --></span>
             <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
           </div>
           </section>
@@ -872,22 +980,34 @@
       </div>
     </div>
     <div id="helpModal" class="hidden">
-      <div class="help-modal">
+      <div class="modal-container">
         <div class="modal">
           <h1>Keyboard Shortcuts</h1>
           <dl><dt><kbd>?</kbd></dt><dd>Toggle this help modal</dd></dl>
-          <dl><dt><kbd>s</kbd></dt><dd>Focus the search field</dd></dl>
+          <dl><dt id="searchKeys"><!-- populated by setPrefSlashSearch --></dt><dd>Focus the search field</dd></dl>
           <div style="margin-left: 1em">
             <dl><dt><kbd>↑</kbd></dt><dd>Move up in search results</dd></dl>
             <dl><dt><kbd>↓</kbd></dt><dd>Move down in search results</dd></dl>
             <dl><dt><kbd>⏎</kbd></dt><dd>Go to active search result</dd></dl>
           </div>
+          <dl><dt><kbd>p</kbd></dt><dd>Open preferences</dd></dl>
           <dl><dt><kbd>Esc</kbd></dt><dd>Clear focus; close this modal</dd></dl>
+        </div>
+      </div>
+    </div>
+    <div id="prefsModal" class="hidden">
+      <div class="modal-container">
+        <div class="modal">
+          <h1>Preferences</h1>
+          <ul class="prefs-list">
+            <li><input id="prefSlashSearch" type="checkbox"><label for="prefSlashSearch">Enable <kbd>/</kbd> for search</label></li>
+          </ul>
         </div>
       </div>
     </div>
     <script src="data.js"></script>
     <script src="commonmark.js"></script>
+    <script src="ziglexer.js"></script>
     <script src="main.js"></script>
   </body>
 </html>

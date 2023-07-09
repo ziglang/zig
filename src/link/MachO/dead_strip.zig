@@ -27,10 +27,10 @@ pub fn gcAtoms(zld: *Zld, resolver: *const SymbolResolver) !void {
     defer arena.deinit();
 
     var roots = AtomTable.init(arena.allocator());
-    try roots.ensureUnusedCapacity(@intCast(u32, zld.globals.items.len));
+    try roots.ensureUnusedCapacity(@as(u32, @intCast(zld.globals.items.len)));
 
     var alive = AtomTable.init(arena.allocator());
-    try alive.ensureTotalCapacity(@intCast(u32, zld.atoms.items.len));
+    try alive.ensureTotalCapacity(@as(u32, @intCast(zld.atoms.items.len)));
 
     try collectRoots(zld, &roots, resolver);
     try mark(zld, roots, &alive);
@@ -99,8 +99,8 @@ fn collectRoots(zld: *Zld, roots: *AtomTable, resolver: *const SymbolResolver) !
                 const sect_id = if (object.getSourceSymbol(atom.sym_index)) |source_sym|
                     source_sym.n_sect - 1
                 else sect_id: {
-                    const nbase = @intCast(u32, object.in_symtab.?.len);
-                    const sect_id = @intCast(u8, atom.sym_index - nbase);
+                    const nbase = @as(u32, @intCast(object.in_symtab.?.len));
+                    const sect_id = @as(u8, @intCast(atom.sym_index - nbase));
                     break :sect_id sect_id;
                 };
                 const source_sect = object.getSourceSection(sect_id);
@@ -148,7 +148,7 @@ fn markLive(zld: *Zld, atom_index: AtomIndex, alive: *AtomTable) void {
 
     for (relocs) |rel| {
         const target = switch (cpu_arch) {
-            .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, rel.r_type)) {
+            .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
                 .ARM64_RELOC_ADDEND => continue,
                 else => Atom.parseRelocTarget(zld, .{
                     .object_id = atom.getFile().?,
@@ -208,7 +208,7 @@ fn refersLive(zld: *Zld, atom_index: AtomIndex, alive: AtomTable) bool {
 
     for (relocs) |rel| {
         const target = switch (cpu_arch) {
-            .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, rel.r_type)) {
+            .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
                 .ARM64_RELOC_ADDEND => continue,
                 else => Atom.parseRelocTarget(zld, .{
                     .object_id = atom.getFile().?,
@@ -264,8 +264,8 @@ fn mark(zld: *Zld, roots: AtomTable, alive: *AtomTable) !void {
                 const sect_id = if (object.getSourceSymbol(atom.sym_index)) |source_sym|
                     source_sym.n_sect - 1
                 else blk: {
-                    const nbase = @intCast(u32, object.in_symtab.?.len);
-                    const sect_id = @intCast(u8, atom.sym_index - nbase);
+                    const nbase = @as(u32, @intCast(object.in_symtab.?.len));
+                    const sect_id = @as(u8, @intCast(atom.sym_index - nbase));
                     break :blk sect_id;
                 };
                 const source_sect = object.getSourceSection(sect_id);
@@ -283,7 +283,7 @@ fn mark(zld: *Zld, roots: AtomTable, alive: *AtomTable) !void {
     for (zld.objects.items, 0..) |_, object_id| {
         // Traverse unwind and eh_frame records noting if the source symbol has been marked, and if so,
         // marking all references as live.
-        try markUnwindRecords(zld, @intCast(u32, object_id), alive);
+        try markUnwindRecords(zld, @as(u32, @intCast(object_id)), alive);
     }
 }
 
@@ -329,7 +329,7 @@ fn markUnwindRecords(zld: *Zld, object_id: u32, alive: *AtomTable) !void {
                     .object_id = object_id,
                     .rel = rel,
                     .code = mem.asBytes(&record),
-                    .base_offset = @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
+                    .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
                 });
                 const target_sym = zld.getSymbol(target);
                 if (!target_sym.undf()) {
@@ -344,7 +344,7 @@ fn markUnwindRecords(zld: *Zld, object_id: u32, alive: *AtomTable) !void {
                     .object_id = object_id,
                     .rel = rel,
                     .code = mem.asBytes(&record),
-                    .base_offset = @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
+                    .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
                 });
                 const target_object = zld.objects.items[target.getFile().?];
                 const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index).?;
@@ -363,7 +363,7 @@ fn markEhFrameRecord(zld: *Zld, object_id: u32, atom_index: AtomIndex, alive: *A
     it.seekTo(fde_offset);
     const fde = (try it.next()).?;
 
-    const cie_ptr = fde.getCiePointer();
+    const cie_ptr = fde.getCiePointerSource(object_id, zld, fde_offset);
     const cie_offset = fde_offset + 4 - cie_ptr;
     it.seekTo(cie_offset);
     const cie = (try it.next()).?;
@@ -377,7 +377,7 @@ fn markEhFrameRecord(zld: *Zld, object_id: u32, atom_index: AtomIndex, alive: *A
                     .object_id = object_id,
                     .rel = rel,
                     .code = fde.data,
-                    .base_offset = @intCast(i32, fde_offset) + 4,
+                    .base_offset = @as(i32, @intCast(fde_offset)) + 4,
                 });
                 const target_sym = zld.getSymbol(target);
                 if (!target_sym.undf()) blk: {

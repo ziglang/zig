@@ -12,7 +12,9 @@ fn bar(x: *const u3) u3 {
     return x.*;
 }
 
-export fn entry() usize { return @sizeOf(@TypeOf(&foo)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(&foo));
+}
 
 // error
 // backend=stage2

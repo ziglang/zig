@@ -237,7 +237,7 @@ pub fn dump(step: *Step) void {
 
     const stderr = std.io.getStdErr();
     const w = stderr.writer();
-    const tty_config = std.debug.detectTTYConfig(stderr);
+    const tty_config = std.io.tty.detectConfig(stderr);
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
             @errorName(err),
@@ -355,7 +355,7 @@ pub fn evalZigProcess(
             },
             .error_bundle => {
                 const EbHdr = std.zig.Server.Message.ErrorBundle;
-                const eb_hdr = @ptrCast(*align(1) const EbHdr, body);
+                const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
                 const extra_bytes =
                     body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
                 const string_bytes =
@@ -377,7 +377,7 @@ pub fn evalZigProcess(
             },
             .emit_bin_path => {
                 const EbpHdr = std.zig.Server.Message.EmitBinPath;
-                const ebp_hdr = @ptrCast(*align(1) const EbpHdr, body);
+                const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
                 s.result_cached = ebp_hdr.flags.cache_hit;
                 result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
             },

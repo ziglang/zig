@@ -23,8 +23,6 @@ fn testBreakContInDefer(x: usize) void {
 }
 
 test "defer and labeled break" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var i = @as(usize, 0);
 
     blk: {
@@ -58,7 +56,6 @@ test "return variable while defer expression in scope to modify it" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -73,7 +70,7 @@ test "return variable while defer expression in scope to modify it" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 var result: [3]u8 = undefined;
@@ -134,7 +131,33 @@ test "errdefer with payload" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "reference to errdefer payload" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo() !i32 {
+            errdefer |a| {
+                const ptr = &a;
+                const ptr2 = &ptr;
+                expectEqual(error.One, ptr2.*.*) catch @panic("test failure");
+                expectEqual(error.One, ptr.*) catch @panic("test failure");
+            }
+            return error.One;
+        }
+        fn doTheTest() !void {
+            try expectError(error.One, foo());
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "simple else prong doesn't emit an error for unreachable else prong" {

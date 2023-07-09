@@ -11,7 +11,7 @@ test "@select vectors" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try selectVectors();
+    try comptime selectVectors();
     try selectVectors();
 }
 
@@ -40,7 +40,7 @@ test "@select arrays" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try selectArrays();
+    try comptime selectArrays();
     try selectArrays();
 }
 

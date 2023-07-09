@@ -50,7 +50,7 @@ pub fn emitRaw(
 ) !void {
     const word_count = 1 + operand_words;
     try section.instructions.ensureUnusedCapacity(allocator, word_count);
-    section.writeWord((@intCast(Word, word_count << 16)) | @enumToInt(opcode));
+    section.writeWord((@as(Word, @intCast(word_count << 16))) | @intFromEnum(opcode));
 }
 
 pub fn emit(
@@ -61,7 +61,7 @@ pub fn emit(
 ) !void {
     const word_count = instructionSize(opcode, operands);
     try section.instructions.ensureUnusedCapacity(allocator, word_count);
-    section.writeWord(@intCast(Word, word_count << 16) | @enumToInt(opcode));
+    section.writeWord(@as(Word, @intCast(word_count << 16)) | @intFromEnum(opcode));
     section.writeOperands(opcode.Operands(), operands);
 }
 
@@ -94,8 +94,8 @@ pub fn writeWords(section: *Section, words: []const Word) void {
 
 pub fn writeDoubleWord(section: *Section, dword: DoubleWord) void {
     section.writeWords(&.{
-        @truncate(Word, dword),
-        @truncate(Word, dword >> @bitSizeOf(Word)),
+        @as(Word, @truncate(dword)),
+        @as(Word, @truncate(dword >> @bitSizeOf(Word))),
     });
 }
 
@@ -126,14 +126,14 @@ pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand)
         // TODO: Where this type is used (OpSpecConstantOp) is currently not correct in the spec json,
         // so it most likely needs to be altered into something that can actually describe the entire
         // instruction in which it is used.
-        spec.LiteralSpecConstantOpInteger => section.writeWord(@enumToInt(operand.opcode)),
+        spec.LiteralSpecConstantOpInteger => section.writeWord(@intFromEnum(operand.opcode)),
 
         spec.PairLiteralIntegerIdRef => section.writeWords(&.{ operand.value, operand.label.id }),
         spec.PairIdRefLiteralInteger => section.writeWords(&.{ operand.target.id, operand.member }),
         spec.PairIdRefIdRef => section.writeWords(&.{ operand[0].id, operand[1].id }),
 
         else => switch (@typeInfo(Operand)) {
-            .Enum => section.writeWord(@enumToInt(operand)),
+            .Enum => section.writeWord(@intFromEnum(operand)),
             .Optional => |info| if (operand) |child| {
                 section.writeOperand(info.child, child);
             },
@@ -145,7 +145,7 @@ pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand)
             },
             .Struct => |info| {
                 if (info.layout == .Packed) {
-                    section.writeWord(@bitCast(Word, operand));
+                    section.writeWord(@as(Word, @bitCast(operand)));
                 } else {
                     section.writeExtendedMask(Operand, operand);
                 }
@@ -166,7 +166,7 @@ fn writeString(section: *Section, str: []const u8) void {
 
         var j: usize = 0;
         while (j < @sizeOf(Word) and i + j < str.len) : (j += 1) {
-            word |= @as(Word, str[i + j]) << @intCast(Log2Word, j * @bitSizeOf(u8));
+            word |= @as(Word, str[i + j]) << @as(Log2Word, @intCast(j * @bitSizeOf(u8)));
         }
 
         section.instructions.appendAssumeCapacity(word);
@@ -175,12 +175,12 @@ fn writeString(section: *Section, str: []const u8) void {
 
 fn writeContextDependentNumber(section: *Section, operand: spec.LiteralContextDependentNumber) void {
     switch (operand) {
-        .int32 => |int| section.writeWord(@bitCast(Word, int)),
-        .uint32 => |int| section.writeWord(@bitCast(Word, int)),
-        .int64 => |int| section.writeDoubleWord(@bitCast(DoubleWord, int)),
-        .uint64 => |int| section.writeDoubleWord(@bitCast(DoubleWord, int)),
-        .float32 => |float| section.writeWord(@bitCast(Word, float)),
-        .float64 => |float| section.writeDoubleWord(@bitCast(DoubleWord, float)),
+        .int32 => |int| section.writeWord(@as(Word, @bitCast(int))),
+        .uint32 => |int| section.writeWord(@as(Word, @bitCast(int))),
+        .int64 => |int| section.writeDoubleWord(@as(DoubleWord, @bitCast(int))),
+        .uint64 => |int| section.writeDoubleWord(@as(DoubleWord, @bitCast(int))),
+        .float32 => |float| section.writeWord(@as(Word, @bitCast(float))),
+        .float64 => |float| section.writeDoubleWord(@as(DoubleWord, @bitCast(float))),
     }
 }
 
@@ -189,10 +189,10 @@ fn writeExtendedMask(section: *Section, comptime Operand: type, operand: Operand
     inline for (@typeInfo(Operand).Struct.fields, 0..) |field, bit| {
         switch (@typeInfo(field.type)) {
             .Optional => if (@field(operand, field.name) != null) {
-                mask |= 1 << @intCast(u5, bit);
+                mask |= 1 << @as(u5, @intCast(bit));
             },
             .Bool => if (@field(operand, field.name)) {
-                mask |= 1 << @intCast(u5, bit);
+                mask |= 1 << @as(u5, @intCast(bit));
             },
             else => unreachable,
         }
@@ -217,7 +217,7 @@ fn writeExtendedMask(section: *Section, comptime Operand: type, operand: Operand
 
 fn writeExtendedUnion(section: *Section, comptime Operand: type, operand: Operand) void {
     const tag = std.meta.activeTag(operand);
-    section.writeWord(@enumToInt(tag));
+    section.writeWord(@intFromEnum(tag));
 
     inline for (@typeInfo(Operand).Union.fields) |field| {
         if (@field(Operand, field.name) == tag) {
@@ -327,7 +327,7 @@ test "SPIR-V Section emit() - no operands" {
 
     try section.emit(std.testing.allocator, .OpNop, {});
 
-    try testing.expect(section.instructions.items[0] == (@as(Word, 1) << 16) | @enumToInt(Opcode.OpNop));
+    try testing.expect(section.instructions.items[0] == (@as(Word, 1) << 16) | @intFromEnum(Opcode.OpNop));
 }
 
 test "SPIR-V Section emit() - simple" {
@@ -340,7 +340,7 @@ test "SPIR-V Section emit() - simple" {
     });
 
     try testing.expectEqualSlices(Word, &.{
-        (@as(Word, 3) << 16) | @enumToInt(Opcode.OpUndef),
+        (@as(Word, 3) << 16) | @intFromEnum(Opcode.OpUndef),
         0,
         1,
     }, section.instructions.items);
@@ -358,8 +358,8 @@ test "SPIR-V Section emit() - string" {
     });
 
     try testing.expectEqualSlices(Word, &.{
-        (@as(Word, 10) << 16) | @enumToInt(Opcode.OpSource),
-        @enumToInt(spec.SourceLanguage.Unknown),
+        (@as(Word, 10) << 16) | @intFromEnum(Opcode.OpSource),
+        @intFromEnum(spec.SourceLanguage.Unknown),
         123,
         456,
         std.mem.bytesToValue(Word, "pub "),
@@ -389,10 +389,10 @@ test "SPIR-V Section emit() - extended mask" {
     });
 
     try testing.expectEqualSlices(Word, &.{
-        (@as(Word, 5) << 16) | @enumToInt(Opcode.OpLoopMerge),
+        (@as(Word, 5) << 16) | @intFromEnum(Opcode.OpLoopMerge),
         10,
         20,
-        @bitCast(Word, spec.LoopControl{ .Unroll = true, .DependencyLength = true }),
+        @as(Word, @bitCast(spec.LoopControl{ .Unroll = true, .DependencyLength = true })),
         2,
     }, section.instructions.items);
 }
@@ -409,9 +409,9 @@ test "SPIR-V Section emit() - extended union" {
     });
 
     try testing.expectEqualSlices(Word, &.{
-        (@as(Word, 6) << 16) | @enumToInt(Opcode.OpExecutionMode),
+        (@as(Word, 6) << 16) | @intFromEnum(Opcode.OpExecutionMode),
         888,
-        @enumToInt(spec.ExecutionMode.LocalSize),
+        @intFromEnum(spec.ExecutionMode.LocalSize),
         4,
         8,
         16,

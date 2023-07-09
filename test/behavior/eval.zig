@@ -9,7 +9,7 @@ test "compile time recursion" {
 
     try expect(some_data.len == 21);
 }
-var some_data: [@intCast(usize, fibonacci(7))]u8 = undefined;
+var some_data: [@as(usize, @intCast(fibonacci(7)))]u8 = undefined;
 fn fibonacci(x: i32) i32 {
     if (x <= 1) return 1;
     return fibonacci(x - 1) + fibonacci(x - 2);
@@ -23,7 +23,6 @@ test "static add one" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(should_be_1235 == 1235);
 }
@@ -48,8 +47,6 @@ test "inline variable gets result of const if" {
 }
 
 test "static function evaluation" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try expect(statically_added_number == 3);
 }
 const statically_added_number = staticAdd(1, 2);
@@ -59,7 +56,7 @@ fn staticAdd(a: i32, b: i32) i32 {
 
 test "const expr eval on single expr blocks" {
     try expect(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
-    comptime try expect(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
+    try comptime expect(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
 }
 
 fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) i32 {
@@ -126,7 +123,7 @@ fn fnWithSetRuntimeSafety() i32 {
 test "compile-time downcast when the bits fit" {
     comptime {
         const spartan_count: u16 = 255;
-        const byte = @intCast(u8, spartan_count);
+        const byte = @as(u8, @intCast(spartan_count));
         try expect(byte == 255);
     }
 }
@@ -152,7 +149,7 @@ test "a type constructed in a global expression" {
     l.array[0] = 10;
     l.array[1] = 11;
     l.array[2] = 12;
-    const ptr = @ptrCast([*]u8, &l.array);
+    const ptr = @as([*]u8, @ptrCast(&l.array));
     try expect(ptr[0] == 10);
     try expect(ptr[1] == 11);
     try expect(ptr[2] == 12);
@@ -335,7 +332,7 @@ fn generateTable(comptime T: type) [1010]T {
     var res: [1010]T = undefined;
     var i: usize = 0;
     while (i < 1010) : (i += 1) {
-        res[i] = @intCast(T, i);
+        res[i] = @as(T, @intCast(i));
     }
     return res;
 }
@@ -439,7 +436,7 @@ test "f64 at compile time is lossy" {
 }
 
 test {
-    comptime try expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
+    try comptime expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
 
 fn copyWithPartialInline(s: []u32, b: []u8) void {
@@ -463,7 +460,7 @@ test "binary math operator in partially inlined function" {
     var b: [16]u8 = undefined;
 
     for (&b, 0..) |*r, i|
-        r.* = @intCast(u8, i + 1);
+        r.* = @as(u8, @intCast(i + 1));
 
     copyWithPartialInline(s[0..], b[0..]);
     try expect(s[0] == 0x1020304);
@@ -473,7 +470,6 @@ test "binary math operator in partially inlined function" {
 }
 
 test "comptime shl" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -504,7 +500,6 @@ test "comptime bitwise operators" {
 
 test "comptime shlWithOverflow" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const ct_shifted = @shlWithOverflow(~@as(u64, 0), 16)[0];
@@ -630,7 +625,7 @@ test "const global shares pointer with other same one" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try assertEqualPtrs(&hi1[0], &hi2[0]);
-    comptime try expect(&hi1[0] == &hi2[0]);
+    try comptime expect(&hi1[0] == &hi2[0]);
 }
 fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) !void {
     try expect(ptr1 == ptr2);
@@ -651,8 +646,8 @@ fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) !void {
 test "string literal used as comptime slice is memoized" {
     const a = "link";
     const b = "link";
-    comptime try expect(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
-    comptime try expect(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
+    try comptime expect(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
+    try comptime expect(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
 }
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
@@ -815,8 +810,6 @@ test "array concatenation peer resolves element types - pointer" {
 }
 
 test "array concatenation sets the sentinel - value" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -854,8 +847,6 @@ test "array concatenation sets the sentinel - pointer" {
 }
 
 test "array multiplication sets the sentinel - value" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -951,7 +942,7 @@ test "comptime pointer load through elem_ptr" {
                 .x = i,
             };
         }
-        var ptr = @ptrCast([*]S, &array);
+        var ptr = @as([*]S, @ptrCast(&array));
         var x = ptr[0].x;
         assert(x == 0);
         ptr += 1;
@@ -1081,7 +1072,7 @@ test "comptime break operand passing through runtime condition converted to runt
     };
 
     try S.doTheTest('b');
-    comptime try S.doTheTest('b');
+    try comptime S.doTheTest('b');
 }
 
 test "comptime break operand passing through runtime switch converted to runtime break" {
@@ -1101,7 +1092,7 @@ test "comptime break operand passing through runtime switch converted to runtime
     };
 
     try S.doTheTest('b');
-    comptime try S.doTheTest('b');
+    try comptime S.doTheTest('b');
 }
 
 test "no dependency loop for alignment of self struct" {
@@ -1290,9 +1281,9 @@ test "comptime write through extern struct reinterpreted as array" {
             c: u8,
         };
         var s: S = undefined;
-        @ptrCast(*[3]u8, &s)[0] = 1;
-        @ptrCast(*[3]u8, &s)[1] = 2;
-        @ptrCast(*[3]u8, &s)[2] = 3;
+        @as(*[3]u8, @ptrCast(&s))[0] = 1;
+        @as(*[3]u8, @ptrCast(&s))[1] = 2;
+        @as(*[3]u8, @ptrCast(&s))[2] = 3;
         assert(s.a == 1);
         assert(s.b == 2);
         assert(s.c == 3);
@@ -1358,7 +1349,7 @@ test "value in if block is comptime-known" {
         const s = if (false) S{ .str = "a" } else S{ .str = "b" };
         break :blk "foo" ++ s.str;
     };
-    comptime try expect(std.mem.eql(u8, first, second));
+    try comptime expect(std.mem.eql(u8, first, second));
 }
 
 test "lazy sizeof is resolved in division" {
@@ -1380,8 +1371,8 @@ test "lazy value is resolved as slice operand" {
     var a: [512]u64 = undefined;
 
     const ptr1 = a[0..@sizeOf(A)];
-    const ptr2 = @ptrCast([*]u8, &a)[0..@sizeOf(A)];
-    try expect(@ptrToInt(ptr1) == @ptrToInt(ptr2));
+    const ptr2 = @as([*]u8, @ptrCast(&a))[0..@sizeOf(A)];
+    try expect(@intFromPtr(ptr1) == @intFromPtr(ptr2));
     try expect(ptr1.len == ptr2.len);
 }
 
@@ -1457,7 +1448,7 @@ test "length of global array is determinable at comptime" {
             try std.testing.expect(bytes.len == 1024);
         }
     };
-    comptime try S.foo();
+    try comptime S.foo();
 }
 
 test "continue nested inline for loop" {
@@ -1555,7 +1546,6 @@ test "x or true is comptime-known true" {
 test "non-optional and optional array elements concatenated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -1584,7 +1574,7 @@ test "comptime function turns function value to function pointer" {
             fnPtr(Nil),
         };
     };
-    comptime try expect(S.foo[0] == &S.Nil);
+    try comptime expect(S.foo[0] == &S.Nil);
 }
 
 test "container level const and var have unique addresses" {

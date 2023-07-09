@@ -28,7 +28,7 @@ comptime {
 
 pub fn __log10h(a: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @floatCast(f16, log10f(a));
+    return @as(f16, @floatCast(log10f(a)));
 }
 
 pub fn log10f(x_: f32) callconv(.C) f32 {
@@ -42,7 +42,7 @@ pub fn log10f(x_: f32) callconv(.C) f32 {
     const Lg4: f32 = 0xf89e26.0p-26;
 
     var x = x_;
-    var u = @bitCast(u32, x);
+    var u = @as(u32, @bitCast(x));
     var ix = u;
     var k: i32 = 0;
 
@@ -59,7 +59,7 @@ pub fn log10f(x_: f32) callconv(.C) f32 {
 
         k -= 25;
         x *= 0x1.0p25;
-        ix = @bitCast(u32, x);
+        ix = @as(u32, @bitCast(x));
     } else if (ix >= 0x7F800000) {
         return x;
     } else if (ix == 0x3F800000) {
@@ -68,9 +68,9 @@ pub fn log10f(x_: f32) callconv(.C) f32 {
 
     // x into [sqrt(2) / 2, sqrt(2)]
     ix += 0x3F800000 - 0x3F3504F3;
-    k += @intCast(i32, ix >> 23) - 0x7F;
+    k += @as(i32, @intCast(ix >> 23)) - 0x7F;
     ix = (ix & 0x007FFFFF) + 0x3F3504F3;
-    x = @bitCast(f32, ix);
+    x = @as(f32, @bitCast(ix));
 
     const f = x - 1.0;
     const s = f / (2.0 + f);
@@ -82,11 +82,11 @@ pub fn log10f(x_: f32) callconv(.C) f32 {
     const hfsq = 0.5 * f * f;
 
     var hi = f - hfsq;
-    u = @bitCast(u32, hi);
+    u = @as(u32, @bitCast(hi));
     u &= 0xFFFFF000;
-    hi = @bitCast(f32, u);
+    hi = @as(f32, @bitCast(u));
     const lo = f - hi - hfsq + s * (hfsq + R);
-    const dk = @intToFloat(f32, k);
+    const dk = @as(f32, @floatFromInt(k));
 
     return dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi + hi * ivln10hi + dk * log10_2hi;
 }
@@ -105,8 +105,8 @@ pub fn log10(x_: f64) callconv(.C) f64 {
     const Lg7: f64 = 1.479819860511658591e-01;
 
     var x = x_;
-    var ix = @bitCast(u64, x);
-    var hx = @intCast(u32, ix >> 32);
+    var ix = @as(u64, @bitCast(x));
+    var hx = @as(u32, @intCast(ix >> 32));
     var k: i32 = 0;
 
     if (hx < 0x00100000 or hx >> 31 != 0) {
@@ -122,7 +122,7 @@ pub fn log10(x_: f64) callconv(.C) f64 {
         // subnormal, scale x
         k -= 54;
         x *= 0x1.0p54;
-        hx = @intCast(u32, @bitCast(u64, x) >> 32);
+        hx = @as(u32, @intCast(@as(u64, @bitCast(x)) >> 32));
     } else if (hx >= 0x7FF00000) {
         return x;
     } else if (hx == 0x3FF00000 and ix << 32 == 0) {
@@ -131,10 +131,10 @@ pub fn log10(x_: f64) callconv(.C) f64 {
 
     // x into [sqrt(2) / 2, sqrt(2)]
     hx += 0x3FF00000 - 0x3FE6A09E;
-    k += @intCast(i32, hx >> 20) - 0x3FF;
+    k += @as(i32, @intCast(hx >> 20)) - 0x3FF;
     hx = (hx & 0x000FFFFF) + 0x3FE6A09E;
     ix = (@as(u64, hx) << 32) | (ix & 0xFFFFFFFF);
-    x = @bitCast(f64, ix);
+    x = @as(f64, @bitCast(ix));
 
     const f = x - 1.0;
     const hfsq = 0.5 * f * f;
@@ -147,14 +147,14 @@ pub fn log10(x_: f64) callconv(.C) f64 {
 
     // hi + lo = f - hfsq + s * (hfsq + R) ~ log(1 + f)
     var hi = f - hfsq;
-    var hii = @bitCast(u64, hi);
+    var hii = @as(u64, @bitCast(hi));
     hii &= @as(u64, maxInt(u64)) << 32;
-    hi = @bitCast(f64, hii);
+    hi = @as(f64, @bitCast(hii));
     const lo = f - hi - hfsq + s * (hfsq + R);
 
     // val_hi + val_lo ~ log10(1 + f) + k * log10(2)
     var val_hi = hi * ivln10hi;
-    const dk = @intToFloat(f64, k);
+    const dk = @as(f64, @floatFromInt(k));
     const y = dk * log10_2hi;
     var val_lo = dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi;
 
@@ -168,12 +168,12 @@ pub fn log10(x_: f64) callconv(.C) f64 {
 
 pub fn __log10x(a: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @floatCast(f80, log10q(a));
+    return @as(f80, @floatCast(log10q(a)));
 }
 
 pub fn log10q(a: f128) callconv(.C) f128 {
     // TODO: more correct implementation
-    return log10(@floatCast(f64, a));
+    return log10(@as(f64, @floatCast(a)));
 }
 
 pub fn log10l(x: c_longdouble) callconv(.C) c_longdouble {

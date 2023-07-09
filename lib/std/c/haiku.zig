@@ -13,7 +13,7 @@ pub const _errno = _errnop;
 
 pub extern "c" fn find_directory(which: directory_which, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) status_t;
 
-pub extern "c" fn find_path(codePointer: *const u8, baseDirectory: path_base_directory, subPath: [*:0]const u8, pathBuffer: [*:0]u8, bufferSize: usize) status_t;
+pub extern "c" fn find_path(codePointer: ?*const u8, baseDirectory: path_base_directory, subPath: ?[*:0]const u8, pathBuffer: [*:0]u8, bufferSize: usize) status_t;
 
 pub extern "c" fn find_thread(thread_name: ?*anyopaque) i32;
 
@@ -173,25 +173,25 @@ pub const Flock = extern struct {
 
 pub const msghdr = extern struct {
     /// optional address
-    msg_name: ?*sockaddr,
+    name: ?*sockaddr,
 
     /// size of address
-    msg_namelen: socklen_t,
+    namelen: socklen_t,
 
     /// scatter/gather array
-    msg_iov: [*]iovec,
+    iov: [*]iovec,
 
     /// # elements in msg_iov
-    msg_iovlen: i32,
+    iovlen: i32,
 
     /// ancillary data
-    msg_control: ?*anyopaque,
+    control: ?*anyopaque,
 
     /// ancillary data buffer len
-    msg_controllen: socklen_t,
+    controllen: socklen_t,
 
     /// flags on received message
-    msg_flags: i32,
+    flags: i32,
 };
 
 pub const off_t = i64;
@@ -414,7 +414,7 @@ pub const CLOCK = struct {
 
 pub const MAP = struct {
     /// mmap() error return code
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     /// changes are seen by others
     pub const SHARED = 0x01;
     /// changes are only seen by caller
@@ -443,7 +443,7 @@ pub const W = struct {
     pub const NOWAIT = 0x20;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, s & 0xff);
+        return @as(u8, @intCast(s & 0xff));
     }
 
     pub fn TERMSIG(s: u32) u32 {
@@ -481,9 +481,9 @@ pub const SA = struct {
 };
 
 pub const SIG = struct {
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
 
     pub const HUP = 1;
     pub const INT = 2;
@@ -1068,3 +1068,8 @@ pub const sigevent = extern struct {
     sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
     sigev_notify_attributes: ?*pthread_attr_t,
 };
+
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = 2 * 4096;
+
+pub extern "c" fn malloc_usable_size(?*anyopaque) usize;

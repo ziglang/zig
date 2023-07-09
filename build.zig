@@ -9,7 +9,7 @@ const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
 
-const zig_version = std.builtin.Version{ .major = 0, .minor = 11, .patch = 0 };
+const zig_version = std.SemanticVersion{ .major = 0, .minor = 11, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
@@ -30,6 +30,7 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run all the tests");
     const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
+    const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
@@ -104,7 +105,7 @@ pub fn build(b: *std.Build) !void {
 
     if (!skip_install_lib_files) {
         b.installDirectory(InstallDirectoryOptions{
-            .source_dir = "lib",
+            .source_dir = .{ .path = "lib" },
             .install_dir = .lib,
             .install_subdir = "zig",
             .exclude_extensions = &[_][]const u8{
@@ -165,8 +166,15 @@ pub fn build(b: *std.Build) !void {
     exe.strip = strip;
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
-    exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.entitlements = entitlements;
+    if (no_bin) exe.emit_bin = .no_emit;
+
+    exe.build_id = b.option(
+        std.Build.Step.Compile.BuildId,
+        "build-id",
+        "Request creation of '.note.gnu.build-id' section",
+    );
+
     b.installArtifact(exe);
 
     test_step.dependOn(&exe.step);
@@ -191,7 +199,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
-    exe_options.addOption(bool, "omit_pkg_fetching_code", only_c);
+    exe_options.addOption(bool, "only_core_functionality", only_c);
 
     if (link_libc) {
         exe.linkLibC();
@@ -229,12 +237,12 @@ pub fn build(b: *std.Build) !void {
             },
             2 => {
                 // Untagged development build (e.g. 0.10.0-dev.2025+ecf0050a9).
-                var it = mem.split(u8, git_describe, "-");
+                var it = mem.splitScalar(u8, git_describe, '-');
                 const tagged_ancestor = it.first();
                 const commit_height = it.next().?;
                 const commit_id = it.next().?;
 
-                const ancestor_ver = try std.builtin.Version.parse(tagged_ancestor);
+                const ancestor_ver = try std.SemanticVersion.parse(tagged_ancestor);
                 if (zig_version.order(ancestor_ver) != .gt) {
                     std.debug.print("Zig version '{}' must be greater than tagged ancestor '{}'\n", .{ zig_version, ancestor_ver });
                     std.process.exit(1);
@@ -274,7 +282,7 @@ pub fn build(b: *std.Build) !void {
             // That means we also have to rely on stage1 compiled c++ files. We parse config.h to find
             // the information passed on to us from cmake.
             if (cfg.cmake_prefix_path.len > 0) {
-                var it = mem.tokenize(u8, cfg.cmake_prefix_path, ";");
+                var it = mem.tokenizeScalar(u8, cfg.cmake_prefix_path, ';');
                 while (it.next()) |path| {
                     b.addSearchPrefix(path);
                 }
@@ -347,7 +355,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
     test_cases_options.addOption(bool, "only_c", only_c);
-    test_cases_options.addOption(bool, "omit_pkg_fetching_code", true);
+    test_cases_options.addOption(bool, "only_core_functionality", true);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
@@ -462,9 +470,8 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
-        // I observed a value of 3398275072 on my M1, and multiplied by 1.1 to
-        // get this amount:
-        .max_rss = 3738102579,
+        // I observed a value of 4572626944 on the M2 CI.
+        .max_rss = 5029889638,
     }));
 
     try addWasiUpdateStep(b, version);
@@ -480,7 +487,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
     };
-    target.cpu_features_add.addFeature(@enumToInt(std.Target.wasm.Feature.bulk_memory));
+    target.cpu_features_add.addFeature(@intFromEnum(std.Target.wasm.Feature.bulk_memory));
 
     const exe = addCompilerStep(b, .ReleaseSmall, target);
 
@@ -499,7 +506,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "enable_tracy_callstack", false);
     exe_options.addOption(bool, "enable_tracy_allocation", false);
     exe_options.addOption(bool, "value_tracing", false);
-    exe_options.addOption(bool, "omit_pkg_fetching_code", true);
+    exe_options.addOption(bool, "only_core_functionality", true);
 
     const run_opt = b.addSystemCommand(&.{
         "wasm-opt",
@@ -677,7 +684,7 @@ fn addCxxKnownPath(
     if (!std.process.can_spawn)
         return error.RequiredLibraryNotFound;
     const path_padded = b.exec(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
-    var tokenizer = mem.tokenize(u8, path_padded, "\r\n");
+    var tokenizer = mem.tokenizeAny(u8, path_padded, "\r\n");
     const path_unpadded = tokenizer.next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
         if (errtxt) |msg| {
@@ -700,7 +707,7 @@ fn addCxxKnownPath(
 }
 
 fn addCMakeLibraryList(exe: *std.Build.Step.Compile, list: []const u8) void {
-    var it = mem.tokenize(u8, list, ";");
+    var it = mem.tokenizeScalar(u8, list, ';');
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
             exe.linkSystemLibrary(lib["-l".len..]);
@@ -845,18 +852,18 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
         // .prefix = ZIG_LLVM_LINK_MODE parsed manually below
     };
 
-    var lines_it = mem.tokenize(u8, config_h_text, "\r\n");
+    var lines_it = mem.tokenizeAny(u8, config_h_text, "\r\n");
     while (lines_it.next()) |line| {
         inline for (mappings) |mapping| {
             if (mem.startsWith(u8, line, mapping.prefix)) {
-                var it = mem.split(u8, line, "\"");
+                var it = mem.splitScalar(u8, line, '"');
                 _ = it.first(); // skip the stuff before the quote
                 const quoted = it.next().?; // the stuff inside the quote
                 @field(ctx, mapping.field) = toNativePathSep(b, quoted);
             }
         }
         if (mem.startsWith(u8, line, "#define ZIG_LLVM_LINK_MODE ")) {
-            var it = mem.split(u8, line, "\"");
+            var it = mem.splitScalar(u8, line, '"');
             _ = it.next().?; // skip the stuff before the quote
             const quoted = it.next().?; // the stuff inside the quote
             ctx.llvm_linkage = if (mem.eql(u8, quoted, "shared")) .dynamic else .static;

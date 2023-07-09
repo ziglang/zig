@@ -337,8 +337,8 @@ pub fn Salsa(comptime rounds: comptime_int) type {
             var d: [4]u32 = undefined;
             d[0] = mem.readIntLittle(u32, nonce[0..4]);
             d[1] = mem.readIntLittle(u32, nonce[4..8]);
-            d[2] = @truncate(u32, counter);
-            d[3] = @truncate(u32, counter >> 32);
+            d[2] = @as(u32, @truncate(counter));
+            d[3] = @as(u32, @truncate(counter >> 32));
             SalsaImpl(rounds).salsaXor(out, in, keyToWords(key), d);
         }
     };
@@ -404,7 +404,7 @@ pub const XSalsa20Poly1305 = struct {
         debug.assert(c.len == m.len);
         const extended = extend(rounds, k, npub);
         var block0 = [_]u8{0} ** 64;
-        const mlen0 = math.min(32, c.len);
+        const mlen0 = @min(32, c.len);
         @memcpy(block0[32..][0..mlen0], c[0..mlen0]);
         Salsa20.xor(block0[0..], block0[0..], 0, extended.key, extended.nonce);
         var mac = Poly1305.init(block0[0..32]);

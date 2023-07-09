@@ -61,6 +61,13 @@ rename_step_with_output_arg: bool = true,
 /// nothing.
 skip_foreign_checks: bool = false,
 
+/// If this is true, failing to execute a foreign binary will be considered an
+/// error. However if this is false, the step will be skipped on failure instead.
+///
+/// This allows for a Run step to attempt to execute a foreign binary using an
+/// external executor (such as qemu) but not fail if the executor is unavailable.
+failing_to_execute_foreign_is_an_error: bool = true,
+
 /// If stderr or stdout exceeds this amount, the child process is killed and
 /// the step fails.
 max_stdio_size: usize = 10 * 1024 * 1024,
@@ -105,10 +112,15 @@ pub const StdIo = union(enum) {
 
 pub const Arg = union(enum) {
     artifact: *Step.Compile,
-    file_source: std.Build.FileSource,
-    directory_source: std.Build.FileSource,
+    file_source: PrefixedFileSource,
+    directory_source: PrefixedFileSource,
     bytes: []u8,
     output: *Output,
+};
+
+pub const PrefixedFileSource = struct {
+    prefix: []const u8,
+    file_source: std.Build.FileSource,
 };
 
 pub const Output = struct {
@@ -138,9 +150,9 @@ pub fn setName(self: *Run, name: []const u8) void {
     self.rename_step_with_output_arg = false;
 }
 
-pub fn enableTestRunnerMode(rs: *Run) void {
-    rs.stdio = .zig_test;
-    rs.addArgs(&.{"--listen=-"});
+pub fn enableTestRunnerMode(self: *Run) void {
+    self.stdio = .zig_test;
+    self.addArgs(&.{"--listen=-"});
 }
 
 pub fn addArtifactArg(self: *Run, artifact: *Step.Compile) void {
@@ -151,43 +163,59 @@ pub fn addArtifactArg(self: *Run, artifact: *Step.Compile) void {
 /// This provides file path as a command line argument to the command being
 /// run, and returns a FileSource which can be used as inputs to other APIs
 /// throughout the build system.
-pub fn addOutputFileArg(rs: *Run, basename: []const u8) std.Build.FileSource {
-    return addPrefixedOutputFileArg(rs, "", basename);
+pub fn addOutputFileArg(self: *Run, basename: []const u8) std.Build.FileSource {
+    return self.addPrefixedOutputFileArg("", basename);
 }
 
 pub fn addPrefixedOutputFileArg(
-    rs: *Run,
+    self: *Run,
     prefix: []const u8,
     basename: []const u8,
 ) std.Build.FileSource {
-    const b = rs.step.owner;
+    const b = self.step.owner;
 
     const output = b.allocator.create(Output) catch @panic("OOM");
     output.* = .{
         .prefix = prefix,
         .basename = basename,
-        .generated_file = .{ .step = &rs.step },
+        .generated_file = .{ .step = &self.step },
     };
-    rs.argv.append(.{ .output = output }) catch @panic("OOM");
+    self.argv.append(.{ .output = output }) catch @panic("OOM");
 
-    if (rs.rename_step_with_output_arg) {
-        rs.setName(b.fmt("{s} ({s})", .{ rs.step.name, basename }));
+    if (self.rename_step_with_output_arg) {
+        self.setName(b.fmt("{s} ({s})", .{ self.step.name, basename }));
     }
 
     return .{ .generated = &output.generated_file };
 }
 
 pub fn addFileSourceArg(self: *Run, file_source: std.Build.FileSource) void {
-    self.argv.append(.{
-        .file_source = file_source.dupe(self.step.owner),
-    }) catch @panic("OOM");
+    self.addPrefixedFileSourceArg("", file_source);
+}
+
+pub fn addPrefixedFileSourceArg(self: *Run, prefix: []const u8, file_source: std.Build.FileSource) void {
+    const b = self.step.owner;
+
+    const prefixed_file_source: PrefixedFileSource = .{
+        .prefix = b.dupe(prefix),
+        .file_source = file_source.dupe(b),
+    };
+    self.argv.append(.{ .file_source = prefixed_file_source }) catch @panic("OOM");
     file_source.addStepDependencies(&self.step);
 }
 
 pub fn addDirectorySourceArg(self: *Run, directory_source: std.Build.FileSource) void {
-    self.argv.append(.{
-        .directory_source = directory_source.dupe(self.step.owner),
-    }) catch @panic("OOM");
+    self.addPrefixedDirectorySourceArg("", directory_source);
+}
+
+pub fn addPrefixedDirectorySourceArg(self: *Run, prefix: []const u8, directory_source: std.Build.FileSource) void {
+    const b = self.step.owner;
+
+    const prefixed_directory_source: PrefixedFileSource = .{
+        .prefix = b.dupe(prefix),
+        .file_source = directory_source.dupe(b),
+    };
+    self.argv.append(.{ .directory_source = prefixed_directory_source }) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
@@ -388,13 +416,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 man.hash.addBytes(bytes);
             },
             .file_source => |file| {
-                const file_path = file.getPath(b);
-                try argv_list.append(file_path);
+                const file_path = file.file_source.getPath(b);
+                try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
+                man.hash.addBytes(file.prefix);
                 _ = try man.addFile(file_path, null);
             },
             .directory_source => |file| {
-                const file_path = file.getPath(b);
-                try argv_list.append(file_path);
+                const file_path = file.file_source.getPath(b);
+                try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
+                man.hash.addBytes(file.prefix);
                 man.hash.addBytes(file_path);
             },
             .artifact => |artifact| {
@@ -422,6 +452,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 });
             },
         }
+    }
+
+    if (self.stdin) |bytes| {
+        man.hash.addBytes(bytes);
     }
 
     if (self.captured_stdout) |output| {
@@ -680,6 +714,8 @@ fn runCommand(
             try Step.handleVerbose2(step.owner, self.cwd, self.env_map, interp_argv.items);
 
             break :term spawnChildAndCollect(self, interp_argv.items, has_side_effects, prog_node) catch |e| {
+                if (!self.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
+
                 return step.fail("unable to spawn interpreter {s}: {s}", .{
                     interp_argv.items[0], @errorName(e),
                 });
@@ -985,7 +1021,7 @@ fn evalZigTest(
             },
             .test_metadata => {
                 const TmHdr = std.zig.Server.Message.TestMetadata;
-                const tm_hdr = @ptrCast(*align(1) const TmHdr, body);
+                const tm_hdr = @as(*align(1) const TmHdr, @ptrCast(body));
                 test_count = tm_hdr.tests_len;
 
                 const names_bytes = body[@sizeOf(TmHdr)..][0 .. test_count * @sizeOf(u32)];
@@ -1021,10 +1057,10 @@ fn evalZigTest(
                 const md = metadata.?;
 
                 const TrHdr = std.zig.Server.Message.TestResults;
-                const tr_hdr = @ptrCast(*align(1) const TrHdr, body);
-                fail_count += @boolToInt(tr_hdr.flags.fail);
-                skip_count += @boolToInt(tr_hdr.flags.skip);
-                leak_count += @boolToInt(tr_hdr.flags.leak);
+                const tr_hdr = @as(*align(1) const TrHdr, @ptrCast(body));
+                fail_count += @intFromBool(tr_hdr.flags.fail);
+                skip_count += @intFromBool(tr_hdr.flags.skip);
+                leak_count += @intFromBool(tr_hdr.flags.leak);
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);

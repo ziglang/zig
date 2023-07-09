@@ -109,7 +109,7 @@ pub fn createThunks(zld: *Zld, sect_id: u8) !void {
 
         while (true) {
             const atom = zld.getAtom(group_end);
-            offset = mem.alignForwardGeneric(u64, offset, try math.powi(u32, 2, atom.alignment));
+            offset = mem.alignForward(u64, offset, try math.powi(u32, 2, atom.alignment));
 
             const sym = zld.getSymbolPtr(atom.getSymbolWithLoc());
             sym.n_value = offset;
@@ -131,7 +131,7 @@ pub fn createThunks(zld: *Zld, sect_id: u8) !void {
         log.debug("GROUP END at {d}", .{group_end});
 
         // Insert thunk at group_end
-        const thunk_index = @intCast(u32, zld.thunks.items.len);
+        const thunk_index = @as(u32, @intCast(zld.thunks.items.len));
         try zld.thunks.append(gpa, .{ .start_index = undefined, .len = 0 });
 
         // Scan relocs in the group and create trampolines for any unreachable callsite.
@@ -153,7 +153,7 @@ pub fn createThunks(zld: *Zld, sect_id: u8) !void {
             } else break;
         }
 
-        offset = mem.alignForwardGeneric(u64, offset, Thunk.getAlignment());
+        offset = mem.alignForward(u64, offset, Thunk.getAlignment());
         allocateThunk(zld, thunk_index, offset, header);
         offset += zld.thunks.items[thunk_index].getSize();
 
@@ -174,7 +174,7 @@ pub fn createThunks(zld: *Zld, sect_id: u8) !void {
         }
     }
 
-    header.size = @intCast(u32, offset);
+    header.size = @as(u32, @intCast(offset));
 }
 
 fn allocateThunk(
@@ -193,7 +193,7 @@ fn allocateThunk(
     var offset = base_offset;
     while (true) {
         const atom = zld.getAtom(atom_index);
-        offset = mem.alignForwardGeneric(u64, offset, Thunk.getAlignment());
+        offset = mem.alignForward(u64, offset, Thunk.getAlignment());
 
         const sym = zld.getSymbolPtr(atom.getSymbolWithLoc());
         sym.n_value = offset;
@@ -223,7 +223,7 @@ fn scanRelocs(
 
     const base_offset = if (object.getSourceSymbol(atom.sym_index)) |source_sym| blk: {
         const source_sect = object.getSourceSection(source_sym.n_sect - 1);
-        break :blk @intCast(i32, source_sym.n_value - source_sect.addr);
+        break :blk @as(i32, @intCast(source_sym.n_value - source_sect.addr));
     } else 0;
 
     const code = Atom.getAtomCode(zld, atom_index);
@@ -289,7 +289,7 @@ fn scanRelocs(
 }
 
 inline fn relocNeedsThunk(rel: macho.relocation_info) bool {
-    const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+    const rel_type = @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type));
     return rel_type == .ARM64_RELOC_BRANCH26;
 }
 
@@ -315,7 +315,7 @@ fn isReachable(
 
     if (!allocated.contains(target_atom_index)) return false;
 
-    const source_addr = source_sym.n_value + @intCast(u32, rel.r_address - base_offset);
+    const source_addr = source_sym.n_value + @as(u32, @intCast(rel.r_address - base_offset));
     const is_via_got = Atom.relocRequiresGot(zld, rel);
     const target_addr = Atom.getRelocTargetAddress(zld, target, is_via_got, false) catch unreachable;
     _ = Relocation.calcPcRelativeDisplacementArm64(source_addr, target_addr) catch
@@ -349,7 +349,7 @@ fn getThunkIndex(zld: *Zld, atom_index: AtomIndex) ?ThunkIndex {
         const end_addr = start_addr + thunk.getSize();
 
         if (start_addr <= sym.n_value and sym.n_value < end_addr) {
-            return @intCast(u32, i);
+            return @as(u32, @intCast(i));
         }
     }
     return null;

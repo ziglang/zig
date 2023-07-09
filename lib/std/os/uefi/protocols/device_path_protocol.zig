@@ -23,10 +23,10 @@ pub const DevicePathProtocol = extern struct {
 
     /// Returns the next DevicePathProtocol node in the sequence, if any.
     pub fn next(self: *DevicePathProtocol) ?*DevicePathProtocol {
-        if (self.type == .End and @intToEnum(EndDevicePath.Subtype, self.subtype) == .EndEntire)
+        if (self.type == .End and @as(EndDevicePath.Subtype, @enumFromInt(self.subtype)) == .EndEntire)
             return null;
 
-        return @ptrCast(*DevicePathProtocol, @ptrCast([*]u8, self) + self.length);
+        return @as(*DevicePathProtocol, @ptrCast(@as([*]u8, @ptrCast(self)) + self.length));
     }
 
     /// Calculates the total length of the device path structure in bytes, including the end of device path node.
@@ -37,7 +37,7 @@ pub const DevicePathProtocol = extern struct {
             node = next_node;
         }
 
-        return (@ptrToInt(node) + node.length) - @ptrToInt(self);
+        return (@intFromPtr(node) + node.length) - @intFromPtr(self);
     }
 
     /// Creates a file device path from the existing device path and a file path.
@@ -48,30 +48,30 @@ pub const DevicePathProtocol = extern struct {
         // DevicePathProtocol for the extra node before the end
         var buf = try allocator.alloc(u8, path_size + 2 * (path.len + 1) + @sizeOf(DevicePathProtocol));
 
-        @memcpy(buf[0..path_size.len], @ptrCast([*]const u8, self)[0..path_size]);
+        @memcpy(buf[0..path_size.len], @as([*]const u8, @ptrCast(self))[0..path_size]);
 
         // Pointer to the copy of the end node of the current chain, which is - 4 from the buffer
         // as the end node itself is 4 bytes (type: u8 + subtype: u8 + length: u16).
-        var new = @ptrCast(*MediaDevicePath.FilePathDevicePath, buf.ptr + path_size - 4);
+        var new = @as(*MediaDevicePath.FilePathDevicePath, @ptrCast(buf.ptr + path_size - 4));
 
         new.type = .Media;
         new.subtype = .FilePath;
-        new.length = @sizeOf(MediaDevicePath.FilePathDevicePath) + 2 * (@intCast(u16, path.len) + 1);
+        new.length = @sizeOf(MediaDevicePath.FilePathDevicePath) + 2 * (@as(u16, @intCast(path.len)) + 1);
 
         // The same as new.getPath(), but not const as we're filling it in.
-        var ptr = @ptrCast([*:0]align(1) u16, @ptrCast([*]u8, new) + @sizeOf(MediaDevicePath.FilePathDevicePath));
+        var ptr = @as([*:0]align(1) u16, @ptrCast(@as([*]u8, @ptrCast(new)) + @sizeOf(MediaDevicePath.FilePathDevicePath)));
 
         for (path, 0..) |s, i|
             ptr[i] = s;
 
         ptr[path.len] = 0;
 
-        var end = @ptrCast(*EndDevicePath.EndEntireDevicePath, @ptrCast(*DevicePathProtocol, new).next().?);
+        var end = @as(*EndDevicePath.EndEntireDevicePath, @ptrCast(@as(*DevicePathProtocol, @ptrCast(new)).next().?));
         end.type = .End;
         end.subtype = .EndEntire;
         end.length = @sizeOf(EndDevicePath.EndEntireDevicePath);
 
-        return @ptrCast(*DevicePathProtocol, buf.ptr);
+        return @as(*DevicePathProtocol, @ptrCast(buf.ptr));
     }
 
     pub fn getDevicePath(self: *const DevicePathProtocol) ?DevicePath {
@@ -99,11 +99,11 @@ pub const DevicePathProtocol = extern struct {
 
         inline for (type_info.fields) |subtype| {
             // The tag names match the union names, so just grab that off the enum
-            const tag_val: u8 = @enumToInt(@field(TTag, subtype.name));
+            const tag_val: u8 = @intFromEnum(@field(TTag, subtype.name));
 
             if (self.subtype == tag_val) {
                 // e.g. expr = .{ .Pci = @ptrCast(...) }
-                return @unionInit(TUnion, subtype.name, @ptrCast(subtype.type, self));
+                return @unionInit(TUnion, subtype.name, @as(subtype.type, @ptrCast(self)));
             }
         }
 
@@ -332,7 +332,7 @@ pub const AcpiDevicePath = union(Subtype) {
         pub fn adrs(self: *const AdrDevicePath) []align(1) const u32 {
             // self.length is a minimum of 8 with one adr which is size 4.
             var entries = (self.length - 4) / @sizeOf(u32);
-            return @ptrCast([*]align(1) const u32, &self.adr)[0..entries];
+            return @as([*]align(1) const u32, @ptrCast(&self.adr))[0..entries];
         }
     };
 
@@ -550,7 +550,7 @@ pub const MessagingDevicePath = union(Subtype) {
 
         pub fn serial_number(self: *const UsbWwidDevicePath) []align(1) const u16 {
             var serial_len = (self.length - @sizeOf(UsbWwidDevicePath)) / @sizeOf(u16);
-            return @ptrCast([*]align(1) const u16, @ptrCast([*]const u8, self) + @sizeOf(UsbWwidDevicePath))[0..serial_len];
+            return @as([*]align(1) const u16, @ptrCast(@as([*]const u8, @ptrCast(self)) + @sizeOf(UsbWwidDevicePath)))[0..serial_len];
         }
     };
 
@@ -943,7 +943,7 @@ pub const MediaDevicePath = union(Subtype) {
         length: u16 align(1),
 
         pub fn getPath(self: *const FilePathDevicePath) [*:0]align(1) const u16 {
-            return @ptrCast([*:0]align(1) const u16, @ptrCast([*]const u8, self) + @sizeOf(FilePathDevicePath));
+            return @as([*:0]align(1) const u16, @ptrCast(@as([*]const u8, @ptrCast(self)) + @sizeOf(FilePathDevicePath)));
         }
     };
 
@@ -1068,7 +1068,7 @@ pub const BiosBootSpecificationDevicePath = union(Subtype) {
         status_flag: u16 align(1),
 
         pub fn getDescription(self: *const BBS101DevicePath) [*:0]const u8 {
-            return @ptrCast([*:0]const u8, self) + @sizeOf(BBS101DevicePath);
+            return @as([*:0]const u8, @ptrCast(self)) + @sizeOf(BBS101DevicePath);
         }
     };
 

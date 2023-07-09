@@ -149,7 +149,8 @@ discarded: std.AutoHashMapUnmanaged(SymbolLoc, SymbolLoc) = .{},
 /// into the final binary.
 resolved_symbols: std.AutoArrayHashMapUnmanaged(SymbolLoc, void) = .{},
 /// Symbols that remain undefined after symbol resolution.
-undefs: std.StringArrayHashMapUnmanaged(SymbolLoc) = .{},
+/// Note: The key represents an offset into the string table, rather than the actual string.
+undefs: std.AutoArrayHashMapUnmanaged(u32, SymbolLoc) = .{},
 /// Maps a symbol's location to an atom. This can be used to find meta
 /// data of a symbol, such as its size, or its offset to perform a relocation.
 /// Undefined (and synthetic) symbols do not have an Atom and therefore cannot be mapped.
@@ -195,7 +196,7 @@ pub const Segment = struct {
     };
 
     pub fn isPassive(segment: Segment) bool {
-        return segment.flags & @enumToInt(Flag.WASM_DATA_SEGMENT_IS_PASSIVE) != 0;
+        return segment.flags & @intFromEnum(Flag.WASM_DATA_SEGMENT_IS_PASSIVE) != 0;
     }
 
     /// For a given segment, determines if it needs passive initialization
@@ -316,7 +317,7 @@ pub const StringTable = struct {
         }
 
         try table.string_data.ensureUnusedCapacity(allocator, string.len + 1);
-        const offset = @intCast(u32, table.string_data.items.len);
+        const offset = @as(u32, @intCast(table.string_data.items.len));
 
         log.debug("writing new string '{s}' at offset 0x{x}", .{ string, offset });
 
@@ -332,7 +333,7 @@ pub const StringTable = struct {
     /// Asserts offset does not exceed bounds.
     pub fn get(table: StringTable, off: u32) []const u8 {
         assert(off < table.string_data.items.len);
-        return mem.sliceTo(@ptrCast([*:0]const u8, table.string_data.items.ptr + off), 0);
+        return mem.sliceTo(@as([*:0]const u8, @ptrCast(table.string_data.items.ptr + off)), 0);
     }
 
     /// Returns the offset of a given string when it exists.
@@ -395,7 +396,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         // For object files we will import the stack pointer symbol
         if (options.output_mode == .Obj) {
             symbol.setUndefined(true);
-            symbol.index = @intCast(u32, wasm_bin.imported_globals_count);
+            symbol.index = @as(u32, @intCast(wasm_bin.imported_globals_count));
             wasm_bin.imported_globals_count += 1;
             try wasm_bin.imports.putNoClobber(
                 allocator,
@@ -407,7 +408,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
                 },
             );
         } else {
-            symbol.index = @intCast(u32, wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
+            symbol.index = @as(u32, @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len));
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
             const global = try wasm_bin.wasm_globals.addOne(allocator);
             global.* = .{
@@ -430,7 +431,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         };
         if (options.output_mode == .Obj or options.import_table) {
             symbol.setUndefined(true);
-            symbol.index = @intCast(u32, wasm_bin.imported_tables_count);
+            symbol.index = @as(u32, @intCast(wasm_bin.imported_tables_count));
             wasm_bin.imported_tables_count += 1;
             try wasm_bin.imports.put(allocator, loc, .{
                 .module_name = try wasm_bin.string_table.put(allocator, wasm_bin.host_name),
@@ -438,7 +439,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
                 .kind = .{ .table = table },
             });
         } else {
-            symbol.index = @intCast(u32, wasm_bin.imported_tables_count + wasm_bin.tables.items.len);
+            symbol.index = @as(u32, @intCast(wasm_bin.imported_tables_count + wasm_bin.tables.items.len));
             try wasm_bin.tables.append(allocator, table);
             if (options.export_table) {
                 symbol.setFlag(.WASM_SYM_EXPORTED);
@@ -514,7 +515,11 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
 /// Leaves index undefined and the default flags (0).
 fn createSyntheticSymbol(wasm: *Wasm, name: []const u8, tag: Symbol.Tag) !SymbolLoc {
     const name_offset = try wasm.string_table.put(wasm.base.allocator, name);
-    const sym_index = @intCast(u32, wasm.symbols.items.len);
+    return wasm.createSyntheticSymbolOffset(name_offset, tag);
+}
+
+fn createSyntheticSymbolOffset(wasm: *Wasm, name_offset: u32, tag: Symbol.Tag) !SymbolLoc {
+    const sym_index = @as(u32, @intCast(wasm.symbols.items.len));
     const loc: SymbolLoc = .{ .index = sym_index, .file = null };
     try wasm.symbols.append(wasm.base.allocator, .{
         .name = name_offset,
@@ -583,7 +588,7 @@ pub fn getOrCreateAtomForDecl(wasm: *Wasm, decl_index: Module.Decl.Index) !Atom.
 
 /// Creates a new empty `Atom` and returns its `Atom.Index`
 fn createAtom(wasm: *Wasm) !Atom.Index {
-    const index = @intCast(Atom.Index, wasm.managed_atoms.items.len);
+    const index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
     const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
     atom.* = Atom.empty;
     atom.sym_index = try wasm.allocateSymbol();
@@ -664,7 +669,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
     log.debug("Resolving symbols in object: '{s}'", .{object.name});
 
     for (object.symtable, 0..) |symbol, i| {
-        const sym_index = @intCast(u32, i);
+        const sym_index = @as(u32, @intCast(i));
         const location: SymbolLoc = .{
             .file = object_index,
             .index = sym_index,
@@ -691,7 +696,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
             try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, location, {});
 
             if (symbol.isUndefined()) {
-                try wasm.undefs.putNoClobber(wasm.base.allocator, sym_name, location);
+                try wasm.undefs.putNoClobber(wasm.base.allocator, sym_name_index, location);
             }
             continue;
         }
@@ -801,7 +806,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
         try wasm.resolved_symbols.put(wasm.base.allocator, location, {});
         assert(wasm.resolved_symbols.swapRemove(existing_loc));
         if (existing_sym.isUndefined()) {
-            _ = wasm.undefs.swapRemove(sym_name);
+            _ = wasm.undefs.swapRemove(sym_name_index);
         }
     }
 }
@@ -812,19 +817,20 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
     log.debug("Resolving symbols in archives", .{});
     var index: u32 = 0;
     undef_loop: while (index < wasm.undefs.count()) {
-        const sym_name = wasm.undefs.keys()[index];
+        const sym_name_index = wasm.undefs.keys()[index];
 
         for (wasm.archives.items) |archive| {
+            const sym_name = wasm.string_table.get(sym_name_index);
+            log.debug("Detected symbol '{s}' in archive '{s}', parsing objects..", .{ sym_name, archive.name });
             const offset = archive.toc.get(sym_name) orelse {
                 // symbol does not exist in this archive
                 continue;
             };
 
-            log.debug("Detected symbol '{s}' in archive '{s}', parsing objects..", .{ sym_name, archive.name });
             // Symbol is found in unparsed object file within current archive.
             // Parse object and and resolve symbols again before we check remaining
             // undefined symbols.
-            const object_file_index = @intCast(u16, wasm.objects.items.len);
+            const object_file_index = @as(u16, @intCast(wasm.objects.items.len));
             var object = try archive.parseObject(wasm.base.allocator, offset.items[0]);
             try wasm.objects.append(wasm.base.allocator, object);
             try wasm.resolveSymbolsInObject(object_file_index);
@@ -1040,7 +1046,7 @@ fn setupTLSRelocationsFunction(wasm: *Wasm) !void {
 
         try writer.writeByte(std.wasm.opcode(.i32_add));
         try writer.writeByte(std.wasm.opcode(.global_set));
-        try leb.writeULEB128(writer, wasm.imported_globals_count + @intCast(u32, wasm.wasm_globals.items.len + got_index));
+        try leb.writeULEB128(writer, wasm.imported_globals_count + @as(u32, @intCast(wasm.wasm_globals.items.len + got_index)));
     }
     try writer.writeByte(std.wasm.opcode(.end));
 
@@ -1085,17 +1091,17 @@ fn validateFeatures(
     // linked object file so we can test them.
     for (wasm.objects.items, 0..) |object, object_index| {
         for (object.features) |feature| {
-            const value = @intCast(u16, object_index) << 1 | @as(u1, 1);
+            const value = @as(u16, @intCast(object_index)) << 1 | @as(u1, 1);
             switch (feature.prefix) {
                 .used => {
-                    used[@enumToInt(feature.tag)] = value;
+                    used[@intFromEnum(feature.tag)] = value;
                 },
                 .disallowed => {
-                    disallowed[@enumToInt(feature.tag)] = value;
+                    disallowed[@intFromEnum(feature.tag)] = value;
                 },
                 .required => {
-                    required[@enumToInt(feature.tag)] = value;
-                    used[@enumToInt(feature.tag)] = value;
+                    required[@intFromEnum(feature.tag)] = value;
+                    used[@intFromEnum(feature.tag)] = value;
                 },
             }
         }
@@ -1111,12 +1117,12 @@ fn validateFeatures(
     // and insert it into the 'allowed' set. When features are not inferred,
     // we validate that a used feature is allowed.
     for (used, 0..) |used_set, used_index| {
-        const is_enabled = @truncate(u1, used_set) != 0;
+        const is_enabled = @as(u1, @truncate(used_set)) != 0;
         if (infer) {
             allowed[used_index] = is_enabled;
-            emit_features_count.* += @boolToInt(is_enabled);
+            emit_features_count.* += @intFromBool(is_enabled);
         } else if (is_enabled and !allowed[used_index]) {
-            log.err("feature '{}' not allowed, but used by linked object", .{@intToEnum(types.Feature.Tag, used_index)});
+            log.err("feature '{}' not allowed, but used by linked object", .{@as(types.Feature.Tag, @enumFromInt(used_index))});
             log.err("  defined in '{s}'", .{wasm.objects.items[used_set >> 1].name});
             valid_feature_set = false;
         }
@@ -1127,8 +1133,8 @@ fn validateFeatures(
     }
 
     if (wasm.base.options.shared_memory) {
-        const disallowed_feature = disallowed[@enumToInt(types.Feature.Tag.shared_mem)];
-        if (@truncate(u1, disallowed_feature) != 0) {
+        const disallowed_feature = disallowed[@intFromEnum(types.Feature.Tag.shared_mem)];
+        if (@as(u1, @truncate(disallowed_feature)) != 0) {
             log.err(
                 "shared-memory is disallowed by '{s}' because it wasn't compiled with 'atomics' and 'bulk-memory' features enabled",
                 .{wasm.objects.items[disallowed_feature >> 1].name},
@@ -1137,7 +1143,7 @@ fn validateFeatures(
         }
 
         for ([_]types.Feature.Tag{ .atomics, .bulk_memory }) |feature| {
-            if (!allowed[@enumToInt(feature)]) {
+            if (!allowed[@intFromEnum(feature)]) {
                 log.err("feature '{}' is not used but is required for shared-memory", .{feature});
             }
         }
@@ -1145,7 +1151,7 @@ fn validateFeatures(
 
     if (has_tls) {
         for ([_]types.Feature.Tag{ .atomics, .bulk_memory }) |feature| {
-            if (!allowed[@enumToInt(feature)]) {
+            if (!allowed[@intFromEnum(feature)]) {
                 log.err("feature '{}' is not used but is required for thread-local storage", .{feature});
             }
         }
@@ -1156,22 +1162,22 @@ fn validateFeatures(
         for (object.features) |feature| {
             if (feature.prefix == .disallowed) continue; // already defined in 'disallowed' set.
             // from here a feature is always used
-            const disallowed_feature = disallowed[@enumToInt(feature.tag)];
-            if (@truncate(u1, disallowed_feature) != 0) {
+            const disallowed_feature = disallowed[@intFromEnum(feature.tag)];
+            if (@as(u1, @truncate(disallowed_feature)) != 0) {
                 log.err("feature '{}' is disallowed, but used by linked object", .{feature.tag});
                 log.err("  disallowed by '{s}'", .{wasm.objects.items[disallowed_feature >> 1].name});
                 log.err("  used in '{s}'", .{object.name});
                 valid_feature_set = false;
             }
 
-            object_used_features[@enumToInt(feature.tag)] = true;
+            object_used_features[@intFromEnum(feature.tag)] = true;
         }
 
         // validate the linked object file has each required feature
         for (required, 0..) |required_feature, feature_index| {
-            const is_required = @truncate(u1, required_feature) != 0;
+            const is_required = @as(u1, @truncate(required_feature)) != 0;
             if (is_required and !object_used_features[feature_index]) {
-                log.err("feature '{}' is required but not used in linked object", .{@intToEnum(types.Feature.Tag, feature_index)});
+                log.err("feature '{}' is required but not used in linked object", .{@as(types.Feature.Tag, @enumFromInt(feature_index))});
                 log.err("  required by '{s}'", .{wasm.objects.items[required_feature >> 1].name});
                 log.err("  missing in '{s}'", .{object.name});
                 valid_feature_set = false;
@@ -1191,28 +1197,36 @@ fn validateFeatures(
 /// if one or multiple undefined references exist. When none exist, the symbol will
 /// not be created, ensuring we don't unneccesarily emit unreferenced symbols.
 fn resolveLazySymbols(wasm: *Wasm) !void {
-    if (wasm.undefs.fetchSwapRemove("__heap_base")) |kv| {
-        const loc = try wasm.createSyntheticSymbol("__heap_base", .data);
-        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
-        _ = wasm.resolved_symbols.swapRemove(loc); // we don't want to emit this symbol, only use it for relocations.
+    if (wasm.string_table.getOffset("__heap_base")) |name_offset| {
+        if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+            const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
+            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            _ = wasm.resolved_symbols.swapRemove(loc); // we don't want to emit this symbol, only use it for relocations.
+        }
     }
 
-    if (wasm.undefs.fetchSwapRemove("__heap_end")) |kv| {
-        const loc = try wasm.createSyntheticSymbol("__heap_end", .data);
-        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
-        _ = wasm.resolved_symbols.swapRemove(loc);
+    if (wasm.string_table.getOffset("__heap_end")) |name_offset| {
+        if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+            const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
+            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            _ = wasm.resolved_symbols.swapRemove(loc);
+        }
     }
 
     if (!wasm.base.options.shared_memory) {
-        if (wasm.undefs.fetchSwapRemove("__tls_base")) |kv| {
-            const loc = try wasm.createSyntheticSymbol("__tls_base", .global);
-            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+        if (wasm.string_table.getOffset("__tls_base")) |name_offset| {
+            if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+                const loc = try wasm.createSyntheticSymbolOffset(name_offset, .global);
+                try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            }
         }
     }
-    if (wasm.undefs.fetchSwapRemove("__zig_errors_len")) |kv| {
-        const loc = try wasm.createSyntheticSymbol("__zig_errors_len", .data);
-        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
-        _ = wasm.resolved_symbols.swapRemove(kv.value);
+    if (wasm.string_table.getOffset("__zig_errors_len")) |name_offset| {
+        if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+            const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
+            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            _ = wasm.resolved_symbols.swapRemove(kv.value);
+        }
     }
 }
 
@@ -1310,7 +1324,7 @@ pub fn allocateSymbol(wasm: *Wasm) !u32 {
     try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
     var symbol: Symbol = .{
         .name = undefined, // will be set after updateDecl
-        .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
+        .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
         .tag = undefined, // will be set after updateDecl
         .index = undefined, // will be set after updateDecl
         .virtual_address = undefined, // will be set during atom allocation
@@ -1319,22 +1333,23 @@ pub fn allocateSymbol(wasm: *Wasm) !u32 {
         wasm.symbols.items[index] = symbol;
         return index;
     }
-    const index = @intCast(u32, wasm.symbols.items.len);
+    const index = @as(u32, @intCast(wasm.symbols.items.len));
     wasm.symbols.appendAssumeCapacity(symbol);
     return index;
 }
 
-pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func, air, liveness);
+        if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
     }
 
     const tracy = trace(@src());
     defer tracy.end();
 
+    const func = mod.funcPtr(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
@@ -1348,7 +1363,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
     defer code_writer.deinit();
     // const result = try codegen.generateFunction(
     //     &wasm.base,
-    //     decl.srcLoc(),
+    //     decl.srcLoc(mod),
     //     func,
     //     air,
     //     liveness,
@@ -1357,8 +1372,8 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
     // );
     const result = try codegen.generateFunction(
         &wasm.base,
-        decl.srcLoc(),
-        func,
+        decl.srcLoc(mod),
+        func_index,
         air,
         liveness,
         &code_writer,
@@ -1403,9 +1418,9 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
-    if (decl.val.castTag(.function)) |_| {
+    if (decl.val.getFunction(mod)) |_| {
         return;
-    } else if (decl.val.castTag(.extern_fn)) |_| {
+    } else if (decl.val.getExternFunc(mod)) |_| {
         return;
     }
 
@@ -1413,19 +1428,20 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     const atom = wasm.getAtomPtr(atom_index);
     atom.clear();
 
-    if (decl.isExtern()) {
-        const variable = decl.getVariable().?;
-        const name = mem.sliceTo(decl.name, 0);
-        return wasm.addOrUpdateImport(name, atom.sym_index, variable.lib_name, null);
+    if (decl.isExtern(mod)) {
+        const variable = decl.getOwnedVariable(mod).?;
+        const name = mod.intern_pool.stringToSlice(decl.name);
+        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+        return wasm.addOrUpdateImport(name, atom.sym_index, lib_name, null);
     }
-    const val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
+    const val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
 
     var code_writer = std.ArrayList(u8).init(wasm.base.allocator);
     defer code_writer.deinit();
 
     const res = try codegen.generateSymbol(
         &wasm.base,
-        decl.srcLoc(),
+        decl.srcLoc(mod),
         .{ .ty = decl.ty, .val = val },
         &code_writer,
         .none,
@@ -1451,8 +1467,7 @@ pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.I
         defer tracy.end();
 
         const decl = mod.declPtr(decl_index);
-        const decl_name = try decl.getFullyQualifiedName(mod);
-        defer wasm.base.allocator.free(decl_name);
+        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
         log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
         try dw.updateDeclLineNumber(mod, decl_index);
@@ -1465,15 +1480,14 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8
     const atom_index = wasm.decls.get(decl_index).?;
     const atom = wasm.getAtomPtr(atom_index);
     const symbol = &wasm.symbols.items[atom.sym_index];
-    const full_name = try decl.getFullyQualifiedName(mod);
-    defer wasm.base.allocator.free(full_name);
+    const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
     symbol.name = try wasm.string_table.put(wasm.base.allocator, full_name);
     try atom.code.appendSlice(wasm.base.allocator, code);
     try wasm.resolved_symbols.put(wasm.base.allocator, atom.symbolLoc(), {});
 
-    atom.size = @intCast(u32, code.len);
+    atom.size = @as(u32, @intCast(code.len));
     if (code.len == 0) return;
-    atom.alignment = decl.ty.abiAlignment(wasm.base.options.target);
+    atom.alignment = decl.getAlignment(mod);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
@@ -1523,9 +1537,8 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
 /// Returns the symbol index of the local
 /// The given `decl` is the parent decl whom owns the constant.
 pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
-    assert(tv.ty.zigTypeTag() != .Fn); // cannot create local symbols for functions
-
     const mod = wasm.base.options.module.?;
+    assert(tv.ty.zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
 
     // Create and initialize a new local symbol and atom
@@ -1534,19 +1547,20 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
     const parent_atom = wasm.getAtomPtr(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
     try parent_atom.locals.append(wasm.base.allocator, atom_index);
-    const fqdn = try decl.getFullyQualifiedName(mod);
-    defer wasm.base.allocator.free(fqdn);
-    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__unnamed_{s}_{d}", .{ fqdn, local_index });
+    const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__unnamed_{s}_{d}", .{
+        fqn, local_index,
+    });
     defer wasm.base.allocator.free(name);
     var value_bytes = std.ArrayList(u8).init(wasm.base.allocator);
     defer value_bytes.deinit();
 
     const code = code: {
         const atom = wasm.getAtomPtr(atom_index);
-        atom.alignment = tv.ty.abiAlignment(wasm.base.options.target);
+        atom.alignment = tv.ty.abiAlignment(mod);
         wasm.symbols.items[atom.sym_index] = .{
             .name = try wasm.string_table.put(wasm.base.allocator, name),
-            .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
+            .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
             .tag = .data,
             .index = undefined,
             .virtual_address = undefined,
@@ -1555,7 +1569,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
 
         const result = try codegen.generateSymbol(
             &wasm.base,
-            decl.srcLoc(),
+            decl.srcLoc(mod),
             tv,
             &value_bytes,
             .none,
@@ -1575,7 +1589,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
     };
 
     const atom = wasm.getAtomPtr(atom_index);
-    atom.size = @intCast(u32, code.len);
+    atom.size = @as(u32, @intCast(code.len));
     try atom.code.appendSlice(wasm.base.allocator, code);
     return atom.sym_index;
 }
@@ -1603,7 +1617,7 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !u3
     symbol.setUndefined(true);
 
     const sym_index = if (wasm.symbols_free_list.popOrNull()) |index| index else blk: {
-        var index = @intCast(u32, wasm.symbols.items.len);
+        var index = @as(u32, @intCast(wasm.symbols.items.len));
         try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
         wasm.symbols.items.len += 1;
         break :blk index;
@@ -1611,7 +1625,7 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !u3
     wasm.symbols.items[sym_index] = symbol;
     gop.value_ptr.* = .{ .index = sym_index, .file = null };
     try wasm.resolved_symbols.put(wasm.base.allocator, gop.value_ptr.*, {});
-    try wasm.undefs.putNoClobber(wasm.base.allocator, name, gop.value_ptr.*);
+    try wasm.undefs.putNoClobber(wasm.base.allocator, name_index, gop.value_ptr.*);
     return sym_index;
 }
 
@@ -1632,7 +1646,7 @@ pub fn getDeclVAddr(
     const atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
     const atom = wasm.getAtomPtr(atom_index);
     const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
-    if (decl.ty.zigTypeTag() == .Fn) {
+    if (decl.ty.zigTypeTag(mod) == .Fn) {
         assert(reloc_info.addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section.
@@ -1640,15 +1654,15 @@ pub fn getDeclVAddr(
         try wasm.addTableFunction(target_symbol_index);
         try atom.relocs.append(wasm.base.allocator, .{
             .index = target_symbol_index,
-            .offset = @intCast(u32, reloc_info.offset),
+            .offset = @as(u32, @intCast(reloc_info.offset)),
             .relocation_type = if (is_wasm32) .R_WASM_TABLE_INDEX_I32 else .R_WASM_TABLE_INDEX_I64,
         });
     } else {
         try atom.relocs.append(wasm.base.allocator, .{
             .index = target_symbol_index,
-            .offset = @intCast(u32, reloc_info.offset),
+            .offset = @as(u32, @intCast(reloc_info.offset)),
             .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_I32 else .R_WASM_MEMORY_ADDR_I64,
-            .addend = @intCast(i32, reloc_info.addend),
+            .addend = @as(i32, @intCast(reloc_info.addend)),
         });
     }
     // we do not know the final address at this point,
@@ -1689,86 +1703,96 @@ pub fn updateDeclExports(
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const atom = wasm.getAtom(atom_index);
+    const atom_sym = atom.symbolLoc().getSymbol(wasm).*;
+    const gpa = mod.gpa;
 
     for (exports) |exp| {
-        if (exp.options.section) |section| {
-            try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
-                mod.gpa,
-                decl.srcLoc(),
+        if (mod.intern_pool.stringToSliceUnwrap(exp.opts.section)) |section| {
+            try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                gpa,
+                decl.srcLoc(mod),
                 "Unimplemented: ExportOptions.section '{s}'",
                 .{section},
             ));
             continue;
         }
 
-        const export_name = try wasm.string_table.put(wasm.base.allocator, exp.options.name);
-        if (wasm.globals.getPtr(export_name)) |existing_loc| {
-            if (existing_loc.index == atom.sym_index) continue;
-            const existing_sym: Symbol = existing_loc.getSymbol(wasm).*;
-
-            const exp_is_weak = exp.options.linkage == .Internal or exp.options.linkage == .Weak;
-            // When both the to-be-exported symbol and the already existing symbol
-            // are strong symbols, we have a linker error.
-            // In the other case we replace one with the other.
-            if (!exp_is_weak and !existing_sym.isWeak()) {
-                try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
-                    mod.gpa,
-                    decl.srcLoc(),
-                    \\LinkError: symbol '{s}' defined multiple times
-                    \\  first definition in '{s}'
-                    \\  next definition in '{s}'
-                ,
-                    .{ exp.options.name, wasm.name, wasm.name },
-                ));
-                continue;
-            } else if (exp_is_weak) {
-                continue; // to-be-exported symbol is weak, so we keep the existing symbol
-            } else {
-                // TODO: Revisit this, why was this needed?
-                existing_loc.index = atom.sym_index;
-                existing_loc.file = null;
-                // exp.link.wasm.sym_index = existing_loc.index;
-            }
-        }
-
         const exported_atom_index = try wasm.getOrCreateAtomForDecl(exp.exported_decl);
         const exported_atom = wasm.getAtom(exported_atom_index);
+        const export_name = try wasm.string_table.put(wasm.base.allocator, mod.intern_pool.stringToSlice(exp.opts.name));
         const sym_loc = exported_atom.symbolLoc();
         const symbol = sym_loc.getSymbol(wasm);
-        switch (exp.options.linkage) {
+        symbol.setGlobal(true);
+        symbol.setUndefined(false);
+        symbol.index = atom_sym.index;
+        symbol.tag = atom_sym.tag;
+        symbol.name = atom_sym.name;
+
+        switch (exp.opts.linkage) {
             .Internal => {
                 symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+                symbol.setFlag(.WASM_SYM_BINDING_WEAK);
             },
             .Weak => {
                 symbol.setFlag(.WASM_SYM_BINDING_WEAK);
             },
             .Strong => {}, // symbols are strong by default
             .LinkOnce => {
-                try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
-                    mod.gpa,
-                    decl.srcLoc(),
+                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(mod),
                     "Unimplemented: LinkOnce",
                     .{},
                 ));
                 continue;
             },
         }
+
+        if (wasm.globals.get(export_name)) |existing_loc| {
+            if (existing_loc.index == atom.sym_index) continue;
+            const existing_sym: Symbol = existing_loc.getSymbol(wasm).*;
+
+            if (!existing_sym.isUndefined()) blk: {
+                if (symbol.isWeak()) {
+                    try wasm.discarded.put(wasm.base.allocator, existing_loc, sym_loc);
+                    continue; // to-be-exported symbol is weak, so we keep the existing symbol
+                }
+
+                // new symbol is not weak while existing is, replace existing symbol
+                if (existing_sym.isWeak()) {
+                    break :blk;
+                }
+                // When both the to-be-exported symbol and the already existing symbol
+                // are strong symbols, we have a linker error.
+                // In the other case we replace one with the other.
+                try mod.failed_exports.put(gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(mod),
+                    \\LinkError: symbol '{}' defined multiple times
+                    \\  first definition in '{s}'
+                    \\  next definition in '{s}'
+                ,
+                    .{ exp.opts.name.fmt(&mod.intern_pool), wasm.name, wasm.name },
+                ));
+                continue;
+            }
+
+            // in this case the existing symbol must be replaced either because it's weak or undefined.
+            try wasm.discarded.put(wasm.base.allocator, existing_loc, sym_loc);
+            _ = wasm.imports.remove(existing_loc);
+            _ = wasm.undefs.swapRemove(existing_sym.name);
+        }
+
         // Ensure the symbol will be exported using the given name
-        if (!mem.eql(u8, exp.options.name, sym_loc.getName(wasm))) {
+        if (!mod.intern_pool.stringEqlSlice(exp.opts.name, sym_loc.getName(wasm))) {
             try wasm.export_names.put(wasm.base.allocator, sym_loc, export_name);
         }
 
-        symbol.setGlobal(true);
-        symbol.setUndefined(false);
         try wasm.globals.put(
             wasm.base.allocator,
             export_name,
             sym_loc,
         );
-
-        // if the symbol was previously undefined, remove it as an import
-        _ = wasm.imports.remove(sym_loc);
-        _ = wasm.undefs.swapRemove(exp.options.name);
     }
 }
 
@@ -1792,7 +1816,7 @@ pub fn freeDecl(wasm: *Wasm, decl_index: Module.Decl.Index) void {
         assert(wasm.symbol_atom.remove(local_atom.symbolLoc()));
     }
 
-    if (decl.isExtern()) {
+    if (decl.isExtern(mod)) {
         _ = wasm.imports.remove(atom.symbolLoc());
     }
     _ = wasm.resolved_symbols.swapRemove(atom.symbolLoc());
@@ -1816,7 +1840,7 @@ pub fn freeDecl(wasm: *Wasm, decl_index: Module.Decl.Index) void {
 
 /// Appends a new entry to the indirect function table
 pub fn addTableFunction(wasm: *Wasm, symbol_index: u32) !void {
-    const index = @intCast(u32, wasm.function_table.count());
+    const index = @as(u32, @intCast(wasm.function_table.count()));
     try wasm.function_table.put(wasm.base.allocator, .{ .file = null, .index = symbol_index }, index);
 }
 
@@ -1853,7 +1877,7 @@ pub fn addOrUpdateImport(
     /// Symbol index that is external
     symbol_index: u32,
     /// Optional library name (i.e. `extern "c" fn foo() void`
-    lib_name: ?[*:0]const u8,
+    lib_name: ?[:0]const u8,
     /// The index of the type that represents the function signature
     /// when the extern is a function. When this is null, a data-symbol
     /// is asserted instead.
@@ -1864,7 +1888,7 @@ pub fn addOrUpdateImport(
     // Also mangle the name when the lib name is set and not equal to "C" so imports with the same
     // name but different module can be resolved correctly.
     const mangle_name = lib_name != null and
-        !std.mem.eql(u8, std.mem.sliceTo(lib_name.?, 0), "c");
+        !std.mem.eql(u8, lib_name.?, "c");
     const full_name = if (mangle_name) full_name: {
         break :full_name try std.fmt.allocPrint(wasm.base.allocator, "{s}|{s}", .{ name, lib_name.? });
     } else name;
@@ -1884,13 +1908,24 @@ pub fn addOrUpdateImport(
         const loc: SymbolLoc = .{ .file = null, .index = symbol_index };
         global_gop.value_ptr.* = loc;
         try wasm.resolved_symbols.put(wasm.base.allocator, loc, {});
-        try wasm.undefs.putNoClobber(wasm.base.allocator, full_name, loc);
+        try wasm.undefs.putNoClobber(wasm.base.allocator, decl_name_index, loc);
+    } else if (global_gop.value_ptr.*.index != symbol_index) {
+        // We are not updating a symbol, but found an existing global
+        // symbol with the same name. This means we always favor the
+        // existing symbol, regardless whether it's defined or not.
+        // We can also skip storing the import as we will not output
+        // this symbol.
+        return wasm.discarded.put(
+            wasm.base.allocator,
+            .{ .file = null, .index = symbol_index },
+            global_gop.value_ptr.*,
+        );
     }
 
     if (type_index) |ty_index| {
         const gop = try wasm.imports.getOrPut(wasm.base.allocator, .{ .index = symbol_index, .file = null });
         const module_name = if (lib_name) |l_name| blk: {
-            break :blk mem.sliceTo(l_name, 0);
+            break :blk l_name;
         } else wasm.host_name;
         if (!gop.found_existing) {
             gop.value_ptr.* = .{
@@ -1900,8 +1935,8 @@ pub fn addOrUpdateImport(
             };
         }
     } else {
+        // non-functions will not be imported from the runtime, but only resolved during link-time
         symbol.tag = .data;
-        return; // non-functions will not be imported from the runtime, but only resolved during link-time
     }
 }
 
@@ -1936,7 +1971,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
     const symbol = (SymbolLoc{ .file = null, .index = atom.sym_index }).getSymbol(wasm);
     const final_index: u32 = switch (kind) {
         .function => result: {
-            const index = @intCast(u32, wasm.functions.count() + wasm.imported_functions_count);
+            const index = @as(u32, @intCast(wasm.functions.count() + wasm.imported_functions_count));
             const type_index = wasm.atom_types.get(atom_index).?;
             try wasm.functions.putNoClobber(
                 wasm.base.allocator,
@@ -1947,7 +1982,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
             symbol.index = index;
 
             if (wasm.code_section_index == null) {
-                wasm.code_section_index = @intCast(u32, wasm.segments.items.len);
+                wasm.code_section_index = @as(u32, @intCast(wasm.segments.items.len));
                 try wasm.segments.append(wasm.base.allocator, .{
                     .alignment = atom.alignment,
                     .size = atom.size,
@@ -1985,15 +2020,15 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
                 const index = gop.value_ptr.*;
                 wasm.segments.items[index].size += atom.size;
 
-                symbol.index = @intCast(u32, wasm.segment_info.getIndex(index).?);
+                symbol.index = @as(u32, @intCast(wasm.segment_info.getIndex(index).?));
                 // segment info already exists, so free its memory
                 wasm.base.allocator.free(segment_name);
                 break :result index;
             } else {
-                const index = @intCast(u32, wasm.segments.items.len);
+                const index = @as(u32, @intCast(wasm.segments.items.len));
                 var flags: u32 = 0;
                 if (wasm.base.options.shared_memory) {
-                    flags |= @enumToInt(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
+                    flags |= @intFromEnum(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
                 }
                 try wasm.segments.append(wasm.base.allocator, .{
                     .alignment = atom.alignment,
@@ -2003,7 +2038,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
                 });
                 gop.value_ptr.* = index;
 
-                const info_index = @intCast(u32, wasm.segment_info.count());
+                const info_index = @as(u32, @intCast(wasm.segment_info.count()));
                 try wasm.segment_info.put(wasm.base.allocator, index, segment_info);
                 symbol.index = info_index;
                 break :result index;
@@ -2012,7 +2047,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
     };
 
     const segment: *Segment = &wasm.segments.items[final_index];
-    segment.alignment = std.math.max(segment.alignment, atom.alignment);
+    segment.alignment = @max(segment.alignment, atom.alignment);
 
     try wasm.appendAtomAtIndex(final_index, atom_index);
 }
@@ -2039,13 +2074,13 @@ fn allocateDebugAtoms(wasm: *Wasm) !void {
     const allocAtom = struct {
         fn f(bin: *Wasm, maybe_index: *?u32, atom_index: Atom.Index) !void {
             const index = maybe_index.* orelse idx: {
-                const index = @intCast(u32, bin.segments.items.len);
+                const index = @as(u32, @intCast(bin.segments.items.len));
                 try bin.appendDummySegment();
                 maybe_index.* = index;
                 break :idx index;
             };
             const atom = bin.getAtomPtr(atom_index);
-            atom.size = @intCast(u32, atom.code.items.len);
+            atom.size = @as(u32, @intCast(atom.code.items.len));
             bin.symbols.items[atom.sym_index].index = index;
             try bin.appendAtomAtIndex(index, atom_index);
         }
@@ -2083,7 +2118,7 @@ fn allocateAtoms(wasm: *Wasm) !void {
                     }
                 }
             }
-            offset = std.mem.alignForwardGeneric(u32, offset, atom.alignment);
+            offset = std.mem.alignForward(u32, offset, atom.alignment);
             atom.offset = offset;
             log.debug("Atom '{s}' allocated from 0x{x:0>8} to 0x{x:0>8} size={d}", .{
                 symbol_loc.getName(wasm),
@@ -2094,7 +2129,7 @@ fn allocateAtoms(wasm: *Wasm) !void {
             offset += atom.size;
             atom_index = atom.prev orelse break;
         }
-        segment.size = std.mem.alignForwardGeneric(u32, offset, segment.alignment);
+        segment.size = std.mem.alignForward(u32, offset, segment.alignment);
     }
 }
 
@@ -2143,7 +2178,7 @@ fn sortDataSegments(wasm: *Wasm) !void {
         }
     };
 
-    std.sort.sort([]const u8, keys, {}, SortContext.sort);
+    mem.sort([]const u8, keys, {}, SortContext.sort);
     for (keys) |key| {
         const segment_index = wasm.data_segments.get(key).?;
         new_mapping.putAssumeCapacity(key, segment_index);
@@ -2180,14 +2215,14 @@ fn setupInitFunctions(wasm: *Wasm) !void {
             log.debug("appended init func '{s}'\n", .{object.string_table.get(symbol.name)});
             wasm.init_funcs.appendAssumeCapacity(.{
                 .index = init_func.symbol_index,
-                .file = @intCast(u16, file_index),
+                .file = @as(u16, @intCast(file_index)),
                 .priority = init_func.priority,
             });
         }
     }
 
     // sort the initfunctions based on their priority
-    std.sort.sort(InitFuncLoc, wasm.init_funcs.items, {}, InitFuncLoc.lessThan);
+    mem.sort(InitFuncLoc, wasm.init_funcs.items, {}, InitFuncLoc.lessThan);
 }
 
 /// Generates an atom containing the global error set' size.
@@ -2213,7 +2248,7 @@ fn setupErrorsLen(wasm: *Wasm) !void {
         atom.deinit(wasm);
         break :blk index;
     } else new_atom: {
-        const atom_index = @intCast(Atom.Index, wasm.managed_atoms.items.len);
+        const atom_index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
         try wasm.symbol_atom.put(wasm.base.allocator, loc, atom_index);
         try wasm.managed_atoms.append(wasm.base.allocator, undefined);
         break :new_atom atom_index;
@@ -2222,7 +2257,7 @@ fn setupErrorsLen(wasm: *Wasm) !void {
     atom.* = Atom.empty;
     atom.sym_index = loc.index;
     atom.size = 2;
-    try atom.code.writer(wasm.base.allocator).writeIntLittle(u16, @intCast(u16, errors_len));
+    try atom.code.writer(wasm.base.allocator).writeIntLittle(u16, @as(u16, @intCast(errors_len)));
 
     try wasm.parseAtom(atom_index, .{ .data = .read_only });
 }
@@ -2290,7 +2325,7 @@ fn createSyntheticFunction(
     const symbol = loc.getSymbol(wasm);
     const ty_index = try wasm.putOrGetFuncType(func_ty);
     // create function with above type
-    const func_index = wasm.imported_functions_count + @intCast(u32, wasm.functions.count());
+    const func_index = wasm.imported_functions_count + @as(u32, @intCast(wasm.functions.count()));
     try wasm.functions.putNoClobber(
         wasm.base.allocator,
         .{ .file = null, .index = func_index },
@@ -2299,10 +2334,10 @@ fn createSyntheticFunction(
     symbol.index = func_index;
 
     // create the atom that will be output into the final binary
-    const atom_index = @intCast(Atom.Index, wasm.managed_atoms.items.len);
+    const atom_index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
     const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
     atom.* = .{
-        .size = @intCast(u32, function_body.items.len),
+        .size = @as(u32, @intCast(function_body.items.len)),
         .offset = 0,
         .sym_index = loc.index,
         .file = null,
@@ -2334,10 +2369,10 @@ pub fn createFunction(
 ) !u32 {
     const loc = try wasm.createSyntheticSymbol(symbol_name, .function);
 
-    const atom_index = @intCast(Atom.Index, wasm.managed_atoms.items.len);
+    const atom_index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
     const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
     atom.* = .{
-        .size = @intCast(u32, function_body.items.len),
+        .size = @as(u32, @intCast(function_body.items.len)),
         .offset = 0,
         .sym_index = loc.index,
         .file = null,
@@ -2351,7 +2386,7 @@ pub fn createFunction(
     symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN); // ensure function does not get exported
 
     const section_index = wasm.code_section_index orelse idx: {
-        const index = @intCast(u32, wasm.segments.items.len);
+        const index = @as(u32, @intCast(wasm.segments.items.len));
         try wasm.appendDummySegment();
         break :idx index;
     };
@@ -2403,7 +2438,7 @@ fn initializeTLSFunction(wasm: *Wasm) !void {
         try writer.writeByte(std.wasm.opcode(.misc_prefix));
         try leb.writeULEB128(writer, std.wasm.miscOpcode(.memory_init));
         // segment immediate
-        try leb.writeULEB128(writer, @intCast(u32, data_index));
+        try leb.writeULEB128(writer, @as(u32, @intCast(data_index)));
         // memory index immediate (always 0)
         try leb.writeULEB128(writer, @as(u32, 0));
     }
@@ -2532,16 +2567,16 @@ fn mergeSections(wasm: *Wasm) !void {
                 if (!gop.found_existing) {
                     gop.value_ptr.* = object.functions[index];
                 }
-                symbol.index = @intCast(u32, gop.index) + wasm.imported_functions_count;
+                symbol.index = @as(u32, @intCast(gop.index)) + wasm.imported_functions_count;
             },
             .global => {
                 const original_global = object.globals[index];
-                symbol.index = @intCast(u32, wasm.wasm_globals.items.len) + wasm.imported_globals_count;
+                symbol.index = @as(u32, @intCast(wasm.wasm_globals.items.len)) + wasm.imported_globals_count;
                 try wasm.wasm_globals.append(wasm.base.allocator, original_global);
             },
             .table => {
                 const original_table = object.tables[index];
-                symbol.index = @intCast(u32, wasm.tables.items.len) + wasm.imported_tables_count;
+                symbol.index = @as(u32, @intCast(wasm.tables.items.len)) + wasm.imported_tables_count;
                 try wasm.tables.append(wasm.base.allocator, original_table);
             },
             else => unreachable,
@@ -2561,7 +2596,7 @@ fn mergeTypes(wasm: *Wasm) !void {
     // type inserted. If we do this for the same function multiple times,
     // it will be overwritten with the incorrect type.
     var dirty = std.AutoHashMap(u32, void).init(wasm.base.allocator);
-    try dirty.ensureUnusedCapacity(@intCast(u32, wasm.functions.count()));
+    try dirty.ensureUnusedCapacity(@as(u32, @intCast(wasm.functions.count())));
     defer dirty.deinit();
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
@@ -2625,10 +2660,10 @@ fn setupExports(wasm: *Wasm) !void {
             break :blk try wasm.string_table.put(wasm.base.allocator, sym_name);
         };
         const exp: types.Export = if (symbol.tag == .data) exp: {
-            const global_index = @intCast(u32, wasm.imported_globals_count + wasm.wasm_globals.items.len);
+            const global_index = @as(u32, @intCast(wasm.imported_globals_count + wasm.wasm_globals.items.len));
             try wasm.wasm_globals.append(wasm.base.allocator, .{
                 .global_type = .{ .valtype = .i32, .mutable = false },
-                .init = .{ .i32_const = @intCast(i32, symbol.virtual_address) },
+                .init = .{ .i32_const = @as(i32, @intCast(symbol.virtual_address)) },
             });
             break :exp .{
                 .name = export_name,
@@ -2696,42 +2731,42 @@ fn setupMemory(wasm: *Wasm) !void {
     const is_obj = wasm.base.options.output_mode == .Obj;
 
     if (place_stack_first and !is_obj) {
-        memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
+        memory_ptr = std.mem.alignForward(u64, memory_ptr, stack_alignment);
         memory_ptr += stack_size;
         // We always put the stack pointer global at index 0
-        wasm.wasm_globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
+        wasm.wasm_globals.items[0].init.i32_const = @as(i32, @bitCast(@as(u32, @intCast(memory_ptr))));
     }
 
-    var offset: u32 = @intCast(u32, memory_ptr);
+    var offset: u32 = @as(u32, @intCast(memory_ptr));
     var data_seg_it = wasm.data_segments.iterator();
     while (data_seg_it.next()) |entry| {
         const segment = &wasm.segments.items[entry.value_ptr.*];
-        memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, segment.alignment);
+        memory_ptr = std.mem.alignForward(u64, memory_ptr, segment.alignment);
 
         // set TLS-related symbols
         if (mem.eql(u8, entry.key_ptr.*, ".tdata")) {
             if (wasm.findGlobalSymbol("__tls_size")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                sym.index = @intCast(u32, wasm.wasm_globals.items.len) + wasm.imported_globals_count;
+                sym.index = @as(u32, @intCast(wasm.wasm_globals.items.len)) + wasm.imported_globals_count;
                 try wasm.wasm_globals.append(wasm.base.allocator, .{
                     .global_type = .{ .valtype = .i32, .mutable = false },
-                    .init = .{ .i32_const = @intCast(i32, segment.size) },
+                    .init = .{ .i32_const = @as(i32, @intCast(segment.size)) },
                 });
             }
             if (wasm.findGlobalSymbol("__tls_align")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                sym.index = @intCast(u32, wasm.wasm_globals.items.len) + wasm.imported_globals_count;
+                sym.index = @as(u32, @intCast(wasm.wasm_globals.items.len)) + wasm.imported_globals_count;
                 try wasm.wasm_globals.append(wasm.base.allocator, .{
                     .global_type = .{ .valtype = .i32, .mutable = false },
-                    .init = .{ .i32_const = @intCast(i32, segment.alignment) },
+                    .init = .{ .i32_const = @as(i32, @intCast(segment.alignment)) },
                 });
             }
             if (wasm.findGlobalSymbol("__tls_base")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                sym.index = @intCast(u32, wasm.wasm_globals.items.len) + wasm.imported_globals_count;
+                sym.index = @as(u32, @intCast(wasm.wasm_globals.items.len)) + wasm.imported_globals_count;
                 try wasm.wasm_globals.append(wasm.base.allocator, .{
                     .global_type = .{ .valtype = .i32, .mutable = wasm.base.options.shared_memory },
-                    .init = .{ .i32_const = if (wasm.base.options.shared_memory) @as(u32, 0) else @intCast(i32, memory_ptr) },
+                    .init = .{ .i32_const = if (wasm.base.options.shared_memory) @as(u32, 0) else @as(i32, @intCast(memory_ptr)) },
                 });
             }
         }
@@ -2744,24 +2779,24 @@ fn setupMemory(wasm: *Wasm) !void {
     // create the memory init flag which is used by the init memory function
     if (wasm.base.options.shared_memory and wasm.hasPassiveInitializationSegments()) {
         // align to pointer size
-        memory_ptr = mem.alignForwardGeneric(u64, memory_ptr, 4);
+        memory_ptr = mem.alignForward(u64, memory_ptr, 4);
         const loc = try wasm.createSyntheticSymbol("__wasm_init_memory_flag", .data);
         const sym = loc.getSymbol(wasm);
-        sym.virtual_address = @intCast(u32, memory_ptr);
+        sym.virtual_address = @as(u32, @intCast(memory_ptr));
         memory_ptr += 4;
     }
 
     if (!place_stack_first and !is_obj) {
-        memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
+        memory_ptr = std.mem.alignForward(u64, memory_ptr, stack_alignment);
         memory_ptr += stack_size;
-        wasm.wasm_globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
+        wasm.wasm_globals.items[0].init.i32_const = @as(i32, @bitCast(@as(u32, @intCast(memory_ptr))));
     }
 
     // One of the linked object files has a reference to the __heap_base symbol.
     // We must set its virtual address so it can be used in relocations.
     if (wasm.findGlobalSymbol("__heap_base")) |loc| {
         const symbol = loc.getSymbol(wasm);
-        symbol.virtual_address = @intCast(u32, mem.alignForwardGeneric(u64, memory_ptr, heap_alignment));
+        symbol.virtual_address = @as(u32, @intCast(mem.alignForward(u64, memory_ptr, heap_alignment)));
     }
 
     // Setup the max amount of pages
@@ -2783,15 +2818,15 @@ fn setupMemory(wasm: *Wasm) !void {
         }
         memory_ptr = initial_memory;
     }
-    memory_ptr = mem.alignForwardGeneric(u64, memory_ptr, std.wasm.page_size);
+    memory_ptr = mem.alignForward(u64, memory_ptr, std.wasm.page_size);
     // In case we do not import memory, but define it ourselves,
     // set the minimum amount of pages on the memory section.
-    wasm.memories.limits.min = @intCast(u32, memory_ptr / page_size);
+    wasm.memories.limits.min = @as(u32, @intCast(memory_ptr / page_size));
     log.debug("Total memory pages: {d}", .{wasm.memories.limits.min});
 
     if (wasm.findGlobalSymbol("__heap_end")) |loc| {
         const symbol = loc.getSymbol(wasm);
-        symbol.virtual_address = @intCast(u32, memory_ptr);
+        symbol.virtual_address = @as(u32, @intCast(memory_ptr));
     }
 
     if (wasm.base.options.max_memory) |max_memory| {
@@ -2807,7 +2842,7 @@ fn setupMemory(wasm: *Wasm) !void {
             log.err("Maximum memory exceeds maxmium amount {d}", .{max_memory_allowed});
             return error.MemoryTooBig;
         }
-        wasm.memories.limits.max = @intCast(u32, max_memory / page_size);
+        wasm.memories.limits.max = @as(u32, @intCast(max_memory / page_size));
         wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_HAS_MAX);
         if (wasm.base.options.shared_memory) {
             wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_IS_SHARED);
@@ -2822,7 +2857,7 @@ fn setupMemory(wasm: *Wasm) !void {
 pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, relocatable_index: u32) !?u32 {
     const object: Object = wasm.objects.items[object_index];
     const relocatable_data = object.relocatable_data[relocatable_index];
-    const index = @intCast(u32, wasm.segments.items.len);
+    const index = @as(u32, @intCast(wasm.segments.items.len));
 
     switch (relocatable_data.type) {
         .data => {
@@ -2833,7 +2868,7 @@ pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, relocatable_index: u32
                 result.value_ptr.* = index;
                 var flags: u32 = 0;
                 if (wasm.base.options.shared_memory) {
-                    flags |= @enumToInt(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
+                    flags |= @intFromEnum(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
                 }
                 try wasm.segments.append(wasm.base.allocator, .{
                     .alignment = 1,
@@ -2932,8 +2967,9 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
 
     const atom_index = try wasm.createAtom();
     const atom = wasm.getAtomPtr(atom_index);
-    const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
-    atom.alignment = slice_ty.abiAlignment(wasm.base.options.target);
+    const slice_ty = Type.slice_const_u8_sentinel_0;
+    const mod = wasm.base.options.module.?;
+    atom.alignment = slice_ty.abiAlignment(mod);
     const sym_index = atom.sym_index;
 
     const sym_name = try wasm.string_table.put(wasm.base.allocator, "__zig_err_name_table");
@@ -2985,11 +3021,12 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
     // Addend for each relocation to the table
     var addend: u32 = 0;
     const mod = wasm.base.options.module.?;
-    for (mod.error_name_list.items) |error_name| {
-        const len = @intCast(u32, error_name.len + 1); // names are 0-termianted
+    for (mod.global_error_set.keys()) |error_name_nts| {
+        const error_name = mod.intern_pool.stringToSlice(error_name_nts);
+        const len = @as(u32, @intCast(error_name.len + 1)); // names are 0-termianted
 
-        const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
-        const offset = @intCast(u32, atom.code.items.len);
+        const slice_ty = Type.slice_const_u8_sentinel_0;
+        const offset = @as(u32, @intCast(atom.code.items.len));
         // first we create the data for the slice of the name
         try atom.code.appendNTimes(wasm.base.allocator, 0, 4); // ptr to name, will be relocated
         try atom.code.writer(wasm.base.allocator).writeIntLittle(u32, len - 1);
@@ -2998,9 +3035,9 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
             .index = names_atom.sym_index,
             .relocation_type = .R_WASM_MEMORY_ADDR_I32,
             .offset = offset,
-            .addend = @intCast(i32, addend),
+            .addend = @as(i32, @intCast(addend)),
         });
-        atom.size += @intCast(u32, slice_ty.abiSize(wasm.base.options.target));
+        atom.size += @as(u32, @intCast(slice_ty.abiSize(mod)));
         addend += len;
 
         // as we updated the error name table, we now store the actual name within the names atom
@@ -3026,7 +3063,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
 /// This initializes the index, appends a new segment,
 /// and finally, creates a managed `Atom`.
 pub fn createDebugSectionForIndex(wasm: *Wasm, index: *?u32, name: []const u8) !Atom.Index {
-    const new_index = @intCast(u32, wasm.segments.items.len);
+    const new_index = @as(u32, @intCast(wasm.segments.items.len));
     index.* = new_index;
     try wasm.appendDummySegment();
 
@@ -3036,7 +3073,7 @@ pub fn createDebugSectionForIndex(wasm: *Wasm, index: *?u32, name: []const u8) !
         .tag = .section,
         .name = try wasm.string_table.put(wasm.base.allocator, name),
         .index = 0,
-        .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
+        .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
     };
 
     atom.alignment = 1; // debug sections are always 1-byte-aligned
@@ -3150,7 +3187,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 8);
+        comptime assert(Compilation.link_hash_implementation_version == 9);
 
         for (options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -3257,7 +3294,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     try wasm.parseInputFiles(positionals.items);
 
     for (wasm.objects.items, 0..) |_, object_index| {
-        try wasm.resolveSymbolsInObject(@intCast(u16, object_index));
+        try wasm.resolveSymbolsInObject(@as(u16, @intCast(object_index)));
     }
 
     var emit_features_count: u32 = 0;
@@ -3272,7 +3309,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     try wasm.setupImports();
 
     for (wasm.objects.items, 0..) |*object, object_index| {
-        try object.parseIntoAtoms(gpa, @intCast(u16, object_index), wasm);
+        try object.parseIntoAtoms(gpa, @as(u16, @intCast(object_index)), wasm);
     }
 
     try wasm.allocateAtoms();
@@ -3345,7 +3382,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try wasm.parseInputFiles(positionals.items);
 
     for (wasm.objects.items, 0..) |_, object_index| {
-        try wasm.resolveSymbolsInObject(@intCast(u16, object_index));
+        try wasm.resolveSymbolsInObject(@as(u16, @intCast(object_index)));
     }
 
     var emit_features_count: u32 = 0;
@@ -3366,15 +3403,15 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         var decl_it = wasm.decls.iterator();
         while (decl_it.next()) |entry| {
             const decl = mod.declPtr(entry.key_ptr.*);
-            if (decl.isExtern()) continue;
+            if (decl.isExtern(mod)) continue;
             const atom_index = entry.value_ptr.*;
             const atom = wasm.getAtomPtr(atom_index);
-            if (decl.ty.zigTypeTag() == .Fn) {
+            if (decl.ty.zigTypeTag(mod) == .Fn) {
                 try wasm.parseAtom(atom_index, .function);
-            } else if (decl.getVariable()) |variable| {
-                if (!variable.is_mutable) {
+            } else if (decl.getOwnedVariable(mod)) |variable| {
+                if (variable.is_const) {
                     try wasm.parseAtom(atom_index, .{ .data = .read_only });
-                } else if (variable.init.isUndefDeep()) {
+                } else if (variable.init.toValue().isUndefDeep(mod)) {
                     // for safe build modes, we store the atom in the data segment,
                     // whereas for unsafe build modes we store it in bss.
                     const is_initialized = wasm.base.options.optimize_mode == .Debug or
@@ -3409,7 +3446,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     }
 
     for (wasm.objects.items, 0..) |*object, object_index| {
-        try object.parseIntoAtoms(wasm.base.allocator, @intCast(u16, object_index), wasm);
+        try object.parseIntoAtoms(wasm.base.allocator, @as(u16, @intCast(object_index)), wasm);
     }
 
     try wasm.allocateAtoms();
@@ -3460,11 +3497,11 @@ fn writeToFile(
         log.debug("Writing type section. Count: ({d})", .{wasm.func_types.items.len});
         for (wasm.func_types.items) |func_type| {
             try leb.writeULEB128(binary_writer, std.wasm.function_type);
-            try leb.writeULEB128(binary_writer, @intCast(u32, func_type.params.len));
+            try leb.writeULEB128(binary_writer, @as(u32, @intCast(func_type.params.len)));
             for (func_type.params) |param_ty| {
                 try leb.writeULEB128(binary_writer, std.wasm.valtype(param_ty));
             }
-            try leb.writeULEB128(binary_writer, @intCast(u32, func_type.returns.len));
+            try leb.writeULEB128(binary_writer, @as(u32, @intCast(func_type.returns.len)));
             for (func_type.returns) |ret_ty| {
                 try leb.writeULEB128(binary_writer, std.wasm.valtype(ret_ty));
             }
@@ -3474,8 +3511,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .type,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.func_types.items.len),
+            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
+            @as(u32, @intCast(wasm.func_types.items.len)),
         );
         section_count += 1;
     }
@@ -3506,8 +3543,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .import,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.imports.count() + @boolToInt(import_memory)),
+            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
+            @as(u32, @intCast(wasm.imports.count() + @intFromBool(import_memory))),
         );
         section_count += 1;
     }
@@ -3523,8 +3560,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .function,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.functions.count()),
+            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
+            @as(u32, @intCast(wasm.functions.count())),
         );
         section_count += 1;
     }
@@ -3542,8 +3579,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .table,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.tables.items.len),
+            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
+            @as(u32, @intCast(wasm.tables.items.len)),
         );
         section_count += 1;
     }
@@ -3557,7 +3594,7 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .memory,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
+            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
             @as(u32, 1), // wasm currently only supports 1 linear memory segment
         );
         section_count += 1;
@@ -3569,7 +3606,7 @@ fn writeToFile(
 
         for (wasm.wasm_globals.items) |global| {
             try binary_writer.writeByte(std.wasm.valtype(global.global_type.valtype));
-            try binary_writer.writeByte(@boolToInt(global.global_type.mutable));
+            try binary_writer.writeByte(@intFromBool(global.global_type.mutable));
             try emitInit(binary_writer, global.init);
         }
 
@@ -3577,8 +3614,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .global,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.wasm_globals.items.len),
+            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
+            @as(u32, @intCast(wasm.wasm_globals.items.len)),
         );
         section_count += 1;
     }
@@ -3589,14 +3626,14 @@ fn writeToFile(
 
         for (wasm.exports.items) |exp| {
             const name = wasm.string_table.get(exp.name);
-            try leb.writeULEB128(binary_writer, @intCast(u32, name.len));
+            try leb.writeULEB128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_writer.writeAll(name);
-            try leb.writeULEB128(binary_writer, @enumToInt(exp.kind));
+            try leb.writeULEB128(binary_writer, @intFromEnum(exp.kind));
             try leb.writeULEB128(binary_writer, exp.index);
         }
 
         if (!import_memory) {
-            try leb.writeULEB128(binary_writer, @intCast(u32, "memory".len));
+            try leb.writeULEB128(binary_writer, @as(u32, @intCast("memory".len)));
             try binary_writer.writeAll("memory");
             try binary_writer.writeByte(std.wasm.externalKind(.memory));
             try leb.writeULEB128(binary_writer, @as(u32, 0));
@@ -3606,8 +3643,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .@"export",
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, wasm.exports.items.len) + @boolToInt(!import_memory),
+            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
+            @as(u32, @intCast(wasm.exports.items.len)) + @intFromBool(!import_memory),
         );
         section_count += 1;
     }
@@ -3628,7 +3665,7 @@ fn writeToFile(
         if (flags == 0x02) {
             try leb.writeULEB128(binary_writer, @as(u8, 0)); // represents funcref
         }
-        try leb.writeULEB128(binary_writer, @intCast(u32, wasm.function_table.count()));
+        try leb.writeULEB128(binary_writer, @as(u32, @intCast(wasm.function_table.count())));
         var symbol_it = wasm.function_table.keyIterator();
         while (symbol_it.next()) |symbol_loc_ptr| {
             try leb.writeULEB128(binary_writer, symbol_loc_ptr.*.getSymbol(wasm).index);
@@ -3638,22 +3675,22 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .element,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
+            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
             @as(u32, 1),
         );
         section_count += 1;
     }
 
     // When the shared-memory option is enabled, we *must* emit the 'data count' section.
-    const data_segments_count = wasm.data_segments.count() - @boolToInt(wasm.data_segments.contains(".bss") and import_memory);
+    const data_segments_count = wasm.data_segments.count() - @intFromBool(wasm.data_segments.contains(".bss") and import_memory);
     if (data_segments_count != 0 and wasm.base.options.shared_memory) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
         try writeVecSectionHeader(
             binary_bytes.items,
             header_offset,
             .data_count,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, data_segments_count),
+            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
+            @as(u32, @intCast(data_segments_count)),
         );
     }
 
@@ -3687,20 +3724,20 @@ fn writeToFile(
             }
         }.sort;
 
-        std.sort.sort(*Atom, sorted_atoms.items, wasm, atom_sort_fn);
+        mem.sort(*Atom, sorted_atoms.items, wasm, atom_sort_fn);
 
         for (sorted_atoms.items) |sorted_atom| {
             try leb.writeULEB128(binary_writer, sorted_atom.size);
             try binary_writer.writeAll(sorted_atom.code.items);
         }
 
-        code_section_size = @intCast(u32, binary_bytes.items.len - header_offset - header_size);
+        code_section_size = @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size));
         try writeVecSectionHeader(
             binary_bytes.items,
             header_offset,
             .code,
             code_section_size,
-            @intCast(u32, wasm.functions.count()),
+            @as(u32, @intCast(wasm.functions.count())),
         );
         code_section_index = section_count;
         section_count += 1;
@@ -3723,12 +3760,12 @@ fn writeToFile(
             var atom_index = wasm.atoms.get(segment_index).?;
 
             try leb.writeULEB128(binary_writer, segment.flags);
-            if (segment.flags & @enumToInt(Wasm.Segment.Flag.WASM_DATA_SEGMENT_HAS_MEMINDEX) != 0) {
+            if (segment.flags & @intFromEnum(Wasm.Segment.Flag.WASM_DATA_SEGMENT_HAS_MEMINDEX) != 0) {
                 try leb.writeULEB128(binary_writer, @as(u32, 0)); // memory is always index 0 as we only have 1 memory entry
             }
             // when a segment is passive, it's initialized during runtime.
             if (!segment.isPassive()) {
-                try emitInit(binary_writer, .{ .i32_const = @bitCast(i32, segment.offset) });
+                try emitInit(binary_writer, .{ .i32_const = @as(i32, @bitCast(segment.offset)) });
             }
             // offset into data section
             try leb.writeULEB128(binary_writer, segment.size);
@@ -3771,8 +3808,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .data,
-            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
-            @intCast(u32, segment_count),
+            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
+            @as(u32, @intCast(segment_count)),
         );
         data_section_index = section_count;
         section_count += 1;
@@ -3797,8 +3834,29 @@ fn writeToFile(
     if (!wasm.base.options.strip) {
         // The build id must be computed on the main sections only,
         // so we have to do it now, before the debug sections.
-        if (wasm.base.options.build_id) {
-            try emitBuildIdSection(&binary_bytes);
+        switch (wasm.base.options.build_id) {
+            .none => {},
+            .fast => {
+                var id: [16]u8 = undefined;
+                std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
+                var uuid: [36]u8 = undefined;
+                _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
+                    std.fmt.fmtSliceHexLower(id[0..4]),
+                    std.fmt.fmtSliceHexLower(id[4..6]),
+                    std.fmt.fmtSliceHexLower(id[6..8]),
+                    std.fmt.fmtSliceHexLower(id[8..10]),
+                    std.fmt.fmtSliceHexLower(id[10..]),
+                });
+                try emitBuildIdSection(&binary_bytes, &uuid);
+            },
+            .hexstring => |hs| {
+                var buffer: [32 * 2]u8 = undefined;
+                const str = std.fmt.bufPrint(&buffer, "{s}", .{
+                    std.fmt.fmtSliceHexLower(hs.toSlice()),
+                }) catch unreachable;
+                try emitBuildIdSection(&binary_bytes, str);
+            },
+            else => |mode| log.err("build-id '{s}' is not supported for WASM", .{@tagName(mode)}),
         }
 
         // if (wasm.dwarf) |*dwarf| {
@@ -3869,7 +3927,7 @@ fn emitDebugSection(binary_bytes: *std.ArrayList(u8), data: []const u8, name: []
     if (data.len == 0) return;
     const header_offset = try reserveCustomSectionHeader(binary_bytes);
     const writer = binary_bytes.writer();
-    try leb.writeULEB128(writer, @intCast(u32, name.len));
+    try leb.writeULEB128(writer, @as(u32, @intCast(name.len)));
     try writer.writeAll(name);
 
     const start = binary_bytes.items.len - header_offset;
@@ -3879,7 +3937,7 @@ fn emitDebugSection(binary_bytes: *std.ArrayList(u8), data: []const u8, name: []
     try writeCustomSectionHeader(
         binary_bytes.items,
         header_offset,
-        @intCast(u32, binary_bytes.items.len - header_offset - 6),
+        @as(u32, @intCast(binary_bytes.items.len - header_offset - 6)),
     );
 }
 
@@ -3888,7 +3946,7 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
 
     const writer = binary_bytes.writer();
     const producers = "producers";
-    try leb.writeULEB128(writer, @intCast(u32, producers.len));
+    try leb.writeULEB128(writer, @as(u32, @intCast(producers.len)));
     try writer.writeAll(producers);
 
     try leb.writeULEB128(writer, @as(u32, 2)); // 2 fields: Language + processed-by
@@ -3900,7 +3958,7 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
     // language field
     {
         const language = "language";
-        try leb.writeULEB128(writer, @intCast(u32, language.len));
+        try leb.writeULEB128(writer, @as(u32, @intCast(language.len)));
         try writer.writeAll(language);
 
         // field_value_count (TODO: Parse object files for producer sections to detect their language)
@@ -3911,7 +3969,7 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
             try leb.writeULEB128(writer, @as(u32, 3)); // len of "Zig"
             try writer.writeAll("Zig");
 
-            try leb.writeULEB128(writer, @intCast(u32, version.len));
+            try leb.writeULEB128(writer, @as(u32, @intCast(version.len)));
             try writer.writeAll(version);
         }
     }
@@ -3919,7 +3977,7 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
     // processed-by field
     {
         const processed_by = "processed-by";
-        try leb.writeULEB128(writer, @intCast(u32, processed_by.len));
+        try leb.writeULEB128(writer, @as(u32, @intCast(processed_by.len)));
         try writer.writeAll(processed_by);
 
         // field_value_count (TODO: Parse object files for producer sections to detect other used tools)
@@ -3930,7 +3988,7 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
             try leb.writeULEB128(writer, @as(u32, 3)); // len of "Zig"
             try writer.writeAll("Zig");
 
-            try leb.writeULEB128(writer, @intCast(u32, version.len));
+            try leb.writeULEB128(writer, @as(u32, @intCast(version.len)));
             try writer.writeAll(version);
         }
     }
@@ -3938,34 +3996,26 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
     try writeCustomSectionHeader(
         binary_bytes.items,
         header_offset,
-        @intCast(u32, binary_bytes.items.len - header_offset - 6),
+        @as(u32, @intCast(binary_bytes.items.len - header_offset - 6)),
     );
 }
 
-fn emitBuildIdSection(binary_bytes: *std.ArrayList(u8)) !void {
+fn emitBuildIdSection(binary_bytes: *std.ArrayList(u8), build_id: []const u8) !void {
     const header_offset = try reserveCustomSectionHeader(binary_bytes);
 
     const writer = binary_bytes.writer();
-    const build_id = "build_id";
-    try leb.writeULEB128(writer, @intCast(u32, build_id.len));
-    try writer.writeAll(build_id);
-
-    var id: [16]u8 = undefined;
-    std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
-    var uuid: [36]u8 = undefined;
-    _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
-        std.fmt.fmtSliceHexLower(id[0..4]),  std.fmt.fmtSliceHexLower(id[4..6]), std.fmt.fmtSliceHexLower(id[6..8]),
-        std.fmt.fmtSliceHexLower(id[8..10]), std.fmt.fmtSliceHexLower(id[10..]),
-    });
+    const hdr_build_id = "build_id";
+    try leb.writeULEB128(writer, @as(u32, @intCast(hdr_build_id.len)));
+    try writer.writeAll(hdr_build_id);
 
     try leb.writeULEB128(writer, @as(u32, 1));
-    try leb.writeULEB128(writer, @as(u32, uuid.len));
-    try writer.writeAll(&uuid);
+    try leb.writeULEB128(writer, @as(u32, @intCast(build_id.len)));
+    try writer.writeAll(build_id);
 
     try writeCustomSectionHeader(
         binary_bytes.items,
         header_offset,
-        @intCast(u32, binary_bytes.items.len - header_offset - 6),
+        @as(u32, @intCast(binary_bytes.items.len - header_offset - 6)),
     );
 }
 
@@ -3974,17 +4024,17 @@ fn emitFeaturesSection(binary_bytes: *std.ArrayList(u8), enabled_features: []con
 
     const writer = binary_bytes.writer();
     const target_features = "target_features";
-    try leb.writeULEB128(writer, @intCast(u32, target_features.len));
+    try leb.writeULEB128(writer, @as(u32, @intCast(target_features.len)));
     try writer.writeAll(target_features);
 
     try leb.writeULEB128(writer, features_count);
     for (enabled_features, 0..) |enabled, feature_index| {
         if (enabled) {
-            const feature: types.Feature = .{ .prefix = .used, .tag = @intToEnum(types.Feature.Tag, feature_index) };
-            try leb.writeULEB128(writer, @enumToInt(feature.prefix));
+            const feature: types.Feature = .{ .prefix = .used, .tag = @as(types.Feature.Tag, @enumFromInt(feature_index)) };
+            try leb.writeULEB128(writer, @intFromEnum(feature.prefix));
             var buf: [100]u8 = undefined;
             const string = try std.fmt.bufPrint(&buf, "{}", .{feature.tag});
-            try leb.writeULEB128(writer, @intCast(u32, string.len));
+            try leb.writeULEB128(writer, @as(u32, @intCast(string.len)));
             try writer.writeAll(string);
         }
     }
@@ -3992,7 +4042,7 @@ fn emitFeaturesSection(binary_bytes: *std.ArrayList(u8), enabled_features: []con
     try writeCustomSectionHeader(
         binary_bytes.items,
         header_offset,
-        @intCast(u32, binary_bytes.items.len - header_offset - 6),
+        @as(u32, @intCast(binary_bytes.items.len - header_offset - 6)),
     );
 }
 
@@ -4037,12 +4087,12 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
         data_segment_index += 1;
     }
 
-    std.sort.sort(Name, funcs.values(), {}, Name.lessThan);
-    std.sort.sort(Name, globals.items, {}, Name.lessThan);
+    mem.sort(Name, funcs.values(), {}, Name.lessThan);
+    mem.sort(Name, globals.items, {}, Name.lessThan);
 
     const header_offset = try reserveCustomSectionHeader(binary_bytes);
     const writer = binary_bytes.writer();
-    try leb.writeULEB128(writer, @intCast(u32, "name".len));
+    try leb.writeULEB128(writer, @as(u32, @intCast("name".len)));
     try writer.writeAll("name");
 
     try wasm.emitNameSubsection(.function, funcs.values(), writer);
@@ -4052,7 +4102,7 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
     try writeCustomSectionHeader(
         binary_bytes.items,
         header_offset,
-        @intCast(u32, binary_bytes.items.len - header_offset - 6),
+        @as(u32, @intCast(binary_bytes.items.len - header_offset - 6)),
     );
 }
 
@@ -4062,17 +4112,17 @@ fn emitNameSubsection(wasm: *Wasm, section_id: std.wasm.NameSubsection, names: a
     defer section_list.deinit();
     const sub_writer = section_list.writer();
 
-    try leb.writeULEB128(sub_writer, @intCast(u32, names.len));
+    try leb.writeULEB128(sub_writer, @as(u32, @intCast(names.len)));
     for (names) |name| {
         log.debug("Emit symbol '{s}' type({s})", .{ name.name, @tagName(section_id) });
         try leb.writeULEB128(sub_writer, name.index);
-        try leb.writeULEB128(sub_writer, @intCast(u32, name.name.len));
+        try leb.writeULEB128(sub_writer, @as(u32, @intCast(name.name.len)));
         try sub_writer.writeAll(name.name);
     }
 
     // From now, write to the actual writer
-    try leb.writeULEB128(writer, @enumToInt(section_id));
-    try leb.writeULEB128(writer, @intCast(u32, section_list.items.len));
+    try leb.writeULEB128(writer, @intFromEnum(section_id));
+    try leb.writeULEB128(writer, @as(u32, @intCast(section_list.items.len)));
     try writer.writeAll(section_list.items);
 }
 
@@ -4096,11 +4146,11 @@ fn emitInit(writer: anytype, init_expr: std.wasm.InitExpression) !void {
         },
         .f32_const => |val| {
             try writer.writeByte(std.wasm.opcode(.f32_const));
-            try writer.writeIntLittle(u32, @bitCast(u32, val));
+            try writer.writeIntLittle(u32, @as(u32, @bitCast(val)));
         },
         .f64_const => |val| {
             try writer.writeByte(std.wasm.opcode(.f64_const));
-            try writer.writeIntLittle(u64, @bitCast(u64, val));
+            try writer.writeIntLittle(u64, @as(u64, @bitCast(val)));
         },
         .global_get => |val| {
             try writer.writeByte(std.wasm.opcode(.global_get));
@@ -4112,19 +4162,19 @@ fn emitInit(writer: anytype, init_expr: std.wasm.InitExpression) !void {
 
 fn emitImport(wasm: *Wasm, writer: anytype, import: types.Import) !void {
     const module_name = wasm.string_table.get(import.module_name);
-    try leb.writeULEB128(writer, @intCast(u32, module_name.len));
+    try leb.writeULEB128(writer, @as(u32, @intCast(module_name.len)));
     try writer.writeAll(module_name);
 
     const name = wasm.string_table.get(import.name);
-    try leb.writeULEB128(writer, @intCast(u32, name.len));
+    try leb.writeULEB128(writer, @as(u32, @intCast(name.len)));
     try writer.writeAll(name);
 
-    try writer.writeByte(@enumToInt(import.kind));
+    try writer.writeByte(@intFromEnum(import.kind));
     switch (import.kind) {
         .function => |type_index| try leb.writeULEB128(writer, type_index),
         .global => |global_type| {
             try leb.writeULEB128(writer, std.wasm.valtype(global_type.valtype));
-            try writer.writeByte(@boolToInt(global_type.mutable));
+            try writer.writeByte(@intFromBool(global_type.mutable));
         },
         .table => |table| {
             try leb.writeULEB128(writer, std.wasm.reftype(table.reftype));
@@ -4186,7 +4236,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 8);
+        comptime assert(Compilation.link_hash_implementation_version == 9);
 
         for (wasm.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -4201,6 +4251,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         man.hash.addOptional(wasm.base.options.stack_size_override);
         man.hash.add(wasm.base.options.build_id);
         man.hash.add(wasm.base.options.import_memory);
+        man.hash.add(wasm.base.options.export_memory);
         man.hash.add(wasm.base.options.import_table);
         man.hash.add(wasm.base.options.export_table);
         man.hash.addOptional(wasm.base.options.initial_memory);
@@ -4286,6 +4337,10 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
         if (wasm.base.options.import_memory) {
             try argv.append("--import-memory");
+        }
+
+        if (wasm.base.options.export_memory) {
+            try argv.append("--export-memory");
         }
 
         if (wasm.base.options.import_table) {
@@ -4544,7 +4599,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 fn reserveVecSectionHeader(bytes: *std.ArrayList(u8)) !u32 {
     // section id + fixed leb contents size + fixed leb vector length
     const header_size = 1 + 5 + 5;
-    const offset = @intCast(u32, bytes.items.len);
+    const offset = @as(u32, @intCast(bytes.items.len));
     try bytes.appendSlice(&[_]u8{0} ** header_size);
     return offset;
 }
@@ -4552,14 +4607,14 @@ fn reserveVecSectionHeader(bytes: *std.ArrayList(u8)) !u32 {
 fn reserveCustomSectionHeader(bytes: *std.ArrayList(u8)) !u32 {
     // unlike regular section, we don't emit the count
     const header_size = 1 + 5;
-    const offset = @intCast(u32, bytes.items.len);
+    const offset = @as(u32, @intCast(bytes.items.len));
     try bytes.appendSlice(&[_]u8{0} ** header_size);
     return offset;
 }
 
 fn writeVecSectionHeader(buffer: []u8, offset: u32, section: std.wasm.Section, size: u32, items: u32) !void {
     var buf: [1 + 5 + 5]u8 = undefined;
-    buf[0] = @enumToInt(section);
+    buf[0] = @intFromEnum(section);
     leb.writeUnsignedFixed(5, buf[1..6], size);
     leb.writeUnsignedFixed(5, buf[6..], items);
     buffer[offset..][0..buf.len].* = buf;
@@ -4588,14 +4643,14 @@ fn emitLinkSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
     try wasm.emitSymbolTable(binary_bytes, symbol_table);
     try wasm.emitSegmentInfo(binary_bytes);
 
-    const size = @intCast(u32, binary_bytes.items.len - offset - 6);
+    const size = @as(u32, @intCast(binary_bytes.items.len - offset - 6));
     try writeCustomSectionHeader(binary_bytes.items, offset, size);
 }
 
 fn emitSymbolTable(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {
     const writer = binary_bytes.writer();
 
-    try leb.writeULEB128(writer, @enumToInt(types.SubsectionType.WASM_SYMBOL_TABLE));
+    try leb.writeULEB128(writer, @intFromEnum(types.SubsectionType.WASM_SYMBOL_TABLE));
     const table_offset = binary_bytes.items.len;
 
     var symbol_count: u32 = 0;
@@ -4605,13 +4660,13 @@ fn emitSymbolTable(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
         try symbol_table.putNoClobber(sym_loc, symbol_count);
         symbol_count += 1;
         log.debug("Emit symbol: {}", .{symbol});
-        try leb.writeULEB128(writer, @enumToInt(symbol.tag));
+        try leb.writeULEB128(writer, @intFromEnum(symbol.tag));
         try leb.writeULEB128(writer, symbol.flags);
 
         const sym_name = if (wasm.export_names.get(sym_loc)) |exp_name| wasm.string_table.get(exp_name) else sym_loc.getName(wasm);
         switch (symbol.tag) {
             .data => {
-                try leb.writeULEB128(writer, @intCast(u32, sym_name.len));
+                try leb.writeULEB128(writer, @as(u32, @intCast(sym_name.len)));
                 try writer.writeAll(sym_name);
 
                 if (symbol.isDefined()) {
@@ -4628,7 +4683,7 @@ fn emitSymbolTable(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
             else => {
                 try leb.writeULEB128(writer, symbol.index);
                 if (symbol.isDefined()) {
-                    try leb.writeULEB128(writer, @intCast(u32, sym_name.len));
+                    try leb.writeULEB128(writer, @as(u32, @intCast(sym_name.len)));
                     try writer.writeAll(sym_name);
                 }
             },
@@ -4636,38 +4691,38 @@ fn emitSymbolTable(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
     }
 
     var buf: [10]u8 = undefined;
-    leb.writeUnsignedFixed(5, buf[0..5], @intCast(u32, binary_bytes.items.len - table_offset + 5));
+    leb.writeUnsignedFixed(5, buf[0..5], @as(u32, @intCast(binary_bytes.items.len - table_offset + 5)));
     leb.writeUnsignedFixed(5, buf[5..], symbol_count);
     try binary_bytes.insertSlice(table_offset, &buf);
 }
 
 fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
     const writer = binary_bytes.writer();
-    try leb.writeULEB128(writer, @enumToInt(types.SubsectionType.WASM_SEGMENT_INFO));
+    try leb.writeULEB128(writer, @intFromEnum(types.SubsectionType.WASM_SEGMENT_INFO));
     const segment_offset = binary_bytes.items.len;
 
-    try leb.writeULEB128(writer, @intCast(u32, wasm.segment_info.count()));
+    try leb.writeULEB128(writer, @as(u32, @intCast(wasm.segment_info.count())));
     for (wasm.segment_info.values()) |segment_info| {
         log.debug("Emit segment: {s} align({d}) flags({b})", .{
             segment_info.name,
             @ctz(segment_info.alignment),
             segment_info.flags,
         });
-        try leb.writeULEB128(writer, @intCast(u32, segment_info.name.len));
+        try leb.writeULEB128(writer, @as(u32, @intCast(segment_info.name.len)));
         try writer.writeAll(segment_info.name);
         try leb.writeULEB128(writer, @ctz(segment_info.alignment));
         try leb.writeULEB128(writer, segment_info.flags);
     }
 
     var buf: [5]u8 = undefined;
-    leb.writeUnsignedFixed(5, &buf, @intCast(u32, binary_bytes.items.len - segment_offset));
+    leb.writeUnsignedFixed(5, &buf, @as(u32, @intCast(binary_bytes.items.len - segment_offset)));
     try binary_bytes.insertSlice(segment_offset, &buf);
 }
 
 pub fn getULEB128Size(uint_value: anytype) u32 {
     const T = @TypeOf(uint_value);
     const U = if (@typeInfo(T).Int.bits < 8) u8 else T;
-    var value = @intCast(U, uint_value);
+    var value = @as(U, @intCast(uint_value));
 
     var size: u32 = 0;
     while (value != 0) : (size += 1) {
@@ -4689,7 +4744,7 @@ fn emitCodeRelocations(
 
     // write custom section information
     const name = "reloc.CODE";
-    try leb.writeULEB128(writer, @intCast(u32, name.len));
+    try leb.writeULEB128(writer, @as(u32, @intCast(name.len)));
     try writer.writeAll(name);
     try leb.writeULEB128(writer, section_index);
     const reloc_start = binary_bytes.items.len;
@@ -4704,7 +4759,7 @@ fn emitCodeRelocations(
             count += 1;
             const sym_loc: SymbolLoc = .{ .file = atom.file, .index = relocation.index };
             const symbol_index = symbol_table.get(sym_loc).?;
-            try leb.writeULEB128(writer, @enumToInt(relocation.relocation_type));
+            try leb.writeULEB128(writer, @intFromEnum(relocation.relocation_type));
             const offset = atom.offset + relocation.offset + size_offset;
             try leb.writeULEB128(writer, offset);
             try leb.writeULEB128(writer, symbol_index);
@@ -4719,7 +4774,7 @@ fn emitCodeRelocations(
     var buf: [5]u8 = undefined;
     leb.writeUnsignedFixed(5, &buf, count);
     try binary_bytes.insertSlice(reloc_start, &buf);
-    const size = @intCast(u32, binary_bytes.items.len - header_offset - 6);
+    const size = @as(u32, @intCast(binary_bytes.items.len - header_offset - 6));
     try writeCustomSectionHeader(binary_bytes.items, header_offset, size);
 }
 
@@ -4735,7 +4790,7 @@ fn emitDataRelocations(
 
     // write custom section information
     const name = "reloc.DATA";
-    try leb.writeULEB128(writer, @intCast(u32, name.len));
+    try leb.writeULEB128(writer, @as(u32, @intCast(name.len)));
     try writer.writeAll(name);
     try leb.writeULEB128(writer, section_index);
     const reloc_start = binary_bytes.items.len;
@@ -4754,7 +4809,7 @@ fn emitDataRelocations(
                     .index = relocation.index,
                 };
                 const symbol_index = symbol_table.get(sym_loc).?;
-                try leb.writeULEB128(writer, @enumToInt(relocation.relocation_type));
+                try leb.writeULEB128(writer, @intFromEnum(relocation.relocation_type));
                 const offset = atom.offset + relocation.offset + size_offset;
                 try leb.writeULEB128(writer, offset);
                 try leb.writeULEB128(writer, symbol_index);
@@ -4771,7 +4826,7 @@ fn emitDataRelocations(
     var buf: [5]u8 = undefined;
     leb.writeUnsignedFixed(5, &buf, count);
     try binary_bytes.insertSlice(reloc_start, &buf);
-    const size = @intCast(u32, binary_bytes.items.len - header_offset - 6);
+    const size = @as(u32, @intCast(binary_bytes.items.len - header_offset - 6));
     try writeCustomSectionHeader(binary_bytes.items, header_offset, size);
 }
 
@@ -4802,7 +4857,7 @@ pub fn putOrGetFuncType(wasm: *Wasm, func_type: std.wasm.Type) !u32 {
     }
 
     // functype does not exist.
-    const index = @intCast(u32, wasm.func_types.items.len);
+    const index = @as(u32, @intCast(wasm.func_types.items.len));
     const params = try wasm.base.allocator.dupe(std.wasm.Valtype, func_type.params);
     errdefer wasm.base.allocator.free(params);
     const returns = try wasm.base.allocator.dupe(std.wasm.Valtype, func_type.returns);

@@ -30,14 +30,14 @@ pub fn rem_pio2f(x: f32, y: *f64) i32 {
     var e0: u32 = undefined;
     var ui: u32 = undefined;
 
-    ui = @bitCast(u32, x);
+    ui = @as(u32, @bitCast(x));
     ix = ui & 0x7fffffff;
 
     // 25+53 bit pi is good enough for medium size
     if (ix < 0x4dc90fdb) { // |x| ~< 2^28*(pi/2), medium size
         // Use a specialized rint() to get fn.
-        @"fn" = @floatCast(f64, x) * invpio2 + toint - toint;
-        n = @floatToInt(i32, @"fn");
+        @"fn" = @as(f64, @floatCast(x)) * invpio2 + toint - toint;
+        n = @as(i32, @intFromFloat(@"fn"));
         y.* = x - @"fn" * pio2_1 - @"fn" * pio2_1t;
         // Matters with directed rounding.
         if (y.* < -pio4) {
@@ -59,8 +59,8 @@ pub fn rem_pio2f(x: f32, y: *f64) i32 {
     sign = ui >> 31 != 0;
     e0 = (ix >> 23) - (0x7f + 23); // e0 = ilogb(|x|)-23, positive
     ui = ix - (e0 << 23);
-    tx[0] = @bitCast(f32, ui);
-    n = rem_pio2_large(&tx, &ty, @intCast(i32, e0), 1, 0);
+    tx[0] = @as(f32, @bitCast(ui));
+    n = rem_pio2_large(&tx, &ty, @as(i32, @intCast(e0)), 1, 0);
     if (sign) {
         y.* = -ty[0];
         return -n;

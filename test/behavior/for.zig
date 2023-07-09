@@ -22,10 +22,8 @@ test "continue in for loop" {
 }
 
 test "break from outer for loop" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try testBreakOuter();
-    comptime try testBreakOuter();
+    try comptime testBreakOuter();
 }
 
 fn testBreakOuter() !void {
@@ -41,10 +39,8 @@ fn testBreakOuter() !void {
 }
 
 test "continue outer for loop" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try testContinueOuter();
-    comptime try testContinueOuter();
+    try comptime testContinueOuter();
 }
 
 fn testContinueOuter() !void {
@@ -88,7 +84,7 @@ test "basic for loop" {
     }
     for (array, 0..) |item, index| {
         _ = item;
-        buffer[buf_index] = @intCast(u8, index);
+        buffer[buf_index] = @as(u8, @intCast(index));
         buf_index += 1;
     }
     const array_ptr = &array;
@@ -98,7 +94,7 @@ test "basic for loop" {
     }
     for (array_ptr, 0..) |item, index| {
         _ = item;
-        buffer[buf_index] = @intCast(u8, index);
+        buffer[buf_index] = @as(u8, @intCast(index));
         buf_index += 1;
     }
     const unknown_size: []const u8 = &array;
@@ -107,7 +103,7 @@ test "basic for loop" {
         buf_index += 1;
     }
     for (unknown_size, 0..) |_, index| {
-        buffer[buf_index] = @intCast(u8, index);
+        buffer[buf_index] = @as(u8, @intCast(index));
         buf_index += 1;
     }
 
@@ -133,7 +129,7 @@ test "for with null and T peer types and inferred result location type" {
         }
     };
     try S.doTheTest(&[_]u8{ 1, 2 });
-    comptime try S.doTheTest(&[_]u8{ 1, 2 });
+    try comptime S.doTheTest(&[_]u8{ 1, 2 });
 }
 
 test "2 break statements and an else" {
@@ -154,7 +150,7 @@ test "2 break statements and an else" {
         }
     };
     try S.entry(true, false);
-    comptime try S.entry(true, false);
+    try comptime S.entry(true, false);
 }
 
 test "for loop with pointer elem var" {
@@ -201,7 +197,7 @@ test "for copies its payload" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "for on slice with allowzero ptr" {
@@ -212,13 +208,13 @@ test "for on slice with allowzero ptr" {
 
     const S = struct {
         fn doTheTest(slice: []const u8) !void {
-            var ptr = @ptrCast([*]allowzero const u8, slice.ptr)[0..slice.len];
+            var ptr = @as([*]allowzero const u8, @ptrCast(slice.ptr))[0..slice.len];
             for (ptr, 0..) |x, i| try expect(x == i + 1);
             for (ptr, 0..) |*x, i| try expect(x.* == i + 1);
         }
     };
     try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
-    comptime try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
+    try comptime S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
 }
 
 test "else continue outer for" {
@@ -397,7 +393,7 @@ test "raw pointer and counter" {
     const ptr: [*]u8 = &buf;
 
     for (ptr, 0..4) |*a, b| {
-        a.* = @intCast(u8, 'A' + b);
+        a.* = @as(u8, @intCast('A' + b));
     }
 
     try expect(buf[0] == 'A');
@@ -466,4 +462,20 @@ test "inline for with counter as the comptime-known" {
     }
 
     try expect(S.ok == 2);
+}
+
+test "inline for on tuple pointer" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct { u32, u32, u32 };
+    var s: S = .{ 100, 200, 300 };
+
+    inline for (&s, 0..) |*x, i| {
+        x.* = i;
+    }
+
+    try expectEqual(S{ 0, 1, 2 }, s);
 }

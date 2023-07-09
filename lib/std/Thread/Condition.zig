@@ -487,7 +487,7 @@ test "Condition - multi signal" {
 
     // The first paddle will be hit one last time by the last paddle.
     for (paddles, 0..) |p, i| {
-        const expected = @as(u32, num_iterations) + @boolToInt(i == 0);
+        const expected = @as(u32, num_iterations) + @intFromBool(i == 0);
         try testing.expectEqual(p.value, expected);
     }
 }
@@ -542,10 +542,10 @@ test "Condition - broadcasting" {
         // Wait for all the broadcast threads to spawn.
         // timedWait() to detect any potential deadlocks.
         while (broadcast_test.count != num_threads) {
-            try broadcast_test.completed.timedWait(
+            broadcast_test.completed.timedWait(
                 &broadcast_test.mutex,
                 1 * std.time.ns_per_s,
-            );
+            ) catch {};
         }
 
         // Reset the counter and wake all the threads to exit.
@@ -589,7 +589,7 @@ test "Condition - broadcasting - wake all threads" {
                 }
 
                 while (self.thread_id_to_wake != thread_id) {
-                    self.cond.timedWait(&self.mutex, 1 * std.time.ns_per_s) catch std.debug.panic("thread_id {d} timeout {d}", .{ thread_id, self.thread_id_to_wake });
+                    self.cond.timedWait(&self.mutex, 1 * std.time.ns_per_s) catch {};
                     self.wakeups += 1;
                 }
                 if (self.thread_id_to_wake <= num_threads) {
@@ -614,10 +614,10 @@ test "Condition - broadcasting - wake all threads" {
             // Wait for all the broadcast threads to spawn.
             // timedWait() to detect any potential deadlocks.
             while (broadcast_test.count != num_threads) {
-                try broadcast_test.completed.timedWait(
+                broadcast_test.completed.timedWait(
                     &broadcast_test.mutex,
                     1 * std.time.ns_per_s,
-                );
+                ) catch {};
             }
 
             // Signal thread 1 to wake up

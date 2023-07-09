@@ -33,6 +33,7 @@ int select(int n, fd_set *restrict rfds, fd_set *restrict wfds, fd_set *restrict
 			((syscall_arg_t[]){ 0, _NSIG/8 }));
 	if (SYS_pselect6 == SYS_pselect6_time64 || r!=-ENOSYS)
 		return __syscall_ret(r);
+	s = CLAMP(s);
 #endif
 #ifdef SYS_select
 	return syscall_cp(SYS_select, n, rfds, wfds, efds,

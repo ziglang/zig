@@ -72,17 +72,16 @@ fn addExpect(
         if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
     }
 
-    const src_basename = "source.zig";
-    const write_src = b.addWriteFile(src_basename, source);
+    const write_src = b.addWriteFile("source.zig", source);
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = write_src.getFileSource(src_basename).?,
+        .root_source_file = write_src.files.items[0].getFileSource(),
         .optimize = optimize_mode,
         .target = .{},
     });
 
     const run = b.addRunArtifact(exe);
-    run.removeEnvironmentVariable("ZIG_DEBUG_COLOR");
+    run.removeEnvironmentVariable("YES_COLOR");
     run.setEnvironmentVariable("NO_COLOR", "1");
     run.expectExitCode(1);
     run.expectStdOutEqual("");

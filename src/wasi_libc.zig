@@ -72,7 +72,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
     switch (crt_file) {
         .crt1_reactor_o => {
             var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, false);
+            try addCCArgs(comp, arena, &args, .{});
             try addLibcBottomHalfIncludes(comp, arena, &args);
             return comp.build_crt_file("crt1-reactor", .Obj, .@"wasi crt1-reactor.o", prog_node, &.{
                 .{
@@ -85,7 +85,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
         },
         .crt1_command_o => {
             var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, false);
+            try addCCArgs(comp, arena, &args, .{});
             try addLibcBottomHalfIncludes(comp, arena, &args);
             return comp.build_crt_file("crt1-command", .Obj, .@"wasi crt1-command.o", prog_node, &.{
                 .{
@@ -102,7 +102,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             {
                 // Compile emmalloc.
                 var args = std.ArrayList([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, true);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true, .no_strict_aliasing = true });
                 for (emmalloc_src_files) |file_path| {
                     try libc_sources.append(.{
                         .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -116,7 +116,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             {
                 // Compile libc-bottom-half.
                 var args = std.ArrayList([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, true);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
                 try addLibcBottomHalfIncludes(comp, arena, &args);
 
                 for (libc_bottom_half_src_files) |file_path| {
@@ -132,7 +132,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             {
                 // Compile libc-top-half.
                 var args = std.ArrayList([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, true);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
                 try addLibcTopHalfIncludes(comp, arena, &args);
 
                 for (libc_top_half_src_files) |file_path| {
@@ -149,7 +149,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
         },
         .libwasi_emulated_process_clocks_a => {
             var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, true);
+            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
             try addLibcBottomHalfIncludes(comp, arena, &args);
 
             var emu_clocks_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
@@ -165,7 +165,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
         },
         .libwasi_emulated_getpid_a => {
             var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, true);
+            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
             try addLibcBottomHalfIncludes(comp, arena, &args);
 
             var emu_getpid_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
@@ -181,7 +181,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
         },
         .libwasi_emulated_mman_a => {
             var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, true);
+            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
             try addLibcBottomHalfIncludes(comp, arena, &args);
 
             var emu_mman_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
@@ -200,7 +200,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
 
             {
                 var args = std.ArrayList([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, true);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
 
                 for (emulated_signal_bottom_half_src_files) |file_path| {
                     try emu_signal_sources.append(.{
@@ -214,7 +214,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
 
             {
                 var args = std.ArrayList([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, true);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
                 try addLibcTopHalfIncludes(comp, arena, &args);
                 try args.append("-D_WASI_EMULATED_SIGNAL");
 
@@ -249,17 +249,22 @@ fn sanitize(arena: Allocator, file_path: []const u8) ![]const u8 {
     return out_path;
 }
 
+const CCOptions = struct {
+    want_O3: bool = false,
+    no_strict_aliasing: bool = false,
+};
+
 fn addCCArgs(
     comp: *Compilation,
     arena: Allocator,
     args: *std.ArrayList([]const u8),
-    want_O3: bool,
+    options: CCOptions,
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();
-    const arch_name = musl.archName(target.cpu.arch);
+    const arch_name = musl.archNameHeaders(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
     const triple = try std.fmt.allocPrint(arena, "{s}-{s}-musl", .{ arch_name, os_name });
-    const o_arg = if (want_O3) "-O3" else "-Os";
+    const o_arg = if (options.want_O3) "-O3" else "-Os";
 
     try args.appendSlice(&[_][]const u8{
         "-std=gnu17",
@@ -280,6 +285,10 @@ fn addCCArgs(
 
         "-DBULK_MEMORY_THRESHOLD=32",
     });
+
+    if (options.no_strict_aliasing) {
+        try args.appendSlice(&[_][]const u8{"-fno-strict-aliasing"});
+    }
 }
 
 fn addLibcBottomHalfIncludes(
@@ -459,6 +468,7 @@ const libc_bottom_half_src_files = [_][]const u8{
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/unlinkat.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/usleep.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/write.c",
+    "wasi/libc-bottom-half/sources/__errno_location.c",
     "wasi/libc-bottom-half/sources/__main_void.c",
     "wasi/libc-bottom-half/sources/__wasilibc_dt.c",
     "wasi/libc-bottom-half/sources/__wasilibc_environ.c",

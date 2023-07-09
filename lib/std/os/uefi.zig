@@ -143,7 +143,7 @@ pub const FileHandle = *opaque {};
 test "GUID formatting" {
     var bytes = [_]u8{ 137, 60, 203, 50, 128, 128, 124, 66, 186, 19, 80, 73, 135, 59, 194, 135 };
 
-    var guid = @bitCast(Guid, bytes);
+    var guid = @as(Guid, @bitCast(bytes));
 
     var str = try std.fmt.allocPrint(std.testing.allocator, "{}", .{guid});
     defer std.testing.allocator.free(str);

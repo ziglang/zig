@@ -146,7 +146,7 @@ test "std.meta.Child" {
     try testing.expect(Child(*u8) == u8);
     try testing.expect(Child([]u8) == u8);
     try testing.expect(Child(?u8) == u8);
-    try testing.expect(Child(Vector(2, u8)) == u8);
+    try testing.expect(Child(@Vector(2, u8)) == u8);
 }
 
 /// Given a "memory span" type (array, slice, vector, or pointer to such), returns the "element type".
@@ -173,8 +173,8 @@ test "std.meta.Elem" {
     try testing.expect(Elem([*]u8) == u8);
     try testing.expect(Elem([]u8) == u8);
     try testing.expect(Elem(*[10]u8) == u8);
-    try testing.expect(Elem(Vector(2, u8)) == u8);
-    try testing.expect(Elem(*Vector(2, u8)) == u8);
+    try testing.expect(Elem(@Vector(2, u8)) == u8);
+    try testing.expect(Elem(*@Vector(2, u8)) == u8);
     try testing.expect(Elem(?[*]u8) == u8);
 }
 
@@ -185,18 +185,18 @@ pub fn sentinel(comptime T: type) ?Elem(T) {
     switch (@typeInfo(T)) {
         .Array => |info| {
             const sentinel_ptr = info.sentinel orelse return null;
-            return @ptrCast(*const info.child, sentinel_ptr).*;
+            return @as(*const info.child, @ptrCast(sentinel_ptr)).*;
         },
         .Pointer => |info| {
             switch (info.size) {
                 .Many, .Slice => {
                     const sentinel_ptr = info.sentinel orelse return null;
-                    return @ptrCast(*align(1) const info.child, sentinel_ptr).*;
+                    return @as(*align(1) const info.child, @ptrCast(sentinel_ptr)).*;
                 },
                 .One => switch (@typeInfo(info.child)) {
                     .Array => |array_info| {
                         const sentinel_ptr = array_info.sentinel orelse return null;
-                        return @ptrCast(*align(1) const array_info.child, sentinel_ptr).*;
+                        return @as(*align(1) const array_info.child, @ptrCast(sentinel_ptr)).*;
                     },
                     else => {},
                 },
@@ -210,7 +210,7 @@ pub fn sentinel(comptime T: type) ?Elem(T) {
 
 test "std.meta.sentinel" {
     try testSentinel();
-    comptime try testSentinel();
+    try comptime testSentinel();
 }
 
 fn testSentinel() !void {
@@ -241,7 +241,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                             .Array = .{
                                 .len = array_info.len,
                                 .child = array_info.child,
-                                .sentinel = @ptrCast(?*const anyopaque, &sentinel_val),
+                                .sentinel = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
                             },
                         }),
                         .is_allowzero = info.is_allowzero,
@@ -259,7 +259,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                     .address_space = info.address_space,
                     .child = info.child,
                     .is_allowzero = info.is_allowzero,
-                    .sentinel = @ptrCast(?*const anyopaque, &sentinel_val),
+                    .sentinel = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
                 },
             }),
             else => {},
@@ -277,7 +277,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                                 .address_space = ptr_info.address_space,
                                 .child = ptr_info.child,
                                 .is_allowzero = ptr_info.is_allowzero,
-                                .sentinel = @ptrCast(?*const anyopaque, &sentinel_val),
+                                .sentinel = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
                             },
                         }),
                     },
@@ -453,7 +453,7 @@ pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeIn
     .Enum => Type.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
-    return fields(T)[@enumToInt(field)];
+    return fields(T)[@intFromEnum(field)];
 }
 
 test "std.meta.fieldInfo" {
@@ -591,7 +591,7 @@ pub fn FieldEnum(comptime T: type) type {
     if (@typeInfo(T) == .Union) {
         if (@typeInfo(T).Union.tag_type) |tag_type| {
             for (std.enums.values(tag_type), 0..) |v, i| {
-                if (@enumToInt(v) != i) break; // enum values not consecutive
+                if (@intFromEnum(v) != i) break; // enum values not consecutive
                 if (!std.mem.eql(u8, @tagName(v), field_infos[i].name)) break; // fields out of order
             } else {
                 return tag_type;
@@ -710,8 +710,6 @@ test "std.meta.DeclEnum" {
     try expectEqualEnum(enum { a, b, c }, DeclEnum(B));
     try expectEqualEnum(enum { a, b, c }, DeclEnum(C));
 }
-
-pub const TagType = @compileError("deprecated; use Tag");
 
 pub fn Tag(comptime T: type) type {
     return switch (@typeInfo(T)) {
@@ -931,8 +929,8 @@ test "intToEnum with error return" {
     try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
     try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
     try testing.expect(intToEnum(E3, zero) catch unreachable == E3.A);
-    try testing.expect(intToEnum(E3, 127) catch unreachable == @intToEnum(E3, 127));
-    try testing.expect(intToEnum(E3, -128) catch unreachable == @intToEnum(E3, -128));
+    try testing.expect(intToEnum(E3, 127) catch unreachable == @as(E3, @enumFromInt(127)));
+    try testing.expect(intToEnum(E3, -128) catch unreachable == @as(E3, @enumFromInt(-128)));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E3, 128));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E3, -129));
@@ -945,14 +943,14 @@ pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTa
 
     if (!enum_info.is_exhaustive) {
         if (std.math.cast(enum_info.tag_type, tag_int)) |tag| {
-            return @intToEnum(EnumTag, tag);
+            return @as(EnumTag, @enumFromInt(tag));
         }
         return error.InvalidEnumTag;
     }
 
     inline for (enum_info.fields) |f| {
         const this_tag_value = @field(EnumTag, f.name);
-        if (tag_int == @enumToInt(this_tag_value)) {
+        if (tag_int == @intFromEnum(this_tag_value)) {
             return this_tag_value;
         }
     }
@@ -985,7 +983,7 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
         for (decls, 0..) |decl, i| {
             array[i] = &@field(Namespace, decl.name);
         }
-        std.sort.sort(*const Decl, &array, {}, S.declNameLessThan);
+        mem.sort(*const Decl, &array, {}, S.declNameLessThan);
         return &array;
     }
 }
@@ -1014,16 +1012,6 @@ test "std.meta.Float" {
     try testing.expectEqual(f128, Float(128));
 }
 
-/// Deprecated. Use `@Vector`.
-pub fn Vector(comptime len: u32, comptime child: type) type {
-    return @Type(.{
-        .Vector = .{
-            .len = len,
-            .child = child,
-        },
-    });
-}
-
 /// For a given function type, returns a tuple type which fields will
 /// correspond to the argument types.
 ///
@@ -1037,14 +1025,12 @@ pub fn ArgsTuple(comptime Function: type) type {
         @compileError("ArgsTuple expects a function type");
 
     const function_info = info.Fn;
-    if (function_info.is_generic)
-        @compileError("Cannot create ArgsTuple for generic function");
     if (function_info.is_var_args)
         @compileError("Cannot create ArgsTuple for variadic function");
 
     var argument_field_list: [function_info.params.len]type = undefined;
     inline for (function_info.params, 0..) |arg, i| {
-        const T = arg.type.?;
+        const T = arg.type orelse @compileError("cannot create ArgsTuple for function with an 'anytype' parameter");
         argument_field_list[i] = T;
     }
 
@@ -1116,6 +1102,7 @@ test "ArgsTuple" {
     TupleTester.assertTuple(.{u32}, ArgsTuple(fn (a: u32) []const u8));
     TupleTester.assertTuple(.{ u32, f16 }, ArgsTuple(fn (a: u32, b: f16) noreturn));
     TupleTester.assertTuple(.{ u32, f16, []const u8, void }, ArgsTuple(fn (a: u32, b: f16, c: []const u8, void) noreturn));
+    TupleTester.assertTuple(.{u32}, ArgsTuple(fn (comptime a: u32) []const u8));
 }
 
 test "Tuple" {

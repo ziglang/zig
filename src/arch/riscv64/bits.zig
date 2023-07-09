@@ -56,12 +56,12 @@ pub const Instruction = union(enum) {
     // TODO: once packed structs work we can remove this monstrosity.
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
-            .R => |v| @bitCast(u32, v),
-            .I => |v| @bitCast(u32, v),
-            .S => |v| @bitCast(u32, v),
-            .B => |v| @intCast(u32, v.opcode) + (@intCast(u32, v.imm11) << 7) + (@intCast(u32, v.imm1_4) << 8) + (@intCast(u32, v.funct3) << 12) + (@intCast(u32, v.rs1) << 15) + (@intCast(u32, v.rs2) << 20) + (@intCast(u32, v.imm5_10) << 25) + (@intCast(u32, v.imm12) << 31),
-            .U => |v| @bitCast(u32, v),
-            .J => |v| @bitCast(u32, v),
+            .R => |v| @as(u32, @bitCast(v)),
+            .I => |v| @as(u32, @bitCast(v)),
+            .S => |v| @as(u32, @bitCast(v)),
+            .B => |v| @as(u32, @intCast(v.opcode)) + (@as(u32, @intCast(v.imm11)) << 7) + (@as(u32, @intCast(v.imm1_4)) << 8) + (@as(u32, @intCast(v.funct3)) << 12) + (@as(u32, @intCast(v.rs1)) << 15) + (@as(u32, @intCast(v.rs2)) << 20) + (@as(u32, @intCast(v.imm5_10)) << 25) + (@as(u32, @intCast(v.imm12)) << 31),
+            .U => |v| @as(u32, @bitCast(v)),
+            .J => |v| @as(u32, @bitCast(v)),
         };
     }
 
@@ -80,7 +80,7 @@ pub const Instruction = union(enum) {
 
     // RISC-V is all signed all the time -- convert immediates to unsigned for processing
     fn iType(op: u7, fn3: u3, rd: Register, r1: Register, imm: i12) Instruction {
-        const umm = @bitCast(u12, imm);
+        const umm = @as(u12, @bitCast(imm));
 
         return Instruction{
             .I = .{
@@ -94,7 +94,7 @@ pub const Instruction = union(enum) {
     }
 
     fn sType(op: u7, fn3: u3, r1: Register, r2: Register, imm: i12) Instruction {
-        const umm = @bitCast(u12, imm);
+        const umm = @as(u12, @bitCast(imm));
 
         return Instruction{
             .S = .{
@@ -102,8 +102,8 @@ pub const Instruction = union(enum) {
                 .funct3 = fn3,
                 .rs1 = r1.id(),
                 .rs2 = r2.id(),
-                .imm0_4 = @truncate(u5, umm),
-                .imm5_11 = @truncate(u7, umm >> 5),
+                .imm0_4 = @as(u5, @truncate(umm)),
+                .imm5_11 = @as(u7, @truncate(umm >> 5)),
             },
         };
     }
@@ -111,7 +111,7 @@ pub const Instruction = union(enum) {
     // Use significance value rather than bit value, same for J-type
     // -- less burden on callsite, bonus semantic checking
     fn bType(op: u7, fn3: u3, r1: Register, r2: Register, imm: i13) Instruction {
-        const umm = @bitCast(u13, imm);
+        const umm = @as(u13, @bitCast(imm));
         assert(umm % 2 == 0); // misaligned branch target
 
         return Instruction{
@@ -120,17 +120,17 @@ pub const Instruction = union(enum) {
                 .funct3 = fn3,
                 .rs1 = r1.id(),
                 .rs2 = r2.id(),
-                .imm1_4 = @truncate(u4, umm >> 1),
-                .imm5_10 = @truncate(u6, umm >> 5),
-                .imm11 = @truncate(u1, umm >> 11),
-                .imm12 = @truncate(u1, umm >> 12),
+                .imm1_4 = @as(u4, @truncate(umm >> 1)),
+                .imm5_10 = @as(u6, @truncate(umm >> 5)),
+                .imm11 = @as(u1, @truncate(umm >> 11)),
+                .imm12 = @as(u1, @truncate(umm >> 12)),
             },
         };
     }
 
     // We have to extract the 20 bits anyway -- let's not make it more painful
     fn uType(op: u7, rd: Register, imm: i20) Instruction {
-        const umm = @bitCast(u20, imm);
+        const umm = @as(u20, @bitCast(imm));
 
         return Instruction{
             .U = .{
@@ -142,17 +142,17 @@ pub const Instruction = union(enum) {
     }
 
     fn jType(op: u7, rd: Register, imm: i21) Instruction {
-        const umm = @bitCast(u21, imm);
+        const umm = @as(u21, @bitCast(imm));
         assert(umm % 2 == 0); // misaligned jump target
 
         return Instruction{
             .J = .{
                 .opcode = op,
                 .rd = rd.id(),
-                .imm1_10 = @truncate(u10, umm >> 1),
-                .imm11 = @truncate(u1, umm >> 11),
-                .imm12_19 = @truncate(u8, umm >> 12),
-                .imm20 = @truncate(u1, umm >> 20),
+                .imm1_10 = @as(u10, @truncate(umm >> 1)),
+                .imm11 = @as(u1, @truncate(umm >> 11)),
+                .imm12_19 = @as(u8, @truncate(umm >> 12)),
+                .imm20 = @as(u1, @truncate(umm >> 20)),
             },
         };
     }
@@ -258,7 +258,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn sltiu(rd: Register, r1: Register, imm: u12) Instruction {
-        return iType(0b0010011, 0b011, rd, r1, @bitCast(i12, imm));
+        return iType(0b0010011, 0b011, rd, r1, @as(i12, @bitCast(imm)));
     }
 
     // Arithmetic/Logical, Register-Immediate (32-bit)
@@ -407,7 +407,7 @@ pub const Register = enum(u6) {
     /// Returns the unique 4-bit ID of this register which is used in
     /// the machine code
     pub fn id(self: Register) u5 {
-        return @truncate(u5, @enumToInt(self));
+        return @as(u5, @truncate(@intFromEnum(self)));
     }
 
     pub fn dwarfLocOp(reg: Register) u8 {

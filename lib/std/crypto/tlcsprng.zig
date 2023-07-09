@@ -38,6 +38,7 @@ const want_fork_safety = os_has_fork and !os_has_arc4random and
 const maybe_have_wipe_on_fork = builtin.os.isAtLeast(.linux, .{
     .major = 4,
     .minor = 14,
+    .patch = 0,
 }) orelse true;
 const is_haiku = builtin.os.tag == .haiku;
 
@@ -101,7 +102,7 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
             wipe_mem = mem.asBytes(&S.buf);
         }
     }
-    const ctx = @ptrCast(*Context, wipe_mem.ptr);
+    const ctx = @as(*Context, @ptrCast(wipe_mem.ptr));
 
     switch (ctx.init_state) {
         .uninitialized => {
@@ -157,7 +158,7 @@ fn childAtForkHandler() callconv(.C) void {
 }
 
 fn fillWithCsprng(buffer: []u8) void {
-    const ctx = @ptrCast(*Context, wipe_mem.ptr);
+    const ctx = @as(*Context, @ptrCast(wipe_mem.ptr));
     return ctx.rng.fill(buffer);
 }
 
@@ -173,7 +174,7 @@ fn initAndFill(buffer: []u8) void {
     // the `std.options.cryptoRandomSeed` function is provided.
     std.options.cryptoRandomSeed(&seed);
 
-    const ctx = @ptrCast(*Context, wipe_mem.ptr);
+    const ctx = @as(*Context, @ptrCast(wipe_mem.ptr));
     ctx.rng = Rng.init(seed);
     std.crypto.utils.secureZero(u8, &seed);
 

@@ -44,8 +44,8 @@ fn atan2_32(y: f32, x: f32) f32 {
         return x + y;
     }
 
-    var ix = @bitCast(u32, x);
-    var iy = @bitCast(u32, y);
+    var ix = @as(u32, @bitCast(x));
+    var iy = @as(u32, @bitCast(y));
 
     // x = 1.0
     if (ix == 0x3F800000) {
@@ -129,13 +129,13 @@ fn atan2_64(y: f64, x: f64) f64 {
         return x + y;
     }
 
-    var ux = @bitCast(u64, x);
-    var ix = @intCast(u32, ux >> 32);
-    var lx = @intCast(u32, ux & 0xFFFFFFFF);
+    var ux = @as(u64, @bitCast(x));
+    var ix = @as(u32, @intCast(ux >> 32));
+    var lx = @as(u32, @intCast(ux & 0xFFFFFFFF));
 
-    var uy = @bitCast(u64, y);
-    var iy = @intCast(u32, uy >> 32);
-    var ly = @intCast(u32, uy & 0xFFFFFFFF);
+    var uy = @as(u64, @bitCast(y));
+    var iy = @as(u32, @intCast(uy >> 32));
+    var ly = @as(u32, @intCast(uy & 0xFFFFFFFF));
 
     // x = 1.0
     if ((ix -% 0x3FF00000) | lx == 0) {

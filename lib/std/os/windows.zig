@@ -30,7 +30,7 @@ pub const gdi32 = @import("windows/gdi32.zig");
 pub const winmm = @import("windows/winmm.zig");
 pub const crypt32 = @import("windows/crypt32.zig");
 
-pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
+pub const self_process_handle = @as(HANDLE, @ptrFromInt(maxInt(usize)));
 
 const Self = @This();
 
@@ -198,9 +198,9 @@ pub fn DeviceIoControl(
 
     var io: IO_STATUS_BLOCK = undefined;
     const in_ptr = if (in) |i| i.ptr else null;
-    const in_len = if (in) |i| @intCast(ULONG, i.len) else 0;
+    const in_len = if (in) |i| @as(ULONG, @intCast(i.len)) else 0;
     const out_ptr = if (out) |o| o.ptr else null;
-    const out_len = if (out) |o| @intCast(ULONG, o.len) else 0;
+    const out_len = if (out) |o| @as(ULONG, @intCast(o.len)) else 0;
 
     const rc = blk: {
         if (is_fsctl) {
@@ -242,7 +242,7 @@ pub fn DeviceIoControl(
 
 pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
     var bytes: DWORD = undefined;
-    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @boolToInt(wait)) == 0) {
+    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @intFromBool(wait)) == 0) {
         switch (kernel32.GetLastError()) {
             .IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
             else => |err| return unexpectedError(err),
@@ -272,7 +272,7 @@ pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
     const max_read_size: ULONG = maxInt(ULONG);
 
     while (total_read < output.len) {
-        const to_read: ULONG = math.min(buff.len, max_read_size);
+        const to_read: ULONG = @min(buff.len, max_read_size);
 
         if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
             return unexpectedError(kernel32.GetLastError());
@@ -294,7 +294,7 @@ pub fn WaitForSingleObject(handle: HANDLE, milliseconds: DWORD) WaitForSingleObj
 }
 
 pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: bool) WaitForSingleObjectError!void {
-    switch (kernel32.WaitForSingleObjectEx(handle, milliseconds, @boolToInt(alertable))) {
+    switch (kernel32.WaitForSingleObjectEx(handle, milliseconds, @intFromBool(alertable))) {
         WAIT_ABANDONED => return error.WaitAbandoned,
         WAIT_OBJECT_0 => return,
         WAIT_TIMEOUT => return error.WaitTimeOut,
@@ -307,13 +307,13 @@ pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: boo
 
 pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, milliseconds: DWORD, alertable: bool) !u32 {
     assert(handles.len < MAXIMUM_WAIT_OBJECTS);
-    const nCount: DWORD = @intCast(DWORD, handles.len);
+    const nCount: DWORD = @as(DWORD, @intCast(handles.len));
     switch (kernel32.WaitForMultipleObjectsEx(
         nCount,
         handles.ptr,
-        @boolToInt(waitAll),
+        @intFromBool(waitAll),
         milliseconds,
-        @boolToInt(alertable),
+        @intFromBool(alertable),
     )) {
         WAIT_OBJECT_0...WAIT_OBJECT_0 + MAXIMUM_WAIT_OBJECTS => |n| {
             const handle_index = n - WAIT_OBJECT_0;
@@ -419,10 +419,10 @@ pub fn GetQueuedCompletionStatusEx(
     const success = kernel32.GetQueuedCompletionStatusEx(
         completion_port,
         completion_port_entries.ptr,
-        @intCast(ULONG, completion_port_entries.len),
+        @as(ULONG, @intCast(completion_port_entries.len)),
         &num_entries_removed,
         timeout_ms orelse INFINITE,
-        @boolToInt(alertable),
+        @intFromBool(alertable),
     );
 
     if (success == FALSE) {
@@ -469,8 +469,8 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
                     .InternalHigh = 0,
                     .DUMMYUNIONNAME = .{
                         .DUMMYSTRUCTNAME = .{
-                            .Offset = @truncate(u32, off),
-                            .OffsetHigh = @truncate(u32, off >> 32),
+                            .Offset = @as(u32, @truncate(off)),
+                            .OffsetHigh = @as(u32, @truncate(off >> 32)),
                         },
                     },
                     .hEvent = null,
@@ -480,7 +480,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
         loop.beginOneEvent();
         suspend {
             // TODO handle buffer bigger than DWORD can hold
-            _ = kernel32.ReadFile(in_hFile, buffer.ptr, @intCast(DWORD, buffer.len), null, &resume_node.base.overlapped);
+            _ = kernel32.ReadFile(in_hFile, buffer.ptr, @as(DWORD, @intCast(buffer.len)), null, &resume_node.base.overlapped);
         }
         var bytes_transferred: DWORD = undefined;
         if (kernel32.GetOverlappedResult(in_hFile, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
@@ -496,12 +496,12 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
         if (offset == null) {
             // TODO make setting the file position non-blocking
             const new_off = off + bytes_transferred;
-            try SetFilePointerEx_CURRENT(in_hFile, @bitCast(i64, new_off));
+            try SetFilePointerEx_CURRENT(in_hFile, @as(i64, @bitCast(new_off)));
         }
         return @as(usize, bytes_transferred);
     } else {
         while (true) {
-            const want_read_count = @intCast(DWORD, math.min(@as(DWORD, maxInt(DWORD)), buffer.len));
+            const want_read_count: DWORD = @min(@as(DWORD, maxInt(DWORD)), buffer.len);
             var amt_read: DWORD = undefined;
             var overlapped_data: OVERLAPPED = undefined;
             const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
@@ -510,8 +510,8 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
                     .InternalHigh = 0,
                     .DUMMYUNIONNAME = .{
                         .DUMMYSTRUCTNAME = .{
-                            .Offset = @truncate(u32, off),
-                            .OffsetHigh = @truncate(u32, off >> 32),
+                            .Offset = @as(u32, @truncate(off)),
+                            .OffsetHigh = @as(u32, @truncate(off >> 32)),
                         },
                     },
                     .hEvent = null,
@@ -563,8 +563,8 @@ pub fn WriteFile(
                     .InternalHigh = 0,
                     .DUMMYUNIONNAME = .{
                         .DUMMYSTRUCTNAME = .{
-                            .Offset = @truncate(u32, off),
-                            .OffsetHigh = @truncate(u32, off >> 32),
+                            .Offset = @as(u32, @truncate(off)),
+                            .OffsetHigh = @as(u32, @truncate(off >> 32)),
                         },
                     },
                     .hEvent = null,
@@ -591,7 +591,7 @@ pub fn WriteFile(
         if (offset == null) {
             // TODO make setting the file position non-blocking
             const new_off = off + bytes_transferred;
-            try SetFilePointerEx_CURRENT(handle, @bitCast(i64, new_off));
+            try SetFilePointerEx_CURRENT(handle, @as(i64, @bitCast(new_off)));
         }
         return bytes_transferred;
     } else {
@@ -603,8 +603,8 @@ pub fn WriteFile(
                 .InternalHigh = 0,
                 .DUMMYUNIONNAME = .{
                     .DUMMYSTRUCTNAME = .{
-                        .Offset = @truncate(u32, off),
-                        .OffsetHigh = @truncate(u32, off >> 32),
+                        .Offset = @as(u32, @truncate(off)),
+                        .OffsetHigh = @as(u32, @truncate(off >> 32)),
                     },
                 },
                 .hEvent = null,
@@ -745,19 +745,19 @@ pub fn CreateSymbolicLink(
     const header_len = @sizeOf(ULONG) + @sizeOf(USHORT) * 2;
     const symlink_data = SYMLINK_DATA{
         .ReparseTag = IO_REPARSE_TAG_SYMLINK,
-        .ReparseDataLength = @intCast(u16, buf_len - header_len),
+        .ReparseDataLength = @as(u16, @intCast(buf_len - header_len)),
         .Reserved = 0,
-        .SubstituteNameOffset = @intCast(u16, target_path.len * 2),
-        .SubstituteNameLength = @intCast(u16, target_path.len * 2),
+        .SubstituteNameOffset = @as(u16, @intCast(target_path.len * 2)),
+        .SubstituteNameLength = @as(u16, @intCast(target_path.len * 2)),
         .PrintNameOffset = 0,
-        .PrintNameLength = @intCast(u16, target_path.len * 2),
+        .PrintNameLength = @as(u16, @intCast(target_path.len * 2)),
         .Flags = if (dir) |_| SYMLINK_FLAG_RELATIVE else 0,
     };
 
     @memcpy(buffer[0..@sizeOf(SYMLINK_DATA)], std.mem.asBytes(&symlink_data));
-    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..][0 .. target_path.len * 2], @ptrCast([*]const u8, target_path));
+    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..][0 .. target_path.len * 2], @as([*]const u8, @ptrCast(target_path)));
     const paths_start = @sizeOf(SYMLINK_DATA) + target_path.len * 2;
-    @memcpy(buffer[paths_start..][0 .. target_path.len * 2], @ptrCast([*]const u8, target_path));
+    @memcpy(buffer[paths_start..][0 .. target_path.len * 2], @as([*]const u8, @ptrCast(target_path)));
     _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null);
 }
 
@@ -827,10 +827,10 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
         else => |e| return e,
     };
 
-    const reparse_struct = @ptrCast(*const REPARSE_DATA_BUFFER, @alignCast(@alignOf(REPARSE_DATA_BUFFER), &reparse_buf[0]));
+    const reparse_struct: *const REPARSE_DATA_BUFFER = @ptrCast(@alignCast(&reparse_buf[0]));
     switch (reparse_struct.ReparseTag) {
         IO_REPARSE_TAG_SYMLINK => {
-            const buf = @ptrCast(*const SYMBOLIC_LINK_REPARSE_BUFFER, @alignCast(@alignOf(SYMBOLIC_LINK_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
+            const buf: *const SYMBOLIC_LINK_REPARSE_BUFFER = @ptrCast(@alignCast(&reparse_struct.DataBuffer[0]));
             const offset = buf.SubstituteNameOffset >> 1;
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
@@ -838,7 +838,7 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
             return parseReadlinkPath(path_buf[offset..][0..len], is_relative, out_buffer);
         },
         IO_REPARSE_TAG_MOUNT_POINT => {
-            const buf = @ptrCast(*const MOUNT_POINT_REPARSE_BUFFER, @alignCast(@alignOf(MOUNT_POINT_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
+            const buf: *const MOUNT_POINT_REPARSE_BUFFER = @ptrCast(@alignCast(&reparse_struct.DataBuffer[0]));
             const offset = buf.SubstituteNameOffset >> 1;
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
@@ -884,7 +884,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     else
         FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT; // would we ever want to delete the target instead?
 
-    const path_len_bytes = @intCast(u16, sub_path_w.len * 2);
+    const path_len_bytes = @as(u16, @intCast(sub_path_w.len * 2));
     var nt_name = UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
@@ -937,19 +937,40 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .DELETE_PENDING => return,
         else => return unexpectedStatus(rc),
     }
-    var file_dispo = FILE_DISPOSITION_INFORMATION{
-        .DeleteFile = TRUE,
-    };
-    rc = ntdll.NtSetInformationFile(
-        tmp_handle,
-        &io,
-        &file_dispo,
-        @sizeOf(FILE_DISPOSITION_INFORMATION),
-        .FileDispositionInformation,
-    );
-    CloseHandle(tmp_handle);
+    defer CloseHandle(tmp_handle);
+
+    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
+        // Deletion with posix semantics.
+        var info = FILE_DISPOSITION_INFORMATION_EX{
+            .Flags = FILE_DISPOSITION_DELETE |
+                FILE_DISPOSITION_POSIX_SEMANTICS |
+                FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE,
+        };
+
+        rc = ntdll.NtSetInformationFile(
+            tmp_handle,
+            &io,
+            &info,
+            @sizeOf(FILE_DISPOSITION_INFORMATION_EX),
+            .FileDispositionInformationEx,
+        );
+    } else {
+        // Deletion with file pending semantics, which requires waiting or moving
+        // files to get them removed (from here).
+        var file_dispo = FILE_DISPOSITION_INFORMATION{
+            .DeleteFile = TRUE,
+        };
+
+        rc = ntdll.NtSetInformationFile(
+            tmp_handle,
+            &io,
+            &file_dispo,
+            @sizeOf(FILE_DISPOSITION_INFORMATION),
+            .FileDispositionInformation,
+        );
+    }
     switch (rc) {
-        .SUCCESS => return,
+        .SUCCESS => {},
         .DIRECTORY_NOT_EMPTY => return error.DirNotEmpty,
         .INVALID_PARAMETER => unreachable,
         .CANNOT_DELETE => return error.AccessDenied,
@@ -999,7 +1020,7 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
     // "The starting point is zero or the beginning of the file. If [FILE_BEGIN]
     // is specified, then the liDistanceToMove parameter is interpreted as an unsigned value."
     // https://docs.microsoft.com/en-us/windows/desktop/api/fileapi/nf-fileapi-setfilepointerex
-    const ipos = @bitCast(LARGE_INTEGER, offset);
+    const ipos = @as(LARGE_INTEGER, @bitCast(offset));
     if (kernel32.SetFilePointerEx(handle, ipos, null, FILE_BEGIN) == 0) {
         switch (kernel32.GetLastError()) {
             .INVALID_PARAMETER => unreachable,
@@ -1043,7 +1064,7 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     }
     // Based on the docs for FILE_BEGIN, it seems that the returned signed integer
     // should be interpreted as an unsigned integer.
-    return @bitCast(u64, result);
+    return @as(u64, @bitCast(result));
 }
 
 pub fn QueryObjectName(
@@ -1052,7 +1073,7 @@ pub fn QueryObjectName(
 ) ![]u16 {
     const out_buffer_aligned = mem.alignInSlice(out_buffer, @alignOf(OBJECT_NAME_INFORMATION)) orelse return error.NameTooLong;
 
-    const info = @ptrCast(*OBJECT_NAME_INFORMATION, out_buffer_aligned);
+    const info = @as(*OBJECT_NAME_INFORMATION, @ptrCast(out_buffer_aligned));
     //buffer size is specified in bytes
     const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) orelse std.math.maxInt(ULONG);
     //last argument would return the length required for full_buffer, not exposed here
@@ -1085,7 +1106,7 @@ test "QueryObjectName" {
     var out_buffer: [PATH_MAX_WIDE]u16 = undefined;
 
     var result_path = try QueryObjectName(handle, &out_buffer);
-    const required_len_in_u16 = result_path.len + @divExact(@ptrToInt(result_path.ptr) - @ptrToInt(&out_buffer), 2) + 1;
+    const required_len_in_u16 = result_path.len + @divExact(@intFromPtr(result_path.ptr) - @intFromPtr(&out_buffer), 2) + 1;
     //insufficient size
     try std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
     //exactly-sufficient size
@@ -1157,9 +1178,9 @@ pub fn GetFinalPathNameByHandle(
 
             // This surprising path is a filesystem path to the mount manager on Windows.
             // Source: https://stackoverflow.com/questions/3012828/using-ioctl-mountmgr-query-points
-            const mgmt_path = "\\MountPointManager";
-            const mgmt_path_u16 = sliceToPrefixedFileW(mgmt_path) catch unreachable;
-            const mgmt_handle = OpenFile(mgmt_path_u16.span(), .{
+            // This is the NT namespaced version of \\.\MountPointManager
+            const mgmt_path_u16 = std.unicode.utf8ToUtf16LeStringLiteral("\\??\\MountPointManager");
+            const mgmt_handle = OpenFile(mgmt_path_u16, .{
                 .access_mask = SYNCHRONIZE,
                 .share_access = FILE_SHARE_READ | FILE_SHARE_WRITE,
                 .creation = FILE_OPEN,
@@ -1176,26 +1197,26 @@ pub fn GetFinalPathNameByHandle(
             };
             defer CloseHandle(mgmt_handle);
 
-            var input_struct = @ptrCast(*MOUNTMGR_MOUNT_POINT, &input_buf[0]);
+            var input_struct = @as(*MOUNTMGR_MOUNT_POINT, @ptrCast(&input_buf[0]));
             input_struct.DeviceNameOffset = @sizeOf(MOUNTMGR_MOUNT_POINT);
-            input_struct.DeviceNameLength = @intCast(USHORT, volume_name_u16.len * 2);
-            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..][0 .. volume_name_u16.len * 2], @ptrCast([*]const u8, volume_name_u16.ptr));
+            input_struct.DeviceNameLength = @as(USHORT, @intCast(volume_name_u16.len * 2));
+            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..][0 .. volume_name_u16.len * 2], @as([*]const u8, @ptrCast(volume_name_u16.ptr)));
 
             DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, &input_buf, &output_buf) catch |err| switch (err) {
                 error.AccessDenied => unreachable,
                 else => |e| return e,
             };
-            const mount_points_struct = @ptrCast(*const MOUNTMGR_MOUNT_POINTS, &output_buf[0]);
+            const mount_points_struct = @as(*const MOUNTMGR_MOUNT_POINTS, @ptrCast(&output_buf[0]));
 
-            const mount_points = @ptrCast(
+            const mount_points = @as(
                 [*]const MOUNTMGR_MOUNT_POINT,
-                &mount_points_struct.MountPoints[0],
+                @ptrCast(&mount_points_struct.MountPoints[0]),
             )[0..mount_points_struct.NumberOfMountPoints];
 
             for (mount_points) |mount_point| {
-                const symlink = @ptrCast(
+                const symlink = @as(
                     [*]const u16,
-                    @alignCast(@alignOf(u16), &output_buf[mount_point.SymbolicLinkNameOffset]),
+                    @ptrCast(@alignCast(&output_buf[mount_point.SymbolicLinkNameOffset])),
                 )[0 .. mount_point.SymbolicLinkNameLength / 2];
 
                 // Look for `\DosDevices\` prefix. We don't really care if there are more than one symlinks
@@ -1242,7 +1263,7 @@ test "GetFinalPathNameByHandle" {
     const nt_path = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, &buffer);
     _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, &buffer);
 
-    const required_len_in_u16 = nt_path.len + @divExact(@ptrToInt(nt_path.ptr) - @ptrToInt(&buffer), 2) + 1;
+    const required_len_in_u16 = nt_path.len + @divExact(@intFromPtr(nt_path.ptr) - @intFromPtr(&buffer), 2) + 1;
     //check with insufficient size
     try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. required_len_in_u16 - 1]));
     try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. required_len_in_u16 - 1]));
@@ -1261,7 +1282,7 @@ pub fn GetFileSizeEx(hFile: HANDLE) GetFileSizeError!u64 {
             else => |err| return unexpectedError(err),
         }
     }
-    return @bitCast(u64, file_size);
+    return @as(u64, @bitCast(file_size));
 }
 
 pub const GetFileAttributesError = error{
@@ -1292,7 +1313,7 @@ pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
     var wsadata: ws2_32.WSADATA = undefined;
     return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
         0 => wsadata,
-        else => |err_int| switch (@intToEnum(ws2_32.WinsockError, @intCast(u16, err_int))) {
+        else => |err_int| switch (@as(ws2_32.WinsockError, @enumFromInt(@as(u16, @intCast(err_int))))) {
             .WSASYSNOTREADY => return error.SystemNotAvailable,
             .WSAVERNOTSUPPORTED => return error.VersionNotSupported,
             .WSAEINPROGRESS => return error.BlockingOperationInProgress,
@@ -1387,7 +1408,7 @@ pub fn WSASocketW(
 }
 
 pub fn bind(s: ws2_32.SOCKET, name: *const ws2_32.sockaddr, namelen: ws2_32.socklen_t) i32 {
-    return ws2_32.bind(s, name, @intCast(i32, namelen));
+    return ws2_32.bind(s, name, @as(i32, @intCast(namelen)));
 }
 
 pub fn listen(s: ws2_32.SOCKET, backlog: u31) i32 {
@@ -1406,15 +1427,15 @@ pub fn closesocket(s: ws2_32.SOCKET) !void {
 
 pub fn accept(s: ws2_32.SOCKET, name: ?*ws2_32.sockaddr, namelen: ?*ws2_32.socklen_t) ws2_32.SOCKET {
     assert((name == null) == (namelen == null));
-    return ws2_32.accept(s, name, @ptrCast(?*i32, namelen));
+    return ws2_32.accept(s, name, @as(?*i32, @ptrCast(namelen)));
 }
 
 pub fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
-    return ws2_32.getsockname(s, name, @ptrCast(*i32, namelen));
+    return ws2_32.getsockname(s, name, @as(*i32, @ptrCast(namelen)));
 }
 
 pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
-    return ws2_32.getpeername(s, name, @ptrCast(*i32, namelen));
+    return ws2_32.getpeername(s, name, @as(*i32, @ptrCast(namelen)));
 }
 
 pub fn sendmsg(
@@ -1426,28 +1447,28 @@ pub fn sendmsg(
     if (ws2_32.WSASendMsg(s, msg, flags, &bytes_send, null, null) == ws2_32.SOCKET_ERROR) {
         return ws2_32.SOCKET_ERROR;
     } else {
-        return @as(i32, @intCast(u31, bytes_send));
+        return @as(i32, @as(u31, @intCast(bytes_send)));
     }
 }
 
 pub fn sendto(s: ws2_32.SOCKET, buf: [*]const u8, len: usize, flags: u32, to: ?*const ws2_32.sockaddr, to_len: ws2_32.socklen_t) i32 {
-    var buffer = ws2_32.WSABUF{ .len = @truncate(u31, len), .buf = @constCast(buf) };
+    var buffer = ws2_32.WSABUF{ .len = @as(u31, @truncate(len)), .buf = @constCast(buf) };
     var bytes_send: DWORD = undefined;
-    if (ws2_32.WSASendTo(s, @ptrCast([*]ws2_32.WSABUF, &buffer), 1, &bytes_send, flags, to, @intCast(i32, to_len), null, null) == ws2_32.SOCKET_ERROR) {
+    if (ws2_32.WSASendTo(s, @as([*]ws2_32.WSABUF, @ptrCast(&buffer)), 1, &bytes_send, flags, to, @as(i32, @intCast(to_len)), null, null) == ws2_32.SOCKET_ERROR) {
         return ws2_32.SOCKET_ERROR;
     } else {
-        return @as(i32, @intCast(u31, bytes_send));
+        return @as(i32, @as(u31, @intCast(bytes_send)));
     }
 }
 
 pub fn recvfrom(s: ws2_32.SOCKET, buf: [*]u8, len: usize, flags: u32, from: ?*ws2_32.sockaddr, from_len: ?*ws2_32.socklen_t) i32 {
-    var buffer = ws2_32.WSABUF{ .len = @truncate(u31, len), .buf = buf };
+    var buffer = ws2_32.WSABUF{ .len = @as(u31, @truncate(len)), .buf = buf };
     var bytes_received: DWORD = undefined;
     var flags_inout = flags;
-    if (ws2_32.WSARecvFrom(s, @ptrCast([*]ws2_32.WSABUF, &buffer), 1, &bytes_received, &flags_inout, from, @ptrCast(?*i32, from_len), null, null) == ws2_32.SOCKET_ERROR) {
+    if (ws2_32.WSARecvFrom(s, @as([*]ws2_32.WSABUF, @ptrCast(&buffer)), 1, &bytes_received, &flags_inout, from, @as(?*i32, @ptrCast(from_len)), null, null) == ws2_32.SOCKET_ERROR) {
         return ws2_32.SOCKET_ERROR;
     } else {
-        return @as(i32, @intCast(u31, bytes_received));
+        return @as(i32, @as(u31, @intCast(bytes_received)));
     }
 }
 
@@ -1468,9 +1489,9 @@ pub fn WSAIoctl(
         s,
         dwIoControlCode,
         if (inBuffer) |i| i.ptr else null,
-        if (inBuffer) |i| @intCast(DWORD, i.len) else 0,
+        if (inBuffer) |i| @as(DWORD, @intCast(i.len)) else 0,
         outBuffer.ptr,
-        @intCast(DWORD, outBuffer.len),
+        @as(DWORD, @intCast(outBuffer.len)),
         &bytes,
         overlapped,
         completionRoutine,
@@ -1720,7 +1741,7 @@ pub fn QueryPerformanceFrequency() u64 {
     var result: LARGE_INTEGER = undefined;
     assert(kernel32.QueryPerformanceFrequency(&result) != 0);
     // The kernel treats this integer as unsigned.
-    return @bitCast(u64, result);
+    return @as(u64, @bitCast(result));
 }
 
 pub fn QueryPerformanceCounter() u64 {
@@ -1729,7 +1750,7 @@ pub fn QueryPerformanceCounter() u64 {
     var result: LARGE_INTEGER = undefined;
     assert(kernel32.QueryPerformanceCounter(&result) != 0);
     // The kernel treats this integer as unsigned.
-    return @bitCast(u64, result);
+    return @as(u64, @bitCast(result));
 }
 
 pub fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*anyopaque, Context: ?*anyopaque) void {
@@ -1831,7 +1852,7 @@ pub fn teb() *TEB {
     return switch (native_arch) {
         .x86 => blk: {
             if (builtin.zig_backend == .stage2_c) {
-                break :blk @ptrCast(*TEB, @alignCast(@alignOf(TEB), zig_x86_windows_teb()));
+                break :blk @ptrCast(@alignCast(zig_x86_windows_teb()));
             } else {
                 break :blk asm volatile (
                     \\ movl %%fs:0x18, %[ptr]
@@ -1841,7 +1862,7 @@ pub fn teb() *TEB {
         },
         .x86_64 => blk: {
             if (builtin.zig_backend == .stage2_c) {
-                break :blk @ptrCast(*TEB, @alignCast(@alignOf(TEB), zig_x86_64_windows_teb()));
+                break :blk @ptrCast(@alignCast(zig_x86_64_windows_teb()));
             } else {
                 break :blk asm volatile (
                     \\ movq %%gs:0x30, %[ptr]
@@ -1873,7 +1894,7 @@ pub fn fromSysTime(hns: i64) i128 {
 
 pub fn toSysTime(ns: i128) i64 {
     const hns = @divFloor(ns, 100);
-    return @intCast(i64, hns) - std.time.epoch.windows * (std.time.ns_per_s / 100);
+    return @as(i64, @intCast(hns)) - std.time.epoch.windows * (std.time.ns_per_s / 100);
 }
 
 pub fn fileTimeToNanoSeconds(ft: FILETIME) i128 {
@@ -1883,22 +1904,22 @@ pub fn fileTimeToNanoSeconds(ft: FILETIME) i128 {
 
 /// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
 pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
-    const adjusted = @bitCast(u64, toSysTime(ns));
+    const adjusted = @as(u64, @bitCast(toSysTime(ns)));
     return FILETIME{
-        .dwHighDateTime = @truncate(u32, adjusted >> 32),
-        .dwLowDateTime = @truncate(u32, adjusted),
+        .dwHighDateTime = @as(u32, @truncate(adjusted >> 32)),
+        .dwLowDateTime = @as(u32, @truncate(adjusted)),
     };
 }
 
 /// Compares two WTF16 strings using RtlEqualUnicodeString
 pub fn eqlIgnoreCaseWTF16(a: []const u16, b: []const u16) bool {
-    const a_bytes = @intCast(u16, a.len * 2);
+    const a_bytes = @as(u16, @intCast(a.len * 2));
     const a_string = UNICODE_STRING{
         .Length = a_bytes,
         .MaximumLength = a_bytes,
         .Buffer = @constCast(a.ptr),
     };
-    const b_bytes = @intCast(u16, b.len * 2);
+    const b_bytes = @as(u16, @intCast(b.len * 2));
     const b_string = UNICODE_STRING{
         .Length = b_bytes,
         .MaximumLength = b_bytes,
@@ -1997,81 +2018,258 @@ pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
     return sliceToPrefixedFileW(mem.sliceTo(s, 0));
 }
 
-/// Converts the path `s` to WTF16, null-terminated. If the path is absolute,
-/// it will get NT-style prefix `\??\` prepended automatically.
-pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
-    // TODO https://github.com/ziglang/zig/issues/2765
-    var path_space: PathSpace = undefined;
-    const prefix = "\\??\\";
-    const prefix_index: usize = if (mem.startsWith(u8, s, prefix)) prefix.len else 0;
-    for (s[prefix_index..]) |byte| {
-        switch (byte) {
-            '*', '?', '"', '<', '>', '|' => return error.BadPathName,
-            else => {},
-        }
-    }
-    const prefix_u16 = [_]u16{ '\\', '?', '?', '\\' };
-    const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        path_space.data[0..prefix_u16.len].* = prefix_u16;
-        break :blk prefix_u16.len;
-    };
-    path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
-    if (path_space.len > path_space.data.len) return error.NameTooLong;
-    path_space.len = start_index + (normalizePath(u16, path_space.data[start_index..path_space.len]) catch |err| switch (err) {
-        error.TooManyParentDirs => {
-            if (!std.fs.path.isAbsolute(s)) {
-                var temp_path: PathSpace = undefined;
-                temp_path.len = try std.unicode.utf8ToUtf16Le(&temp_path.data, s);
-                std.debug.assert(temp_path.len == path_space.len);
-                temp_path.data[path_space.len] = 0;
-                path_space.len = prefix_u16.len + try getFullPathNameW(&temp_path.data, path_space.data[prefix_u16.len..]);
-                path_space.data[0..prefix_u16.len].* = prefix_u16;
-                std.debug.assert(path_space.data[path_space.len] == 0);
+/// Same as `wToPrefixedFileW` but accepts a UTF-8 encoded path.
+pub fn sliceToPrefixedFileW(path: []const u8) !PathSpace {
+    var temp_path: PathSpace = undefined;
+    temp_path.len = try std.unicode.utf8ToUtf16Le(&temp_path.data, path);
+    temp_path.data[temp_path.len] = 0;
+    return wToPrefixedFileW(temp_path.span());
+}
+
+/// Converts the `path` to WTF16, null-terminated. If the path contains any
+/// namespace prefix, or is anything but a relative path (rooted, drive relative,
+/// etc) the result will have the NT-style prefix `\??\`.
+///
+/// Similar to RtlDosPathNameToNtPathName_U with a few differences:
+/// - Does not allocate on the heap.
+/// - Relative paths are kept as relative unless they contain too many ..
+///   components, in which case they are treated as drive-relative and resolved
+///   against the CWD.
+/// - Special case device names like COM1, NUL, etc are not handled specially (TODO)
+/// - . and space are not stripped from the end of relative paths (potential TODO)
+pub fn wToPrefixedFileW(path: [:0]const u16) !PathSpace {
+    const nt_prefix = [_]u16{ '\\', '?', '?', '\\' };
+    switch (getNamespacePrefix(u16, path)) {
+        // TODO: Figure out a way to design an API that can avoid the copy for .nt,
+        //       since it is always returned fully unmodified.
+        .nt, .verbatim => {
+            var path_space: PathSpace = undefined;
+            path_space.data[0..nt_prefix.len].* = nt_prefix;
+            const len_after_prefix = path.len - nt_prefix.len;
+            @memcpy(path_space.data[nt_prefix.len..][0..len_after_prefix], path[nt_prefix.len..]);
+            path_space.len = path.len;
+            path_space.data[path_space.len] = 0;
+            return path_space;
+        },
+        .local_device, .fake_verbatim => {
+            var path_space: PathSpace = undefined;
+            const path_byte_len = ntdll.RtlGetFullPathName_U(
+                path.ptr,
+                path_space.data.len * 2,
+                &path_space.data,
+                null,
+            );
+            if (path_byte_len == 0) {
+                // TODO: This may not be the right error
+                return error.BadPathName;
+            } else if (path_byte_len / 2 > path_space.data.len) {
+                return error.NameTooLong;
+            }
+            path_space.len = path_byte_len / 2;
+            // Both prefixes will be normalized but retained, so all
+            // we need to do now is replace them with the NT prefix
+            path_space.data[0..nt_prefix.len].* = nt_prefix;
+            return path_space;
+        },
+        .none => {
+            const path_type = getUnprefixedPathType(u16, path);
+            var path_space: PathSpace = undefined;
+            relative: {
+                if (path_type == .relative) {
+                    // TODO: Handle special case device names like COM1, AUX, NUL, CONIN$, CONOUT$, etc.
+                    //       See https://googleprojectzero.blogspot.com/2016/02/the-definitive-guide-on-win32-to-nt.html
+
+                    // TODO: Potentially strip all trailing . and space characters from the
+                    //       end of the path. This is something that both RtlDosPathNameToNtPathName_U
+                    //       and RtlGetFullPathName_U do. Technically, trailing . and spaces
+                    //       are allowed, but such paths may not interact well with Windows (i.e.
+                    //       files with these paths can't be deleted from explorer.exe, etc).
+                    //       This could be something that normalizePath may want to do.
+
+                    @memcpy(path_space.data[0..path.len], path);
+                    // Try to normalize, but if we get too many parent directories,
+                    // then this is effectively a 'drive relative' path, so we need to
+                    // start over and use RtlGetFullPathName_U instead.
+                    path_space.len = normalizePath(u16, path_space.data[0..path.len]) catch |err| switch (err) {
+                        error.TooManyParentDirs => break :relative,
+                    };
+                    path_space.data[path_space.len] = 0;
+                    return path_space;
+                }
+            }
+            // We now know we are going to return an absolute NT path, so
+            // we can unconditionally prefix it with the NT prefix.
+            path_space.data[0..nt_prefix.len].* = nt_prefix;
+            if (path_type == .root_local_device) {
+                // `\\.` and `\\?` always get converted to `\??\` exactly, so
+                // we can just stop here
+                path_space.len = nt_prefix.len;
+                path_space.data[path_space.len] = 0;
                 return path_space;
             }
-            return error.BadPathName;
+            const path_buf_offset = switch (path_type) {
+                // UNC paths will always start with `\\`. However, we want to
+                // end up with something like `\??\UNC\server\share`, so to get
+                // RtlGetFullPathName to write into the spot we want the `server`
+                // part to end up, we need to provide an offset such that
+                // the `\\` part gets written where the `C\` of `UNC\` will be
+                // in the final NT path.
+                .unc_absolute => nt_prefix.len + 2,
+                else => nt_prefix.len,
+            };
+            const buf_len = @as(u32, @intCast(path_space.data.len - path_buf_offset));
+            const path_byte_len = ntdll.RtlGetFullPathName_U(
+                path.ptr,
+                buf_len * 2,
+                path_space.data[path_buf_offset..].ptr,
+                null,
+            );
+            if (path_byte_len == 0) {
+                // TODO: This may not be the right error
+                return error.BadPathName;
+            } else if (path_byte_len / 2 > buf_len) {
+                return error.NameTooLong;
+            }
+            path_space.len = path_buf_offset + (path_byte_len / 2);
+            if (path_type == .unc_absolute) {
+                // Now add in the UNC, the `C` should overwrite the first `\` of the
+                // FullPathName, ultimately resulting in `\??\UNC\<the rest of the path>`
+                std.debug.assert(path_space.data[path_buf_offset] == '\\');
+                std.debug.assert(path_space.data[path_buf_offset + 1] == '\\');
+                const unc = [_]u16{ 'U', 'N', 'C' };
+                path_space.data[nt_prefix.len..][0..unc.len].* = unc;
+            }
+            return path_space;
         },
-    });
-    path_space.data[path_space.len] = 0;
-    return path_space;
+    }
+}
+
+pub const NamespacePrefix = enum {
+    none,
+    /// `\\.\` (path separators can be `\` or `/`)
+    local_device,
+    /// `\\?\`
+    /// When converted to an NT path, everything past the prefix is left
+    /// untouched and `\\?\` is replaced by `\??\`.
+    verbatim,
+    /// `\\?\` without all path separators being `\`.
+    /// This seems to be recognized as a prefix, but the 'verbatim' aspect
+    /// is not respected (i.e. if `//?/C:/foo` is converted to an NT path,
+    /// it will become `\??\C:\foo` [it will be canonicalized and the //?/ won't
+    /// be treated as part of the final path])
+    fake_verbatim,
+    /// `\??\`
+    nt,
+};
+
+pub fn getNamespacePrefix(comptime T: type, path: []const T) NamespacePrefix {
+    if (path.len < 4) return .none;
+    var all_backslash = switch (path[0]) {
+        '\\' => true,
+        '/' => false,
+        else => return .none,
+    };
+    all_backslash = all_backslash and switch (path[3]) {
+        '\\' => true,
+        '/' => false,
+        else => return .none,
+    };
+    switch (path[1]) {
+        '?' => if (path[2] == '?' and all_backslash) return .nt else return .none,
+        '\\' => {},
+        '/' => all_backslash = false,
+        else => return .none,
+    }
+    return switch (path[2]) {
+        '?' => if (all_backslash) .verbatim else .fake_verbatim,
+        '.' => .local_device,
+        else => .none,
+    };
+}
+
+test getNamespacePrefix {
+    try std.testing.expectEqual(NamespacePrefix.none, getNamespacePrefix(u8, ""));
+    try std.testing.expectEqual(NamespacePrefix.nt, getNamespacePrefix(u8, "\\??\\"));
+    try std.testing.expectEqual(NamespacePrefix.none, getNamespacePrefix(u8, "/??/"));
+    try std.testing.expectEqual(NamespacePrefix.none, getNamespacePrefix(u8, "/??\\"));
+    try std.testing.expectEqual(NamespacePrefix.none, getNamespacePrefix(u8, "\\?\\\\"));
+    try std.testing.expectEqual(NamespacePrefix.local_device, getNamespacePrefix(u8, "\\\\.\\"));
+    try std.testing.expectEqual(NamespacePrefix.local_device, getNamespacePrefix(u8, "\\\\./"));
+    try std.testing.expectEqual(NamespacePrefix.local_device, getNamespacePrefix(u8, "/\\./"));
+    try std.testing.expectEqual(NamespacePrefix.local_device, getNamespacePrefix(u8, "//./"));
+    try std.testing.expectEqual(NamespacePrefix.none, getNamespacePrefix(u8, "/.//"));
+    try std.testing.expectEqual(NamespacePrefix.verbatim, getNamespacePrefix(u8, "\\\\?\\"));
+    try std.testing.expectEqual(NamespacePrefix.fake_verbatim, getNamespacePrefix(u8, "\\/?\\"));
+    try std.testing.expectEqual(NamespacePrefix.fake_verbatim, getNamespacePrefix(u8, "\\/?/"));
+    try std.testing.expectEqual(NamespacePrefix.fake_verbatim, getNamespacePrefix(u8, "//?/"));
+}
+
+pub const UnprefixedPathType = enum {
+    unc_absolute,
+    drive_absolute,
+    drive_relative,
+    rooted,
+    relative,
+    root_local_device,
+};
+
+inline fn isSepW(c: u16) bool {
+    return c == '/' or c == '\\';
+}
+
+/// Get the path type of a path that is known to not have any namespace prefixes
+/// (`\\?\`, `\\.\`, `\??\`).
+pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathType {
+    if (path.len < 1) return .relative;
+
+    if (std.debug.runtime_safety) {
+        std.debug.assert(getNamespacePrefix(T, path) == .none);
+    }
+
+    if (isSepW(path[0])) {
+        // \x
+        if (path.len < 2 or !isSepW(path[1])) return .rooted;
+        // exactly \\. or \\? with nothing trailing
+        if (path.len == 3 and (path[2] == '.' or path[2] == '?')) return .root_local_device;
+        // \\x
+        return .unc_absolute;
+    } else {
+        // x
+        if (path.len < 2 or path[1] != ':') return .relative;
+        // x:\
+        if (path.len > 2 and isSepW(path[2])) return .drive_absolute;
+        // x:
+        return .drive_relative;
+    }
+}
+
+test getUnprefixedPathType {
+    try std.testing.expectEqual(UnprefixedPathType.relative, getUnprefixedPathType(u8, ""));
+    try std.testing.expectEqual(UnprefixedPathType.relative, getUnprefixedPathType(u8, "x"));
+    try std.testing.expectEqual(UnprefixedPathType.relative, getUnprefixedPathType(u8, "x\\"));
+    try std.testing.expectEqual(UnprefixedPathType.root_local_device, getUnprefixedPathType(u8, "//."));
+    try std.testing.expectEqual(UnprefixedPathType.root_local_device, getUnprefixedPathType(u8, "/\\?"));
+    try std.testing.expectEqual(UnprefixedPathType.root_local_device, getUnprefixedPathType(u8, "\\\\?"));
+    try std.testing.expectEqual(UnprefixedPathType.unc_absolute, getUnprefixedPathType(u8, "\\\\x"));
+    try std.testing.expectEqual(UnprefixedPathType.unc_absolute, getUnprefixedPathType(u8, "//x"));
+    try std.testing.expectEqual(UnprefixedPathType.rooted, getUnprefixedPathType(u8, "\\x"));
+    try std.testing.expectEqual(UnprefixedPathType.rooted, getUnprefixedPathType(u8, "/"));
+    try std.testing.expectEqual(UnprefixedPathType.drive_relative, getUnprefixedPathType(u8, "x:"));
+    try std.testing.expectEqual(UnprefixedPathType.drive_relative, getUnprefixedPathType(u8, "x:abc"));
+    try std.testing.expectEqual(UnprefixedPathType.drive_relative, getUnprefixedPathType(u8, "x:a/b/c"));
+    try std.testing.expectEqual(UnprefixedPathType.drive_absolute, getUnprefixedPathType(u8, "x:\\"));
+    try std.testing.expectEqual(UnprefixedPathType.drive_absolute, getUnprefixedPathType(u8, "x:\\abc"));
+    try std.testing.expectEqual(UnprefixedPathType.drive_absolute, getUnprefixedPathType(u8, "x:/a/b/c"));
 }
 
 fn getFullPathNameW(path: [*:0]const u16, out: []u16) !usize {
-    const result = kernel32.GetFullPathNameW(path, @intCast(u32, out.len), out.ptr, null);
+    const result = kernel32.GetFullPathNameW(path, @as(u32, @intCast(out.len)), out.ptr, null);
     if (result == 0) {
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
     return result;
-}
-
-/// Assumes an absolute path.
-pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
-    // TODO https://github.com/ziglang/zig/issues/2765
-    var path_space: PathSpace = undefined;
-
-    const start_index = if (mem.startsWith(u16, s, &[_]u16{ '\\', '?' })) 0 else blk: {
-        const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        path_space.data[0..prefix.len].* = prefix;
-        break :blk prefix.len;
-    };
-    path_space.len = start_index + s.len;
-    if (path_space.len > path_space.data.len) return error.NameTooLong;
-    @memcpy(path_space.data[start_index..][0..s.len], s);
-    // > File I/O functions in the Windows API convert "/" to "\" as part of
-    // > converting the name to an NT-style name, except when using the "\\?\"
-    // > prefix as detailed in the following sections.
-    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
-    // Because we want the larger maximum path length for absolute paths, we
-    // convert forward slashes to backward slashes here.
-    for (path_space.data[0..path_space.len]) |*elem| {
-        if (elem.* == '/') {
-            elem.* = '\\';
-        }
-    }
-    path_space.data[path_space.len] = 0;
-    return path_space;
 }
 
 inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
@@ -2086,9 +2284,9 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
     const rc = ws2_32.WSAIoctl(
         sock,
         ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
-        @ptrCast(*const anyopaque, &guid),
+        @as(*const anyopaque, @ptrCast(&guid)),
         @sizeOf(GUID),
-        @intToPtr(?*anyopaque, @ptrToInt(&function)),
+        @as(?*anyopaque, @ptrFromInt(@intFromPtr(&function))),
         @sizeOf(T),
         &num_bytes,
         null,
@@ -2127,21 +2325,21 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
             null,
         );
         _ = std.unicode.utf16leToUtf8(&buf_utf8, buf_wstr[0..len]) catch unreachable;
-        std.debug.print("error.Unexpected: GetLastError({}): {s}\n", .{ @enumToInt(err), buf_utf8[0..len] });
+        std.debug.print("error.Unexpected: GetLastError({}): {s}\n", .{ @intFromEnum(err), buf_utf8[0..len] });
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }
     return error.Unexpected;
 }
 
 pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
-    return unexpectedError(@intToEnum(Win32Error, @enumToInt(err)));
+    return unexpectedError(@as(Win32Error, @enumFromInt(@intFromEnum(err))));
 }
 
 /// Call this when you made a windows NtDll call
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@enumToInt(status)});
+        std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@intFromEnum(status)});
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }
     return error.Unexpected;
@@ -2329,10 +2527,10 @@ pub fn CTL_CODE(deviceType: u16, function: u12, method: TransferType, access: u2
     return (@as(DWORD, deviceType) << 16) |
         (@as(DWORD, access) << 14) |
         (@as(DWORD, function) << 2) |
-        @enumToInt(method);
+        @intFromEnum(method);
 }
 
-pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
+pub const INVALID_HANDLE_VALUE = @as(HANDLE, @ptrFromInt(maxInt(usize)));
 
 pub const INVALID_FILE_ATTRIBUTES = @as(DWORD, maxInt(DWORD));
 
@@ -2396,6 +2594,18 @@ pub const FILE_NAME_INFORMATION = extern struct {
     FileNameLength: ULONG,
     FileName: [1]WCHAR,
 };
+
+pub const FILE_DISPOSITION_INFORMATION_EX = extern struct {
+    /// combination of FILE_DISPOSITION_* flags
+    Flags: ULONG,
+};
+
+const FILE_DISPOSITION_DO_NOT_DELETE: ULONG = 0x00000000;
+const FILE_DISPOSITION_DELETE: ULONG = 0x00000001;
+const FILE_DISPOSITION_POSIX_SEMANTICS: ULONG = 0x00000002;
+const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
+const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
+const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
 
 pub const FILE_RENAME_INFORMATION = extern struct {
     ReplaceIfExists: BOOLEAN,
@@ -2909,7 +3119,7 @@ pub const GUID = extern struct {
             bytes[i] = (try std.fmt.charToDigit(s[hex_offset], 16)) << 4 |
                 try std.fmt.charToDigit(s[hex_offset + 1], 16);
         }
-        return @bitCast(GUID, bytes);
+        return @as(GUID, @bitCast(bytes));
     }
 };
 
@@ -2940,16 +3150,16 @@ pub const KF_FLAG_SIMPLE_IDLIST = 256;
 pub const KF_FLAG_ALIAS_ONLY = -2147483648;
 
 pub const S_OK = 0;
-pub const E_NOTIMPL = @bitCast(c_long, @as(c_ulong, 0x80004001));
-pub const E_NOINTERFACE = @bitCast(c_long, @as(c_ulong, 0x80004002));
-pub const E_POINTER = @bitCast(c_long, @as(c_ulong, 0x80004003));
-pub const E_ABORT = @bitCast(c_long, @as(c_ulong, 0x80004004));
-pub const E_FAIL = @bitCast(c_long, @as(c_ulong, 0x80004005));
-pub const E_UNEXPECTED = @bitCast(c_long, @as(c_ulong, 0x8000FFFF));
-pub const E_ACCESSDENIED = @bitCast(c_long, @as(c_ulong, 0x80070005));
-pub const E_HANDLE = @bitCast(c_long, @as(c_ulong, 0x80070006));
-pub const E_OUTOFMEMORY = @bitCast(c_long, @as(c_ulong, 0x8007000E));
-pub const E_INVALIDARG = @bitCast(c_long, @as(c_ulong, 0x80070057));
+pub const E_NOTIMPL = @as(c_long, @bitCast(@as(c_ulong, 0x80004001)));
+pub const E_NOINTERFACE = @as(c_long, @bitCast(@as(c_ulong, 0x80004002)));
+pub const E_POINTER = @as(c_long, @bitCast(@as(c_ulong, 0x80004003)));
+pub const E_ABORT = @as(c_long, @bitCast(@as(c_ulong, 0x80004004)));
+pub const E_FAIL = @as(c_long, @bitCast(@as(c_ulong, 0x80004005)));
+pub const E_UNEXPECTED = @as(c_long, @bitCast(@as(c_ulong, 0x8000FFFF)));
+pub const E_ACCESSDENIED = @as(c_long, @bitCast(@as(c_ulong, 0x80070005)));
+pub const E_HANDLE = @as(c_long, @bitCast(@as(c_ulong, 0x80070006)));
+pub const E_OUTOFMEMORY = @as(c_long, @bitCast(@as(c_ulong, 0x8007000E)));
+pub const E_INVALIDARG = @as(c_long, @bitCast(@as(c_ulong, 0x80070057)));
 
 pub const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
 pub const FILE_FLAG_DELETE_ON_CLOSE = 0x04000000;
@@ -3011,7 +3221,7 @@ pub const LSTATUS = LONG;
 
 pub const HKEY = *opaque {};
 
-pub const HKEY_LOCAL_MACHINE: HKEY = @intToPtr(HKEY, 0x80000002);
+pub const HKEY_LOCAL_MACHINE: HKEY = @as(HKEY, @ptrFromInt(0x80000002));
 
 /// Combines the STANDARD_RIGHTS_REQUIRED, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_CREATE_SUB_KEY,
 /// KEY_ENUMERATE_SUB_KEYS, KEY_NOTIFY, and KEY_CREATE_LINK access rights.
@@ -3176,6 +3386,8 @@ pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
     srWindow: SMALL_RECT,
     dwMaximumWindowSize: COORD,
 };
+
+pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x4;
 
 pub const FOREGROUND_BLUE = 1;
 pub const FOREGROUND_GREEN = 2;
@@ -4473,11 +4685,11 @@ pub const KUSER_SHARED_DATA = extern struct {
 /// Read-only user-mode address for the shared data.
 /// https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
 /// https://msrc-blog.microsoft.com/2022/04/05/randomizing-the-kuser_shared_data-structure-on-windows/
-pub const SharedUserData: *const KUSER_SHARED_DATA = @intToPtr(*const KUSER_SHARED_DATA, 0x7FFE0000);
+pub const SharedUserData: *const KUSER_SHARED_DATA = @as(*const KUSER_SHARED_DATA, @ptrFromInt(0x7FFE0000));
 
 pub fn IsProcessorFeaturePresent(feature: PF) bool {
-    if (@enumToInt(feature) >= PROCESSOR_FEATURE_MAX) return false;
-    return SharedUserData.ProcessorFeatures[@enumToInt(feature)] == 1;
+    if (@intFromEnum(feature) >= PROCESSOR_FEATURE_MAX) return false;
+    return SharedUserData.ProcessorFeatures[@intFromEnum(feature)] == 1;
 }
 
 pub const TH32CS_SNAPHEAPLIST = 0x00000001;
@@ -4674,7 +4886,7 @@ pub fn WriteProcessMemory(handle: HANDLE, addr: ?LPVOID, buffer: []const u8) Wri
     switch (ntdll.NtWriteVirtualMemory(
         handle,
         addr,
-        @ptrCast(*const anyopaque, buffer.ptr),
+        @as(*const anyopaque, @ptrCast(buffer.ptr)),
         buffer.len,
         &nwritten,
     )) {
@@ -4707,6 +4919,6 @@ pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
 
     var peb_buf: [@sizeOf(PEB)]u8 align(@alignOf(PEB)) = undefined;
     const peb_out = try ReadProcessMemory(handle, info.PebBaseAddress, &peb_buf);
-    const ppeb = @ptrCast(*const PEB, @alignCast(@alignOf(PEB), peb_out.ptr));
+    const ppeb: *const PEB = @ptrCast(@alignCast(peb_out.ptr));
     return ppeb.ImageBaseAddress;
 }

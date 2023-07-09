@@ -4,7 +4,9 @@ export fn entry() void {
 fn testImplicitlyDecreaseFnAlign(ptr: *const fn () align(8) i32, answer: i32) void {
     if (ptr() != answer) unreachable;
 }
-fn alignedSmall() align(4) i32 { return 1234; }
+fn alignedSmall() align(4) i32 {
+    return 1234;
+}
 
 // error
 // backend=stage2

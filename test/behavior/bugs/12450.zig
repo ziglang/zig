@@ -16,8 +16,8 @@ test {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    var f1: *align(16) Foo = @alignCast(16, @ptrCast(*align(1) Foo, &buffer[0]));
+    var f1: *align(16) Foo = @alignCast(@as(*align(1) Foo, @ptrCast(&buffer[0])));
     try expect(@typeInfo(@TypeOf(f1)).Pointer.alignment == 16);
-    try expect(@ptrToInt(f1) == @ptrToInt(&f1.a));
+    try expect(@intFromPtr(f1) == @intFromPtr(&f1.a));
     try expect(@typeInfo(@TypeOf(&f1.a)).Pointer.alignment == 16);
 }

@@ -29,10 +29,10 @@ fn next(self: *Pcg) u32 {
     const l = self.s;
     self.s = l *% default_multiplier +% (self.i | 1);
 
-    const xor_s = @truncate(u32, ((l >> 18) ^ l) >> 27);
-    const rot = @intCast(u32, l >> 59);
+    const xor_s = @as(u32, @truncate(((l >> 18) ^ l) >> 27));
+    const rot = @as(u32, @intCast(l >> 59));
 
-    return (xor_s >> @intCast(u5, rot)) | (xor_s << @intCast(u5, (0 -% rot) & 31));
+    return (xor_s >> @as(u5, @intCast(rot))) | (xor_s << @as(u5, @intCast((0 -% rot) & 31)));
 }
 
 fn seed(self: *Pcg, init_s: u64) void {
@@ -58,7 +58,7 @@ pub fn fill(self: *Pcg, buf: []u8) void {
         var n = self.next();
         comptime var j: usize = 0;
         inline while (j < 4) : (j += 1) {
-            buf[i + j] = @truncate(u8, n);
+            buf[i + j] = @as(u8, @truncate(n));
             n >>= 8;
         }
     }
@@ -67,7 +67,7 @@ pub fn fill(self: *Pcg, buf: []u8) void {
     if (i != buf.len) {
         var n = self.next();
         while (i < buf.len) : (i += 1) {
-            buf[i] = @truncate(u8, n);
+            buf[i] = @as(u8, @truncate(n));
             n >>= 8;
         }
     }

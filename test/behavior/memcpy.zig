@@ -58,7 +58,8 @@ test "@memcpy dest many pointer" {
 fn testMemcpyDestManyPtr() !void {
     var str = "hello".*;
     var buf: [5]u8 = undefined;
-    @memcpy(@ptrCast([*]u8, &buf), @ptrCast([*]const u8, &str)[0..5]);
+    var len: usize = 5;
+    @memcpy(@as([*]u8, @ptrCast(&buf)), @as([*]const u8, @ptrCast(&str))[0..len]);
     try expect(buf[0] == 'h');
     try expect(buf[1] == 'e');
     try expect(buf[2] == 'l');
@@ -67,14 +68,16 @@ fn testMemcpyDestManyPtr() !void {
 }
 
 comptime {
-    const S = struct {
-        buffer: [8]u8 = undefined,
-        fn set(self: *@This(), items: []const u8) void {
-            @memcpy(self.buffer[0..items.len], items);
-        }
-    };
+    if (builtin.zig_backend != .stage2_spirv64) {
+        const S = struct {
+            buffer: [8]u8 = undefined,
+            fn set(self: *@This(), items: []const u8) void {
+                @memcpy(self.buffer[0..items.len], items);
+            }
+        };
 
-    var s = S{};
-    s.set("hello");
-    if (!std.mem.eql(u8, s.buffer[0..5], "hello")) @compileError("bad");
+        var s = S{};
+        s.set("hello");
+        if (!std.mem.eql(u8, s.buffer[0..5], "hello")) @compileError("bad");
+    }
 }

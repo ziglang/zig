@@ -26,7 +26,7 @@ const pio2_3 = 2.02226624871116645580e-21; // 0x3BA3198A, 0x2E000000
 const pio2_3t = 8.47842766036889956997e-32; // 0x397B839A, 0x252049C1
 
 fn U(x: anytype) usize {
-    return @intCast(usize, x);
+    return @as(usize, @intCast(x));
 }
 
 fn medium(ix: u32, x: f64, y: *[2]f64) i32 {
@@ -41,7 +41,7 @@ fn medium(ix: u32, x: f64, y: *[2]f64) i32 {
 
     // rint(x/(pi/2))
     @"fn" = x * invpio2 + toint - toint;
-    n = @floatToInt(i32, @"fn");
+    n = @as(i32, @intFromFloat(@"fn"));
     r = x - @"fn" * pio2_1;
     w = @"fn" * pio2_1t; // 1st round, good to 85 bits
     // Matters with directed rounding.
@@ -57,17 +57,17 @@ fn medium(ix: u32, x: f64, y: *[2]f64) i32 {
         w = @"fn" * pio2_1t;
     }
     y[0] = r - w;
-    ui = @bitCast(u64, y[0]);
-    ey = @intCast(i32, (ui >> 52) & 0x7ff);
-    ex = @intCast(i32, ix >> 20);
+    ui = @as(u64, @bitCast(y[0]));
+    ey = @as(i32, @intCast((ui >> 52) & 0x7ff));
+    ex = @as(i32, @intCast(ix >> 20));
     if (ex - ey > 16) { // 2nd round, good to 118 bits
         t = r;
         w = @"fn" * pio2_2;
         r = t - w;
         w = @"fn" * pio2_2t - ((t - r) - w);
         y[0] = r - w;
-        ui = @bitCast(u64, y[0]);
-        ey = @intCast(i32, (ui >> 52) & 0x7ff);
+        ui = @as(u64, @bitCast(y[0]));
+        ey = @as(i32, @intCast((ui >> 52) & 0x7ff));
         if (ex - ey > 49) { // 3rd round, good to 151 bits, covers all cases
             t = r;
             w = @"fn" * pio2_3;
@@ -95,9 +95,9 @@ pub fn rem_pio2(x: f64, y: *[2]f64) i32 {
     var i: i32 = undefined;
     var ui: u64 = undefined;
 
-    ui = @bitCast(u64, x);
+    ui = @as(u64, @bitCast(x));
     sign = ui >> 63 != 0;
-    ix = @truncate(u32, (ui >> 32) & 0x7fffffff);
+    ix = @as(u32, @truncate((ui >> 32) & 0x7fffffff));
     if (ix <= 0x400f6a7a) { // |x| ~<= 5pi/4
         if ((ix & 0xfffff) == 0x921fb) { // |x| ~= pi/2 or 2pi/2
             return medium(ix, x, y);
@@ -171,14 +171,14 @@ pub fn rem_pio2(x: f64, y: *[2]f64) i32 {
         return 0;
     }
     // set z = scalbn(|x|,-ilogb(x)+23)
-    ui = @bitCast(u64, x);
+    ui = @as(u64, @bitCast(x));
     ui &= std.math.maxInt(u64) >> 12;
     ui |= @as(u64, 0x3ff + 23) << 52;
-    z = @bitCast(f64, ui);
+    z = @as(f64, @bitCast(ui));
 
     i = 0;
     while (i < 2) : (i += 1) {
-        tx[U(i)] = @intToFloat(f64, @floatToInt(i32, z));
+        tx[U(i)] = @as(f64, @floatFromInt(@as(i32, @intFromFloat(z))));
         z = (z - tx[U(i)]) * 0x1p24;
     }
     tx[U(i)] = z;
@@ -186,7 +186,7 @@ pub fn rem_pio2(x: f64, y: *[2]f64) i32 {
     while (tx[U(i)] == 0.0) {
         i -= 1;
     }
-    n = rem_pio2_large(tx[0..], ty[0..], @intCast(i32, (ix >> 20)) - (0x3ff + 23), i + 1, 1);
+    n = rem_pio2_large(tx[0..], ty[0..], @as(i32, @intCast((ix >> 20))) - (0x3ff + 23), i + 1, 1);
     if (sign) {
         y[0] = -ty[0];
         y[1] = -ty[1];

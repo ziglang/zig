@@ -11,7 +11,8 @@ const IdRef = spec.IdRef;
 const IdResult = spec.IdResult;
 
 const SpvModule = @import("Module.zig");
-const SpvType = @import("type.zig").Type;
+const CacheRef = SpvModule.CacheRef;
+const CacheKey = SpvModule.CacheKey;
 
 /// Represents a token in the assembly template.
 const Token = struct {
@@ -126,7 +127,7 @@ const AsmValue = union(enum) {
     value: IdRef,
 
     /// This result-value represents a type registered into the module's type system.
-    ty: SpvType.Ref,
+    ty: CacheRef,
 
     /// Retrieve the result-id of this AsmValue. Asserts that this AsmValue
     /// is of a variant that allows the result to be obtained (not an unresolved
@@ -135,7 +136,7 @@ const AsmValue = union(enum) {
         return switch (self) {
             .just_declared, .unresolved_forward_reference => unreachable,
             .value => |result| result,
-            .ty => |ref| spv.typeId(ref),
+            .ty => |ref| spv.resultId(ref),
         };
     }
 };
@@ -267,9 +268,9 @@ fn processInstruction(self: *Assembler) !void {
 /// refers to the result.
 fn processTypeInstruction(self: *Assembler) !AsmValue {
     const operands = self.inst.operands.items;
-    const ty = switch (self.inst.opcode) {
-        .OpTypeVoid => SpvType.initTag(.void),
-        .OpTypeBool => SpvType.initTag(.bool),
+    const ref = switch (self.inst.opcode) {
+        .OpTypeVoid => try self.spv.resolve(.void_type),
+        .OpTypeBool => try self.spv.resolve(.bool_type),
         .OpTypeInt => blk: {
             const signedness: std.builtin.Signedness = switch (operands[2].literal32) {
                 0 => .unsigned,
@@ -282,7 +283,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             const width = std.math.cast(u16, operands[1].literal32) orelse {
                 return self.fail(0, "int type of {} bits is too large", .{operands[1].literal32});
             };
-            break :blk try SpvType.int(self.spv.arena, signedness, width);
+            break :blk try self.spv.intType(signedness, width);
         },
         .OpTypeFloat => blk: {
             const bits = operands[1].literal32;
@@ -292,136 +293,36 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
                     return self.fail(0, "{} is not a valid bit count for floats (expected 16, 32 or 64)", .{bits});
                 },
             }
-            break :blk SpvType.float(@intCast(u16, bits));
+            break :blk try self.spv.resolve(.{ .float_type = .{ .bits = @as(u16, @intCast(bits)) } });
         },
-        .OpTypeVector => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.Vector);
-            payload.* = .{
-                .component_type = try self.resolveTypeRef(operands[1].ref_id),
-                .component_count = operands[2].literal32,
-            };
-            break :blk SpvType.initPayload(&payload.base);
-        },
-        .OpTypeMatrix => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.Matrix);
-            payload.* = .{
-                .column_type = try self.resolveTypeRef(operands[1].ref_id),
-                .column_count = operands[2].literal32,
-            };
-            break :blk SpvType.initPayload(&payload.base);
-        },
-        .OpTypeImage => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.Image);
-            payload.* = .{
-                .sampled_type = try self.resolveTypeRef(operands[1].ref_id),
-                .dim = @intToEnum(spec.Dim, operands[2].value),
-                .depth = switch (operands[3].literal32) {
-                    0 => .no,
-                    1 => .yes,
-                    2 => .maybe,
-                    else => {
-                        return self.fail(0, "'{}' is not a valid image depth (expected 0, 1 or 2)", .{operands[3].literal32});
-                    },
-                },
-                .arrayed = switch (operands[4].literal32) {
-                    0 => false,
-                    1 => true,
-                    else => {
-                        return self.fail(0, "'{}' is not a valid image arrayed-ness (expected 0 or 1)", .{operands[4].literal32});
-                    },
-                },
-                .multisampled = switch (operands[5].literal32) {
-                    0 => false,
-                    1 => true,
-                    else => {
-                        return self.fail(0, "'{}' is not a valid image multisampled-ness (expected 0 or 1)", .{operands[5].literal32});
-                    },
-                },
-                .sampled = switch (operands[6].literal32) {
-                    0 => .known_at_runtime,
-                    1 => .with_sampler,
-                    2 => .without_sampler,
-                    else => {
-                        return self.fail(0, "'{}' is not a valid image sampled-ness (expected 0, 1 or 2)", .{operands[6].literal32});
-                    },
-                },
-                .format = @intToEnum(spec.ImageFormat, operands[7].value),
-                .access_qualifier = if (operands.len > 8)
-                    @intToEnum(spec.AccessQualifier, operands[8].value)
-                else
-                    null,
-            };
-            break :blk SpvType.initPayload(&payload.base);
-        },
-        .OpTypeSampler => SpvType.initTag(.sampler),
-        .OpTypeSampledImage => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.SampledImage);
-            payload.* = .{
-                .image_type = try self.resolveTypeRef(operands[1].ref_id),
-            };
-            break :blk SpvType.initPayload(&payload.base);
-        },
+        .OpTypeVector => try self.spv.resolve(.{ .vector_type = .{
+            .component_type = try self.resolveTypeRef(operands[1].ref_id),
+            .component_count = operands[2].literal32,
+        } }),
         .OpTypeArray => {
             // TODO: The length of an OpTypeArray is determined by a constant (which may be a spec constant),
             // and so some consideration must be taken when entering this in the type system.
             return self.todo("process OpTypeArray", .{});
         },
-        .OpTypeRuntimeArray => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.RuntimeArray);
-            payload.* = .{
-                .element_type = try self.resolveTypeRef(operands[1].ref_id),
-                // TODO: Fetch array stride from decorations.
-                .array_stride = 0,
-            };
-            break :blk SpvType.initPayload(&payload.base);
-        },
-        .OpTypeOpaque => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.Opaque);
-            const name_offset = operands[1].string;
-            payload.* = .{
-                .name = std.mem.sliceTo(self.inst.string_bytes.items[name_offset..], 0),
-            };
-            break :blk SpvType.initPayload(&payload.base);
-        },
-        .OpTypePointer => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.Pointer);
-            payload.* = .{
-                .storage_class = @intToEnum(spec.StorageClass, operands[1].value),
-                .child_type = try self.resolveTypeRef(operands[2].ref_id),
-                // TODO: Fetch decorations
-            };
-            break :blk SpvType.initPayload(&payload.base);
-        },
+        .OpTypePointer => try self.spv.ptrType(
+            try self.resolveTypeRef(operands[2].ref_id),
+            @as(spec.StorageClass, @enumFromInt(operands[1].value)),
+        ),
         .OpTypeFunction => blk: {
             const param_operands = operands[2..];
-            const param_types = try self.spv.arena.alloc(SpvType.Ref, param_operands.len);
+            const param_types = try self.spv.gpa.alloc(CacheRef, param_operands.len);
+            defer self.spv.gpa.free(param_types);
             for (param_types, 0..) |*param, i| {
                 param.* = try self.resolveTypeRef(param_operands[i].ref_id);
             }
-            const payload = try self.spv.arena.create(SpvType.Payload.Function);
-            payload.* = .{
+            break :blk try self.spv.resolve(.{ .function_type = .{
                 .return_type = try self.resolveTypeRef(operands[1].ref_id),
                 .parameters = param_types,
-            };
-            break :blk SpvType.initPayload(&payload.base);
+            } });
         },
-        .OpTypeEvent => SpvType.initTag(.event),
-        .OpTypeDeviceEvent => SpvType.initTag(.device_event),
-        .OpTypeReserveId => SpvType.initTag(.reserve_id),
-        .OpTypeQueue => SpvType.initTag(.queue),
-        .OpTypePipe => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.Pipe);
-            payload.* = .{
-                .qualifier = @intToEnum(spec.AccessQualifier, operands[1].value),
-            };
-            break :blk SpvType.initPayload(&payload.base);
-        },
-        .OpTypePipeStorage => SpvType.initTag(.pipe_storage),
-        .OpTypeNamedBarrier => SpvType.initTag(.named_barrier),
         else => return self.todo("process type instruction {s}", .{@tagName(self.inst.opcode)}),
     };
 
-    const ref = try self.spv.resolveType(ty);
     return AsmValue{ .ty = ref };
 }
 
@@ -439,7 +340,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
         else => switch (self.inst.opcode) {
             .OpEntryPoint => unreachable,
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
-            .OpVariable => switch (@intToEnum(spec.StorageClass, operands[2].value)) {
+            .OpVariable => switch (@as(spec.StorageClass, @enumFromInt(operands[2].value))) {
                 .Function => &self.func.prologue,
                 else => {
                     // This is currently disabled because global variables are required to be
@@ -490,7 +391,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
     }
 
     const actual_word_count = section.instructions.items.len - first_word;
-    section.instructions.items[first_word] |= @as(u32, @intCast(u16, actual_word_count)) << 16 | @enumToInt(self.inst.opcode);
+    section.instructions.items[first_word] |= @as(u32, @as(u16, @intCast(actual_word_count))) << 16 | @intFromEnum(self.inst.opcode);
 
     if (maybe_result_id) |result| {
         return AsmValue{ .value = result };
@@ -528,7 +429,7 @@ fn resolveRef(self: *Assembler, ref: AsmValue.Ref) !AsmValue {
 }
 
 /// Resolve a value reference as type.
-fn resolveTypeRef(self: *Assembler, ref: AsmValue.Ref) !SpvType.Ref {
+fn resolveTypeRef(self: *Assembler, ref: AsmValue.Ref) !CacheRef {
     const value = try self.resolveRef(ref);
     switch (value) {
         .just_declared, .unresolved_forward_reference => unreachable,
@@ -557,7 +458,7 @@ fn parseInstruction(self: *Assembler) !void {
         if (!entry.found_existing) {
             entry.value_ptr.* = .just_declared;
         }
-        break :blk @intCast(AsmValue.Ref, entry.index);
+        break :blk @as(AsmValue.Ref, @intCast(entry.index));
     } else null;
 
     const opcode_tok = self.currentToken();
@@ -712,7 +613,7 @@ fn parseRefId(self: *Assembler) !void {
         entry.value_ptr.* = .unresolved_forward_reference;
     }
 
-    const index = @intCast(AsmValue.Ref, entry.index);
+    const index = @as(AsmValue.Ref, @intCast(entry.index));
     try self.inst.operands.append(self.gpa, .{ .ref_id = index });
 }
 
@@ -744,7 +645,7 @@ fn parseString(self: *Assembler) !void {
     else
         text[1..];
 
-    const string_offset = @intCast(u32, self.inst.string_bytes.items.len);
+    const string_offset = @as(u32, @intCast(self.inst.string_bytes.items.len));
     try self.inst.string_bytes.ensureUnusedCapacity(self.gpa, literal.len + 1);
     self.inst.string_bytes.appendSliceAssumeCapacity(literal);
     self.inst.string_bytes.appendAssumeCapacity(0);
@@ -761,19 +662,20 @@ fn parseContextDependentNumber(self: *Assembler) !void {
 
     const tok = self.currentToken();
     const result_type_ref = try self.resolveTypeRef(self.inst.operands.items[0].ref_id);
-    const result_type = self.spv.type_cache.keys()[@enumToInt(result_type_ref)];
-    if (result_type.isInt()) {
-        try self.parseContextDependentInt(result_type.intSignedness(), result_type.intFloatBits());
-    } else if (result_type.isFloat()) {
-        const width = result_type.intFloatBits();
-        switch (width) {
-            16 => try self.parseContextDependentFloat(16),
-            32 => try self.parseContextDependentFloat(32),
-            64 => try self.parseContextDependentFloat(64),
-            else => return self.fail(tok.start, "cannot parse {}-bit float literal", .{width}),
-        }
-    } else {
-        return self.fail(tok.start, "cannot parse literal constant {s}", .{@tagName(result_type.tag())});
+    const result_type = self.spv.cache.lookup(result_type_ref);
+    switch (result_type) {
+        .int_type => |int| {
+            try self.parseContextDependentInt(int.signedness, int.bits);
+        },
+        .float_type => |float| {
+            switch (float.bits) {
+                16 => try self.parseContextDependentFloat(16),
+                32 => try self.parseContextDependentFloat(32),
+                64 => try self.parseContextDependentFloat(64),
+                else => return self.fail(tok.start, "cannot parse {}-bit float literal", .{float.bits}),
+            }
+        },
+        else => return self.fail(tok.start, "cannot parse literal constant", .{}),
     }
 }
 
@@ -791,18 +693,18 @@ fn parseContextDependentInt(self: *Assembler, signedness: std.builtin.Signedness
         const int = std.fmt.parseInt(i128, text, 0) catch break :invalid;
         const min = switch (signedness) {
             .unsigned => 0,
-            .signed => -(@as(i128, 1) << (@intCast(u7, width) - 1)),
+            .signed => -(@as(i128, 1) << (@as(u7, @intCast(width)) - 1)),
         };
-        const max = (@as(i128, 1) << (@intCast(u7, width) - @boolToInt(signedness == .signed))) - 1;
+        const max = (@as(i128, 1) << (@as(u7, @intCast(width)) - @intFromBool(signedness == .signed))) - 1;
         if (int < min or int > max) {
             break :invalid;
         }
 
         // Note, we store the sign-extended version here.
         if (width <= @bitSizeOf(spec.Word)) {
-            try self.inst.operands.append(self.gpa, .{ .literal32 = @truncate(u32, @bitCast(u128, int)) });
+            try self.inst.operands.append(self.gpa, .{ .literal32 = @as(u32, @truncate(@as(u128, @bitCast(int)))) });
         } else {
-            try self.inst.operands.append(self.gpa, .{ .literal64 = @truncate(u64, @bitCast(u128, int)) });
+            try self.inst.operands.append(self.gpa, .{ .literal64 = @as(u64, @truncate(@as(u128, @bitCast(int)))) });
         }
         return;
     }
@@ -823,7 +725,7 @@ fn parseContextDependentFloat(self: *Assembler, comptime width: u16) !void {
         return self.fail(tok.start, "'{s}' is not a valid {}-bit float literal", .{ text, width });
     };
 
-    const float_bits = @bitCast(Int, value);
+    const float_bits = @as(Int, @bitCast(value));
     if (width <= @bitSizeOf(spec.Word)) {
         try self.inst.operands.append(self.gpa, .{ .literal32 = float_bits });
     } else {

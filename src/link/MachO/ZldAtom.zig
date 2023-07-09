@@ -117,8 +117,8 @@ pub fn getSectionAlias(zld: *Zld, atom_index: AtomIndex) ?SymbolWithLoc {
     assert(atom.getFile() != null);
 
     const object = zld.objects.items[atom.getFile().?];
-    const nbase = @intCast(u32, object.in_symtab.?.len);
-    const ntotal = @intCast(u32, object.symtab.len);
+    const nbase = @as(u32, @intCast(object.in_symtab.?.len));
+    const ntotal = @as(u32, @intCast(object.symtab.len));
     var sym_index: u32 = nbase;
     while (sym_index < ntotal) : (sym_index += 1) {
         if (object.getAtomIndexForSymbol(sym_index)) |other_atom_index| {
@@ -144,8 +144,8 @@ pub fn calcInnerSymbolOffset(zld: *Zld, atom_index: AtomIndex, sym_index: u32) u
     const base_addr = if (object.getSourceSymbol(atom.sym_index)) |sym|
         sym.n_value
     else blk: {
-        const nbase = @intCast(u32, object.in_symtab.?.len);
-        const sect_id = @intCast(u8, atom.sym_index - nbase);
+        const nbase = @as(u32, @intCast(object.in_symtab.?.len));
+        const sect_id = @as(u8, @intCast(atom.sym_index - nbase));
         const source_sect = object.getSourceSection(sect_id);
         break :blk source_sect.addr;
     };
@@ -177,15 +177,15 @@ pub fn getRelocContext(zld: *Zld, atom_index: AtomIndex) RelocContext {
     if (object.getSourceSymbol(atom.sym_index)) |source_sym| {
         const source_sect = object.getSourceSection(source_sym.n_sect - 1);
         return .{
-            .base_addr = @intCast(i64, source_sect.addr),
-            .base_offset = @intCast(i32, source_sym.n_value - source_sect.addr),
+            .base_addr = @as(i64, @intCast(source_sect.addr)),
+            .base_offset = @as(i32, @intCast(source_sym.n_value - source_sect.addr)),
         };
     }
-    const nbase = @intCast(u32, object.in_symtab.?.len);
-    const sect_id = @intCast(u8, atom.sym_index - nbase);
+    const nbase = @as(u32, @intCast(object.in_symtab.?.len));
+    const sect_id = @as(u8, @intCast(atom.sym_index - nbase));
     const source_sect = object.getSourceSection(sect_id);
     return .{
-        .base_addr = @intCast(i64, source_sect.addr),
+        .base_addr = @as(i64, @intCast(source_sect.addr)),
         .base_offset = 0,
     };
 }
@@ -204,8 +204,8 @@ pub fn parseRelocTarget(zld: *Zld, ctx: struct {
     log.debug("parsing reloc target in object({d}) '{s}' ", .{ ctx.object_id, object.name });
 
     const sym_index = if (ctx.rel.r_extern == 0) sym_index: {
-        const sect_id = @intCast(u8, ctx.rel.r_symbolnum - 1);
-        const rel_offset = @intCast(u32, ctx.rel.r_address - ctx.base_offset);
+        const sect_id = @as(u8, @intCast(ctx.rel.r_symbolnum - 1));
+        const rel_offset = @as(u32, @intCast(ctx.rel.r_address - ctx.base_offset));
 
         const address_in_section = if (ctx.rel.r_pcrel == 0) blk: {
             break :blk if (ctx.rel.r_length == 3)
@@ -214,7 +214,7 @@ pub fn parseRelocTarget(zld: *Zld, ctx: struct {
                 mem.readIntLittle(u32, ctx.code[rel_offset..][0..4]);
         } else blk: {
             assert(zld.options.target.cpu.arch == .x86_64);
-            const correction: u3 = switch (@intToEnum(macho.reloc_type_x86_64, ctx.rel.r_type)) {
+            const correction: u3 = switch (@as(macho.reloc_type_x86_64, @enumFromInt(ctx.rel.r_type))) {
                 .X86_64_RELOC_SIGNED => 0,
                 .X86_64_RELOC_SIGNED_1 => 1,
                 .X86_64_RELOC_SIGNED_2 => 2,
@@ -222,8 +222,8 @@ pub fn parseRelocTarget(zld: *Zld, ctx: struct {
                 else => unreachable,
             };
             const addend = mem.readIntLittle(i32, ctx.code[rel_offset..][0..4]);
-            const target_address = @intCast(i64, ctx.base_addr) + ctx.rel.r_address + 4 + correction + addend;
-            break :blk @intCast(u64, target_address);
+            const target_address = @as(i64, @intCast(ctx.base_addr)) + ctx.rel.r_address + 4 + correction + addend;
+            break :blk @as(u64, @intCast(target_address));
         };
 
         // Find containing atom
@@ -272,7 +272,7 @@ pub fn getRelocTargetAtomIndex(zld: *Zld, target: SymbolWithLoc, is_via_got: boo
 
 fn scanAtomRelocsArm64(zld: *Zld, atom_index: AtomIndex, relocs: []align(1) const macho.relocation_info) !void {
     for (relocs) |rel| {
-        const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+        const rel_type = @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type));
 
         switch (rel_type) {
             .ARM64_RELOC_ADDEND, .ARM64_RELOC_SUBTRACTOR => continue,
@@ -288,9 +288,6 @@ fn scanAtomRelocsArm64(zld: *Zld, atom_index: AtomIndex, relocs: []align(1) cons
             .sym_index = sym_index,
             .file = atom.file,
         };
-        const sym = zld.getSymbol(sym_loc);
-
-        if (sym.sect() and !sym.ext()) continue;
 
         const target = if (object.getGlobal(sym_index)) |global_index|
             zld.globals.items[global_index]
@@ -321,7 +318,7 @@ fn scanAtomRelocsArm64(zld: *Zld, atom_index: AtomIndex, relocs: []align(1) cons
 
 fn scanAtomRelocsX86(zld: *Zld, atom_index: AtomIndex, relocs: []align(1) const macho.relocation_info) !void {
     for (relocs) |rel| {
-        const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
+        const rel_type = @as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type));
 
         switch (rel_type) {
             .X86_64_RELOC_SUBTRACTOR => continue,
@@ -337,9 +334,6 @@ fn scanAtomRelocsX86(zld: *Zld, atom_index: AtomIndex, relocs: []align(1) const 
             .sym_index = sym_index,
             .file = atom.file,
         };
-        const sym = zld.getSymbol(sym_loc);
-
-        if (sym.sect() and !sym.ext()) continue;
 
         const target = if (object.getGlobal(sym_index)) |global_index|
             zld.globals.items[global_index]
@@ -370,7 +364,7 @@ fn addTlvPtrEntry(zld: *Zld, target: SymbolWithLoc) !void {
 
     const gpa = zld.gpa;
     const atom_index = try zld.createTlvPtrAtom();
-    const tlv_ptr_index = @intCast(u32, zld.tlv_ptr_entries.items.len);
+    const tlv_ptr_index = @as(u32, @intCast(zld.tlv_ptr_entries.items.len));
     try zld.tlv_ptr_entries.append(gpa, .{
         .target = target,
         .atom_index = atom_index,
@@ -382,7 +376,7 @@ pub fn addGotEntry(zld: *Zld, target: SymbolWithLoc) !void {
     if (zld.got_table.contains(target)) return;
     const gpa = zld.gpa;
     const atom_index = try zld.createGotAtom();
-    const got_index = @intCast(u32, zld.got_entries.items.len);
+    const got_index = @as(u32, @intCast(zld.got_entries.items.len));
     try zld.got_entries.append(gpa, .{
         .target = target,
         .atom_index = atom_index,
@@ -399,7 +393,7 @@ pub fn addStub(zld: *Zld, target: SymbolWithLoc) !void {
     _ = try zld.createStubHelperAtom();
     _ = try zld.createLazyPointerAtom();
     const atom_index = try zld.createStubAtom();
-    const stubs_index = @intCast(u32, zld.stubs.items.len);
+    const stubs_index = @as(u32, @intCast(zld.stubs.items.len));
     try zld.stubs.append(gpa, .{
         .target = target,
         .atom_index = atom_index,
@@ -495,7 +489,7 @@ fn resolveRelocsArm64(
     var subtractor: ?SymbolWithLoc = null;
 
     for (atom_relocs) |rel| {
-        const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+        const rel_type = @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type));
 
         switch (rel_type) {
             .ARM64_RELOC_ADDEND => {
@@ -535,7 +529,7 @@ fn resolveRelocsArm64(
             .base_addr = context.base_addr,
             .base_offset = context.base_offset,
         });
-        const rel_offset = @intCast(u32, rel.r_address - context.base_offset);
+        const rel_offset = @as(u32, @intCast(rel.r_address - context.base_offset));
 
         log.debug("  RELA({s}) @ {x} => %{d} ('{s}') in object({?})", .{
             @tagName(rel_type),
@@ -596,7 +590,7 @@ fn resolveRelocsArm64(
                         aarch64.Instruction.unconditional_branch_immediate,
                     ), code),
                 };
-                inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement >> 2));
+                inst.unconditional_branch_immediate.imm26 = @as(u26, @truncate(@as(u28, @bitCast(displacement >> 2))));
                 mem.writeIntLittle(u32, code, inst.toU32());
             },
 
@@ -604,11 +598,11 @@ fn resolveRelocsArm64(
             .ARM64_RELOC_GOT_LOAD_PAGE21,
             .ARM64_RELOC_TLVP_LOAD_PAGE21,
             => {
-                const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + (addend orelse 0));
+                const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + (addend orelse 0)));
 
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
-                const pages = @bitCast(u21, Relocation.calcNumberOfPages(source_addr, adjusted_target_addr));
+                const pages = @as(u21, @bitCast(Relocation.calcNumberOfPages(source_addr, adjusted_target_addr)));
                 const code = atom_code[rel_offset..][0..4];
                 var inst = aarch64.Instruction{
                     .pc_relative_address = mem.bytesToValue(meta.TagPayload(
@@ -616,14 +610,14 @@ fn resolveRelocsArm64(
                         aarch64.Instruction.pc_relative_address,
                     ), code),
                 };
-                inst.pc_relative_address.immhi = @truncate(u19, pages >> 2);
-                inst.pc_relative_address.immlo = @truncate(u2, pages);
+                inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
+                inst.pc_relative_address.immlo = @as(u2, @truncate(pages));
                 mem.writeIntLittle(u32, code, inst.toU32());
                 addend = null;
             },
 
             .ARM64_RELOC_PAGEOFF12 => {
-                const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + (addend orelse 0));
+                const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + (addend orelse 0)));
 
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
@@ -662,7 +656,7 @@ fn resolveRelocsArm64(
 
             .ARM64_RELOC_GOT_LOAD_PAGEOFF12 => {
                 const code = atom_code[rel_offset..][0..4];
-                const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + (addend orelse 0));
+                const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + (addend orelse 0)));
 
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
@@ -680,7 +674,7 @@ fn resolveRelocsArm64(
 
             .ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => {
                 const code = atom_code[rel_offset..][0..4];
-                const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + (addend orelse 0));
+                const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + (addend orelse 0)));
 
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
@@ -731,7 +725,7 @@ fn resolveRelocsArm64(
                         .sh = 0,
                         .s = 0,
                         .op = 0,
-                        .sf = @truncate(u1, reg_info.size),
+                        .sf = @as(u1, @truncate(reg_info.size)),
                     },
                 };
                 mem.writeIntLittle(u32, code, inst.toU32());
@@ -740,9 +734,9 @@ fn resolveRelocsArm64(
 
             .ARM64_RELOC_POINTER_TO_GOT => {
                 log.debug("    | target_addr = 0x{x}", .{target_addr});
-                const result = math.cast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr)) orelse
+                const result = math.cast(i32, @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr))) orelse
                     return error.Overflow;
-                mem.writeIntLittle(u32, atom_code[rel_offset..][0..4], @bitCast(u32, result));
+                mem.writeIntLittle(u32, atom_code[rel_offset..][0..4], @as(u32, @bitCast(result)));
             },
 
             .ARM64_RELOC_UNSIGNED => {
@@ -753,7 +747,7 @@ fn resolveRelocsArm64(
 
                 if (rel.r_extern == 0) {
                     const base_addr = if (target.sym_index >= object.source_address_lookup.len)
-                        @intCast(i64, object.getSourceSection(@intCast(u8, rel.r_symbolnum - 1)).addr)
+                        @as(i64, @intCast(object.getSourceSection(@as(u8, @intCast(rel.r_symbolnum - 1))).addr))
                     else
                         object.source_address_lookup[target.sym_index];
                     ptr_addend -= base_addr;
@@ -762,17 +756,17 @@ fn resolveRelocsArm64(
                 const result = blk: {
                     if (subtractor) |sub| {
                         const sym = zld.getSymbol(sub);
-                        break :blk @intCast(i64, target_addr) - @intCast(i64, sym.n_value) + ptr_addend;
+                        break :blk @as(i64, @intCast(target_addr)) - @as(i64, @intCast(sym.n_value)) + ptr_addend;
                     } else {
-                        break :blk @intCast(i64, target_addr) + ptr_addend;
+                        break :blk @as(i64, @intCast(target_addr)) + ptr_addend;
                     }
                 };
                 log.debug("    | target_addr = 0x{x}", .{result});
 
                 if (rel.r_length == 3) {
-                    mem.writeIntLittle(u64, atom_code[rel_offset..][0..8], @bitCast(u64, result));
+                    mem.writeIntLittle(u64, atom_code[rel_offset..][0..8], @as(u64, @bitCast(result)));
                 } else {
-                    mem.writeIntLittle(u32, atom_code[rel_offset..][0..4], @truncate(u32, @bitCast(u64, result)));
+                    mem.writeIntLittle(u32, atom_code[rel_offset..][0..4], @as(u32, @truncate(@as(u64, @bitCast(result)))));
                 }
 
                 subtractor = null;
@@ -797,7 +791,7 @@ fn resolveRelocsX86(
     var subtractor: ?SymbolWithLoc = null;
 
     for (atom_relocs) |rel| {
-        const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
+        const rel_type = @as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type));
 
         switch (rel_type) {
             .X86_64_RELOC_SUBTRACTOR => {
@@ -829,7 +823,7 @@ fn resolveRelocsX86(
             .base_addr = context.base_addr,
             .base_offset = context.base_offset,
         });
-        const rel_offset = @intCast(u32, rel.r_address - context.base_offset);
+        const rel_offset = @as(u32, @intCast(rel.r_address - context.base_offset));
 
         log.debug("  RELA({s}) @ {x} => %{d} ('{s}') in object({?})", .{
             @tagName(rel_type),
@@ -857,7 +851,7 @@ fn resolveRelocsX86(
         switch (rel_type) {
             .X86_64_RELOC_BRANCH => {
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
-                const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
+                const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + addend));
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
                 const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
@@ -867,7 +861,7 @@ fn resolveRelocsX86(
             .X86_64_RELOC_GOT_LOAD,
             => {
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
-                const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
+                const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + addend));
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
                 const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
@@ -875,7 +869,7 @@ fn resolveRelocsX86(
 
             .X86_64_RELOC_TLV => {
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
-                const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
+                const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + addend));
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
                 const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
 
@@ -903,14 +897,14 @@ fn resolveRelocsX86(
 
                 if (rel.r_extern == 0) {
                     const base_addr = if (target.sym_index >= object.source_address_lookup.len)
-                        @intCast(i64, object.getSourceSection(@intCast(u8, rel.r_symbolnum - 1)).addr)
+                        @as(i64, @intCast(object.getSourceSection(@as(u8, @intCast(rel.r_symbolnum - 1))).addr))
                     else
                         object.source_address_lookup[target.sym_index];
-                    addend += @intCast(i32, @intCast(i64, context.base_addr) + rel.r_address + 4 -
-                        @intCast(i64, base_addr));
+                    addend += @as(i32, @intCast(@as(i64, @intCast(context.base_addr)) + rel.r_address + 4 -
+                        @as(i64, @intCast(base_addr))));
                 }
 
-                const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
+                const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + addend));
 
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
@@ -926,7 +920,7 @@ fn resolveRelocsX86(
 
                 if (rel.r_extern == 0) {
                     const base_addr = if (target.sym_index >= object.source_address_lookup.len)
-                        @intCast(i64, object.getSourceSection(@intCast(u8, rel.r_symbolnum - 1)).addr)
+                        @as(i64, @intCast(object.getSourceSection(@as(u8, @intCast(rel.r_symbolnum - 1))).addr))
                     else
                         object.source_address_lookup[target.sym_index];
                     addend -= base_addr;
@@ -935,17 +929,17 @@ fn resolveRelocsX86(
                 const result = blk: {
                     if (subtractor) |sub| {
                         const sym = zld.getSymbol(sub);
-                        break :blk @intCast(i64, target_addr) - @intCast(i64, sym.n_value) + addend;
+                        break :blk @as(i64, @intCast(target_addr)) - @as(i64, @intCast(sym.n_value)) + addend;
                     } else {
-                        break :blk @intCast(i64, target_addr) + addend;
+                        break :blk @as(i64, @intCast(target_addr)) + addend;
                     }
                 };
                 log.debug("    | target_addr = 0x{x}", .{result});
 
                 if (rel.r_length == 3) {
-                    mem.writeIntLittle(u64, atom_code[rel_offset..][0..8], @bitCast(u64, result));
+                    mem.writeIntLittle(u64, atom_code[rel_offset..][0..8], @as(u64, @bitCast(result)));
                 } else {
-                    mem.writeIntLittle(u32, atom_code[rel_offset..][0..4], @truncate(u32, @bitCast(u64, result)));
+                    mem.writeIntLittle(u32, atom_code[rel_offset..][0..4], @as(u32, @truncate(@as(u64, @bitCast(result)))));
                 }
 
                 subtractor = null;
@@ -964,19 +958,19 @@ pub fn getAtomCode(zld: *Zld, atom_index: AtomIndex) []const u8 {
         // If there was no matching symbol present in the source symtab, this means
         // we are dealing with either an entire section, or part of it, but also
         // starting at the beginning.
-        const nbase = @intCast(u32, object.in_symtab.?.len);
-        const sect_id = @intCast(u8, atom.sym_index - nbase);
+        const nbase = @as(u32, @intCast(object.in_symtab.?.len));
+        const sect_id = @as(u8, @intCast(atom.sym_index - nbase));
         const source_sect = object.getSourceSection(sect_id);
         assert(!source_sect.isZerofill());
         const code = object.getSectionContents(source_sect);
-        const code_len = @intCast(usize, atom.size);
+        const code_len = @as(usize, @intCast(atom.size));
         return code[0..code_len];
     };
     const source_sect = object.getSourceSection(source_sym.n_sect - 1);
     assert(!source_sect.isZerofill());
     const code = object.getSectionContents(source_sect);
-    const offset = @intCast(usize, source_sym.n_value - source_sect.addr);
-    const code_len = @intCast(usize, atom.size);
+    const offset = @as(usize, @intCast(source_sym.n_value - source_sect.addr));
+    const code_len = @as(usize, @intCast(atom.size));
     return code[offset..][0..code_len];
 }
 
@@ -992,8 +986,8 @@ pub fn getAtomRelocs(zld: *Zld, atom_index: AtomIndex) []const macho.relocation_
         // If there was no matching symbol present in the source symtab, this means
         // we are dealing with either an entire section, or part of it, but also
         // starting at the beginning.
-        const nbase = @intCast(u32, object.in_symtab.?.len);
-        const sect_id = @intCast(u8, atom.sym_index - nbase);
+        const nbase = @as(u32, @intCast(object.in_symtab.?.len));
+        const sect_id = @as(u8, @intCast(atom.sym_index - nbase));
         break :blk sect_id;
     };
     const source_sect = object.getSourceSection(source_sect_id);
@@ -1004,14 +998,14 @@ pub fn getAtomRelocs(zld: *Zld, atom_index: AtomIndex) []const macho.relocation_
 
 pub fn relocRequiresGot(zld: *Zld, rel: macho.relocation_info) bool {
     switch (zld.options.target.cpu.arch) {
-        .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, rel.r_type)) {
+        .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
             .ARM64_RELOC_GOT_LOAD_PAGE21,
             .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
             .ARM64_RELOC_POINTER_TO_GOT,
             => return true,
             else => return false,
         },
-        .x86_64 => switch (@intToEnum(macho.reloc_type_x86_64, rel.r_type)) {
+        .x86_64 => switch (@as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type))) {
             .X86_64_RELOC_GOT,
             .X86_64_RELOC_GOT_LOAD,
             => return true,

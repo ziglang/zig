@@ -42,22 +42,6 @@ pub fn create(
     return self;
 }
 
-/// Runs and (optionally) compares the output of a binary.
-/// Asserts `self` was generated from an executable step.
-/// TODO this doesn't actually compare, and there's no apparent reason for it
-/// to depend on the check object step. I don't see why this function should exist,
-/// the caller could just add the run step directly.
-pub fn runAndCompare(self: *CheckObject) *std.Build.Step.Run {
-    const dependencies_len = self.step.dependencies.items.len;
-    assert(dependencies_len > 0);
-    const exe_step = self.step.dependencies.items[dependencies_len - 1];
-    const exe = exe_step.cast(std.Build.Step.Compile).?;
-    const run = self.step.owner.addRunArtifact(exe);
-    run.skip_foreign_checks = true;
-    run.step.dependOn(&self.step);
-    return run;
-}
-
 const SearchPhrase = struct {
     string: []const u8,
     file_source: ?std.Build.FileSource = null,
@@ -103,8 +87,8 @@ const Action = struct {
         assert(act.tag == .match or act.tag == .not_present);
         const phrase = act.phrase.resolve(b, step);
         var candidate_var: ?struct { name: []const u8, value: u64 } = null;
-        var hay_it = mem.tokenize(u8, mem.trim(u8, haystack, " "), " ");
-        var needle_it = mem.tokenize(u8, mem.trim(u8, phrase, " "), " ");
+        var hay_it = mem.tokenizeScalar(u8, mem.trim(u8, haystack, " "), ' ');
+        var needle_it = mem.tokenizeScalar(u8, mem.trim(u8, phrase, " "), ' ');
 
         while (needle_it.next()) |needle_tok| {
             const hay_tok = hay_it.next() orelse return false;
@@ -155,7 +139,7 @@ const Action = struct {
         var op_stack = std.ArrayList(enum { add, sub, mod, mul }).init(gpa);
         var values = std.ArrayList(u64).init(gpa);
 
-        var it = mem.tokenize(u8, phrase, " ");
+        var it = mem.tokenizeScalar(u8, phrase, ' ');
         while (it.next()) |next| {
             if (mem.eql(u8, next, "+")) {
                 try op_stack.append(.add);
@@ -365,7 +349,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var vars = std.StringHashMap(u64).init(gpa);
 
     for (self.checks.items) |chk| {
-        var it = mem.tokenize(u8, output, "\r\n");
+        var it = mem.tokenizeAny(u8, output, "\r\n");
         for (chk.actions.items) |act| {
             switch (act.tag) {
                 .match => {
@@ -465,9 +449,9 @@ const MachODumper = struct {
                 },
                 .SYMTAB => if (opts.dump_symtab) {
                     const lc = cmd.cast(macho.symtab_command).?;
-                    symtab = @ptrCast(
+                    symtab = @as(
                         [*]const macho.nlist_64,
-                        @alignCast(@alignOf(macho.nlist_64), &bytes[lc.symoff]),
+                        @ptrCast(@alignCast(&bytes[lc.symoff])),
                     )[0..lc.nsyms];
                     strtab = bytes[lc.stroff..][0..lc.strsize];
                 },
@@ -490,7 +474,7 @@ const MachODumper = struct {
             try writer.print("{s}\n", .{symtab_label});
             for (symtab) |sym| {
                 if (sym.stab()) continue;
-                const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
+                const sym_name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + sym.n_strx)), 0);
                 if (sym.sect()) {
                     const sect = sections.items[sym.n_sect - 1];
                     try writer.print("{x} ({s},{s})", .{
@@ -503,7 +487,7 @@ const MachODumper = struct {
                     }
                     try writer.print(" {s}\n", .{sym_name});
                 } else if (sym.undf()) {
-                    const ordinal = @divTrunc(@bitCast(i16, sym.n_desc), macho.N_SYMBOL_RESOLVER);
+                    const ordinal = @divTrunc(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
                     const import_name = blk: {
                         if (ordinal <= 0) {
                             if (ordinal == macho.BIND_SPECIAL_DYLIB_SELF)
@@ -514,7 +498,7 @@ const MachODumper = struct {
                                 break :blk "flat lookup";
                             unreachable;
                         }
-                        const full_path = imports.items[@bitCast(u16, ordinal) - 1];
+                        const full_path = imports.items[@as(u16, @bitCast(ordinal)) - 1];
                         const basename = fs.path.basename(full_path);
                         assert(basename.len > 0);
                         const ext = mem.lastIndexOfScalar(u8, basename, '.') orelse basename.len;
@@ -966,8 +950,8 @@ const WasmDumper = struct {
         switch (opcode) {
             .i32_const => try writer.print("i32.const {x}\n", .{try std.leb.readILEB128(i32, reader)}),
             .i64_const => try writer.print("i64.const {x}\n", .{try std.leb.readILEB128(i64, reader)}),
-            .f32_const => try writer.print("f32.const {x}\n", .{@bitCast(f32, try reader.readIntLittle(u32))}),
-            .f64_const => try writer.print("f64.const {x}\n", .{@bitCast(f64, try reader.readIntLittle(u64))}),
+            .f32_const => try writer.print("f32.const {x}\n", .{@as(f32, @bitCast(try reader.readIntLittle(u32)))}),
+            .f64_const => try writer.print("f64.const {x}\n", .{@as(f64, @bitCast(try reader.readIntLittle(u64)))}),
             .global_get => try writer.print("global.get {x}\n", .{try std.leb.readULEB128(u32, reader)}),
             else => unreachable,
         }

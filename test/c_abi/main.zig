@@ -143,11 +143,11 @@ export fn zig_longdouble(x: c_longdouble) void {
 extern fn c_ptr(*anyopaque) void;
 
 test "C ABI pointer" {
-    c_ptr(@intToPtr(*anyopaque, 0xdeadbeef));
+    c_ptr(@as(*anyopaque, @ptrFromInt(0xdeadbeef)));
 }
 
 export fn zig_ptr(x: *anyopaque) void {
-    expect(@ptrToInt(x) == 0xdeadbeef) catch @panic("test failure: zig_ptr");
+    expect(@intFromPtr(x) == 0xdeadbeef) catch @panic("test failure: zig_ptr");
 }
 
 extern fn c_bool(bool) void;
@@ -1058,14 +1058,14 @@ test "C function that takes byval struct called via function pointer" {
 
     var fn_ptr = &c_func_ptr_byval;
     fn_ptr(
-        @intToPtr(*anyopaque, 1),
-        @intToPtr(*anyopaque, 2),
+        @as(*anyopaque, @ptrFromInt(1)),
+        @as(*anyopaque, @ptrFromInt(2)),
         ByVal{
             .origin = .{ .x = 9, .y = 10, .z = 11 },
             .size = .{ .width = 12, .height = 13, .depth = 14 },
         },
         @as(c_ulong, 3),
-        @intToPtr(*anyopaque, 4),
+        @as(*anyopaque, @ptrFromInt(4)),
         @as(c_ulong, 5),
     );
 }
@@ -1098,7 +1098,7 @@ test "f80 bare" {
     if (!has_f80) return error.SkipZigTest;
 
     const a = c_f80(12.34);
-    try expect(@floatCast(f64, a) == 56.78);
+    try expect(@as(f64, @floatCast(a)) == 56.78);
 }
 
 const f80_struct = extern struct {
@@ -1111,7 +1111,7 @@ test "f80 struct" {
     if (builtin.mode != .Debug) return error.SkipZigTest;
 
     const a = c_f80_struct(.{ .a = 12.34 });
-    try expect(@floatCast(f64, a.a) == 56.78);
+    try expect(@as(f64, @floatCast(a.a)) == 56.78);
 }
 
 const f80_extra_struct = extern struct {
@@ -1124,7 +1124,7 @@ test "f80 extra struct" {
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
 
     const a = c_f80_extra_struct(.{ .a = 12.34, .b = 42 });
-    try expect(@floatCast(f64, a.a) == 56.78);
+    try expect(@as(f64, @floatCast(a.a)) == 56.78);
     try expect(a.b == 24);
 }
 
@@ -1133,7 +1133,7 @@ test "f128 bare" {
     if (!has_f128) return error.SkipZigTest;
 
     const a = c_f128(12.34);
-    try expect(@floatCast(f64, a) == 56.78);
+    try expect(@as(f64, @floatCast(a)) == 56.78);
 }
 
 const f128_struct = extern struct {
@@ -1144,7 +1144,7 @@ test "f128 struct" {
     if (!has_f128) return error.SkipZigTest;
 
     const a = c_f128_struct(.{ .a = 12.34 });
-    try expect(@floatCast(f64, a.a) == 56.78);
+    try expect(@as(f64, @floatCast(a.a)) == 56.78);
 }
 
 // The stdcall attribute on C functions is ignored when compiled on non-x86

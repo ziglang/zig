@@ -299,30 +299,7 @@ const Die = struct {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.Address => |value| value,
-            FormValue.AddrOffset => |index| {
-                const debug_addr = di.debug_addr orelse return badDwarf();
-                // addr_base points to the first item after the header, however we
-                // need to read the header to know the size of each item. Empirically,
-                // it may disagree with is_64 on the compile unit.
-                // The header is 8 or 12 bytes depending on is_64.
-                if (compile_unit.addr_base < 8) return badDwarf();
-
-                const version = mem.readInt(u16, debug_addr[compile_unit.addr_base - 4 ..][0..2], di.endian);
-                if (version != 5) return badDwarf();
-
-                const addr_size = debug_addr[compile_unit.addr_base - 2];
-                const seg_size = debug_addr[compile_unit.addr_base - 1];
-
-                const byte_offset = compile_unit.addr_base + (addr_size + seg_size) * index;
-                if (byte_offset + addr_size > debug_addr.len) return badDwarf();
-                switch (addr_size) {
-                    1 => return debug_addr[byte_offset],
-                    2 => return mem.readInt(u16, debug_addr[byte_offset..][0..2], di.endian),
-                    4 => return mem.readInt(u32, debug_addr[byte_offset..][0..4], di.endian),
-                    8 => return mem.readInt(u64, debug_addr[byte_offset..][0..8], di.endian),
-                    else => return badDwarf(),
-                }
-            },
+            FormValue.AddrOffset => |index| di.readDebugAddr(compile_unit, index),
             else => error.InvalidDebugInfo,
         };
     }
@@ -485,7 +462,7 @@ const LineNumberProgram = struct {
             });
 
             return debug.LineInfo{
-                .line = if (self.prev_line >= 0) @intCast(u64, self.prev_line) else 0,
+                .line = if (self.prev_line >= 0) @as(u64, @intCast(self.prev_line)) else 0,
                 .column = self.prev_column,
                 .file_name = file_name,
             };
@@ -556,7 +533,7 @@ fn parseFormValueConstant(in_stream: anytype, signed: bool, endian: std.builtin.
                 -1 => blk: {
                     if (signed) {
                         const x = try nosuspend leb.readILEB128(i64, in_stream);
-                        break :blk @bitCast(u64, x);
+                        break :blk @as(u64, @bitCast(x));
                     } else {
                         const x = try nosuspend leb.readULEB128(u64, in_stream);
                         break :blk x;
@@ -952,41 +929,120 @@ pub const DwarfInfo = struct {
             if (compile_unit.pc_range) |range| {
                 if (target_address >= range.start and target_address < range.end) return compile_unit;
             }
-            if (di.debug_ranges) |debug_ranges| {
-                if (compile_unit.die.getAttrSecOffset(AT.ranges)) |ranges_offset| {
-                    var stream = io.fixedBufferStream(debug_ranges);
-                    const in = &stream.reader();
-                    const seekable = &stream.seekableStream();
 
-                    // All the addresses in the list are relative to the value
-                    // specified by DW_AT.low_pc or to some other value encoded
-                    // in the list itself.
-                    // If no starting value is specified use zero.
-                    var base_address = compile_unit.die.getAttrAddr(di, AT.low_pc, compile_unit.*) catch |err| switch (err) {
-                        error.MissingDebugInfo => @as(u64, 0), // TODO https://github.com/ziglang/zig/issues/11135
-                        else => return err,
-                    };
+            const opt_debug_ranges = if (compile_unit.version >= 5) di.debug_rnglists else di.debug_ranges;
+            const debug_ranges = opt_debug_ranges orelse continue;
 
-                    try seekable.seekTo(ranges_offset);
-
-                    while (true) {
-                        const begin_addr = try in.readInt(usize, di.endian);
-                        const end_addr = try in.readInt(usize, di.endian);
-                        if (begin_addr == 0 and end_addr == 0) {
-                            break;
-                        }
-                        // This entry selects a new value for the base address
-                        if (begin_addr == math.maxInt(usize)) {
-                            base_address = end_addr;
-                            continue;
-                        }
-                        if (target_address >= base_address + begin_addr and target_address < base_address + end_addr) {
-                            return compile_unit;
-                        }
+            const ranges_val = compile_unit.die.getAttr(AT.ranges) orelse continue;
+            const ranges_offset = switch (ranges_val.*) {
+                .SecOffset => |off| off,
+                .Const => |c| try c.asUnsignedLe(),
+                .RangeListOffset => |idx| off: {
+                    if (compile_unit.is_64) {
+                        const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 8 * idx));
+                        if (offset_loc + 8 > debug_ranges.len) return badDwarf();
+                        const offset = mem.readInt(u64, debug_ranges[offset_loc..][0..8], di.endian);
+                        break :off compile_unit.rnglists_base + offset;
+                    } else {
+                        const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 4 * idx));
+                        if (offset_loc + 4 > debug_ranges.len) return badDwarf();
+                        const offset = mem.readInt(u32, debug_ranges[offset_loc..][0..4], di.endian);
+                        break :off compile_unit.rnglists_base + offset;
                     }
-                } else |err| {
-                    if (err != error.MissingDebugInfo) return err;
-                    continue;
+                },
+                else => return badDwarf(),
+            };
+
+            var stream = io.fixedBufferStream(debug_ranges);
+            const in = &stream.reader();
+            const seekable = &stream.seekableStream();
+
+            // All the addresses in the list are relative to the value
+            // specified by DW_AT.low_pc or to some other value encoded
+            // in the list itself.
+            // If no starting value is specified use zero.
+            var base_address = compile_unit.die.getAttrAddr(di, AT.low_pc, compile_unit.*) catch |err| switch (err) {
+                error.MissingDebugInfo => @as(u64, 0), // TODO https://github.com/ziglang/zig/issues/11135
+                else => return err,
+            };
+
+            try seekable.seekTo(ranges_offset);
+
+            if (compile_unit.version >= 5) {
+                while (true) {
+                    const kind = try in.readByte();
+                    switch (kind) {
+                        RLE.end_of_list => break,
+                        RLE.base_addressx => {
+                            const index = try leb.readULEB128(usize, in);
+                            base_address = try di.readDebugAddr(compile_unit.*, index);
+                        },
+                        RLE.startx_endx => {
+                            const start_index = try leb.readULEB128(usize, in);
+                            const start_addr = try di.readDebugAddr(compile_unit.*, start_index);
+
+                            const end_index = try leb.readULEB128(usize, in);
+                            const end_addr = try di.readDebugAddr(compile_unit.*, end_index);
+
+                            if (target_address >= start_addr and target_address < end_addr) {
+                                return compile_unit;
+                            }
+                        },
+                        RLE.startx_length => {
+                            const start_index = try leb.readULEB128(usize, in);
+                            const start_addr = try di.readDebugAddr(compile_unit.*, start_index);
+
+                            const len = try leb.readULEB128(usize, in);
+                            const end_addr = start_addr + len;
+
+                            if (target_address >= start_addr and target_address < end_addr) {
+                                return compile_unit;
+                            }
+                        },
+                        RLE.offset_pair => {
+                            const start_addr = try leb.readULEB128(usize, in);
+                            const end_addr = try leb.readULEB128(usize, in);
+                            // This is the only kind that uses the base address
+                            if (target_address >= base_address + start_addr and target_address < base_address + end_addr) {
+                                return compile_unit;
+                            }
+                        },
+                        RLE.base_address => {
+                            base_address = try in.readInt(usize, di.endian);
+                        },
+                        RLE.start_end => {
+                            const start_addr = try in.readInt(usize, di.endian);
+                            const end_addr = try in.readInt(usize, di.endian);
+                            if (target_address >= start_addr and target_address < end_addr) {
+                                return compile_unit;
+                            }
+                        },
+                        RLE.start_length => {
+                            const start_addr = try in.readInt(usize, di.endian);
+                            const len = try leb.readULEB128(usize, in);
+                            const end_addr = start_addr + len;
+                            if (target_address >= start_addr and target_address < end_addr) {
+                                return compile_unit;
+                            }
+                        },
+                        else => return badDwarf(),
+                    }
+                }
+            } else {
+                while (true) {
+                    const begin_addr = try in.readInt(usize, di.endian);
+                    const end_addr = try in.readInt(usize, di.endian);
+                    if (begin_addr == 0 and end_addr == 0) {
+                        break;
+                    }
+                    // This entry selects a new value for the base address
+                    if (begin_addr == math.maxInt(usize)) {
+                        base_address = end_addr;
+                        continue;
+                    }
+                    if (target_address >= base_address + begin_addr and target_address < base_address + end_addr) {
+                        return compile_unit;
+                    }
                 }
             }
         }
@@ -1078,7 +1134,7 @@ pub const DwarfInfo = struct {
                 ),
             };
             if (attr.form_id == FORM.implicit_const) {
-                result.attrs.items[i].value.Const.payload = @bitCast(u64, attr.payload);
+                result.attrs.items[i].value.Const.payload = @as(u64, @bitCast(attr.payload));
             }
         }
         return result;
@@ -1365,6 +1421,32 @@ pub const DwarfInfo = struct {
 
     fn getLineString(di: DwarfInfo, offset: u64) ![]const u8 {
         return getStringGeneric(di.debug_line_str, offset);
+    }
+
+    fn readDebugAddr(di: DwarfInfo, compile_unit: CompileUnit, index: u64) !u64 {
+        const debug_addr = di.debug_addr orelse return badDwarf();
+
+        // addr_base points to the first item after the header, however we
+        // need to read the header to know the size of each item. Empirically,
+        // it may disagree with is_64 on the compile unit.
+        // The header is 8 or 12 bytes depending on is_64.
+        if (compile_unit.addr_base < 8) return badDwarf();
+
+        const version = mem.readInt(u16, debug_addr[compile_unit.addr_base - 4 ..][0..2], di.endian);
+        if (version != 5) return badDwarf();
+
+        const addr_size = debug_addr[compile_unit.addr_base - 2];
+        const seg_size = debug_addr[compile_unit.addr_base - 1];
+
+        const byte_offset = @as(usize, @intCast(compile_unit.addr_base + (addr_size + seg_size) * index));
+        if (byte_offset + addr_size > debug_addr.len) return badDwarf();
+        return switch (addr_size) {
+            1 => debug_addr[byte_offset],
+            2 => mem.readInt(u16, debug_addr[byte_offset..][0..2], di.endian),
+            4 => mem.readInt(u32, debug_addr[byte_offset..][0..4], di.endian),
+            8 => mem.readInt(u64, debug_addr[byte_offset..][0..8], di.endian),
+            else => badDwarf(),
+        };
     }
 };
 

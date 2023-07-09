@@ -135,13 +135,13 @@ pub const cpu_models = struct {
 
 pub const aarch64 = struct {
     fn setFeature(cpu: *Target.Cpu, feature: Target.aarch64.Feature, enabled: bool) void {
-        const idx = @as(Target.Cpu.Feature.Set.Index, @enumToInt(feature));
+        const idx = @as(Target.Cpu.Feature.Set.Index, @intFromEnum(feature));
 
         if (enabled) cpu.features.addFeature(idx) else cpu.features.removeFeature(idx);
     }
 
     inline fn bitField(input: u64, offset: u6) u4 {
-        return @truncate(u4, input >> offset);
+        return @as(u4, @truncate(input >> offset));
     }
 
     /// Input array should consist of readouts from 12 system registers such that:
@@ -176,23 +176,23 @@ pub const aarch64 = struct {
     /// Takes readout of MIDR_EL1 register as input.
     fn detectNativeCoreInfo(midr: u64) CoreInfo {
         var info = CoreInfo{
-            .implementer = @truncate(u8, midr >> 24),
-            .part = @truncate(u12, midr >> 4),
+            .implementer = @as(u8, @truncate(midr >> 24)),
+            .part = @as(u12, @truncate(midr >> 4)),
         };
 
         blk: {
             if (info.implementer == 0x41) {
                 // ARM Ltd.
-                const special_bits = @truncate(u4, info.part >> 8);
+                const special_bits = @as(u4, @truncate(info.part >> 8));
                 if (special_bits == 0x0 or special_bits == 0x7) {
                     // TODO Variant and arch encoded differently.
                     break :blk;
                 }
             }
 
-            info.variant |= @intCast(u8, @truncate(u4, midr >> 20)) << 4;
-            info.variant |= @truncate(u4, midr);
-            info.architecture = @truncate(u4, midr >> 16);
+            info.variant |= @as(u8, @intCast(@as(u4, @truncate(midr >> 20)))) << 4;
+            info.variant |= @as(u4, @truncate(midr));
+            info.architecture = @as(u4, @truncate(midr >> 16));
         }
 
         return info;

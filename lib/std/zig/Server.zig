@@ -132,7 +132,7 @@ pub fn receiveMessage(s: *Server) !InMessage.Header {
 pub fn receiveBody_u32(s: *Server) !u32 {
     const fifo = &s.receive_fifo;
     const buf = fifo.readableSlice(0);
-    const result = @ptrCast(*align(1) const u32, buf[0..4]).*;
+    const result = @as(*align(1) const u32, @ptrCast(buf[0..4])).*;
     fifo.discard(4);
     return bswap(result);
 }
@@ -140,7 +140,7 @@ pub fn receiveBody_u32(s: *Server) !u32 {
 pub fn serveStringMessage(s: *Server, tag: OutMessage.Tag, msg: []const u8) !void {
     return s.serveMessage(.{
         .tag = tag,
-        .bytes_len = @intCast(u32, msg.len),
+        .bytes_len = @as(u32, @intCast(msg.len)),
     }, &.{msg});
 }
 
@@ -152,7 +152,7 @@ pub fn serveMessage(
     var iovecs: [10]std.os.iovec_const = undefined;
     const header_le = bswap(header);
     iovecs[0] = .{
-        .iov_base = @ptrCast([*]const u8, &header_le),
+        .iov_base = @as([*]const u8, @ptrCast(&header_le)),
         .iov_len = @sizeOf(OutMessage.Header),
     };
     for (bufs, iovecs[1 .. bufs.len + 1]) |buf, *iovec| {
@@ -171,7 +171,7 @@ pub fn serveEmitBinPath(
 ) !void {
     try s.serveMessage(.{
         .tag = .emit_bin_path,
-        .bytes_len = @intCast(u32, fs_path.len + @sizeOf(OutMessage.EmitBinPath)),
+        .bytes_len = @as(u32, @intCast(fs_path.len + @sizeOf(OutMessage.EmitBinPath))),
     }, &.{
         std.mem.asBytes(&header),
         fs_path,
@@ -185,7 +185,7 @@ pub fn serveTestResults(
     const msg_le = bswap(msg);
     try s.serveMessage(.{
         .tag = .test_results,
-        .bytes_len = @intCast(u32, @sizeOf(OutMessage.TestResults)),
+        .bytes_len = @as(u32, @intCast(@sizeOf(OutMessage.TestResults))),
     }, &.{
         std.mem.asBytes(&msg_le),
     });
@@ -193,14 +193,14 @@ pub fn serveTestResults(
 
 pub fn serveErrorBundle(s: *Server, error_bundle: std.zig.ErrorBundle) !void {
     const eb_hdr: OutMessage.ErrorBundle = .{
-        .extra_len = @intCast(u32, error_bundle.extra.len),
-        .string_bytes_len = @intCast(u32, error_bundle.string_bytes.len),
+        .extra_len = @as(u32, @intCast(error_bundle.extra.len)),
+        .string_bytes_len = @as(u32, @intCast(error_bundle.string_bytes.len)),
     };
     const bytes_len = @sizeOf(OutMessage.ErrorBundle) +
         4 * error_bundle.extra.len + error_bundle.string_bytes.len;
     try s.serveMessage(.{
         .tag = .error_bundle,
-        .bytes_len = @intCast(u32, bytes_len),
+        .bytes_len = @as(u32, @intCast(bytes_len)),
     }, &.{
         std.mem.asBytes(&eb_hdr),
         // TODO: implement @ptrCast between slices changing the length
@@ -218,8 +218,8 @@ pub const TestMetadata = struct {
 
 pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
     const header: OutMessage.TestMetadata = .{
-        .tests_len = bswap(@intCast(u32, test_metadata.names.len)),
-        .string_bytes_len = bswap(@intCast(u32, test_metadata.string_bytes.len)),
+        .tests_len = bswap(@as(u32, @intCast(test_metadata.names.len))),
+        .string_bytes_len = bswap(@as(u32, @intCast(test_metadata.string_bytes.len))),
     };
     const bytes_len = @sizeOf(OutMessage.TestMetadata) +
         3 * 4 * test_metadata.names.len + test_metadata.string_bytes.len;
@@ -237,7 +237,7 @@ pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
 
     return s.serveMessage(.{
         .tag = .test_metadata,
-        .bytes_len = @intCast(u32, bytes_len),
+        .bytes_len = @as(u32, @intCast(bytes_len)),
     }, &.{
         std.mem.asBytes(&header),
         // TODO: implement @ptrCast between slices changing the length
@@ -253,7 +253,7 @@ fn bswap(x: anytype) @TypeOf(x) {
 
     const T = @TypeOf(x);
     switch (@typeInfo(T)) {
-        .Enum => return @intToEnum(T, @byteSwap(@enumToInt(x))),
+        .Enum => return @as(T, @enumFromInt(@byteSwap(@intFromEnum(x)))),
         .Int => return @byteSwap(x),
         .Struct => |info| switch (info.layout) {
             .Extern => {
@@ -265,7 +265,7 @@ fn bswap(x: anytype) @TypeOf(x) {
             },
             .Packed => {
                 const I = info.backing_integer.?;
-                return @bitCast(T, @byteSwap(@bitCast(I, x)));
+                return @as(T, @bitCast(@byteSwap(@as(I, @bitCast(x)))));
             },
             .Auto => @compileError("auto layout struct"),
         },
@@ -286,7 +286,7 @@ fn bswap_and_workaround_u32(bytes_ptr: *const [4]u8) u32 {
 /// workaround for https://github.com/ziglang/zig/issues/14904
 fn bswap_and_workaround_tag(bytes_ptr: *const [4]u8) InMessage.Tag {
     const int = std.mem.readIntLittle(u32, bytes_ptr);
-    return @intToEnum(InMessage.Tag, int);
+    return @as(InMessage.Tag, @enumFromInt(int));
 }
 
 const OutMessage = std.zig.Server.Message;

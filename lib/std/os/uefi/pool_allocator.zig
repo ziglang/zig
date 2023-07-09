@@ -9,7 +9,7 @@ const Allocator = mem.Allocator;
 
 const UefiPoolAllocator = struct {
     fn getHeader(ptr: [*]u8) *[*]align(8) u8 {
-        return @intToPtr(*[*]align(8) u8, @ptrToInt(ptr) - @sizeOf(usize));
+        return @as(*[*]align(8) u8, @ptrFromInt(@intFromPtr(ptr) - @sizeOf(usize)));
     }
 
     fn alloc(
@@ -22,17 +22,17 @@ const UefiPoolAllocator = struct {
 
         assert(len > 0);
 
-        const ptr_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align);
+        const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
 
-        const metadata_len = mem.alignForward(@sizeOf(usize), ptr_align);
+        const metadata_len = mem.alignForward(usize, @sizeOf(usize), ptr_align);
 
         const full_len = metadata_len + len;
 
         var unaligned_ptr: [*]align(8) u8 = undefined;
         if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, full_len, &unaligned_ptr) != .Success) return null;
 
-        const unaligned_addr = @ptrToInt(unaligned_ptr);
-        const aligned_addr = mem.alignForward(unaligned_addr + @sizeOf(usize), ptr_align);
+        const unaligned_addr = @intFromPtr(unaligned_ptr);
+        const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), ptr_align);
 
         var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
         getHeader(aligned_ptr).* = unaligned_ptr;
@@ -135,5 +135,5 @@ fn uefi_free(
 ) void {
     _ = log2_old_ptr_align;
     _ = ret_addr;
-    _ = uefi.system_table.boot_services.?.freePool(@alignCast(8, buf.ptr));
+    _ = uefi.system_table.boot_services.?.freePool(@alignCast(buf.ptr));
 }

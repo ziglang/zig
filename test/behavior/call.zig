@@ -10,11 +10,11 @@ test "super basic invocations" {
         }
     }.foo;
     try expect(@call(.auto, foo, .{}) == 1234);
-    comptime try expect(@call(.always_inline, foo, .{}) == 1234);
+    try comptime expect(@call(.always_inline, foo, .{}) == 1234);
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        comptime try expect(result);
+        try comptime expect(result);
     }
 }
 
@@ -42,7 +42,7 @@ test "basic invocations" {
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        comptime try expect(result);
+        try comptime expect(result);
     }
     {
         // call of non comptime-known function
@@ -71,7 +71,7 @@ test "tuple parameters" {
     try expect(@call(.auto, add, .{ a, b }) == 46);
     try expect(@call(.auto, add, .{ 12, 34 }) == 46);
     if (false) {
-        comptime try expect(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
+        try comptime expect(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
     }
     try expect(comptime @call(.auto, add, .{ 12, 34 }) == 46);
     {
@@ -109,7 +109,6 @@ test "result location of function call argument through runtime condition and st
 
 test "function call with 40 arguments" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(thirty_nine: i32) !void {
@@ -345,7 +344,7 @@ test "inline call doesn't re-evaluate non generic struct" {
     };
     const ArgTuple = std.meta.ArgsTuple(@TypeOf(S.foo));
     try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
-    comptime try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
+    try comptime @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
 }
 
 test "Enum constructed by @Type passed as generic argument" {
@@ -365,17 +364,15 @@ test "Enum constructed by @Type passed as generic argument" {
             alive: bool,
         });
         fn foo(comptime a: E, b: u32) !void {
-            try expect(@enumToInt(a) == b);
+            try expect(@intFromEnum(a) == b);
         }
     };
     inline for (@typeInfo(S.E).Enum.fields, 0..) |_, i| {
-        try S.foo(@intToEnum(S.E, i), i);
+        try S.foo(@as(S.E, @enumFromInt(i)), i);
     }
 }
 
 test "generic function with generic function parameter" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn f(comptime a: fn (anytype) anyerror!void, b: anytype) anyerror!void {
             try a(b);
@@ -388,8 +385,6 @@ test "generic function with generic function parameter" {
 }
 
 test "recursive inline call with comptime known argument" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         inline fn foo(x: i32) i32 {
             if (x <= 0) {
@@ -419,4 +414,19 @@ test "inline while with @call" {
         @call(.auto, S.inc, .{&a});
     }
     try expect(a == 10);
+}
+
+test "method call as parameter type" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn foo(x: anytype, y: @TypeOf(x).Inner()) @TypeOf(y) {
+            return y;
+        }
+        fn Inner() type {
+            return u64;
+        }
+    };
+    try expectEqual(@as(u64, 123), S.foo(S{}, 123));
+    try expectEqual(@as(u64, 500), S.foo(S{}, 500));
 }

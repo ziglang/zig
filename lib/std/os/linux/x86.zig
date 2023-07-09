@@ -16,7 +16,7 @@ const timespec = linux.timespec;
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
         : "memory"
     );
 }
@@ -24,7 +24,7 @@ pub fn syscall0(number: SYS) usize {
 pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
         : "memory"
     );
@@ -33,7 +33,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
         : "memory"
@@ -43,7 +43,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
           [arg3] "{edx}" (arg3),
@@ -54,7 +54,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
           [arg3] "{edx}" (arg3),
@@ -66,7 +66,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
           [arg3] "{edx}" (arg3),
@@ -97,7 +97,7 @@ pub fn syscall6(
         \\ pop  %%ebp
         \\ add  $4, %%esp
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(number)),
+        : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
           [arg3] "{edx}" (arg3),
@@ -111,9 +111,9 @@ pub fn syscall6(
 pub fn socketcall(call: usize, args: [*]const usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
-        : [number] "{eax}" (@enumToInt(SYS.socketcall)),
+        : [number] "{eax}" (@intFromEnum(SYS.socketcall)),
           [arg1] "{ebx}" (call),
-          [arg2] "{ecx}" (@ptrToInt(args)),
+          [arg2] "{ecx}" (@intFromPtr(args)),
         : "memory"
     );
 }
@@ -130,14 +130,14 @@ pub fn restore() callconv(.Naked) void {
             \\ int $0x80
             \\ ret
             :
-            : [number] "i" (@enumToInt(SYS.sigreturn)),
+            : [number] "i" (@intFromEnum(SYS.sigreturn)),
             : "memory"
         ),
         else => asm volatile (
             \\ int $0x80
             \\ ret
             :
-            : [number] "{eax}" (@enumToInt(SYS.sigreturn)),
+            : [number] "{eax}" (@intFromEnum(SYS.sigreturn)),
             : "memory"
         ),
     }
@@ -151,14 +151,14 @@ pub fn restore_rt() callconv(.Naked) void {
             \\ int $0x80
             \\ ret
             :
-            : [number] "i" (@enumToInt(SYS.rt_sigreturn)),
+            : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
             : "memory"
         ),
         else => asm volatile (
             \\ int $0x80
             \\ ret
             :
-            : [number] "{eax}" (@enumToInt(SYS.rt_sigreturn)),
+            : [number] "{eax}" (@intFromEnum(SYS.rt_sigreturn)),
             : "memory"
         ),
     }

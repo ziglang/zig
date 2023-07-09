@@ -96,28 +96,28 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
                     const product = asm (
                         \\ vpclmulqdq $0x11, %[x], %[y], %[out]
                         : [out] "=x" (-> @Vector(2, u64)),
-                        : [x] "x" (@bitCast(@Vector(2, u64), x)),
-                          [y] "x" (@bitCast(@Vector(2, u64), y)),
+                        : [x] "x" (@as(@Vector(2, u64), @bitCast(x))),
+                          [y] "x" (@as(@Vector(2, u64), @bitCast(y))),
                     );
-                    return @bitCast(u128, product);
+                    return @as(u128, @bitCast(product));
                 },
                 .lo => {
                     const product = asm (
                         \\ vpclmulqdq $0x00, %[x], %[y], %[out]
                         : [out] "=x" (-> @Vector(2, u64)),
-                        : [x] "x" (@bitCast(@Vector(2, u64), x)),
-                          [y] "x" (@bitCast(@Vector(2, u64), y)),
+                        : [x] "x" (@as(@Vector(2, u64), @bitCast(x))),
+                          [y] "x" (@as(@Vector(2, u64), @bitCast(y))),
                     );
-                    return @bitCast(u128, product);
+                    return @as(u128, @bitCast(product));
                 },
                 .hi_lo => {
                     const product = asm (
                         \\ vpclmulqdq $0x10, %[x], %[y], %[out]
                         : [out] "=x" (-> @Vector(2, u64)),
-                        : [x] "x" (@bitCast(@Vector(2, u64), x)),
-                          [y] "x" (@bitCast(@Vector(2, u64), y)),
+                        : [x] "x" (@as(@Vector(2, u64), @bitCast(x))),
+                          [y] "x" (@as(@Vector(2, u64), @bitCast(y))),
                     );
-                    return @bitCast(u128, product);
+                    return @as(u128, @bitCast(product));
                 },
             }
         }
@@ -129,36 +129,46 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
                     const product = asm (
                         \\ pmull2 %[out].1q, %[x].2d, %[y].2d
                         : [out] "=w" (-> @Vector(2, u64)),
-                        : [x] "w" (@bitCast(@Vector(2, u64), x)),
-                          [y] "w" (@bitCast(@Vector(2, u64), y)),
+                        : [x] "w" (@as(@Vector(2, u64), @bitCast(x))),
+                          [y] "w" (@as(@Vector(2, u64), @bitCast(y))),
                     );
-                    return @bitCast(u128, product);
+                    return @as(u128, @bitCast(product));
                 },
                 .lo => {
                     const product = asm (
                         \\ pmull %[out].1q, %[x].1d, %[y].1d
                         : [out] "=w" (-> @Vector(2, u64)),
-                        : [x] "w" (@bitCast(@Vector(2, u64), x)),
-                          [y] "w" (@bitCast(@Vector(2, u64), y)),
+                        : [x] "w" (@as(@Vector(2, u64), @bitCast(x))),
+                          [y] "w" (@as(@Vector(2, u64), @bitCast(y))),
                     );
-                    return @bitCast(u128, product);
+                    return @as(u128, @bitCast(product));
                 },
                 .hi_lo => {
                     const product = asm (
                         \\ pmull %[out].1q, %[x].1d, %[y].1d
                         : [out] "=w" (-> @Vector(2, u64)),
-                        : [x] "w" (@bitCast(@Vector(2, u64), x >> 64)),
-                          [y] "w" (@bitCast(@Vector(2, u64), y)),
+                        : [x] "w" (@as(@Vector(2, u64), @bitCast(x >> 64))),
+                          [y] "w" (@as(@Vector(2, u64), @bitCast(y))),
                     );
-                    return @bitCast(u128, product);
+                    return @as(u128, @bitCast(product));
                 },
             }
         }
 
-        // Software carryless multiplication of two 64-bit integers.
-        fn clmulSoft(x_: u128, y_: u128, comptime half: Selector) u128 {
-            const x = @truncate(u64, if (half == .hi or half == .hi_lo) x_ >> 64 else x_);
-            const y = @truncate(u64, if (half == .hi) y_ >> 64 else y_);
+        /// clmulSoft128_64 is faster on platforms with no native 128-bit registers.
+        const clmulSoft = switch (builtin.cpu.arch) {
+            .wasm32, .wasm64 => clmulSoft128_64,
+            else => impl: {
+                const vector_size = std.simd.suggestVectorSize(u128) orelse 0;
+                if (vector_size < 128) break :impl clmulSoft128_64;
+                break :impl clmulSoft128;
+            },
+        };
+
+        // Software carryless multiplication of two 64-bit integers using native 128-bit registers.
+        fn clmulSoft128(x_: u128, y_: u128, comptime half: Selector) u128 {
+            const x = @as(u64, @truncate(if (half == .hi or half == .hi_lo) x_ >> 64 else x_));
+            const y = @as(u64, @truncate(if (half == .hi) y_ >> 64 else y_));
 
             const x0 = x & 0x1111111111111110;
             const x1 = x & 0x2222222222222220;
@@ -184,6 +194,40 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
                 (z1 & 0x22222222222222222222222222222222) ^
                 (z2 & 0x44444444444444444444444444444444) ^
                 (z3 & 0x88888888888888888888888888888888) ^ extra;
+        }
+
+        // Software carryless multiplication of two 32-bit integers.
+        fn clmulSoft32(x: u32, y: u32) u64 {
+            const mulWide = math.mulWide;
+            const a0 = x & 0x11111111;
+            const a1 = x & 0x22222222;
+            const a2 = x & 0x44444444;
+            const a3 = x & 0x88888888;
+            const b0 = y & 0x11111111;
+            const b1 = y & 0x22222222;
+            const b2 = y & 0x44444444;
+            const b3 = y & 0x88888888;
+            const c0 = mulWide(u32, a0, b0) ^ mulWide(u32, a1, b3) ^ mulWide(u32, a2, b2) ^ mulWide(u32, a3, b1);
+            const c1 = mulWide(u32, a0, b1) ^ mulWide(u32, a1, b0) ^ mulWide(u32, a2, b3) ^ mulWide(u32, a3, b2);
+            const c2 = mulWide(u32, a0, b2) ^ mulWide(u32, a1, b1) ^ mulWide(u32, a2, b0) ^ mulWide(u32, a3, b3);
+            const c3 = mulWide(u32, a0, b3) ^ mulWide(u32, a1, b2) ^ mulWide(u32, a2, b1) ^ mulWide(u32, a3, b0);
+            return (c0 & 0x1111111111111111) | (c1 & 0x2222222222222222) | (c2 & 0x4444444444444444) | (c3 & 0x8888888888888888);
+        }
+
+        // Software carryless multiplication of two 128-bit integers using 64-bit registers.
+        fn clmulSoft128_64(x_: u128, y_: u128, comptime half: Selector) u128 {
+            const a = @as(u64, @truncate(if (half == .hi or half == .hi_lo) x_ >> 64 else x_));
+            const b = @as(u64, @truncate(if (half == .hi) y_ >> 64 else y_));
+            const a0 = @as(u32, @truncate(a));
+            const a1 = @as(u32, @truncate(a >> 32));
+            const b0 = @as(u32, @truncate(b));
+            const b1 = @as(u32, @truncate(b >> 32));
+            const lo = clmulSoft32(a0, b0);
+            const hi = clmulSoft32(a1, b1);
+            const mid = clmulSoft32(a0 ^ a1, b0 ^ b1) ^ lo ^ hi;
+            const res_lo = lo ^ (mid << 32);
+            const res_hi = hi ^ (mid >> 32);
+            return @as(u128, res_lo) | (@as(u128, res_hi) << 64);
         }
 
         const I256 = struct {
@@ -212,8 +256,8 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
         // Multiply two 128-bit integers in GF(2^128).
         inline fn clmul128(x: u128, y: u128) I256 {
             if (mul_algorithm == .karatsuba) {
-                const x_hi = @truncate(u64, x >> 64);
-                const y_hi = @truncate(u64, y >> 64);
+                const x_hi = @as(u64, @truncate(x >> 64));
+                const y_hi = @as(u64, @truncate(y >> 64));
                 const r_lo = clmul(x, y, .lo);
                 const r_hi = clmul(x, y, .hi);
                 const r_mid = clmul(x ^ x_hi, y ^ y_hi, .lo) ^ r_lo ^ r_hi;
@@ -319,7 +363,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
             var mb = m;
 
             if (st.leftover > 0) {
-                const want = math.min(block_length - st.leftover, mb.len);
+                const want = @min(block_length - st.leftover, mb.len);
                 const mc = mb[0..want];
                 for (mc, 0..) |x, i| {
                     st.buf[st.leftover + i] = x;
@@ -363,7 +407,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
             st.pad();
             mem.writeInt(u128, out[0..16], st.acc, endian);
 
-            utils.secureZero(u8, @ptrCast([*]u8, st)[0..@sizeOf(Self)]);
+            utils.secureZero(u8, @as([*]u8, @ptrCast(st))[0..@sizeOf(Self)]);
         }
 
         /// Compute the GHASH of a message.
@@ -398,7 +442,7 @@ test "ghash2" {
     var key: [16]u8 = undefined;
     var i: usize = 0;
     while (i < key.len) : (i += 1) {
-        key[i] = @intCast(u8, i * 15 + 1);
+        key[i] = @as(u8, @intCast(i * 15 + 1));
     }
     const tvs = [_]struct { len: usize, hash: [:0]const u8 }{
         .{ .len = 5263, .hash = "b9395f37c131cd403a327ccf82ec016a" },
@@ -417,7 +461,7 @@ test "ghash2" {
         var m: [tv.len]u8 = undefined;
         i = 0;
         while (i < m.len) : (i += 1) {
-            m[i] = @truncate(u8, i % 254 + 1);
+            m[i] = @as(u8, @truncate(i % 254 + 1));
         }
         var st = Ghash.init(&key);
         st.update(&m);

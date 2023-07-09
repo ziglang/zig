@@ -232,14 +232,14 @@ fn clearWithHeldLock(p: *Progress, end_ptr: *usize) void {
             }
 
             var cursor_pos = windows.COORD{
-                .X = info.dwCursorPosition.X - @intCast(windows.SHORT, p.columns_written),
+                .X = info.dwCursorPosition.X - @as(windows.SHORT, @intCast(p.columns_written)),
                 .Y = info.dwCursorPosition.Y,
             };
 
             if (cursor_pos.X < 0)
                 cursor_pos.X = 0;
 
-            const fill_chars = @intCast(windows.DWORD, info.dwSize.X - cursor_pos.X);
+            const fill_chars = @as(windows.DWORD, @intCast(info.dwSize.X - cursor_pos.X));
 
             var written: windows.DWORD = undefined;
             if (windows.kernel32.FillConsoleOutputAttribute(

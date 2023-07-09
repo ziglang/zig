@@ -38,7 +38,7 @@ pub inline fn truncf(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
     const dstNaNCode = dstQNaN - 1;
 
     // Break a into a sign and representation of the absolute value
-    const aRep: src_rep_t = @bitCast(src_rep_t, a);
+    const aRep: src_rep_t = @as(src_rep_t, @bitCast(a));
     const aAbs: src_rep_t = aRep & srcAbsMask;
     const sign: src_rep_t = aRep & srcSignMask;
     var absResult: dst_rep_t = undefined;
@@ -47,7 +47,7 @@ pub inline fn truncf(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
         // The exponent of a is within the range of normal numbers in the
         // destination format.  We can convert by simply right-shifting with
         // rounding and adjusting the exponent.
-        absResult = @truncate(dst_rep_t, aAbs >> (srcSigBits - dstSigBits));
+        absResult = @as(dst_rep_t, @truncate(aAbs >> (srcSigBits - dstSigBits)));
         absResult -%= @as(dst_rep_t, srcExpBias - dstExpBias) << dstSigBits;
 
         const roundBits: src_rep_t = aAbs & roundMask;
@@ -62,18 +62,18 @@ pub inline fn truncf(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
         // a is NaN.
         // Conjure the result by beginning with infinity, setting the qNaN
         // bit and inserting the (truncated) trailing NaN field.
-        absResult = @intCast(dst_rep_t, dstInfExp) << dstSigBits;
+        absResult = @as(dst_rep_t, @intCast(dstInfExp)) << dstSigBits;
         absResult |= dstQNaN;
-        absResult |= @intCast(dst_rep_t, ((aAbs & srcNaNCode) >> (srcSigBits - dstSigBits)) & dstNaNCode);
+        absResult |= @as(dst_rep_t, @intCast(((aAbs & srcNaNCode) >> (srcSigBits - dstSigBits)) & dstNaNCode));
     } else if (aAbs >= overflow) {
         // a overflows to infinity.
-        absResult = @intCast(dst_rep_t, dstInfExp) << dstSigBits;
+        absResult = @as(dst_rep_t, @intCast(dstInfExp)) << dstSigBits;
     } else {
         // a underflows on conversion to the destination type or is an exact
         // zero.  The result may be a denormal or zero.  Extract the exponent
         // to get the shift amount for the denormalization.
-        const aExp = @intCast(u32, aAbs >> srcSigBits);
-        const shift = @intCast(u32, srcExpBias - dstExpBias - aExp + 1);
+        const aExp = @as(u32, @intCast(aAbs >> srcSigBits));
+        const shift = @as(u32, @intCast(srcExpBias - dstExpBias - aExp + 1));
 
         const significand: src_rep_t = (aRep & srcSignificandMask) | srcMinNormal;
 
@@ -81,9 +81,9 @@ pub inline fn truncf(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
         if (shift > srcSigBits) {
             absResult = 0;
         } else {
-            const sticky: src_rep_t = @boolToInt(significand << @intCast(SrcShift, srcBits - shift) != 0);
-            const denormalizedSignificand: src_rep_t = significand >> @intCast(SrcShift, shift) | sticky;
-            absResult = @intCast(dst_rep_t, denormalizedSignificand >> (srcSigBits - dstSigBits));
+            const sticky: src_rep_t = @intFromBool(significand << @as(SrcShift, @intCast(srcBits - shift)) != 0);
+            const denormalizedSignificand: src_rep_t = significand >> @as(SrcShift, @intCast(shift)) | sticky;
+            absResult = @as(dst_rep_t, @intCast(denormalizedSignificand >> (srcSigBits - dstSigBits)));
             const roundBits: src_rep_t = denormalizedSignificand & roundMask;
             if (roundBits > halfway) {
                 // Round to nearest
@@ -96,8 +96,8 @@ pub inline fn truncf(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
     }
 
     const result: dst_rep_t align(@alignOf(dst_t)) = absResult |
-        @truncate(dst_rep_t, sign >> @intCast(SrcShift, srcBits - dstBits));
-    return @bitCast(dst_t, result);
+        @as(dst_rep_t, @truncate(sign >> @as(SrcShift, @intCast(srcBits - dstBits))));
+    return @as(dst_t, @bitCast(result));
 }
 
 pub inline fn trunc_f80(comptime dst_t: type, a: f80) dst_t {
@@ -133,7 +133,7 @@ pub inline fn trunc_f80(comptime dst_t: type, a: f80) dst_t {
         // destination format.  We can convert by simply right-shifting with
         // rounding and adjusting the exponent.
         abs_result = @as(dst_rep_t, a_rep.exp) << dst_sig_bits;
-        abs_result |= @truncate(dst_rep_t, a_rep.fraction >> (src_sig_bits - dst_sig_bits));
+        abs_result |= @as(dst_rep_t, @truncate(a_rep.fraction >> (src_sig_bits - dst_sig_bits)));
         abs_result -%= @as(dst_rep_t, src_exp_bias - dst_exp_bias) << dst_sig_bits;
 
         const round_bits = a_rep.fraction & round_mask;
@@ -148,12 +148,12 @@ pub inline fn trunc_f80(comptime dst_t: type, a: f80) dst_t {
         // a is NaN.
         // Conjure the result by beginning with infinity, setting the qNaN
         // bit and inserting the (truncated) trailing NaN field.
-        abs_result = @intCast(dst_rep_t, dst_inf_exp) << dst_sig_bits;
+        abs_result = @as(dst_rep_t, @intCast(dst_inf_exp)) << dst_sig_bits;
         abs_result |= dst_qnan;
-        abs_result |= @intCast(dst_rep_t, (a_rep.fraction >> (src_sig_bits - dst_sig_bits)) & dst_nan_mask);
+        abs_result |= @as(dst_rep_t, @intCast((a_rep.fraction >> (src_sig_bits - dst_sig_bits)) & dst_nan_mask));
     } else if (a_rep.exp >= overflow) {
         // a overflows to infinity.
-        abs_result = @intCast(dst_rep_t, dst_inf_exp) << dst_sig_bits;
+        abs_result = @as(dst_rep_t, @intCast(dst_inf_exp)) << dst_sig_bits;
     } else {
         // a underflows on conversion to the destination type or is an exact
         // zero.  The result may be a denormal or zero.  Extract the exponent
@@ -164,9 +164,9 @@ pub inline fn trunc_f80(comptime dst_t: type, a: f80) dst_t {
         if (shift > src_sig_bits) {
             abs_result = 0;
         } else {
-            const sticky = @boolToInt(a_rep.fraction << @intCast(u6, shift) != 0);
-            const denormalized_significand = a_rep.fraction >> @intCast(u6, shift) | sticky;
-            abs_result = @intCast(dst_rep_t, denormalized_significand >> (src_sig_bits - dst_sig_bits));
+            const sticky = @intFromBool(a_rep.fraction << @as(u6, @intCast(shift)) != 0);
+            const denormalized_significand = a_rep.fraction >> @as(u6, @intCast(shift)) | sticky;
+            abs_result = @as(dst_rep_t, @intCast(denormalized_significand >> (src_sig_bits - dst_sig_bits)));
             const round_bits = denormalized_significand & round_mask;
             if (round_bits > halfway) {
                 // Round to nearest
@@ -179,7 +179,7 @@ pub inline fn trunc_f80(comptime dst_t: type, a: f80) dst_t {
     }
 
     const result align(@alignOf(dst_t)) = abs_result | @as(dst_rep_t, sign) << dst_bits - 16;
-    return @bitCast(dst_t, result);
+    return @as(dst_t, @bitCast(result));
 }
 
 test {

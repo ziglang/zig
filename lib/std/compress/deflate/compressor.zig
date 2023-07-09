@@ -160,7 +160,7 @@ fn matchLen(a: []u8, b: []u8, max: u32) u32 {
     var bounded_b = b[0..max];
     for (bounded_a, 0..) |av, i| {
         if (bounded_b[i] != av) {
-            return @intCast(u32, i);
+            return @as(u32, @intCast(i));
         }
     }
     return max;
@@ -313,14 +313,14 @@ pub fn Compressor(comptime WriterType: anytype) type {
                     // the entire table onto the stack (https://golang.org/issue/18625).
                     for (self.hash_prev, 0..) |v, i| {
                         if (v > delta) {
-                            self.hash_prev[i] = @intCast(u32, v - delta);
+                            self.hash_prev[i] = @as(u32, @intCast(v - delta));
                         } else {
                             self.hash_prev[i] = 0;
                         }
                     }
                     for (self.hash_head, 0..) |v, i| {
                         if (v > delta) {
-                            self.hash_head[i] = @intCast(u32, v - delta);
+                            self.hash_head[i] = @as(u32, @intCast(v - delta));
                         } else {
                             self.hash_head[i] = 0;
                         }
@@ -329,7 +329,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
             }
             const n = std.compress.deflate.copy(self.window[self.window_end..], b);
             self.window_end += n;
-            return @intCast(u32, n);
+            return @as(u32, @intCast(n));
         }
 
         fn writeBlock(self: *Self, tokens: []token.Token, index: usize) !void {
@@ -398,13 +398,13 @@ pub fn Compressor(comptime WriterType: anytype) type {
                     // Our chain should point to the previous value.
                     self.hash_prev[di & window_mask] = hh.*;
                     // Set the head of the hash chain to us.
-                    hh.* = @intCast(u32, di + self.hash_offset);
+                    hh.* = @as(u32, @intCast(di + self.hash_offset));
                 }
                 self.hash = new_h;
             }
             // Update window information.
             self.window_end = n;
-            self.index = @intCast(u32, n);
+            self.index = @as(u32, @intCast(n));
         }
 
         const Match = struct {
@@ -471,11 +471,11 @@ pub fn Compressor(comptime WriterType: anytype) type {
                     break;
                 }
 
-                if (@intCast(u32, self.hash_prev[i & window_mask]) < self.hash_offset) {
+                if (@as(u32, @intCast(self.hash_prev[i & window_mask])) < self.hash_offset) {
                     break;
                 }
 
-                i = @intCast(u32, self.hash_prev[i & window_mask]) - self.hash_offset;
+                i = @as(u32, @intCast(self.hash_prev[i & window_mask])) - self.hash_offset;
                 if (i < min_index) {
                     break;
                 }
@@ -576,7 +576,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                         // Flush current output block if any.
                         if (self.byte_available) {
                             // There is still one pending token that needs to be flushed
-                            self.tokens[self.tokens_count] = token.literalToken(@intCast(u32, self.window[self.index - 1]));
+                            self.tokens[self.tokens_count] = token.literalToken(@as(u32, @intCast(self.window[self.index - 1])));
                             self.tokens_count += 1;
                             self.byte_available = false;
                         }
@@ -591,9 +591,9 @@ pub fn Compressor(comptime WriterType: anytype) type {
                     // Update the hash
                     self.hash = hash4(self.window[self.index .. self.index + min_match_length]);
                     var hh = &self.hash_head[self.hash & hash_mask];
-                    self.chain_head = @intCast(u32, hh.*);
-                    self.hash_prev[self.index & window_mask] = @intCast(u32, self.chain_head);
-                    hh.* = @intCast(u32, self.index + self.hash_offset);
+                    self.chain_head = @as(u32, @intCast(hh.*));
+                    self.hash_prev[self.index & window_mask] = @as(u32, @intCast(self.chain_head));
+                    hh.* = @as(u32, @intCast(self.index + self.hash_offset));
                 }
                 var prev_length = self.length;
                 var prev_offset = self.offset;
@@ -614,7 +614,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                             self.index,
                             self.chain_head -| self.hash_offset,
                             min_match_length - 1,
-                            @intCast(u32, lookahead),
+                            @as(u32, @intCast(lookahead)),
                         );
                         if (fmatch.ok) {
                             self.length = fmatch.length;
@@ -631,12 +631,12 @@ pub fn Compressor(comptime WriterType: anytype) type {
                     // There was a match at the previous step, and the current match is
                     // not better. Output the previous match.
                     if (self.compression_level.fast_skip_hashshing != skip_never) {
-                        self.tokens[self.tokens_count] = token.matchToken(@intCast(u32, self.length - base_match_length), @intCast(u32, self.offset - base_match_offset));
+                        self.tokens[self.tokens_count] = token.matchToken(@as(u32, @intCast(self.length - base_match_length)), @as(u32, @intCast(self.offset - base_match_offset)));
                         self.tokens_count += 1;
                     } else {
                         self.tokens[self.tokens_count] = token.matchToken(
-                            @intCast(u32, prev_length - base_match_length),
-                            @intCast(u32, prev_offset -| base_match_offset),
+                            @as(u32, @intCast(prev_length - base_match_length)),
+                            @as(u32, @intCast(prev_offset -| base_match_offset)),
                         );
                         self.tokens_count += 1;
                     }
@@ -661,7 +661,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                                 var hh = &self.hash_head[self.hash & hash_mask];
                                 self.hash_prev[index & window_mask] = hh.*;
                                 // Set the head of the hash chain to us.
-                                hh.* = @intCast(u32, index + self.hash_offset);
+                                hh.* = @as(u32, @intCast(index + self.hash_offset));
                             }
                         }
                         self.index = index;
@@ -689,7 +689,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                         if (self.compression_level.fast_skip_hashshing != skip_never) {
                             i = self.index;
                         }
-                        self.tokens[self.tokens_count] = token.literalToken(@intCast(u32, self.window[i]));
+                        self.tokens[self.tokens_count] = token.literalToken(@as(u32, @intCast(self.window[i])));
                         self.tokens_count += 1;
                         if (self.tokens_count == max_flate_block_tokens) {
                             try self.writeBlock(self.tokens[0..self.tokens_count], i + 1);
@@ -707,7 +707,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
         fn fillStore(self: *Self, b: []const u8) u32 {
             const n = std.compress.deflate.copy(self.window[self.window_end..], b);
             self.window_end += n;
-            return @intCast(u32, n);
+            return @as(u32, @intCast(n));
         }
 
         fn store(self: *Self) !void {

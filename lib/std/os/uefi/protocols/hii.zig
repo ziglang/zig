@@ -39,7 +39,7 @@ pub const HIISimplifiedFontPackage = extern struct {
     number_of_wide_glyphs: u16,
 
     pub fn getNarrowGlyphs(self: *HIISimplifiedFontPackage) []NarrowGlyph {
-        return @ptrCast([*]NarrowGlyph, @ptrCast([*]u8, self) + @sizeOf(HIISimplifiedFontPackage))[0..self.number_of_narrow_glyphs];
+        return @as([*]NarrowGlyph, @ptrCast(@as([*]u8, @ptrCast(self)) + @sizeOf(HIISimplifiedFontPackage)))[0..self.number_of_narrow_glyphs];
     }
 };
 

@@ -369,11 +369,11 @@ pub const table = [_]Entry{
     .{ .mov, .rm, &.{ .sreg,    .r32_m16 }, &.{ 0x8e }, 0, .none,  .none },
     .{ .mov, .rm, &.{ .sreg,    .r64_m16 }, &.{ 0x8e }, 0, .long,  .none },
     .{ .mov, .fd, &.{ .al,      .moffs   }, &.{ 0xa0 }, 0, .none,  .none },
-    .{ .mov, .fd, &.{ .ax,      .moffs   }, &.{ 0xa1 }, 0, .none,  .none },
+    .{ .mov, .fd, &.{ .ax,      .moffs   }, &.{ 0xa1 }, 0, .short, .none },
     .{ .mov, .fd, &.{ .eax,     .moffs   }, &.{ 0xa1 }, 0, .none,  .none },
     .{ .mov, .fd, &.{ .rax,     .moffs   }, &.{ 0xa1 }, 0, .long,  .none },
     .{ .mov, .td, &.{ .moffs,   .al      }, &.{ 0xa2 }, 0, .none,  .none },
-    .{ .mov, .td, &.{ .moffs,   .ax      }, &.{ 0xa3 }, 0, .none,  .none },
+    .{ .mov, .td, &.{ .moffs,   .ax      }, &.{ 0xa3 }, 0, .short, .none },
     .{ .mov, .td, &.{ .moffs,   .eax     }, &.{ 0xa3 }, 0, .none,  .none },
     .{ .mov, .td, &.{ .moffs,   .rax     }, &.{ 0xa3 }, 0, .long,  .none },
     .{ .mov, .oi, &.{ .r8,      .imm8    }, &.{ 0xb0 }, 0, .none,  .none },
@@ -846,6 +846,8 @@ pub const table = [_]Entry{
 
     .{ .andps, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x0f, 0x54 }, 0, .none, .sse },
 
+    .{ .cmpps, .rmi, &.{ .xmm, .xmm_m128, .imm8 }, &.{ 0x0f, 0xc2 }, 0, .none, .sse },
+
     .{ .cmpss, .rmi, &.{ .xmm, .xmm_m32, .imm8 }, &.{ 0xf3, 0x0f, 0xc2 }, 0, .none, .sse },
 
     .{ .cvtpi2ps, .rm, &.{ .xmm, .mm_m64 }, &.{ 0x0f, 0x2a }, 0, .none, .sse },
@@ -916,6 +918,8 @@ pub const table = [_]Entry{
     .{ .andnpd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x55 }, 0, .none, .sse2 },
 
     .{ .andpd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x54 }, 0, .none, .sse2 },
+
+    .{ .cmppd, .rmi, &.{ .xmm, .xmm_m128, .imm8 }, &.{ 0x66, 0x0f, 0xc2 }, 0, .none, .sse2 },
 
     .{ .cmpsd, .rmi, &.{ .xmm, .xmm_m64, .imm8 }, &.{ 0xf2, 0x0f, 0xc2 }, 0, .none, .sse2 },
 
@@ -991,6 +995,11 @@ pub const table = [_]Entry{
     .{ .mulsd, .rm, &.{ .xmm, .xmm_m64 }, &.{ 0xf2, 0x0f, 0x59 }, 0, .none, .sse2 },
 
     .{ .orpd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x56 }, 0, .none, .sse2 },
+
+    .{ .packsswb, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x63 }, 0, .none, .sse2 },
+    .{ .packssdw, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x6b }, 0, .none, .sse2 },
+
+    .{ .packuswb, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x67 }, 0, .none, .sse2 },
 
     .{ .paddb, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0xfc }, 0, .none, .sse2 },
     .{ .paddw, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0xfd }, 0, .none, .sse2 },
@@ -1085,9 +1094,19 @@ pub const table = [_]Entry{
     .{ .movsldup, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0xf3, 0x0f, 0x12 }, 0, .none, .sse3 },
 
     // SSE4.1
+    .{ .blendpd, .rmi, &.{ .xmm, .xmm_m128, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x0d }, 0, .none, .sse4_1 },
+
+    .{ .blendps, .rmi, &.{ .xmm, .xmm_m128, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x0c }, 0, .none, .sse4_1 },
+
+    .{ .blendvpd, .rm0, &.{ .xmm, .xmm_m128, .xmm0 }, &.{ 0x66, 0x0f, 0x38, 0x15 }, 0, .none, .sse4_1 },
+
+    .{ .blendvps, .rm0, &.{ .xmm, .xmm_m128, .xmm0 }, &.{ 0x66, 0x0f, 0x38, 0x14 }, 0, .none, .sse4_1 },
+
     .{ .extractps, .mri, &.{ .rm32, .xmm, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x17 }, 0, .none, .sse4_1 },
 
     .{ .insertps, .rmi, &.{ .xmm, .xmm_m32, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x21 }, 0, .none, .sse4_1 },
+
+    .{ .packusdw, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x2b }, 0, .none, .sse4_1 },
 
     .{ .pextrb, .mri, &.{ .r32_m8, .xmm, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x14 }, 0, .none, .sse4_1 },
     .{ .pextrd, .mri, &.{ .rm32,   .xmm, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x16 }, 0, .none, .sse4_1 },
@@ -1146,10 +1165,32 @@ pub const table = [_]Entry{
     .{ .vandps, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x0f, 0x54 }, 0, .vex_128_wig, .avx },
     .{ .vandps, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x0f, 0x54 }, 0, .vex_256_wig, .avx },
 
+    .{ .vblendpd, .rvmi, &.{ .xmm, .xmm, .xmm_m128, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x0d }, 0, .vex_128_wig, .avx },
+    .{ .vblendpd, .rvmi, &.{ .ymm, .ymm, .ymm_m256, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x0d }, 0, .vex_256_wig, .avx },
+
+    .{ .vblendps, .rvmi, &.{ .xmm, .xmm, .xmm_m128, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x0c }, 0, .vex_128_wig, .avx },
+    .{ .vblendps, .rvmi, &.{ .ymm, .ymm, .ymm_m256, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x0c }, 0, .vex_256_wig, .avx },
+
+    .{ .vblendvpd, .rvmr, &.{ .xmm, .xmm, .xmm_m128, .xmm }, &.{ 0x66, 0x0f, 0x3a, 0x4b }, 0, .vex_128_w0, .avx },
+    .{ .vblendvpd, .rvmr, &.{ .ymm, .ymm, .ymm_m256, .ymm }, &.{ 0x66, 0x0f, 0x3a, 0x4b }, 0, .vex_256_w0, .avx },
+
+    .{ .vblendvps, .rvmr, &.{ .xmm, .xmm, .xmm_m128, .xmm }, &.{ 0x66, 0x0f, 0x3a, 0x4a }, 0, .vex_128_w0, .avx },
+    .{ .vblendvps, .rvmr, &.{ .ymm, .ymm, .ymm_m256, .ymm }, &.{ 0x66, 0x0f, 0x3a, 0x4a }, 0, .vex_256_w0, .avx },
+
     .{ .vbroadcastss,   .rm, &.{ .xmm, .m32  }, &.{ 0x66, 0x0f, 0x38, 0x18 }, 0, .vex_128_w0, .avx },
     .{ .vbroadcastss,   .rm, &.{ .ymm, .m32  }, &.{ 0x66, 0x0f, 0x38, 0x18 }, 0, .vex_256_w0, .avx },
     .{ .vbroadcastsd,   .rm, &.{ .ymm, .m64  }, &.{ 0x66, 0x0f, 0x38, 0x19 }, 0, .vex_256_w0, .avx },
     .{ .vbroadcastf128, .rm, &.{ .ymm, .m128 }, &.{ 0x66, 0x0f, 0x38, 0x1a }, 0, .vex_256_w0, .avx },
+
+    .{ .vcmppd, .rvmi, &.{ .xmm, .xmm, .xmm_m128, .imm8 }, &.{ 0x66, 0x0f, 0xc2 }, 0, .vex_128_wig, .avx },
+    .{ .vcmppd, .rvmi, &.{ .ymm, .ymm, .ymm_m256, .imm8 }, &.{ 0x66, 0x0f, 0xc2 }, 0, .vex_256_wig, .avx },
+
+    .{ .vcmpps, .rvmi, &.{ .xmm, .xmm, .xmm_m128, .imm8 }, &.{ 0x0f, 0xc2 }, 0, .vex_128_wig, .avx },
+    .{ .vcmpps, .rvmi, &.{ .ymm, .ymm, .ymm_m256, .imm8 }, &.{ 0x0f, 0xc2 }, 0, .vex_256_wig, .avx },
+
+    .{ .vcmpsd, .rvmi, &.{ .xmm, .xmm, .xmm_m64, .imm8 }, &.{ 0xf2, 0x0f, 0xc2 }, 0, .vex_lig_wig, .avx },
+
+    .{ .vcmpss, .rvmi, &.{ .xmm, .xmm, .xmm_m32, .imm8 }, &.{ 0xf3, 0x0f, 0xc2 }, 0, .vex_lig_wig, .avx },
 
     .{ .vcvtdq2pd, .rm, &.{ .xmm, .xmm_m64  }, &.{ 0xf3, 0x0f, 0xe6 }, 0, .vex_128_wig, .avx },
     .{ .vcvtdq2pd, .rm, &.{ .ymm, .xmm_m128 }, &.{ 0xf3, 0x0f, 0xe6 }, 0, .vex_256_wig, .avx },
@@ -1312,6 +1353,13 @@ pub const table = [_]Entry{
     .{ .vorps, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x0f, 0x56 }, 0, .vex_128_wig, .avx },
     .{ .vorps, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x0f, 0x56 }, 0, .vex_256_wig, .avx },
 
+    .{ .vpacksswb, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x63 }, 0, .vex_128_wig, .avx },
+    .{ .vpackssdw, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x6b }, 0, .vex_128_wig, .avx },
+
+    .{ .vpackusdw, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x2b }, 0, .vex_128_wig, .avx },
+
+    .{ .vpackuswb, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x67 }, 0, .vex_128_wig, .avx },
+
     .{ .vpaddb, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0xfc }, 0, .vex_128_wig, .avx },
     .{ .vpaddw, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0xfd }, 0, .vex_128_wig, .avx },
     .{ .vpaddd, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0xfe }, 0, .vex_128_wig, .avx },
@@ -1473,6 +1521,13 @@ pub const table = [_]Entry{
     .{ .vbroadcastss, .rm, &.{ .xmm, .xmm }, &.{ 0x66, 0x0f, 0x38, 0x18 }, 0, .vex_128_w0, .avx2 },
     .{ .vbroadcastss, .rm, &.{ .ymm, .xmm }, &.{ 0x66, 0x0f, 0x38, 0x18 }, 0, .vex_256_w0, .avx2 },
     .{ .vbroadcastsd, .rm, &.{ .ymm, .xmm }, &.{ 0x66, 0x0f, 0x38, 0x19 }, 0, .vex_256_w0, .avx2 },
+
+    .{ .vpacksswb, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x63 }, 0, .vex_256_wig, .avx2 },
+    .{ .vpackssdw, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x6b }, 0, .vex_256_wig, .avx2 },
+
+    .{ .vpackusdw, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x38, 0x2b }, 0, .vex_256_wig, .avx2 },
+
+    .{ .vpackuswb, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x67 }, 0, .vex_256_wig, .avx2 },
 
     .{ .vpaddb, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0xfc }, 0, .vex_256_wig, .avx2 },
     .{ .vpaddw, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0xfd }, 0, .vex_256_wig, .avx2 },

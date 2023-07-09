@@ -65,7 +65,7 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
         }
 
         inline fn tableEntry(index: I) I {
-            return lookup_table[@intCast(u8, index & 0xFF)];
+            return lookup_table[@as(u8, @intCast(index & 0xFF))];
         }
 
         pub fn update(self: *Self, bytes: []const u8) void {
@@ -95,7 +95,7 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
             if (!algorithm.reflect_output) {
                 c >>= @bitSizeOf(I) - @bitSizeOf(W);
             }
-            return @intCast(W, c ^ algorithm.xor_output);
+            return @as(W, @intCast(c ^ algorithm.xor_output));
         }
 
         pub fn hash(bytes: []const u8) W {
@@ -125,11 +125,11 @@ pub fn Crc32WithPoly(comptime poly: Polynomial) type {
             var tables: [8][256]u32 = undefined;
 
             for (&tables[0], 0..) |*e, i| {
-                var crc = @intCast(u32, i);
+                var crc = @as(u32, @intCast(i));
                 var j: usize = 0;
                 while (j < 8) : (j += 1) {
                     if (crc & 1 == 1) {
-                        crc = (crc >> 1) ^ @enumToInt(poly);
+                        crc = (crc >> 1) ^ @intFromEnum(poly);
                     } else {
                         crc = (crc >> 1);
                     }
@@ -142,7 +142,7 @@ pub fn Crc32WithPoly(comptime poly: Polynomial) type {
                 var crc = tables[0][i];
                 var j: usize = 1;
                 while (j < 8) : (j += 1) {
-                    const index = @truncate(u8, crc);
+                    const index = @as(u8, @truncate(crc));
                     crc = tables[0][index] ^ (crc >> 8);
                     tables[j][i] = crc;
                 }
@@ -170,14 +170,14 @@ pub fn Crc32WithPoly(comptime poly: Polynomial) type {
                     lookup_tables[1][p[6]] ^
                     lookup_tables[2][p[5]] ^
                     lookup_tables[3][p[4]] ^
-                    lookup_tables[4][@truncate(u8, self.crc >> 24)] ^
-                    lookup_tables[5][@truncate(u8, self.crc >> 16)] ^
-                    lookup_tables[6][@truncate(u8, self.crc >> 8)] ^
-                    lookup_tables[7][@truncate(u8, self.crc >> 0)];
+                    lookup_tables[4][@as(u8, @truncate(self.crc >> 24))] ^
+                    lookup_tables[5][@as(u8, @truncate(self.crc >> 16))] ^
+                    lookup_tables[6][@as(u8, @truncate(self.crc >> 8))] ^
+                    lookup_tables[7][@as(u8, @truncate(self.crc >> 0))];
             }
 
             while (i < input.len) : (i += 1) {
-                const index = @truncate(u8, self.crc) ^ input[i];
+                const index = @as(u8, @truncate(self.crc)) ^ input[i];
                 self.crc = (self.crc >> 8) ^ lookup_tables[0][index];
             }
         }
@@ -218,11 +218,11 @@ pub fn Crc32SmallWithPoly(comptime poly: Polynomial) type {
             var table: [16]u32 = undefined;
 
             for (&table, 0..) |*e, i| {
-                var crc = @intCast(u32, i * 16);
+                var crc = @as(u32, @intCast(i * 16));
                 var j: usize = 0;
                 while (j < 8) : (j += 1) {
                     if (crc & 1 == 1) {
-                        crc = (crc >> 1) ^ @enumToInt(poly);
+                        crc = (crc >> 1) ^ @intFromEnum(poly);
                     } else {
                         crc = (crc >> 1);
                     }
@@ -241,8 +241,8 @@ pub fn Crc32SmallWithPoly(comptime poly: Polynomial) type {
 
         pub fn update(self: *Self, input: []const u8) void {
             for (input) |b| {
-                self.crc = lookup_table[@truncate(u4, self.crc ^ (b >> 0))] ^ (self.crc >> 4);
-                self.crc = lookup_table[@truncate(u4, self.crc ^ (b >> 4))] ^ (self.crc >> 4);
+                self.crc = lookup_table[@as(u4, @truncate(self.crc ^ (b >> 0)))] ^ (self.crc >> 4);
+                self.crc = lookup_table[@as(u4, @truncate(self.crc ^ (b >> 4)))] ^ (self.crc >> 4);
             }
         }
 

@@ -124,6 +124,9 @@ host: NativeTargetInfo,
 dep_prefix: []const u8 = "",
 
 modules: std.StringArrayHashMap(*Module),
+/// A map from build root dirs to the corresponding `*Dependency`. This is shared with all child
+/// `Build`s.
+initialized_deps: *std.StringHashMap(*Dependency),
 
 pub const ExecError = error{
     ReadFailure,
@@ -181,6 +184,7 @@ const TypeId = enum {
     @"enum",
     string,
     list,
+    build_id,
 };
 
 const TopLevelStep = struct {
@@ -207,6 +211,9 @@ pub fn create(
 ) !*Build {
     const env_map = try allocator.create(EnvMap);
     env_map.* = try process.getEnvMap(allocator);
+
+    const initialized_deps = try allocator.create(std.StringHashMap(*Dependency));
+    initialized_deps.* = std.StringHashMap(*Dependency).init(allocator);
 
     const self = try allocator.create(Build);
     self.* = .{
@@ -260,6 +267,7 @@ pub fn create(
         .args = null,
         .host = host,
         .modules = std.StringArrayHashMap(*Module).init(allocator),
+        .initialized_deps = initialized_deps,
     };
     try self.top_level_steps.put(allocator, self.install_tls.step.name, &self.install_tls);
     try self.top_level_steps.put(allocator, self.uninstall_tls.step.name, &self.uninstall_tls);
@@ -344,6 +352,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .host = parent.host,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
+        .initialized_deps = parent.initialized_deps,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -463,7 +472,7 @@ pub fn addOptions(self: *Build) *Step.Options {
 pub const ExecutableOptions = struct {
     name: []const u8,
     root_source_file: ?FileSource = null,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
     linkage: ?Step.Compile.Linkage = null,
@@ -521,7 +530,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
 pub const SharedLibraryOptions = struct {
     name: []const u8,
     root_source_file: ?FileSource = null,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     max_rss: usize = 0,
@@ -553,7 +562,7 @@ pub const StaticLibraryOptions = struct {
     root_source_file: ?FileSource = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
@@ -583,7 +592,7 @@ pub const TestOptions = struct {
     root_source_file: FileSource,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filter: ?[]const u8 = null,
     test_runner: ?[]const u8 = null,
@@ -750,7 +759,7 @@ pub fn dupePath(self: *Build, bytes: []const u8) []u8 {
 
 pub fn addWriteFile(self: *Build, file_path: []const u8, data: []const u8) *Step.WriteFile {
     const write_file_step = self.addWriteFiles();
-    write_file_step.add(file_path, data);
+    _ = write_file_step.add(file_path, data);
     return write_file_step;
 }
 
@@ -832,13 +841,13 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
                 } else if (mem.eql(u8, s, "false")) {
                     return false;
                 } else {
-                    log.err("Expected -D{s} to be a boolean, but received '{s}'\n", .{ name, s });
+                    log.err("Expected -D{s} to be a boolean, but received '{s}'", .{ name, s });
                     self.markInvalidUserInput();
                     return null;
                 }
             },
             .list, .map => {
-                log.err("Expected -D{s} to be a boolean, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a boolean, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -847,7 +856,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .int => switch (option_ptr.value) {
             .flag, .list, .map => {
-                log.err("Expected -D{s} to be an integer, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be an integer, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -856,12 +865,12 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
             .scalar => |s| {
                 const n = std.fmt.parseInt(T, s, 10) catch |err| switch (err) {
                     error.Overflow => {
-                        log.err("-D{s} value {s} cannot fit into type {s}.\n", .{ name, s, @typeName(T) });
+                        log.err("-D{s} value {s} cannot fit into type {s}.", .{ name, s, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
                     },
                     else => {
-                        log.err("Expected -D{s} to be an integer of type {s}.\n", .{ name, @typeName(T) });
+                        log.err("Expected -D{s} to be an integer of type {s}.", .{ name, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
                     },
@@ -871,7 +880,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .float => switch (option_ptr.value) {
             .flag, .map, .list => {
-                log.err("Expected -D{s} to be a float, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a float, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -879,7 +888,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
             },
             .scalar => |s| {
                 const n = std.fmt.parseFloat(T, s) catch {
-                    log.err("Expected -D{s} to be a float of type {s}.\n", .{ name, @typeName(T) });
+                    log.err("Expected -D{s} to be a float of type {s}.", .{ name, @typeName(T) });
                     self.markInvalidUserInput();
                     return null;
                 };
@@ -888,7 +897,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .@"enum" => switch (option_ptr.value) {
             .flag, .map, .list => {
-                log.err("Expected -D{s} to be an enum, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be an enum, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -898,7 +907,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
                 if (std.meta.stringToEnum(T, s)) |enum_lit| {
                     return enum_lit;
                 } else {
-                    log.err("Expected -D{s} to be of type {s}.\n", .{ name, @typeName(T) });
+                    log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(T) });
                     self.markInvalidUserInput();
                     return null;
                 }
@@ -906,7 +915,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .string => switch (option_ptr.value) {
             .flag, .list, .map => {
-                log.err("Expected -D{s} to be a string, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a string, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -914,9 +923,27 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
             },
             .scalar => |s| return s,
         },
+        .build_id => switch (option_ptr.value) {
+            .flag, .map, .list => {
+                log.err("Expected -D{s} to be an enum, but received a {s}.", .{
+                    name, @tagName(option_ptr.value),
+                });
+                self.markInvalidUserInput();
+                return null;
+            },
+            .scalar => |s| {
+                if (Step.Compile.BuildId.parse(s)) |build_id| {
+                    return build_id;
+                } else |err| {
+                    log.err("unable to parse option '-D{s}': {s}", .{ name, @errorName(err) });
+                    self.markInvalidUserInput();
+                    return null;
+                }
+            },
+        },
         .list => switch (option_ptr.value) {
             .flag, .map => {
-                log.err("Expected -D{s} to be a list, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a list, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -1084,7 +1111,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
             var populated_cpu_features = whitelist_cpu.model.features;
             populated_cpu_features.populateDependencies(all_features);
             for (all_features, 0..) |feature, i_usize| {
-                const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
+                const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                 const in_cpu_set = populated_cpu_features.isEnabled(i);
                 if (in_cpu_set) {
                     log.err("{s} ", .{feature.name});
@@ -1092,7 +1119,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
             }
             log.err("  Remove: ", .{});
             for (all_features, 0..) |feature, i_usize| {
-                const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
+                const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                 const in_cpu_set = populated_cpu_features.isEnabled(i);
                 const in_actual_set = selected_cpu.features.isEnabled(i);
                 if (in_actual_set and !in_cpu_set) {
@@ -1183,15 +1210,18 @@ pub fn addUserInputFlag(self: *Build, name_raw: []const u8) !bool {
 }
 
 fn typeToEnum(comptime T: type) TypeId {
-    return switch (@typeInfo(T)) {
-        .Int => .int,
-        .Float => .float,
-        .Bool => .bool,
-        .Enum => .@"enum",
-        else => switch (T) {
-            []const u8 => .string,
-            []const []const u8 => .list,
-            else => @compileError("Unsupported type: " ++ @typeName(T)),
+    return switch (T) {
+        Step.Compile.BuildId => .build_id,
+        else => return switch (@typeInfo(T)) {
+            .Int => .int,
+            .Float => .float,
+            .Bool => .bool,
+            .Enum => .@"enum",
+            else => switch (T) {
+                []const u8 => .string,
+                []const []const u8 => .list,
+                else => @compileError("Unsupported type: " ++ @typeName(T)),
+            },
         },
     };
 }
@@ -1287,9 +1317,7 @@ pub fn addInstallFileWithDir(
 }
 
 pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *Step.InstallDir {
-    const install_step = self.allocator.create(Step.InstallDir) catch @panic("OOM");
-    install_step.* = Step.InstallDir.init(self, options);
-    return install_step;
+    return Step.InstallDir.create(self, options);
 }
 
 pub fn addCheckFile(
@@ -1358,7 +1386,7 @@ pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []con
             if (fs.path.isAbsolute(name)) {
                 return name;
             }
-            var it = mem.tokenize(u8, PATH, &[_]u8{fs.path.delimiter});
+            var it = mem.tokenizeScalar(u8, PATH, fs.path.delimiter);
             while (it.next()) |path| {
                 const full_path = self.pathJoin(&.{
                     path,
@@ -1412,13 +1440,13 @@ pub fn execAllowFail(
     switch (term) {
         .Exited => |code| {
             if (code != 0) {
-                out_code.* = @truncate(u8, code);
+                out_code.* = @as(u8, @truncate(code));
                 return error.ExitCodeFailure;
             }
             return stdout;
         },
         .Signal, .Stopped, .Unknown => |code| {
-            out_code.* = @truncate(u8, code);
+            out_code.* = @as(u8, @truncate(code));
             return error.ProcessTerminated;
         },
     }
@@ -1538,6 +1566,11 @@ pub fn dependencyInner(
     comptime build_zig: type,
     args: anytype,
 ) *Dependency {
+    if (b.initialized_deps.get(build_root_string)) |dep| {
+        // TODO: check args are the same
+        return dep;
+    }
+
     const build_root: std.Build.Cache.Directory = .{
         .path = build_root_string,
         .handle = std.fs.cwd().openDir(build_root_string, .{}) catch |err| {
@@ -1556,6 +1589,9 @@ pub fn dependencyInner(
 
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
     dep.* = .{ .builder = sub_builder };
+
+    b.initialized_deps.put(build_root_string, dep) catch @panic("OOM");
+
     return dep;
 }
 
@@ -1674,10 +1710,10 @@ fn dumpBadGetPathHelp(
         s.name,
     });
 
-    const tty_config = std.debug.detectTTYConfig(stderr);
-    tty_config.setColor(w, .Red) catch {};
+    const tty_config = std.io.tty.detectConfig(stderr);
+    tty_config.setColor(w, .red) catch {};
     try stderr.writeAll("    The step was created by this stack trace:\n");
-    tty_config.setColor(w, .Reset) catch {};
+    tty_config.setColor(w, .reset) catch {};
 
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         try w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
@@ -1689,9 +1725,9 @@ fn dumpBadGetPathHelp(
         return;
     };
     if (asking_step) |as| {
-        tty_config.setColor(w, .Red) catch {};
+        tty_config.setColor(w, .red) catch {};
         try stderr.writeAll("    The step that is missing a dependency on the above step was created by this stack trace:\n");
-        tty_config.setColor(w, .Reset) catch {};
+        tty_config.setColor(w, .reset) catch {};
 
         std.debug.writeStackTrace(as.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
             try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
@@ -1699,9 +1735,9 @@ fn dumpBadGetPathHelp(
         };
     }
 
-    tty_config.setColor(w, .Red) catch {};
+    tty_config.setColor(w, .red) catch {};
     try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
-    tty_config.setColor(w, .Reset) catch {};
+    tty_config.setColor(w, .reset) catch {};
 }
 
 /// Allocates a new string for assigning a value to a named macro.
@@ -1777,7 +1813,7 @@ pub fn serializeCpu(allocator: Allocator, cpu: std.Target.Cpu) ![]const u8 {
         try mcpu_buffer.appendSlice(cpu.model.name);
 
         for (all_features, 0..) |feature, i_usize| {
-            const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
+            const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
             const in_cpu_set = populated_cpu_features.isEnabled(i);
             const in_actual_set = cpu.features.isEnabled(i);
             if (in_cpu_set and !in_actual_set) {
@@ -1814,7 +1850,7 @@ pub fn hex64(x: u64) [16]u8 {
     var result: [16]u8 = undefined;
     var i: usize = 0;
     while (i < 8) : (i += 1) {
-        const byte = @truncate(u8, x >> @intCast(u6, 8 * i));
+        const byte = @as(u8, @truncate(x >> @as(u6, @intCast(8 * i))));
         result[i * 2 + 0] = hex_charset[byte >> 4];
         result[i * 2 + 1] = hex_charset[byte & 15];
     }

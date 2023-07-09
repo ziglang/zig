@@ -1,6 +1,9 @@
 //! See https://www.khronos.org/registry/spir-v/specs/unified1/MachineReadableGrammar.html
 //! and the files in https://github.com/KhronosGroup/SPIRV-Headers/blob/master/include/spirv/unified1/
 //! Note: Non-canonical casing in these structs used to match SPIR-V spec json.
+
+const std = @import("std");
+
 pub const Registry = union(enum) {
     core: CoreRegistry,
     extension: ExtensionRegistry,
@@ -79,6 +82,20 @@ pub const Enumerant = struct {
     value: union(enum) {
         bitflag: []const u8, // Hexadecimal representation of the value
         int: u31,
+
+        pub fn jsonParse(
+            allocator: std.mem.Allocator,
+            source: anytype,
+            options: std.json.ParseOptions,
+        ) std.json.ParseError(@TypeOf(source.*))!@This() {
+            _ = options;
+            switch (try source.nextAlloc(allocator, .alloc_if_needed)) {
+                inline .string, .allocated_string => |s| return @This(){ .bitflag = s },
+                inline .number, .allocated_number => |s| return @This(){ .int = try std.fmt.parseInt(u31, s, 10) },
+                else => return error.UnexpectedToken,
+            }
+        }
+        pub const jsonStringify = @compileError("not supported");
     },
     capabilities: [][]const u8 = &[_][]const u8{},
     /// Valid for .ValueEnum and .BitEnum

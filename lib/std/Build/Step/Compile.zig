@@ -32,7 +32,7 @@ linker_script: ?FileSource = null,
 version_script: ?[]const u8 = null,
 out_filename: []const u8,
 linkage: ?Linkage = null,
-version: ?std.builtin.Version,
+version: ?std.SemanticVersion,
 kind: Kind,
 major_only_filename: ?[]const u8,
 name_only_filename: ?[]const u8,
@@ -116,7 +116,7 @@ each_lib_rpath: ?bool = null,
 /// As an example, the bloaty project refuses to work unless its inputs have
 /// build ids, in order to prevent accidental mismatches.
 /// The default is to not include this section because it slows down linking.
-build_id: ?bool = null,
+build_id: ?BuildId = null,
 
 /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
 /// file.
@@ -278,7 +278,7 @@ pub const Options = struct {
     optimize: std.builtin.Mode,
     kind: Kind,
     linkage: ?Linkage = null,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filter: ?[]const u8 = null,
     test_runner: ?[]const u8 = null,
@@ -286,6 +286,82 @@ pub const Options = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+};
+
+pub const BuildId = union(enum) {
+    none,
+    fast,
+    uuid,
+    sha1,
+    md5,
+    hexstring: HexString,
+
+    pub fn eql(a: BuildId, b: BuildId) bool {
+        const a_tag = std.meta.activeTag(a);
+        const b_tag = std.meta.activeTag(b);
+        if (a_tag != b_tag) return false;
+        return switch (a) {
+            .none, .fast, .uuid, .sha1, .md5 => true,
+            .hexstring => |a_hexstring| mem.eql(u8, a_hexstring.toSlice(), b.hexstring.toSlice()),
+        };
+    }
+
+    pub const HexString = struct {
+        bytes: [32]u8,
+        len: u8,
+
+        /// Result is byte values, *not* hex-encoded.
+        pub fn toSlice(hs: *const HexString) []const u8 {
+            return hs.bytes[0..hs.len];
+        }
+    };
+
+    /// Input is byte values, *not* hex-encoded.
+    /// Asserts `bytes` fits inside `HexString`
+    pub fn initHexString(bytes: []const u8) BuildId {
+        var result: BuildId = .{ .hexstring = .{
+            .bytes = undefined,
+            .len = @as(u8, @intCast(bytes.len)),
+        } };
+        @memcpy(result.hexstring.bytes[0..bytes.len], bytes);
+        return result;
+    }
+
+    /// Converts UTF-8 text to a `BuildId`.
+    pub fn parse(text: []const u8) !BuildId {
+        if (mem.eql(u8, text, "none")) {
+            return .none;
+        } else if (mem.eql(u8, text, "fast")) {
+            return .fast;
+        } else if (mem.eql(u8, text, "uuid")) {
+            return .uuid;
+        } else if (mem.eql(u8, text, "sha1") or mem.eql(u8, text, "tree")) {
+            return .sha1;
+        } else if (mem.eql(u8, text, "md5")) {
+            return .md5;
+        } else if (mem.startsWith(u8, text, "0x")) {
+            var result: BuildId = .{ .hexstring = undefined };
+            const slice = try std.fmt.hexToBytes(&result.hexstring.bytes, text[2..]);
+            result.hexstring.len = @as(u8, @intCast(slice.len));
+            return result;
+        }
+        return error.InvalidBuildIdStyle;
+    }
+
+    test parse {
+        try std.testing.expectEqual(BuildId.md5, try parse("md5"));
+        try std.testing.expectEqual(BuildId.none, try parse("none"));
+        try std.testing.expectEqual(BuildId.fast, try parse("fast"));
+        try std.testing.expectEqual(BuildId.uuid, try parse("uuid"));
+        try std.testing.expectEqual(BuildId.sha1, try parse("sha1"));
+        try std.testing.expectEqual(BuildId.sha1, try parse("tree"));
+
+        try std.testing.expect(BuildId.initHexString("").eql(try parse("0x")));
+        try std.testing.expect(BuildId.initHexString("\x12\x34\x56").eql(try parse("0x123456")));
+        try std.testing.expectError(error.InvalidLength, parse("0x12-34"));
+        try std.testing.expectError(error.InvalidCharacter, parse("0xfoobbb"));
+        try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
+    }
 };
 
 pub const Kind = enum {
@@ -488,7 +564,7 @@ pub fn installHeadersDirectory(
     dest_rel_path: []const u8,
 ) void {
     return installHeadersDirectoryOptions(a, .{
-        .source_dir = src_dir_path,
+        .source_dir = .{ .path = src_dir_path },
         .install_dir = .header,
         .install_subdir = dest_rel_path,
     });
@@ -615,7 +691,7 @@ pub fn isStaticLibrary(self: *Compile) bool {
 pub fn producesPdbFile(self: *Compile) bool {
     if (!self.target.isWindows() and !self.target.isUefi()) return false;
     if (self.target.getObjectFormat() == .c) return false;
-    if (self.strip == true) return false;
+    if (self.strip == true or (self.strip == null and self.optimize == .ReleaseSmall)) return false;
     return self.isDynamicLibrary() or self.kind == .exe or self.kind == .@"test";
 }
 
@@ -777,7 +853,7 @@ fn runPkgConfig(self: *Compile, lib_name: []const u8) ![]const []const u8 {
     var zig_args = ArrayList([]const u8).init(b.allocator);
     defer zig_args.deinit();
 
-    var it = mem.tokenize(u8, stdout, " \r\n\t");
+    var it = mem.tokenizeAny(u8, stdout, " \r\n\t");
     while (it.next()) |tok| {
         if (mem.eql(u8, tok, "-I")) {
             const dir = it.next() orelse return error.PkgConfigInvalidOutput;
@@ -955,11 +1031,6 @@ pub fn addObject(self: *Compile, obj: *Compile) void {
     assert(obj.kind == .obj);
     self.linkLibraryOrObject(obj);
 }
-
-pub const addSystemIncludeDir = @compileError("deprecated; use addSystemIncludePath");
-pub const addIncludeDir = @compileError("deprecated; use addIncludePath");
-pub const addLibPath = @compileError("deprecated, use addLibraryPath");
-pub const addFrameworkDir = @compileError("deprecated, use addFrameworkPath");
 
 pub fn addSystemIncludePath(self: *Compile, path: []const u8) void {
     const b = self.step.owner;
@@ -1273,7 +1344,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try transitive_deps.seen_steps.put(&self.step, {});
     try transitive_deps.add(self.link_objects.items);
 
-    var prev_has_extra_flags = false;
+    var prev_has_cflags = false;
 
     for (transitive_deps.link_objects.items) |link_object| {
         switch (link_object) {
@@ -1342,20 +1413,20 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             },
 
             .assembly_file => |asm_file| {
-                if (prev_has_extra_flags) {
-                    try zig_args.append("-extra-cflags");
+                if (prev_has_cflags) {
+                    try zig_args.append("-cflags");
                     try zig_args.append("--");
-                    prev_has_extra_flags = false;
+                    prev_has_cflags = false;
                 }
                 try zig_args.append(asm_file.getPath(b));
             },
 
             .c_source_file => |c_source_file| {
                 if (c_source_file.args.len == 0) {
-                    if (prev_has_extra_flags) {
+                    if (prev_has_cflags) {
                         try zig_args.append("-cflags");
                         try zig_args.append("--");
-                        prev_has_extra_flags = false;
+                        prev_has_cflags = false;
                     }
                 } else {
                     try zig_args.append("-cflags");
@@ -1363,16 +1434,17 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         try zig_args.append(arg);
                     }
                     try zig_args.append("--");
+                    prev_has_cflags = true;
                 }
                 try zig_args.append(c_source_file.source.getPath(b));
             },
 
             .c_source_files => |c_source_files| {
                 if (c_source_files.flags.len == 0) {
-                    if (prev_has_extra_flags) {
+                    if (prev_has_cflags) {
                         try zig_args.append("-cflags");
                         try zig_args.append("--");
-                        prev_has_extra_flags = false;
+                        prev_has_cflags = false;
                     }
                 } else {
                     try zig_args.append("-cflags");
@@ -1380,6 +1452,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         try zig_args.append(flag);
                     }
                     try zig_args.append("--");
+                    prev_has_cflags = true;
                 }
                 for (c_source_files.files) |file| {
                     try zig_args.append(b.pathFromRoot(file));
@@ -1810,7 +1883,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try addFlag(&zig_args, "valgrind", self.valgrind_support);
     try addFlag(&zig_args, "each-lib-rpath", self.each_lib_rpath);
-    try addFlag(&zig_args, "build-id", self.build_id);
+
+    if (self.build_id) |build_id| {
+        try zig_args.append(switch (build_id) {
+            .hexstring => |hs| b.fmt("--build-id=0x{s}", .{
+                std.fmt.fmtSliceHexLower(hs.toSlice()),
+            }),
+            .none, .fast, .uuid, .sha1, .md5 => b.fmt("--build-id={s}", .{@tagName(build_id)}),
+        });
+    }
 
     if (self.zig_lib_dir) |dir| {
         try zig_args.append("--zig-lib-dir");
@@ -1980,7 +2061,7 @@ fn findVcpkgRoot(allocator: Allocator) !?[]const u8 {
     const file = fs.cwd().openFile(path_file, .{}) catch return null;
     defer file.close();
 
-    const size = @intCast(usize, try file.getEndPos());
+    const size = @as(usize, @intCast(try file.getEndPos()));
     const vcpkg_path = try allocator.alloc(u8, size);
     const size_read = try file.read(vcpkg_path);
     std.debug.assert(size == size_read);
@@ -2017,10 +2098,10 @@ fn execPkgConfigList(self: *std.Build, out_code: *u8) (PkgConfigError || ExecErr
     const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
     var list = ArrayList(PkgConfigPkg).init(self.allocator);
     errdefer list.deinit();
-    var line_it = mem.tokenize(u8, stdout, "\r\n");
+    var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
     while (line_it.next()) |line| {
         if (mem.trim(u8, line, " \t").len == 0) continue;
-        var tok_it = mem.tokenize(u8, line, " \t");
+        var tok_it = mem.tokenizeAny(u8, line, " \t");
         try list.append(PkgConfigPkg{
             .name = tok_it.next() orelse return error.PkgConfigInvalidOutput,
             .desc = tok_it.rest(),
@@ -2140,7 +2221,7 @@ fn checkCompileErrors(self: *Compile) !void {
     // Render the expected lines into a string that we can compare verbatim.
     var expected_generated = std.ArrayList(u8).init(arena);
 
-    var actual_line_it = mem.split(u8, actual_stderr, "\n");
+    var actual_line_it = mem.splitScalar(u8, actual_stderr, '\n');
     for (self.expect_errors) |expect_line| {
         const actual_line = actual_line_it.next() orelse {
             try expected_generated.appendSlice(expect_line);

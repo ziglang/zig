@@ -82,8 +82,8 @@ pub const HeadersParser = struct {
     /// If the amount returned is less than `bytes.len`, you may assume that the parser is in a content state and the
     /// first byte of content is located at `bytes[result]`.
     pub fn findHeadersEnd(r: *HeadersParser, bytes: []const u8) u32 {
-        const vector_len: comptime_int = comptime std.math.max(std.simd.suggestVectorSize(u8) orelse 1, 8);
-        const len = @intCast(u32, bytes.len);
+        const vector_len: comptime_int = comptime @max(std.simd.suggestVectorSize(u8) orelse 1, 8);
+        const len = @as(u32, @intCast(bytes.len));
         var index: u32 = 0;
 
         while (true) {
@@ -182,8 +182,8 @@ pub const HeadersParser = struct {
 
                         const chunk = bytes[index..][0..vector_len];
                         const v: Vector = chunk.*;
-                        const matches_r = @bitCast(BitVector, v == @splat(vector_len, @as(u8, '\r')));
-                        const matches_n = @bitCast(BitVector, v == @splat(vector_len, @as(u8, '\n')));
+                        const matches_r = @as(BitVector, @bitCast(v == @splat(vector_len, @as(u8, '\r'))));
+                        const matches_n = @as(BitVector, @bitCast(v == @splat(vector_len, @as(u8, '\n'))));
                         const matches_or: SizeVector = matches_r | matches_n;
 
                         const matches = @reduce(.Add, matches_or);
@@ -234,7 +234,7 @@ pub const HeadersParser = struct {
                             },
                             4...vector_len => {
                                 inline for (0..vector_len - 3) |i_usize| {
-                                    const i = @truncate(u32, i_usize);
+                                    const i = @as(u32, @truncate(i_usize));
 
                                     const b32 = int32(chunk[i..][0..4]);
                                     const b16 = intShift(u16, b32);
@@ -405,10 +405,10 @@ pub const HeadersParser = struct {
     /// If the amount returned is less than `bytes.len`, you may assume that the parser is in the `chunk_data` state
     /// and that the first byte of the chunk is at `bytes[result]`.
     pub fn findChunkedLen(r: *HeadersParser, bytes: []const u8) u32 {
-        const len = @intCast(u32, bytes.len);
+        const len = @as(u32, @intCast(bytes.len));
 
         for (bytes[0..], 0..) |c, i| {
-            const index = @intCast(u32, i);
+            const index = @as(u32, @intCast(i));
             switch (r.state) {
                 .chunk_data_suffix => switch (c) {
                     '\r' => r.state = .chunk_data_suffix_r,
@@ -513,8 +513,8 @@ pub const HeadersParser = struct {
     ///
     /// If `skip` is true, the buffer will be unused and the body will be skipped.
     ///
-    /// See `std.http.Client.BufferedConnection for an example of `bconn`.
-    pub fn read(r: *HeadersParser, bconn: anytype, buffer: []u8, skip: bool) !usize {
+    /// See `std.http.Client.BufferedConnection for an example of `conn`.
+    pub fn read(r: *HeadersParser, conn: anytype, buffer: []u8, skip: bool) !usize {
         assert(r.state.isContent());
         if (r.done) return 0;
 
@@ -526,10 +526,10 @@ pub const HeadersParser = struct {
                     const data_avail = r.next_chunk_length;
 
                     if (skip) {
-                        try bconn.fill();
+                        try conn.fill();
 
-                        const nread = @min(bconn.peek().len, data_avail);
-                        bconn.clear(@intCast(u16, nread));
+                        const nread = @min(conn.peek().len, data_avail);
+                        conn.drop(@as(u16, @intCast(nread)));
                         r.next_chunk_length -= nread;
 
                         if (r.next_chunk_length == 0) r.done = true;
@@ -538,8 +538,8 @@ pub const HeadersParser = struct {
                     } else {
                         const out_avail = buffer.len;
 
-                        const can_read = @intCast(usize, @min(data_avail, out_avail));
-                        const nread = try bconn.read(buffer[0..can_read]);
+                        const can_read = @as(usize, @intCast(@min(data_avail, out_avail)));
+                        const nread = try conn.read(buffer[0..can_read]);
                         r.next_chunk_length -= nread;
 
                         if (r.next_chunk_length == 0) r.done = true;
@@ -548,15 +548,15 @@ pub const HeadersParser = struct {
                     }
                 },
                 .chunk_data_suffix, .chunk_data_suffix_r, .chunk_head_size, .chunk_head_ext, .chunk_head_r => {
-                    try bconn.fill();
+                    try conn.fill();
 
-                    const i = r.findChunkedLen(bconn.peek());
-                    bconn.clear(@intCast(u16, i));
+                    const i = r.findChunkedLen(conn.peek());
+                    conn.drop(@as(u16, @intCast(i)));
 
                     switch (r.state) {
                         .invalid => return error.HttpChunkInvalid,
                         .chunk_data => if (r.next_chunk_length == 0) {
-                            if (std.mem.eql(u8, bconn.peek(), "\r\n")) {
+                            if (std.mem.eql(u8, conn.peek(), "\r\n")) {
                                 r.state = .finished;
                             } else {
                                 // The trailer section is formatted identically to the header section.
@@ -576,14 +576,14 @@ pub const HeadersParser = struct {
                     const out_avail = buffer.len - out_index;
 
                     if (skip) {
-                        try bconn.fill();
+                        try conn.fill();
 
-                        const nread = @min(bconn.peek().len, data_avail);
-                        bconn.clear(@intCast(u16, nread));
+                        const nread = @min(conn.peek().len, data_avail);
+                        conn.drop(@as(u16, @intCast(nread)));
                         r.next_chunk_length -= nread;
-                    } else {
-                        const can_read = @intCast(usize, @min(data_avail, out_avail));
-                        const nread = try bconn.read(buffer[out_index..][0..can_read]);
+                    } else if (out_avail > 0) {
+                        const can_read: usize = @intCast(@min(data_avail, out_avail));
+                        const nread = try conn.read(buffer[out_index..][0..can_read]);
                         r.next_chunk_length -= nread;
                         out_index += nread;
                     }
@@ -601,21 +601,21 @@ pub const HeadersParser = struct {
 };
 
 inline fn int16(array: *const [2]u8) u16 {
-    return @bitCast(u16, array.*);
+    return @as(u16, @bitCast(array.*));
 }
 
 inline fn int24(array: *const [3]u8) u24 {
-    return @bitCast(u24, array.*);
+    return @as(u24, @bitCast(array.*));
 }
 
 inline fn int32(array: *const [4]u8) u32 {
-    return @bitCast(u32, array.*);
+    return @as(u32, @bitCast(array.*));
 }
 
 inline fn intShift(comptime T: type, x: anytype) T {
     switch (@import("builtin").cpu.arch.endian()) {
-        .Little => return @truncate(T, x >> (@bitSizeOf(@TypeOf(x)) - @bitSizeOf(T))),
-        .Big => return @truncate(T, x),
+        .Little => return @as(T, @truncate(x >> (@bitSizeOf(@TypeOf(x)) - @bitSizeOf(T)))),
+        .Big => return @as(T, @truncate(x)),
     }
 }
 
@@ -628,74 +628,74 @@ const MockBufferedConnection = struct {
     start: u16 = 0,
     end: u16 = 0,
 
-    pub fn fill(bconn: *MockBufferedConnection) ReadError!void {
-        if (bconn.end != bconn.start) return;
+    pub fn fill(conn: *MockBufferedConnection) ReadError!void {
+        if (conn.end != conn.start) return;
 
-        const nread = try bconn.conn.read(bconn.buf[0..]);
+        const nread = try conn.conn.read(conn.buf[0..]);
         if (nread == 0) return error.EndOfStream;
-        bconn.start = 0;
-        bconn.end = @truncate(u16, nread);
+        conn.start = 0;
+        conn.end = @as(u16, @truncate(nread));
     }
 
-    pub fn peek(bconn: *MockBufferedConnection) []const u8 {
-        return bconn.buf[bconn.start..bconn.end];
+    pub fn peek(conn: *MockBufferedConnection) []const u8 {
+        return conn.buf[conn.start..conn.end];
     }
 
-    pub fn clear(bconn: *MockBufferedConnection, num: u16) void {
-        bconn.start += num;
+    pub fn drop(conn: *MockBufferedConnection, num: u16) void {
+        conn.start += num;
     }
 
-    pub fn readAtLeast(bconn: *MockBufferedConnection, buffer: []u8, len: usize) ReadError!usize {
+    pub fn readAtLeast(conn: *MockBufferedConnection, buffer: []u8, len: usize) ReadError!usize {
         var out_index: u16 = 0;
         while (out_index < len) {
-            const available = bconn.end - bconn.start;
+            const available = conn.end - conn.start;
             const left = buffer.len - out_index;
 
             if (available > 0) {
-                const can_read = @truncate(u16, @min(available, left));
+                const can_read = @as(u16, @truncate(@min(available, left)));
 
-                @memcpy(buffer[out_index..][0..can_read], bconn.buf[bconn.start..][0..can_read]);
+                @memcpy(buffer[out_index..][0..can_read], conn.buf[conn.start..][0..can_read]);
                 out_index += can_read;
-                bconn.start += can_read;
+                conn.start += can_read;
 
                 continue;
             }
 
-            if (left > bconn.buf.len) {
+            if (left > conn.buf.len) {
                 // skip the buffer if the output is large enough
-                return bconn.conn.read(buffer[out_index..]);
+                return conn.conn.read(buffer[out_index..]);
             }
 
-            try bconn.fill();
+            try conn.fill();
         }
 
         return out_index;
     }
 
-    pub fn read(bconn: *MockBufferedConnection, buffer: []u8) ReadError!usize {
-        return bconn.readAtLeast(buffer, 1);
+    pub fn read(conn: *MockBufferedConnection, buffer: []u8) ReadError!usize {
+        return conn.readAtLeast(buffer, 1);
     }
 
     pub const ReadError = std.io.FixedBufferStream([]const u8).ReadError || error{EndOfStream};
     pub const Reader = std.io.Reader(*MockBufferedConnection, ReadError, read);
 
-    pub fn reader(bconn: *MockBufferedConnection) Reader {
-        return Reader{ .context = bconn };
+    pub fn reader(conn: *MockBufferedConnection) Reader {
+        return Reader{ .context = conn };
     }
 
-    pub fn writeAll(bconn: *MockBufferedConnection, buffer: []const u8) WriteError!void {
-        return bconn.conn.writeAll(buffer);
+    pub fn writeAll(conn: *MockBufferedConnection, buffer: []const u8) WriteError!void {
+        return conn.conn.writeAll(buffer);
     }
 
-    pub fn write(bconn: *MockBufferedConnection, buffer: []const u8) WriteError!usize {
-        return bconn.conn.write(buffer);
+    pub fn write(conn: *MockBufferedConnection, buffer: []const u8) WriteError!usize {
+        return conn.conn.write(buffer);
     }
 
     pub const WriteError = std.io.FixedBufferStream([]const u8).WriteError;
     pub const Writer = std.io.Writer(*MockBufferedConnection, WriteError, write);
 
-    pub fn writer(bconn: *MockBufferedConnection) Writer {
-        return Writer{ .context = bconn };
+    pub fn writer(conn: *MockBufferedConnection) Writer {
+        return Writer{ .context = conn };
     }
 };
 
@@ -705,8 +705,8 @@ test "HeadersParser.findHeadersEnd" {
 
     for (0..36) |i| {
         r = HeadersParser.initDynamic(0);
-        try std.testing.expectEqual(@intCast(u32, i), r.findHeadersEnd(data[0..i]));
-        try std.testing.expectEqual(@intCast(u32, 35 - i), r.findHeadersEnd(data[i..]));
+        try std.testing.expectEqual(@as(u32, @intCast(i)), r.findHeadersEnd(data[0..i]));
+        try std.testing.expectEqual(@as(u32, @intCast(35 - i)), r.findHeadersEnd(data[i..]));
     }
 }
 
@@ -753,15 +753,15 @@ test "HeadersParser.read length" {
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nHello";
     var fbs = std.io.fixedBufferStream(data);
 
-    var bconn = MockBufferedConnection{
+    var conn = MockBufferedConnection{
         .conn = fbs,
     };
 
     while (true) { // read headers
-        try bconn.fill();
+        try conn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, bconn.peek());
-        bconn.clear(@intCast(u16, nchecked));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
+        conn.drop(@as(u16, @intCast(nchecked)));
 
         if (r.state.isContent()) break;
     }
@@ -769,7 +769,7 @@ test "HeadersParser.read length" {
     var buf: [8]u8 = undefined;
 
     r.next_chunk_length = 5;
-    const len = try r.read(&bconn, &buf, false);
+    const len = try r.read(&conn, &buf, false);
     try std.testing.expectEqual(@as(usize, 5), len);
     try std.testing.expectEqualStrings("Hello", buf[0..len]);
 
@@ -784,22 +784,22 @@ test "HeadersParser.read chunked" {
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n2\r\nHe\r\n2\r\nll\r\n1\r\no\r\n0\r\n\r\n";
     var fbs = std.io.fixedBufferStream(data);
 
-    var bconn = MockBufferedConnection{
+    var conn = MockBufferedConnection{
         .conn = fbs,
     };
 
     while (true) { // read headers
-        try bconn.fill();
+        try conn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, bconn.peek());
-        bconn.clear(@intCast(u16, nchecked));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
+        conn.drop(@as(u16, @intCast(nchecked)));
 
         if (r.state.isContent()) break;
     }
     var buf: [8]u8 = undefined;
 
     r.state = .chunk_head_size;
-    const len = try r.read(&bconn, &buf, false);
+    const len = try r.read(&conn, &buf, false);
     try std.testing.expectEqual(@as(usize, 5), len);
     try std.testing.expectEqualStrings("Hello", buf[0..len]);
 
@@ -814,30 +814,30 @@ test "HeadersParser.read chunked trailer" {
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n2\r\nHe\r\n2\r\nll\r\n1\r\no\r\n0\r\nContent-Type: text/plain\r\n\r\n";
     var fbs = std.io.fixedBufferStream(data);
 
-    var bconn = MockBufferedConnection{
+    var conn = MockBufferedConnection{
         .conn = fbs,
     };
 
     while (true) { // read headers
-        try bconn.fill();
+        try conn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, bconn.peek());
-        bconn.clear(@intCast(u16, nchecked));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
+        conn.drop(@as(u16, @intCast(nchecked)));
 
         if (r.state.isContent()) break;
     }
     var buf: [8]u8 = undefined;
 
     r.state = .chunk_head_size;
-    const len = try r.read(&bconn, &buf, false);
+    const len = try r.read(&conn, &buf, false);
     try std.testing.expectEqual(@as(usize, 5), len);
     try std.testing.expectEqualStrings("Hello", buf[0..len]);
 
     while (true) { // read headers
-        try bconn.fill();
+        try conn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, bconn.peek());
-        bconn.clear(@intCast(u16, nchecked));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
+        conn.drop(@as(u16, @intCast(nchecked)));
 
         if (r.state.isContent()) break;
     }

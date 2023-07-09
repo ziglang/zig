@@ -73,6 +73,8 @@ else if (builtin.os.tag == .openbsd)
     OpenbsdImpl
 else if (builtin.os.tag == .dragonfly)
     DragonflyImpl
+else if (builtin.target.isWasm())
+    WasmImpl
 else if (std.Thread.use_pthreads)
     PosixImpl
 else
@@ -128,14 +130,14 @@ const WindowsImpl = struct {
         // NTDLL functions work with time in units of 100 nanoseconds.
         // Positive values are absolute deadlines while negative values are relative durations.
         if (timeout) |delay| {
-            timeout_value = @intCast(os.windows.LARGE_INTEGER, delay / 100);
+            timeout_value = @as(os.windows.LARGE_INTEGER, @intCast(delay / 100));
             timeout_value = -timeout_value;
             timeout_ptr = &timeout_value;
         }
 
         const rc = os.windows.ntdll.RtlWaitOnAddress(
-            @ptrCast(?*const anyopaque, ptr),
-            @ptrCast(?*const anyopaque, &expect),
+            @as(?*const anyopaque, @ptrCast(ptr)),
+            @as(?*const anyopaque, @ptrCast(&expect)),
             @sizeOf(@TypeOf(expect)),
             timeout_ptr,
         );
@@ -151,7 +153,7 @@ const WindowsImpl = struct {
     }
 
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
-        const address = @ptrCast(?*const anyopaque, ptr);
+        const address = @as(?*const anyopaque, @ptrCast(ptr));
         assert(max_waiters != 0);
 
         switch (max_waiters) {
@@ -186,7 +188,7 @@ const DarwinImpl = struct {
         // true so that we we know to ignore the ETIMEDOUT result.
         var timeout_overflowed = false;
 
-        const addr = @ptrCast(*const anyopaque, ptr);
+        const addr = @as(*const anyopaque, @ptrCast(ptr));
         const flags = os.darwin.UL_COMPARE_AND_WAIT | os.darwin.ULF_NO_ERRNO;
         const status = blk: {
             if (supports_ulock_wait2) {
@@ -202,7 +204,7 @@ const DarwinImpl = struct {
         };
 
         if (status >= 0) return;
-        switch (@intToEnum(std.os.E, -status)) {
+        switch (@as(std.os.E, @enumFromInt(-status))) {
             // Wait was interrupted by the OS or other spurious signalling.
             .INTR => {},
             // Address of the futex was paged out. This is unlikely, but possible in theory, and
@@ -225,11 +227,11 @@ const DarwinImpl = struct {
         }
 
         while (true) {
-            const addr = @ptrCast(*const anyopaque, ptr);
+            const addr = @as(*const anyopaque, @ptrCast(ptr));
             const status = os.darwin.__ulock_wake(flags, addr, 0);
 
             if (status >= 0) return;
-            switch (@intToEnum(std.os.E, -status)) {
+            switch (@as(std.os.E, @enumFromInt(-status))) {
                 .INTR => continue, // spurious wake()
                 .FAULT => unreachable, // __ulock_wake doesn't generate EFAULT according to darwin pthread_cond_t
                 .NOENT => return, // nothing was woken up
@@ -245,14 +247,14 @@ const LinuxImpl = struct {
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
         var ts: os.timespec = undefined;
         if (timeout) |timeout_ns| {
-            ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), timeout_ns / std.time.ns_per_s);
-            ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), timeout_ns % std.time.ns_per_s);
+            ts.tv_sec = @as(@TypeOf(ts.tv_sec), @intCast(timeout_ns / std.time.ns_per_s));
+            ts.tv_nsec = @as(@TypeOf(ts.tv_nsec), @intCast(timeout_ns % std.time.ns_per_s));
         }
 
         const rc = os.linux.futex_wait(
-            @ptrCast(*const i32, &ptr.value),
+            @as(*const i32, @ptrCast(&ptr.value)),
             os.linux.FUTEX.PRIVATE_FLAG | os.linux.FUTEX.WAIT,
-            @bitCast(i32, expect),
+            @as(i32, @bitCast(expect)),
             if (timeout != null) &ts else null,
         );
 
@@ -272,7 +274,7 @@ const LinuxImpl = struct {
 
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
         const rc = os.linux.futex_wake(
-            @ptrCast(*const i32, &ptr.value),
+            @as(*const i32, @ptrCast(&ptr.value)),
             os.linux.FUTEX.PRIVATE_FLAG | os.linux.FUTEX.WAKE,
             std.math.cast(i32, max_waiters) orelse std.math.maxInt(i32),
         );
@@ -299,16 +301,16 @@ const FreebsdImpl = struct {
 
             tm._flags = 0; // use relative time not UMTX_ABSTIME
             tm._clockid = os.CLOCK.MONOTONIC;
-            tm._timeout.tv_sec = @intCast(@TypeOf(tm._timeout.tv_sec), timeout_ns / std.time.ns_per_s);
-            tm._timeout.tv_nsec = @intCast(@TypeOf(tm._timeout.tv_nsec), timeout_ns % std.time.ns_per_s);
+            tm._timeout.tv_sec = @as(@TypeOf(tm._timeout.tv_sec), @intCast(timeout_ns / std.time.ns_per_s));
+            tm._timeout.tv_nsec = @as(@TypeOf(tm._timeout.tv_nsec), @intCast(timeout_ns % std.time.ns_per_s));
         }
 
         const rc = os.freebsd._umtx_op(
-            @ptrToInt(&ptr.value),
-            @enumToInt(os.freebsd.UMTX_OP.WAIT_UINT_PRIVATE),
+            @intFromPtr(&ptr.value),
+            @intFromEnum(os.freebsd.UMTX_OP.WAIT_UINT_PRIVATE),
             @as(c_ulong, expect),
             tm_size,
-            @ptrToInt(tm_ptr),
+            @intFromPtr(tm_ptr),
         );
 
         switch (os.errno(rc)) {
@@ -326,8 +328,8 @@ const FreebsdImpl = struct {
 
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
         const rc = os.freebsd._umtx_op(
-            @ptrToInt(&ptr.value),
-            @enumToInt(os.freebsd.UMTX_OP.WAKE_PRIVATE),
+            @intFromPtr(&ptr.value),
+            @intFromEnum(os.freebsd.UMTX_OP.WAKE_PRIVATE),
             @as(c_ulong, max_waiters),
             0, // there is no timeout struct
             0, // there is no timeout struct pointer
@@ -347,14 +349,14 @@ const OpenbsdImpl = struct {
     fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
         var ts: os.timespec = undefined;
         if (timeout) |timeout_ns| {
-            ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), timeout_ns / std.time.ns_per_s);
-            ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), timeout_ns % std.time.ns_per_s);
+            ts.tv_sec = @as(@TypeOf(ts.tv_sec), @intCast(timeout_ns / std.time.ns_per_s));
+            ts.tv_nsec = @as(@TypeOf(ts.tv_nsec), @intCast(timeout_ns % std.time.ns_per_s));
         }
 
         const rc = os.openbsd.futex(
-            @ptrCast(*const volatile u32, &ptr.value),
+            @as(*const volatile u32, @ptrCast(&ptr.value)),
             os.openbsd.FUTEX_WAIT | os.openbsd.FUTEX_PRIVATE_FLAG,
-            @bitCast(c_int, expect),
+            @as(c_int, @bitCast(expect)),
             if (timeout != null) &ts else null,
             null, // FUTEX_WAIT takes no requeue address
         );
@@ -377,7 +379,7 @@ const OpenbsdImpl = struct {
 
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
         const rc = os.openbsd.futex(
-            @ptrCast(*const volatile u32, &ptr.value),
+            @as(*const volatile u32, @ptrCast(&ptr.value)),
             os.openbsd.FUTEX_WAKE | os.openbsd.FUTEX_PRIVATE_FLAG,
             std.math.cast(c_int, max_waiters) orelse std.math.maxInt(c_int),
             null, // FUTEX_WAKE takes no timeout ptr
@@ -411,8 +413,8 @@ const DragonflyImpl = struct {
             }
         }
 
-        const value = @bitCast(c_int, expect);
-        const addr = @ptrCast(*const volatile c_int, &ptr.value);
+        const value = @as(c_int, @bitCast(expect));
+        const addr = @as(*const volatile c_int, @ptrCast(&ptr.value));
         const rc = os.dragonfly.umtx_sleep(addr, value, timeout_us);
 
         switch (os.errno(rc)) {
@@ -441,8 +443,51 @@ const DragonflyImpl = struct {
         // https://man.dragonflybsd.org/?command=umtx&section=2
         // > umtx_wakeup() will generally return 0 unless the address is bad.
         // We are fine with the address being bad (e.g. for Semaphore.post() where Semaphore.wait() frees the Semaphore)
-        const addr = @ptrCast(*const volatile c_int, &ptr.value);
+        const addr = @as(*const volatile c_int, @ptrCast(&ptr.value));
         _ = os.dragonfly.umtx_wakeup(addr, to_wake);
+    }
+};
+
+const WasmImpl = struct {
+    fn wait(ptr: *const Atomic(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
+        if (!comptime std.Target.wasm.featureSetHas(builtin.target.cpu.features, .atomics)) {
+            @compileError("WASI target missing cpu feature 'atomics'");
+        }
+        const to: i64 = if (timeout) |to| @intCast(to) else -1;
+        const result = asm (
+            \\local.get %[ptr]
+            \\local.get %[expected]
+            \\local.get %[timeout]
+            \\memory.atomic.wait32 0
+            \\local.set %[ret]
+            : [ret] "=r" (-> u32),
+            : [ptr] "r" (&ptr.value),
+              [expected] "r" (@as(i32, @bitCast(expect))),
+              [timeout] "r" (to),
+        );
+        switch (result) {
+            0 => {}, // ok
+            1 => {}, // expected =! loaded
+            2 => return error.Timeout,
+            else => unreachable,
+        }
+    }
+
+    fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
+        if (!comptime std.Target.wasm.featureSetHas(builtin.target.cpu.features, .atomics)) {
+            @compileError("WASI target missing cpu feature 'atomics'");
+        }
+        assert(max_waiters != 0);
+        const woken_count = asm (
+            \\local.get %[ptr]
+            \\local.get %[waiters]
+            \\memory.atomic.notify 0
+            \\local.set %[ret]
+            : [ret] "=r" (-> u32),
+            : [ptr] "r" (&ptr.value),
+              [waiters] "r" (max_waiters),
+        );
+        _ = woken_count; // can be 0 when linker flag 'shared-memory' is not enabled
     }
 };
 
@@ -488,8 +533,8 @@ const PosixImpl = struct {
             var ts: os.timespec = undefined;
             if (timeout) |timeout_ns| {
                 os.clock_gettime(os.CLOCK.REALTIME, &ts) catch unreachable;
-                ts.tv_sec +|= @intCast(@TypeOf(ts.tv_sec), timeout_ns / std.time.ns_per_s);
-                ts.tv_nsec += @intCast(@TypeOf(ts.tv_nsec), timeout_ns % std.time.ns_per_s);
+                ts.tv_sec +|= @as(@TypeOf(ts.tv_sec), @intCast(timeout_ns / std.time.ns_per_s));
+                ts.tv_nsec += @as(@TypeOf(ts.tv_nsec), @intCast(timeout_ns % std.time.ns_per_s));
 
                 if (ts.tv_nsec >= std.time.ns_per_s) {
                     ts.tv_sec +|= 1;
@@ -719,7 +764,7 @@ const PosixImpl = struct {
 
             // Make sure the pointer is aligned,
             // then cut off the zero bits from the alignment to get the unique address.
-            const addr = @ptrToInt(ptr);
+            const addr = @intFromPtr(ptr);
             assert(addr & (alignment - 1) == 0);
             return addr >> @ctz(@as(usize, alignment));
         }

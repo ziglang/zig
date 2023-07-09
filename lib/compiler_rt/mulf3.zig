@@ -28,53 +28,53 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
     const significandMask = (@as(Z, 1) << significandBits) - 1;
 
     const absMask = signBit - 1;
-    const qnanRep = @bitCast(Z, math.nan(T)) | quietBit;
-    const infRep = @bitCast(Z, math.inf(T));
-    const minNormalRep = @bitCast(Z, math.floatMin(T));
+    const qnanRep = @as(Z, @bitCast(math.nan(T))) | quietBit;
+    const infRep = @as(Z, @bitCast(math.inf(T)));
+    const minNormalRep = @as(Z, @bitCast(math.floatMin(T)));
 
     const ZExp = if (typeWidth >= 32) u32 else Z;
-    const aExponent = @truncate(ZExp, (@bitCast(Z, a) >> significandBits) & maxExponent);
-    const bExponent = @truncate(ZExp, (@bitCast(Z, b) >> significandBits) & maxExponent);
-    const productSign: Z = (@bitCast(Z, a) ^ @bitCast(Z, b)) & signBit;
+    const aExponent = @as(ZExp, @truncate((@as(Z, @bitCast(a)) >> significandBits) & maxExponent));
+    const bExponent = @as(ZExp, @truncate((@as(Z, @bitCast(b)) >> significandBits) & maxExponent));
+    const productSign: Z = (@as(Z, @bitCast(a)) ^ @as(Z, @bitCast(b))) & signBit;
 
-    var aSignificand: ZSignificand = @intCast(ZSignificand, @bitCast(Z, a) & significandMask);
-    var bSignificand: ZSignificand = @intCast(ZSignificand, @bitCast(Z, b) & significandMask);
+    var aSignificand: ZSignificand = @as(ZSignificand, @intCast(@as(Z, @bitCast(a)) & significandMask));
+    var bSignificand: ZSignificand = @as(ZSignificand, @intCast(@as(Z, @bitCast(b)) & significandMask));
     var scale: i32 = 0;
 
     // Detect if a or b is zero, denormal, infinity, or NaN.
     if (aExponent -% 1 >= maxExponent - 1 or bExponent -% 1 >= maxExponent - 1) {
-        const aAbs: Z = @bitCast(Z, a) & absMask;
-        const bAbs: Z = @bitCast(Z, b) & absMask;
+        const aAbs: Z = @as(Z, @bitCast(a)) & absMask;
+        const bAbs: Z = @as(Z, @bitCast(b)) & absMask;
 
         // NaN * anything = qNaN
-        if (aAbs > infRep) return @bitCast(T, @bitCast(Z, a) | quietBit);
+        if (aAbs > infRep) return @as(T, @bitCast(@as(Z, @bitCast(a)) | quietBit));
         // anything * NaN = qNaN
-        if (bAbs > infRep) return @bitCast(T, @bitCast(Z, b) | quietBit);
+        if (bAbs > infRep) return @as(T, @bitCast(@as(Z, @bitCast(b)) | quietBit));
 
         if (aAbs == infRep) {
             // infinity * non-zero = +/- infinity
             if (bAbs != 0) {
-                return @bitCast(T, aAbs | productSign);
+                return @as(T, @bitCast(aAbs | productSign));
             } else {
                 // infinity * zero = NaN
-                return @bitCast(T, qnanRep);
+                return @as(T, @bitCast(qnanRep));
             }
         }
 
         if (bAbs == infRep) {
             //? non-zero * infinity = +/- infinity
             if (aAbs != 0) {
-                return @bitCast(T, bAbs | productSign);
+                return @as(T, @bitCast(bAbs | productSign));
             } else {
                 // zero * infinity = NaN
-                return @bitCast(T, qnanRep);
+                return @as(T, @bitCast(qnanRep));
             }
         }
 
         // zero * anything = +/- zero
-        if (aAbs == 0) return @bitCast(T, productSign);
+        if (aAbs == 0) return @as(T, @bitCast(productSign));
         // anything * zero = +/- zero
-        if (bAbs == 0) return @bitCast(T, productSign);
+        if (bAbs == 0) return @as(T, @bitCast(productSign));
 
         // one or both of a or b is denormal, the other (if applicable) is a
         // normal number.  Renormalize one or both of a and b, and set scale to
@@ -99,7 +99,7 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
     const left_align_shift = ZSignificandBits - fractionalBits - 1;
     common.wideMultiply(ZSignificand, aSignificand, bSignificand << left_align_shift, &productHi, &productLo);
 
-    var productExponent: i32 = @intCast(i32, aExponent + bExponent) - exponentBias + scale;
+    var productExponent: i32 = @as(i32, @intCast(aExponent + bExponent)) - exponentBias + scale;
 
     // Normalize the significand, adjust exponent if needed.
     if ((productHi & integerBit) != 0) {
@@ -110,7 +110,7 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
     }
 
     // If we have overflowed the type, return +/- infinity.
-    if (productExponent >= maxExponent) return @bitCast(T, infRep | productSign);
+    if (productExponent >= maxExponent) return @as(T, @bitCast(infRep | productSign));
 
     var result: Z = undefined;
     if (productExponent <= 0) {
@@ -120,13 +120,13 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
         // a zero of the appropriate sign.  Mathematically there is no need to
         // handle this case separately, but we make it a special case to
         // simplify the shift logic.
-        const shift: u32 = @truncate(u32, @as(Z, 1) -% @bitCast(u32, productExponent));
-        if (shift >= ZSignificandBits) return @bitCast(T, productSign);
+        const shift: u32 = @as(u32, @truncate(@as(Z, 1) -% @as(u32, @bitCast(productExponent))));
+        if (shift >= ZSignificandBits) return @as(T, @bitCast(productSign));
 
         // Otherwise, shift the significand of the result so that the round
         // bit is the high bit of productLo.
         const sticky = wideShrWithTruncation(ZSignificand, &productHi, &productLo, shift);
-        productLo |= @boolToInt(sticky);
+        productLo |= @intFromBool(sticky);
         result = productHi;
 
         // We include the integer bit so that rounding will carry to the exponent,
@@ -135,7 +135,7 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
     } else {
         // Result is normal before rounding; insert the exponent.
         result = productHi & significandMask;
-        result |= @intCast(Z, productExponent) << significandBits;
+        result |= @as(Z, @intCast(productExponent)) << significandBits;
     }
 
     // Final rounding.  The final result may overflow to infinity, or underflow
@@ -156,7 +156,7 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
     // Insert the sign of the result:
     result |= productSign;
 
-    return @bitCast(T, result);
+    return @as(T, @bitCast(result));
 }
 
 /// Returns `true` if the right shift is inexact (i.e. any bit shifted out is non-zero)
@@ -168,12 +168,12 @@ fn wideShrWithTruncation(comptime Z: type, hi: *Z, lo: *Z, count: u32) bool {
     const S = math.Log2Int(Z);
     var inexact = false;
     if (count < typeWidth) {
-        inexact = (lo.* << @intCast(S, typeWidth -% count)) != 0;
-        lo.* = (hi.* << @intCast(S, typeWidth -% count)) | (lo.* >> @intCast(S, count));
-        hi.* = hi.* >> @intCast(S, count);
+        inexact = (lo.* << @as(S, @intCast(typeWidth -% count))) != 0;
+        lo.* = (hi.* << @as(S, @intCast(typeWidth -% count))) | (lo.* >> @as(S, @intCast(count)));
+        hi.* = hi.* >> @as(S, @intCast(count));
     } else if (count < 2 * typeWidth) {
-        inexact = (hi.* << @intCast(S, 2 * typeWidth -% count) | lo.*) != 0;
-        lo.* = hi.* >> @intCast(S, count -% typeWidth);
+        inexact = (hi.* << @as(S, @intCast(2 * typeWidth -% count)) | lo.*) != 0;
+        lo.* = hi.* >> @as(S, @intCast(count -% typeWidth));
         hi.* = 0;
     } else {
         inexact = (hi.* | lo.*) != 0;
@@ -188,7 +188,7 @@ fn normalize(comptime T: type, significand: *PowerOfTwoSignificandZ(T)) i32 {
     const integerBit = @as(Z, 1) << math.floatFractionalBits(T);
 
     const shift = @clz(significand.*) - @clz(integerBit);
-    significand.* <<= @intCast(math.Log2Int(Z), shift);
+    significand.* <<= @as(math.Log2Int(Z), @intCast(shift));
     return @as(i32, 1) - shift;
 }
 
