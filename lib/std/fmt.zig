@@ -478,7 +478,9 @@ pub fn formatType(
         return formatAddress(value, options, writer);
     }
 
-    if (comptime std.meta.trait.hasFn("format")(T)) {
+    if (comptime std.meta.trait.hasFn("format")(T) or
+        (@typeInfo(T) == .Pointer and std.meta.trait.hasFn("format")(@typeInfo(T).Pointer.child)))
+    {
         return try value.format(actual_fmt, options, writer);
     }
 
