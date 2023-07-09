@@ -1482,14 +1482,14 @@ test "mulWide" {
 
 /// See also `CompareOperator`.
 pub const Order = enum {
+    /// Greater than (`>`)
+    gt,
+
     /// Less than (`<`)
     lt,
 
     /// Equal (`==`)
     eq,
-
-    /// Greater than (`>`)
-    gt,
 
     pub fn invert(self: Order) Order {
         return switch (self) {

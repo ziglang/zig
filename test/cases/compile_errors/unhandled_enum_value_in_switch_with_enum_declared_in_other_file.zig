@@ -10,7 +10,7 @@ pub export fn entry1() void {
 // target=native
 //
 // :5:5: error: switch must handle all possibilities
+// :?:?: note: unhandled enumeration value: 'gt'
 // :?:?: note: unhandled enumeration value: 'lt'
 // :?:?: note: unhandled enumeration value: 'eq'
-// :?:?: note: unhandled enumeration value: 'gt'
 // :?:?: note: enum 'math.Order' declared here
