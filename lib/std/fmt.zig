@@ -489,7 +489,7 @@ pub fn formatType(
         return formatAddress(value, options, writer);
     }
 
-    if (std.meta.hasFn(T, "format")) {
+    if (std.meta.hasMethod(T, "format")) {
         return try value.format(actual_fmt, options, writer);
     }
 
