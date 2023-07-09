@@ -34063,10 +34063,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         .inlining = null,
         .is_comptime = true,
     };
-    defer {
-        assert(block_scope.instructions.items.len == 0);
-        block_scope.params.deinit(gpa);
-    }
+    defer assert(block_scope.instructions.items.len == 0);
 
     struct_obj.fields = .{};
     try struct_obj.fields.ensureTotalCapacity(mod.tmp_hack_arena.allocator(), fields_len);
@@ -34409,10 +34406,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         .inlining = null,
         .is_comptime = true,
     };
-    defer {
-        assert(block_scope.instructions.items.len == 0);
-        block_scope.params.deinit(gpa);
-    }
+    defer assert(block_scope.instructions.items.len == 0);
 
     if (body.len != 0) {
         try sema.analyzeBody(&block_scope, body);

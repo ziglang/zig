@@ -3178,8 +3178,8 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             } };
         },
         .extern_func => .{ .extern_func = ip.extraData(Tag.ExternFunc, data) },
-        .func_instance => .{ .func = ip.indexToKeyFuncInstance(data) },
-        .func_decl => .{ .func = ip.extraIndexToFuncDecl(data) },
+        .func_instance => .{ .func = ip.extraFuncInstance(data) },
+        .func_decl => .{ .func = ip.extraFuncDecl(data) },
         .only_possible_value => {
             const ty = @as(Index, @enumFromInt(data));
             const ty_item = ip.items.get(@intFromEnum(ty));
@@ -3328,16 +3328,48 @@ fn extraFuncType(ip: *const InternPool, extra_index: u32) Key.FuncType {
     };
 }
 
-fn extraIndexToFuncDecl(ip: *const InternPool, extra_index: u32) Key.Func {
-    _ = ip;
-    _ = extra_index;
-    @panic("TODO");
+fn extraFuncDecl(ip: *const InternPool, extra_index: u32) Key.Func {
+    const P = Tag.FuncDecl;
+    const func_decl = ip.extraDataTrail(P, extra_index);
+    return .{
+        .ty = func_decl.data.ty,
+        .analysis_extra_index = extra_index + std.meta.fieldIndex(P, "analysis").?,
+        .zir_body_inst_extra_index = extra_index + std.meta.fieldIndex(P, "zir_body_inst").?,
+        .resolved_error_set_extra_index = if (func_decl.data.analysis.inferred_error_set) func_decl.end else 0,
+        .branch_quota_extra_index = 0,
+        .owner_decl = func_decl.data.owner_decl,
+        .zir_body_inst = func_decl.data.zir_body_inst,
+        .lbrace_line = func_decl.data.lbrace_line,
+        .rbrace_line = func_decl.data.rbrace_line,
+        .lbrace_column = func_decl.data.lbrace_column,
+        .rbrace_column = func_decl.data.lbrace_column,
+        .generic_owner = .none,
+        .comptime_args = .{ .start = 0, .len = 0 },
+    };
 }
 
-fn indexToKeyFuncInstance(ip: *const InternPool, data: u32) Key.Func {
-    _ = ip;
-    _ = data;
-    @panic("TODO");
+fn extraFuncInstance(ip: *const InternPool, extra_index: u32) Key.Func {
+    const P = Tag.FuncInstance;
+    const fi = ip.extraDataTrail(P, extra_index);
+    const func_decl = ip.funcDeclInfo(fi.data.generic_owner);
+    return .{
+        .ty = fi.data.ty,
+        .analysis_extra_index = extra_index + std.meta.fieldIndex(P, "analysis").?,
+        .zir_body_inst_extra_index = func_decl.zir_body_inst_extra_index,
+        .resolved_error_set_extra_index = if (fi.data.analysis.inferred_error_set) fi.end else 0,
+        .branch_quota_extra_index = extra_index + std.meta.fieldIndex(P, "branch_quota").?,
+        .owner_decl = fi.data.owner_decl,
+        .zir_body_inst = func_decl.zir_body_inst,
+        .lbrace_line = func_decl.lbrace_line,
+        .rbrace_line = func_decl.rbrace_line,
+        .lbrace_column = func_decl.lbrace_column,
+        .rbrace_column = func_decl.lbrace_column,
+        .generic_owner = fi.data.generic_owner,
+        .comptime_args = .{
+            .start = fi.end + @intFromBool(fi.data.analysis.inferred_error_set),
+            .len = ip.funcTypeParamsLen(func_decl.ty),
+        },
+    };
 }
 
 fn indexToKeyEnum(ip: *const InternPool, data: u32, tag_mode: Key.EnumType.TagMode) Key {
@@ -4421,7 +4453,7 @@ pub fn getFuncDecl(ip: *InternPool, gpa: Allocator, key: GetFuncDeclKey) Allocat
 
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = ip.map.getOrPutAssumeCapacityAdapted(Key{
-        .func = extraIndexToFuncDecl(ip, func_decl_extra_index),
+        .func = extraFuncDecl(ip, func_decl_extra_index),
     }, adapter);
 
     if (gop.found_existing) {
@@ -4544,7 +4576,7 @@ pub fn getFuncDeclIes(ip: *InternPool, gpa: Allocator, key: GetFuncDeclIesKey) A
 
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = ip.map.getOrPutAssumeCapacityAdapted(Key{
-        .func = extraIndexToFuncDecl(ip, func_decl_extra_index),
+        .func = extraFuncDecl(ip, func_decl_extra_index),
     }, adapter);
     if (!gop.found_existing) {
         assert(!ip.map.getOrPutAssumeCapacityAdapted(Key{ .error_union_type = .{
@@ -5052,7 +5084,7 @@ fn addLimbsAssumeCapacity(ip: *InternPool, limbs: []const Limb) void {
     }
 }
 
-fn extraDataTrail(ip: *const InternPool, comptime T: type, index: usize) struct { data: T, end: usize } {
+fn extraDataTrail(ip: *const InternPool, comptime T: type, index: usize) struct { data: T, end: u32 } {
     var result: T = undefined;
     const fields = @typeInfo(T).Struct.fields;
     inline for (fields, 0..) |field, i| {
@@ -5085,7 +5117,7 @@ fn extraDataTrail(ip: *const InternPool, comptime T: type, index: usize) struct 
     }
     return .{
         .data = result,
-        .end = index + fields.len,
+        .end = @intCast(index + fields.len),
     };
 }
 
@@ -6712,4 +6744,19 @@ pub fn funcIesResolved(ip: *const InternPool, func_index: InternPool.Index) *Int
         else => unreachable,
     };
     return @ptrCast(&ip.extra.items[extra_index]);
+}
+
+pub fn funcDeclInfo(ip: *const InternPool, i: InternPool.Index) Key.Func {
+    const tags = ip.items.items(.tag);
+    const datas = ip.items.items(.data);
+    assert(tags[@intFromEnum(i)] == .func_decl);
+    return extraFuncDecl(ip, datas[@intFromEnum(i)]);
+}
+
+pub fn funcTypeParamsLen(ip: *const InternPool, i: InternPool.Index) u32 {
+    const tags = ip.items.items(.tag);
+    const datas = ip.items.items(.data);
+    assert(tags[@intFromEnum(i)] == .type_function);
+    const start = datas[@intFromEnum(i)];
+    return ip.extra.items[start + std.meta.fieldIndex(Tag.TypeFunction, "params_len").?];
 }

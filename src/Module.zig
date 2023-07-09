@@ -4279,10 +4279,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         .inlining = null,
         .is_comptime = true,
     };
-    defer {
-        block_scope.instructions.deinit(gpa);
-        block_scope.params.deinit(gpa);
-    }
+    defer block_scope.instructions.deinit(gpa);
 
     const zir_block_index = decl.zirBlockIndex(mod);
     const inst_data = zir_datas[zir_block_index].pl_node;
