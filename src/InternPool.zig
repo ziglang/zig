@@ -645,7 +645,7 @@ pub const Key = union(enum) {
 
         /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
         pub fn branchQuota(func: *const Func, ip: *const InternPool) *u32 {
-            return &ip.extra.items[func.zir_body_inst_extra_index];
+            return &ip.extra.items[func.branch_quota_extra_index];
         }
 
         /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
@@ -4649,100 +4649,109 @@ pub const GetFuncInstanceKey = struct {
     is_noinline: bool,
     generic_owner: Index,
     inferred_error_set: bool,
+    comptime_args: []const Index,
+    generation: u32,
 };
 
 pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey) Allocator.Error!Index {
-    _ = ip;
-    _ = gpa;
-    _ = arg;
-    @panic("TODO");
-    //const func_ty = try ip.getFuncType(gpa, .{
-    //    .param_types = arg.param_types,
-    //    .bare_return_type = arg.bare_return_type,
-    //    .comptime_bits = arg.comptime_bits,
-    //    .noalias_bits = arg.noalias_bits,
-    //    .alignment = arg.alignment,
-    //    .cc = arg.cc,
-    //    .is_var_args = arg.is_var_args,
-    //    .is_generic = arg.is_generic,
-    //    .is_noinline = arg.is_noinline,
-    //    .section_is_generic = arg.section_is_generic,
-    //    .addrspace_is_generic = arg.addrspace_is_generic,
-    //    .inferred_error_set = arg.inferred_error_set,
-    //});
+    if (arg.inferred_error_set) @panic("TODO");
 
-    //const fn_owner_decl = ip.declPtr(arg.fn_owner_decl);
-    //const decl_index = try ip.createDecl(gpa, .{
-    //    .name = undefined,
-    //    .src_namespace = fn_owner_decl.src_namespace,
-    //    .src_node = fn_owner_decl.src_node,
-    //    .src_line = fn_owner_decl.src_line,
-    //    .has_tv = true,
-    //    .owns_tv = true,
-    //    .ty = func_ty,
-    //    .val = undefined,
-    //    .alignment = .none,
-    //    .@"linksection" = fn_owner_decl.@"linksection",
-    //    .@"addrspace" = fn_owner_decl.@"addrspace",
-    //    .analysis = .complete,
-    //    .deletion_flag = false,
-    //    .zir_decl_index = fn_owner_decl.zir_decl_index,
-    //    .src_scope = fn_owner_decl.src_scope,
-    //    .generation = arg.generation,
-    //    .is_pub = fn_owner_decl.is_pub,
-    //    .is_exported = fn_owner_decl.is_exported,
-    //    .has_linksection_or_addrspace = fn_owner_decl.has_linksection_or_addrspace,
-    //    .has_align = fn_owner_decl.has_align,
-    //    .alive = true,
-    //    .kind = .anon,
-    //});
-    //// TODO: improve this name
-    //const decl = ip.declPtr(decl_index);
-    //decl.name = try ip.getOrPutStringFmt(gpa, "{}__anon_{d}", .{
-    //    fn_owner_decl.name.fmt(ip), @intFromEnum(decl_index),
-    //});
+    const func_ty = try ip.getFuncType(gpa, .{
+        .param_types = arg.param_types,
+        .return_type = arg.bare_return_type,
+        .comptime_bits = 0,
+        .noalias_bits = arg.noalias_bits,
+        .alignment = arg.alignment,
+        .cc = arg.cc,
+        .is_var_args = false,
+        .is_generic = false,
+        .is_noinline = arg.is_noinline,
+        .section_is_generic = false,
+        .addrspace_is_generic = false,
+    });
 
-    //const gop = try ip.map.getOrPutAdapted(gpa, Key{
-    //    .func = .{
-    //        .ty = func_ty,
-    //        .generic_owner = .none,
-    //        .owner_decl = decl_index,
-    //        // Only the above fields will be read for hashing/equality.
-    //        .analysis_extra_index = undefined,
-    //        .zir_body_inst_extra_index = undefined,
-    //        .branch_quota_extra_index = undefined,
-    //        .resolved_error_set_extra_index = undefined,
-    //        .zir_body_inst = undefined,
-    //        .lbrace_line = undefined,
-    //        .rbrace_line = undefined,
-    //        .lbrace_column = undefined,
-    //        .rbrace_column = undefined,
-    //        .comptime_args = undefined,
-    //    },
-    //}, KeyAdapter{ .intern_pool = ip });
-    //if (gop.found_existing) return @enumFromInt(gop.index);
-    //try ip.items.append(gpa, .{
-    //    .tag = .func_decl,
-    //    .data = try ip.addExtra(gpa, .{
-    //        .analysis = .{
-    //            .state = if (arg.cc == .Inline) .inline_only else .none,
-    //            .is_cold = false,
-    //            .is_noinline = arg.is_noinline,
-    //            .calls_or_awaits_errorable_fn = false,
-    //            .stack_alignment = .none,
-    //        },
-    //        .owner_decl = arg.owner_decl,
-    //        .ty = func_ty,
-    //        .zir_body_inst = arg.zir_body_inst,
-    //        .lbrace_line = arg.lbrace_line,
-    //        .rbrace_line = arg.rbrace_line,
-    //        .lbrace_column = arg.lbrace_column,
-    //        .rbrace_column = arg.rbrace_column,
-    //    }),
-    //});
-    //const func_index: InternPool.Index = @enumFromInt(ip.items.len - 1);
-    //decl.val = func_index.toValue();
-    //return func_index;
+    assert(arg.comptime_args.len == ip.funcTypeParamsLen(ip.typeOf(arg.generic_owner)));
+
+    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.FuncInstance).Struct.fields.len +
+        arg.comptime_args.len);
+    const prev_extra_len = ip.extra.items.len;
+    errdefer ip.extra.items.len = prev_extra_len;
+
+    const func_instance_extra_index = ip.addExtraAssumeCapacity(Tag.FuncInstance{
+        .analysis = .{
+            .state = if (arg.cc == .Inline) .inline_only else .none,
+            .is_cold = false,
+            .is_noinline = arg.is_noinline,
+            .calls_or_awaits_errorable_fn = false,
+            .stack_alignment = .none,
+            .inferred_error_set = false,
+        },
+        // This is populated after we create the Decl below. It is not read
+        // by equality or hashing functions.
+        .owner_decl = undefined,
+        .ty = func_ty,
+        .branch_quota = 0,
+        .generic_owner = arg.generic_owner,
+    });
+    ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.comptime_args));
+
+    const gop = try ip.map.getOrPutAdapted(gpa, Key{
+        .func = extraFuncInstance(ip, func_instance_extra_index),
+    }, KeyAdapter{ .intern_pool = ip });
+    errdefer _ = ip.map.pop();
+
+    if (gop.found_existing) {
+        ip.extra.items.len = prev_extra_len;
+        return @enumFromInt(gop.index);
+    }
+
+    try ip.items.ensureUnusedCapacity(gpa, 1);
+    const func_index: Index = @enumFromInt(ip.items.len);
+
+    const fn_owner_decl = ip.declPtr(ip.funcDeclOwner(arg.generic_owner));
+    const decl_index = try ip.createDecl(gpa, .{
+        .name = undefined,
+        .src_namespace = fn_owner_decl.src_namespace,
+        .src_node = fn_owner_decl.src_node,
+        .src_line = fn_owner_decl.src_line,
+        .has_tv = true,
+        .owns_tv = true,
+        .ty = func_ty.toType(),
+        .val = func_index.toValue(),
+        .alignment = .none,
+        .@"linksection" = fn_owner_decl.@"linksection",
+        .@"addrspace" = fn_owner_decl.@"addrspace",
+        .analysis = .complete,
+        .deletion_flag = false,
+        .zir_decl_index = fn_owner_decl.zir_decl_index,
+        .src_scope = fn_owner_decl.src_scope,
+        .generation = arg.generation,
+        .is_pub = fn_owner_decl.is_pub,
+        .is_exported = fn_owner_decl.is_exported,
+        .has_linksection_or_addrspace = fn_owner_decl.has_linksection_or_addrspace,
+        .has_align = fn_owner_decl.has_align,
+        .alive = true,
+        .kind = .anon,
+    });
+    errdefer ip.destroyDecl(gpa, decl_index);
+
+    // Populate the owner_decl field which was left undefined until now.
+    ip.extra.items[
+        func_instance_extra_index + std.meta.fieldIndex(Tag.FuncInstance, "owner_decl").?
+    ] = @intFromEnum(decl_index);
+
+    // TODO: improve this name
+    const decl = ip.declPtr(decl_index);
+    decl.name = try ip.getOrPutStringFmt(gpa, "{}__anon_{d}", .{
+        fn_owner_decl.name.fmt(ip), @intFromEnum(decl_index),
+    });
+
+    ip.items.appendAssumeCapacity(.{
+        .tag = .func_instance,
+        .data = func_instance_extra_index,
+    });
+
+    return func_index;
 }
 
 /// Provides API for completing an enum type after calling `getIncompleteEnum`.
@@ -6752,6 +6761,10 @@ pub fn funcDeclInfo(ip: *const InternPool, i: InternPool.Index) Key.Func {
     const datas = ip.items.items(.data);
     assert(tags[@intFromEnum(i)] == .func_decl);
     return extraFuncDecl(ip, datas[@intFromEnum(i)]);
+}
+
+pub fn funcDeclOwner(ip: *const InternPool, i: InternPool.Index) Module.Decl.Index {
+    return funcDeclInfo(ip, i).owner_decl;
 }
 
 pub fn funcTypeParamsLen(ip: *const InternPool, i: InternPool.Index) u32 {

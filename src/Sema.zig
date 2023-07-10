@@ -7527,8 +7527,6 @@ fn instantiateGenericCall(
     const callee = mod.funcInfo(callee_index);
     callee.branchQuota(ip).* = @max(callee.branchQuota(ip).*, sema.branch_quota);
 
-    const callee_inst = try sema.analyzeDeclVal(block, func_src, callee.owner_decl);
-
     // Make a runtime call to the new function, making sure to omit the comptime args.
     const func_ty = callee.ty.toType();
     const func_ty_info = mod.typeToFunc(func_ty).?;
@@ -7573,7 +7571,7 @@ fn instantiateGenericCall(
     const result = try block.addInst(.{
         .tag = call_tag,
         .data = .{ .pl_op = .{
-            .operand = callee_inst,
+            .operand = Air.internedToRef(callee_index),
             .payload = sema.addExtraAssumeCapacity(Air.Call{
                 .args_len = runtime_args_len,
             }),
@@ -8775,6 +8773,9 @@ fn funcCommon(
         assert(section != .generic);
         assert(address_space != null);
         assert(!var_args);
+        if (inferred_error_set) {
+            try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
+        }
         const func_index = try ip.getFuncInstance(gpa, .{
             .param_types = param_types,
             .noalias_bits = noalias_bits,
@@ -8784,6 +8785,8 @@ fn funcCommon(
             .is_noinline = is_noinline,
             .inferred_error_set = inferred_error_set,
             .generic_owner = sema.generic_owner,
+            .comptime_args = sema.comptime_args,
+            .generation = mod.generation,
         });
         return finishFunc(
             sema,
