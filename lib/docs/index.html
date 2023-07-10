@@ -685,17 +685,21 @@
   </style>
 
   <style>
-     pre{
+     #docs{
         --zig-keyword: #333;
-        --zig-identifier: 'black'; 
+        --zig-builtin: #0086b3;
+        --zig-identifier: 'black';
         --zig-string-literal: #d14;
+        --zig-type: #458;
       }
       
       @media (prefers-color-scheme: dark) { 
-        pre {
+        #docs {
           --zig-keyword: #eee;
-          --zig-identifier: 'purple'; 
+          --zig-builtin: #ff894c;
+          --zig-identifier: 'purple';
           --zig-string-literal: #2e5;
+          --zig-type: #68f;
         }
       }
     
@@ -764,7 +768,7 @@
 
     .zig_builtin
     {
-      color: #0086b3;
+      color: var(--zig-builtin);
     }
 
     .zig_doc_comment,
@@ -778,11 +782,15 @@
       font-weight: bold;
     }
 
-    .zig_number_literal {
+    .zig_number_literal,
+    .zig_special {
       color: #ff8080;
     }
 
-
+    .zig_type {
+      color: var(--zig-type);
+      font-weight: bold;
+    }
    
     </style>
   </head>
