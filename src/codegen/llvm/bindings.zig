@@ -168,23 +168,41 @@ pub const Value = opaque {
     pub const setAliasee = LLVMAliasSetAliasee;
     extern fn LLVMAliasSetAliasee(Alias: *Value, Aliasee: *Value) void;
 
-    pub const constBitCast = LLVMConstBitCast;
-    extern fn LLVMConstBitCast(ConstantVal: *Value, ToType: *Type) *Value;
+    pub const constTrunc = LLVMConstTrunc;
+    extern fn LLVMConstTrunc(ConstantVal: *Value, ToType: *Type) *Value;
 
-    pub const constIntToPtr = LLVMConstIntToPtr;
-    extern fn LLVMConstIntToPtr(ConstantVal: *Value, ToType: *Type) *Value;
+    pub const constSExt = LLVMConstSExt;
+    extern fn LLVMConstSExt(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constZExt = LLVMConstZExt;
+    extern fn LLVMConstZExt(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constFPTrunc = LLVMConstFPTrunc;
+    extern fn LLVMConstFPTrunc(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constFPExt = LLVMConstFPExt;
+    extern fn LLVMConstFPExt(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constUIToFP = LLVMConstUIToFP;
+    extern fn LLVMConstUIToFP(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constSIToFP = LLVMConstSIToFP;
+    extern fn LLVMConstSIToFP(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constFPToUI = LLVMConstFPToUI;
+    extern fn LLVMConstFPToUI(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constFPToSI = LLVMConstFPToSI;
+    extern fn LLVMConstFPToSI(ConstantVal: *Value, ToType: *Type) *Value;
 
     pub const constPtrToInt = LLVMConstPtrToInt;
     extern fn LLVMConstPtrToInt(ConstantVal: *Value, ToType: *Type) *Value;
 
-    pub const constShl = LLVMConstShl;
-    extern fn LLVMConstShl(LHSConstant: *Value, RHSConstant: *Value) *Value;
+    pub const constIntToPtr = LLVMConstIntToPtr;
+    extern fn LLVMConstIntToPtr(ConstantVal: *Value, ToType: *Type) *Value;
 
-    pub const constOr = LLVMConstOr;
-    extern fn LLVMConstOr(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
-    pub const constZExt = LLVMConstZExt;
-    extern fn LLVMConstZExt(ConstantVal: *Value, ToType: *Type) *Value;
+    pub const constBitCast = LLVMConstBitCast;
+    extern fn LLVMConstBitCast(ConstantVal: *Value, ToType: *Type) *Value;
 
     pub const constZExtOrBitCast = LLVMConstZExtOrBitCast;
     extern fn LLVMConstZExtOrBitCast(ConstantVal: *Value, ToType: *Type) *Value;
@@ -194,6 +212,30 @@ pub const Value = opaque {
 
     pub const constAdd = LLVMConstAdd;
     extern fn LLVMConstAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constSub = LLVMConstSub;
+    extern fn LLVMConstSub(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constMul = LLVMConstMul;
+    extern fn LLVMConstMul(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constAnd = LLVMConstAnd;
+    extern fn LLVMConstAnd(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constOr = LLVMConstOr;
+    extern fn LLVMConstOr(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constXor = LLVMConstXor;
+    extern fn LLVMConstXor(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constShl = LLVMConstShl;
+    extern fn LLVMConstShl(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constLShr = LLVMConstLShr;
+    extern fn LLVMConstLShr(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constAShr = LLVMConstAShr;
+    extern fn LLVMConstAShr(LHSConstant: *Value, RHSConstant: *Value) *Value;
 
     pub const constAddrSpaceCast = LLVMConstAddrSpaceCast;
     extern fn LLVMConstAddrSpaceCast(ConstantVal: *Value, ToType: *Type) *Value;
@@ -281,6 +323,9 @@ pub const Value = opaque {
     pub const attachMetaData = ZigLLVMAttachMetaData;
     extern fn ZigLLVMAttachMetaData(GlobalVar: *Value, DIG: *DIGlobalVariableExpression) void;
 
+    pub const blockAddress = LLVMBlockAddress;
+    extern fn LLVMBlockAddress(F: *Value, BB: *BasicBlock) *Value;
+
     pub const dump = LLVMDumpValue;
     extern fn LLVMDumpValue(Val: *Value) void;
 };
@@ -348,6 +393,14 @@ pub const Type = opaque {
 
     pub const isSized = LLVMTypeIsSized;
     extern fn LLVMTypeIsSized(Ty: *Type) Bool;
+
+    pub const constGEP = LLVMConstGEP2;
+    extern fn LLVMConstGEP2(
+        Ty: *Type,
+        ConstantVal: *Value,
+        ConstantIndices: [*]const *Value,
+        NumIndices: c_uint,
+    ) *Value;
 
     pub const constInBoundsGEP = LLVMConstInBoundsGEP2;
     extern fn LLVMConstInBoundsGEP2(
