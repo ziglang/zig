@@ -2241,15 +2241,18 @@ test "splitScalar" {
     try testing.expectEqualSlices(u8, it.first(), "abc");
 
     try testing.expectEqualSlices(u8, it.rest(), "def||ghi");
+    try testing.expectEqualSlices(u8, it.peek().?, "def");
     try testing.expectEqualSlices(u8, it.next().?, "def");
 
     try testing.expectEqualSlices(u8, it.rest(), "|ghi");
     try testing.expectEqualSlices(u8, it.next().?, "");
 
     try testing.expectEqualSlices(u8, it.rest(), "ghi");
+    try testing.expectEqualSlices(u8, it.peek().?, "ghi");
     try testing.expectEqualSlices(u8, it.next().?, "ghi");
 
     try testing.expectEqualSlices(u8, it.rest(), "");
+    try testing.expect(it.peek() == null);
     try testing.expect(it.next() == null);
 
     it = splitScalar(u8, "", '|');
@@ -2259,6 +2262,7 @@ test "splitScalar" {
     it = splitScalar(u8, "|", '|');
     try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expect(it.peek() == null);
     try testing.expect(it.next() == null);
 
     it = splitScalar(u8, "hello", ' ');
@@ -2862,6 +2866,18 @@ pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
                 self.index = null;
                 break :blk self.buffer.len;
             };
+            return self.buffer[start..end];
+        }
+
+        /// Returns a slice of the next field, or null if splitting is complete.
+        /// This method does not alter self.index.
+        pub fn peek(self: *Self) ?[]const T {
+            const start = self.index orelse return null;
+            const end = if (switch (delimiter_type) {
+                .sequence => indexOfPos(T, self.buffer, start, self.delimiter),
+                .any => indexOfAnyPos(T, self.buffer, start, self.delimiter),
+                .scalar => indexOfScalarPos(T, self.buffer, start, self.delimiter),
+            }) |delim_start| delim_start else self.buffer.len;
             return self.buffer[start..end];
         }
 
