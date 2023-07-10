@@ -1639,7 +1639,7 @@ pub const DwarfInfo = struct {
         // In order to support reading .eh_frame from the ELF file (vs using the already-mapped section),
         // scanAllUnwindInfo has already mapped any pc-relative offsets such that they we be relative to zero
         // instead of the actual base address of the module. When using .eh_frame_hdr, PC can be used directly
-        // as pointers will be decoded relative to the alreayd-mapped .eh_frame.
+        // as pointers will be decoded relative to the already-mapped .eh_frame.
         var mapped_pc: usize = undefined;
         if (di.eh_frame_hdr) |header| {
             const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
@@ -1766,8 +1766,8 @@ pub const DwarfInfo = struct {
         mem.writeIntSliceNative(usize, try abi.regBytes(context.thread_context, abi.spRegNum(context.reg_context), context.reg_context), context.cfa.?);
 
         // The call instruction will have pushed the address of the instruction that follows the call as the return address
-        // However, this return address may be past the end of the function if the caller was `noreturn`.
-        // TODO: Check this on non-x86_64
+        // However, this return address may be past the end of the function if the caller was `noreturn`. By subtracting one,
+        // then `context.pc` will always point to an instruction within the FDE for the previous function.
         const return_address = context.pc;
         if (context.pc > 0) context.pc -= 1;
 

@@ -4695,7 +4695,7 @@ else
         /// processes.
         RTPRIO,
 
-        /// Maximum CPU time in Âµs that a process scheduled under a real-time
+        /// Maximum CPU time in µs that a process scheduled under a real-time
         /// scheduling policy may consume without making a blocking system
         /// call before being forcibly descheduled.
         RTTIME,

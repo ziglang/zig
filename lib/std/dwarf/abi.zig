@@ -26,7 +26,7 @@ pub fn ipRegNum() u8 {
 
 pub fn fpRegNum(reg_context: RegisterContext) u8 {
     return switch (builtin.cpu.arch) {
-        // GCC on OS X did the opposite of ELF for these registers (only in .eh_frame), and that is now the convention for MachO
+        // GCC on OS X historicaly did the opposite of ELF for these registers (only in .eh_frame), and that is now the convention for MachO
         .x86 => if (reg_context.eh_frame and reg_context.is_macho) 4 else 5,
         .x86_64 => 6,
         .arm => 11,
@@ -75,6 +75,7 @@ fn RegValueReturnType(comptime ContextPtrType: type, comptime T: type) type {
     });
 }
 
+/// Returns a pointer to a register stored in a ThreadContext, preserving the pointer attributes of the context.
 pub fn regValueNative(
     comptime T: type,
     thread_context_ptr: anytype,
@@ -343,9 +344,11 @@ pub fn regBytes(
 
 /// Returns the ABI-defined default value this register has in the unwinding table
 /// before running any of the CIE instructions. The DWARF spec defines these values
-//  to be undefined, but allows ABI authors to override that default.
+///  to be undefined, but allows ABI authors to override that default.
 pub fn getRegDefaultValue(reg_number: u8, out: []u8) void {
-    // TODO: Implement any ABI-specific rules for the default value for registers
+
+    // Implement any ABI-specific rules here
+
     _ = reg_number;
     @memset(out, undefined);
 }

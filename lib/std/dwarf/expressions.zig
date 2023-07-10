@@ -14,7 +14,7 @@ pub const ExpressionContext = struct {
     /// This expression is from a DWARF64 section
     is_64: bool = false,
 
-    /// If specified, any addresses will pass through this function before being
+    /// If specified, any addresses will pass through this function before being acccessed
     isValidMemory: ?*const fn (address: usize) bool = null,
 
     /// The compilation unit this expression relates to, if any
@@ -1023,9 +1023,6 @@ pub fn Builder(comptime options: ExpressionOptions) type {
             try leb.writeULEB128(writer, value_bytes.len);
             try writer.writeAll(value_bytes);
         }
-
-        // pub fn writeImplicitPointer(writer: anytype, ) void {
-        // }
 
     };
 }

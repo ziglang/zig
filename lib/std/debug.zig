@@ -159,7 +159,7 @@ pub fn copyContext(source: *const ThreadContext, dest: *ThreadContext) void {
     relocateContext(dest);
 }
 
-/// Updates any internal points in the context to reflect its current location
+/// Updates any internal pointers in the context to reflect its current location
 pub fn relocateContext(context: *ThreadContext) void {
     return switch (native_os) {
         .macos => {
@@ -176,7 +176,7 @@ pub const have_getcontext = @hasDecl(os.system, "getcontext") and
 });
 
 /// Capture the current context. The register values in the context will reflect the
-/// state after the platform `getcontext` function returned.
+/// state after the platform `getcontext` function returns.
 ///
 /// It is valid to call this if the platform doesn't have context capturing support,
 /// in that case false will be returned.
@@ -229,7 +229,7 @@ pub fn dumpStackTraceFromBase(context: *const ThreadContext) void {
 
         var it = StackIterator.initWithContext(null, debug_info, context) catch return;
         defer it.deinit();
-        printSourceAtAddress(debug_info, stderr, it.dwarf_context.pc, tty_config) catch return;
+        printSourceAtAddress(debug_info, stderr, it.unwind_state.?.dwarf_context.pc, tty_config) catch return;
 
         while (it.next()) |return_address| {
             if (it.getLastError()) |unwind_error|
@@ -487,11 +487,13 @@ pub const StackIterator = struct {
     fp: usize,
 
     // When DebugInfo and a register context is available, this iterator can unwind
-    // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer).
-    debug_info: ?*DebugInfo,
-    dwarf_context: if (have_ucontext) DW.UnwindContext else void = undefined,
-    last_error: if (have_ucontext) ?UnwindError else void = undefined,
-    last_error_address: if (have_ucontext) usize else void = undefined,
+    // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer),
+    // using DWARF and MachO unwind info.
+    unwind_state: if (have_ucontext) ?struct {
+        debug_info: *DebugInfo,
+        dwarf_context: DW.UnwindContext,
+        last_error: ?UnwindError = null,
+    } else void = if (have_ucontext) null else {},
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
         if (native_arch == .sparc64) {
@@ -504,32 +506,33 @@ pub const StackIterator = struct {
         return StackIterator{
             .first_address = first_address,
             .fp = fp orelse @frameAddress(),
-            .debug_info = null,
         };
     }
 
     pub fn initWithContext(first_address: ?usize, debug_info: *DebugInfo, context: *const os.ucontext_t) !StackIterator {
         var iterator = init(first_address, null);
-        iterator.debug_info = debug_info;
-        iterator.dwarf_context = try DW.UnwindContext.init(debug_info.allocator, context, &isValidMemory);
-        iterator.last_error = null;
+        iterator.unwind_state = .{
+            .debug_info = debug_info,
+            .dwarf_context = try DW.UnwindContext.init(debug_info.allocator, context, &isValidMemory),
+        };
+
         return iterator;
     }
 
     pub fn deinit(self: *StackIterator) void {
-        if (have_ucontext and self.debug_info != null) self.dwarf_context.deinit();
+        if (have_ucontext and self.unwind_state != null) self.unwind_state.?.dwarf_context.deinit();
     }
 
     pub fn getLastError(self: *StackIterator) ?struct {
-        address: usize,
         err: UnwindError,
+        address: usize,
     } {
-        if (have_ucontext) {
-            if (self.last_error) |err| {
-                self.last_error = null;
+        if (!have_ucontext) return null;
+        if (self.unwind_state) |*unwind_state| {
+            if (unwind_state.last_error) |err| {
                 return .{
-                    .address = self.last_error_address,
                     .err = err,
+                    .address = unwind_state.dwarf_context.pc,
                 };
             }
         }
@@ -620,13 +623,14 @@ pub const StackIterator = struct {
     }
 
     fn next_unwind(self: *StackIterator) !usize {
-        const module = try self.debug_info.?.getModuleForAddress(self.dwarf_context.pc);
+        const unwind_state = &self.unwind_state.?;
+        const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
         switch (native_os) {
             .macos, .ios, .watchos, .tvos => {
                 // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
-                    if (macho.unwindFrame(&self.dwarf_context, unwind_info, module.base_address)) |return_address| {
+                    if (macho.unwindFrame(&unwind_state.dwarf_context, unwind_info, module.base_address)) |return_address| {
                         return return_address;
                     } else |err| {
                         if (err != error.RequiresDWARFUnwind) return err;
@@ -636,23 +640,25 @@ pub const StackIterator = struct {
             else => {},
         }
 
-        if (try module.getDwarfInfoForAddress(self.debug_info.?.allocator, self.dwarf_context.pc)) |di| {
-            return di.unwindFrame(&self.dwarf_context, module.base_address);
+        if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
+            return di.unwindFrame(&unwind_state.dwarf_context, module.base_address);
         } else return error.MissingDebugInfo;
     }
 
     fn next_internal(self: *StackIterator) ?usize {
-        if (have_ucontext and self.debug_info != null) {
-            if (self.dwarf_context.pc == 0) return null;
-            if (self.next_unwind()) |return_address| {
-                return return_address;
-            } else |err| {
-                self.last_error = err;
-                self.last_error_address = self.dwarf_context.pc;
+        if (have_ucontext) {
+            if (self.unwind_state) |*unwind_state| {
+                if (unwind_state.dwarf_context.pc == 0) return null;
+                if (unwind_state.last_error == null) {
+                    if (self.next_unwind()) |return_address| {
+                        return return_address;
+                    } else |err| {
+                        unwind_state.last_error = err;
 
-                // Fall back to fp unwinding on the first failure, as the register context won't have been updated
-                self.fp = self.dwarf_context.getFp() catch 0;
-                self.debug_info = null;
+                        // Fall back to fp-based unwinding on the first failure
+                        self.fp = unwind_state.dwarf_context.getFp() catch 0;
+                    }
+                }
             }
         }
 
@@ -862,16 +868,12 @@ pub fn printUnwindError(debug_info: *DebugInfo, out_stream: anytype, address: us
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
-        else => {
-            return err;
-        },
+        else => return err,
     };
 
     const symbol_info = module.getSymbolAtAddress(debug_info.allocator, address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
-        else => {
-            return err;
-        },
+        else => return err,
     };
     defer symbol_info.deinit(debug_info.allocator);
 
