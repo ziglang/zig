@@ -6628,7 +6628,7 @@ fn checkCallArgumentCount(
     const fn_params_len = func_ty_info.param_types.len;
     const args_len = total_args - @intFromBool(member_fn);
     if (func_ty_info.is_var_args) {
-        assert(func_ty_info.cc == .C);
+        assert(callConvSupportsVarArgs(func_ty_info.cc));
         if (total_args >= fn_params_len) return func_ty;
     } else if (fn_params_len == total_args) {
         return func_ty;
@@ -8917,6 +8917,41 @@ fn handleExternLibName(
     return sema.gpa.dupeZ(u8, lib_name);
 }
 
+/// These are calling conventions that are confirmed to work with variadic functions.
+/// Any calling conventions not included here are either not yet verified to work with variadic
+/// functions or there are no more other calling conventions that support variadic functions.
+const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention{
+    .C,
+};
+fn callConvSupportsVarArgs(cc: std.builtin.CallingConvention) bool {
+    return for (calling_conventions_supporting_var_args) |supported_cc| {
+        if (cc == supported_cc) return true;
+    } else false;
+}
+fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc: std.builtin.CallingConvention) CompileError!void {
+    const CallingConventionsSupportingVarArgsList = struct {
+        pub fn format(_: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = options;
+            for (calling_conventions_supporting_var_args, 0..) |cc_inner, i| {
+                if (i != 0)
+                    try writer.writeAll(", ");
+                try writer.print("'.{s}'", .{@tagName(cc_inner)});
+            }
+        }
+    };
+
+    if (!callConvSupportsVarArgs(cc)) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "variadic function does not support '.{s}' calling convention", .{@tagName(cc)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, src, msg, "supported calling conventions: {}", .{CallingConventionsSupportingVarArgsList{}});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+}
+
 const FuncLinkSection = union(enum) {
     generic,
     default,
@@ -8963,9 +8998,7 @@ fn funcCommon(
         if (is_generic) {
             return sema.fail(block, func_src, "generic function cannot be variadic", .{});
         }
-        if (cc.? != .C) {
-            return sema.fail(block, cc_src, "variadic function must have 'C' calling convention", .{});
-        }
+        try sema.checkCallConvSupportsVarArgs(block, cc_src, cc.?);
     }
 
     var destroy_fn_on_error = false;
@@ -20327,8 +20360,8 @@ fn zirReify(
 
             const is_var_args = is_var_args_val.toBool();
             const cc = mod.toEnum(std.builtin.CallingConvention, calling_convention_val);
-            if (is_var_args and cc != .C) {
-                return sema.fail(block, src, "varargs functions must have C calling convention", .{});
+            if (is_var_args) {
+                try sema.checkCallConvSupportsVarArgs(block, src, cc);
             }
 
             const alignment = alignment: {

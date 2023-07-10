@@ -6,6 +6,7 @@ const Status = uefi.Status;
 const SystemTable = uefi.tables.SystemTable;
 const MemoryType = uefi.tables.MemoryType;
 const DevicePathProtocol = uefi.protocols.DevicePathProtocol;
+const cc = uefi.cc;
 
 pub const LoadedImageProtocol = extern struct {
     revision: u32,
@@ -20,7 +21,7 @@ pub const LoadedImageProtocol = extern struct {
     image_size: u64,
     image_code_type: MemoryType,
     image_data_type: MemoryType,
-    _unload: *const fn (*const LoadedImageProtocol, Handle) callconv(.C) Status,
+    _unload: *const fn (*const LoadedImageProtocol, Handle) callconv(cc) Status,
 
     /// Unloads an image from memory.
     pub fn unload(self: *const LoadedImageProtocol, handle: Handle) Status {

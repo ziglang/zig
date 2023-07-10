@@ -23,6 +23,12 @@ pub var system_table: *tables.SystemTable = undefined;
 /// A handle to an event structure.
 pub const Event = *opaque {};
 
+/// The calling convention used for all external functions part of the UEFI API.
+pub const cc = switch (@import("builtin").target.cpu.arch) {
+    .x86_64 => .Win64,
+    else => .C,
+};
+
 pub const MacAddress = extern struct {
     address: [32]u8,
 };
