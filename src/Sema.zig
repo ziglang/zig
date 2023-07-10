@@ -17293,6 +17293,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                 } });
                             };
 
+                            try sema.resolveTypeLayout(field_ty.toType());
+
                             const is_comptime = field_val != .none;
                             const opt_default_val = if (is_comptime) field_val.toValue() else null;
                             const default_val_ptr = try sema.optRefValue(block, field_ty.toType(), opt_default_val);

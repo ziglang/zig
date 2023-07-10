@@ -1712,3 +1712,14 @@ test "extern struct field pointer has correct alignment" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "packed struct field in anonymous struct" {
+    const T = packed struct {
+        f1: bool = false,
+    };
+
+    try std.testing.expect(countFields(.{ .t = T{} }) == 1);
+}
+fn countFields(v: anytype) usize {
+    return @typeInfo(@TypeOf(v)).Struct.fields.len;
+}
