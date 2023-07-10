@@ -1869,7 +1869,7 @@ pub const Type = struct {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .opt_type => |child_type| child_type == .anyerror_type or switch (mod.intern_pool.indexToKey(child_type)) {
                 .ptr_type => |ptr_type| ptr_type.flags.size != .C and !ptr_type.flags.is_allowzero,
-                .error_set_type => true,
+                .error_set_type, .inferred_error_set_type => true,
                 else => false,
             },
             .ptr_type => |ptr_type| ptr_type.flags.size == .C,
