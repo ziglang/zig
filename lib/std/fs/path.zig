@@ -423,8 +423,7 @@ fn networkShareServersEql(ns1: []const u8, ns2: []const u8) bool {
     var it1 = mem.tokenizeScalar(u8, ns1, sep1);
     var it2 = mem.tokenizeScalar(u8, ns2, sep2);
 
-    // TODO ASCII is wrong, we actually need full unicode support to compare paths.
-    return ascii.eqlIgnoreCase(it1.next().?, it2.next().?);
+    return windows.eqlIgnoreCaseUtf8(it1.next().?, it2.next().?);
 }
 
 fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8) bool {
@@ -444,8 +443,7 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             var it1 = mem.tokenizeScalar(u8, p1, sep1);
             var it2 = mem.tokenizeScalar(u8, p2, sep2);
 
-            // TODO ASCII is wrong, we actually need full unicode support to compare paths.
-            return ascii.eqlIgnoreCase(it1.next().?, it2.next().?) and ascii.eqlIgnoreCase(it1.next().?, it2.next().?);
+            return windows.eqlIgnoreCaseUtf8(it1.next().?, it2.next().?) and windows.eqlIgnoreCaseUtf8(it1.next().?, it2.next().?);
         },
     }
 }
@@ -1084,8 +1082,7 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
         const from_component = from_it.next() orelse return allocator.dupe(u8, to_it.rest());
         const to_rest = to_it.rest();
         if (to_it.next()) |to_component| {
-            // TODO ASCII is wrong, we actually need full unicode support to compare paths.
-            if (ascii.eqlIgnoreCase(from_component, to_component))
+            if (windows.eqlIgnoreCaseUtf8(from_component, to_component))
                 continue;
         }
         var up_index_end = "..".len;
@@ -1162,7 +1159,7 @@ test "relative" {
     try testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");
-    try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa/bbbb", "");
+    try testRelativeWindows("c:/aaaa/bbbb", "C:/aaaa/bbbb", "");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa/cccc", "..\\cccc");
     try testRelativeWindows("c:/aaaa/", "c:/aaaa/cccc", "cccc");
     try testRelativeWindows("c:/", "c:\\aaaa\\bbbb", "aaaa\\bbbb");
@@ -1187,6 +1184,10 @@ test "relative" {
     try testRelativeWindows("a/b/c", "a\\b", "..");
     try testRelativeWindows("a/b/c", "a", "..\\..");
     try testRelativeWindows("a/b/c", "a\\b\\c\\d", "d");
+
+    try testRelativeWindows("\\\\FOO\\bar\\baz", "\\\\foo\\BAR\\BAZ", "");
+    // Unicode-aware case-insensitive path comparison
+    try testRelativeWindows("\\\\кириллица\\ελληνικά\\português", "\\\\КИРИЛЛИЦА\\ΕΛΛΗΝΙΚΆ\\PORTUGUÊS", "");
 
     try testRelativePosix("/var/lib", "/var", "..");
     try testRelativePosix("/var/lib", "/bin", "../../bin");
