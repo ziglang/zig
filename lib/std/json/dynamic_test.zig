@@ -78,30 +78,27 @@ test "write json then parse it" {
     var jw = writeStream(out_stream, 4);
 
     try jw.beginObject();
+    {
+        try jw.emitString("f");
+        try jw.emitBool(false);
 
-    try jw.objectField("f");
-    try jw.emitBool(false);
+        try jw.emitString("t");
+        try jw.emitBool(true);
 
-    try jw.objectField("t");
-    try jw.emitBool(true);
+        try jw.emitString("int");
+        try jw.emitNumber(1234);
 
-    try jw.objectField("int");
-    try jw.emitNumber(1234);
+        try jw.emitString("array");
+        try jw.beginArray();
+        {
+            try jw.emitNull();
+            try jw.emitNumber(12.34);
+        }
+        try jw.endArray();
 
-    try jw.objectField("array");
-    try jw.beginArray();
-
-    try jw.arrayElem();
-    try jw.emitNull();
-
-    try jw.arrayElem();
-    try jw.emitNumber(12.34);
-
-    try jw.endArray();
-
-    try jw.objectField("str");
-    try jw.emitString("hello");
-
+        try jw.emitString("str");
+        try jw.emitString("hello");
+    }
     try jw.endObject();
 
     fixed_buffer_stream = std.io.fixedBufferStream(fixed_buffer_stream.getWritten());

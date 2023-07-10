@@ -8,18 +8,34 @@ const jsonStringify = @import("./stringify.zig").stringify;
 const Value = @import("./dynamic.zig").Value;
 
 const State = enum {
-    complete,
-    value,
+    start,
     array_start,
-    array,
+    array_post_value,
     object_start,
-    object,
+    object_post_key,
+    object_post_value,
+    complete,
 };
 
 /// Writes JSON ([RFC8259](https://tools.ietf.org/html/rfc8259)) formatted data
 /// to a stream. `max_depth` is a comptime-known upper bound on the nesting depth.
 /// TODO A future iteration of this API will allow passing `null` for this value,
 /// and disable safety checks in release builds.
+///
+/// The seqeunce of method calls to write JSON content must follow this grammar:
+/// ```
+///  <once> = <value>
+///  <value> =
+///    | <object>
+///    | <array>
+///    | emitNumber
+///    | emitString
+///    | emitBool
+///    | emitNull
+///    | emitJson
+///  <object> = beginObject ( emitString <value> )* endObject
+///  <array> = beginArray ( <value> )* endArray
+/// ```
 pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
     return struct {
         const Self = @This();
@@ -38,119 +54,63 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         pub fn init(stream: OutStream) Self {
             var self = Self{
                 .stream = stream,
-                .state_index = 1,
+                .state_index = 0,
                 .state = undefined,
             };
-            self.state[0] = .complete;
-            self.state[1] = .value;
+            self.state[0] = .start;
             return self;
         }
 
         pub fn beginArray(self: *Self) !void {
-            assert(self.state[self.state_index] == State.value); // need to call arrayElem or objectField
+            try self.valueStart();
+            self.pushState(.array_start);
             try self.stream.writeByte('[');
-            self.state[self.state_index] = State.array_start;
             self.whitespace.indent_level += 1;
         }
 
         pub fn beginObject(self: *Self) !void {
-            assert(self.state[self.state_index] == State.value); // need to call arrayElem or objectField
+            try self.valueStart();
+            self.pushState(.object_start);
             try self.stream.writeByte('{');
-            self.state[self.state_index] = State.object_start;
             self.whitespace.indent_level += 1;
         }
 
-        pub fn arrayElem(self: *Self) !void {
-            const state = self.state[self.state_index];
-            switch (state) {
-                .complete => unreachable,
-                .value => unreachable,
-                .object_start => unreachable,
-                .object => unreachable,
-                .array, .array_start => {
-                    if (state == .array) {
-                        try self.stream.writeByte(',');
-                    }
-                    self.state[self.state_index] = .array;
-                    self.pushState(.value);
-                    try self.indent();
-                },
-            }
-        }
-
-        pub fn objectField(self: *Self, name: []const u8) !void {
-            const state = self.state[self.state_index];
-            switch (state) {
-                .complete => unreachable,
-                .value => unreachable,
-                .array_start => unreachable,
-                .array => unreachable,
-                .object, .object_start => {
-                    if (state == .object) {
-                        try self.stream.writeByte(',');
-                    }
-                    self.state[self.state_index] = .object;
-                    self.pushState(.value);
-                    try self.indent();
-                    try self.writeEscapedString(name);
-                    try self.stream.writeByte(':');
-                    if (self.whitespace.separator) {
-                        try self.stream.writeByte(' ');
-                    }
-                },
-            }
-        }
-
         pub fn endArray(self: *Self) !void {
+            self.whitespace.indent_level -= 1;
             switch (self.state[self.state_index]) {
-                .complete => unreachable,
-                .value => unreachable,
-                .object_start => unreachable,
-                .object => unreachable,
-                .array_start => {
-                    self.whitespace.indent_level -= 1;
-                    try self.stream.writeByte(']');
-                    self.popState();
-                },
-                .array => {
-                    self.whitespace.indent_level -= 1;
+                .array_start => {},
+                .array_post_value => {
                     try self.indent();
-                    self.popState();
-                    try self.stream.writeByte(']');
                 },
+                else => unreachable,
             }
+            try self.stream.writeByte(']');
+            self.popState();
         }
 
         pub fn endObject(self: *Self) !void {
+            self.whitespace.indent_level -= 1;
             switch (self.state[self.state_index]) {
-                .complete => unreachable,
-                .value => unreachable,
-                .array_start => unreachable,
-                .array => unreachable,
-                .object_start => {
-                    self.whitespace.indent_level -= 1;
-                    try self.stream.writeByte('}');
-                    self.popState();
-                },
-                .object => {
-                    self.whitespace.indent_level -= 1;
+                .object_start => {},
+                .object_post_value => {
                     try self.indent();
-                    self.popState();
-                    try self.stream.writeByte('}');
                 },
+                else => unreachable,
             }
+            try self.stream.writeByte('}');
+            self.popState();
         }
 
         pub fn emitNull(self: *Self) !void {
-            assert(self.state[self.state_index] == State.value);
+            try self.valueStart();
             try self.stringify(null);
-            self.popState();
+            self.valueDone();
         }
 
         pub fn emitBool(self: *Self, value: bool) !void {
-            assert(self.state[self.state_index] == State.value);
+            try self.valueStart();
             try self.stringify(value);
-            self.popState();
+            self.valueDone();
         }
 
         pub fn emitNumber(
@@ -159,17 +119,18 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
             /// in a IEEE 754 double float, otherwise emitted as a string to the full precision.
             value: anytype,
         ) !void {
-            assert(self.state[self.state_index] == State.value);
             switch (@typeInfo(@TypeOf(value))) {
                 .Int => |info| {
                     if (info.bits < 53) {
+                        try self.valueStart();
                         try self.stream.print("{}", .{value});
-                        self.popState();
+                        self.valueDone();
                         return;
                     }
                     if (value < 4503599627370496 and (info.signedness == .unsigned or value > -4503599627370496)) {
+                        try self.valueStart();
                         try self.stream.print("{}", .{value});
-                        self.popState();
+                        self.valueDone();
                         return;
                     }
                 },
@@ -177,20 +138,22 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                     return self.emitNumber(@as(std.math.IntFittingRange(value, value), value));
                 },
                 .Float, .ComptimeFloat => if (@as(f64, @floatCast(value)) == value) {
+                    try self.valueStart();
                     try self.stream.print("{}", .{@as(f64, @floatCast(value))});
-                    self.popState();
+                    self.valueDone();
                     return;
                 },
                 else => {},
             }
+            try self.valueStart();
             try self.stream.print("\"{}\"", .{value});
-            self.popState();
+            self.valueDone();
         }
 
         pub fn emitString(self: *Self, string: []const u8) !void {
-            assert(self.state[self.state_index] == State.value);
+            try self.stringValueStart();
             try self.writeEscapedString(string);
-            self.popState();
+            self.valueDone();
         }
 
         fn writeEscapedString(self: *Self, string: []const u8) !void {
@@ -200,23 +163,78 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         /// Writes the complete json into the output stream
         pub fn emitJson(self: *Self, value: Value) Stream.Error!void {
-            assert(self.state[self.state_index] == State.value);
+            try self.valueStart();
             try self.stringify(value);
-            self.popState();
+            self.valueDone();
         }
 
         fn indent(self: *Self) !void {
-            assert(self.state_index >= 1);
             try self.whitespace.outputIndent(self.stream);
         }
 
         fn pushState(self: *Self, state: State) void {
-            self.state_index += 1;
-            self.state[self.state_index] = state;
+            if (self.state[self.state_index] == .start) {
+                // Use the top level state for this container.
+                self.state[self.state_index] = state;
+            } else {
+                self.state_index += 1;
+                self.state[self.state_index] = state;
+            }
         }
 
         fn popState(self: *Self) void {
-            self.state_index -= 1;
+            if (self.state_index > 0) {
+                // Done with a nested container.
+                self.state_index -= 1;
+                self.valueDone();
+            } else {
+                // Done with everything.
+                assert(self.state[self.state_index] != .complete);
+                self.state[self.state_index] = .complete;
+            }
+        }
+
+        fn valueStart(self: *Self) !void {
+            // Non-strings are banned as object keys.
+            switch (self.state[self.state_index]) {
+                .object_start, .object_post_value => unreachable, // Expected emitString() or endObject().
+                else => {},
+            }
+            return self.valueStartAssumeTypeOk();
+        }
+        fn stringValueStart(self: *Self) !void {
+            // Strings are allowed as values in every position.
+            return self.valueStartAssumeTypeOk();
+        }
+        fn valueStartAssumeTypeOk(self: *Self) !void {
+            switch (self.state[self.state_index]) {
+                .start => {},
+                .array_start, .object_start => {
+                    try self.indent();
+                },
+                .array_post_value, .object_post_value => {
+                    try self.stream.writeByte(',');
+                    try self.indent();
+                },
+                .object_post_key => {
+                    try self.stream.writeByte(':');
+                    if (self.whitespace.separator) {
+                        try self.stream.writeByte(' ');
+                    }
+                },
+                .complete => unreachable, // JSON document already complete.
+            }
+        }
+        fn valueDone(self: *Self) void {
+            self.state[self.state_index] = switch (self.state[self.state_index]) {
+                .start => .complete, // Only happens for top-level scalar values.
+                .array_start => .array_post_value,
+                .array_post_value => return,
+                .object_start => .object_post_key,
+                .object_post_key => .object_post_value,
+                .object_post_value => .object_post_key,
+                .complete => unreachable,
+            };
         }
 
         fn stringify(self: *Self, value: anytype) !void {
@@ -224,6 +242,9 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                 .whitespace = self.whitespace,
             }, self.stream);
         }
+
+        pub const arrayElem = @compileError("Deprecated; You don't need to call this anymore.");
+        pub const objectField = @compileError("Deprecated; Call emitString() for object keys instead.");
     };
 }
 
@@ -248,26 +269,23 @@ test "json write stream" {
 
     try w.beginObject();
 
-    try w.objectField("object");
+    try w.emitString("object");
     try w.emitJson(try getJsonObject(arena_allocator.allocator()));
 
-    try w.objectField("string");
+    try w.emitString("string");
     try w.emitString("This is a string");
 
-    try w.objectField("array");
+    try w.emitString("array");
     try w.beginArray();
-    try w.arrayElem();
     try w.emitString("Another string");
-    try w.arrayElem();
     try w.emitNumber(@as(i32, 1));
-    try w.arrayElem();
     try w.emitNumber(@as(f32, 3.5));
     try w.endArray();
 
-    try w.objectField("int");
+    try w.emitString("int");
     try w.emitNumber(@as(i32, 10));
 
-    try w.objectField("float");
+    try w.emitString("float");
     try w.emitNumber(@as(f32, 3.5));
 
     try w.endObject();
