@@ -171,8 +171,10 @@ pub fn relocateContext(context: *ThreadContext) void {
 
 pub const have_getcontext = @hasDecl(os.system, "getcontext") and
     (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
-    .x86, .x86_64 => true,
-    else => false,
+    .x86,
+    .x86_64,
+    => true,
+    else => builtin.link_libc and !builtin.target.isMusl(),
 });
 
 /// Capture the current context. The register values in the context will reflect the
@@ -652,18 +654,16 @@ pub const StackIterator = struct {
             if (self.unwind_state) |*unwind_state| {
                 if (!unwind_state.failed) {
                     if (unwind_state.dwarf_context.pc == 0) return null;
-                    if (unwind_state.last_error == null) {
-                        if (self.next_unwind()) |return_address| {
-                            return return_address;
-                        } else |err| {
-                            unwind_state.last_error = err;
-                            unwind_state.failed = true;
+                    if (self.next_unwind()) |return_address| {
+                        return return_address;
+                    } else |err| {
+                        unwind_state.last_error = err;
+                        unwind_state.failed = true;
 
-                            // Fall back to fp-based unwinding on the first failure.
-                            // We can't attempt it for other modules later in the
-                            // stack because the full register state won't be unwound.
-                            self.fp = unwind_state.dwarf_context.getFp() catch 0;
-                        }
+                        // Fall back to fp-based unwinding on the first failure.
+                        // We can't attempt it for other modules later in the
+                        // stack because the full register state won't be unwound.
+                        self.fp = unwind_state.dwarf_context.getFp() catch 0;
                     }
                 }
             }
