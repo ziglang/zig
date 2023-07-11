@@ -1599,10 +1599,14 @@ pub const Index = enum(u32) {
         type_union_untagged: struct { data: Module.Union.Index },
         type_union_safety: struct { data: Module.Union.Index },
         type_function: struct {
+            const @"data.flags.has_comptime_bits" = opaque {};
+            const @"data.flags.has_noalias_bits" = opaque {};
             const @"data.params_len" = opaque {};
             data: *Tag.TypeFunction,
+            @"trailing.comptime_bits.len": *@"data.flags.has_comptime_bits",
+            @"trailing.noalias_bits.len": *@"data.flags.has_noalias_bits",
             @"trailing.param_types.len": *@"data.params_len",
-            trailing: struct { param_types: []Index },
+            trailing: struct { comptime_bits: []u32, noalias_bits: []u32, param_types: []Index },
         },
 
         undef: DataIsIndex,
@@ -1646,8 +1650,20 @@ pub const Index = enum(u32) {
         float_comptime_float: struct { data: *Float128 },
         variable: struct { data: *Tag.Variable },
         extern_func: struct { data: *Key.ExternFunc },
-        func_decl: struct { data: *Tag.FuncDecl },
-        func_instance: struct { data: *Tag.FuncInstance },
+        func_decl: struct {
+            const @"data.analysis.inferred_error_set" = opaque {};
+            data: *Tag.FuncDecl,
+            @"trailing.resolved_error_set.len": *@"data.analysis.inferred_error_set",
+            trailing: struct { resolved_error_set: []Index },
+        },
+        func_instance: struct {
+            const @"data.analysis.inferred_error_set" = opaque {};
+            const @"data.generic_owner.data.ty.data.params_len" = opaque {};
+            data: *Tag.FuncInstance,
+            @"trailing.resolved_error_set.len": *@"data.analysis.inferred_error_set",
+            @"trailing.comptime_args.len": *@"data.generic_owner.data.ty.data.params_len",
+            trailing: struct { resolved_error_set: []Index, comptime_args: []Index },
+        },
         only_possible_value: DataIsIndex,
         union_value: struct { data: *Key.Union },
         bytes: struct { data: *Bytes },
