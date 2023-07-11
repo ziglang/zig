@@ -250,10 +250,9 @@ pub const Type = struct {
                 try print(error_union_type.payload_type.toType(), writer, mod);
                 return;
             },
-            .inferred_error_set_type => |index| {
-                const func = mod.iesFuncIndex(index);
+            .inferred_error_set_type => |func_index| {
                 try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
-                const owner_decl = mod.funcOwnerDeclPtr(func);
+                const owner_decl = mod.funcOwnerDeclPtr(func_index);
                 try owner_decl.renderFullyQualifiedName(mod, writer);
                 try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
             },
