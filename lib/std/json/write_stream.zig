@@ -1,9 +1,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const maxInt = std.math.maxInt;
 
 const StringifyOptions = @import("./stringify.zig").StringifyOptions;
-const jsonStringify = @import("./stringify.zig").stringify;
+const encodeJsonString = @import("./stringify.zig").encodeJsonString;
 
 const Value = @import("./dynamic.zig").Value;
 
@@ -28,13 +27,11 @@ const State = enum {
 ///  <value> =
 ///    | <object>
 ///    | <array>
-///    | emitNumber
-///    | emitString
-///    | emitBool
-///    | emitNull
-///    | emitJson
-///  <object> = beginObject ( emitString <value> )* endObject
+///    | write
+///    | writePreformatted
+///  <object> = beginObject ( <string> <value> )* endObject
 ///  <array> = beginArray ( <value> )* endArray
+///  <string> = <it's a <value> which must be just a string>
 /// ```
 pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
     return struct {
@@ -42,9 +39,11 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         pub const Stream = OutStream;
 
-        whitespace: StringifyOptions.Whitespace = StringifyOptions.Whitespace{
-            .indent_level = 0,
-            .indent = .{ .space = 1 },
+        // TODO: why is this the default?
+        options: StringifyOptions = .{
+            .whitespace = .{
+                .indent = .{ .space = 1 },
+            },
         },
 
         stream: OutStream,
@@ -65,18 +64,18 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
             try self.valueStart();
             self.pushState(.array_start);
             try self.stream.writeByte('[');
-            self.whitespace.indent_level += 1;
+            self.options.whitespace.indent_level += 1;
         }
 
         pub fn beginObject(self: *Self) !void {
             try self.valueStart();
             self.pushState(.object_start);
             try self.stream.writeByte('{');
-            self.whitespace.indent_level += 1;
+            self.options.whitespace.indent_level += 1;
         }
 
         pub fn endArray(self: *Self) !void {
-            self.whitespace.indent_level -= 1;
+            self.options.whitespace.indent_level -= 1;
             switch (self.state[self.state_index]) {
                 .array_start => {},
                 .array_post_value => {
@@ -89,7 +88,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         }
 
         pub fn endObject(self: *Self) !void {
-            self.whitespace.indent_level -= 1;
+            self.options.whitespace.indent_level -= 1;
             switch (self.state[self.state_index]) {
                 .object_start => {},
                 .object_post_value => {
@@ -101,75 +100,8 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
             self.popState();
         }
 
-        pub fn emitNull(self: *Self) !void {
-            try self.valueStart();
-            try self.stringify(null);
-            self.valueDone();
-        }
-
-        pub fn emitBool(self: *Self, value: bool) !void {
-            try self.valueStart();
-            try self.stringify(value);
-            self.valueDone();
-        }
-
-        pub fn emitNumber(
-            self: *Self,
-            /// An integer, float, or `std.math.BigInt`. Emitted as a bare number if it fits losslessly
-            /// in a IEEE 754 double float, otherwise emitted as a string to the full precision.
-            value: anytype,
-        ) !void {
-            switch (@typeInfo(@TypeOf(value))) {
-                .Int => |info| {
-                    if (info.bits < 53) {
-                        try self.valueStart();
-                        try self.stream.print("{}", .{value});
-                        self.valueDone();
-                        return;
-                    }
-                    if (value < 4503599627370496 and (info.signedness == .unsigned or value > -4503599627370496)) {
-                        try self.valueStart();
-                        try self.stream.print("{}", .{value});
-                        self.valueDone();
-                        return;
-                    }
-                },
-                .ComptimeInt => {
-                    return self.emitNumber(@as(std.math.IntFittingRange(value, value), value));
-                },
-                .Float, .ComptimeFloat => if (@as(f64, @floatCast(value)) == value) {
-                    try self.valueStart();
-                    try self.stream.print("{}", .{@as(f64, @floatCast(value))});
-                    self.valueDone();
-                    return;
-                },
-                else => {},
-            }
-            try self.valueStart();
-            try self.stream.print("\"{}\"", .{value});
-            self.valueDone();
-        }
-
-        pub fn emitString(self: *Self, string: []const u8) !void {
-            try self.stringValueStart();
-            try self.writeEscapedString(string);
-            self.valueDone();
-        }
-
-        fn writeEscapedString(self: *Self, string: []const u8) !void {
-            assert(std.unicode.utf8ValidateSlice(string));
-            try self.stringify(string);
-        }
-
-        /// Writes the complete json into the output stream
-        pub fn emitJson(self: *Self, value: Value) Stream.Error!void {
-            try self.valueStart();
-            try self.stringify(value);
-            self.valueDone();
-        }
-
         fn indent(self: *Self) !void {
-            try self.whitespace.outputIndent(self.stream);
+            try self.options.whitespace.outputIndent(self.stream);
         }
 
         fn pushState(self: *Self, state: State) void {
@@ -197,7 +129,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         fn valueStart(self: *Self) !void {
             // Non-strings are banned as object keys.
             switch (self.state[self.state_index]) {
-                .object_start, .object_post_value => unreachable, // Expected emitString() or endObject().
+                .object_start, .object_post_value => unreachable, // Expected string or endObject().
                 else => {},
             }
             return self.valueStartAssumeTypeOk();
@@ -218,7 +150,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                 },
                 .object_post_key => {
                     try self.stream.writeByte(':');
-                    if (self.whitespace.separator) {
+                    if (self.options.whitespace.separator) {
                         try self.stream.writeByte(' ');
                     }
                 },
@@ -237,14 +169,203 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
             };
         }
 
-        fn stringify(self: *Self, value: anytype) !void {
-            try jsonStringify(value, StringifyOptions{
-                .whitespace = self.whitespace,
-            }, self.stream);
+        /// TODO: docs
+        pub fn writePreformatted(self: *Self, value_slice: []const u8) !void {
+            try self.valueStart(); // TODO: is_string = value_slice.len > 0 and value_slice[0] == '"';
+            try self.stream.writeAll(value_slice);
+            self.valueDone();
+        }
+
+        /// Supported types:
+        ///
+        /// Number: An integer, float, or `std.math.BigInt`. Emitted as a bare number if it fits losslessly
+        /// in a IEEE 754 double float, otherwise emitted as a string to the full precision.
+        ///
+        /// TODO: more docs.
+        pub fn write(self: *Self, value: anytype) OutStream.Error!void {
+            const T = @TypeOf(value);
+            switch (@typeInfo(T)) {
+                .Int => |info| {
+                    if (info.bits < 53) {
+                        try self.valueStart();
+                        try self.stream.print("{}", .{value});
+                        self.valueDone();
+                        return;
+                    }
+                    if (value < 4503599627370496 and (info.signedness == .unsigned or value > -4503599627370496)) {
+                        try self.valueStart();
+                        try self.stream.print("{}", .{value});
+                        self.valueDone();
+                        return;
+                    }
+                    try self.valueStart();
+                    try self.stream.print("\"{}\"", .{value});
+                    self.valueDone();
+                    return;
+                },
+                .ComptimeInt => {
+                    return self.write(@as(std.math.IntFittingRange(value, value), value));
+                },
+                .Float, .ComptimeFloat => {
+                    if (@as(f64, @floatCast(value)) == value) {
+                        try self.valueStart();
+                        try self.stream.print("{}", .{@as(f64, @floatCast(value))});
+                        self.valueDone();
+                        return;
+                    }
+                    try self.valueStart();
+                    try self.stream.print("\"{}\"", .{value});
+                    self.valueDone();
+                    return;
+                },
+
+                .Bool => {
+                    try self.valueStart();
+                    try self.stream.writeAll(if (value) "true" else "false");
+                    self.valueDone();
+                    return;
+                },
+                .Null => {
+                    try self.valueStart();
+                    try self.stream.writeAll("null");
+                    self.valueDone();
+                    return;
+                },
+                .Optional => {
+                    if (value) |payload| {
+                        return try self.write(payload);
+                    } else {
+                        return try self.write(null);
+                    }
+                },
+                .Enum => {
+                    if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
+                        return value.jsonStringify(self);
+                    }
+
+                    try self.stringValueStart();
+                    try encodeJsonString(@tagName(value), self.options, self.stream);
+                    self.valueDone();
+                    return;
+                },
+                .Union => {
+                    if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
+                        return value.jsonStringify(self);
+                    }
+
+                    const info = @typeInfo(T).Union;
+                    if (info.tag_type) |UnionTagType| {
+                        try self.beginObject();
+                        inline for (info.fields) |u_field| {
+                            if (value == @field(UnionTagType, u_field.name)) {
+                                try self.write(u_field.name);
+                                if (u_field.type == void) {
+                                    // void value is {}
+                                    try self.beginObject();
+                                    try self.endObject();
+                                } else {
+                                    try self.write(@field(value, u_field.name));
+                                }
+                                break;
+                            }
+                        } else {
+                            unreachable; // No active tag?
+                        }
+                        try self.endObject();
+                        return;
+                    } else {
+                        @compileError("Unable to stringify untagged union '" ++ @typeName(T) ++ "'");
+                    }
+                },
+                .Struct => |S| {
+                    if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
+                        return value.jsonStringify(self);
+                    }
+
+                    if (S.is_tuple) {
+                        try self.beginArray();
+                    } else {
+                        try self.beginObject();
+                    }
+                    inline for (S.fields) |Field| {
+                        // don't include void fields
+                        if (Field.type == void) continue;
+
+                        var emit_field = true;
+
+                        // don't include optional fields that are null when emit_null_optional_fields is set to false
+                        if (@typeInfo(Field.type) == .Optional) {
+                            if (self.options.emit_null_optional_fields == false) {
+                                if (@field(value, Field.name) == null) {
+                                    emit_field = false;
+                                }
+                            }
+                        }
+
+                        if (emit_field) {
+                            if (!S.is_tuple) {
+                                try self.write(Field.name);
+                            }
+                            try self.write(@field(value, Field.name));
+                        }
+                    }
+                    if (S.is_tuple) {
+                        try self.endArray();
+                    } else {
+                        try self.endObject();
+                    }
+                    return;
+                },
+                .ErrorSet => return self.write(@as([]const u8, @errorName(value))),
+                .Pointer => |ptr_info| switch (ptr_info.size) {
+                    .One => switch (@typeInfo(ptr_info.child)) {
+                        .Array => {
+                            const Slice = []const std.meta.Elem(ptr_info.child);
+                            return self.write(@as(Slice, value));
+                        },
+                        else => {
+                            // TODO: avoid loops?
+                            return self.write(value.*);
+                        },
+                    },
+                    .Many, .Slice => {
+                        if (ptr_info.size == .Many and ptr_info.sentinel == null)
+                            @compileError("unable to stringify type '" ++ @typeName(T) ++ "' without sentinel");
+                        const slice = if (ptr_info.size == .Many) std.mem.span(value) else value;
+
+                        if (ptr_info.child == u8 and self.options.string == .String and std.unicode.utf8ValidateSlice(slice)) {
+                            try self.stringValueStart();
+                            try encodeJsonString(slice, self.options, self.stream);
+                            self.valueDone();
+                            return;
+                        }
+
+                        try self.beginArray();
+                        for (slice) |x| {
+                            try self.write(x);
+                        }
+                        try self.endArray();
+                        return;
+                    },
+                    else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
+                },
+                .Array => return self.write(&value),
+                .Vector => |info| {
+                    const array: [info.len]info.child = value;
+                    return self.write(&array);
+                },
+                else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
+            }
+            unreachable;
         }
 
         pub const arrayElem = @compileError("Deprecated; You don't need to call this anymore.");
-        pub const objectField = @compileError("Deprecated; Call emitString() for object keys instead.");
+        pub const objectField = @compileError("Deprecated; Call write() for object keys instead.");
+        pub const emitNull = @compileError("Deprecated; Use .write(null) instead.");
+        pub const emitBool = @compileError("Deprecated; Use .write() instead.");
+        pub const emitNumber = @compileError("Deprecated; Use .write() instead.");
+        pub const emitString = @compileError("Deprecated; Use .write() instead.");
+        pub const emitJson = @compileError("Deprecated; Use .write() instead.");
     };
 }
 
@@ -255,64 +376,6 @@ pub fn writeStream(
     return WriteStream(@TypeOf(out_stream), max_depth).init(out_stream);
 }
 
-const ObjectMap = @import("./dynamic.zig").ObjectMap;
-
-test "json write stream" {
-    var out_buf: [1024]u8 = undefined;
-    var slice_stream = std.io.fixedBufferStream(&out_buf);
-    const out = slice_stream.writer();
-
-    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_allocator.deinit();
-
-    var w = writeStream(out, 10);
-
-    try w.beginObject();
-
-    try w.emitString("object");
-    try w.emitJson(try getJsonObject(arena_allocator.allocator()));
-
-    try w.emitString("string");
-    try w.emitString("This is a string");
-
-    try w.emitString("array");
-    try w.beginArray();
-    try w.emitString("Another string");
-    try w.emitNumber(@as(i32, 1));
-    try w.emitNumber(@as(f32, 3.5));
-    try w.endArray();
-
-    try w.emitString("int");
-    try w.emitNumber(@as(i32, 10));
-
-    try w.emitString("float");
-    try w.emitNumber(@as(f32, 3.5));
-
-    try w.endObject();
-
-    const result = slice_stream.getWritten();
-    const expected =
-        \\{
-        \\ "object": {
-        \\  "one": 1,
-        \\  "two": 2.0e+00
-        \\ },
-        \\ "string": "This is a string",
-        \\ "array": [
-        \\  "Another string",
-        \\  1,
-        \\  3.5e+00
-        \\ ],
-        \\ "int": 10,
-        \\ "float": 3.5e+00
-        \\}
-    ;
-    try std.testing.expect(std.mem.eql(u8, expected, result));
-}
-
-fn getJsonObject(allocator: std.mem.Allocator) !Value {
-    var value = Value{ .object = ObjectMap.init(allocator) };
-    try value.object.put("one", Value{ .integer = @as(i64, @intCast(1)) });
-    try value.object.put("two", Value{ .float = 2.0 });
-    return value;
+test {
+    _ = @import("write_stream_test.zig");
 }
