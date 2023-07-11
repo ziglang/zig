@@ -533,15 +533,6 @@ const DataLayoutBuilder = struct {
     }
 };
 
-/// TODO can this be done with simpler logic / different API binding?
-fn deleteLlvmGlobal(llvm_global: *llvm.Value) void {
-    if (llvm_global.globalGetValueType().getTypeKind() == .Function) {
-        llvm_global.deleteFunction();
-        return;
-    }
-    return llvm_global.deleteGlobal();
-}
-
 pub const Object = struct {
     gpa: Allocator,
     builder: Builder,
@@ -818,7 +809,7 @@ pub const Object = struct {
                 .init = str_init,
             };
             try o.builder.llvm.globals.append(o.gpa, str_global);
-            const str_global_index = try o.builder.addGlobal(.none, global);
+            const str_global_index = try o.builder.addGlobal(.empty, global);
             try o.builder.variables.append(o.gpa, variable);
 
             llvm_error.* = try o.builder.structConst(llvm_slice_ty, &.{
@@ -848,7 +839,7 @@ pub const Object = struct {
             .init = error_name_table_init,
         };
         try o.builder.llvm.globals.append(o.gpa, error_name_table_global);
-        _ = try o.builder.addGlobal(.none, global);
+        _ = try o.builder.addGlobal(.empty, global);
         try o.builder.variables.append(o.gpa, variable);
 
         const error_name_table_ptr = error_name_table_global;
@@ -904,35 +895,27 @@ pub const Object = struct {
         // This map has externs with incorrect symbol names.
         for (object.extern_collisions.keys()) |decl_index| {
             const global = object.decl_map.get(decl_index) orelse continue;
-            const llvm_global = global.toLlvm(&object.builder);
             // Same logic as below but for externs instead of exports.
             const decl_name = object.builder.stringIfExists(mod.intern_pool.stringToSlice(mod.declPtr(decl_index).name)) orelse continue;
             const other_global = object.builder.getGlobal(decl_name) orelse continue;
-            const other_llvm_global = other_global.toLlvm(&object.builder);
-            if (other_llvm_global == llvm_global) continue;
+            if (other_global.eql(global, &object.builder)) continue;
 
-            llvm_global.replaceAllUsesWith(other_llvm_global);
-            deleteLlvmGlobal(llvm_global);
-            object.builder.llvm.globals.items[@intFromEnum(global)] = other_llvm_global;
+            try global.replace(other_global, &object.builder);
         }
         object.extern_collisions.clearRetainingCapacity();
 
         for (mod.decl_exports.keys(), mod.decl_exports.values()) |decl_index, export_list| {
             const global = object.decl_map.get(decl_index) orelse continue;
-            const llvm_global = global.toLlvm(&object.builder);
             for (export_list.items) |exp| {
                 // Detect if the LLVM global has already been created as an extern. In such
                 // case, we need to replace all uses of it with this exported global.
                 const exp_name = object.builder.stringIfExists(mod.intern_pool.stringToSlice(exp.opts.name)) orelse continue;
 
                 const other_global = object.builder.getGlobal(exp_name) orelse continue;
-                const other_llvm_global = other_global.toLlvm(&object.builder);
-                if (other_llvm_global == llvm_global) continue;
+                if (other_global.eql(global, &object.builder)) continue;
 
-                other_llvm_global.replaceAllUsesWith(llvm_global);
-                try global.takeName(&object.builder, other_global);
-                deleteLlvmGlobal(other_llvm_global);
-                object.builder.llvm.globals.items[@intFromEnum(other_global)] = llvm_global;
+                try global.takeName(other_global, &object.builder);
+                try other_global.replace(global, &object.builder);
                 // Problem: now we need to replace in the decl_map that
                 // the extern decl index points to this new global. However we don't
                 // know the decl index.
@@ -1519,7 +1502,7 @@ pub const Object = struct {
                 }
             }
 
-            try global.rename(&self.builder, decl_name);
+            try global.rename(decl_name, &self.builder);
             global.ptr(&self.builder).unnamed_addr = .default;
             llvm_global.setUnnamedAddr(.False);
             global.ptr(&self.builder).linkage = .external;
@@ -1558,7 +1541,7 @@ pub const Object = struct {
             global.ptr(&self.builder).updateAttributes();
         } else if (exports.len != 0) {
             const exp_name = try self.builder.string(mod.intern_pool.stringToSlice(exports[0].opts.name));
-            try global.rename(&self.builder, exp_name);
+            try global.rename(exp_name, &self.builder);
             global.ptr(&self.builder).unnamed_addr = .default;
             llvm_global.setUnnamedAddr(.False);
             if (mod.wantDllExports()) {
@@ -1641,7 +1624,7 @@ pub const Object = struct {
             }
         } else {
             const fqn = try self.builder.string(mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod)));
-            try global.rename(&self.builder, fqn);
+            try global.rename(fqn, &self.builder);
             global.ptr(&self.builder).linkage = .internal;
             llvm_global.setLinkage(.Internal);
             if (mod.wantDllExports()) {
@@ -2738,7 +2721,7 @@ pub const Object = struct {
             .init = llvm_init,
         };
         try o.builder.llvm.globals.append(o.gpa, llvm_global);
-        _ = try o.builder.addGlobal(.none, global);
+        _ = try o.builder.addGlobal(.empty, global);
         try o.builder.variables.append(o.gpa, variable);
 
         const addrspace_casted_global = if (llvm_wanted_addrspace != llvm_actual_addrspace)
@@ -4473,8 +4456,8 @@ pub const DeclGen = struct {
             _ = try o.resolveLlvmFunction(extern_func.decl);
         } else {
             const target = mod.getTarget();
-            const object = try o.resolveGlobalDecl(decl_index);
-            const global = object.ptrConst(&o.builder).global;
+            const variable = try o.resolveGlobalDecl(decl_index);
+            const global = variable.ptrConst(&o.builder).global;
             var llvm_global = global.toLlvm(&o.builder);
             global.ptr(&o.builder).alignment = Builder.Alignment.fromByteUnits(decl.getAlignment(mod));
             llvm_global.setAlignment(decl.getAlignment(mod));
@@ -4483,18 +4466,18 @@ pub const DeclGen = struct {
                 llvm_global.setSection(section);
             }
             assert(decl.has_tv);
-            const init_val = if (decl.val.getVariable(mod)) |decl_var| init_val: {
-                object.ptr(&o.builder).mutability = .global;
-                break :init_val decl_var.init;
-            } else init_val: {
-                object.ptr(&o.builder).mutability = .constant;
+            const init_val = if (decl.val.getVariable(mod)) |decl_var| decl_var.init else init_val: {
+                variable.ptr(&o.builder).mutability = .constant;
                 llvm_global.setGlobalConstant(.True);
                 break :init_val decl.val.toIntern();
             };
             if (init_val != .none) {
                 const llvm_init = try o.lowerValue(init_val);
+                const llvm_init_ty = llvm_init.typeOf(&o.builder);
+                global.ptr(&o.builder).type = llvm_init_ty;
+                variable.ptr(&o.builder).mutability = .global;
+                variable.ptr(&o.builder).init = llvm_init;
                 if (llvm_global.globalGetValueType() == llvm_init.typeOf(&o.builder).toLlvm(&o.builder)) {
-                    object.ptr(&o.builder).init = llvm_init;
                     llvm_global.setInitializer(llvm_init.toLlvm(&o.builder));
                 } else {
                     // LLVM does not allow us to change the type of globals. So we must
@@ -4512,7 +4495,7 @@ pub const DeclGen = struct {
                     // Related: https://github.com/ziglang/zig/issues/13265
                     const llvm_global_addrspace = toLlvmGlobalAddressSpace(decl.@"addrspace", target);
                     const new_global = o.llvm_module.addGlobalInAddressSpace(
-                        llvm_init.typeOf(&o.builder).toLlvm(&o.builder),
+                        llvm_init_ty.toLlvm(&o.builder),
                         "",
                         @intFromEnum(llvm_global_addrspace),
                     );
@@ -4525,7 +4508,7 @@ pub const DeclGen = struct {
                     // TODO: How should this work then the address space of a global changed?
                     llvm_global.replaceAllUsesWith(new_global);
                     new_global.takeName(llvm_global);
-                    o.builder.llvm.globals.items[@intFromEnum(object.ptrConst(&o.builder).global)] =
+                    o.builder.llvm.globals.items[@intFromEnum(variable.ptrConst(&o.builder).global)] =
                         new_global;
                     llvm_global.deleteGlobal();
                     llvm_global = new_global;
@@ -4672,7 +4655,7 @@ pub const FuncGen = struct {
             .init = llvm_val,
         };
         try o.builder.llvm.globals.append(o.gpa, llvm_global);
-        _ = try o.builder.addGlobal(.none, global);
+        _ = try o.builder.addGlobal(.empty, global);
         try o.builder.variables.append(o.gpa, variable);
 
         const addrspace_casted_ptr = if (llvm_actual_addrspace != llvm_wanted_addrspace)
@@ -9312,6 +9295,7 @@ pub const FuncGen = struct {
         };
         var function = Builder.Function{
             .global = @enumFromInt(o.builder.globals.count()),
+            .body = {},
         };
 
         const prev_block = self.builder.getInsertBlock();
@@ -9395,6 +9379,7 @@ pub const FuncGen = struct {
         };
         var function = Builder.Function{
             .global = @enumFromInt(o.builder.globals.count()),
+            .body = {},
         };
 
         const prev_block = self.builder.getInsertBlock();
@@ -9485,6 +9470,7 @@ pub const FuncGen = struct {
         };
         var function = Builder.Function{
             .global = @enumFromInt(o.builder.globals.count()),
+            .body = {},
         };
 
         try o.builder.llvm.globals.append(self.gpa, llvm_fn);

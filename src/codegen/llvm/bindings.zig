@@ -168,6 +168,66 @@ pub const Value = opaque {
     pub const setAliasee = LLVMAliasSetAliasee;
     extern fn LLVMAliasSetAliasee(Alias: *Value, Aliasee: *Value) void;
 
+    pub const constZExtOrBitCast = LLVMConstZExtOrBitCast;
+    extern fn LLVMConstZExtOrBitCast(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constNeg = LLVMConstNeg;
+    extern fn LLVMConstNeg(ConstantVal: *Value) *Value;
+
+    pub const constNSWNeg = LLVMConstNSWNeg;
+    extern fn LLVMConstNSWNeg(ConstantVal: *Value) *Value;
+
+    pub const constNUWNeg = LLVMConstNUWNeg;
+    extern fn LLVMConstNUWNeg(ConstantVal: *Value) *Value;
+
+    pub const constNot = LLVMConstNot;
+    extern fn LLVMConstNot(ConstantVal: *Value) *Value;
+
+    pub const constAdd = LLVMConstAdd;
+    extern fn LLVMConstAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNSWAdd = LLVMConstNSWAdd;
+    extern fn LLVMConstNSWAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNUWAdd = LLVMConstNUWAdd;
+    extern fn LLVMConstNUWAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constSub = LLVMConstSub;
+    extern fn LLVMConstSub(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNSWSub = LLVMConstNSWSub;
+    extern fn LLVMConstNSWSub(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNUWSub = LLVMConstNUWSub;
+    extern fn LLVMConstNUWSub(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constMul = LLVMConstMul;
+    extern fn LLVMConstMul(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNSWMul = LLVMConstNSWMul;
+    extern fn LLVMConstNSWMul(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNUWMul = LLVMConstNUWMul;
+    extern fn LLVMConstNUWMul(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constAnd = LLVMConstAnd;
+    extern fn LLVMConstAnd(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constOr = LLVMConstOr;
+    extern fn LLVMConstOr(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constXor = LLVMConstXor;
+    extern fn LLVMConstXor(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constShl = LLVMConstShl;
+    extern fn LLVMConstShl(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constLShr = LLVMConstLShr;
+    extern fn LLVMConstLShr(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constAShr = LLVMConstAShr;
+    extern fn LLVMConstAShr(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
     pub const constTrunc = LLVMConstTrunc;
     extern fn LLVMConstTrunc(ConstantVal: *Value, ToType: *Type) *Value;
 
@@ -204,41 +264,35 @@ pub const Value = opaque {
     pub const constBitCast = LLVMConstBitCast;
     extern fn LLVMConstBitCast(ConstantVal: *Value, ToType: *Type) *Value;
 
-    pub const constZExtOrBitCast = LLVMConstZExtOrBitCast;
-    extern fn LLVMConstZExtOrBitCast(ConstantVal: *Value, ToType: *Type) *Value;
-
-    pub const constNot = LLVMConstNot;
-    extern fn LLVMConstNot(ConstantVal: *Value) *Value;
-
-    pub const constAdd = LLVMConstAdd;
-    extern fn LLVMConstAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
-    pub const constSub = LLVMConstSub;
-    extern fn LLVMConstSub(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
-    pub const constMul = LLVMConstMul;
-    extern fn LLVMConstMul(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
-    pub const constAnd = LLVMConstAnd;
-    extern fn LLVMConstAnd(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
-    pub const constOr = LLVMConstOr;
-    extern fn LLVMConstOr(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
-    pub const constXor = LLVMConstXor;
-    extern fn LLVMConstXor(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
-    pub const constShl = LLVMConstShl;
-    extern fn LLVMConstShl(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
-    pub const constLShr = LLVMConstLShr;
-    extern fn LLVMConstLShr(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
-    pub const constAShr = LLVMConstAShr;
-    extern fn LLVMConstAShr(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
     pub const constAddrSpaceCast = LLVMConstAddrSpaceCast;
     extern fn LLVMConstAddrSpaceCast(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constSelect = LLVMConstSelect;
+    extern fn LLVMConstSelect(
+        ConstantCondition: *Value,
+        ConstantIfTrue: *Value,
+        ConstantIfFalse: *Value,
+    ) *Value;
+
+    pub const constExtractElement = LLVMConstExtractElement;
+    extern fn LLVMConstExtractElement(VectorConstant: *Value, IndexConstant: *Value) *Value;
+
+    pub const constInsertElement = LLVMConstInsertElement;
+    extern fn LLVMConstInsertElement(
+        VectorConstant: *Value,
+        ElementValueConstant: *Value,
+        IndexConstant: *Value,
+    ) *Value;
+
+    pub const constShuffleVector = LLVMConstShuffleVector;
+    extern fn LLVMConstShuffleVector(
+        VectorAConstant: *Value,
+        VectorBConstant: *Value,
+        MaskConstant: *Value,
+    ) *Value;
+
+    pub const blockAddress = LLVMBlockAddress;
+    extern fn LLVMBlockAddress(F: *Value, BB: *BasicBlock) *Value;
 
     pub const setWeak = LLVMSetWeak;
     extern fn LLVMSetWeak(CmpXchgInst: *Value, IsWeak: Bool) void;
@@ -322,9 +376,6 @@ pub const Value = opaque {
 
     pub const attachMetaData = ZigLLVMAttachMetaData;
     extern fn ZigLLVMAttachMetaData(GlobalVar: *Value, DIG: *DIGlobalVariableExpression) void;
-
-    pub const blockAddress = LLVMBlockAddress;
-    extern fn LLVMBlockAddress(F: *Value, BB: *BasicBlock) *Value;
 
     pub const dump = LLVMDumpValue;
     extern fn LLVMDumpValue(Val: *Value) void;
@@ -522,14 +573,17 @@ pub const VerifierFailureAction = enum(c_int) {
     ReturnStatus,
 };
 
-pub const constNeg = LLVMConstNeg;
-extern fn LLVMConstNeg(ConstantVal: *Value) *Value;
-
 pub const constVector = LLVMConstVector;
 extern fn LLVMConstVector(
     ScalarConstantVals: [*]*Value,
     Size: c_uint,
 ) *Value;
+
+pub const constICmp = LLVMConstICmp;
+extern fn LLVMConstICmp(Predicate: IntPredicate, LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+pub const constFCmp = LLVMConstFCmp;
+extern fn LLVMConstFCmp(Predicate: RealPredicate, LHSConstant: *Value, RHSConstant: *Value) *Value;
 
 pub const getEnumAttributeKindForName = LLVMGetEnumAttributeKindForName;
 extern fn LLVMGetEnumAttributeKindForName(Name: [*]const u8, SLen: usize) c_uint;

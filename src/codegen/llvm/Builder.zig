@@ -29,6 +29,7 @@ type_extra: std.ArrayListUnmanaged(u32) = .{},
 
 globals: std.AutoArrayHashMapUnmanaged(String, Global) = .{},
 next_unnamed_global: String = @enumFromInt(0),
+next_replaced_global: String = .none,
 next_unique_global_id: std.AutoHashMapUnmanaged(String, u32) = .{},
 aliases: std.ArrayListUnmanaged(Alias) = .{},
 variables: std.ArrayListUnmanaged(Variable) = .{},
@@ -54,6 +55,11 @@ pub const String = enum(u32) {
     none = std.math.maxInt(u31),
     empty,
     _,
+
+    pub fn isAnon(self: String) bool {
+        assert(self != .none);
+        return self.toIndex() == null;
+    }
 
     pub fn toSlice(self: String, b: *const Builder) ?[:0]const u8 {
         const index = self.toIndex() orelse return null;
@@ -743,18 +749,36 @@ pub const Global = struct {
         alias: Alias.Index,
         variable: Variable.Index,
         function: Function.Index,
+        replaced: Global.Index,
     },
 
     pub const Index = enum(u32) {
         none = std.math.maxInt(u32),
         _,
 
+        pub fn unwrap(self: Index, builder: *const Builder) Index {
+            var cur = self;
+            while (true) {
+                const replacement = cur.getReplacement(builder);
+                if (replacement == .none) return cur;
+                cur = replacement;
+            }
+        }
+
+        pub fn eql(self: Index, other: Index, builder: *const Builder) bool {
+            return self.unwrap(builder) == other.unwrap(builder);
+        }
+
+        pub fn name(self: Index, builder: *const Builder) String {
+            return builder.globals.keys()[@intFromEnum(self.unwrap(builder))];
+        }
+
         pub fn ptr(self: Index, builder: *Builder) *Global {
-            return &builder.globals.values()[@intFromEnum(self)];
+            return &builder.globals.values()[@intFromEnum(self.unwrap(builder))];
         }
 
         pub fn ptrConst(self: Index, builder: *const Builder) *const Global {
-            return &builder.globals.values()[@intFromEnum(self)];
+            return &builder.globals.values()[@intFromEnum(self.unwrap(builder))];
         }
 
         pub fn toConst(self: Index) Constant {
@@ -763,7 +787,7 @@ pub const Global = struct {
 
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
             assert(builder.useLibLlvm());
-            return builder.llvm.globals.items[@intFromEnum(self)];
+            return builder.llvm.globals.items[@intFromEnum(self.unwrap(builder))];
         }
 
         const FormatData = struct {
@@ -777,44 +801,80 @@ pub const Global = struct {
             writer: anytype,
         ) @TypeOf(writer).Error!void {
             try writer.print("@{}", .{
-                data.builder.globals.keys()[@intFromEnum(data.global)].fmt(data.builder),
+                data.global.unwrap(data.builder).name(data.builder).fmt(data.builder),
             });
         }
         pub fn fmt(self: Index, builder: *const Builder) std.fmt.Formatter(format) {
             return .{ .data = .{ .global = self, .builder = builder } };
         }
 
-        pub fn rename(self: Index, builder: *Builder, name: String) Allocator.Error!void {
-            try builder.ensureUnusedCapacityGlobal(name);
-            self.renameAssumeCapacity(builder, name);
+        pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
+            try builder.ensureUnusedCapacityGlobal(new_name);
+            self.renameAssumeCapacity(new_name, builder);
         }
 
-        pub fn renameAssumeCapacity(self: Index, builder: *Builder, name: String) void {
-            const index = @intFromEnum(self);
-            if (builder.globals.keys()[index] == name) return;
-            if (builder.useLibLlvm()) builder.llvm.globals.appendAssumeCapacity(builder.llvm.globals.items[index]);
-            _ = builder.addGlobalAssumeCapacity(name, builder.globals.values()[index]);
+        pub fn takeName(self: Index, other: Index, builder: *Builder) Allocator.Error!void {
+            try builder.ensureUnusedCapacityGlobal(.empty);
+            self.takeNameAssumeCapacity(other, builder);
+        }
+
+        pub fn replace(self: Index, other: Index, builder: *Builder) Allocator.Error!void {
+            try builder.ensureUnusedCapacityGlobal(.empty);
+            self.replaceAssumeCapacity(other, builder);
+        }
+
+        fn renameAssumeCapacity(self: Index, new_name: String, builder: *Builder) void {
+            const old_name = self.name(builder);
+            if (new_name == old_name) return;
+            const index = @intFromEnum(self.unwrap(builder));
+            if (builder.useLibLlvm())
+                builder.llvm.globals.appendAssumeCapacity(builder.llvm.globals.items[index]);
+            _ = builder.addGlobalAssumeCapacity(new_name, builder.globals.values()[index]);
             if (builder.useLibLlvm()) _ = builder.llvm.globals.pop();
             builder.globals.swapRemoveAt(index);
             self.updateName(builder);
+            if (!old_name.isAnon()) return;
+            builder.next_unnamed_global = @enumFromInt(@intFromEnum(builder.next_unnamed_global) - 1);
+            if (builder.next_unnamed_global == old_name) return;
+            builder.getGlobal(builder.next_unnamed_global).?.renameAssumeCapacity(old_name, builder);
         }
 
-        pub fn takeName(self: Index, builder: *Builder, other: Index) Allocator.Error!void {
-            try builder.ensureUnusedCapacityGlobal(.empty);
-            self.takeNameAssumeCapacity(builder, other);
-        }
-
-        pub fn takeNameAssumeCapacity(self: Index, builder: *Builder, other: Index) void {
-            const other_name = builder.globals.keys()[@intFromEnum(other)];
-            other.renameAssumeCapacity(builder, .none);
-            self.renameAssumeCapacity(builder, other_name);
+        fn takeNameAssumeCapacity(self: Index, other: Index, builder: *Builder) void {
+            const other_name = other.name(builder);
+            other.renameAssumeCapacity(.empty, builder);
+            self.renameAssumeCapacity(other_name, builder);
         }
 
         fn updateName(self: Index, builder: *const Builder) void {
             if (!builder.useLibLlvm()) return;
-            const index = @intFromEnum(self);
-            const slice = builder.globals.keys()[index].toSlice(builder) orelse "";
-            builder.llvm.globals.items[index].setValueName2(slice.ptr, slice.len);
+            const index = @intFromEnum(self.unwrap(builder));
+            const name_slice = self.name(builder).toSlice(builder) orelse "";
+            builder.llvm.globals.items[index].setValueName2(name_slice.ptr, name_slice.len);
+        }
+
+        fn replaceAssumeCapacity(self: Index, other: Index, builder: *Builder) void {
+            if (self.eql(other, builder)) return;
+            builder.next_replaced_global = @enumFromInt(@intFromEnum(builder.next_replaced_global) - 1);
+            self.renameAssumeCapacity(builder.next_replaced_global, builder);
+            if (builder.useLibLlvm()) {
+                const self_llvm = self.toLlvm(builder);
+                self_llvm.replaceAllUsesWith(other.toLlvm(builder));
+                switch (self.ptr(builder).kind) {
+                    .alias,
+                    .variable,
+                    => self_llvm.deleteGlobal(),
+                    .function => self_llvm.deleteFunction(),
+                    .replaced => unreachable,
+                }
+            }
+            self.ptr(builder).kind = .{ .replaced = other.unwrap(builder) };
+        }
+
+        fn getReplacement(self: Index, builder: *const Builder) Index {
+            return switch (builder.globals.values()[@intFromEnum(self)].kind) {
+                .replaced => |replacement| replacement,
+                else => .none,
+            };
         }
     };
 
@@ -1014,8 +1074,14 @@ pub const Constant = enum(u32) {
         insertelement,
         shufflevector,
         add,
+        @"add nsw",
+        @"add nuw",
         sub,
+        @"sub nsw",
+        @"sub nuw",
         mul,
+        @"mul nsw",
+        @"mul nuw",
         shl,
         lshr,
         ashr,
@@ -1084,24 +1150,24 @@ pub const Constant = enum(u32) {
         pub const Kind = enum { normal, inbounds };
     };
 
-    pub const Compare = struct {
+    pub const Compare = extern struct {
         cond: u32,
         lhs: Constant,
         rhs: Constant,
     };
 
-    pub const ExtractElement = struct {
+    pub const ExtractElement = extern struct {
         arg: Constant,
         index: Constant,
     };
 
-    pub const InsertElement = struct {
+    pub const InsertElement = extern struct {
         arg: Constant,
         elem: Constant,
         index: Constant,
     };
 
-    pub const ShuffleVector = struct {
+    pub const ShuffleVector = extern struct {
         lhs: Constant,
         rhs: Constant,
         mask: Constant,
@@ -1243,8 +1309,14 @@ pub const Constant = enum(u32) {
                         };
                     },
                     .add,
+                    .@"add nsw",
+                    .@"add nuw",
                     .sub,
+                    .@"sub nsw",
+                    .@"sub nuw",
                     .mul,
+                    .@"mul nsw",
+                    .@"mul nuw",
                     .shl,
                     .lshr,
                     .ashr,
@@ -1326,14 +1398,14 @@ pub const Constant = enum(u32) {
                 switch (item.tag) {
                     .positive_integer,
                     .negative_integer,
-                    => {
+                    => |tag| {
                         const extra: *align(@alignOf(std.math.big.Limb)) Integer =
                             @ptrCast(data.builder.constant_limbs.items[item.data..][0..Integer.limbs]);
                         const limbs = data.builder.constant_limbs
                             .items[item.data + Integer.limbs ..][0..extra.limbs_len];
                         const bigint = std.math.big.int.Const{
                             .limbs = limbs,
-                            .positive = item.tag == .positive_integer,
+                            .positive = tag == .positive_integer,
                         };
                         const ExpectedContents = extern struct {
                             string: [(64 * 8 / std.math.log2(10)) + 2]u8,
@@ -1352,23 +1424,63 @@ pub const Constant = enum(u32) {
                         defer allocator.free(str);
                         try writer.writeAll(str);
                     },
+                    .half,
+                    .bfloat,
+                    => |tag| try writer.print("0x{c}{X:0>4}", .{ @as(u8, switch (tag) {
+                        .half => 'H',
+                        .bfloat => 'R',
+                        else => unreachable,
+                    }), item.data >> switch (tag) {
+                        .half => 0,
+                        .bfloat => 16,
+                        else => unreachable,
+                    } }),
+                    .float => try writer.print("0x{X:0>16}", .{
+                        @as(u64, @bitCast(@as(f64, @as(f32, @bitCast(item.data))))),
+                    }),
+                    .double => {
+                        const extra = data.builder.constantExtraData(Double, item.data);
+                        try writer.print("0x{X:0>8}{X:0>8}", .{ extra.hi, extra.lo });
+                    },
+                    .fp128,
+                    .ppc_fp128,
+                    => |tag| {
+                        const extra = data.builder.constantExtraData(Fp128, item.data);
+                        try writer.print("0x{c}{X:0>8}{X:0>8}{X:0>8}{X:0>8}", .{
+                            @as(u8, switch (tag) {
+                                .fp128 => 'L',
+                                .ppc_fp128 => 'M',
+                                else => unreachable,
+                            }),
+                            extra.lo_hi,
+                            extra.lo_lo,
+                            extra.hi_hi,
+                            extra.hi_lo,
+                        });
+                    },
+                    .x86_fp80 => {
+                        const extra = data.builder.constantExtraData(Fp80, item.data);
+                        try writer.print("0xK{X:0>4}{X:0>8}{X:0>8}", .{
+                            extra.hi, extra.lo_hi, extra.lo_lo,
+                        });
+                    },
                     .null,
                     .none,
                     .zeroinitializer,
                     .undef,
                     .poison,
-                    => try writer.writeAll(@tagName(item.tag)),
+                    => |tag| try writer.writeAll(@tagName(tag)),
                     .structure,
                     .packed_structure,
                     .array,
                     .vector,
-                    => {
+                    => |tag| {
                         const extra = data.builder.constantExtraDataTrail(Aggregate, item.data);
                         const len = extra.data.type.aggregateLen(data.builder);
                         const vals: []const Constant =
                             @ptrCast(data.builder.constant_extra.items[extra.end..][0..len]);
 
-                        try writer.writeAll(switch (item.tag) {
+                        try writer.writeAll(switch (tag) {
                             .structure => "{ ",
                             .packed_structure => "<{ ",
                             .array => "[",
@@ -1379,7 +1491,7 @@ pub const Constant = enum(u32) {
                             if (index > 0) try writer.writeAll(", ");
                             try writer.print("{%}", .{val.fmt(data.builder)});
                         }
-                        try writer.writeAll(switch (item.tag) {
+                        try writer.writeAll(switch (tag) {
                             .structure => " }",
                             .packed_structure => " }>",
                             .array => "]",
@@ -1387,33 +1499,130 @@ pub const Constant = enum(u32) {
                             else => unreachable,
                         });
                     },
-                    .string => try writer.print(
-                        \\c{"}
-                    , .{@as(String, @enumFromInt(item.data)).fmt(data.builder)}),
-                    .string_null => try writer.print(
-                        \\c{"@}
-                    , .{@as(String, @enumFromInt(item.data)).fmt(data.builder)}),
-                    .blockaddress => {
+                    inline .string,
+                    .string_null,
+                    => |tag| try writer.print("c{\"" ++ switch (tag) {
+                        .string => "",
+                        .string_null => "@",
+                        else => unreachable,
+                    } ++ "}", .{@as(String, @enumFromInt(item.data)).fmt(data.builder)}),
+                    .blockaddress => |tag| {
                         const extra = data.builder.constantExtraData(BlockAddress, item.data);
                         const function = extra.function.ptrConst(data.builder);
                         try writer.print("{s}({}, %{d})", .{
-                            @tagName(item.tag),
+                            @tagName(tag),
                             function.global.fmt(data.builder),
                             @intFromEnum(extra.block), // TODO
                         });
                     },
                     .dso_local_equivalent,
                     .no_cfi,
-                    => {
+                    => |tag| {
                         const extra = data.builder.constantExtraData(FunctionReference, item.data);
                         try writer.print("{s} {}", .{
-                            @tagName(item.tag),
+                            @tagName(tag),
                             extra.function.ptrConst(data.builder).global.fmt(data.builder),
                         });
                     },
-                    else => try writer.print("<{s}:0x{X}>", .{
-                        @tagName(item.tag), @intFromEnum(data.constant),
-                    }),
+                    .trunc,
+                    .zext,
+                    .sext,
+                    .fptrunc,
+                    .fpext,
+                    .fptoui,
+                    .fptosi,
+                    .uitofp,
+                    .sitofp,
+                    .ptrtoint,
+                    .inttoptr,
+                    .bitcast,
+                    .addrspacecast,
+                    => |tag| {
+                        const extra = data.builder.constantExtraData(Cast, item.data);
+                        try writer.print("{s} ({%} to {%})", .{
+                            @tagName(tag),
+                            extra.arg.fmt(data.builder),
+                            extra.type.fmt(data.builder),
+                        });
+                    },
+                    .getelementptr,
+                    .@"getelementptr inbounds",
+                    => |tag| {
+                        const extra = data.builder.constantExtraDataTrail(GetElementPtr, item.data);
+                        const indices: []const Constant = @ptrCast(data.builder.constant_extra
+                            .items[extra.end..][0..extra.data.indices_len]);
+                        try writer.print("{s} ({%}, {%}", .{
+                            @tagName(tag),
+                            extra.data.type.fmt(data.builder),
+                            extra.data.base.fmt(data.builder),
+                        });
+                        for (indices) |index| try writer.print(", {%}", .{index.fmt(data.builder)});
+                        try writer.writeByte(')');
+                    },
+                    inline .icmp,
+                    .fcmp,
+                    => |tag| {
+                        const extra = data.builder.constantExtraData(Compare, item.data);
+                        try writer.print("{s} {s} ({%}, {%})", .{
+                            @tagName(tag),
+                            @tagName(@as(switch (tag) {
+                                .icmp => IntegerCondition,
+                                .fcmp => FloatCondition,
+                                else => unreachable,
+                            }, @enumFromInt(extra.cond))),
+                            extra.lhs.fmt(data.builder),
+                            extra.rhs.fmt(data.builder),
+                        });
+                    },
+                    .extractelement => |tag| {
+                        const extra = data.builder.constantExtraData(ExtractElement, item.data);
+                        try writer.print("{s} ({%}, {%})", .{
+                            @tagName(tag),
+                            extra.arg.fmt(data.builder),
+                            extra.index.fmt(data.builder),
+                        });
+                    },
+                    .insertelement => |tag| {
+                        const extra = data.builder.constantExtraData(InsertElement, item.data);
+                        try writer.print("{s} ({%}, {%}, {%})", .{
+                            @tagName(tag),
+                            extra.arg.fmt(data.builder),
+                            extra.elem.fmt(data.builder),
+                            extra.index.fmt(data.builder),
+                        });
+                    },
+                    .shufflevector => |tag| {
+                        const extra = data.builder.constantExtraData(ShuffleVector, item.data);
+                        try writer.print("{s} ({%}, {%}, {%})", .{
+                            @tagName(tag),
+                            extra.lhs.fmt(data.builder),
+                            extra.rhs.fmt(data.builder),
+                            extra.mask.fmt(data.builder),
+                        });
+                    },
+                    .add,
+                    .@"add nsw",
+                    .@"add nuw",
+                    .sub,
+                    .@"sub nsw",
+                    .@"sub nuw",
+                    .mul,
+                    .@"mul nsw",
+                    .@"mul nuw",
+                    .shl,
+                    .lshr,
+                    .ashr,
+                    .@"and",
+                    .@"or",
+                    .xor,
+                    => |tag| {
+                        const extra = data.builder.constantExtraData(Binary, item.data);
+                        try writer.print("{s} ({%}, {%})", .{
+                            @tagName(tag),
+                            extra.lhs.fmt(data.builder),
+                            extra.rhs.fmt(data.builder),
+                        });
+                    },
                 }
             },
             .global => |global| try writer.print("{}", .{global.fmt(data.builder)}),
@@ -1882,6 +2091,7 @@ pub fn namedTypeSetBody(
 }
 
 pub fn addGlobal(self: *Builder, name: String, global: Global) Allocator.Error!Global.Index {
+    assert(!name.isAnon());
     try self.ensureUnusedTypeCapacity(1, null, 0);
     try self.ensureUnusedCapacityGlobal(name);
     return self.addGlobalAssumeCapacity(name, global);
@@ -1890,9 +2100,10 @@ pub fn addGlobal(self: *Builder, name: String, global: Global) Allocator.Error!G
 pub fn addGlobalAssumeCapacity(self: *Builder, name: String, global: Global) Global.Index {
     _ = self.ptrTypeAssumeCapacity(global.addr_space);
     var id = name;
-    if (id == .none) {
+    if (name == .empty) {
         id = self.next_unnamed_global;
-        self.next_unnamed_global = @enumFromInt(@intFromEnum(self.next_unnamed_global) + 1);
+        assert(id != self.next_replaced_global);
+        self.next_unnamed_global = @enumFromInt(@intFromEnum(id) + 1);
     }
     while (true) {
         const global_gop = self.globals.getOrPutAssumeCapacity(id);
@@ -2136,7 +2347,7 @@ pub fn binConst(
     return self.binConstAssumeCapacity(tag, lhs, rhs);
 }
 
-pub fn dump(self: *Builder, writer: anytype) @TypeOf(writer).Error!void {
+pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator.Error)!void {
     if (self.source_filename != .none) try writer.print(
         \\; ModuleID = '{s}'
         \\source_filename = {"}
@@ -2157,7 +2368,8 @@ pub fn dump(self: *Builder, writer: anytype) @TypeOf(writer).Error!void {
     , .{ id.fmt(self), ty.fmt(self) });
     try writer.writeByte('\n');
     for (self.variables.items) |variable| {
-        const global = self.globals.values()[@intFromEnum(variable.global)];
+        if (variable.global.getReplacement(self) != .none) continue;
+        const global = variable.global.ptrConst(self);
         try writer.print(
             \\{} ={}{}{}{}{}{}{}{} {s} {%}{ }{,}
             \\
@@ -2179,7 +2391,8 @@ pub fn dump(self: *Builder, writer: anytype) @TypeOf(writer).Error!void {
     }
     try writer.writeByte('\n');
     for (self.functions.items) |function| {
-        const global = self.globals.values()[@intFromEnum(function.global)];
+        if (function.global.getReplacement(self) != .none) continue;
+        const global = function.global.ptrConst(self);
         const item = self.type_items.items[@intFromEnum(global.type)];
         const extra = self.typeExtraDataTrail(Type.Function, item.data);
         const params: []const Type =
@@ -2207,14 +2420,51 @@ pub fn dump(self: *Builder, writer: anytype) @TypeOf(writer).Error!void {
             },
             else => unreachable,
         }
-        try writer.print(") {}{}", .{ global.unnamed_addr, global.alignment });
-        if (function.body) |_| try writer.print(
-            \\{{
-            \\  ret {%}
-            \\}}
-            \\
-        , .{extra.data.ret.fmt(self)});
-        try writer.writeByte('\n');
+        try writer.print("){}{}", .{ global.unnamed_addr, global.alignment });
+        if (function.body) |_| {
+            try writer.writeAll(" {\n  ret ");
+            void: {
+                try writer.print("{%}", .{switch (extra.data.ret) {
+                    .void => |tag| {
+                        try writer.writeAll(@tagName(tag));
+                        break :void;
+                    },
+                    inline .half,
+                    .bfloat,
+                    .float,
+                    .double,
+                    .fp128,
+                    .x86_fp80,
+                    => |tag| try @field(Builder, @tagName(tag) ++ "Const")(self, 0.0),
+                    .ppc_fp128 => try self.ppc_fp128Const(.{ 0.0, 0.0 }),
+                    .x86_amx,
+                    .x86_mmx,
+                    .label,
+                    .metadata,
+                    => unreachable,
+                    .token => Constant.none,
+                    else => switch (extra.data.ret.tag(self)) {
+                        .simple,
+                        .function,
+                        .vararg_function,
+                        => unreachable,
+                        .integer => try self.intConst(extra.data.ret, 0),
+                        .pointer => try self.nullConst(extra.data.ret),
+                        .target,
+                        .vector,
+                        .scalable_vector,
+                        .small_array,
+                        .array,
+                        .structure,
+                        .packed_structure,
+                        .named_structure,
+                        => try self.zeroInitConst(extra.data.ret),
+                    },
+                }.fmt(self)});
+            }
+            try writer.writeAll("\n}");
+        }
+        try writer.writeAll("\n\n");
     }
 }
 
@@ -2497,11 +2747,11 @@ fn opaqueTypeAssumeCapacity(self: *Builder, name: String) Type {
         }
     };
     var id = name;
-    if (name == .none) {
+    if (name == .empty) {
         id = self.next_unnamed_type;
         assert(id != .none);
         self.next_unnamed_type = @enumFromInt(@intFromEnum(id) + 1);
-    } else assert(name.toIndex() != null);
+    } else assert(!name.isAnon());
     while (true) {
         const type_gop = self.types.getOrPutAssumeCapacity(id);
         if (!type_gop.found_existing) {
@@ -2783,8 +3033,8 @@ fn doubleConstAssumeCapacity(self: *Builder, val: f64) Constant {
         self.constant_items.appendAssumeCapacity(.{
             .tag = .double,
             .data = self.addConstantExtraAssumeCapacity(Constant.Double{
-                .lo = @intCast(@as(u64, @bitCast(val)) >> 32),
-                .hi = @truncate(@as(u64, @bitCast(val))),
+                .lo = @truncate(@as(u64, @bitCast(val))),
+                .hi = @intCast(@as(u64, @bitCast(val)) >> 32),
             }),
         });
         if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
@@ -3401,6 +3651,190 @@ fn gepConstAssumeCapacity(
     return @enumFromInt(gop.index);
 }
 
+fn icmpConstAssumeCapacity(
+    self: *Builder,
+    cond: IntegerCondition,
+    lhs: Constant,
+    rhs: Constant,
+) Constant {
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Constant.Compare) u32 {
+            return @truncate(std.hash.Wyhash.hash(
+                std.hash.uint32(@intFromEnum(Constant.tag.icmp)),
+                std.mem.asBytes(&key),
+            ));
+        }
+        pub fn eql(ctx: @This(), lhs_key: Constant.Compare, _: void, rhs_index: usize) bool {
+            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .icmp) return false;
+            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.constantExtraData(Constant.Compare, rhs_data);
+            return std.meta.eql(lhs_key, rhs_extra);
+        }
+    };
+    const data = Constant.Compare{ .cond = @intFromEnum(cond), .lhs = lhs, .rhs = rhs };
+    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.constant_items.appendAssumeCapacity(.{
+            .tag = .icmp,
+            .data = self.addConstantExtraAssumeCapacity(data),
+        });
+        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
+            llvm.constICmp(@enumFromInt(@intFromEnum(cond)), lhs.toLlvm(self), rhs.toLlvm(self)),
+        );
+    }
+    return @enumFromInt(gop.index);
+}
+
+fn fcmpConstAssumeCapacity(
+    self: *Builder,
+    cond: FloatCondition,
+    lhs: Constant,
+    rhs: Constant,
+) Constant {
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Constant.Compare) u32 {
+            return @truncate(std.hash.Wyhash.hash(
+                std.hash.uint32(@intFromEnum(Constant.tag.fcmp)),
+                std.mem.asBytes(&key),
+            ));
+        }
+        pub fn eql(ctx: @This(), lhs_key: Constant.Compare, _: void, rhs_index: usize) bool {
+            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .fcmp) return false;
+            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.constantExtraData(Constant.Compare, rhs_data);
+            return std.meta.eql(lhs_key, rhs_extra);
+        }
+    };
+    const data = Constant.Compare{ .cond = @intFromEnum(cond), .lhs = lhs, .rhs = rhs };
+    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.constant_items.appendAssumeCapacity(.{
+            .tag = .fcmp,
+            .data = self.addConstantExtraAssumeCapacity(data),
+        });
+        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
+            llvm.constFCmp(@enumFromInt(@intFromEnum(cond)), lhs.toLlvm(self), rhs.toLlvm(self)),
+        );
+    }
+    return @enumFromInt(gop.index);
+}
+
+fn extractElementConstAssumeCapacity(
+    self: *Builder,
+    arg: Constant,
+    index: Constant,
+) Constant {
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Constant.ExtractElement) u32 {
+            return @truncate(std.hash.Wyhash.hash(
+                comptime std.hash.uint32(@intFromEnum(Constant.Tag.extractelement)),
+                std.mem.asBytes(&key),
+            ));
+        }
+        pub fn eql(ctx: @This(), lhs_key: Constant.ExtractElement, _: void, rhs_index: usize) bool {
+            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .extractelement) return false;
+            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.constantExtraData(Constant.ExtractElement, rhs_data);
+            return std.meta.eql(lhs_key, rhs_extra);
+        }
+    };
+    const data = Constant.ExtractElement{ .arg = arg, .index = index };
+    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.constant_items.appendAssumeCapacity(.{
+            .tag = .extractelement,
+            .data = self.addConstantExtraAssumeCapacity(data),
+        });
+        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
+            arg.toLlvm(self).constExtractElement(index.toLlvm(self)),
+        );
+    }
+    return @enumFromInt(gop.index);
+}
+
+fn insertElementConstAssumeCapacity(
+    self: *Builder,
+    arg: Constant,
+    elem: Constant,
+    index: Constant,
+) Constant {
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Constant.InsertElement) u32 {
+            return @truncate(std.hash.Wyhash.hash(
+                comptime std.hash.uint32(@intFromEnum(Constant.Tag.insertelement)),
+                std.mem.asBytes(&key),
+            ));
+        }
+        pub fn eql(ctx: @This(), lhs_key: Constant.InsertElement, _: void, rhs_index: usize) bool {
+            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .insertelement) return false;
+            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.constantExtraData(Constant.InsertElement, rhs_data);
+            return std.meta.eql(lhs_key, rhs_extra);
+        }
+    };
+    const data = Constant.InsertElement{ .arg = arg, .elem = elem, .index = index };
+    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.constant_items.appendAssumeCapacity(.{
+            .tag = .insertelement,
+            .data = self.addConstantExtraAssumeCapacity(data),
+        });
+        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
+            arg.toLlvm(self).constInsertElement(elem.toLlvm(self), index.toLlvm(self)),
+        );
+    }
+    return @enumFromInt(gop.index);
+}
+
+fn shuffleVectorConstAssumeCapacity(
+    self: *Builder,
+    lhs: Constant,
+    rhs: Constant,
+    mask: Constant,
+) Constant {
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Constant.ShuffleVector) u32 {
+            return @truncate(std.hash.Wyhash.hash(
+                comptime std.hash.uint32(@intFromEnum(Constant.Tag.shufflevector)),
+                std.mem.asBytes(&key),
+            ));
+        }
+        pub fn eql(ctx: @This(), lhs_key: Constant.ShuffleVector, _: void, rhs_index: usize) bool {
+            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .shufflevector) return false;
+            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.constantExtraData(Constant.ShuffleVector, rhs_data);
+            return std.meta.eql(lhs_key, rhs_extra);
+        }
+    };
+    const data = Constant.ShuffleVector{ .lhs = lhs, .rhs = rhs, .mask = mask };
+    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.constant_items.appendAssumeCapacity(.{
+            .tag = .shufflevector,
+            .data = self.addConstantExtraAssumeCapacity(data),
+        });
+        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
+            lhs.toLlvm(self).constShuffleVector(rhs.toLlvm(self), mask.toLlvm(self)),
+        );
+    }
+    return @enumFromInt(gop.index);
+}
+
 fn binConstAssumeCapacity(
     self: *Builder,
     tag: Constant.Tag,
@@ -3408,7 +3842,22 @@ fn binConstAssumeCapacity(
     rhs: Constant,
 ) Constant {
     switch (tag) {
-        .add, .sub, .mul, .shl, .lshr, .ashr, .@"and", .@"or", .xor => {},
+        .add,
+        .@"add nsw",
+        .@"add nuw",
+        .sub,
+        .@"sub nsw",
+        .@"sub nuw",
+        .mul,
+        .@"mul nsw",
+        .@"mul nuw",
+        .shl,
+        .lshr,
+        .ashr,
+        .@"and",
+        .@"or",
+        .xor,
+        => {},
         else => unreachable,
     }
     const Key = struct { tag: Constant.Tag, bin: Constant.Binary };
