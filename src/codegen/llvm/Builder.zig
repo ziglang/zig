@@ -1,12 +1,16 @@
 gpa: Allocator,
 use_lib_llvm: bool,
 
-llvm_context: *llvm.Context,
-llvm_module: *llvm.Module,
-di_builder: ?*llvm.DIBuilder = null,
-llvm_types: std.ArrayListUnmanaged(*llvm.Type) = .{},
-llvm_globals: std.ArrayListUnmanaged(*llvm.Value) = .{},
-llvm_constants: std.ArrayListUnmanaged(*llvm.Value) = .{},
+llvm: if (build_options.have_llvm) struct {
+    context: *llvm.Context,
+    module: ?*llvm.Module = null,
+    target: ?*llvm.Target = null,
+    di_builder: ?*llvm.DIBuilder = null,
+    di_compile_unit: ?*llvm.DICompileUnit = null,
+    types: std.ArrayListUnmanaged(*llvm.Type) = .{},
+    globals: std.ArrayListUnmanaged(*llvm.Value) = .{},
+    constants: std.ArrayListUnmanaged(*llvm.Value) = .{},
+} else void,
 
 source_filename: String = .none,
 data_layout: String = .none,
@@ -37,6 +41,14 @@ constant_limbs: std.ArrayListUnmanaged(std.math.big.Limb) = .{},
 
 pub const expected_fields_len = 32;
 pub const expected_gep_indices_len = 8;
+
+pub const Options = struct {
+    allocator: Allocator,
+    use_lib_llvm: bool = false,
+    name: []const u8 = &.{},
+    target: std.Target = builtin.target,
+    triple: []const u8 = &.{},
+};
 
 pub const String = enum(u32) {
     none = std.math.maxInt(u31),
@@ -481,7 +493,7 @@ pub const Type = enum(u32) {
 
     pub fn toLlvm(self: Type, builder: *const Builder) *llvm.Type {
         assert(builder.useLibLlvm());
-        return builder.llvm_types.items[@intFromEnum(self)];
+        return builder.llvm.types.items[@intFromEnum(self)];
     }
 };
 
@@ -751,7 +763,7 @@ pub const Global = struct {
 
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
             assert(builder.useLibLlvm());
-            return builder.llvm_globals.items[@intFromEnum(self)];
+            return builder.llvm.globals.items[@intFromEnum(self)];
         }
 
         const FormatData = struct {
@@ -780,9 +792,9 @@ pub const Global = struct {
         pub fn renameAssumeCapacity(self: Index, builder: *Builder, name: String) void {
             const index = @intFromEnum(self);
             if (builder.globals.keys()[index] == name) return;
-            if (builder.useLibLlvm()) builder.llvm_globals.appendAssumeCapacity(builder.llvm_globals.items[index]);
+            if (builder.useLibLlvm()) builder.llvm.globals.appendAssumeCapacity(builder.llvm.globals.items[index]);
             _ = builder.addGlobalAssumeCapacity(name, builder.globals.values()[index]);
-            if (builder.useLibLlvm()) _ = builder.llvm_globals.pop();
+            if (builder.useLibLlvm()) _ = builder.llvm.globals.pop();
             builder.globals.swapRemoveAt(index);
             self.updateName(builder);
         }
@@ -802,7 +814,7 @@ pub const Global = struct {
             if (!builder.useLibLlvm()) return;
             const index = @intFromEnum(self);
             const slice = builder.globals.keys()[index].toSlice(builder) orelse "";
-            builder.llvm_globals.items[index].setValueName2(slice.ptr, slice.len);
+            builder.llvm.globals.items[index].setValueName2(slice.ptr, slice.len);
         }
     };
 
@@ -1414,7 +1426,7 @@ pub const Constant = enum(u32) {
     pub fn toLlvm(self: Constant, builder: *const Builder) *llvm.Value {
         assert(builder.useLibLlvm());
         return switch (self.unwrap()) {
-            .constant => |constant| builder.llvm_constants.items[constant],
+            .constant => |constant| builder.llvm.constants.items[constant],
             .global => |global| global.toLlvm(builder),
         };
     }
@@ -1436,26 +1448,70 @@ pub const Value = enum(u32) {
     }
 };
 
-pub fn init(self: *Builder) Allocator.Error!void {
+pub const InitError = error{
+    InvalidLlvmTriple,
+} || Allocator.Error;
+
+pub fn init(options: Options) InitError!Builder {
+    var self = Builder{
+        .gpa = options.allocator,
+        .use_lib_llvm = options.use_lib_llvm,
+        .llvm = undefined,
+    };
+    if (self.useLibLlvm()) self.llvm = .{ .context = llvm.Context.create() };
+    errdefer self.deinit();
+
     try self.string_indices.append(self.gpa, 0);
     assert(try self.string("") == .empty);
+
+    if (options.name.len > 0) self.source_filename = try self.string(options.name);
+    self.initializeLLVMTarget(options.target.cpu.arch);
+    if (self.useLibLlvm()) self.llvm.module = llvm.Module.createWithName(
+        (self.source_filename.toSlice(&self) orelse "").ptr,
+        self.llvm.context,
+    );
+
+    if (options.triple.len > 0) {
+        self.target_triple = try self.string(options.triple);
+
+        if (self.useLibLlvm()) {
+            var error_message: [*:0]const u8 = undefined;
+            var target: *llvm.Target = undefined;
+            if (llvm.Target.getFromTriple(
+                self.target_triple.toSlice(&self).?.ptr,
+                &target,
+                &error_message,
+            ).toBool()) {
+                defer llvm.disposeMessage(error_message);
+
+                log.err("LLVM failed to parse '{s}': {s}", .{
+                    self.target_triple.toSlice(&self).?,
+                    error_message,
+                });
+                return InitError.InvalidLlvmTriple;
+            }
+            self.llvm.target = target;
+            self.llvm.module.?.setTarget(self.target_triple.toSlice(&self).?.ptr);
+        }
+    }
 
     {
         const static_len = @typeInfo(Type).Enum.fields.len - 1;
         try self.type_map.ensureTotalCapacity(self.gpa, static_len);
         try self.type_items.ensureTotalCapacity(self.gpa, static_len);
-        if (self.useLibLlvm()) try self.llvm_types.ensureTotalCapacity(self.gpa, static_len);
+        if (self.useLibLlvm()) try self.llvm.types.ensureTotalCapacity(self.gpa, static_len);
         inline for (@typeInfo(Type.Simple).Enum.fields) |simple_field| {
             const result = self.getOrPutTypeNoExtraAssumeCapacity(
                 .{ .tag = .simple, .data = simple_field.value },
             );
             assert(result.new and result.type == @field(Type, simple_field.name));
-            if (self.useLibLlvm()) self.llvm_types.appendAssumeCapacity(
-                @field(llvm.Context, simple_field.name ++ "Type")(self.llvm_context),
+            if (self.useLibLlvm()) self.llvm.types.appendAssumeCapacity(
+                @field(llvm.Context, simple_field.name ++ "Type")(self.llvm.context),
             );
         }
-        inline for (.{ 1, 8, 16, 29, 32, 64, 80, 128 }) |bits| assert(self.intTypeAssumeCapacity(bits) ==
-            @field(Type, std.fmt.comptimePrint("i{d}", .{bits})));
+        inline for (.{ 1, 8, 16, 29, 32, 64, 80, 128 }) |bits|
+            assert(self.intTypeAssumeCapacity(bits) ==
+                @field(Type, std.fmt.comptimePrint("i{d}", .{bits})));
         inline for (.{0}) |addr_space|
             assert(self.ptrTypeAssumeCapacity(@enumFromInt(addr_space)) == .ptr);
     }
@@ -1463,13 +1519,11 @@ pub fn init(self: *Builder) Allocator.Error!void {
     assert(try self.intConst(.i1, 0) == .false);
     assert(try self.intConst(.i1, 1) == .true);
     assert(try self.noneConst(.token) == .none);
+
+    return self;
 }
 
 pub fn deinit(self: *Builder) void {
-    self.llvm_types.deinit(self.gpa);
-    self.llvm_globals.deinit(self.gpa);
-    self.llvm_constants.deinit(self.gpa);
-
     self.string_map.deinit(self.gpa);
     self.string_bytes.deinit(self.gpa);
     self.string_indices.deinit(self.gpa);
@@ -1492,6 +1546,14 @@ pub fn deinit(self: *Builder) void {
     self.constant_extra.deinit(self.gpa);
     self.constant_limbs.deinit(self.gpa);
 
+    if (self.useLibLlvm()) {
+        self.llvm.constants.deinit(self.gpa);
+        self.llvm.globals.deinit(self.gpa);
+        self.llvm.types.deinit(self.gpa);
+        if (self.llvm.di_builder) |di_builder| di_builder.dispose();
+        if (self.llvm.module) |module| module.dispose();
+        self.llvm.context.dispose();
+    }
     self.* = undefined;
 }
 
@@ -1807,7 +1869,7 @@ pub fn namedTypeSetBody(
         const llvm_fields = try self.gpa.alloc(*llvm.Type, body_fields.len);
         defer self.gpa.free(llvm_fields);
         for (llvm_fields, body_fields) |*llvm_field, body_field| llvm_field.* = body_field.toLlvm(self);
-        self.llvm_types.items[@intFromEnum(named_type)].structSetBody(
+        self.llvm.types.items[@intFromEnum(named_type)].structSetBody(
             llvm_fields.ptr,
             @intCast(llvm_fields.len),
             switch (body_item.tag) {
@@ -1869,7 +1931,7 @@ pub fn bigIntConst(self: *Builder, ty: Type, value: std.math.big.int.Const) Allo
     try self.constant_map.ensureUnusedCapacity(self.gpa, 1);
     try self.constant_items.ensureUnusedCapacity(self.gpa, 1);
     try self.constant_limbs.ensureUnusedCapacity(self.gpa, Constant.Integer.limbs + value.limbs.len);
-    if (self.useLibLlvm()) try self.llvm_constants.ensureUnusedCapacity(self.gpa, 1);
+    if (self.useLibLlvm()) try self.llvm.constants.ensureUnusedCapacity(self.gpa, 1);
     return self.bigIntConstAssumeCapacity(ty, value);
 }
 
@@ -2166,7 +2228,7 @@ fn isValidIdentifier(id: []const u8) bool {
 }
 
 fn ensureUnusedCapacityGlobal(self: *Builder, name: String) Allocator.Error!void {
-    if (self.useLibLlvm()) try self.llvm_globals.ensureUnusedCapacity(self.gpa, 1);
+    if (self.useLibLlvm()) try self.llvm.globals.ensureUnusedCapacity(self.gpa, 1);
     try self.string_map.ensureUnusedCapacity(self.gpa, 1);
     if (name.toSlice(self)) |id| try self.string_bytes.ensureUnusedCapacity(self.gpa, id.len +
         comptime std.fmt.count("{d}" ++ .{0}, .{std.math.maxInt(u32)}));
@@ -2222,7 +2284,7 @@ fn fnTypeAssumeCapacity(
             const llvm_params = try self.gpa.alloc(*llvm.Type, params.len);
             defer self.gpa.free(llvm_params);
             for (llvm_params, params) |*llvm_param, param| llvm_param.* = param.toLlvm(self);
-            self.llvm_types.appendAssumeCapacity(llvm.functionType(
+            self.llvm.types.appendAssumeCapacity(llvm.functionType(
                 ret.toLlvm(self),
                 llvm_params.ptr,
                 @intCast(llvm_params.len),
@@ -2240,7 +2302,7 @@ fn intTypeAssumeCapacity(self: *Builder, bits: u24) Type {
     assert(bits > 0);
     const result = self.getOrPutTypeNoExtraAssumeCapacity(.{ .tag = .integer, .data = bits });
     if (self.useLibLlvm() and result.new)
-        self.llvm_types.appendAssumeCapacity(self.llvm_context.intType(bits));
+        self.llvm.types.appendAssumeCapacity(self.llvm.context.intType(bits));
     return result.type;
 }
 
@@ -2249,7 +2311,7 @@ fn ptrTypeAssumeCapacity(self: *Builder, addr_space: AddrSpace) Type {
         .{ .tag = .pointer, .data = @intFromEnum(addr_space) },
     );
     if (self.useLibLlvm() and result.new)
-        self.llvm_types.appendAssumeCapacity(self.llvm_context.pointerType(@intFromEnum(addr_space)));
+        self.llvm.types.appendAssumeCapacity(self.llvm.context.pointerType(@intFromEnum(addr_space)));
     return result.type;
 }
 
@@ -2286,7 +2348,7 @@ fn vectorTypeAssumeCapacity(
             .tag = tag,
             .data = self.addTypeExtraAssumeCapacity(data),
         });
-        if (self.useLibLlvm()) self.llvm_types.appendAssumeCapacity(switch (kind) {
+        if (self.useLibLlvm()) self.llvm.types.appendAssumeCapacity(switch (kind) {
             .normal => &llvm.Type.vectorType,
             .scalable => &llvm.Type.scalableVectorType,
         }(child.toLlvm(self), @intCast(len)));
@@ -2319,7 +2381,7 @@ fn arrayTypeAssumeCapacity(self: *Builder, len: u64, child: Type) Type {
                 .tag = .small_array,
                 .data = self.addTypeExtraAssumeCapacity(data),
             });
-            if (self.useLibLlvm()) self.llvm_types.appendAssumeCapacity(
+            if (self.useLibLlvm()) self.llvm.types.appendAssumeCapacity(
                 child.toLlvm(self).arrayType(@intCast(len)),
             );
         }
@@ -2352,7 +2414,7 @@ fn arrayTypeAssumeCapacity(self: *Builder, len: u64, child: Type) Type {
                 .tag = .array,
                 .data = self.addTypeExtraAssumeCapacity(data),
             });
-            if (self.useLibLlvm()) self.llvm_types.appendAssumeCapacity(
+            if (self.useLibLlvm()) self.llvm.types.appendAssumeCapacity(
                 child.toLlvm(self).arrayType(@intCast(len)),
             );
         }
@@ -2406,7 +2468,7 @@ fn structTypeAssumeCapacity(
             defer allocator.free(llvm_fields);
             for (llvm_fields, fields) |*llvm_field, field| llvm_field.* = field.toLlvm(self);
 
-            self.llvm_types.appendAssumeCapacity(self.llvm_context.structType(
+            self.llvm.types.appendAssumeCapacity(self.llvm.context.structType(
                 llvm_fields.ptr,
                 @intCast(llvm_fields.len),
                 switch (kind) {
@@ -2456,8 +2518,8 @@ fn opaqueTypeAssumeCapacity(self: *Builder, name: String) Type {
             });
             const result: Type = @enumFromInt(gop.index);
             type_gop.value_ptr.* = result;
-            if (self.useLibLlvm()) self.llvm_types.appendAssumeCapacity(
-                self.llvm_context.structCreateNamed(id.toSlice(self) orelse ""),
+            if (self.useLibLlvm()) self.llvm.types.appendAssumeCapacity(
+                self.llvm.context.structCreateNamed(id.toSlice(self) orelse ""),
             );
             return result;
         }
@@ -2481,7 +2543,7 @@ fn ensureUnusedTypeCapacity(
         self.gpa,
         count * (@typeInfo(E).Struct.fields.len + trail_len),
     ) else assert(trail_len == 0);
-    if (self.useLibLlvm()) try self.llvm_types.ensureUnusedCapacity(self.gpa, count);
+    if (self.useLibLlvm()) try self.llvm.types.ensureUnusedCapacity(self.gpa, count);
 }
 
 fn getOrPutTypeNoExtraAssumeCapacity(self: *Builder, item: Type.Item) struct { new: bool, type: Type } {
@@ -2613,9 +2675,9 @@ fn bigIntConstAssumeCapacity(
         if (self.useLibLlvm()) {
             const llvm_type = ty.toLlvm(self);
             if (canonical_value.to(c_longlong)) |small| {
-                self.llvm_constants.appendAssumeCapacity(llvm_type.constInt(@bitCast(small), .True));
+                self.llvm.constants.appendAssumeCapacity(llvm_type.constInt(@bitCast(small), .True));
             } else |_| if (canonical_value.to(c_ulonglong)) |small| {
-                self.llvm_constants.appendAssumeCapacity(llvm_type.constInt(small, .False));
+                self.llvm.constants.appendAssumeCapacity(llvm_type.constInt(small, .False));
             } else |_| {
                 const llvm_limbs = try allocator.alloc(u64, std.math.divCeil(
                     usize,
@@ -2643,7 +2705,7 @@ fn bigIntConstAssumeCapacity(
                     }
                     result_limb.* = llvm_limb;
                 }
-                self.llvm_constants.appendAssumeCapacity(
+                self.llvm.constants.appendAssumeCapacity(
                     llvm_type.constIntOfArbitraryPrecision(@intCast(llvm_limbs.len), llvm_limbs.ptr),
                 );
             }
@@ -2656,7 +2718,7 @@ fn halfConstAssumeCapacity(self: *Builder, val: f16) Constant {
     const result = self.getOrPutConstantNoExtraAssumeCapacity(
         .{ .tag = .half, .data = @as(u16, @bitCast(val)) },
     );
-    if (self.useLibLlvm() and result.new) self.llvm_constants.appendAssumeCapacity(
+    if (self.useLibLlvm() and result.new) self.llvm.constants.appendAssumeCapacity(
         if (std.math.isSignalNan(val))
             Type.i16.toLlvm(self).constInt(@as(u16, @bitCast(val)), .False)
                 .constBitCast(Type.half.toLlvm(self))
@@ -2671,7 +2733,7 @@ fn bfloatConstAssumeCapacity(self: *Builder, val: f32) Constant {
     const result = self.getOrPutConstantNoExtraAssumeCapacity(
         .{ .tag = .bfloat, .data = @bitCast(val) },
     );
-    if (self.useLibLlvm() and result.new) self.llvm_constants.appendAssumeCapacity(
+    if (self.useLibLlvm() and result.new) self.llvm.constants.appendAssumeCapacity(
         if (std.math.isSignalNan(val))
             Type.i16.toLlvm(self).constInt(@as(u32, @bitCast(val)) >> 16, .False)
                 .constBitCast(Type.bfloat.toLlvm(self))
@@ -2680,7 +2742,7 @@ fn bfloatConstAssumeCapacity(self: *Builder, val: f32) Constant {
     );
 
     if (self.useLibLlvm() and result.new)
-        self.llvm_constants.appendAssumeCapacity(Type.bfloat.toLlvm(self).constReal(val));
+        self.llvm.constants.appendAssumeCapacity(Type.bfloat.toLlvm(self).constReal(val));
     return result.constant;
 }
 
@@ -2688,7 +2750,7 @@ fn floatConstAssumeCapacity(self: *Builder, val: f32) Constant {
     const result = self.getOrPutConstantNoExtraAssumeCapacity(
         .{ .tag = .float, .data = @bitCast(val) },
     );
-    if (self.useLibLlvm() and result.new) self.llvm_constants.appendAssumeCapacity(
+    if (self.useLibLlvm() and result.new) self.llvm.constants.appendAssumeCapacity(
         if (std.math.isSignalNan(val))
             Type.i32.toLlvm(self).constInt(@as(u32, @bitCast(val)), .False)
                 .constBitCast(Type.float.toLlvm(self))
@@ -2725,7 +2787,7 @@ fn doubleConstAssumeCapacity(self: *Builder, val: f64) Constant {
                 .hi = @truncate(@as(u64, @bitCast(val))),
             }),
         });
-        if (self.useLibLlvm()) self.llvm_constants.appendAssumeCapacity(
+        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
             if (std.math.isSignalNan(val))
                 Type.i64.toLlvm(self).constInt(@as(u64, @bitCast(val)), .False)
                     .constBitCast(Type.double.toLlvm(self))
@@ -2771,7 +2833,7 @@ fn fp128ConstAssumeCapacity(self: *Builder, val: f128) Constant {
                 @truncate(@as(u128, @bitCast(val))),
                 @intCast(@as(u128, @bitCast(val)) >> 64),
             };
-            self.llvm_constants.appendAssumeCapacity(
+            self.llvm.constants.appendAssumeCapacity(
                 Type.i128.toLlvm(self)
                     .constIntOfArbitraryPrecision(@intCast(llvm_limbs.len), &llvm_limbs)
                     .constBitCast(Type.fp128.toLlvm(self)),
@@ -2815,7 +2877,7 @@ fn x86_fp80ConstAssumeCapacity(self: *Builder, val: f80) Constant {
                 @truncate(@as(u80, @bitCast(val))),
                 @intCast(@as(u80, @bitCast(val)) >> 64),
             };
-            self.llvm_constants.appendAssumeCapacity(
+            self.llvm.constants.appendAssumeCapacity(
                 Type.i80.toLlvm(self)
                     .constIntOfArbitraryPrecision(@intCast(llvm_limbs.len), &llvm_limbs)
                     .constBitCast(Type.x86_fp80.toLlvm(self)),
@@ -2857,7 +2919,7 @@ fn ppc_fp128ConstAssumeCapacity(self: *Builder, val: [2]f64) Constant {
         });
         if (self.useLibLlvm()) {
             const llvm_limbs: *const [2]u64 = @ptrCast(&val);
-            self.llvm_constants.appendAssumeCapacity(
+            self.llvm.constants.appendAssumeCapacity(
                 Type.i128.toLlvm(self)
                     .constIntOfArbitraryPrecision(@intCast(llvm_limbs.len), llvm_limbs)
                     .constBitCast(Type.ppc_fp128.toLlvm(self)),
@@ -2873,7 +2935,7 @@ fn nullConstAssumeCapacity(self: *Builder, ty: Type) Constant {
         .{ .tag = .null, .data = @intFromEnum(ty) },
     );
     if (self.useLibLlvm() and result.new)
-        self.llvm_constants.appendAssumeCapacity(ty.toLlvm(self).constNull());
+        self.llvm.constants.appendAssumeCapacity(ty.toLlvm(self).constNull());
     return result.constant;
 }
 
@@ -2883,7 +2945,7 @@ fn noneConstAssumeCapacity(self: *Builder, ty: Type) Constant {
         .{ .tag = .none, .data = @intFromEnum(ty) },
     );
     if (self.useLibLlvm() and result.new)
-        self.llvm_constants.appendAssumeCapacity(ty.toLlvm(self).constNull());
+        self.llvm.constants.appendAssumeCapacity(ty.toLlvm(self).constNull());
     return result.constant;
 }
 
@@ -2929,7 +2991,7 @@ fn structConstAssumeCapacity(
         defer allocator.free(llvm_vals);
         for (llvm_vals, vals) |*llvm_val, val| llvm_val.* = val.toLlvm(self);
 
-        self.llvm_constants.appendAssumeCapacity(
+        self.llvm.constants.appendAssumeCapacity(
             ty.toLlvm(self).constNamedStruct(llvm_vals.ptr, @intCast(llvm_vals.len)),
         );
     }
@@ -2971,7 +3033,7 @@ fn arrayConstAssumeCapacity(
         defer allocator.free(llvm_vals);
         for (llvm_vals, vals) |*llvm_val, val| llvm_val.* = val.toLlvm(self);
 
-        self.llvm_constants.appendAssumeCapacity(
+        self.llvm.constants.appendAssumeCapacity(
             type_extra.child.toLlvm(self).constArray(llvm_vals.ptr, @intCast(llvm_vals.len)),
         );
     }
@@ -2985,8 +3047,8 @@ fn stringConstAssumeCapacity(self: *Builder, val: String) Constant {
     const result = self.getOrPutConstantNoExtraAssumeCapacity(
         .{ .tag = .string, .data = @intFromEnum(val) },
     );
-    if (self.useLibLlvm() and result.new) self.llvm_constants.appendAssumeCapacity(
-        self.llvm_context.constString(slice.ptr, @intCast(slice.len), .True),
+    if (self.useLibLlvm() and result.new) self.llvm.constants.appendAssumeCapacity(
+        self.llvm.context.constString(slice.ptr, @intCast(slice.len), .True),
     );
     return result.constant;
 }
@@ -2998,8 +3060,8 @@ fn stringNullConstAssumeCapacity(self: *Builder, val: String) Constant {
     const result = self.getOrPutConstantNoExtraAssumeCapacity(
         .{ .tag = .string_null, .data = @intFromEnum(val) },
     );
-    if (self.useLibLlvm() and result.new) self.llvm_constants.appendAssumeCapacity(
-        self.llvm_context.constString(slice.ptr, @intCast(slice.len + 1), .True),
+    if (self.useLibLlvm() and result.new) self.llvm.constants.appendAssumeCapacity(
+        self.llvm.context.constString(slice.ptr, @intCast(slice.len + 1), .True),
     );
     return result.constant;
 }
@@ -3032,7 +3094,7 @@ fn vectorConstAssumeCapacity(
         defer allocator.free(llvm_vals);
         for (llvm_vals, vals) |*llvm_val, val| llvm_val.* = val.toLlvm(self);
 
-        self.llvm_constants.appendAssumeCapacity(
+        self.llvm.constants.appendAssumeCapacity(
             llvm.constVector(llvm_vals.ptr, @intCast(llvm_vals.len)),
         );
     }
@@ -3061,7 +3123,7 @@ fn zeroInitConstAssumeCapacity(self: *Builder, ty: Type) Constant {
         .{ .tag = .zeroinitializer, .data = @intFromEnum(ty) },
     );
     if (self.useLibLlvm() and result.new)
-        self.llvm_constants.appendAssumeCapacity(ty.toLlvm(self).constNull());
+        self.llvm.constants.appendAssumeCapacity(ty.toLlvm(self).constNull());
     return result.constant;
 }
 
@@ -3078,7 +3140,7 @@ fn undefConstAssumeCapacity(self: *Builder, ty: Type) Constant {
         .{ .tag = .undef, .data = @intFromEnum(ty) },
     );
     if (self.useLibLlvm() and result.new)
-        self.llvm_constants.appendAssumeCapacity(ty.toLlvm(self).getUndef());
+        self.llvm.constants.appendAssumeCapacity(ty.toLlvm(self).getUndef());
     return result.constant;
 }
 
@@ -3095,7 +3157,7 @@ fn poisonConstAssumeCapacity(self: *Builder, ty: Type) Constant {
         .{ .tag = .poison, .data = @intFromEnum(ty) },
     );
     if (self.useLibLlvm() and result.new)
-        self.llvm_constants.appendAssumeCapacity(ty.toLlvm(self).getUndef());
+        self.llvm.constants.appendAssumeCapacity(ty.toLlvm(self).getUndef());
     return result.constant;
 }
 
@@ -3128,7 +3190,7 @@ fn blockAddrConstAssumeCapacity(
             .tag = .blockaddress,
             .data = self.addConstantExtraAssumeCapacity(data),
         });
-        if (self.useLibLlvm()) self.llvm_constants.appendAssumeCapacity(
+        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
             function.toLlvm(self).blockAddress(block.toValue(self, function).toLlvm(self, function)),
         );
     }
@@ -3139,7 +3201,7 @@ fn dsoLocalEquivalentConstAssumeCapacity(self: *Builder, function: Function.Inde
     const result = self.getOrPutConstantNoExtraAssumeCapacity(
         .{ .tag = .dso_local_equivalent, .data = @intFromEnum(function) },
     );
-    if (self.useLibLlvm() and result.new) self.llvm_constants.appendAssumeCapacity(undefined);
+    if (self.useLibLlvm() and result.new) self.llvm.constants.appendAssumeCapacity(undefined);
     return result.constant;
 }
 
@@ -3147,7 +3209,7 @@ fn noCfiConstAssumeCapacity(self: *Builder, function: Function.Index) Constant {
     const result = self.getOrPutConstantNoExtraAssumeCapacity(
         .{ .tag = .no_cfi, .data = @intFromEnum(function) },
     );
-    if (self.useLibLlvm() and result.new) self.llvm_constants.appendAssumeCapacity(undefined);
+    if (self.useLibLlvm() and result.new) self.llvm.constants.appendAssumeCapacity(undefined);
     return result.constant;
 }
 
@@ -3226,7 +3288,7 @@ fn castConstAssumeCapacity(self: *Builder, tag: Constant.Tag, arg: Constant, ty:
             .tag = tag,
             .data = self.addConstantExtraAssumeCapacity(data.cast),
         });
-        if (self.useLibLlvm()) self.llvm_constants.appendAssumeCapacity(switch (tag) {
+        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(switch (tag) {
             .trunc => &llvm.Value.constTrunc,
             .zext => &llvm.Value.constZExt,
             .sext => &llvm.Value.constSExt,
@@ -3330,7 +3392,7 @@ fn gepConstAssumeCapacity(
             defer allocator.free(llvm_indices);
             for (llvm_indices, indices) |*llvm_index, index| llvm_index.* = index.toLlvm(self);
 
-            self.llvm_constants.appendAssumeCapacity(switch (kind) {
+            self.llvm.constants.appendAssumeCapacity(switch (kind) {
                 .normal => &llvm.Type.constGEP,
                 .inbounds => &llvm.Type.constInBoundsGEP,
             }(ty.toLlvm(self), base.toLlvm(self), llvm_indices.ptr, @intCast(indices.len)));
@@ -3374,7 +3436,7 @@ fn binConstAssumeCapacity(
             .tag = tag,
             .data = self.addConstantExtraAssumeCapacity(data.bin),
         });
-        if (self.useLibLlvm()) self.llvm_constants.appendAssumeCapacity(switch (tag) {
+        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(switch (tag) {
             .add => &llvm.Value.constAdd,
             .sub => &llvm.Value.constSub,
             .mul => &llvm.Value.constMul,
@@ -3402,7 +3464,7 @@ fn ensureUnusedConstantCapacity(
         self.gpa,
         count * (@typeInfo(E).Struct.fields.len + trail_len),
     ) else assert(trail_len == 0);
-    if (self.useLibLlvm()) try self.llvm_constants.ensureUnusedCapacity(self.gpa, count);
+    if (self.useLibLlvm()) try self.llvm.constants.ensureUnusedCapacity(self.gpa, count);
 }
 
 fn getOrPutConstantNoExtraAssumeCapacity(
@@ -3516,13 +3578,15 @@ fn constantExtraData(self: *const Builder, comptime T: type, index: Constant.Ite
     return self.constantExtraDataTrail(T, index).data;
 }
 
-inline fn useLibLlvm(self: *const Builder) bool {
+pub inline fn useLibLlvm(self: *const Builder) bool {
     return build_options.have_llvm and self.use_lib_llvm;
 }
 
 const assert = std.debug.assert;
 const build_options = @import("build_options");
+const builtin = @import("builtin");
 const llvm = @import("bindings.zig");
+const log = std.log.scoped(.llvm);
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;

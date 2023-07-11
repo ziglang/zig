@@ -35,7 +35,7 @@ const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 
 const Error = error{ OutOfMemory, CodegenFail };
 
-pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
+pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     var llvm_triple = std.ArrayList(u8).init(allocator);
     defer llvm_triple.deinit();
 
@@ -208,7 +208,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
     };
     try llvm_triple.appendSlice(llvm_abi);
 
-    return llvm_triple.toOwnedSliceSentinel(0);
+    return llvm_triple.toOwnedSlice();
 }
 
 pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
@@ -602,160 +602,137 @@ pub const Object = struct {
     }
 
     pub fn init(gpa: Allocator, options: link.Options) !Object {
-        var builder = Builder{
-            .gpa = gpa,
-            .use_lib_llvm = options.use_lib_llvm,
-
-            .llvm_context = llvm.Context.create(),
-            .llvm_module = undefined,
-        };
-        errdefer builder.llvm_context.dispose();
-
-        builder.initializeLLVMTarget(options.target.cpu.arch);
-
-        builder.llvm_module = llvm.Module.createWithName(options.root_name.ptr, builder.llvm_context);
-        errdefer builder.llvm_module.dispose();
-
         const llvm_target_triple = try targetTriple(gpa, options.target);
         defer gpa.free(llvm_target_triple);
 
-        var error_message: [*:0]const u8 = undefined;
-        var target: *llvm.Target = undefined;
-        if (llvm.Target.getFromTriple(llvm_target_triple.ptr, &target, &error_message).toBool()) {
-            defer llvm.disposeMessage(error_message);
-
-            log.err("LLVM failed to parse '{s}': {s}", .{ llvm_target_triple, error_message });
-            return error.InvalidLlvmTriple;
-        }
-
-        builder.llvm_module.setTarget(llvm_target_triple.ptr);
-        var opt_di_builder: ?*llvm.DIBuilder = null;
-        errdefer if (opt_di_builder) |di_builder| di_builder.dispose();
-
-        var di_compile_unit: ?*llvm.DICompileUnit = null;
-
-        if (!options.strip) {
-            switch (options.target.ofmt) {
-                .coff => builder.llvm_module.addModuleCodeViewFlag(),
-                else => builder.llvm_module.addModuleDebugInfoFlag(options.dwarf_format == std.dwarf.Format.@"64"),
-            }
-            const di_builder = builder.llvm_module.createDIBuilder(true);
-            opt_di_builder = di_builder;
-
-            // Don't use the version string here; LLVM misparses it when it
-            // includes the git revision.
-            const producer = try std.fmt.allocPrintZ(gpa, "zig {d}.{d}.{d}", .{
-                build_options.semver.major,
-                build_options.semver.minor,
-                build_options.semver.patch,
-            });
-            defer gpa.free(producer);
-
-            // We fully resolve all paths at this point to avoid lack of source line info in stack
-            // traces or lack of debugging information which, if relative paths were used, would
-            // be very location dependent.
-            // TODO: the only concern I have with this is WASI as either host or target, should
-            // we leave the paths as relative then?
-            var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-            const compile_unit_dir = blk: {
-                const path = d: {
-                    const mod = options.module orelse break :d ".";
-                    break :d mod.root_pkg.root_src_directory.path orelse ".";
-                };
-                if (std.fs.path.isAbsolute(path)) break :blk path;
-                break :blk std.os.realpath(path, &buf) catch path; // If realpath fails, fallback to whatever path was
-            };
-            const compile_unit_dir_z = try gpa.dupeZ(u8, compile_unit_dir);
-            defer gpa.free(compile_unit_dir_z);
-
-            di_compile_unit = di_builder.createCompileUnit(
-                DW.LANG.C99,
-                di_builder.createFile(options.root_name, compile_unit_dir_z),
-                producer,
-                options.optimize_mode != .Debug,
-                "", // flags
-                0, // runtime version
-                "", // split name
-                0, // dwo id
-                true, // emit debug info
-            );
-        }
-
-        const opt_level: llvm.CodeGenOptLevel = if (options.optimize_mode == .Debug)
-            .None
-        else
-            .Aggressive;
-
-        const reloc_mode: llvm.RelocMode = if (options.pic)
-            .PIC
-        else if (options.link_mode == .Dynamic)
-            llvm.RelocMode.DynamicNoPIC
-        else
-            .Static;
-
-        const code_model: llvm.CodeModel = switch (options.machine_code_model) {
-            .default => .Default,
-            .tiny => .Tiny,
-            .small => .Small,
-            .kernel => .Kernel,
-            .medium => .Medium,
-            .large => .Large,
-        };
-
-        // TODO handle float ABI better- it should depend on the ABI portion of std.Target
-        const float_abi: llvm.ABIType = .Default;
-
-        const target_machine = llvm.TargetMachine.create(
-            target,
-            llvm_target_triple.ptr,
-            if (options.target.cpu.model.llvm_name) |s| s.ptr else null,
-            options.llvm_cpu_features,
-            opt_level,
-            reloc_mode,
-            code_model,
-            options.function_sections,
-            float_abi,
-            if (target_util.llvmMachineAbi(options.target)) |s| s.ptr else null,
-        );
-        errdefer target_machine.dispose();
-
-        const target_data = target_machine.createTargetDataLayout();
-        errdefer target_data.dispose();
-
-        builder.llvm_module.setModuleDataLayout(target_data);
-
-        if (options.pic) builder.llvm_module.setModulePICLevel();
-        if (options.pie) builder.llvm_module.setModulePIELevel();
-        if (code_model != .Default) builder.llvm_module.setModuleCodeModel(code_model);
-
-        if (options.opt_bisect_limit >= 0) {
-            builder.llvm_context.setOptBisectLimit(std.math.lossyCast(c_int, options.opt_bisect_limit));
-        }
-
-        try builder.init();
+        var builder = try Builder.init(.{
+            .allocator = gpa,
+            .use_lib_llvm = options.use_lib_llvm,
+            .name = options.root_name,
+            .target = options.target,
+            .triple = llvm_target_triple,
+        });
         errdefer builder.deinit();
-        builder.source_filename = try builder.string(options.root_name);
-        builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = options.target }});
-        builder.target_triple = try builder.string(llvm_target_triple);
 
-        if (std.debug.runtime_safety) {
-            const rep = target_data.stringRep();
-            defer llvm.disposeMessage(rep);
-            std.testing.expectEqualStrings(
-                std.mem.span(rep),
-                builder.data_layout.toSlice(&builder).?,
-            ) catch unreachable;
+        var target_machine: *llvm.TargetMachine = undefined;
+        var target_data: *llvm.TargetData = undefined;
+        if (builder.useLibLlvm()) {
+            if (!options.strip) {
+                switch (options.target.ofmt) {
+                    .coff => builder.llvm.module.?.addModuleCodeViewFlag(),
+                    else => builder.llvm.module.?.addModuleDebugInfoFlag(options.dwarf_format == std.dwarf.Format.@"64"),
+                }
+                builder.llvm.di_builder = builder.llvm.module.?.createDIBuilder(true);
+
+                // Don't use the version string here; LLVM misparses it when it
+                // includes the git revision.
+                const producer = try builder.fmt("zig {d}.{d}.{d}", .{
+                    build_options.semver.major,
+                    build_options.semver.minor,
+                    build_options.semver.patch,
+                });
+
+                // We fully resolve all paths at this point to avoid lack of source line info in stack
+                // traces or lack of debugging information which, if relative paths were used, would
+                // be very location dependent.
+                // TODO: the only concern I have with this is WASI as either host or target, should
+                // we leave the paths as relative then?
+                var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                const compile_unit_dir = blk: {
+                    const path = d: {
+                        const mod = options.module orelse break :d ".";
+                        break :d mod.root_pkg.root_src_directory.path orelse ".";
+                    };
+                    if (std.fs.path.isAbsolute(path)) break :blk path;
+                    break :blk std.os.realpath(path, &buf) catch path; // If realpath fails, fallback to whatever path was
+                };
+                const compile_unit_dir_z = try builder.gpa.dupeZ(u8, compile_unit_dir);
+                defer builder.gpa.free(compile_unit_dir_z);
+
+                builder.llvm.di_compile_unit = builder.llvm.di_builder.?.createCompileUnit(
+                    DW.LANG.C99,
+                    builder.llvm.di_builder.?.createFile(options.root_name, compile_unit_dir_z),
+                    producer.toSlice(&builder).?,
+                    options.optimize_mode != .Debug,
+                    "", // flags
+                    0, // runtime version
+                    "", // split name
+                    0, // dwo id
+                    true, // emit debug info
+                );
+            }
+
+            const opt_level: llvm.CodeGenOptLevel = if (options.optimize_mode == .Debug)
+                .None
+            else
+                .Aggressive;
+
+            const reloc_mode: llvm.RelocMode = if (options.pic)
+                .PIC
+            else if (options.link_mode == .Dynamic)
+                llvm.RelocMode.DynamicNoPIC
+            else
+                .Static;
+
+            const code_model: llvm.CodeModel = switch (options.machine_code_model) {
+                .default => .Default,
+                .tiny => .Tiny,
+                .small => .Small,
+                .kernel => .Kernel,
+                .medium => .Medium,
+                .large => .Large,
+            };
+
+            // TODO handle float ABI better- it should depend on the ABI portion of std.Target
+            const float_abi: llvm.ABIType = .Default;
+
+            target_machine = llvm.TargetMachine.create(
+                builder.llvm.target.?,
+                builder.target_triple.toSlice(&builder).?.ptr,
+                if (options.target.cpu.model.llvm_name) |s| s.ptr else null,
+                options.llvm_cpu_features,
+                opt_level,
+                reloc_mode,
+                code_model,
+                options.function_sections,
+                float_abi,
+                if (target_util.llvmMachineAbi(options.target)) |s| s.ptr else null,
+            );
+            errdefer target_machine.dispose();
+
+            target_data = target_machine.createTargetDataLayout();
+            errdefer target_data.dispose();
+
+            builder.llvm.module.?.setModuleDataLayout(target_data);
+
+            if (options.pic) builder.llvm.module.?.setModulePICLevel();
+            if (options.pie) builder.llvm.module.?.setModulePIELevel();
+            if (code_model != .Default) builder.llvm.module.?.setModuleCodeModel(code_model);
+
+            if (options.opt_bisect_limit >= 0) {
+                builder.llvm.context.setOptBisectLimit(std.math.lossyCast(c_int, options.opt_bisect_limit));
+            }
+
+            builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = options.target }});
+            if (std.debug.runtime_safety) {
+                const rep = target_data.stringRep();
+                defer llvm.disposeMessage(rep);
+                std.testing.expectEqualStrings(
+                    std.mem.span(rep),
+                    builder.data_layout.toSlice(&builder).?,
+                ) catch unreachable;
+            }
         }
 
-        return Object{
+        return .{
             .gpa = gpa,
             .builder = builder,
             .module = options.module.?,
-            .llvm_module = builder.llvm_module,
+            .llvm_module = builder.llvm.module.?,
             .di_map = .{},
-            .di_builder = opt_di_builder,
-            .di_compile_unit = di_compile_unit,
-            .context = builder.llvm_context,
+            .di_builder = builder.llvm.di_builder,
+            .di_compile_unit = builder.llvm.di_compile_unit,
+            .context = builder.llvm.context,
             .target_machine = target_machine,
             .target_data = target_data,
             .target = options.target,
@@ -770,15 +747,10 @@ pub const Object = struct {
     }
 
     pub fn deinit(self: *Object, gpa: Allocator) void {
-        if (self.di_builder) |dib| {
-            dib.dispose();
-            self.di_map.deinit(gpa);
-            self.di_type_map.deinit(gpa);
-        }
+        self.di_map.deinit(gpa);
+        self.di_type_map.deinit(gpa);
         self.target_data.dispose();
         self.target_machine.dispose();
-        self.llvm_module.dispose();
-        self.context.dispose();
         self.decl_map.deinit(gpa);
         self.named_enum_map.deinit(gpa);
         self.type_map.deinit(gpa);
@@ -845,7 +817,7 @@ pub const Object = struct {
                 .mutability = .constant,
                 .init = str_init,
             };
-            try o.builder.llvm_globals.append(o.gpa, str_global);
+            try o.builder.llvm.globals.append(o.gpa, str_global);
             const str_global_index = try o.builder.addGlobal(.none, global);
             try o.builder.variables.append(o.gpa, variable);
 
@@ -875,7 +847,7 @@ pub const Object = struct {
             .mutability = .constant,
             .init = error_name_table_init,
         };
-        try o.builder.llvm_globals.append(o.gpa, error_name_table_global);
+        try o.builder.llvm.globals.append(o.gpa, error_name_table_global);
         _ = try o.builder.addGlobal(.none, global);
         try o.builder.variables.append(o.gpa, variable);
 
@@ -941,7 +913,7 @@ pub const Object = struct {
 
             llvm_global.replaceAllUsesWith(other_llvm_global);
             deleteLlvmGlobal(llvm_global);
-            object.builder.llvm_globals.items[@intFromEnum(global)] = other_llvm_global;
+            object.builder.llvm.globals.items[@intFromEnum(global)] = other_llvm_global;
         }
         object.extern_collisions.clearRetainingCapacity();
 
@@ -960,7 +932,7 @@ pub const Object = struct {
                 other_llvm_global.replaceAllUsesWith(llvm_global);
                 try global.takeName(&object.builder, other_global);
                 deleteLlvmGlobal(other_llvm_global);
-                object.builder.llvm_globals.items[@intFromEnum(other_global)] = llvm_global;
+                object.builder.llvm.globals.items[@intFromEnum(other_global)] = llvm_global;
                 // Problem: now we need to replace in the decl_map that
                 // the extern decl index points to this new global. However we don't
                 // know the decl index.
@@ -2765,7 +2737,7 @@ pub const Object = struct {
             .global = @enumFromInt(o.builder.globals.count()),
             .init = llvm_init,
         };
-        try o.builder.llvm_globals.append(o.gpa, llvm_global);
+        try o.builder.llvm.globals.append(o.gpa, llvm_global);
         _ = try o.builder.addGlobal(.none, global);
         try o.builder.variables.append(o.gpa, variable);
 
@@ -2908,7 +2880,7 @@ pub const Object = struct {
             };
         }
 
-        try o.builder.llvm_globals.append(o.gpa, llvm_fn);
+        try o.builder.llvm.globals.append(o.gpa, llvm_fn);
         gop.value_ptr.* = try o.builder.addGlobal(fqn, global);
         try o.builder.functions.append(o.gpa, function);
         return global.kind.function;
@@ -3017,7 +2989,7 @@ pub const Object = struct {
             llvm_global.setUnnamedAddr(.True);
         }
 
-        try o.builder.llvm_globals.append(o.gpa, llvm_global);
+        try o.builder.llvm.globals.append(o.gpa, llvm_global);
         gop.value_ptr.* = try o.builder.addGlobal(name, global);
         try o.builder.variables.append(o.gpa, variable);
         return global.kind.variable;
@@ -4553,7 +4525,7 @@ pub const DeclGen = struct {
                     // TODO: How should this work then the address space of a global changed?
                     llvm_global.replaceAllUsesWith(new_global);
                     new_global.takeName(llvm_global);
-                    o.builder.llvm_globals.items[@intFromEnum(object.ptrConst(&o.builder).global)] =
+                    o.builder.llvm.globals.items[@intFromEnum(object.ptrConst(&o.builder).global)] =
                         new_global;
                     llvm_global.deleteGlobal();
                     llvm_global = new_global;
@@ -4699,7 +4671,7 @@ pub const FuncGen = struct {
             .mutability = .constant,
             .init = llvm_val,
         };
-        try o.builder.llvm_globals.append(o.gpa, llvm_global);
+        try o.builder.llvm.globals.append(o.gpa, llvm_global);
         _ = try o.builder.addGlobal(.none, global);
         try o.builder.variables.append(o.gpa, variable);
 
@@ -7855,7 +7827,7 @@ pub const FuncGen = struct {
                 .global = @enumFromInt(o.builder.globals.count()),
             };
 
-            try o.builder.llvm_globals.append(self.gpa, f);
+            try o.builder.llvm.globals.append(self.gpa, f);
             _ = try o.builder.addGlobal(fn_name, global);
             try o.builder.functions.append(self.gpa, function);
             break :b f;
@@ -9372,7 +9344,7 @@ pub const FuncGen = struct {
         self.builder.positionBuilderAtEnd(unnamed_block);
         _ = self.builder.buildRet(Builder.Constant.false.toLlvm(&o.builder));
 
-        try o.builder.llvm_globals.append(self.gpa, fn_val);
+        try o.builder.llvm.globals.append(self.gpa, fn_val);
         _ = try o.builder.addGlobal(llvm_fn_name, global);
         try o.builder.functions.append(self.gpa, function);
         gop.value_ptr.* = global.kind.function;
@@ -9484,7 +9456,7 @@ pub const FuncGen = struct {
         self.builder.positionBuilderAtEnd(bad_value_block);
         _ = self.builder.buildUnreachable();
 
-        try o.builder.llvm_globals.append(self.gpa, fn_val);
+        try o.builder.llvm.globals.append(self.gpa, fn_val);
         gop.value_ptr.* = try o.builder.addGlobal(llvm_fn_name, global);
         try o.builder.functions.append(self.gpa, function);
         return fn_val;
@@ -9515,7 +9487,7 @@ pub const FuncGen = struct {
             .global = @enumFromInt(o.builder.globals.count()),
         };
 
-        try o.builder.llvm_globals.append(self.gpa, llvm_fn);
+        try o.builder.llvm.globals.append(self.gpa, llvm_fn);
         _ = try o.builder.addGlobal(try o.builder.string(lt_errors_fn_name), global);
         try o.builder.functions.append(self.gpa, function);
         return llvm_fn;
@@ -10156,7 +10128,7 @@ pub const FuncGen = struct {
             .mutability = .constant,
             .init = undef_init,
         };
-        try o.builder.llvm_globals.append(o.gpa, error_name_table_global);
+        try o.builder.llvm.globals.append(o.gpa, error_name_table_global);
         _ = try o.builder.addGlobal(name, global);
         try o.builder.variables.append(o.gpa, variable);
 
