@@ -630,6 +630,7 @@ pub const AcceptOptions = struct {
 /// Accept a new connection.
 pub fn accept(server: *Server, options: AcceptOptions) AcceptError!Response {
     const in = try server.socket.accept();
+    errdefer in.stream.close();
 
     var conn = try options.allocator.create(Connection);
     conn.* = .{
