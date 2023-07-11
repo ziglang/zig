@@ -493,6 +493,7 @@ pub const StackIterator = struct {
         debug_info: *DebugInfo,
         dwarf_context: DW.UnwindContext,
         last_error: ?UnwindError = null,
+        failed: bool = false,
     } else void = if (have_ucontext) null else {},
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
@@ -530,6 +531,7 @@ pub const StackIterator = struct {
         if (!have_ucontext) return null;
         if (self.unwind_state) |*unwind_state| {
             if (unwind_state.last_error) |err| {
+                unwind_state.last_error = null;
                 return .{
                     .err = err,
                     .address = unwind_state.dwarf_context.pc,
@@ -648,15 +650,20 @@ pub const StackIterator = struct {
     fn next_internal(self: *StackIterator) ?usize {
         if (have_ucontext) {
             if (self.unwind_state) |*unwind_state| {
-                if (unwind_state.dwarf_context.pc == 0) return null;
-                if (unwind_state.last_error == null) {
-                    if (self.next_unwind()) |return_address| {
-                        return return_address;
-                    } else |err| {
-                        unwind_state.last_error = err;
+                if (!unwind_state.failed) {
+                    if (unwind_state.dwarf_context.pc == 0) return null;
+                    if (unwind_state.last_error == null) {
+                        if (self.next_unwind()) |return_address| {
+                            return return_address;
+                        } else |err| {
+                            unwind_state.last_error = err;
+                            unwind_state.failed = true;
 
-                        // Fall back to fp-based unwinding on the first failure
-                        self.fp = unwind_state.dwarf_context.getFp() catch 0;
+                            // Fall back to fp-based unwinding on the first failure.
+                            // We can't attempt it for other modules later in the
+                            // stack because the full register state won't be unwound.
+                            self.fp = unwind_state.dwarf_context.getFp() catch 0;
+                        }
                     }
                 }
             }

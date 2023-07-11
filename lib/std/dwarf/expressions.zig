@@ -1023,7 +1023,6 @@ pub fn Builder(comptime options: ExpressionOptions) type {
             try leb.writeULEB128(writer, value_bytes.len);
             try writer.writeAll(value_bytes);
         }
-
     };
 }
 
