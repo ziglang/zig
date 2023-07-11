@@ -202,13 +202,13 @@ pub fn benchmarkHashSmallKeysArrayPtr(
                 if (H.has_crypto_api) {
                     break :blk @truncate(H.ty.toInt(small_key, init[0..H.ty.key_length]));
                 } else {
-                    break :blk @call(.never_inline, H.ty.hash, .{ init, small_key });
+                    break :blk H.ty.hash(init, small_key);
                 }
             }
             if (H.init_u64) |init| {
-                break :blk @call(.never_inline, H.ty.hash, .{ init, small_key });
+                break :blk H.ty.hash(init, small_key);
             }
-            break :blk @call(.never_inline, H.ty.hash, .{small_key});
+            break :blk H.ty.hash(small_key);
         };
         sum +%= final;
     }
@@ -248,13 +248,13 @@ pub fn benchmarkHashSmallKeysArray(
                 if (H.has_crypto_api) {
                     break :blk @truncate(H.ty.toInt(small_key, init[0..H.ty.key_length]));
                 } else {
-                    break :blk @call(.never_inline, H.ty.hash, .{ init, small_key.* });
+                    break :blk H.ty.hash(init, small_key.*);
                 }
             }
             if (H.init_u64) |init| {
-                break :blk @call(.never_inline, H.ty.hash, .{ init, small_key.* });
+                break :blk H.ty.hash(init, small_key.*);
             }
-            break :blk @call(.never_inline, H.ty.hash, .{small_key.*});
+            break :blk H.ty.hash(small_key.*);
         };
         sum +%= final;
     }
