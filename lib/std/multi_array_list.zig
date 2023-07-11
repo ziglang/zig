@@ -496,27 +496,41 @@ pub fn MultiArrayList(comptime T: type) type {
             }
         }
 
+        /// This function guarantees a stable sort, i.e the relative order of equal elements is preserved during sorting.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
+        /// If this guarantee does not matter, `sortUnstable` might be a faster alternative.
         /// `ctx` has the following method:
         /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
         pub fn sort(self: Self, ctx: anytype) void {
             self.sortInternal(0, self.len, ctx, .stable);
         }
 
+        /// Sorts only the subsection of items between indices `a` and `b` (excluding `b`)
+        /// This function guarantees a stable sort, i.e the relative order of equal elements is preserved during sorting.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
+        /// If this guarantee does not matter, `sortSpanUnstable` might be a faster alternative.
         /// `ctx` has the following method:
         /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
         pub fn sortSpan(self: Self, a: usize, b: usize, ctx: anytype) void {
             self.sortInternal(a, b, ctx, .stable);
         }
 
+        /// This function does NOT guarantee a stable sort, i.e the relative order of equal elements may change during sorting.
+        /// Due to the weaker guarantees of this function, this may be faster than the stable `sort` method.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
         /// `ctx` has the following method:
         /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
         pub fn sortUnstable(self: Self, ctx: anytype) void {
             self.sortInternal(0, self.len, ctx, .unstable);
         }
 
+        /// Sorts only the subsection of items between indices `a` and `b` (excluding `b`)
+        /// This function does NOT guarantee a stable sort, i.e the relative order of equal elements may change during sorting.
+        /// Due to the weaker guarantees of this function, this may be faster than the stable `sortSpan` method.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
         /// `ctx` has the following method:
         /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
-        pub fn sortUnstableSpan(self: Self, a: usize, b: usize, ctx: anytype) void {
+        pub fn sortSpanUnstable(self: Self, a: usize, b: usize, ctx: anytype) void {
             self.sortInternal(a, b, ctx, .unstable);
         }
 
