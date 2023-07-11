@@ -1136,7 +1136,7 @@ pub const Key = union(enum) {
                 var a_ty_info = ip.indexToFuncType(a_info.ty).?;
                 a_ty_info.return_type = ip.errorUnionPayload(a_ty_info.return_type);
                 var b_ty_info = ip.indexToFuncType(b_info.ty).?;
-                b_ty_info.return_type = ip.errorUnionPayload(a_ty_info.return_type);
+                b_ty_info.return_type = ip.errorUnionPayload(b_ty_info.return_type);
                 return a_ty_info.eql(b_ty_info, ip);
             },
 
@@ -4657,7 +4657,12 @@ pub fn getErrorSetType(
 }
 
 pub const GetFuncInstanceKey = struct {
+    /// Has the length of the instance function (may be lesser than
+    /// comptime_args).
     param_types: []Index,
+    /// Has the length of generic_owner's parameters (may be greater than
+    /// param_types).
+    comptime_args: []const Index,
     noalias_bits: u32,
     bare_return_type: Index,
     cc: std.builtin.CallingConvention,
@@ -4665,12 +4670,12 @@ pub const GetFuncInstanceKey = struct {
     is_noinline: bool,
     generic_owner: Index,
     inferred_error_set: bool,
-    comptime_args: []const Index,
     generation: u32,
 };
 
 pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey) Allocator.Error!Index {
-    if (arg.inferred_error_set) @panic("TODO");
+    if (arg.inferred_error_set)
+        return getFuncInstanceIes(ip, gpa, arg);
 
     const func_ty = try ip.getFuncType(gpa, .{
         .param_types = arg.param_types,
@@ -4693,7 +4698,7 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
     const prev_extra_len = ip.extra.items.len;
     errdefer ip.extra.items.len = prev_extra_len;
 
-    const func_instance_extra_index = ip.addExtraAssumeCapacity(Tag.FuncInstance{
+    const func_extra_index = ip.addExtraAssumeCapacity(Tag.FuncInstance{
         .analysis = .{
             .state = if (arg.cc == .Inline) .inline_only else .none,
             .is_cold = false,
@@ -4712,7 +4717,7 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
     ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.comptime_args));
 
     const gop = try ip.map.getOrPutAdapted(gpa, Key{
-        .func = extraFuncInstance(ip, func_instance_extra_index),
+        .func = extraFuncInstance(ip, func_extra_index),
     }, KeyAdapter{ .intern_pool = ip });
     errdefer _ = ip.map.pop();
 
@@ -4721,10 +4726,164 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
         return @enumFromInt(gop.index);
     }
 
-    try ip.items.ensureUnusedCapacity(gpa, 1);
     const func_index: Index = @enumFromInt(ip.items.len);
 
-    const fn_owner_decl = ip.declPtr(ip.funcDeclOwner(arg.generic_owner));
+    try ip.items.append(gpa, .{
+        .tag = .func_instance,
+        .data = func_extra_index,
+    });
+    errdefer ip.items.len -= 1;
+
+    return finishFuncInstance(
+        ip,
+        gpa,
+        arg.generic_owner,
+        func_index,
+        func_extra_index,
+        arg.generation,
+        func_ty,
+    );
+}
+
+/// This function exists separately than `getFuncInstance` because it needs to
+/// create 4 new items in the InternPool atomically before it can look for an
+/// existing item in the map.
+pub fn getFuncInstanceIes(
+    ip: *InternPool,
+    gpa: Allocator,
+    arg: GetFuncInstanceKey,
+) Allocator.Error!Index {
+    // Validate input parameters.
+    assert(arg.inferred_error_set);
+    assert(arg.bare_return_type != .none);
+    for (arg.param_types) |param_type| assert(param_type != .none);
+
+    // The strategy here is to add the function decl unconditionally, then to
+    // ask if it already exists, and if so, revert the lengths of the mutated
+    // arrays. This is similar to what `getOrPutTrailingString` does.
+    const prev_extra_len = ip.extra.items.len;
+    const params_len: u32 = @intCast(arg.param_types.len);
+
+    try ip.map.ensureUnusedCapacity(gpa, 4);
+    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.FuncInstance).Struct.fields.len +
+        1 + // inferred_error_set
+        arg.comptime_args.len +
+        @typeInfo(Tag.ErrorUnionType).Struct.fields.len +
+        @typeInfo(Tag.TypeFunction).Struct.fields.len +
+        @intFromBool(arg.noalias_bits != 0) +
+        params_len);
+    try ip.items.ensureUnusedCapacity(gpa, 4);
+
+    const func_index: Index = @enumFromInt(ip.items.len);
+    const error_union_type: Index = @enumFromInt(ip.items.len + 1);
+    const error_set_type: Index = @enumFromInt(ip.items.len + 2);
+    const func_ty: Index = @enumFromInt(ip.items.len + 3);
+
+    const func_extra_index = ip.addExtraAssumeCapacity(Tag.FuncInstance{
+        .analysis = .{
+            .state = if (arg.cc == .Inline) .inline_only else .none,
+            .is_cold = false,
+            .is_noinline = arg.is_noinline,
+            .calls_or_awaits_errorable_fn = false,
+            .stack_alignment = .none,
+            .inferred_error_set = true,
+        },
+        // This is populated after we create the Decl below. It is not read
+        // by equality or hashing functions.
+        .owner_decl = undefined,
+        .ty = func_ty,
+        .branch_quota = 0,
+        .generic_owner = arg.generic_owner,
+    });
+    ip.extra.appendAssumeCapacity(@intFromEnum(Index.none)); // resolved error set
+    ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.comptime_args));
+
+    const func_type_extra_index = ip.addExtraAssumeCapacity(Tag.TypeFunction{
+        .params_len = params_len,
+        .return_type = error_union_type,
+        .flags = .{
+            .alignment = arg.alignment,
+            .cc = arg.cc,
+            .is_var_args = false,
+            .has_comptime_bits = false,
+            .has_noalias_bits = arg.noalias_bits != 0,
+            .is_generic = false,
+            .is_noinline = arg.is_noinline,
+            .align_is_generic = false,
+            .cc_is_generic = false,
+            .section_is_generic = false,
+            .addrspace_is_generic = false,
+        },
+    });
+    // no comptime_bits because has_comptime_bits is false
+    if (arg.noalias_bits != 0) ip.extra.appendAssumeCapacity(arg.noalias_bits);
+    ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.param_types));
+
+    // TODO: add appendSliceAssumeCapacity to MultiArrayList.
+    ip.items.appendAssumeCapacity(.{
+        .tag = .func_instance,
+        .data = func_extra_index,
+    });
+    ip.items.appendAssumeCapacity(.{
+        .tag = .type_error_union,
+        .data = ip.addExtraAssumeCapacity(Tag.ErrorUnionType{
+            .error_set_type = error_set_type,
+            .payload_type = arg.bare_return_type,
+        }),
+    });
+    ip.items.appendAssumeCapacity(.{
+        .tag = .type_inferred_error_set,
+        .data = @intFromEnum(func_index),
+    });
+    ip.items.appendAssumeCapacity(.{
+        .tag = .type_function,
+        .data = func_type_extra_index,
+    });
+
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const gop = ip.map.getOrPutAssumeCapacityAdapted(Key{
+        .func = extraFuncInstance(ip, func_extra_index),
+    }, adapter);
+    if (gop.found_existing) {
+        // Hot path: undo the additions to our two arrays.
+        ip.items.len -= 4;
+        ip.extra.items.len = prev_extra_len;
+        return @enumFromInt(gop.index);
+    }
+
+    // Synchronize the map with items.
+    assert(!ip.map.getOrPutAssumeCapacityAdapted(Key{ .error_union_type = .{
+        .error_set_type = error_set_type,
+        .payload_type = arg.bare_return_type,
+    } }, adapter).found_existing);
+    assert(!ip.map.getOrPutAssumeCapacityAdapted(Key{
+        .inferred_error_set_type = func_index,
+    }, adapter).found_existing);
+    assert(!ip.map.getOrPutAssumeCapacityAdapted(Key{
+        .func_type = extraFuncType(ip, func_type_extra_index),
+    }, adapter).found_existing);
+
+    return finishFuncInstance(
+        ip,
+        gpa,
+        arg.generic_owner,
+        func_index,
+        func_extra_index,
+        arg.generation,
+        func_ty,
+    );
+}
+
+fn finishFuncInstance(
+    ip: *InternPool,
+    gpa: Allocator,
+    generic_owner: Index,
+    func_index: Index,
+    func_extra_index: u32,
+    generation: u32,
+    func_ty: Index,
+) Allocator.Error!Index {
+    const fn_owner_decl = ip.declPtr(ip.funcDeclOwner(generic_owner));
     const decl_index = try ip.createDecl(gpa, .{
         .name = undefined,
         .src_namespace = fn_owner_decl.src_namespace,
@@ -4741,7 +4900,7 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
         .deletion_flag = false,
         .zir_decl_index = fn_owner_decl.zir_decl_index,
         .src_scope = fn_owner_decl.src_scope,
-        .generation = arg.generation,
+        .generation = generation,
         .is_pub = fn_owner_decl.is_pub,
         .is_exported = fn_owner_decl.is_exported,
         .has_linksection_or_addrspace = fn_owner_decl.has_linksection_or_addrspace,
@@ -4753,18 +4912,13 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
 
     // Populate the owner_decl field which was left undefined until now.
     ip.extra.items[
-        func_instance_extra_index + std.meta.fieldIndex(Tag.FuncInstance, "owner_decl").?
+        func_extra_index + std.meta.fieldIndex(Tag.FuncInstance, "owner_decl").?
     ] = @intFromEnum(decl_index);
 
     // TODO: improve this name
     const decl = ip.declPtr(decl_index);
     decl.name = try ip.getOrPutStringFmt(gpa, "{}__anon_{d}", .{
         fn_owner_decl.name.fmt(ip), @intFromEnum(decl_index),
-    });
-
-    ip.items.appendAssumeCapacity(.{
-        .tag = .func_instance,
-        .data = func_instance_extra_index,
     });
 
     return func_index;
