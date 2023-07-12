@@ -1758,7 +1758,7 @@ pub const DwarfInfo = struct {
         }
 
         if (has_next_ip) {
-            context.pc = mem.readIntSliceNative(usize, try abi.regBytes(context.thread_context, comptime abi.ipRegNum(), context.reg_context));
+            context.pc = mem.readIntSliceNative(usize, try abi.regBytes(context.thread_context, cie.return_address_register, context.reg_context));
         } else {
             context.pc = 0;
         }

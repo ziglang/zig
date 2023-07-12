@@ -868,7 +868,7 @@ fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usiz
 pub fn printUnwindError(debug_info: *DebugInfo, out_stream: anytype, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
     try tty_config.setColor(out_stream, .dim);
-    try out_stream.print("Unwind information for `{s}` was not available ({}), trace may be incomplete\n\n", .{ module_name, err });
+    try out_stream.print("Unwind information for `{s}:{}` was not available ({}), trace may be incomplete\n\n", .{ module_name, address, err });
     try tty_config.setColor(out_stream, .reset);
 }
 
