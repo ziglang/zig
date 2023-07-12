@@ -1908,7 +1908,7 @@ pub fn execvpeZ(
 
 /// Get an environment variable.
 /// See also `getenvZ`.
-pub fn getenv(key: []const u8) ?[]const u8 {
+pub fn getenv(key: []const u8) ?[:0]const u8 {
     if (builtin.link_libc) {
         var small_key_buf: [64]u8 = undefined;
         if (key.len < small_key_buf.len) {
@@ -1926,11 +1926,7 @@ pub fn getenv(key: []const u8) ?[]const u8 {
 
             if (!mem.eql(u8, this_key, key)) continue;
 
-            var end_i: usize = line_i;
-            while (line[end_i] != 0) : (end_i += 1) {}
-            const value = line[line_i + 1 .. end_i];
-
-            return value;
+            return mem.span(line);
         }
         return null;
     }
@@ -1946,26 +1942,22 @@ pub fn getenv(key: []const u8) ?[]const u8 {
         const this_key = ptr[0..line_i];
         if (!mem.eql(u8, key, this_key)) continue;
 
-        var end_i: usize = line_i;
-        while (ptr[end_i] != 0) : (end_i += 1) {}
-        const this_value = ptr[line_i + 1 .. end_i];
-
-        return this_value;
+        return mem.span(ptr);
     }
     return null;
 }
 
 /// Get an environment variable with a null-terminated name.
 /// See also `getenv`.
-pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
+pub fn getenvZ(key: [*:0]const u8) ?[:0]const u8 {
     if (builtin.link_libc) {
         const value = system.getenv(key) orelse return null;
-        return mem.sliceTo(value, 0);
+        return mem.span(value);
     }
     if (builtin.os.tag == .windows) {
         @compileError("std.os.getenvZ is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
     }
-    return getenv(mem.sliceTo(key, 0));
+    return getenv(mem.span(key));
 }
 
 /// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
