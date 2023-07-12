@@ -60,8 +60,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             };
         }
 
-        /// Initialize with capacity to hold at least `num` elements.
-        /// The resulting capacity is likely to be equal to `num`.
+        /// Initialize with capacity to hold `num` elements.
+        /// The resulting capacity will equal `num` exactly.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self.init(allocator);
@@ -379,9 +379,9 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return self.ensureTotalCapacityPrecise(better_capacity);
         }
 
-        /// Modify the array so that it can hold at least `new_capacity` items.
-        /// Like `ensureTotalCapacity`, but the resulting capacity is much more likely
-        /// (but not guaranteed) to be equal to `new_capacity`.
+        /// Modify the array so that it can hold `new_capacity` items.
+        /// Like `ensureTotalCapacity`, but the resulting capacity is guaranteed
+        /// to be equal to `new_capacity`.
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacityPrecise(self: *Self, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
@@ -570,8 +570,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return if (alignment) |a| ([:s]align(a) T) else [:s]T;
         }
 
-        /// Initialize with capacity to hold at least num elements.
-        /// The resulting capacity is likely to be equal to `num`.
+        /// Initialize with capacity to hold `num` elements.
+        /// The resulting capacity will equal `num` exactly.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self{};
@@ -885,9 +885,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return self.ensureTotalCapacityPrecise(allocator, better_capacity);
         }
 
-        /// Modify the array so that it can hold at least `new_capacity` items.
-        /// Like `ensureTotalCapacity`, but the resulting capacity is much more likely
-        /// (but not guaranteed) to be equal to `new_capacity`.
+        /// Modify the array so that it can hold `new_capacity` items.
+        /// Like `ensureTotalCapacity`, but the resulting capacity is guaranteed
+        /// to be equal to `new_capacity`.
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacityPrecise(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
