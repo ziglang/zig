@@ -1088,25 +1088,25 @@ fn analyzeBodyInner(
             .error_set_decl_anon => try sema.zirErrorSetDecl(block, inst, .anon),
             .error_set_decl_func => try sema.zirErrorSetDecl(block, inst, .func),
 
-            .add       => try sema.zirArithmetic(block, inst, .add,        true),
-            .addwrap   => try sema.zirArithmetic(block, inst, .addwrap,    true),
-            .add_sat   => try sema.zirArithmetic(block, inst, .add_sat,    true),
-            .add_unsafe=> try sema.zirArithmetic(block, inst, .add_unsafe, false),
-            .mul       => try sema.zirArithmetic(block, inst, .mul,        true),
-            .mulwrap   => try sema.zirArithmetic(block, inst, .mulwrap,    true),
-            .mul_sat   => try sema.zirArithmetic(block, inst, .mul_sat,    true),
-            .sub       => try sema.zirArithmetic(block, inst, .sub,        true),
-            .subwrap   => try sema.zirArithmetic(block, inst, .subwrap,    true),
-            .sub_sat   => try sema.zirArithmetic(block, inst, .sub_sat,    true),
+            .add        => try sema.zirArithmetic(block, inst, .add,        true),
+            .addwrap    => try sema.zirArithmetic(block, inst, .addwrap,    true),
+            .add_sat    => try sema.zirArithmetic(block, inst, .add_sat,    true),
+            .add_unsafe => try sema.zirArithmetic(block, inst, .add_unsafe, false),
+            .mul        => try sema.zirArithmetic(block, inst, .mul,        true),
+            .mulwrap    => try sema.zirArithmetic(block, inst, .mulwrap,    true),
+            .mul_sat    => try sema.zirArithmetic(block, inst, .mul_sat,    true),
+            .sub        => try sema.zirArithmetic(block, inst, .sub,        true),
+            .subwrap    => try sema.zirArithmetic(block, inst, .subwrap,    true),
+            .sub_sat    => try sema.zirArithmetic(block, inst, .sub_sat,    true),
 
             .div       => try sema.zirDiv(block, inst),
             .div_exact => try sema.zirDivExact(block, inst),
             .div_floor => try sema.zirDivFloor(block, inst),
             .div_trunc => try sema.zirDivTrunc(block, inst),
 
-            .mod_rem   => try sema.zirModRem(block, inst),
-            .mod       => try sema.zirMod(block, inst),
-            .rem       => try sema.zirRem(block, inst),
+            .mod_rem => try sema.zirModRem(block, inst),
+            .mod     => try sema.zirMod(block, inst),
+            .rem     => try sema.zirRem(block, inst),
 
             .max => try sema.zirMinMax(block, inst, .max),
             .min => try sema.zirMinMax(block, inst, .min),
@@ -35670,7 +35670,7 @@ pub fn analyzeAddressSpace(
     ctx: AddressSpaceContext,
 ) !std.builtin.AddressSpace {
     const mod = sema.mod;
-    const addrspace_tv = try sema.resolveInstConst(block, src, zir_ref, "addresspace must be comptime-known");
+    const addrspace_tv = try sema.resolveInstConst(block, src, zir_ref, "address space must be comptime-known");
     const address_space = mod.toEnum(std.builtin.AddressSpace, addrspace_tv.val);
     const target = sema.mod.getTarget();
     const arch = target.cpu.arch;
