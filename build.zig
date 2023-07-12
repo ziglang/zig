@@ -336,6 +336,7 @@ pub fn build(b: *std.Build) !void {
                 artifact.linkSystemLibrary("version");
                 artifact.linkSystemLibrary("uuid");
                 artifact.linkSystemLibrary("ole32");
+                artifact.linkSystemLibrary("shlwapi");
             }
         }
     }
@@ -712,6 +713,7 @@ fn addStaticLlvmOptionsToExe(exe: *std.Build.Step.Compile) !void {
         exe.linkSystemLibrary("version");
         exe.linkSystemLibrary("uuid");
         exe.linkSystemLibrary("ole32");
+        exe.linkSystemLibrary("shlwapi");
     }
 }
 
