@@ -7936,7 +7936,7 @@ fn unionInit(
 ) InnerError!Zir.Inst.Ref {
     const union_type = try typeExpr(gz, scope, params[0]);
     const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[1]);
-    const field_type = try gz.addPlNode(.field_type_ref, params[1], Zir.Inst.FieldTypeRef{
+    const field_type = try gz.addPlNode(.field_type_ref, node, Zir.Inst.FieldTypeRef{
         .container_type = union_type,
         .field_name = field_name,
     });

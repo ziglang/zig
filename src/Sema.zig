@@ -19368,8 +19368,8 @@ fn addConstantMaybeRef(
 fn zirFieldTypeRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.FieldTypeRef, inst_data.payload_index).data;
-    const ty_src = inst_data.src();
-    const field_src = inst_data.src();
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const field_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const aggregate_ty = try sema.resolveType(block, ty_src, extra.container_type);
     const field_name = try sema.resolveConstStringIntern(block, field_src, extra.field_name, "field name must be comptime-known");
     return sema.fieldType(block, aggregate_ty, field_name, field_src, ty_src);
