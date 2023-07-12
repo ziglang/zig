@@ -2,7 +2,7 @@ const std = @import("std");
 const debug = std.debug;
 const testing = std.testing;
 
-noinline fn frame4(expected: *[4]usize, unwound: *[4]usize) void {
+noinline fn frame4(expected: *[5]usize, unwound: *[5]usize) void {
     expected[0] = @returnAddress();
 
     var context: debug.ThreadContext = undefined;
@@ -17,26 +17,27 @@ noinline fn frame4(expected: *[4]usize, unwound: *[4]usize) void {
     }
 }
 
-noinline fn frame3(expected: *[4]usize, unwound: *[4]usize) void {
+noinline fn frame3(expected: *[5]usize, unwound: *[5]usize) void {
     expected[1] = @returnAddress();
     frame4(expected, unwound);
 }
 
-fn frame2(expected: *[4]usize, unwound: *[4]usize) callconv(.C) void {
+fn frame2(expected: *[5]usize, unwound: *[5]usize) callconv(.C) void {
+    expected[2] = @returnAddress();
     frame3(expected, unwound);
 }
 
 extern fn frame0(
-    expected: *[4]usize,
-    unwound: *[4]usize,
-    frame_2: *const fn (expected: *[4]usize, unwound: *[4]usize) callconv(.C) void,
+    expected: *[5]usize,
+    unwound: *[5]usize,
+    frame_2: *const fn (expected: *[5]usize, unwound: *[5]usize) callconv(.C) void,
 ) void;
 
 pub fn main() !void {
     if (!std.debug.have_ucontext or !std.debug.have_getcontext) return;
 
-    var expected: [4]usize = undefined;
-    var unwound: [4]usize = undefined;
+    var expected: [5]usize = undefined;
+    var unwound: [5]usize = undefined;
     frame0(&expected, &unwound, &frame2);
     try testing.expectEqual(expected, unwound);
 }

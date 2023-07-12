@@ -8,17 +8,15 @@ __attribute__((noinline)) void frame1(
     void** expected,
     void** unwound,
     void (*frame2)(void** expected, void** unwound)) {
-    expected[2] = &&frame_2_ret;
+    expected[3] = __builtin_extract_return_addr(__builtin_return_address(0));
     frame2(expected, unwound);
- frame_2_ret:
 }
 
 LIB_API void frame0(
     void** expected,
     void** unwound,
     void (*frame2)(void** expected, void** unwound)) {
-    expected[3] = &&frame_1_ret;
+    expected[4] = __builtin_extract_return_addr(__builtin_return_address(0));
     frame1(expected, unwound, frame2);
- frame_1_ret:
 }
 
