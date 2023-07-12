@@ -251,14 +251,41 @@ pub const Type = enum(u32) {
         };
     }
 
-    pub fn isFn(self: Type, builder: *const Builder) bool {
+    pub fn isFloatingPoint(self: Type) bool {
+        return switch (self) {
+            .half, .bfloat, .float, .double, .fp128, .x86_fp80, .ppc_fp128 => true,
+            else => false,
+        };
+    }
+
+    pub fn isInteger(self: Type, builder: *const Builder) bool {
+        return switch (self) {
+            .i1, .i8, .i16, .i29, .i32, .i64, .i80, .i128 => true,
+            else => switch (self.tag(builder)) {
+                .integer => true,
+                else => false,
+            },
+        };
+    }
+
+    pub fn isPointer(self: Type, builder: *const Builder) bool {
+        return switch (self) {
+            .ptr => true,
+            else => switch (self.tag(builder)) {
+                .pointer => true,
+                else => false,
+            },
+        };
+    }
+
+    pub fn isFunction(self: Type, builder: *const Builder) bool {
         return switch (self.tag(builder)) {
             .function, .vararg_function => true,
             else => false,
         };
     }
 
-    pub fn fnKind(self: Type, builder: *const Builder) Type.Function.Kind {
+    pub fn functionKind(self: Type, builder: *const Builder) Type.Function.Kind {
         return switch (self.tag(builder)) {
             .function => .normal,
             .vararg_function => .vararg,
@@ -341,6 +368,20 @@ pub const Type = enum(u32) {
             => builder.typeExtraData(Type.Vector, item.data).child,
             .array => builder.typeExtraData(Type.Array, item.data).child,
             .named_structure => builder.typeExtraData(Type.NamedStructure, item.data).body,
+            else => unreachable,
+        };
+    }
+
+    pub fn scalarType(self: Type, builder: *const Builder) Type {
+        if (self.isFloatingPoint()) return self;
+        const item = builder.type_items.items[@intFromEnum(self)];
+        return switch (item.tag) {
+            .integer,
+            .pointer,
+            => self,
+            .vector,
+            .scalable_vector,
+            => builder.typeExtraData(Type.Vector, item.data).child,
             else => unreachable,
         };
     }
@@ -809,17 +850,17 @@ pub const Global = struct {
         }
 
         pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
-            try builder.ensureUnusedCapacityGlobal(new_name);
+            try builder.ensureUnusedGlobalCapacity(new_name);
             self.renameAssumeCapacity(new_name, builder);
         }
 
         pub fn takeName(self: Index, other: Index, builder: *Builder) Allocator.Error!void {
-            try builder.ensureUnusedCapacityGlobal(.empty);
+            try builder.ensureUnusedGlobalCapacity(.empty);
             self.takeNameAssumeCapacity(other, builder);
         }
 
         pub fn replace(self: Index, other: Index, builder: *Builder) Allocator.Error!void {
-            try builder.ensureUnusedCapacityGlobal(.empty);
+            try builder.ensureUnusedGlobalCapacity(.empty);
             self.replaceAssumeCapacity(other, builder);
         }
 
@@ -1047,6 +1088,7 @@ pub const Constant = enum(u32) {
         string,
         string_null,
         vector,
+        splat,
         zeroinitializer,
         undef,
         poison,
@@ -1124,6 +1166,11 @@ pub const Constant = enum(u32) {
 
     pub const Aggregate = struct {
         type: Type,
+    };
+
+    pub const Splat = extern struct {
+        type: Type,
+        value: Constant,
     };
 
     pub const BlockAddress = extern struct {
@@ -1217,6 +1264,7 @@ pub const Constant = enum(u32) {
                     .array,
                     .vector,
                     => builder.constantExtraData(Aggregate, item.data).type,
+                    .splat => builder.constantExtraData(Splat, item.data).type,
                     .string,
                     .string_null,
                     => builder.arrayTypeAssumeCapacity(
@@ -1270,28 +1318,10 @@ pub const Constant = enum(u32) {
                     },
                     .icmp, .fcmp => {
                         const ty = builder.constantExtraData(Compare, item.data).lhs.typeOf(builder);
-                        return switch (ty) {
-                            .half,
-                            .bfloat,
-                            .float,
-                            .double,
-                            .fp128,
-                            .x86_fp80,
-                            .ppc_fp128,
-                            .i1,
-                            .i8,
-                            .i16,
-                            .i29,
-                            .i32,
-                            .i64,
-                            .i80,
-                            .i128,
-                            => ty,
-                            else => if (ty.isVector(builder)) switch (ty.vectorKind(builder)) {
-                                inline else => |kind| builder
-                                    .vectorTypeAssumeCapacity(kind, ty.vectorLen(builder), .i1),
-                            } else ty,
-                        };
+                        return if (ty.isVector(builder)) switch (ty.vectorKind(builder)) {
+                            inline else => |kind| builder
+                                .vectorTypeAssumeCapacity(kind, ty.vectorLen(builder), .i1),
+                        } else ty;
                     },
                     .extractelement => builder.constantExtraData(ExtractElement, item.data)
                         .arg.typeOf(builder).childType(builder),
@@ -1479,7 +1509,6 @@ pub const Constant = enum(u32) {
                         const len = extra.data.type.aggregateLen(data.builder);
                         const vals: []const Constant =
                             @ptrCast(data.builder.constant_extra.items[extra.end..][0..len]);
-
                         try writer.writeAll(switch (tag) {
                             .structure => "{ ",
                             .packed_structure => "<{ ",
@@ -1498,6 +1527,16 @@ pub const Constant = enum(u32) {
                             .vector => ">",
                             else => unreachable,
                         });
+                    },
+                    .splat => {
+                        const extra = data.builder.constantExtraData(Splat, item.data);
+                        const len = extra.type.vectorLen(data.builder);
+                        try writer.writeByte('<');
+                        for (0..len) |index| {
+                            if (index > 0) try writer.writeAll(", ");
+                            try writer.print("{%}", .{extra.value.fmt(data.builder)});
+                        }
+                        try writer.writeByte('>');
                     },
                     inline .string,
                     .string_null,
@@ -2093,7 +2132,7 @@ pub fn namedTypeSetBody(
 pub fn addGlobal(self: *Builder, name: String, global: Global) Allocator.Error!Global.Index {
     assert(!name.isAnon());
     try self.ensureUnusedTypeCapacity(1, null, 0);
-    try self.ensureUnusedCapacityGlobal(name);
+    try self.ensureUnusedGlobalCapacity(name);
     return self.addGlobalAssumeCapacity(name, global);
 }
 
@@ -2231,8 +2270,17 @@ pub fn vectorConst(self: *Builder, ty: Type, vals: []const Constant) Allocator.E
     return self.vectorConstAssumeCapacity(ty, vals);
 }
 
+pub fn splatConst(self: *Builder, ty: Type, val: Constant) Allocator.Error!Constant {
+    try self.ensureUnusedConstantCapacity(1, Constant.Splat, 0);
+    return self.splatConstAssumeCapacity(ty, val);
+}
+
 pub fn zeroInitConst(self: *Builder, ty: Type) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, null, 0);
+    try self.ensureUnusedConstantCapacity(1, Constant.Fp128, 0);
+    try self.constant_limbs.ensureUnusedCapacity(
+        self.gpa,
+        Constant.Integer.limbs + comptime std.math.big.int.calcLimbLen(0),
+    );
     return self.zeroInitConstAssumeCapacity(ty);
 }
 
@@ -2477,7 +2525,7 @@ fn isValidIdentifier(id: []const u8) bool {
     return true;
 }
 
-fn ensureUnusedCapacityGlobal(self: *Builder, name: String) Allocator.Error!void {
+fn ensureUnusedGlobalCapacity(self: *Builder, name: String) Allocator.Error!void {
     if (self.useLibLlvm()) try self.llvm.globals.ensureUnusedCapacity(self.gpa, 1);
     try self.string_map.ensureUnusedCapacity(self.gpa, 1);
     if (name.toSlice(self)) |id| try self.string_bytes.ensureUnusedCapacity(self.gpa, id.len +
@@ -2571,6 +2619,7 @@ fn vectorTypeAssumeCapacity(
     len: u32,
     child: Type,
 ) Type {
+    assert(child.isFloatingPoint() or child.isInteger(self) or child.isPointer(self));
     const tag: Type.Tag = switch (kind) {
         .normal => .vector,
         .scalable => .scalable_vector,
@@ -3321,14 +3370,13 @@ fn vectorConstAssumeCapacity(
     ty: Type,
     vals: []const Constant,
 ) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
-    if (std.debug.runtime_safety) {
-        const type_item = self.type_items.items[@intFromEnum(ty)];
-        assert(type_item.tag == .vector);
-        const extra = self.typeExtraData(Type.Vector, type_item.data);
-        assert(extra.len == vals.len);
-        for (vals) |val| assert(extra.child == val.typeOf(self));
-    }
+    assert(ty.isVector(self));
+    assert(ty.vectorLen(self) == vals.len);
+    for (vals) |val| assert(ty.childType(self) == val.typeOf(self));
 
+    for (vals[1..]) |val| {
+        if (vals[0] != val) break;
+    } else return self.splatConstAssumeCapacity(ty, vals[0]);
     for (vals) |val| {
         if (!val.isZeroInit(self)) break;
     } else return self.zeroInitConstAssumeCapacity(ty);
@@ -3351,23 +3399,91 @@ fn vectorConstAssumeCapacity(
     return result.constant;
 }
 
+fn splatConstAssumeCapacity(
+    self: *Builder,
+    ty: Type,
+    val: Constant,
+) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+    assert(ty.scalarType(self) == val.typeOf(self));
+
+    if (!ty.isVector(self)) return val;
+    if (val.isZeroInit(self)) return self.zeroInitConstAssumeCapacity(ty);
+
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Constant.Splat) u32 {
+            return @truncate(std.hash.Wyhash.hash(
+                comptime std.hash.uint32(@intFromEnum(Constant.Tag.splat)),
+                std.mem.asBytes(&key),
+            ));
+        }
+        pub fn eql(ctx: @This(), lhs_key: Constant.Splat, _: void, rhs_index: usize) bool {
+            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .splat) return false;
+            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.constantExtraData(Constant.Splat, rhs_data);
+            return std.meta.eql(lhs_key, rhs_extra);
+        }
+    };
+    const data = Constant.Splat{ .type = ty, .value = val };
+    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.constant_items.appendAssumeCapacity(.{
+            .tag = .splat,
+            .data = self.addConstantExtraAssumeCapacity(data),
+        });
+        if (self.useLibLlvm()) {
+            const ExpectedContents = [expected_fields_len]*llvm.Value;
+            var stack align(@alignOf(ExpectedContents)) =
+                std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
+            const allocator = stack.get();
+
+            const llvm_vals = try allocator.alloc(*llvm.Value, ty.vectorLen(self));
+            defer allocator.free(llvm_vals);
+            @memset(llvm_vals, val.toLlvm(self));
+
+            self.llvm.constants.appendAssumeCapacity(
+                llvm.constVector(llvm_vals.ptr, @intCast(llvm_vals.len)),
+            );
+        }
+    }
+    return @enumFromInt(gop.index);
+}
+
 fn zeroInitConstAssumeCapacity(self: *Builder, ty: Type) Constant {
-    switch (self.type_items.items[@intFromEnum(ty)].tag) {
-        .simple,
-        .function,
-        .vararg_function,
-        .integer,
-        .pointer,
-        => unreachable,
-        .target,
-        .vector,
-        .scalable_vector,
-        .small_array,
-        .array,
-        .structure,
-        .packed_structure,
-        .named_structure,
-        => {},
+    switch (ty) {
+        inline .half,
+        .bfloat,
+        .float,
+        .double,
+        .fp128,
+        .x86_fp80,
+        => |tag| return @field(Builder, @tagName(tag) ++ "ConstAssumeCapacity")(self, 0.0),
+        .ppc_fp128 => return self.ppc_fp128ConstAssumeCapacity(.{ 0.0, 0.0 }),
+        .token => return .none,
+        .i1 => return .false,
+        else => switch (self.type_items.items[@intFromEnum(ty)].tag) {
+            .simple,
+            .function,
+            .vararg_function,
+            => unreachable,
+            .integer => {
+                var limbs: [std.math.big.int.calcLimbLen(0)]std.math.big.Limb = undefined;
+                const bigint = std.math.big.int.Mutable.init(&limbs, 0);
+                return self.bigIntConstAssumeCapacity(ty, bigint.toConst()) catch unreachable;
+            },
+            .pointer => return self.nullConstAssumeCapacity(ty),
+            .target,
+            .vector,
+            .scalable_vector,
+            .small_array,
+            .array,
+            .structure,
+            .packed_structure,
+            .named_structure,
+            => {},
+        },
     }
     const result = self.getOrPutConstantNoExtraAssumeCapacity(
         .{ .tag = .zeroinitializer, .data = @intFromEnum(ty) },
@@ -4034,7 +4150,10 @@ pub inline fn useLibLlvm(self: *const Builder) bool {
 const assert = std.debug.assert;
 const build_options = @import("build_options");
 const builtin = @import("builtin");
-const llvm = @import("bindings.zig");
+const llvm = if (build_options.have_llvm)
+    @import("bindings.zig")
+else
+    @compileError("LLVM unavailable");
 const log = std.log.scoped(.llvm);
 const std = @import("std");
 
