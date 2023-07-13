@@ -701,9 +701,34 @@ const MachODumper = struct {
 const ElfDumper = struct {
     const symtab_label = "symtab";
 
-    fn parseAndDump(step: *Step, bytes: []const u8, opts: Opts) ![]const u8 {
-        _ = opts;
+    const Symtab = struct {
+        symbols: []align(1) const elf.Elf64_Sym,
+        strings: []const u8,
 
+        fn get(st: Symtab, index: usize) ?elf.Elf64_Sym {
+            if (index >= st.symbols.len) return null;
+            return st.symbols[index];
+        }
+
+        fn getName(st: Symtab, index: usize) ?[]const u8 {
+            const sym = st.get(index) orelse return null;
+            assert(sym.st_name < st.strings.len);
+            return mem.sliceTo(@ptrCast(st.strings.ptr + sym.st_name), 0);
+        }
+    };
+
+    const Context = struct {
+        gpa: Allocator,
+        data: []const u8,
+        hdr: elf.Elf64_Ehdr,
+        shdrs: []align(1) const elf.Elf64_Shdr,
+        phdrs: []align(1) const elf.Elf64_Phdr,
+        shstrtab: []const u8,
+        symtab: ?Symtab = null,
+        dysymtab: ?Symtab = null,
+    };
+
+    fn parseAndDump(step: *Step, bytes: []const u8, opts: Opts) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -713,18 +738,124 @@ const ElfDumper = struct {
             return error.InvalidMagicNumber;
         }
 
+        const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(bytes.ptr + hdr.e_shoff))[0..hdr.e_shnum];
+        const phdrs = @as([*]align(1) const elf.Elf64_Phdr, @ptrCast(bytes.ptr + hdr.e_phoff))[0..hdr.e_phnum];
+
+        var ctx = Context{
+            .gpa = gpa,
+            .data = bytes,
+            .hdr = hdr,
+            .shdrs = shdrs,
+            .phdrs = phdrs,
+            .shstrtab = undefined,
+        };
+        ctx.shstrtab = getSectionContents(ctx, ctx.hdr.e_shstrndx);
+
+        if (opts.dump_symtab) {
+            for (ctx.shdrs, 0..) |shdr, i| switch (shdr.sh_type) {
+                elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
+                    const raw = getSectionContents(ctx, i);
+                    const nsyms = @divExact(raw.len, @sizeOf(elf.Elf64_Sym));
+                    const symbols = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw.ptr))[0..nsyms];
+                    const strings = getSectionContents(ctx, shdr.sh_link);
+
+                    switch (shdr.sh_type) {
+                        elf.SHT_SYMTAB => {
+                            ctx.symtab = .{
+                                .symbols = symbols,
+                                .strings = strings,
+                            };
+                        },
+                        elf.SHT_DYNSYM => {
+                            ctx.dysymtab = .{
+                                .symbols = symbols,
+                                .strings = strings,
+                            };
+                        },
+                        else => unreachable,
+                    }
+                },
+
+                else => {},
+            };
+        }
+
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        try dumpHeader(hdr, writer);
+        try dumpHeader(ctx, writer);
+        try dumpShdrs(ctx, writer);
 
         return output.toOwnedSlice();
     }
 
-    fn dumpHeader(hdr: elf.Elf64_Ehdr, writer: anytype) !void {
+    fn getSectionName(ctx: Context, shndx: usize) []const u8 {
+        const shdr = ctx.shdrs[shndx];
+        assert(shdr.sh_name < ctx.shstrtab.len);
+        return mem.sliceTo(@as([*:0]const u8, @ptrCast(ctx.shstrtab.ptr + shdr.sh_name)), 0);
+    }
+
+    fn getSectionContents(ctx: Context, shndx: usize) []const u8 {
+        const shdr = ctx.shdrs[shndx];
+        assert(shdr.sh_offset < ctx.data.len);
+        assert(shdr.sh_offset + shdr.sh_size <= ctx.data.len);
+        return ctx.data[shdr.sh_offset..][0..shdr.sh_size];
+    }
+
+    fn dumpHeader(ctx: Context, writer: anytype) !void {
         try writer.writeAll("header\n");
-        try writer.print("type {s}\n", .{@tagName(hdr.e_type)});
-        try writer.print("entry {x}\n", .{hdr.e_entry});
+        try writer.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
+        try writer.print("entry {x}\n", .{ctx.hdr.e_entry});
+    }
+
+    fn dumpShdrs(ctx: Context, writer: anytype) !void {
+        if (ctx.shdrs.len == 0) return;
+
+        for (ctx.shdrs, 0..) |shdr, shndx| {
+            try writer.print("shdr {d}\n", .{shndx});
+            try writer.print("name {s}\n", .{getSectionName(ctx, shndx)});
+            try writer.print("type {s}\n", .{try fmtShType(ctx.gpa, shdr.sh_type)});
+        }
+    }
+
+    fn fmtShType(gpa: Allocator, sh_type: u32) ![]const u8 {
+        return switch (sh_type) {
+            elf.SHT_NULL => "NULL",
+            elf.SHT_PROGBITS => "PROGBITS",
+            elf.SHT_SYMTAB => "SYMTAB",
+            elf.SHT_STRTAB => "STRTAB",
+            elf.SHT_RELA => "RELA",
+            elf.SHT_HASH => "HASH",
+            elf.SHT_DYNAMIC => "DYNAMIC",
+            elf.SHT_NOTE => "NOTE",
+            elf.SHT_NOBITS => "NOBITS",
+            elf.SHT_REL => "REL",
+            elf.SHT_SHLIB => "SHLIB",
+            elf.SHT_DYNSYM => "DYNSYM",
+            elf.SHT_INIT_ARRAY => "INIT_ARRAY",
+            elf.SHT_FINI_ARRAY => "FINI_ARRAY",
+            elf.SHT_PREINIT_ARRAY => "PREINIT_ARRAY",
+            elf.SHT_GROUP => "GROUP",
+            elf.SHT_SYMTAB_SHNDX => "SYMTAB_SHNDX",
+            elf.SHT_X86_64_UNWIND => "X86_64_UNWIND",
+            elf.SHT_LLVM_ADDRSIG => "LLVM_ADDRSIG",
+            elf.SHT_GNU_HASH => "GNU_HASH",
+            elf.SHT_GNU_VERDEF => "VERDEF",
+            elf.SHT_GNU_VERNEED => "VERNEED",
+            elf.SHT_GNU_VERSYM => "VERSYM",
+            else => |sht| blk: {
+                if (elf.SHT_LOOS <= sht and sht < elf.SHT_HIOS) {
+                    break :blk try std.fmt.allocPrint(gpa, "LOOS+0x{x}", .{sht - elf.SHT_LOOS});
+                }
+                if (elf.SHT_LOPROC <= sht and sht < elf.SHT_HIPROC) {
+                    break :blk try std.fmt.allocPrint(gpa, "LOPROC+0x{x}", .{sht - elf.SHT_LOPROC});
+                }
+                if (elf.SHT_LOUSER <= sht and sht < elf.SHT_HIUSER) {
+                    break :blk try std.fmt.allocPrint(gpa, "LOUSER+0x{x}", .{sht - elf.SHT_LOUSER});
+                }
+                break :blk "UNKNOWN";
+            },
+        };
     }
 };
 
