@@ -31,23 +31,23 @@ pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writ
     var jws = std.json.writeStream(w, 6);
     try jws.beginObject();
 
-    try jws.emitString("zig_exe");
-    try jws.emitString(self_exe_path);
+    try jws.write("zig_exe");
+    try jws.write(self_exe_path);
 
-    try jws.emitString("lib_dir");
-    try jws.emitString(zig_lib_directory.path.?);
+    try jws.write("lib_dir");
+    try jws.write(zig_lib_directory.path.?);
 
-    try jws.emitString("std_dir");
-    try jws.emitString(zig_std_dir);
+    try jws.write("std_dir");
+    try jws.write(zig_std_dir);
 
-    try jws.emitString("global_cache_dir");
-    try jws.emitString(global_cache_dir);
+    try jws.write("global_cache_dir");
+    try jws.write(global_cache_dir);
 
-    try jws.emitString("version");
-    try jws.emitString(build_options.version);
+    try jws.write("version");
+    try jws.write(build_options.version);
 
-    try jws.emitString("target");
-    try jws.emitString(triple);
+    try jws.write("target");
+    try jws.write(triple);
 
     try jws.endObject();
     try w.writeByte('\n');

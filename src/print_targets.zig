@@ -44,59 +44,59 @@ pub fn cmdTargets(
 
     try jws.beginObject();
 
-    try jws.emitString("arch");
+    try jws.write("arch");
     try jws.beginArray();
     for (meta.fieldNames(Target.Cpu.Arch)) |field| {
-        try jws.emitString(field);
+        try jws.write(field);
     }
     try jws.endArray();
 
-    try jws.emitString("os");
+    try jws.write("os");
     try jws.beginArray();
     for (meta.fieldNames(Target.Os.Tag)) |field| {
-        try jws.emitString(field);
+        try jws.write(field);
     }
     try jws.endArray();
 
-    try jws.emitString("abi");
+    try jws.write("abi");
     try jws.beginArray();
     for (meta.fieldNames(Target.Abi)) |field| {
-        try jws.emitString(field);
+        try jws.write(field);
     }
     try jws.endArray();
 
-    try jws.emitString("libc");
+    try jws.write("libc");
     try jws.beginArray();
     for (target.available_libcs) |libc| {
         const tmp = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
             @tagName(libc.arch), @tagName(libc.os), @tagName(libc.abi),
         });
         defer allocator.free(tmp);
-        try jws.emitString(tmp);
+        try jws.write(tmp);
     }
     try jws.endArray();
 
-    try jws.emitString("glibc");
+    try jws.write("glibc");
     try jws.beginArray();
     for (glibc_abi.all_versions) |ver| {
         const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
         defer allocator.free(tmp);
-        try jws.emitString(tmp);
+        try jws.write(tmp);
     }
     try jws.endArray();
 
-    try jws.emitString("cpus");
+    try jws.write("cpus");
     try jws.beginObject();
     for (meta.tags(Target.Cpu.Arch)) |arch| {
-        try jws.emitString(@tagName(arch));
+        try jws.write(@tagName(arch));
         try jws.beginObject();
         for (arch.allCpuModels()) |model| {
-            try jws.emitString(model.name);
+            try jws.write(model.name);
             try jws.beginArray();
             for (arch.allFeaturesList(), 0..) |feature, i_usize| {
                 const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                 if (model.features.isEnabled(index)) {
-                    try jws.emitString(feature.name);
+                    try jws.write(feature.name);
                 }
             }
             try jws.endArray();
@@ -105,53 +105,53 @@ pub fn cmdTargets(
     }
     try jws.endObject();
 
-    try jws.emitString("cpuFeatures");
+    try jws.write("cpuFeatures");
     try jws.beginObject();
     for (meta.tags(Target.Cpu.Arch)) |arch| {
-        try jws.emitString(@tagName(arch));
+        try jws.write(@tagName(arch));
         try jws.beginArray();
         for (arch.allFeaturesList()) |feature| {
-            try jws.emitString(feature.name);
+            try jws.write(feature.name);
         }
         try jws.endArray();
     }
     try jws.endObject();
 
-    try jws.emitString("native");
+    try jws.write("native");
     try jws.beginObject();
     {
         const triple = try native_target.zigTriple(allocator);
         defer allocator.free(triple);
-        try jws.emitString("triple");
-        try jws.emitString(triple);
+        try jws.write("triple");
+        try jws.write(triple);
     }
     {
-        try jws.emitString("cpu");
+        try jws.write("cpu");
         try jws.beginObject();
-        try jws.emitString("arch");
-        try jws.emitString(@tagName(native_target.cpu.arch));
+        try jws.write("arch");
+        try jws.write(@tagName(native_target.cpu.arch));
 
-        try jws.emitString("name");
+        try jws.write("name");
         const cpu = native_target.cpu;
-        try jws.emitString(cpu.model.name);
+        try jws.write(cpu.model.name);
 
         {
-            try jws.emitString("features");
+            try jws.write("features");
             try jws.beginArray();
             for (native_target.cpu.arch.allFeaturesList(), 0..) |feature, i_usize| {
                 const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                 if (cpu.features.isEnabled(index)) {
-                    try jws.emitString(feature.name);
+                    try jws.write(feature.name);
                 }
             }
             try jws.endArray();
         }
         try jws.endObject();
     }
-    try jws.emitString("os");
-    try jws.emitString(@tagName(native_target.os.tag));
-    try jws.emitString("abi");
-    try jws.emitString(@tagName(native_target.abi));
+    try jws.write("os");
+    try jws.write(@tagName(native_target.os.tag));
+    try jws.write("abi");
+    try jws.write(@tagName(native_target.abi));
     try jws.endObject();
 
     try jws.endObject();
