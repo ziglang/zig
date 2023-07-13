@@ -7,10 +7,26 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Test unwinding pure zig code (no libc)
+    // Unwinding pure zig code, with a frame pointer
     {
         const exe = b.addExecutable(.{
-            .name = "zig_unwind",
+            .name = "zig_unwind_fp",
+            .root_source_file = .{ .path = "zig_unwind.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
+
+        if (target.isDarwin()) exe.unwind_tables = true;
+        exe.omit_frame_pointer = false;
+
+        const run_cmd = b.addRunArtifact(exe);
+        test_step.dependOn(&run_cmd.step);
+    }
+
+    // Unwinding pure zig code, without a frame pointer
+    {
+        const exe = b.addExecutable(.{
+            .name = "zig_unwind_nofp",
             .root_source_file = .{ .path = "zig_unwind.zig" },
             .target = target,
             .optimize = optimize,
@@ -23,7 +39,7 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&run_cmd.step);
     }
 
-    // Test unwinding through a C shared library
+    // Unwinding through a C shared library without a frame pointer (libc)
     {
         const c_shared_lib = b.addSharedLibrary(.{
             .name = "c_shared_lib",

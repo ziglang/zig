@@ -510,7 +510,7 @@ pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
 }
 
 pub fn needUnwindTables(target: std.Target) bool {
-    return target.os.tag == .windows or target.ofmt == .macho;
+    return target.os.tag == .windows or target.isDarwin();
 }
 
 pub fn defaultAddressSpace(

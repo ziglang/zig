@@ -231,8 +231,8 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/zerolength_check/build.zig"),
     },
     .{
-        .build_root = "test/standalone/dwarf_unwinding",
-        .import = @import("standalone/dwarf_unwinding/build.zig"),
+        .build_root = "test/standalone/stack_iterator",
+        .import = @import("standalone/stack_iterator/build.zig"),
     },
 };
 

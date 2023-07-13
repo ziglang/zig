@@ -23,24 +23,44 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
     if (builtin.target.ofmt != .c) {
         switch (builtin.cpu.arch) {
             .x86 => {
-                asm volatile (
-                    \\movl $3, %%ebx
-                    \\movl $1, %%ecx
-                    \\movl $2, %%edx
-                    \\movl $7, %%edi
-                    \\movl $6, %%esi
-                    \\movl $5, %%ebp
-                    ::: "ebx", "ecx", "edx", "edi", "esi", "ebp");
+                if (builtin.omit_frame_pointer) {
+                    asm volatile (
+                        \\movl $3, %%ebx
+                        \\movl $1, %%ecx
+                        \\movl $2, %%edx
+                        \\movl $7, %%edi
+                        \\movl $6, %%esi
+                        \\movl $5, %%ebp
+                        ::: "ebx", "ecx", "edx", "edi", "esi", "ebp");
+                } else {
+                    asm volatile (
+                        \\movl $3, %%ebx
+                        \\movl $1, %%ecx
+                        \\movl $2, %%edx
+                        \\movl $7, %%edi
+                        \\movl $6, %%esi
+                        ::: "ebx", "ecx", "edx", "edi", "esi");
+                }
             },
             .x86_64 => {
-                asm volatile (
-                    \\movq $3, %%rbx
-                    \\movq $12, %%r12
-                    \\movq $13, %%r13
-                    \\movq $14, %%r14
-                    \\movq $15, %%r15
-                    \\movq $6, %%rbp
-                    ::: "rbx", "r12", "r13", "r14", "r15", "rbp");
+                if (builtin.omit_frame_pointer) {
+                    asm volatile (
+                        \\movq $3, %%rbx
+                        \\movq $12, %%r12
+                        \\movq $13, %%r13
+                        \\movq $14, %%r14
+                        \\movq $15, %%r15
+                        \\movq $6, %%rbp
+                        ::: "rbx", "r12", "r13", "r14", "r15", "rbp");
+                } else {
+                    asm volatile (
+                        \\movq $3, %%rbx
+                        \\movq $12, %%r12
+                        \\movq $13, %%r13
+                        \\movq $14, %%r14
+                        \\movq $15, %%r15
+                        ::: "rbx", "r12", "r13", "r14", "r15");
+                }
             },
             else => {},
         }
