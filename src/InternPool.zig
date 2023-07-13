@@ -57,7 +57,7 @@ unions_free_list: std.ArrayListUnmanaged(Module.Union.Index) = .{},
 /// to field index, or value to field index. In such cases, they will store the underlying
 /// field names and values directly, relying on one of these maps, stored separately,
 /// to provide lookup.
-maps: std.ArrayListUnmanaged(std.AutoArrayHashMapUnmanaged(void, void)) = .{},
+maps: std.ArrayListUnmanaged(FieldMap) = .{},
 
 /// Used for finding the index inside `string_bytes`.
 string_table: std.HashMapUnmanaged(
@@ -66,6 +66,10 @@ string_table: std.HashMapUnmanaged(
     std.hash_map.StringIndexContext,
     std.hash_map.default_max_load_percentage,
 ) = .{},
+
+/// TODO: after https://github.com/ziglang/zig/issues/10618 is solved,
+/// change store_hash to false.
+const FieldMap = std.ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), true);
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -301,7 +305,7 @@ pub const Key = union(enum) {
             const map = &ip.maps.items[@intFromEnum(self.names_map.unwrap().?)];
             const adapter: NullTerminatedString.Adapter = .{ .strings = self.names.get(ip) };
             const field_index = map.getIndexAdapted(name, adapter) orelse return null;
-            return @as(u32, @intCast(field_index));
+            return @intCast(field_index);
         }
     };
 
@@ -4627,9 +4631,11 @@ pub fn getErrorSetType(
     const prev_extra_len = ip.extra.items.len;
     errdefer ip.extra.items.len = prev_extra_len;
 
+    const predicted_names_map: MapIndex = @enumFromInt(ip.maps.items.len);
+
     const error_set_extra_index = ip.addExtraAssumeCapacity(Tag.ErrorSet{
         .names_len = @intCast(names.len),
-        .names_map = @enumFromInt(ip.maps.items.len),
+        .names_map = predicted_names_map,
     });
     ip.extra.appendSliceAssumeCapacity(@ptrCast(names));
 
@@ -4650,8 +4656,10 @@ pub fn getErrorSetType(
     });
     errdefer ip.items.len -= 1;
 
-    _ = try ip.addMap(gpa);
-    errdefer @compileError("don't");
+    const names_map = try ip.addMap(gpa);
+    errdefer _ = ip.maps.pop();
+
+    try addStringsToMap(ip, gpa, names_map, names);
 
     return @enumFromInt(ip.items.len - 1);
 }
