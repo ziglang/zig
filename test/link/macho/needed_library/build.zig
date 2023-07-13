@@ -41,6 +41,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const check = exe.checkObject();
     check.checkStart("cmd LOAD_DYLIB");
     check.checkNext("name @rpath/liba.dylib");
+    test_step.dependOn(&check.step);
 
     const run = b.addRunArtifact(exe);
     run.skip_foreign_checks = true;

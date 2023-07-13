@@ -47,6 +47,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .op = .eq,
         .value = .{ .variable = "stubs_vmaddr" }, // The entrypoint should be a synthetic stub
     });
+    test_step.dependOn(&check_exe.step);
 
     const run = b.addRunArtifact(exe);
     run.skip_foreign_checks = true;

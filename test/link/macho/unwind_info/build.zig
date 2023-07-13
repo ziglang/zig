@@ -46,6 +46,7 @@ fn testUnwindInfo(
 
     check.checkInSymtab();
     check.checkNext("{*} (__TEXT,__text) external ___gxx_personality_v0");
+    test_step.dependOn(&check.step);
 
     const run = b.addRunArtifact(exe);
     run.skip_foreign_checks = true;
