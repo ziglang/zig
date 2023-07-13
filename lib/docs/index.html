@@ -697,6 +697,7 @@
         --zig-identifier: 'black';
         --zig-string-literal: #d14;
         --zig-type: #458;
+        --zig-fn: #900;
       }
       
       @media (prefers-color-scheme: dark) { 
@@ -706,6 +707,7 @@
           --zig-identifier: 'purple';
           --zig-string-literal: #2e5;
           --zig-type: #68f;
+          --zig-fn: #e33;
         }
       }
     
@@ -795,6 +797,11 @@
 
     .zig_type {
       color: var(--zig-type);
+      font-weight: bold;
+    }
+
+    .zig_fn {
+      color: var(--zig-fn);
       font-weight: bold;
     }
    
