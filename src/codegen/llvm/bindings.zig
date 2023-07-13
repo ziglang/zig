@@ -621,7 +621,7 @@ pub const Builder = opaque {
     extern fn LLVMPositionBuilder(
         Builder: *Builder,
         Block: *BasicBlock,
-        Instr: *Value,
+        Instr: ?*Value,
     ) void;
 
     pub const positionBuilderAtEnd = LLVMPositionBuilderAtEnd;

@@ -1,5 +1,6 @@
 gpa: Allocator,
 use_lib_llvm: bool,
+strip: bool,
 
 llvm: if (build_options.have_llvm) struct {
     context: *llvm.Context,
@@ -12,33 +13,33 @@ llvm: if (build_options.have_llvm) struct {
     constants: std.ArrayListUnmanaged(*llvm.Value) = .{},
 } else void,
 
-source_filename: String = .none,
-data_layout: String = .none,
-target_triple: String = .none,
+source_filename: String,
+data_layout: String,
+target_triple: String,
 
-string_map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
-string_bytes: std.ArrayListUnmanaged(u8) = .{},
-string_indices: std.ArrayListUnmanaged(u32) = .{},
+string_map: std.AutoArrayHashMapUnmanaged(void, void),
+string_bytes: std.ArrayListUnmanaged(u8),
+string_indices: std.ArrayListUnmanaged(u32),
 
-types: std.AutoArrayHashMapUnmanaged(String, Type) = .{},
-next_unnamed_type: String = @enumFromInt(0),
-next_unique_type_id: std.AutoHashMapUnmanaged(String, u32) = .{},
-type_map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
-type_items: std.ArrayListUnmanaged(Type.Item) = .{},
-type_extra: std.ArrayListUnmanaged(u32) = .{},
+types: std.AutoArrayHashMapUnmanaged(String, Type),
+next_unnamed_type: String,
+next_unique_type_id: std.AutoHashMapUnmanaged(String, u32),
+type_map: std.AutoArrayHashMapUnmanaged(void, void),
+type_items: std.ArrayListUnmanaged(Type.Item),
+type_extra: std.ArrayListUnmanaged(u32),
 
-globals: std.AutoArrayHashMapUnmanaged(String, Global) = .{},
-next_unnamed_global: String = @enumFromInt(0),
-next_replaced_global: String = .none,
-next_unique_global_id: std.AutoHashMapUnmanaged(String, u32) = .{},
-aliases: std.ArrayListUnmanaged(Alias) = .{},
-variables: std.ArrayListUnmanaged(Variable) = .{},
-functions: std.ArrayListUnmanaged(Function) = .{},
+globals: std.AutoArrayHashMapUnmanaged(String, Global),
+next_unnamed_global: String,
+next_replaced_global: String,
+next_unique_global_id: std.AutoHashMapUnmanaged(String, u32),
+aliases: std.ArrayListUnmanaged(Alias),
+variables: std.ArrayListUnmanaged(Variable),
+functions: std.ArrayListUnmanaged(Function),
 
-constant_map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
-constant_items: std.MultiArrayList(Constant.Item) = .{},
-constant_extra: std.ArrayListUnmanaged(u32) = .{},
-constant_limbs: std.ArrayListUnmanaged(std.math.big.Limb) = .{},
+constant_map: std.AutoArrayHashMapUnmanaged(void, void),
+constant_items: std.MultiArrayList(Constant.Item),
+constant_extra: std.ArrayListUnmanaged(u32),
+constant_limbs: std.ArrayListUnmanaged(std.math.big.Limb),
 
 pub const expected_fields_len = 32;
 pub const expected_gep_indices_len = 8;
@@ -46,6 +47,7 @@ pub const expected_gep_indices_len = 8;
 pub const Options = struct {
     allocator: Allocator,
     use_lib_llvm: bool = false,
+    strip: bool = true,
     name: []const u8 = &.{},
     target: std.Target = builtin.target,
     triple: []const u8 = &.{},
@@ -986,9 +988,11 @@ pub const Variable = struct {
 
 pub const Function = struct {
     global: Global.Index,
-    body: ?void = null,
-    instructions: std.ArrayListUnmanaged(Instruction) = .{},
-    blocks: std.ArrayListUnmanaged(Block) = .{},
+    blocks: []const Block = &.{},
+    instructions: std.MultiArrayList(Instruction) = .{},
+    names: ?[*]const String = null,
+    metadata: ?[*]const Metadata = null,
+    extra: []const u32 = &.{},
 
     pub const Index = enum(u32) {
         none = std.math.maxInt(u32),
@@ -1007,27 +1011,235 @@ pub const Function = struct {
         }
     };
 
+    pub const Block = struct {
+        instruction: Instruction.Index,
+
+        pub const Index = WipFunction.Block.Index;
+    };
+
     pub const Instruction = struct {
         tag: Tag,
+        data: u32,
 
         pub const Tag = enum {
             arg,
             block,
+            @"ret void",
+            ret,
         };
 
-        pub const Index = enum(u32) { _ };
-    };
+        pub const Index = enum(u32) {
+            _,
 
-    pub const Block = struct {
-        body: std.ArrayListUnmanaged(Instruction.Index) = .{},
-
-        pub const Index = enum(u32) { _ };
+            pub fn name(self: Instruction.Index, function: *const Function) String {
+                return if (function.names) |names|
+                    names[@intFromEnum(self)]
+                else
+                    @enumFromInt(@intFromEnum(self));
+            }
+        };
     };
 
     pub fn deinit(self: *Function, gpa: Allocator) void {
+        gpa.free(self.extra);
+        if (self.metadata) |metadata| gpa.free(metadata[0..self.instructions.len]);
+        if (self.names) |names| gpa.free(names[0..self.instructions.len]);
         self.instructions.deinit(gpa);
-        self.blocks.deinit(gpa);
         self.* = undefined;
+    }
+};
+
+pub const WipFunction = struct {
+    builder: *Builder,
+    function: Function.Index,
+    llvm: if (build_options.have_llvm) struct {
+        builder: *llvm.Builder,
+        blocks: std.ArrayListUnmanaged(*llvm.BasicBlock),
+        instructions: std.ArrayListUnmanaged(*llvm.Value),
+    } else void,
+    cursor: Cursor,
+    blocks: std.ArrayListUnmanaged(Block),
+    instructions: std.MultiArrayList(Instruction),
+    names: std.ArrayListUnmanaged(String),
+    metadata: std.ArrayListUnmanaged(Metadata),
+    extra: std.ArrayListUnmanaged(u32),
+
+    pub const Cursor = struct { block: Block.Index, instruction: u32 = 0 };
+
+    pub const Block = struct {
+        name: String,
+        incoming: u32,
+        instructions: std.ArrayListUnmanaged(Instruction.Index),
+
+        const Index = enum(u32) {
+            _,
+
+            pub fn toLlvm(self: Index, wip: *const WipFunction) *llvm.BasicBlock {
+                assert(wip.builder.useLibLlvm());
+                return wip.llvm.blocks.items[@intFromEnum(self)];
+            }
+        };
+    };
+
+    pub const Instruction = Function.Instruction;
+
+    pub fn init(builder: *Builder, function: Function.Index) WipFunction {
+        if (builder.useLibLlvm()) {
+            const llvm_function = function.toLlvm(builder);
+            while (llvm_function.getFirstBasicBlock()) |bb| bb.deleteBasicBlock();
+        }
+        return .{
+            .builder = builder,
+            .function = function,
+            .llvm = if (builder.useLibLlvm()) .{
+                .builder = builder.llvm.context.createBuilder(),
+                .blocks = .{},
+                .instructions = .{},
+            } else undefined,
+            .cursor = undefined,
+            .blocks = .{},
+            .instructions = .{},
+            .names = .{},
+            .metadata = .{},
+            .extra = .{},
+        };
+    }
+
+    pub fn block(self: *WipFunction, name: []const u8) Allocator.Error!Block.Index {
+        try self.blocks.ensureUnusedCapacity(self.builder.gpa, 1);
+        if (self.builder.useLibLlvm()) try self.llvm.blocks.ensureUnusedCapacity(self.builder.gpa, 1);
+
+        const index: Block.Index = @enumFromInt(self.blocks.items.len);
+        const final_name = if (self.builder.strip) .empty else try self.builder.string(name);
+        self.blocks.appendAssumeCapacity(.{ .name = final_name, .incoming = 0, .instructions = .{} });
+        if (self.builder.useLibLlvm()) self.llvm.blocks.appendAssumeCapacity(
+            self.builder.llvm.context.appendBasicBlock(
+                self.function.toLlvm(self.builder),
+                final_name.toSlice(self.builder).?,
+            ),
+        );
+        return index;
+    }
+
+    pub fn retVoid(self: *WipFunction) Allocator.Error!void {
+        _ = try self.addInst(.{ .tag = .@"ret void", .data = undefined }, .none);
+        if (self.builder.useLibLlvm()) self.llvm.instructions.appendAssumeCapacity(
+            self.llvm.builder.buildRetVoid(),
+        );
+    }
+
+    pub fn finish(self: *WipFunction) Allocator.Error!void {
+        const gpa = self.builder.gpa;
+        const function = self.function.ptr(self.builder);
+        const final_instructions_len = self.blocks.items.len + self.instructions.len;
+
+        const blocks = try gpa.alloc(Function.Block, self.blocks.items.len);
+        errdefer gpa.free(blocks);
+
+        const instructions = try gpa.alloc(Instruction.Index, self.instructions.len);
+        defer gpa.free(instructions);
+
+        const names = if (self.builder.strip) null else try gpa.alloc(String, final_instructions_len);
+        errdefer if (names) |new_names| gpa.free(new_names);
+
+        const metadata =
+            if (self.builder.strip) null else try gpa.alloc(Metadata, final_instructions_len);
+        errdefer if (metadata) |new_metadata| gpa.free(new_metadata);
+
+        gpa.free(function.blocks);
+        function.blocks = &.{};
+        if (function.names) |old_names| gpa.free(old_names[0..function.instructions.len]);
+        function.names = null;
+        if (function.metadata) |old_metadata| gpa.free(old_metadata[0..function.instructions.len]);
+        function.metadata = null;
+
+        function.instructions.shrinkRetainingCapacity(0);
+        try function.instructions.setCapacity(gpa, final_instructions_len);
+        errdefer function.instructions.shrinkRetainingCapacity(0);
+
+        {
+            var final_instruction: Instruction.Index = @enumFromInt(0);
+            for (blocks, self.blocks.items) |*final_block, current_block| {
+                final_block.instruction = final_instruction;
+                final_instruction = @enumFromInt(@intFromEnum(final_instruction) + 1);
+                for (current_block.instructions.items) |instruction| {
+                    instructions[@intFromEnum(instruction)] = final_instruction;
+                    final_instruction = @enumFromInt(@intFromEnum(final_instruction) + 1);
+                }
+            }
+        }
+
+        var next_name: String = @enumFromInt(0);
+        for (self.blocks.items) |current_block| {
+            const block_instruction: Instruction.Index = @enumFromInt(function.instructions.len);
+            function.instructions.appendAssumeCapacity(.{
+                .tag = .block,
+                .data = current_block.incoming,
+            });
+            if (names) |new_names|
+                new_names[@intFromEnum(block_instruction)] = switch (current_block.name) {
+                    .empty => name: {
+                        const name = next_name;
+                        next_name = @enumFromInt(@intFromEnum(name) + 1);
+                        break :name name;
+                    },
+                    else => |name| name,
+                };
+            for (current_block.instructions.items) |instruction_index| {
+                var instruction = self.instructions.get(@intFromEnum(instruction_index));
+                switch (instruction.tag) {
+                    .block => unreachable,
+                    .@"ret void" => {},
+                    else => unreachable,
+                }
+                function.instructions.appendAssumeCapacity(instruction);
+            }
+        }
+
+        function.extra = try self.extra.toOwnedSlice(gpa);
+        function.blocks = blocks;
+        function.names = if (names) |new_names| new_names.ptr else null;
+        function.metadata = if (metadata) |new_metadata| new_metadata.ptr else null;
+    }
+
+    pub fn deinit(self: *WipFunction) void {
+        self.extra.deinit(self.builder.gpa);
+        self.instructions.deinit(self.builder.gpa);
+        for (self.blocks.items) |*b| b.instructions.deinit(self.builder.gpa);
+        self.blocks.deinit(self.builder.gpa);
+        if (self.builder.useLibLlvm()) self.llvm.builder.dispose();
+        self.* = undefined;
+    }
+
+    fn addInst(
+        self: *WipFunction,
+        instruction: Instruction,
+        name: String,
+    ) Allocator.Error!Instruction.Index {
+        const block_instructions = &self.blocks.items[@intFromEnum(self.cursor.block)].instructions;
+        try self.instructions.ensureUnusedCapacity(self.builder.gpa, 1);
+        try self.names.ensureUnusedCapacity(self.builder.gpa, 1);
+        try block_instructions.ensureUnusedCapacity(self.builder.gpa, 1);
+        if (self.builder.useLibLlvm()) {
+            try self.llvm.instructions.ensureUnusedCapacity(self.builder.gpa, 1);
+
+            if (false) self.llvm.builder.positionBuilder(
+                self.cursor.block.toLlvm(self),
+                if (self.cursor.instruction < block_instructions.items.len)
+                    self.llvm.instructions.items[
+                        @intFromEnum(block_instructions.items[self.cursor.instruction])
+                    ]
+                else
+                    null,
+            );
+        }
+
+        const index: Instruction.Index = @enumFromInt(self.instructions.len);
+        self.instructions.appendAssumeCapacity(instruction);
+        self.names.appendAssumeCapacity(name);
+        block_instructions.insertAssumeCapacity(self.cursor.instruction, index);
+        self.cursor.instruction += 1;
+        return index;
     }
 };
 
@@ -1696,6 +1908,8 @@ pub const Value = enum(u32) {
     }
 };
 
+pub const Metadata = enum(u32) { _ };
+
 pub const InitError = error{
     InvalidLlvmTriple,
 } || Allocator.Error;
@@ -1704,7 +1918,37 @@ pub fn init(options: Options) InitError!Builder {
     var self = Builder{
         .gpa = options.allocator,
         .use_lib_llvm = options.use_lib_llvm,
+        .strip = options.strip,
+
         .llvm = undefined,
+
+        .source_filename = .none,
+        .data_layout = .none,
+        .target_triple = .none,
+
+        .string_map = .{},
+        .string_bytes = .{},
+        .string_indices = .{},
+
+        .types = .{},
+        .next_unnamed_type = @enumFromInt(0),
+        .next_unique_type_id = .{},
+        .type_map = .{},
+        .type_items = .{},
+        .type_extra = .{},
+
+        .globals = .{},
+        .next_unnamed_global = @enumFromInt(0),
+        .next_replaced_global = .none,
+        .next_unique_global_id = .{},
+        .aliases = .{},
+        .variables = .{},
+        .functions = .{},
+
+        .constant_map = .{},
+        .constant_items = .{},
+        .constant_extra = .{},
+        .constant_limbs = .{},
     };
     if (self.useLibLlvm()) self.llvm = .{ .context = llvm.Context.create() };
     errdefer self.deinit();
@@ -1726,7 +1970,7 @@ pub fn init(options: Options) InitError!Builder {
             var error_message: [*:0]const u8 = undefined;
             var target: *llvm.Target = undefined;
             if (llvm.Target.getFromTriple(
-                self.target_triple.toSlice(&self).?.ptr,
+                self.target_triple.toSlice(&self).?,
                 &target,
                 &error_message,
             ).toBool()) {
@@ -1739,7 +1983,7 @@ pub fn init(options: Options) InitError!Builder {
                 return InitError.InvalidLlvmTriple;
             }
             self.llvm.target = target;
-            self.llvm.module.?.setTarget(self.target_triple.toSlice(&self).?.ptr);
+            self.llvm.module.?.setTarget(self.target_triple.toSlice(&self).?);
         }
     }
 
@@ -2448,7 +2692,7 @@ pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator
         try writer.print(
             \\{s}{}{}{}{} {} {}(
         , .{
-            if (function.body) |_| "define" else "declare",
+            if (function.instructions.len > 0) "define" else "declare",
             global.linkage,
             global.preemption,
             global.visibility,
@@ -2469,48 +2713,18 @@ pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator
             else => unreachable,
         }
         try writer.print("){}{}", .{ global.unnamed_addr, global.alignment });
-        if (function.body) |_| {
-            try writer.writeAll(" {\n  ret ");
-            void: {
-                try writer.print("{%}", .{switch (extra.data.ret) {
-                    .void => |tag| {
-                        try writer.writeAll(@tagName(tag));
-                        break :void;
-                    },
-                    inline .half,
-                    .bfloat,
-                    .float,
-                    .double,
-                    .fp128,
-                    .x86_fp80,
-                    => |tag| try @field(Builder, @tagName(tag) ++ "Const")(self, 0.0),
-                    .ppc_fp128 => try self.ppc_fp128Const(.{ 0.0, 0.0 }),
-                    .x86_amx,
-                    .x86_mmx,
-                    .label,
-                    .metadata,
-                    => unreachable,
-                    .token => Constant.none,
-                    else => switch (extra.data.ret.tag(self)) {
-                        .simple,
-                        .function,
-                        .vararg_function,
-                        => unreachable,
-                        .integer => try self.intConst(extra.data.ret, 0),
-                        .pointer => try self.nullConst(extra.data.ret),
-                        .target,
-                        .vector,
-                        .scalable_vector,
-                        .small_array,
-                        .array,
-                        .structure,
-                        .packed_structure,
-                        .named_structure,
-                        => try self.zeroInitConst(extra.data.ret),
-                    },
-                }.fmt(self)});
+        if (function.instructions.len > 0) {
+            try writer.writeAll(" {\n");
+            for (0..function.instructions.len) |index| {
+                const instruction_index: Function.Instruction.Index = @enumFromInt(index);
+                const instruction = function.instructions.get(index);
+                switch (instruction.tag) {
+                    .block => try writer.print("{}:\n", .{instruction_index.name(&function).fmt(self)}),
+                    .@"ret void" => |tag| try writer.print("  {s}\n", .{@tagName(tag)}),
+                    else => unreachable,
+                }
             }
-            try writer.writeAll("\n}");
+            try writer.writeByte('}');
         }
         try writer.writeAll("\n\n");
     }

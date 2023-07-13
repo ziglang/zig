@@ -602,6 +602,7 @@ pub const Object = struct {
         var builder = try Builder.init(.{
             .allocator = gpa,
             .use_lib_llvm = options.use_lib_llvm,
+            .strip = options.strip,
             .name = options.root_name,
             .target = options.target,
             .triple = llvm_target_triple,
@@ -682,7 +683,7 @@ pub const Object = struct {
 
             target_machine = llvm.TargetMachine.create(
                 builder.llvm.target.?,
-                builder.target_triple.toSlice(&builder).?.ptr,
+                builder.target_triple.toSlice(&builder).?,
                 if (options.target.cpu.model.llvm_name) |s| s.ptr else null,
                 options.llvm_cpu_features,
                 opt_level,
@@ -749,7 +750,6 @@ pub const Object = struct {
         self.named_enum_map.deinit(gpa);
         self.type_map.deinit(gpa);
         self.extern_collisions.deinit(gpa);
-        self.builder.deinit();
         self.* = undefined;
     }
 
@@ -850,22 +850,19 @@ pub const Object = struct {
         error_name_table_ptr_global.toLlvm(&o.builder).setInitializer(error_name_table_ptr);
     }
 
-    fn genCmpLtErrorsLenFunction(object: *Object) !void {
+    fn genCmpLtErrorsLenFunction(o: *Object) !void {
         // If there is no such function in the module, it means the source code does not need it.
-        const llvm_fn = object.llvm_module.getNamedFunction(lt_errors_fn_name) orelse return;
-        const mod = object.module;
+        const name = o.builder.stringIfExists(lt_errors_fn_name) orelse return;
+        const llvm_fn = o.builder.getGlobal(name) orelse return;
+        const mod = o.module;
         const errors_len = mod.global_error_set.count();
 
-        // Delete previous implementation. We replace it with every flush() because the
-        // total number of errors may have changed.
-        while (llvm_fn.getFirstBasicBlock()) |bb| {
-            bb.deleteBasicBlock();
-        }
+        var wip = Builder.WipFunction.init(&o.builder, llvm_fn.ptrConst(&o.builder).kind.function);
+        defer wip.deinit();
 
-        const builder = object.context.createBuilder();
-
-        const entry_block = object.context.appendBasicBlock(llvm_fn, "Entry");
-        builder.positionBuilderAtEnd(entry_block);
+        const builder = wip.llvm.builder;
+        const entry_block = try wip.block("Entry");
+        builder.positionBuilderAtEnd(entry_block.toLlvm(&wip));
         builder.clearCurrentDebugLocation();
 
         // Example source of the following LLVM IR:
@@ -873,10 +870,12 @@ pub const Object = struct {
         //     return index < total_errors_len;
         // }
 
-        const lhs = llvm_fn.getParam(0);
-        const rhs = try object.builder.intConst(Builder.Type.err_int, errors_len);
-        const is_lt = builder.buildICmp(.ULT, lhs, rhs.toLlvm(&object.builder), "");
+        const lhs = llvm_fn.toLlvm(&o.builder).getParam(0);
+        const rhs = try o.builder.intConst(Builder.Type.err_int, errors_len);
+        const is_lt = builder.buildICmp(.ULT, lhs, rhs.toLlvm(&o.builder), "");
         _ = builder.buildRet(is_lt);
+
+        try wip.finish();
     }
 
     fn genModuleLevelAssembly(object: *Object) !void {
@@ -1158,11 +1157,14 @@ pub const Object = struct {
             bb.deleteBasicBlock();
         }
 
-        const builder = o.context.createBuilder();
+        var deinit_wip = true;
+        var wip = Builder.WipFunction.init(&o.builder, function);
+        defer if (deinit_wip) wip.deinit();
 
-        function.ptr(&o.builder).body = {};
-        const entry_block = o.context.appendBasicBlock(llvm_func, "Entry");
-        builder.positionBuilderAtEnd(entry_block);
+        const builder = wip.llvm.builder;
+        const entry_block = try wip.block("Entry");
+        wip.cursor = .{ .block = entry_block };
+        builder.positionBuilderAtEnd(entry_block.toLlvm(&wip));
 
         // This gets the LLVM values from the function and stores them in `dg.args`.
         const fn_info = mod.typeToFunc(decl.ty).?;
@@ -1260,8 +1262,7 @@ pub const Object = struct {
                     llvm_arg_i += 1;
 
                     const param_llvm_ty = (try o.lowerType(param_ty)).toLlvm(&o.builder);
-                    const abi_size = @as(c_uint, @intCast(param_ty.abiSize(mod)));
-                    const int_llvm_ty = (try o.builder.intType(@intCast(abi_size * 8))).toLlvm(&o.builder);
+                    const int_llvm_ty = (try o.builder.intType(@intCast(param_ty.abiSize(mod) * 8))).toLlvm(&o.builder);
                     const alignment = @max(
                         param_ty.abiAlignment(mod),
                         o.target_data.abiAlignmentOfType(int_llvm_ty),
@@ -1317,11 +1318,10 @@ pub const Object = struct {
                     const param_alignment = param_ty.abiAlignment(mod);
                     const arg_ptr = try o.buildAllocaInner(builder, llvm_func, false, param_llvm_ty, param_alignment, target);
                     const llvm_ty = (try o.builder.structType(.normal, field_types)).toLlvm(&o.builder);
-                    for (0..field_types.len) |field_i_usize| {
-                        const field_i = @as(c_uint, @intCast(field_i_usize));
+                    for (0..field_types.len) |field_i| {
                         const param = llvm_func.getParam(llvm_arg_i);
                         llvm_arg_i += 1;
-                        const field_ptr = builder.buildStructGEP(llvm_ty, arg_ptr, field_i, "");
+                        const field_ptr = builder.buildStructGEP(llvm_ty, arg_ptr, @intCast(field_i), "");
                         const store_inst = builder.buildStore(param, field_ptr);
                         store_inst.setAlignment(target.ptrBitWidth() / 8);
                     }
@@ -1422,6 +1422,7 @@ pub const Object = struct {
             .liveness = liveness,
             .context = o.context,
             .dg = &dg,
+            .wip = wip,
             .builder = builder,
             .ret_ptr = ret_ptr,
             .args = args.items,
@@ -1438,6 +1439,7 @@ pub const Object = struct {
             .err_ret_trace = err_ret_trace,
         };
         defer fg.deinit();
+        deinit_wip = false;
 
         fg.genBody(air.getMainBody()) catch |err| switch (err) {
             error.CodegenFail => {
@@ -1448,6 +1450,8 @@ pub const Object = struct {
             },
             else => |e| return e,
         };
+
+        try fg.wip.finish();
 
         try o.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
     }
@@ -1517,11 +1521,11 @@ pub const Object = struct {
             if (self.di_map.get(decl)) |di_node| {
                 const decl_name_slice = decl_name.toSlice(&self.builder).?;
                 if (try decl.isFunction(mod)) {
-                    const di_func = @as(*llvm.DISubprogram, @ptrCast(di_node));
+                    const di_func: *llvm.DISubprogram = @ptrCast(di_node);
                     const linkage_name = llvm.MDString.get(self.context, decl_name_slice.ptr, decl_name_slice.len);
                     di_func.replaceLinkageName(linkage_name);
                 } else {
-                    const di_global = @as(*llvm.DIGlobalVariable, @ptrCast(di_node));
+                    const di_global: *llvm.DIGlobalVariable = @ptrCast(di_node);
                     const linkage_name = llvm.MDString.get(self.context, decl_name_slice.ptr, decl_name_slice.len);
                     di_global.replaceLinkageName(linkage_name);
                 }
@@ -1554,11 +1558,11 @@ pub const Object = struct {
             if (self.di_map.get(decl)) |di_node| {
                 const exp_name_slice = exp_name.toSlice(&self.builder).?;
                 if (try decl.isFunction(mod)) {
-                    const di_func = @as(*llvm.DISubprogram, @ptrCast(di_node));
+                    const di_func: *llvm.DISubprogram = @ptrCast(di_node);
                     const linkage_name = llvm.MDString.get(self.context, exp_name_slice.ptr, exp_name_slice.len);
                     di_func.replaceLinkageName(linkage_name);
                 } else {
-                    const di_global = @as(*llvm.DIGlobalVariable, @ptrCast(di_node));
+                    const di_global: *llvm.DIGlobalVariable = @ptrCast(di_node);
                     const linkage_name = llvm.MDString.get(self.context, exp_name_slice.ptr, exp_name_slice.len);
                     di_global.replaceLinkageName(linkage_name);
                 }
@@ -1661,7 +1665,7 @@ pub const Object = struct {
         const gop = try o.di_map.getOrPut(gpa, file);
         errdefer assert(o.di_map.remove(file));
         if (gop.found_existing) {
-            return @as(*llvm.DIFile, @ptrCast(gop.value_ptr.*));
+            return @ptrCast(gop.value_ptr.*);
         }
         const dir_path_z = d: {
             var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
@@ -1809,7 +1813,7 @@ pub const Object = struct {
                     ty.abiSize(mod) * 8,
                     ty.abiAlignment(mod) * 8,
                     enumerators.ptr,
-                    @as(c_int, @intCast(enumerators.len)),
+                    @intCast(enumerators.len),
                     try o.lowerDebugType(int_ty, .full),
                     "",
                 );
@@ -1984,7 +1988,7 @@ pub const Object = struct {
                     ty.abiSize(mod) * 8,
                     ty.abiAlignment(mod) * 8,
                     try o.lowerDebugType(ty.childType(mod), .full),
-                    @as(i64, @intCast(ty.arrayLen(mod))),
+                    @intCast(ty.arrayLen(mod)),
                 );
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
                 try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(array_di_ty));
@@ -2289,7 +2293,7 @@ pub const Object = struct {
                             0, // flags
                             null, // derived from
                             di_fields.items.ptr,
-                            @as(c_int, @intCast(di_fields.items.len)),
+                            @intCast(di_fields.items.len),
                             0, // run time lang
                             null, // vtable holder
                             "", // unique id
@@ -2376,7 +2380,7 @@ pub const Object = struct {
                     0, // flags
                     null, // derived from
                     di_fields.items.ptr,
-                    @as(c_int, @intCast(di_fields.items.len)),
+                    @intCast(di_fields.items.len),
                     0, // run time lang
                     null, // vtable holder
                     "", // unique id
@@ -2488,7 +2492,7 @@ pub const Object = struct {
                     ty.abiAlignment(mod) * 8, // align in bits
                     0, // flags
                     di_fields.items.ptr,
-                    @as(c_int, @intCast(di_fields.items.len)),
+                    @intCast(di_fields.items.len),
                     0, // run time lang
                     "", // unique id
                 );
@@ -2601,7 +2605,7 @@ pub const Object = struct {
 
                 const fn_di_ty = dib.createSubroutineType(
                     param_di_types.items.ptr,
-                    @as(c_int, @intCast(param_di_types.items.len)),
+                    @intCast(param_di_types.items.len),
                     0,
                 );
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
@@ -4248,9 +4252,9 @@ pub const Object = struct {
     ) void {
         const llvm_attr = o.context.createStringAttribute(
             name.ptr,
-            @as(c_uint, @intCast(name.len)),
+            @intCast(name.len),
             value.ptr,
-            @as(c_uint, @intCast(value.len)),
+            @intCast(value.len),
         );
         val.addAttributeAtIndex(index, llvm_attr);
     }
@@ -4364,11 +4368,7 @@ pub const Object = struct {
             }
 
             const entry_block = llvm_func.getFirstBasicBlock().?;
-            if (entry_block.getFirstInstruction()) |first_inst| {
-                builder.positionBuilder(entry_block, first_inst);
-            } else {
-                builder.positionBuilderAtEnd(entry_block);
-            }
+            builder.positionBuilder(entry_block, entry_block.getFirstInstruction());
             builder.clearCurrentDebugLocation();
 
             break :blk builder.buildAllocaInAddressSpace(llvm_ty, @intFromEnum(address_space), "");
@@ -4502,6 +4502,7 @@ pub const FuncGen = struct {
     dg: *DeclGen,
     air: Air,
     liveness: Liveness,
+    wip: Builder.WipFunction,
     context: *llvm.Context,
     builder: *llvm.Builder,
     di_scope: ?*llvm.DIScope,
@@ -4542,7 +4543,7 @@ pub const FuncGen = struct {
 
     /// This data structure is used to implement breaking to blocks.
     blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
-        parent_bb: *llvm.BasicBlock,
+        parent_bb: Builder.Function.Block.Index,
         breaks: *BreakList,
     }),
 
@@ -4555,7 +4556,7 @@ pub const FuncGen = struct {
     });
 
     fn deinit(self: *FuncGen) void {
-        self.builder.dispose();
+        self.wip.deinit();
         self.dbg_inlined.deinit(self.gpa);
         self.dbg_block_stack.deinit(self.gpa);
         self.func_inst_table.deinit(self.gpa);
@@ -4898,7 +4899,7 @@ pub const FuncGen = struct {
     fn airCall(self: *FuncGen, inst: Air.Inst.Index, attr: llvm.CallAttr) !?*llvm.Value {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
-        const args = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]));
+        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]);
         const o = self.dg.object;
         const mod = o.module;
         const ip = &mod.intern_pool;
@@ -4987,8 +4988,7 @@ pub const FuncGen = struct {
                 const arg = args[it.zig_index - 1];
                 const param_ty = self.typeOf(arg);
                 const llvm_arg = try self.resolveInst(arg);
-                const abi_size = @as(c_uint, @intCast(param_ty.abiSize(mod)));
-                const int_llvm_ty = (try o.builder.intType(@intCast(abi_size * 8))).toLlvm(&o.builder);
+                const int_llvm_ty = (try o.builder.intType(@intCast(param_ty.abiSize(mod) * 8))).toLlvm(&o.builder);
 
                 if (isByRef(param_ty, mod)) {
                     const alignment = param_ty.abiAlignment(mod);
@@ -5034,9 +5034,8 @@ pub const FuncGen = struct {
 
                 const llvm_ty = (try o.builder.structType(.normal, llvm_types)).toLlvm(&o.builder);
                 try llvm_args.ensureUnusedCapacity(it.types_len);
-                for (llvm_types, 0..) |field_ty, i_usize| {
-                    const i = @as(c_uint, @intCast(i_usize));
-                    const field_ptr = self.builder.buildStructGEP(llvm_ty, arg_ptr, i, "");
+                for (llvm_types, 0..) |field_ty, i| {
+                    const field_ptr = self.builder.buildStructGEP(llvm_ty, arg_ptr, @intCast(i), "");
                     const load_inst = self.builder.buildLoad(field_ty.toLlvm(&o.builder), field_ptr, "");
                     load_inst.setAlignment(target.ptrBitWidth() / 8);
                     llvm_args.appendAssumeCapacity(load_inst);
@@ -5091,7 +5090,7 @@ pub const FuncGen = struct {
             (try o.lowerType(zig_fn_ty)).toLlvm(&o.builder),
             llvm_fn,
             llvm_args.items.ptr,
-            @as(c_uint, @intCast(llvm_args.items.len)),
+            @intCast(llvm_args.items.len),
             toLlvmCallConv(fn_info.cc, target),
             attr,
             "",
@@ -5256,7 +5255,7 @@ pub const FuncGen = struct {
             const operand = try self.resolveInst(un_op);
             const ptr_ty = try mod.singleMutPtrType(ret_ty);
             try self.store(ret_ptr, ptr_ty, operand, .NotAtomic);
-            _ = self.builder.buildRetVoid();
+            try self.wip.retVoid();
             return null;
         }
         const fn_info = mod.typeToFunc(self.dg.decl.ty).?;
@@ -5268,7 +5267,7 @@ pub const FuncGen = struct {
                 const int = try o.builder.intConst(Builder.Type.err_int, 0);
                 _ = self.builder.buildRet(int.toLlvm(&o.builder));
             } else {
-                _ = self.builder.buildRetVoid();
+                try self.wip.retVoid();
             }
             return null;
         }
@@ -5316,12 +5315,12 @@ pub const FuncGen = struct {
                 const int = try o.builder.intConst(Builder.Type.err_int, 0);
                 _ = self.builder.buildRet(int.toLlvm(&o.builder));
             } else {
-                _ = self.builder.buildRetVoid();
+                try self.wip.retVoid();
             }
             return null;
         }
         if (self.ret_ptr != null) {
-            _ = self.builder.buildRetVoid();
+            try self.wip.retVoid();
             return null;
         }
         const ptr = try self.resolveInst(un_op);
@@ -5476,33 +5475,33 @@ pub const FuncGen = struct {
                 const rhs_non_null_i2 = self.builder.buildZExt(rhs_non_null, llvm_i2.toLlvm(&o.builder), "");
                 const lhs_shifted = self.builder.buildShl(lhs_non_null_i2, (try o.builder.intConst(llvm_i2, 1)).toLlvm(&o.builder), "");
                 const lhs_rhs_ored = self.builder.buildOr(lhs_shifted, rhs_non_null_i2, "");
-                const both_null_block = self.context.appendBasicBlock(self.llvm_func, "BothNull");
-                const mixed_block = self.context.appendBasicBlock(self.llvm_func, "Mixed");
-                const both_pl_block = self.context.appendBasicBlock(self.llvm_func, "BothNonNull");
-                const end_block = self.context.appendBasicBlock(self.llvm_func, "End");
-                const llvm_switch = self.builder.buildSwitch(lhs_rhs_ored, mixed_block, 2);
+                const both_null_block = try self.wip.block("BothNull");
+                const mixed_block = try self.wip.block("Mixed");
+                const both_pl_block = try self.wip.block("BothNonNull");
+                const end_block = try self.wip.block("End");
+                const llvm_switch = self.builder.buildSwitch(lhs_rhs_ored, mixed_block.toLlvm(&self.wip), 2);
                 const llvm_i2_00 = try o.builder.intConst(llvm_i2, 0b00);
                 const llvm_i2_11 = try o.builder.intConst(llvm_i2, 0b11);
-                llvm_switch.addCase(llvm_i2_00.toLlvm(&o.builder), both_null_block);
-                llvm_switch.addCase(llvm_i2_11.toLlvm(&o.builder), both_pl_block);
+                llvm_switch.addCase(llvm_i2_00.toLlvm(&o.builder), both_null_block.toLlvm(&self.wip));
+                llvm_switch.addCase(llvm_i2_11.toLlvm(&o.builder), both_pl_block.toLlvm(&self.wip));
 
-                self.builder.positionBuilderAtEnd(both_null_block);
-                _ = self.builder.buildBr(end_block);
+                self.builder.positionBuilderAtEnd(both_null_block.toLlvm(&self.wip));
+                _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
 
-                self.builder.positionBuilderAtEnd(mixed_block);
-                _ = self.builder.buildBr(end_block);
+                self.builder.positionBuilderAtEnd(mixed_block.toLlvm(&self.wip));
+                _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
 
-                self.builder.positionBuilderAtEnd(both_pl_block);
+                self.builder.positionBuilderAtEnd(both_pl_block.toLlvm(&self.wip));
                 const lhs_payload = try self.optPayloadHandle(opt_llvm_ty, lhs, scalar_ty, true);
                 const rhs_payload = try self.optPayloadHandle(opt_llvm_ty, rhs, scalar_ty, true);
                 const payload_cmp = try self.cmp(lhs_payload, rhs_payload, payload_ty, op);
-                _ = self.builder.buildBr(end_block);
+                _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
                 const both_pl_block_end = self.builder.getInsertBlock();
 
-                self.builder.positionBuilderAtEnd(end_block);
+                self.builder.positionBuilderAtEnd(end_block.toLlvm(&self.wip));
                 const incoming_blocks: [3]*llvm.BasicBlock = .{
-                    both_null_block,
-                    mixed_block,
+                    both_null_block.toLlvm(&self.wip),
+                    mixed_block.toLlvm(&self.wip),
                     both_pl_block_end,
                 };
                 const llvm_i1_0 = Builder.Constant.false.toLlvm(&o.builder);
@@ -5552,7 +5551,6 @@ pub const FuncGen = struct {
         const extra = self.air.extraData(Air.Block, ty_pl.payload);
         const body = self.air.extra[extra.end..][0..extra.data.body_len];
         const inst_ty = self.typeOfIndex(inst);
-        const parent_bb = self.context.createBasicBlock("Block");
 
         if (inst_ty.isNoReturn(mod)) {
             try self.genBody(body);
@@ -5562,6 +5560,7 @@ pub const FuncGen = struct {
         var breaks: BreakList = .{};
         defer breaks.deinit(self.gpa);
 
+        const parent_bb = try self.wip.block("Block");
         try self.blocks.putNoClobber(self.gpa, inst, .{
             .parent_bb = parent_bb,
             .breaks = &breaks,
@@ -5570,8 +5569,7 @@ pub const FuncGen = struct {
 
         try self.genBody(body);
 
-        self.llvm_func.appendExistingBasicBlock(parent_bb);
-        self.builder.positionBuilderAtEnd(parent_bb);
+        self.builder.positionBuilderAtEnd(parent_bb.toLlvm(&self.wip));
 
         // Create a phi node only if the block returns a value.
         const is_body = inst_ty.zigTypeTag(mod) == .Fn;
@@ -5585,7 +5583,7 @@ pub const FuncGen = struct {
             // of function pointers, however the phi makes it a runtime value and therefore
             // the LLVM type has to be wrapped in a pointer.
             if (is_body or isByRef(inst_ty, mod)) {
-                break :ty self.context.pointerType(0);
+                break :ty Builder.Type.ptr.toLlvm(&o.builder);
             }
             break :ty raw_llvm_ty;
         };
@@ -5594,7 +5592,7 @@ pub const FuncGen = struct {
         phi_node.addIncoming(
             breaks.items(.val).ptr,
             breaks.items(.bb).ptr,
-            @as(c_uint, @intCast(breaks.len)),
+            @intCast(breaks.len),
         );
         return phi_node;
     }
@@ -5617,7 +5615,7 @@ pub const FuncGen = struct {
                 .val = val,
             });
         }
-        _ = self.builder.buildBr(block.parent_bb);
+        _ = self.builder.buildBr(block.parent_bb.toLlvm(&self.wip));
         return null;
     }
 
@@ -5628,14 +5626,14 @@ pub const FuncGen = struct {
         const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
         const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
 
-        const then_block = self.context.appendBasicBlock(self.llvm_func, "Then");
-        const else_block = self.context.appendBasicBlock(self.llvm_func, "Else");
-        _ = self.builder.buildCondBr(cond, then_block, else_block);
+        const then_block = try self.wip.block("Then");
+        const else_block = try self.wip.block("Else");
+        _ = self.builder.buildCondBr(cond, then_block.toLlvm(&self.wip), else_block.toLlvm(&self.wip));
 
-        self.builder.positionBuilderAtEnd(then_block);
+        self.builder.positionBuilderAtEnd(then_block.toLlvm(&self.wip));
         try self.genBody(then_body);
 
-        self.builder.positionBuilderAtEnd(else_block);
+        self.builder.positionBuilderAtEnd(else_block.toLlvm(&self.wip));
         try self.genBody(else_body);
 
         // No need to reset the insert cursor since this instruction is noreturn.
@@ -5707,14 +5705,14 @@ pub const FuncGen = struct {
                 break :err fg.builder.buildICmp(.NE, loaded, zero, "");
             };
 
-            const return_block = fg.context.appendBasicBlock(fg.llvm_func, "TryRet");
-            const continue_block = fg.context.appendBasicBlock(fg.llvm_func, "TryCont");
-            _ = fg.builder.buildCondBr(is_err, return_block, continue_block);
+            const return_block = try fg.wip.block("TryRet");
+            const continue_block = try fg.wip.block("TryCont");
+            _ = fg.builder.buildCondBr(is_err, return_block.toLlvm(&fg.wip), continue_block.toLlvm(&fg.wip));
 
-            fg.builder.positionBuilderAtEnd(return_block);
+            fg.builder.positionBuilderAtEnd(return_block.toLlvm(&fg.wip));
             try fg.genBody(body);
 
-            fg.builder.positionBuilderAtEnd(continue_block);
+            fg.builder.positionBuilderAtEnd(continue_block.toLlvm(&fg.wip));
         }
         if (is_unused) {
             return null;
@@ -5745,24 +5743,24 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const cond = try self.resolveInst(pl_op.operand);
         const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
-        const else_block = self.context.appendBasicBlock(self.llvm_func, "Else");
+        const else_block = try self.wip.block("Else");
         const llvm_usize = (try o.lowerType(Type.usize)).toLlvm(&o.builder);
         const cond_int = if (cond.typeOf().getTypeKind() == .Pointer)
             self.builder.buildPtrToInt(cond, llvm_usize, "")
         else
             cond;
-        const llvm_switch = self.builder.buildSwitch(cond_int, else_block, switch_br.data.cases_len);
+        const llvm_switch = self.builder.buildSwitch(cond_int, else_block.toLlvm(&self.wip), switch_br.data.cases_len);
 
         var extra_index: usize = switch_br.end;
         var case_i: u32 = 0;
 
         while (case_i < switch_br.data.cases_len) : (case_i += 1) {
             const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[case.end..][0..case.data.items_len]));
+            const items: []const Air.Inst.Ref = @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
             const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
             extra_index = case.end + case.data.items_len + case_body.len;
 
-            const case_block = self.context.appendBasicBlock(self.llvm_func, "Case");
+            const case_block = try self.wip.block("Case");
 
             for (items) |item| {
                 const llvm_item = try self.resolveInst(item);
@@ -5770,14 +5768,14 @@ pub const FuncGen = struct {
                     llvm_item.constPtrToInt(llvm_usize)
                 else
                     llvm_item;
-                llvm_switch.addCase(llvm_int_item, case_block);
+                llvm_switch.addCase(llvm_int_item, case_block.toLlvm(&self.wip));
             }
 
-            self.builder.positionBuilderAtEnd(case_block);
+            self.builder.positionBuilderAtEnd(case_block.toLlvm(&self.wip));
             try self.genBody(case_body);
         }
 
-        self.builder.positionBuilderAtEnd(else_block);
+        self.builder.positionBuilderAtEnd(else_block.toLlvm(&self.wip));
         const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
         if (else_body.len != 0) {
             try self.genBody(else_body);
@@ -5795,10 +5793,10 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
         const body = self.air.extra[loop.end..][0..loop.data.body_len];
-        const loop_block = self.context.appendBasicBlock(self.llvm_func, "Loop");
-        _ = self.builder.buildBr(loop_block);
+        const loop_block = try self.wip.block("Loop");
+        _ = self.builder.buildBr(loop_block.toLlvm(&self.wip));
 
-        self.builder.positionBuilderAtEnd(loop_block);
+        self.builder.positionBuilderAtEnd(loop_block.toLlvm(&self.wip));
         try self.genBody(body);
 
         // TODO instead of this logic, change AIR to have the property that
@@ -5808,7 +5806,7 @@ pub const FuncGen = struct {
         // be while(true) instead of for(body), which will eliminate 1 branch on
         // a hot path.
         if (body.len == 0 or !self.typeOfIndex(body[body.len - 1]).isNoReturn(mod)) {
-            _ = self.builder.buildBr(loop_block);
+            _ = self.builder.buildBr(loop_block.toLlvm(&self.wip));
         }
         return null;
     }
@@ -5858,8 +5856,7 @@ pub const FuncGen = struct {
             }
         }
 
-        const operand_bits = @as(u16, @intCast(operand_scalar_ty.bitSize(mod)));
-        const rt_int_bits = compilerRtIntBits(operand_bits);
+        const rt_int_bits = compilerRtIntBits(@intCast(operand_scalar_ty.bitSize(mod)));
         const rt_int_ty = try o.builder.intType(rt_int_bits);
         var extended = e: {
             if (operand_scalar_ty.isSignedInt(mod)) {
@@ -6193,13 +6190,11 @@ pub const FuncGen = struct {
                         const shifted_value = self.builder.buildLShr(containing_int, shift_amt, "");
                         const elem_llvm_ty = (try o.lowerType(field_ty)).toLlvm(&o.builder);
                         if (field_ty.zigTypeTag(mod) == .Float or field_ty.zigTypeTag(mod) == .Vector) {
-                            const elem_bits = @as(c_uint, @intCast(field_ty.bitSize(mod)));
-                            const same_size_int = (try o.builder.intType(@intCast(elem_bits))).toLlvm(&o.builder);
+                            const same_size_int = (try o.builder.intType(@intCast(field_ty.bitSize(mod)))).toLlvm(&o.builder);
                             const truncated_int = self.builder.buildTrunc(shifted_value, same_size_int, "");
                             return self.builder.buildBitCast(truncated_int, elem_llvm_ty, "");
                         } else if (field_ty.isPtrAtRuntime(mod)) {
-                            const elem_bits = @as(c_uint, @intCast(field_ty.bitSize(mod)));
-                            const same_size_int = (try o.builder.intType(@intCast(elem_bits))).toLlvm(&o.builder);
+                            const same_size_int = (try o.builder.intType(@intCast(field_ty.bitSize(mod)))).toLlvm(&o.builder);
                             const truncated_int = self.builder.buildTrunc(shifted_value, same_size_int, "");
                             return self.builder.buildIntToPtr(truncated_int, elem_llvm_ty, "");
                         }
@@ -6215,13 +6210,11 @@ pub const FuncGen = struct {
                     const containing_int = struct_llvm_val;
                     const elem_llvm_ty = (try o.lowerType(field_ty)).toLlvm(&o.builder);
                     if (field_ty.zigTypeTag(mod) == .Float or field_ty.zigTypeTag(mod) == .Vector) {
-                        const elem_bits = @as(c_uint, @intCast(field_ty.bitSize(mod)));
-                        const same_size_int = (try o.builder.intType(@intCast(elem_bits))).toLlvm(&o.builder);
+                        const same_size_int = (try o.builder.intType(@intCast(field_ty.bitSize(mod)))).toLlvm(&o.builder);
                         const truncated_int = self.builder.buildTrunc(containing_int, same_size_int, "");
                         return self.builder.buildBitCast(truncated_int, elem_llvm_ty, "");
                     } else if (field_ty.isPtrAtRuntime(mod)) {
-                        const elem_bits = @as(c_uint, @intCast(field_ty.bitSize(mod)));
-                        const same_size_int = (try o.builder.intType(@intCast(elem_bits))).toLlvm(&o.builder);
+                        const same_size_int = (try o.builder.intType(@intCast(field_ty.bitSize(mod)))).toLlvm(&o.builder);
                         const truncated_int = self.builder.buildTrunc(containing_int, same_size_int, "");
                         return self.builder.buildIntToPtr(truncated_int, elem_llvm_ty, "");
                     }
@@ -6310,8 +6303,8 @@ pub const FuncGen = struct {
     fn airDbgStmt(self: *FuncGen, inst: Air.Inst.Index) ?*llvm.Value {
         const di_scope = self.di_scope orelse return null;
         const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
-        self.prev_dbg_line = @as(c_uint, @intCast(self.base_line + dbg_stmt.line + 1));
-        self.prev_dbg_column = @as(c_uint, @intCast(dbg_stmt.column + 1));
+        self.prev_dbg_line = @intCast(self.base_line + dbg_stmt.line + 1);
+        self.prev_dbg_column = @intCast(dbg_stmt.column + 1);
         const inlined_at = if (self.dbg_inlined.items.len > 0)
             self.dbg_inlined.items[self.dbg_inlined.items.len - 1].loc
         else
@@ -6491,12 +6484,12 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.Asm, ty_pl.payload);
         const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
-        const clobbers_len = @as(u31, @truncate(extra.data.flags));
+        const clobbers_len: u31 = @truncate(extra.data.flags);
         var extra_i: usize = extra.end;
 
-        const outputs = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]));
+        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]);
         extra_i += outputs.len;
-        const inputs = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]));
+        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
         var llvm_constraints: std.ArrayListUnmanaged(u8) = .{};
@@ -6779,7 +6772,7 @@ pub const FuncGen = struct {
         const llvm_fn_ty = llvm.functionType(
             ret_llvm_ty.toLlvm(&o.builder),
             llvm_param_types.ptr,
-            @as(c_uint, @intCast(param_count)),
+            @intCast(param_count),
             .False,
         );
         const asm_fn = llvm.getInlineAsm(
@@ -6797,7 +6790,7 @@ pub const FuncGen = struct {
             llvm_fn_ty,
             asm_fn,
             llvm_param_values.ptr,
-            @as(c_uint, @intCast(param_count)),
+            @intCast(param_count),
             .C,
             .Auto,
             "",
@@ -6814,7 +6807,7 @@ pub const FuncGen = struct {
             if (llvm_ret_indirect[i]) continue;
 
             const output_value = if (return_count > 1) b: {
-                break :b self.builder.buildExtractValue(call, @as(c_uint, @intCast(llvm_ret_i)), "");
+                break :b self.builder.buildExtractValue(call, @intCast(llvm_ret_i), "");
             } else call;
 
             if (output != .none) {
@@ -7364,14 +7357,14 @@ pub const FuncGen = struct {
             false => fg.builder.buildOrReduce(overflow_bit),
         };
 
-        const fail_block = fg.context.appendBasicBlock(fg.llvm_func, "OverflowFail");
-        const ok_block = fg.context.appendBasicBlock(fg.llvm_func, "OverflowOk");
-        _ = fg.builder.buildCondBr(scalar_overflow_bit, fail_block, ok_block);
+        const fail_block = try fg.wip.block("OverflowFail");
+        const ok_block = try fg.wip.block("OverflowOk");
+        _ = fg.builder.buildCondBr(scalar_overflow_bit, fail_block.toLlvm(&fg.wip), ok_block.toLlvm(&fg.wip));
 
-        fg.builder.positionBuilderAtEnd(fail_block);
+        fg.builder.positionBuilderAtEnd(fail_block.toLlvm(&fg.wip));
         try fg.buildSimplePanic(.integer_overflow);
 
-        fg.builder.positionBuilderAtEnd(ok_block);
+        fg.builder.positionBuilderAtEnd(ok_block.toLlvm(&fg.wip));
         return fg.builder.buildExtractValue(result_struct, 0, "");
     }
 
@@ -7729,8 +7722,7 @@ pub const FuncGen = struct {
         vector_len: usize,
     ) !*llvm.Value {
         const o = self.dg.object;
-        const args_len = @as(c_uint, @intCast(args_vectors.len));
-        assert(args_len <= 3);
+        assert(args_vectors.len <= 3);
 
         var i: usize = 0;
         var result = result_vector;
@@ -7741,7 +7733,7 @@ pub const FuncGen = struct {
             for (args_vectors, 0..) |arg_vector, k| {
                 args[k] = self.builder.buildExtractElement(arg_vector, index_i32, "");
             }
-            const result_elem = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args_len, .C, .Auto, "");
+            const result_elem = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, @intCast(args_vectors.len), .C, .Auto, "");
             result = self.builder.buildInsertElement(result, result_elem, index_i32, "");
         }
         return result;
@@ -8744,8 +8736,8 @@ pub const FuncGen = struct {
             return null;
         const ordering = toLlvmAtomicOrdering(atomic_load.order);
         const abi_ty = try o.getAtomicAbiType(elem_ty, false);
-        const ptr_alignment = @as(u32, @intCast(ptr_info.flags.alignment.toByteUnitsOptional() orelse
-            ptr_info.child.toType().abiAlignment(mod)));
+        const ptr_alignment: u32 = @intCast(ptr_info.flags.alignment.toByteUnitsOptional() orelse
+            ptr_info.child.toType().abiAlignment(mod));
         const ptr_volatile = llvm.Bool.fromBool(ptr_info.flags.is_volatile);
         const elem_llvm_ty = (try o.lowerType(elem_ty)).toLlvm(&o.builder);
 
@@ -8887,9 +8879,9 @@ pub const FuncGen = struct {
         // end:
         //   ...
         const entry_block = self.builder.getInsertBlock();
-        const loop_block = self.context.appendBasicBlock(self.llvm_func, "InlineMemsetLoop");
-        const body_block = self.context.appendBasicBlock(self.llvm_func, "InlineMemsetBody");
-        const end_block = self.context.appendBasicBlock(self.llvm_func, "InlineMemsetEnd");
+        const loop_block = try self.wip.block("InlineMemsetLoop");
+        const body_block = try self.wip.block("InlineMemsetBody");
+        const end_block = try self.wip.block("InlineMemsetEnd");
 
         const usize_ty = try o.lowerType(Type.usize);
         const len = switch (ptr_ty.ptrSize(mod)) {
@@ -8900,14 +8892,14 @@ pub const FuncGen = struct {
         const elem_llvm_ty = (try o.lowerType(elem_ty)).toLlvm(&o.builder);
         const len_gep = [_]*llvm.Value{len};
         const end_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, dest_ptr, &len_gep, len_gep.len, "");
-        _ = self.builder.buildBr(loop_block);
+        _ = self.builder.buildBr(loop_block.toLlvm(&self.wip));
 
-        self.builder.positionBuilderAtEnd(loop_block);
-        const it_ptr = self.builder.buildPhi(self.context.pointerType(0), "");
+        self.builder.positionBuilderAtEnd(loop_block.toLlvm(&self.wip));
+        const it_ptr = self.builder.buildPhi(Builder.Type.ptr.toLlvm(&o.builder), "");
         const end = self.builder.buildICmp(.NE, it_ptr, end_ptr, "");
-        _ = self.builder.buildCondBr(end, body_block, end_block);
+        _ = self.builder.buildCondBr(end, body_block.toLlvm(&self.wip), end_block.toLlvm(&self.wip));
 
-        self.builder.positionBuilderAtEnd(body_block);
+        self.builder.positionBuilderAtEnd(body_block.toLlvm(&self.wip));
         const elem_abi_alignment = elem_ty.abiAlignment(mod);
         const it_ptr_alignment = @min(elem_abi_alignment, dest_ptr_align);
         if (isByRef(elem_ty, mod)) {
@@ -8928,12 +8920,12 @@ pub const FuncGen = struct {
             (try o.builder.intConst(usize_ty, 1)).toLlvm(&o.builder),
         };
         const next_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, it_ptr, &one_gep, one_gep.len, "");
-        _ = self.builder.buildBr(loop_block);
+        _ = self.builder.buildBr(loop_block.toLlvm(&self.wip));
 
-        self.builder.positionBuilderAtEnd(end_block);
+        self.builder.positionBuilderAtEnd(end_block.toLlvm(&self.wip));
 
         const incoming_values: [2]*llvm.Value = .{ next_ptr, dest_ptr };
-        const incoming_blocks: [2]*llvm.BasicBlock = .{ body_block, entry_block };
+        const incoming_blocks: [2]*llvm.BasicBlock = .{ body_block.toLlvm(&self.wip), entry_block };
         it_ptr.addIncoming(&incoming_values, &incoming_blocks, 2);
 
         return null;
@@ -8950,13 +8942,13 @@ pub const FuncGen = struct {
         const o = self.dg.object;
         const llvm_usize_ty = try o.lowerType(Type.usize);
         const cond = try self.cmp(len, (try o.builder.intConst(llvm_usize_ty, 0)).toLlvm(&o.builder), Type.usize, .neq);
-        const memset_block = self.context.appendBasicBlock(self.llvm_func, "MemsetTrapSkip");
-        const end_block = self.context.appendBasicBlock(self.llvm_func, "MemsetTrapEnd");
-        _ = self.builder.buildCondBr(cond, memset_block, end_block);
-        self.builder.positionBuilderAtEnd(memset_block);
+        const memset_block = try self.wip.block("MemsetTrapSkip");
+        const end_block = try self.wip.block("MemsetTrapEnd");
+        _ = self.builder.buildCondBr(cond, memset_block.toLlvm(&self.wip), end_block.toLlvm(&self.wip));
+        self.builder.positionBuilderAtEnd(memset_block.toLlvm(&self.wip));
         _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
-        _ = self.builder.buildBr(end_block);
-        self.builder.positionBuilderAtEnd(end_block);
+        _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
+        self.builder.positionBuilderAtEnd(end_block.toLlvm(&self.wip));
     }
 
     fn airMemcpy(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -8983,10 +8975,10 @@ pub const FuncGen = struct {
         {
             const llvm_usize_ty = try o.lowerType(Type.usize);
             const cond = try self.cmp(len, (try o.builder.intConst(llvm_usize_ty, 0)).toLlvm(&o.builder), Type.usize, .neq);
-            const memcpy_block = self.context.appendBasicBlock(self.llvm_func, "MemcpyTrapSkip");
-            const end_block = self.context.appendBasicBlock(self.llvm_func, "MemcpyTrapEnd");
-            _ = self.builder.buildCondBr(cond, memcpy_block, end_block);
-            self.builder.positionBuilderAtEnd(memcpy_block);
+            const memcpy_block = try self.wip.block("MemcpyTrapSkip");
+            const end_block = try self.wip.block("MemcpyTrapEnd");
+            _ = self.builder.buildCondBr(cond, memcpy_block.toLlvm(&self.wip), end_block.toLlvm(&self.wip));
+            self.builder.positionBuilderAtEnd(memcpy_block.toLlvm(&self.wip));
             _ = self.builder.buildMemCpy(
                 dest_ptr,
                 dest_ptr_ty.ptrAlignment(mod),
@@ -8995,8 +8987,8 @@ pub const FuncGen = struct {
                 len,
                 is_volatile,
             );
-            _ = self.builder.buildBr(end_block);
-            self.builder.positionBuilderAtEnd(end_block);
+            _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
+            self.builder.positionBuilderAtEnd(end_block.toLlvm(&self.wip));
             return null;
         }
 
@@ -9179,31 +9171,31 @@ pub const FuncGen = struct {
         const error_set_ty = self.air.getRefType(ty_op.ty);
 
         const names = error_set_ty.errorSetNames(mod);
-        const valid_block = self.context.appendBasicBlock(self.llvm_func, "Valid");
-        const invalid_block = self.context.appendBasicBlock(self.llvm_func, "Invalid");
-        const end_block = self.context.appendBasicBlock(self.llvm_func, "End");
-        const switch_instr = self.builder.buildSwitch(operand, invalid_block, @as(c_uint, @intCast(names.len)));
+        const valid_block = try self.wip.block("Valid");
+        const invalid_block = try self.wip.block("Invalid");
+        const end_block = try self.wip.block("End");
+        const switch_instr = self.builder.buildSwitch(operand, invalid_block.toLlvm(&self.wip), @intCast(names.len));
 
         for (names) |name| {
-            const err_int = @as(Module.ErrorInt, @intCast(mod.global_error_set.getIndex(name).?));
+            const err_int = mod.global_error_set.getIndex(name).?;
             const this_tag_int_value =
                 try o.lowerValue((try mod.intValue(Type.err_int, err_int)).toIntern());
-            switch_instr.addCase(this_tag_int_value.toLlvm(&o.builder), valid_block);
+            switch_instr.addCase(this_tag_int_value.toLlvm(&o.builder), valid_block.toLlvm(&self.wip));
         }
-        self.builder.positionBuilderAtEnd(valid_block);
-        _ = self.builder.buildBr(end_block);
+        self.builder.positionBuilderAtEnd(valid_block.toLlvm(&self.wip));
+        _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
 
-        self.builder.positionBuilderAtEnd(invalid_block);
-        _ = self.builder.buildBr(end_block);
+        self.builder.positionBuilderAtEnd(invalid_block.toLlvm(&self.wip));
+        _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
 
-        self.builder.positionBuilderAtEnd(end_block);
+        self.builder.positionBuilderAtEnd(end_block.toLlvm(&self.wip));
 
         const incoming_values: [2]*llvm.Value = .{
             Builder.Constant.true.toLlvm(&o.builder),
             Builder.Constant.false.toLlvm(&o.builder),
         };
         const incoming_blocks: [2]*llvm.BasicBlock = .{
-            valid_block, invalid_block,
+            valid_block.toLlvm(&self.wip), invalid_block.toLlvm(&self.wip),
         };
         const phi_node = self.builder.buildPhi(Builder.Type.i1.toLlvm(&o.builder), "");
         phi_node.addIncoming(&incoming_values, &incoming_blocks, 2);
@@ -9250,8 +9242,11 @@ pub const FuncGen = struct {
         };
         var function = Builder.Function{
             .global = @enumFromInt(o.builder.globals.count()),
-            .body = {},
         };
+        try o.builder.llvm.globals.append(self.gpa, fn_val);
+        _ = try o.builder.addGlobal(llvm_fn_name, global);
+        try o.builder.functions.append(self.gpa, function);
+        gop.value_ptr.* = global.kind.function;
 
         const prev_block = self.builder.getInsertBlock();
         const prev_debug_location = self.builder.getCurrentDebugLocation2();
@@ -9262,31 +9257,30 @@ pub const FuncGen = struct {
             }
         }
 
-        const entry_block = self.context.appendBasicBlock(fn_val, "Entry");
-        self.builder.positionBuilderAtEnd(entry_block);
+        var wip = Builder.WipFunction.init(&o.builder, global.kind.function);
+        defer wip.deinit();
+
+        const entry_block = try wip.block("Entry");
+        self.builder.positionBuilderAtEnd(entry_block.toLlvm(&wip));
         self.builder.clearCurrentDebugLocation();
 
-        const named_block = self.context.appendBasicBlock(fn_val, "Named");
-        const unnamed_block = self.context.appendBasicBlock(fn_val, "Unnamed");
+        const named_block = try wip.block("Named");
+        const unnamed_block = try wip.block("Unnamed");
         const tag_int_value = fn_val.getParam(0);
-        const switch_instr = self.builder.buildSwitch(tag_int_value, unnamed_block, @as(c_uint, @intCast(enum_type.names.len)));
+        const switch_instr = self.builder.buildSwitch(tag_int_value, unnamed_block.toLlvm(&wip), @intCast(enum_type.names.len));
 
-        for (enum_type.names, 0..) |_, field_index_usize| {
-            const field_index = @as(u32, @intCast(field_index_usize));
+        for (0..enum_type.names.len) |field_index| {
             const this_tag_int_value =
-                try o.lowerValue((try mod.enumValueFieldIndex(enum_ty, field_index)).toIntern());
-            switch_instr.addCase(this_tag_int_value.toLlvm(&o.builder), named_block);
+                try o.lowerValue((try mod.enumValueFieldIndex(enum_ty, @intCast(field_index))).toIntern());
+            switch_instr.addCase(this_tag_int_value.toLlvm(&o.builder), named_block.toLlvm(&wip));
         }
-        self.builder.positionBuilderAtEnd(named_block);
+        self.builder.positionBuilderAtEnd(named_block.toLlvm(&wip));
         _ = self.builder.buildRet(Builder.Constant.true.toLlvm(&o.builder));
 
-        self.builder.positionBuilderAtEnd(unnamed_block);
+        self.builder.positionBuilderAtEnd(unnamed_block.toLlvm(&wip));
         _ = self.builder.buildRet(Builder.Constant.false.toLlvm(&o.builder));
 
-        try o.builder.llvm.globals.append(self.gpa, fn_val);
-        _ = try o.builder.addGlobal(llvm_fn_name, global);
-        try o.builder.functions.append(self.gpa, function);
-        gop.value_ptr.* = global.kind.function;
+        try wip.finish();
         return fn_val;
     }
 
@@ -9331,8 +9325,10 @@ pub const FuncGen = struct {
         };
         var function = Builder.Function{
             .global = @enumFromInt(o.builder.globals.count()),
-            .body = {},
         };
+        try o.builder.llvm.globals.append(self.gpa, fn_val);
+        gop.value_ptr.* = try o.builder.addGlobal(llvm_fn_name, global);
+        try o.builder.functions.append(self.gpa, function);
 
         const prev_block = self.builder.getInsertBlock();
         const prev_debug_location = self.builder.getCurrentDebugLocation2();
@@ -9343,16 +9339,18 @@ pub const FuncGen = struct {
             }
         }
 
-        const entry_block = self.context.appendBasicBlock(fn_val, "Entry");
-        self.builder.positionBuilderAtEnd(entry_block);
+        var wip = Builder.WipFunction.init(&o.builder, global.kind.function);
+        defer wip.deinit();
+
+        const entry_block = try wip.block("Entry");
+        self.builder.positionBuilderAtEnd(entry_block.toLlvm(&wip));
         self.builder.clearCurrentDebugLocation();
 
-        const bad_value_block = self.context.appendBasicBlock(fn_val, "BadValue");
+        const bad_value_block = try wip.block("BadValue");
         const tag_int_value = fn_val.getParam(0);
-        const switch_instr = self.builder.buildSwitch(tag_int_value, bad_value_block, @as(c_uint, @intCast(enum_type.names.len)));
+        const switch_instr = self.builder.buildSwitch(tag_int_value, bad_value_block.toLlvm(&wip), @intCast(enum_type.names.len));
 
-        for (enum_type.names, 0..) |name_ip, field_index_usize| {
-            const field_index = @as(u32, @intCast(field_index_usize));
+        for (enum_type.names, 0..) |name_ip, field_index| {
             const name = try o.builder.string(mod.intern_pool.stringToSlice(name_ip));
             const str_init = try o.builder.stringNullConst(name);
             const str_ty = str_init.typeOf(&o.builder);
@@ -9384,35 +9382,32 @@ pub const FuncGen = struct {
                 try o.builder.intConst(usize_ty, name.toSlice(&o.builder).?.len),
             });
 
-            const return_block = self.context.appendBasicBlock(fn_val, "Name");
+            const return_block = try wip.block("Name");
             const this_tag_int_value =
-                try o.lowerValue((try mod.enumValueFieldIndex(enum_ty, field_index)).toIntern());
-            switch_instr.addCase(this_tag_int_value.toLlvm(&o.builder), return_block);
+                try o.lowerValue((try mod.enumValueFieldIndex(enum_ty, @intCast(field_index))).toIntern());
+            switch_instr.addCase(this_tag_int_value.toLlvm(&o.builder), return_block.toLlvm(&wip));
 
-            self.builder.positionBuilderAtEnd(return_block);
+            self.builder.positionBuilderAtEnd(return_block.toLlvm(&wip));
             _ = self.builder.buildRet(slice_val.toLlvm(&o.builder));
         }
 
-        self.builder.positionBuilderAtEnd(bad_value_block);
+        self.builder.positionBuilderAtEnd(bad_value_block.toLlvm(&wip));
         _ = self.builder.buildUnreachable();
 
-        try o.builder.llvm.globals.append(self.gpa, fn_val);
-        gop.value_ptr.* = try o.builder.addGlobal(llvm_fn_name, global);
-        try o.builder.functions.append(self.gpa, function);
+        try wip.finish();
         return fn_val;
     }
 
     fn getCmpLtErrorsLenFunction(self: *FuncGen) !*llvm.Value {
         const o = self.dg.object;
 
-        if (o.llvm_module.getNamedFunction(lt_errors_fn_name)) |llvm_fn| {
-            return llvm_fn;
-        }
+        const name = try o.builder.string(lt_errors_fn_name);
+        if (o.builder.getGlobal(name)) |llvm_fn| return llvm_fn.toLlvm(&o.builder);
 
         // Function signature: fn (anyerror) bool
 
         const fn_type = try o.builder.fnType(.i1, &.{Builder.Type.err_int}, .normal);
-        const llvm_fn = o.llvm_module.addFunction(lt_errors_fn_name, fn_type.toLlvm(&o.builder));
+        const llvm_fn = o.llvm_module.addFunction(name.toSlice(&o.builder).?, fn_type.toLlvm(&o.builder));
 
         llvm_fn.setLinkage(.Internal);
         llvm_fn.setFunctionCallConv(.Fast);
@@ -9425,13 +9420,12 @@ pub const FuncGen = struct {
         };
         var function = Builder.Function{
             .global = @enumFromInt(o.builder.globals.count()),
-            .body = {},
         };
 
         try o.builder.llvm.globals.append(self.gpa, llvm_fn);
-        _ = try o.builder.addGlobal(try o.builder.string(lt_errors_fn_name), global);
+        const global_index = try o.builder.addGlobal(name, global);
         try o.builder.functions.append(self.gpa, function);
-        return llvm_fn;
+        return global_index.toLlvm(&o.builder);
     }
 
     fn airErrorName(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -9494,7 +9488,7 @@ pub const FuncGen = struct {
                 val.* = try o.builder.undefConst(.i32);
             } else {
                 const int = elem.toSignedInt(mod);
-                const unsigned = if (int >= 0) @as(u32, @intCast(int)) else @as(u32, @intCast(~int + a_len));
+                const unsigned: u32 = @intCast(if (int >= 0) int else ~int + a_len);
                 val.* = try o.builder.intConst(.i32, unsigned);
             }
         }
@@ -9537,21 +9531,21 @@ pub const FuncGen = struct {
         _ = self.builder.buildStore(accum_init, accum_ptr);
 
         // Setup the loop
-        const loop = self.context.appendBasicBlock(self.llvm_func, "ReduceLoop");
-        const loop_exit = self.context.appendBasicBlock(self.llvm_func, "AfterReduce");
-        _ = self.builder.buildBr(loop);
+        const loop = try self.wip.block("ReduceLoop");
+        const loop_exit = try self.wip.block("AfterReduce");
+        _ = self.builder.buildBr(loop.toLlvm(&self.wip));
         {
-            self.builder.positionBuilderAtEnd(loop);
+            self.builder.positionBuilderAtEnd(loop.toLlvm(&self.wip));
 
             // while (i < vec.len)
             const i = self.builder.buildLoad(usize_ty.toLlvm(&o.builder), i_ptr, "");
             const cond = self.builder.buildICmp(.ULT, i, llvm_vector_len.toLlvm(&o.builder), "");
-            const loop_then = self.context.appendBasicBlock(self.llvm_func, "ReduceLoopThen");
+            const loop_then = try self.wip.block("ReduceLoopThen");
 
-            _ = self.builder.buildCondBr(cond, loop_then, loop_exit);
+            _ = self.builder.buildCondBr(cond, loop_then.toLlvm(&self.wip), loop_exit.toLlvm(&self.wip));
 
             {
-                self.builder.positionBuilderAtEnd(loop_then);
+                self.builder.positionBuilderAtEnd(loop_then.toLlvm(&self.wip));
 
                 // accum = f(accum, vec[i]);
                 const accum = self.builder.buildLoad(llvm_result_ty, accum_ptr, "");
@@ -9563,11 +9557,11 @@ pub const FuncGen = struct {
                 // i += 1
                 const new_i = self.builder.buildAdd(i, (try o.builder.intConst(usize_ty, 1)).toLlvm(&o.builder), "");
                 _ = self.builder.buildStore(new_i, i_ptr);
-                _ = self.builder.buildBr(loop);
+                _ = self.builder.buildBr(loop.toLlvm(&self.wip));
             }
         }
 
-        self.builder.positionBuilderAtEnd(loop_exit);
+        self.builder.positionBuilderAtEnd(loop_exit.toLlvm(&self.wip));
         return self.builder.buildLoad(llvm_result_ty, accum_ptr, "");
     }
 
@@ -9656,8 +9650,8 @@ pub const FuncGen = struct {
         const mod = o.module;
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const result_ty = self.typeOfIndex(inst);
-        const len = @as(usize, @intCast(result_ty.arrayLen(mod)));
-        const elements = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[ty_pl.payload..][0..len]));
+        const len: usize = @intCast(result_ty.arrayLen(mod));
+        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
         const llvm_result_ty = (try o.lowerType(result_ty)).toLlvm(&o.builder);
 
         switch (result_ty.zigTypeTag(mod)) {
@@ -9685,8 +9679,8 @@ pub const FuncGen = struct {
                         if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                         const non_int_val = try self.resolveInst(elem);
-                        const ty_bit_size = @as(u16, @intCast(field.ty.bitSize(mod)));
-                        const small_int_ty = (try o.builder.intType(@intCast(ty_bit_size))).toLlvm(&o.builder);
+                        const ty_bit_size: u16 = @intCast(field.ty.bitSize(mod));
+                        const small_int_ty = (try o.builder.intType(ty_bit_size)).toLlvm(&o.builder);
                         const small_int_val = if (field.ty.isPtrAtRuntime(mod))
                             self.builder.buildPtrToInt(non_int_val, small_int_ty, "")
                         else
@@ -9798,8 +9792,7 @@ pub const FuncGen = struct {
             const int_llvm_ty = (try o.builder.intType(@intCast(big_bits))).toLlvm(&o.builder);
             const field = union_obj.fields.values()[extra.field_index];
             const non_int_val = try self.resolveInst(extra.init);
-            const ty_bit_size = @as(u16, @intCast(field.ty.bitSize(mod)));
-            const small_int_ty = (try o.builder.intType(@intCast(ty_bit_size))).toLlvm(&o.builder);
+            const small_int_ty = (try o.builder.intType(@intCast(field.ty.bitSize(mod)))).toLlvm(&o.builder);
             const small_int_val = if (field.ty.isPtrAtRuntime(mod))
                 self.builder.buildPtrToInt(non_int_val, small_int_ty, "")
             else
@@ -10273,8 +10266,8 @@ pub const FuncGen = struct {
         const elem_ty = info.child.toType();
         if (!elem_ty.hasRuntimeBitsIgnoreComptime(mod)) return null;
 
-        const ptr_alignment = @as(u32, @intCast(info.flags.alignment.toByteUnitsOptional() orelse
-            elem_ty.abiAlignment(mod)));
+        const ptr_alignment: u32 = @intCast(info.flags.alignment.toByteUnitsOptional() orelse
+            elem_ty.abiAlignment(mod));
         const ptr_volatile = llvm.Bool.fromBool(info.flags.is_volatile);
 
         assert(info.flags.vector_index != .runtime);
@@ -10306,7 +10299,7 @@ pub const FuncGen = struct {
         containing_int.setAlignment(ptr_alignment);
         containing_int.setVolatile(ptr_volatile);
 
-        const elem_bits = @as(c_uint, @intCast(ptr_ty.childType(mod).bitSize(mod)));
+        const elem_bits = ptr_ty.childType(mod).bitSize(mod);
         const shift_amt = try o.builder.intConst(containing_int_ty, info.packed_offset.bit_offset);
         const shifted_value = self.builder.buildLShr(containing_int, shift_amt.toLlvm(&o.builder), "");
         const elem_llvm_ty = (try o.lowerType(elem_ty)).toLlvm(&o.builder);
@@ -10379,7 +10372,7 @@ pub const FuncGen = struct {
             assert(ordering == .NotAtomic);
             containing_int.setAlignment(ptr_alignment);
             containing_int.setVolatile(ptr_volatile);
-            const elem_bits = @as(c_uint, @intCast(ptr_ty.childType(mod).bitSize(mod)));
+            const elem_bits = ptr_ty.childType(mod).bitSize(mod);
             const shift_amt = try o.builder.intConst(containing_int_ty, info.packed_offset.bit_offset);
             // Convert to equally-sized integer type in order to perform the bit
             // operations on the value to store
@@ -10451,11 +10444,11 @@ pub const FuncGen = struct {
         if (!target_util.hasValgrindSupport(target)) return default_value;
 
         const llvm_usize = try o.lowerType(Type.usize);
-        const usize_alignment = @as(c_uint, @intCast(Type.usize.abiSize(mod)));
+        const usize_alignment = Type.usize.abiSize(mod);
 
         const array_llvm_ty = (try o.builder.arrayType(6, llvm_usize)).toLlvm(&o.builder);
         const array_ptr = fg.valgrind_client_request_array orelse a: {
-            const array_ptr = try fg.buildAlloca(array_llvm_ty, usize_alignment);
+            const array_ptr = try fg.buildAlloca(array_llvm_ty, @intCast(usize_alignment));
             fg.valgrind_client_request_array = array_ptr;
             break :a array_ptr;
         };
@@ -10467,7 +10460,7 @@ pub const FuncGen = struct {
             };
             const elem_ptr = fg.builder.buildInBoundsGEP(array_llvm_ty, array_ptr, &indexes, indexes.len, "");
             const store_inst = fg.builder.buildStore(elem, elem_ptr);
-            store_inst.setAlignment(usize_alignment);
+            store_inst.setAlignment(@intCast(usize_alignment));
         }
 
         const arch_specific: struct {
@@ -11642,23 +11635,23 @@ const AnnotatedDITypePtr = enum(usize) {
     fn initFwd(di_type: *llvm.DIType) AnnotatedDITypePtr {
         const addr = @intFromPtr(di_type);
         assert(@as(u1, @truncate(addr)) == 0);
-        return @as(AnnotatedDITypePtr, @enumFromInt(addr | 1));
+        return @enumFromInt(addr | 1);
     }
 
     fn initFull(di_type: *llvm.DIType) AnnotatedDITypePtr {
         const addr = @intFromPtr(di_type);
-        return @as(AnnotatedDITypePtr, @enumFromInt(addr));
+        return @enumFromInt(addr);
     }
 
     fn init(di_type: *llvm.DIType, resolve: Object.DebugResolveStatus) AnnotatedDITypePtr {
         const addr = @intFromPtr(di_type);
         const bit = @intFromBool(resolve == .fwd);
-        return @as(AnnotatedDITypePtr, @enumFromInt(addr | bit));
+        return @enumFromInt(addr | bit);
     }
 
     fn toDIType(self: AnnotatedDITypePtr) *llvm.DIType {
         const fixed_addr = @intFromEnum(self) & ~@as(usize, 1);
-        return @as(*llvm.DIType, @ptrFromInt(fixed_addr));
+        return @ptrFromInt(fixed_addr);
     }
 
     fn isFwdOnly(self: AnnotatedDITypePtr) bool {
