@@ -85,6 +85,9 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// The S component of an ECDSA signature.
             s: Curve.scalar.CompressedScalar,
 
+            /// This is used to assist with Bitcoin public key recovery
+            is_y_odd: bool,
+
             /// Create a Verifier for incremental verification of a signature.
             pub fn verifier(self: Signature, public_key: PublicKey) (NonCanonicalError || EncodingError || IdentityElementError)!Verifier {
                 return Verifier.init(self, public_key);
@@ -210,7 +213,8 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 const k = deterministicScalar(h_slice.*, self.secret_key.bytes, self.noise);
 
                 const p = try Curve.basePoint.mul(k.toBytes(.Big), .Big);
-                const xs = p.affineCoordinates().x.toBytes(.Big);
+                const c = p.affineCoordinates();
+                const xs = c.x.toBytes(.Big);
                 const r = reduceToScalar(Curve.Fe.encoded_length, xs);
                 if (r.isZero()) return error.IdentityElement;
 
@@ -219,7 +223,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 const s = k_inv.mul(zrs);
                 if (s.isZero()) return error.IdentityElement;
 
-                return Signature{ .r = r.toBytes(.Big), .s = s.toBytes(.Big) };
+                return Signature{ .r = r.toBytes(.Big), .s = s.toBytes(.Big), .is_y_odd = c.y.isOdd() };
             }
         };
 
