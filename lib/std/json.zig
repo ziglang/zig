@@ -45,8 +45,8 @@ test writeStream {
     defer out.deinit();
     var write_stream = writeStream(out.writer(), 99);
     try write_stream.beginObject();
-    try write_stream.emitString("foo");
-    try write_stream.emitNumber(123);
+    try write_stream.write("foo");
+    try write_stream.write(123);
     try write_stream.endObject();
     const expected =
         \\{

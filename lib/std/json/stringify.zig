@@ -2,6 +2,8 @@ const std = @import("std");
 const mem = std.mem;
 const assert = std.debug.assert;
 
+const writeStream = @import("write_stream.zig").writeStream;
+
 pub const StringifyOptions = struct {
     pub const Whitespace = struct {
         /// How many indentation levels deep are we?

@@ -320,6 +320,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                 .Pointer => |ptr_info| switch (ptr_info.size) {
                     .One => switch (@typeInfo(ptr_info.child)) {
                         .Array => {
+                            // Coerce `*[N]T` to `[]const T`.
                             const Slice = []const std.meta.Elem(ptr_info.child);
                             return self.write(@as(Slice, value));
                         },
@@ -333,11 +334,29 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                             @compileError("unable to stringify type '" ++ @typeName(T) ++ "' without sentinel");
                         const slice = if (ptr_info.size == .Many) std.mem.span(value) else value;
 
-                        if (ptr_info.child == u8 and self.options.string == .String and std.unicode.utf8ValidateSlice(slice)) {
-                            try self.stringValueStart();
-                            try encodeJsonString(slice, self.options, self.stream);
-                            self.valueDone();
-                            return;
+                        if (ptr_info.child == u8) {
+                            // This is a []const u8, or some similar Zig string.
+                            var render_as_string = switch (self.options.string) {
+                                .String => true,
+                                .Array => false,
+                            };
+                            switch (self.state[self.state_index]) {
+                                .object_start, .object_post_value => {
+                                    // Object keys must always be rendered as strings.
+                                    render_as_string = true;
+                                    assert(std.unicode.utf8ValidateSlice(slice)); // Object keys must be valid UTF-8 strings.
+                                },
+                                else => {
+                                    // Fallback to array representation for non-UTF-8, even if .String mode was desired.
+                                    render_as_string = render_as_string and std.unicode.utf8ValidateSlice(slice);
+                                },
+                            }
+                            if (render_as_string) {
+                                try self.stringValueStart();
+                                try encodeJsonString(slice, self.options, self.stream);
+                                self.valueDone();
+                                return;
+                            }
                         }
 
                         try self.beginArray();
@@ -349,7 +368,10 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                     },
                     else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
                 },
-                .Array => return self.write(&value),
+                .Array => {
+                    // Coerce `[N]T` to `*const [N]T` (and then to `[]const T`).
+                    return self.write(&value);
+                },
                 .Vector => |info| {
                     const array: [info.len]info.child = value;
                     return self.write(&array);

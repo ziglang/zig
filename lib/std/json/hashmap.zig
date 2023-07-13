@@ -70,30 +70,14 @@ pub fn ArrayHashMap(comptime T: type) type {
             return .{ .map = map };
         }
 
-        pub fn jsonStringify(self: @This(), options: StringifyOptions, out_stream: anytype) !void {
-            try out_stream.writeByte('{');
-            var field_output = false;
-            var child_options = options;
-            child_options.whitespace.indent_level += 1;
+        pub fn jsonStringify(self: @This(), jsonWriteStream: anytype) !void {
+            try jsonWriteStream.beginObject();
             var it = self.map.iterator();
             while (it.next()) |kv| {
-                if (!field_output) {
-                    field_output = true;
-                } else {
-                    try out_stream.writeByte(',');
-                }
-                try child_options.whitespace.outputIndent(out_stream);
-                try encodeJsonString(kv.key_ptr.*, options, out_stream);
-                try out_stream.writeByte(':');
-                if (child_options.whitespace.separator) {
-                    try out_stream.writeByte(' ');
-                }
-                try stringify(kv.value_ptr.*, child_options, out_stream);
+                try jsonWriteStream.write(kv.key_ptr.*);
+                try jsonWriteStream.write(kv.value_ptr.*);
             }
-            if (field_output) {
-                try options.whitespace.outputIndent(out_stream);
-            }
-            try out_stream.writeByte('}');
+            try jsonWriteStream.endObject();
         }
     };
 }

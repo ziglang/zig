@@ -183,15 +183,12 @@ test "stringify struct with custom stringifier" {
     try teststringify("[\"something special\",42]", struct {
         foo: u32,
         const Self = @This();
-        pub fn jsonStringify(
-            value: Self,
-            options: StringifyOptions,
-            out_stream: anytype,
-        ) !void {
+        pub fn jsonStringify(value: @This(), jsonWriteStream: anytype) !void {
             _ = value;
-            try out_stream.writeAll("[\"something special\",");
-            try stringify(42, options, out_stream);
-            try out_stream.writeByte(']');
+            try jsonWriteStream.beginArray();
+            try jsonWriteStream.write("something special");
+            try jsonWriteStream.write(42);
+            try jsonWriteStream.endArray();
         }
     }{ .foo = 42 }, StringifyOptions{});
 }
