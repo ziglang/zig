@@ -27,6 +27,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const check_exe = exe.checkObject();
     check_exe.checkStart("cmd MAIN");
     check_exe.checkNext("stacksize 100000000");
+    test_step.dependOn(&check_exe.step);
 
     const run = b.addRunArtifact(exe);
     run.skip_foreign_checks = true;
