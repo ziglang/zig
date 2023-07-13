@@ -2171,7 +2171,7 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
         }
 
         // Last index is a sentinel containing the highest address as its functionOffset
-        if (len == 0 or indices[left].secondLevelPagesSectionOffset == 0) return error.MissingUnwindInfo;
+        if (indices[left].secondLevelPagesSectionOffset == 0) return error.MissingUnwindInfo;
         break :blk &indices[left];
     };
 
@@ -2216,7 +2216,6 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
                 }
             }
 
-            if (len == 0) return error.InvalidUnwindInfo;
             break :blk .{
                 .function_offset = entries[left].functionOffset,
                 .raw_encoding = entries[left].encoding,
@@ -2248,7 +2247,6 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
                 }
             }
 
-            if (len == 0) return error.InvalidUnwindInfo;
             const entry = entries[left];
             const function_offset = second_level_index.functionOffset + entry.funcOffset;
             if (entry.encodingIndex < header.commonEncodingsArrayCount) {
