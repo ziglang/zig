@@ -860,9 +860,10 @@ test "std.meta.eql" {
     try testing.expect(eql(EU.tst(false), EU.tst(false)));
     try testing.expect(!eql(EU.tst(false), EU.tst(true)));
 
-    var v1 = @splat(4, @as(u32, 1));
-    var v2 = @splat(4, @as(u32, 1));
-    var v3 = @splat(4, @as(u32, 2));
+    const V = @Vector(4, u32);
+    var v1: V = @splat(1);
+    var v2: V = @splat(1);
+    var v3: V = @splat(2);
 
     try testing.expect(eql(v1, v2));
     try testing.expect(!eql(v1, v3));

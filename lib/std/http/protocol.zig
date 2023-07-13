@@ -182,8 +182,8 @@ pub const HeadersParser = struct {
 
                         const chunk = bytes[index..][0..vector_len];
                         const v: Vector = chunk.*;
-                        const matches_r = @as(BitVector, @bitCast(v == @splat(vector_len, @as(u8, '\r'))));
-                        const matches_n = @as(BitVector, @bitCast(v == @splat(vector_len, @as(u8, '\n'))));
+                        const matches_r = @as(BitVector, @bitCast(v == @as(Vector, @splat('\r'))));
+                        const matches_n = @as(BitVector, @bitCast(v == @as(Vector, @splat('\n'))));
                         const matches_or: SizeVector = matches_r | matches_n;
 
                         const matches = @reduce(.Add, matches_or);

@@ -396,7 +396,7 @@ test "bitcast vector to integer and back" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const arr: [16]bool = [_]bool{ true, false } ++ [_]bool{true} ** 14;
-    var x = @splat(16, true);
+    var x: @Vector(16, bool) = @splat(true);
     x[1] = false;
     try expect(@as(u16, @bitCast(x)) == comptime @as(u16, @bitCast(@as(@Vector(16, bool), arr))));
 }

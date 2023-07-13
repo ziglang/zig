@@ -8591,10 +8591,17 @@ fn builtinCall(
         },
 
         .splat => {
-            const len = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
-            const scalar = try expr(gz, scope, .{ .rl = .none }, params[1]);
+            const result_type = try ri.rl.resultType(gz, node, "@splat");
+            const elem_type = try gz.add(.{
+                .tag = .elem_type_index,
+                .data = .{ .bin = .{
+                    .lhs = result_type,
+                    .rhs = @as(Zir.Inst.Ref, @enumFromInt(0)),
+                } },
+            });
+            const scalar = try expr(gz, scope, .{ .rl = .{ .ty = elem_type } }, params[0]);
             const result = try gz.addPlNode(.splat, node, Zir.Inst.Bin{
-                .lhs = len,
+                .lhs = result_type,
                 .rhs = scalar,
             });
             return rvalue(gz, ri, result, node);

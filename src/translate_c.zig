@@ -2799,14 +2799,14 @@ fn transInitListExprVector(
     const element_qt = vector_ty.getElementType();
 
     if (init_count == 0) {
-        const zero_node = try Tag.as.create(c.arena, .{
-            .lhs = try transQualType(c, scope, element_qt, loc),
-            .rhs = Tag.zero_literal.init(),
+        const vec_node = try Tag.vector.create(c.arena, .{
+            .lhs = try transCreateNodeNumber(c, num_elements, .int),
+            .rhs = try transQualType(c, scope, element_qt, loc),
         });
 
-        return Tag.vector_zero_init.create(c.arena, .{
-            .lhs = try transCreateNodeNumber(c, num_elements, .int),
-            .rhs = zero_node,
+        return Tag.as.create(c.arena, .{
+            .lhs = vec_node,
+            .rhs = try Tag.vector_zero_init.create(c.arena, Tag.zero_literal.init()),
         });
     }
 

@@ -289,7 +289,7 @@ pub fn zeroes(comptime T: type) T {
             return [_]info.child{zeroes(info.child)} ** info.len;
         },
         .Vector => |info| {
-            return @splat(info.len, zeroes(info.child));
+            return @splat(zeroes(info.child));
         },
         .Union => |info| {
             if (comptime meta.containerLayout(T) == .Extern) {
@@ -393,9 +393,9 @@ test "zeroes" {
     for (b.array) |e| {
         try testing.expectEqual(@as(u32, 0), e);
     }
-    try testing.expectEqual(@splat(2, @as(u32, 0)), b.vector_u32);
-    try testing.expectEqual(@splat(2, @as(f32, 0.0)), b.vector_f32);
-    try testing.expectEqual(@splat(2, @as(bool, false)), b.vector_bool);
+    try testing.expectEqual(@as(@TypeOf(b.vector_u32), @splat(0)), b.vector_u32);
+    try testing.expectEqual(@as(@TypeOf(b.vector_f32), @splat(0.0)), b.vector_f32);
+    try testing.expectEqual(@as(@TypeOf(b.vector_bool), @splat(false)), b.vector_bool);
     try testing.expectEqual(@as(?u8, null), b.optional_int);
     for (b.sentinel) |e| {
         try testing.expectEqual(@as(u8, 0), e);
