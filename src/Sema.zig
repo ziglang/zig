@@ -157,9 +157,9 @@ pub const InferredErrorSet = struct {
         arena: Allocator,
     ) !void {
         switch (err_set_ty.toIntern()) {
-            .anyerror_type => {
-                self.resolved = .anyerror_type;
-            },
+            .anyerror_type => self.resolved = .anyerror_type,
+            .adhoc_inferred_error_set_type => {}, // Adding an inferred error set to itself.
+
             else => switch (ip.indexToKey(err_set_ty.toIntern())) {
                 .error_set_type => |error_set_type| {
                     for (error_set_type.names.get(ip)) |name| {
@@ -7055,12 +7055,11 @@ fn analyzeCall(
 
         if (module_fn.analysis(ip).inferred_error_set) {
             // Create a fresh inferred error set type for inline/comptime calls.
-            const error_set_ty = try mod.intern(.{ .inferred_error_set_type = module_fn_index });
             const ies = try sema.arena.create(InferredErrorSet);
-            ies.* = .{ .func = module_fn_index };
+            ies.* = .{ .func = .none };
             sema.fn_ret_ty_ies = ies;
             sema.fn_ret_ty = (try ip.get(gpa, .{ .error_union_type = .{
-                .error_set_type = error_set_ty,
+                .error_set_type = .adhoc_inferred_error_set_type,
                 .payload_type = bare_return_type.toIntern(),
             } })).toType();
         }
@@ -7081,6 +7080,7 @@ fn analyzeCall(
                 }
             }
 
+            new_fn_info.return_type = sema.fn_ret_ty.toIntern();
             const new_func_resolved_ty = try mod.funcType(new_fn_info);
             if (!is_comptime_call and !block.is_typeof) {
                 try sema.emitDbgInline(block, parent_func_index, module_fn_index, new_func_resolved_ty, .dbg_inline_begin);
@@ -8841,7 +8841,8 @@ fn funcCommon(
     if (inferred_error_set) {
         assert(!is_extern);
         assert(has_body);
-        try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
+        if (!ret_poison)
+            try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
         const func_index = try ip.getFuncDeclIes(gpa, .{
             .owner_decl = sema.owner_decl_index,
 
@@ -34051,11 +34052,8 @@ fn resolveInferredErrorSet(
     // In order to ensure that all dependencies are properly added to the set,
     // we need to ensure the function body is analyzed of the inferred error
     // set. However, in the case of comptime/inline function calls with
-    // inferred error sets, each call gets a new InferredErrorSet object, which
-    // contains the `InternPool.Index` of the callee. Not only is the function
-    // not relevant to the inferred error set in this case, it may be a generic
-    // function which would cause an assertion failure if we called
-    // `ensureFuncBodyAnalyzed` on it here.
+    // inferred error sets, each call gets an adhoc InferredErrorSet object, which
+    // has no corresponding function body.
     const ies_func_owner_decl = mod.declPtr(func.owner_decl);
     const ies_func_info = mod.typeToFunc(ies_func_owner_decl.ty).?;
     // if ies declared by a inline function with generic return type, the return_type should be generic_poison,
