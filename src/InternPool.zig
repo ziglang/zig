@@ -1670,6 +1670,9 @@ pub const Index = enum(u32) {
             @"trailing.comptime_args.len": *@"data.generic_owner.data.ty.data.params_len",
             trailing: struct { resolved_error_set: []Index, comptime_args: []Index },
         },
+        func_coerced: struct {
+            data: *Tag.FuncCoerced,
+        },
         only_possible_value: DataIsIndex,
         union_value: struct { data: *Key.Union },
         bytes: struct { data: *Bytes },
@@ -2192,6 +2195,9 @@ pub const Tag = enum(u8) {
     /// A generic function instantiation.
     /// data is extra index to `FuncInstance`.
     func_instance,
+    /// A `func_decl` or a `func_instance` that has been coerced to a different type.
+    /// data is extra index to `FuncCoerced`.
+    func_coerced,
     /// This represents the only possible value for *some* types which have
     /// only one possible value. Not all only-possible-values are encoded this way;
     /// for example structs which have all comptime fields are not encoded this way.
@@ -2298,6 +2304,7 @@ pub const Tag = enum(u8) {
             .extern_func => ExternFunc,
             .func_decl => FuncDecl,
             .func_instance => FuncInstance,
+            .func_coerced => FuncCoerced,
             .only_possible_value => unreachable,
             .union_value => Union,
             .bytes => Bytes,
@@ -2362,6 +2369,11 @@ pub const Tag = enum(u8) {
         branch_quota: u32,
         /// Points to a `FuncDecl`.
         generic_owner: Index,
+    };
+
+    pub const FuncCoerced = struct {
+        ty: Index,
+        func: Index,
     };
 
     /// Trailing:
@@ -3205,6 +3217,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         .extern_func => .{ .extern_func = ip.extraData(Tag.ExternFunc, data) },
         .func_instance => .{ .func = ip.extraFuncInstance(data) },
         .func_decl => .{ .func = ip.extraFuncDecl(data) },
+        .func_coerced => .{ .func = ip.extraFuncCoerced(data) },
         .only_possible_value => {
             const ty = @as(Index, @enumFromInt(data));
             const ty_item = ip.items.get(@intFromEnum(ty));
@@ -3395,6 +3408,18 @@ fn extraFuncInstance(ip: *const InternPool, extra_index: u32) Key.Func {
             .len = ip.funcTypeParamsLen(func_decl.ty),
         },
     };
+}
+
+fn extraFuncCoerced(ip: *const InternPool, extra_index: u32) Key.Func {
+    const func_coerced = ip.extraData(Tag.FuncCoerced, extra_index);
+    const sub_item = ip.items.get(@intFromEnum(func_coerced.func));
+    var func: Key.Func = switch (sub_item.tag) {
+        .func_instance => ip.extraFuncInstance(sub_item.data),
+        .func_decl => ip.extraFuncDecl(sub_item.data),
+        else => unreachable,
+    };
+    func.ty = func_coerced.ty;
+    return func;
 }
 
 fn indexToKeyEnum(ip: *const InternPool, data: u32, tag_mode: Key.EnumType.TagMode) Key {
@@ -5480,210 +5505,226 @@ pub fn sliceLen(ip: *const InternPool, i: Index) Index {
 pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
     const old_ty = ip.typeOf(val);
     if (old_ty == new_ty) return val;
+
+    const tags = ip.items.items(.tag);
+
     switch (val) {
         .undef => return ip.get(gpa, .{ .undef = new_ty }),
-        .null_value => if (ip.isOptionalType(new_ty))
-            return ip.get(gpa, .{ .opt = .{
+        .null_value => {
+            if (ip.isOptionalType(new_ty)) return ip.get(gpa, .{ .opt = .{
                 .ty = new_ty,
                 .val = .none,
-            } })
-        else if (ip.isPointerType(new_ty))
-            return ip.get(gpa, .{ .ptr = .{
+            } });
+
+            if (ip.isPointerType(new_ty)) return ip.get(gpa, .{ .ptr = .{
                 .ty = new_ty,
                 .addr = .{ .int = .zero_usize },
                 .len = switch (ip.indexToKey(new_ty).ptr_type.flags.size) {
                     .One, .Many, .C => .none,
                     .Slice => try ip.get(gpa, .{ .undef = .usize_type }),
                 },
-            } }),
-        else => switch (ip.indexToKey(val)) {
-            .undef => return ip.get(gpa, .{ .undef = new_ty }),
-            .extern_func => |extern_func| if (ip.isFunctionType(new_ty))
-                return ip.get(gpa, .{ .extern_func = .{
-                    .ty = new_ty,
-                    .decl = extern_func.decl,
-                    .lib_name = extern_func.lib_name,
-                } }),
-
-            .func => |func| {
-                if (func.generic_owner == .none) {
-                    @panic("TODO");
-                } else {
-                    @panic("TODO");
+            } });
+        },
+        else => switch (tags[@intFromEnum(val)]) {
+            .func_decl => return getCoercedFuncDecl(ip, gpa, val, new_ty),
+            .func_instance => return getCoercedFuncInstance(ip, gpa, val, new_ty),
+            .func_coerced => {
+                const extra_index = ip.items.items(.data)[@intFromEnum(val)];
+                const func: Index = @enumFromInt(
+                    ip.extra.items[extra_index + std.meta.fieldIndex(Tag.FuncCoerced, "func").?],
+                );
+                switch (tags[@intFromEnum(func)]) {
+                    .func_decl => return getCoercedFuncDecl(ip, gpa, val, new_ty),
+                    .func_instance => return getCoercedFuncInstance(ip, gpa, val, new_ty),
+                    else => unreachable,
                 }
-            },
-
-            .int => |int| switch (ip.indexToKey(new_ty)) {
-                .enum_type => |enum_type| return ip.get(gpa, .{ .enum_tag = .{
-                    .ty = new_ty,
-                    .int = try ip.getCoerced(gpa, val, enum_type.tag_ty),
-                } }),
-                .ptr_type => return ip.get(gpa, .{ .ptr = .{
-                    .ty = new_ty,
-                    .addr = .{ .int = try ip.getCoerced(gpa, val, .usize_type) },
-                } }),
-                else => if (ip.isIntegerType(new_ty))
-                    return getCoercedInts(ip, gpa, int, new_ty),
-            },
-            .float => |float| switch (ip.indexToKey(new_ty)) {
-                .simple_type => |simple| switch (simple) {
-                    .f16,
-                    .f32,
-                    .f64,
-                    .f80,
-                    .f128,
-                    .c_longdouble,
-                    .comptime_float,
-                    => return ip.get(gpa, .{ .float = .{
-                        .ty = new_ty,
-                        .storage = float.storage,
-                    } }),
-                    else => {},
-                },
-                else => {},
-            },
-            .enum_tag => |enum_tag| if (ip.isIntegerType(new_ty))
-                return getCoercedInts(ip, gpa, ip.indexToKey(enum_tag.int).int, new_ty),
-            .enum_literal => |enum_literal| switch (ip.indexToKey(new_ty)) {
-                .enum_type => |enum_type| {
-                    const index = enum_type.nameIndex(ip, enum_literal).?;
-                    return ip.get(gpa, .{ .enum_tag = .{
-                        .ty = new_ty,
-                        .int = if (enum_type.values.len != 0)
-                            enum_type.values[index]
-                        else
-                            try ip.get(gpa, .{ .int = .{
-                                .ty = enum_type.tag_ty,
-                                .storage = .{ .u64 = index },
-                            } }),
-                    } });
-                },
-                else => {},
-            },
-            .ptr => |ptr| if (ip.isPointerType(new_ty))
-                return ip.get(gpa, .{ .ptr = .{
-                    .ty = new_ty,
-                    .addr = ptr.addr,
-                    .len = ptr.len,
-                } })
-            else if (ip.isIntegerType(new_ty))
-                switch (ptr.addr) {
-                    .int => |int| return ip.getCoerced(gpa, int, new_ty),
-                    else => {},
-                },
-            .opt => |opt| switch (ip.indexToKey(new_ty)) {
-                .ptr_type => |ptr_type| return switch (opt.val) {
-                    .none => try ip.get(gpa, .{ .ptr = .{
-                        .ty = new_ty,
-                        .addr = .{ .int = .zero_usize },
-                        .len = switch (ptr_type.flags.size) {
-                            .One, .Many, .C => .none,
-                            .Slice => try ip.get(gpa, .{ .undef = .usize_type }),
-                        },
-                    } }),
-                    else => |payload| try ip.getCoerced(gpa, payload, new_ty),
-                },
-                .opt_type => |child_type| return try ip.get(gpa, .{ .opt = .{
-                    .ty = new_ty,
-                    .val = switch (opt.val) {
-                        .none => .none,
-                        else => try ip.getCoerced(gpa, opt.val, child_type),
-                    },
-                } }),
-                else => {},
-            },
-            .err => |err| if (ip.isErrorSetType(new_ty))
-                return ip.get(gpa, .{ .err = .{
-                    .ty = new_ty,
-                    .name = err.name,
-                } })
-            else if (ip.isErrorUnionType(new_ty))
-                return ip.get(gpa, .{ .error_union = .{
-                    .ty = new_ty,
-                    .val = .{ .err_name = err.name },
-                } }),
-            .error_union => |error_union| if (ip.isErrorUnionType(new_ty))
-                return ip.get(gpa, .{ .error_union = .{
-                    .ty = new_ty,
-                    .val = error_union.val,
-                } }),
-            .aggregate => |aggregate| {
-                const new_len = @as(usize, @intCast(ip.aggregateTypeLen(new_ty)));
-                direct: {
-                    const old_ty_child = switch (ip.indexToKey(old_ty)) {
-                        inline .array_type, .vector_type => |seq_type| seq_type.child,
-                        .anon_struct_type, .struct_type => break :direct,
-                        else => unreachable,
-                    };
-                    const new_ty_child = switch (ip.indexToKey(new_ty)) {
-                        inline .array_type, .vector_type => |seq_type| seq_type.child,
-                        .anon_struct_type, .struct_type => break :direct,
-                        else => unreachable,
-                    };
-                    if (old_ty_child != new_ty_child) break :direct;
-                    // TODO: write something like getCoercedInts to avoid needing to dupe here
-                    switch (aggregate.storage) {
-                        .bytes => |bytes| {
-                            const bytes_copy = try gpa.dupe(u8, bytes[0..new_len]);
-                            defer gpa.free(bytes_copy);
-                            return ip.get(gpa, .{ .aggregate = .{
-                                .ty = new_ty,
-                                .storage = .{ .bytes = bytes_copy },
-                            } });
-                        },
-                        .elems => |elems| {
-                            const elems_copy = try gpa.dupe(InternPool.Index, elems[0..new_len]);
-                            defer gpa.free(elems_copy);
-                            return ip.get(gpa, .{ .aggregate = .{
-                                .ty = new_ty,
-                                .storage = .{ .elems = elems_copy },
-                            } });
-                        },
-                        .repeated_elem => |elem| {
-                            return ip.get(gpa, .{ .aggregate = .{
-                                .ty = new_ty,
-                                .storage = .{ .repeated_elem = elem },
-                            } });
-                        },
-                    }
-                }
-                // Direct approach failed - we must recursively coerce elems
-                const agg_elems = try gpa.alloc(InternPool.Index, new_len);
-                defer gpa.free(agg_elems);
-                // First, fill the vector with the uncoerced elements. We do this to avoid key
-                // lifetime issues, since it'll allow us to avoid referencing `aggregate` after we
-                // begin interning elems.
-                switch (aggregate.storage) {
-                    .bytes => {
-                        // We have to intern each value here, so unfortunately we can't easily avoid
-                        // the repeated indexToKey calls.
-                        for (agg_elems, 0..) |*elem, i| {
-                            const x = ip.indexToKey(val).aggregate.storage.bytes[i];
-                            elem.* = try ip.get(gpa, .{ .int = .{
-                                .ty = .u8_type,
-                                .storage = .{ .u64 = x },
-                            } });
-                        }
-                    },
-                    .elems => |elems| @memcpy(agg_elems, elems[0..new_len]),
-                    .repeated_elem => |elem| @memset(agg_elems, elem),
-                }
-                // Now, coerce each element to its new type.
-                for (agg_elems, 0..) |*elem, i| {
-                    const new_elem_ty = switch (ip.indexToKey(new_ty)) {
-                        inline .array_type, .vector_type => |seq_type| seq_type.child,
-                        .anon_struct_type => |anon_struct_type| anon_struct_type.types[i],
-                        .struct_type => |struct_type| ip.structPtr(struct_type.index.unwrap().?)
-                            .fields.values()[i].ty.toIntern(),
-                        else => unreachable,
-                    };
-                    elem.* = try ip.getCoerced(gpa, elem.*, new_elem_ty);
-                }
-                return ip.get(gpa, .{ .aggregate = .{ .ty = new_ty, .storage = .{ .elems = agg_elems } } });
             },
             else => {},
         },
     }
+
+    switch (ip.indexToKey(val)) {
+        .undef => return ip.get(gpa, .{ .undef = new_ty }),
+        .extern_func => |extern_func| if (ip.isFunctionType(new_ty))
+            return ip.get(gpa, .{ .extern_func = .{
+                .ty = new_ty,
+                .decl = extern_func.decl,
+                .lib_name = extern_func.lib_name,
+            } }),
+
+        .func => unreachable,
+
+        .int => |int| switch (ip.indexToKey(new_ty)) {
+            .enum_type => |enum_type| return ip.get(gpa, .{ .enum_tag = .{
+                .ty = new_ty,
+                .int = try ip.getCoerced(gpa, val, enum_type.tag_ty),
+            } }),
+            .ptr_type => return ip.get(gpa, .{ .ptr = .{
+                .ty = new_ty,
+                .addr = .{ .int = try ip.getCoerced(gpa, val, .usize_type) },
+            } }),
+            else => if (ip.isIntegerType(new_ty))
+                return getCoercedInts(ip, gpa, int, new_ty),
+        },
+        .float => |float| switch (ip.indexToKey(new_ty)) {
+            .simple_type => |simple| switch (simple) {
+                .f16,
+                .f32,
+                .f64,
+                .f80,
+                .f128,
+                .c_longdouble,
+                .comptime_float,
+                => return ip.get(gpa, .{ .float = .{
+                    .ty = new_ty,
+                    .storage = float.storage,
+                } }),
+                else => {},
+            },
+            else => {},
+        },
+        .enum_tag => |enum_tag| if (ip.isIntegerType(new_ty))
+            return getCoercedInts(ip, gpa, ip.indexToKey(enum_tag.int).int, new_ty),
+        .enum_literal => |enum_literal| switch (ip.indexToKey(new_ty)) {
+            .enum_type => |enum_type| {
+                const index = enum_type.nameIndex(ip, enum_literal).?;
+                return ip.get(gpa, .{ .enum_tag = .{
+                    .ty = new_ty,
+                    .int = if (enum_type.values.len != 0)
+                        enum_type.values[index]
+                    else
+                        try ip.get(gpa, .{ .int = .{
+                            .ty = enum_type.tag_ty,
+                            .storage = .{ .u64 = index },
+                        } }),
+                } });
+            },
+            else => {},
+        },
+        .ptr => |ptr| if (ip.isPointerType(new_ty))
+            return ip.get(gpa, .{ .ptr = .{
+                .ty = new_ty,
+                .addr = ptr.addr,
+                .len = ptr.len,
+            } })
+        else if (ip.isIntegerType(new_ty))
+            switch (ptr.addr) {
+                .int => |int| return ip.getCoerced(gpa, int, new_ty),
+                else => {},
+            },
+        .opt => |opt| switch (ip.indexToKey(new_ty)) {
+            .ptr_type => |ptr_type| return switch (opt.val) {
+                .none => try ip.get(gpa, .{ .ptr = .{
+                    .ty = new_ty,
+                    .addr = .{ .int = .zero_usize },
+                    .len = switch (ptr_type.flags.size) {
+                        .One, .Many, .C => .none,
+                        .Slice => try ip.get(gpa, .{ .undef = .usize_type }),
+                    },
+                } }),
+                else => |payload| try ip.getCoerced(gpa, payload, new_ty),
+            },
+            .opt_type => |child_type| return try ip.get(gpa, .{ .opt = .{
+                .ty = new_ty,
+                .val = switch (opt.val) {
+                    .none => .none,
+                    else => try ip.getCoerced(gpa, opt.val, child_type),
+                },
+            } }),
+            else => {},
+        },
+        .err => |err| if (ip.isErrorSetType(new_ty))
+            return ip.get(gpa, .{ .err = .{
+                .ty = new_ty,
+                .name = err.name,
+            } })
+        else if (ip.isErrorUnionType(new_ty))
+            return ip.get(gpa, .{ .error_union = .{
+                .ty = new_ty,
+                .val = .{ .err_name = err.name },
+            } }),
+        .error_union => |error_union| if (ip.isErrorUnionType(new_ty))
+            return ip.get(gpa, .{ .error_union = .{
+                .ty = new_ty,
+                .val = error_union.val,
+            } }),
+        .aggregate => |aggregate| {
+            const new_len = @as(usize, @intCast(ip.aggregateTypeLen(new_ty)));
+            direct: {
+                const old_ty_child = switch (ip.indexToKey(old_ty)) {
+                    inline .array_type, .vector_type => |seq_type| seq_type.child,
+                    .anon_struct_type, .struct_type => break :direct,
+                    else => unreachable,
+                };
+                const new_ty_child = switch (ip.indexToKey(new_ty)) {
+                    inline .array_type, .vector_type => |seq_type| seq_type.child,
+                    .anon_struct_type, .struct_type => break :direct,
+                    else => unreachable,
+                };
+                if (old_ty_child != new_ty_child) break :direct;
+                // TODO: write something like getCoercedInts to avoid needing to dupe here
+                switch (aggregate.storage) {
+                    .bytes => |bytes| {
+                        const bytes_copy = try gpa.dupe(u8, bytes[0..new_len]);
+                        defer gpa.free(bytes_copy);
+                        return ip.get(gpa, .{ .aggregate = .{
+                            .ty = new_ty,
+                            .storage = .{ .bytes = bytes_copy },
+                        } });
+                    },
+                    .elems => |elems| {
+                        const elems_copy = try gpa.dupe(InternPool.Index, elems[0..new_len]);
+                        defer gpa.free(elems_copy);
+                        return ip.get(gpa, .{ .aggregate = .{
+                            .ty = new_ty,
+                            .storage = .{ .elems = elems_copy },
+                        } });
+                    },
+                    .repeated_elem => |elem| {
+                        return ip.get(gpa, .{ .aggregate = .{
+                            .ty = new_ty,
+                            .storage = .{ .repeated_elem = elem },
+                        } });
+                    },
+                }
+            }
+            // Direct approach failed - we must recursively coerce elems
+            const agg_elems = try gpa.alloc(InternPool.Index, new_len);
+            defer gpa.free(agg_elems);
+            // First, fill the vector with the uncoerced elements. We do this to avoid key
+            // lifetime issues, since it'll allow us to avoid referencing `aggregate` after we
+            // begin interning elems.
+            switch (aggregate.storage) {
+                .bytes => {
+                    // We have to intern each value here, so unfortunately we can't easily avoid
+                    // the repeated indexToKey calls.
+                    for (agg_elems, 0..) |*elem, i| {
+                        const x = ip.indexToKey(val).aggregate.storage.bytes[i];
+                        elem.* = try ip.get(gpa, .{ .int = .{
+                            .ty = .u8_type,
+                            .storage = .{ .u64 = x },
+                        } });
+                    }
+                },
+                .elems => |elems| @memcpy(agg_elems, elems[0..new_len]),
+                .repeated_elem => |elem| @memset(agg_elems, elem),
+            }
+            // Now, coerce each element to its new type.
+            for (agg_elems, 0..) |*elem, i| {
+                const new_elem_ty = switch (ip.indexToKey(new_ty)) {
+                    inline .array_type, .vector_type => |seq_type| seq_type.child,
+                    .anon_struct_type => |anon_struct_type| anon_struct_type.types[i],
+                    .struct_type => |struct_type| ip.structPtr(struct_type.index.unwrap().?)
+                        .fields.values()[i].ty.toIntern(),
+                    else => unreachable,
+                };
+                elem.* = try ip.getCoerced(gpa, elem.*, new_elem_ty);
+            }
+            return ip.get(gpa, .{ .aggregate = .{ .ty = new_ty, .storage = .{ .elems = agg_elems } } });
+        },
+        else => {},
+    }
+
     switch (ip.indexToKey(new_ty)) {
         .opt_type => |child_type| switch (val) {
             .null_value => return ip.get(gpa, .{ .opt = .{
@@ -5709,6 +5750,54 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
         });
     }
     unreachable;
+}
+
+fn getCoercedFuncDecl(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
+    const datas = ip.items.items(.data);
+    const extra_index = datas[@intFromEnum(val)];
+    const prev_ty: Index = @enumFromInt(
+        ip.extra.items[extra_index + std.meta.fieldIndex(Tag.FuncDecl, "ty").?],
+    );
+    if (new_ty == prev_ty) return val;
+    return getCoercedFunc(ip, gpa, val, new_ty);
+}
+
+fn getCoercedFuncInstance(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
+    const datas = ip.items.items(.data);
+    const extra_index = datas[@intFromEnum(val)];
+    const prev_ty: Index = @enumFromInt(
+        ip.extra.items[extra_index + std.meta.fieldIndex(Tag.FuncInstance, "ty").?],
+    );
+    if (new_ty == prev_ty) return val;
+    return getCoercedFunc(ip, gpa, val, new_ty);
+}
+
+fn getCoercedFunc(ip: *InternPool, gpa: Allocator, func: Index, ty: Index) Allocator.Error!Index {
+    const prev_extra_len = ip.extra.items.len;
+    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.FuncCoerced).Struct.fields.len);
+    try ip.items.ensureUnusedCapacity(gpa, 1);
+    try ip.map.ensureUnusedCapacity(gpa, 1);
+
+    const extra_index = ip.addExtraAssumeCapacity(Tag.FuncCoerced{
+        .ty = ty,
+        .func = func,
+    });
+
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const gop = ip.map.getOrPutAssumeCapacityAdapted(Key{
+        .func = extraFuncCoerced(ip, extra_index),
+    }, adapter);
+
+    if (gop.found_existing) {
+        ip.extra.items.len = prev_extra_len;
+        return @enumFromInt(gop.index);
+    }
+
+    ip.items.appendAssumeCapacity(.{
+        .tag = .func_coerced,
+        .data = extra_index,
+    });
+    return @enumFromInt(ip.items.len - 1);
 }
 
 /// Asserts `val` has an integer type.
@@ -6025,6 +6114,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                 break :b @sizeOf(Tag.FuncInstance) + @sizeOf(Index) * params_len +
                     @sizeOf(Module.Decl);
             },
+            .func_coerced => @sizeOf(Tag.FuncCoerced),
             .only_possible_value => 0,
             .union_value => @sizeOf(Key.Union),
 
@@ -6131,6 +6221,7 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
             .extern_func,
             .func_decl,
             .func_instance,
+            .func_coerced,
             .union_value,
             .memoized_call,
             => try w.print("{d}", .{data}),
@@ -6471,7 +6562,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
             .undef,
             .opt_null,
             .only_possible_value,
-            => @as(Index, @enumFromInt(ip.items.items(.data)[@intFromEnum(index)])),
+            => @enumFromInt(ip.items.items(.data)[@intFromEnum(index)]),
 
             .simple_value => unreachable, // handled via Index above
 
@@ -6497,6 +6588,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
             .extern_func,
             .func_decl,
             .func_instance,
+            .func_coerced,
             .union_value,
             .bytes,
             .aggregate,
@@ -6504,7 +6596,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
             => |t| {
                 const extra_index = ip.items.items(.data)[@intFromEnum(index)];
                 const field_index = std.meta.fieldIndex(t.Payload(), "ty").?;
-                return @as(Index, @enumFromInt(ip.extra.items[extra_index + field_index]));
+                return @enumFromInt(ip.extra.items[extra_index + field_index]);
             },
 
             .int_u8 => .u8_type,
@@ -6850,6 +6942,7 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
             .extern_func,
             .func_decl,
             .func_instance,
+            .func_coerced,
             .only_possible_value,
             .union_value,
             .bytes,
@@ -6866,7 +6959,7 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
 pub fn isFuncBody(ip: *const InternPool, i: Index) bool {
     assert(i != .none);
     return switch (ip.items.items(.tag)[@intFromEnum(i)]) {
-        .func_decl, .func_instance => true,
+        .func_decl, .func_instance, .func_coerced => true,
         else => false,
     };
 }

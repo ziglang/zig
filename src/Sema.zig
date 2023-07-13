@@ -7155,9 +7155,17 @@ fn analyzeCall(
                 break :res2 Air.internedToRef(result_transformed);
             }
 
-            if (sema.fn_ret_ty_ies) |ies| {
-                _ = ies;
-                @panic("TODO: resolve ad-hoc inferred error set");
+            if (try sema.resolveMaybeUndefVal(result)) |result_val| {
+                const result_interned = try result_val.intern(sema.fn_ret_ty, mod);
+                const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_interned);
+                break :res2 Air.internedToRef(result_transformed);
+            }
+
+            const new_ty = try sema.resolveAdHocInferredErrorSetTy(block, call_src, sema.typeOf(result).toIntern());
+            if (new_ty != .none) {
+                // TODO: mutate in place the previous instruction if possible
+                // rather than adding a bitcast instruction.
+                break :res2 try block.addBitCast(new_ty.toType(), result);
             }
 
             break :res2 result;
@@ -9141,11 +9149,14 @@ fn zirParam(
             // Make sure any nested param instructions don't clobber our work.
             const prev_params = block.params;
             const prev_no_partial_func_type = sema.no_partial_func_ty;
+            const prev_generic_owner = sema.generic_owner;
             block.params = .{};
             sema.no_partial_func_ty = true;
+            sema.generic_owner = .none;
             defer {
                 block.params = prev_params;
                 sema.no_partial_func_ty = prev_no_partial_func_type;
+                sema.generic_owner = prev_generic_owner;
             }
 
             if (sema.resolveBody(block, body, inst)) |param_ty_inst| {
@@ -34114,24 +34125,37 @@ fn resolveAdHocInferredErrorSet(
     src: LazySrcLoc,
     value: InternPool.Index,
 ) CompileError!InternPool.Index {
-    const ies = sema.fn_ret_ty_ies orelse return value;
     const mod = sema.mod;
     const gpa = sema.gpa;
     const ip = &mod.intern_pool;
-    const ty = ip.typeOf(value);
+    const new_ty = try resolveAdHocInferredErrorSetTy(sema, block, src, ip.typeOf(value));
+    if (new_ty == .none) return value;
+    return ip.getCoerced(gpa, value, new_ty);
+}
+
+fn resolveAdHocInferredErrorSetTy(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ty: InternPool.Index,
+) CompileError!InternPool.Index {
+    const ies = sema.fn_ret_ty_ies orelse return .none;
+    const mod = sema.mod;
+    const gpa = sema.gpa;
+    const ip = &mod.intern_pool;
     const error_union_info = switch (ip.indexToKey(ty)) {
         .error_union_type => |x| x,
-        else => return value,
+        else => return .none,
     };
     if (error_union_info.error_set_type != .adhoc_inferred_error_set_type)
-        return value;
+        return .none;
 
     try sema.resolveInferredErrorSetPtr(block, src, ies);
     const new_ty = try ip.get(gpa, .{ .error_union_type = .{
         .error_set_type = ies.resolved,
         .payload_type = error_union_info.payload_type,
     } });
-    return ip.getCoerced(gpa, value, new_ty);
+    return new_ty;
 }
 
 fn resolveInferredErrorSetTy(
@@ -34142,6 +34166,7 @@ fn resolveInferredErrorSetTy(
 ) CompileError!InternPool.Index {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
+    if (ty == .anyerror_type) return ty;
     switch (ip.indexToKey(ty)) {
         .error_set_type => return ty,
         .inferred_error_set_type => return sema.resolveInferredErrorSet(block, src, ty),
@@ -35229,6 +35254,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .extern_func,
             .func_decl,
             .func_instance,
+            .func_coerced,
             .only_possible_value,
             .union_value,
             .bytes,
