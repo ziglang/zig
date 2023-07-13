@@ -6308,8 +6308,8 @@ fn vectorTypeAssumeCapacity(
             .data = self.addTypeExtraAssumeCapacity(data),
         });
         if (self.useLibLlvm()) self.llvm.types.appendAssumeCapacity(switch (kind) {
-            .normal => &llvm.Type.vectorType,
-            .scalable => &llvm.Type.scalableVectorType,
+            .normal => llvm.Type.vectorType,
+            .scalable => llvm.Type.scalableVectorType,
         }(child.toLlvm(self), @intCast(len)));
     }
     return @enumFromInt(gop.index);
@@ -7443,8 +7443,8 @@ fn gepConstAssumeCapacity(
             for (llvm_indices, indices) |*llvm_index, index| llvm_index.* = index.toLlvm(self);
 
             self.llvm.constants.appendAssumeCapacity(switch (kind) {
-                .normal => &llvm.Type.constGEP,
-                .inbounds => &llvm.Type.constInBoundsGEP,
+                .normal => llvm.Type.constGEP,
+                .inbounds => llvm.Type.constInBoundsGEP,
             }(ty.toLlvm(self), base.toLlvm(self), llvm_indices.ptr, @intCast(llvm_indices.len)));
         }
     }
