@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const elf = std.elf;
 const fs = std.fs;
 const macho = std.macho;
 const math = std.math;
@@ -338,7 +339,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .macho => try MachODumper.parseAndDump(step, contents, .{
             .dump_symtab = self.dump_symtab,
         }),
-        .elf => @panic("TODO elf parser"),
+        .elf => try ElfDumper.parseAndDump(step, contents, .{
+            .dump_symtab = self.dump_symtab,
+        }),
         .coff => @panic("TODO coff parser"),
         .wasm => try WasmDumper.parseAndDump(step, contents, .{
             .dump_symtab = self.dump_symtab,
@@ -692,6 +695,36 @@ const MachODumper = struct {
 
             else => {},
         }
+    }
+};
+
+const ElfDumper = struct {
+    const symtab_label = "symtab";
+
+    fn parseAndDump(step: *Step, bytes: []const u8, opts: Opts) ![]const u8 {
+        _ = opts;
+
+        const gpa = step.owner.allocator;
+        var stream = std.io.fixedBufferStream(bytes);
+        const reader = stream.reader();
+
+        const hdr = try reader.readStruct(elf.Elf64_Ehdr);
+        if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) {
+            return error.InvalidMagicNumber;
+        }
+
+        var output = std.ArrayList(u8).init(gpa);
+        const writer = output.writer();
+
+        try dumpHeader(hdr, writer);
+
+        return output.toOwnedSlice();
+    }
+
+    fn dumpHeader(hdr: elf.Elf64_Ehdr, writer: anytype) !void {
+        try writer.writeAll("header\n");
+        try writer.print("type {s}\n", .{@tagName(hdr.e_type)});
+        try writer.print("entry {x}\n", .{hdr.e_entry});
     }
 };
 
