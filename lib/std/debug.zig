@@ -190,7 +190,15 @@ pub inline fn getContext(context: *ThreadContext) bool {
     }
 
     const result = have_getcontext and os.system.getcontext(context) == 0;
-    if (native_os == .macos) assert(context.mcsize == @sizeOf(std.c.mcontext_t));
+    if (native_os == .macos) {
+        assert(context.mcsize == @sizeOf(std.c.mcontext_t));
+
+        // On aarch64-macos, the system getcontext doesn't write anything into the pc
+        // register slot, it only writes lr. This makes the context consistent with
+        // other aarch64 getcontext implementations which write the current lr
+        // (where getcontext will return to) into both the lr and pc slot of the context.
+        if (native_arch == .aarch64) context.mcontext.ss.pc = context.mcontext.ss.lr;
+    }
 
     return result;
 }
