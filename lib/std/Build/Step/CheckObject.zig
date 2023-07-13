@@ -815,6 +815,10 @@ const ElfDumper = struct {
             try writer.print("shdr {d}\n", .{shndx});
             try writer.print("name {s}\n", .{getSectionName(ctx, shndx)});
             try writer.print("type {s}\n", .{try fmtShType(ctx.gpa, shdr.sh_type)});
+            try writer.print("addr {x}\n", .{shdr.sh_addr});
+            try writer.print("offset {x}\n", .{shdr.sh_offset});
+            try writer.print("size {x}\n", .{shdr.sh_size});
+            try writer.print("addralign {x}\n", .{shdr.sh_addralign});
         }
     }
 
