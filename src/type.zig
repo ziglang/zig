@@ -292,6 +292,7 @@ pub const Type = struct {
                 .comptime_int,
                 .comptime_float,
                 .noreturn,
+                .adhoc_inferred_error_set,
                 => return writer.writeAll(@tagName(s)),
 
                 .null,
@@ -533,6 +534,7 @@ pub const Type = struct {
                     .c_longdouble,
                     .bool,
                     .anyerror,
+                    .adhoc_inferred_error_set,
                     .anyopaque,
                     .atomic_order,
                     .atomic_rmw_op,
@@ -696,6 +698,7 @@ pub const Type = struct {
                 => true,
 
                 .anyerror,
+                .adhoc_inferred_error_set,
                 .anyopaque,
                 .atomic_order,
                 .atomic_rmw_op,
@@ -954,7 +957,9 @@ pub const Type = struct {
                     },
 
                     // TODO revisit this when we have the concept of the error tag type
-                    .anyerror => return AbiAlignmentAdvanced{ .scalar = 2 },
+                    .anyerror,
+                    .adhoc_inferred_error_set,
+                    => return AbiAlignmentAdvanced{ .scalar = 2 },
 
                     .void,
                     .type,
@@ -1418,7 +1423,9 @@ pub const Type = struct {
                     => return AbiSizeAdvanced{ .scalar = 0 },
 
                     // TODO revisit this when we have the concept of the error tag type
-                    .anyerror => return AbiSizeAdvanced{ .scalar = 2 },
+                    .anyerror,
+                    .adhoc_inferred_error_set,
+                    => return AbiSizeAdvanced{ .scalar = 2 },
 
                     .prefetch_options => unreachable, // missing call to resolveTypeFields
                     .export_options => unreachable, // missing call to resolveTypeFields
@@ -1661,7 +1668,9 @@ pub const Type = struct {
                 .void => return 0,
 
                 // TODO revisit this when we have the concept of the error tag type
-                .anyerror => return 16,
+                .anyerror,
+                .adhoc_inferred_error_set,
+                => return 16,
 
                 .anyopaque => unreachable,
                 .type => unreachable,
@@ -2503,6 +2512,7 @@ pub const Type = struct {
                     .export_options,
                     .extern_options,
                     .type_info,
+                    .adhoc_inferred_error_set,
                     => return null,
 
                     .void => return Value.void,
@@ -2697,6 +2707,7 @@ pub const Type = struct {
                     .bool,
                     .void,
                     .anyerror,
+                    .adhoc_inferred_error_set,
                     .noreturn,
                     .generic_poison,
                     .atomic_order,

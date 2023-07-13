@@ -1450,6 +1450,8 @@ pub const Index = enum(u32) {
     slice_const_u8_sentinel_0_type,
     optional_noreturn_type,
     anyerror_void_error_union_type,
+    /// Used for the inferred error set of inline/comptime function calls.
+    adhoc_inferred_error_set_type,
     generic_poison_type,
     /// `@TypeOf(.{})`
     empty_struct_type,
@@ -1886,6 +1888,8 @@ pub const static_keys = [_]Key{
         .payload_type = .void_type,
     } },
 
+    // adhoc_inferred_error_set_type
+    .{ .simple_type = .adhoc_inferred_error_set },
     // generic_poison_type
     .{ .simple_type = .generic_poison },
 
@@ -2496,6 +2500,7 @@ pub const SimpleType = enum(u32) {
     extern_options,
     type_info,
 
+    adhoc_inferred_error_set,
     generic_poison,
 };
 
@@ -5812,14 +5817,17 @@ pub fn isOptionalType(ip: *const InternPool, ty: Index) bool {
 
 /// includes .inferred_error_set_type
 pub fn isErrorSetType(ip: *const InternPool, ty: Index) bool {
-    return ty == .anyerror_type or switch (ip.indexToKey(ty)) {
-        .error_set_type, .inferred_error_set_type => true,
-        else => false,
+    return switch (ty) {
+        .anyerror_type, .adhoc_inferred_error_set_type => true,
+        else => switch (ip.indexToKey(ty)) {
+            .error_set_type, .inferred_error_set_type => true,
+            else => false,
+        },
     };
 }
 
 pub fn isInferredErrorSetType(ip: *const InternPool, ty: Index) bool {
-    return ip.indexToKey(ty) == .inferred_error_set_type;
+    return ty == .adhoc_inferred_error_set_type or ip.indexToKey(ty) == .inferred_error_set_type;
 }
 
 pub fn isErrorUnionType(ip: *const InternPool, ty: Index) bool {
@@ -6412,6 +6420,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .slice_const_u8_sentinel_0_type,
         .optional_noreturn_type,
         .anyerror_void_error_union_type,
+        .adhoc_inferred_error_set_type,
         .generic_poison_type,
         .empty_struct_type,
         => .type_type,
@@ -6688,7 +6697,7 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .bool_type => .Bool,
         .void_type => .Void,
         .type_type => .Type,
-        .anyerror_type => .ErrorSet,
+        .anyerror_type, .adhoc_inferred_error_set_type => .ErrorSet,
         .comptime_int_type => .ComptimeInt,
         .comptime_float_type => .ComptimeFloat,
         .noreturn_type => .NoReturn,
