@@ -18,13 +18,13 @@ socket: net.StreamServer,
 pub const Connection = struct {
     pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
     pub const Protocol = enum { plain };
-    pub const BufferedReaderWriter = std.io.BufferedReaderWriter(buffer_size, 4096, *Connection);
 
     stream: net.Stream,
     protocol: Protocol,
 
     closing: bool = true,
-    buffered: BufferedReaderWriter,
+    bufreader: std.io.BufferedReader(buffer_size, 0, *Connection),
+    bufwriter: std.io.BufferedWriter(4096, *Connection),
 
     pub fn readAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
         return switch (conn.protocol) {
@@ -343,7 +343,7 @@ pub const Response = struct {
             .first, .start, .responded, .finished => unreachable,
         }
 
-        const w = res.connection.buffered.writer();
+        const w = res.connection.bufwriter.writer();
 
         try w.writeAll(@tagName(res.version));
         try w.writeByte(' ');
@@ -400,7 +400,7 @@ pub const Response = struct {
         try w.print("{}", .{res.headers});
 
         try w.writeAll("\r\n");
-        try res.connection.buffered.flush();
+        try res.connection.bufwriter.flush();
     }
 
     pub const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
@@ -416,7 +416,7 @@ pub const Response = struct {
 
         var index: usize = 0;
         while (index == 0) {
-            const amt = try res.request.parser.read(&res.connection.buffered, buf[index..], false);
+            const amt = try res.request.parser.read(&res.connection.bufreader, buf[index..], false);
             if (amt == 0 and res.request.parser.done) break;
             index += amt;
         }
@@ -434,11 +434,11 @@ pub const Response = struct {
         }
 
         while (true) {
-            var rest = res.connection.buffered.peek(0);
+            var rest = res.connection.bufreader.peek(0);
             if (rest.len == 0) return error.EndOfStream;
 
             const nchecked = try res.request.parser.checkCompleteHead(res.allocator, rest);
-            try res.connection.buffered.discard(@intCast(nchecked));
+            try res.connection.bufreader.discard(@intCast(nchecked));
 
             if (res.request.parser.state.isContent()) break;
         }
@@ -502,11 +502,11 @@ pub const Response = struct {
             const has_trail = !res.request.parser.state.isContent();
 
             while (!res.request.parser.state.isContent()) { // read trailing headers
-                var rest = res.connection.buffered.peek(0);
+                var rest = res.connection.bufreader.peek(0);
                 if (rest.len == 0) return error.EndOfStream;
 
                 const nchecked = try res.request.parser.checkCompleteHead(res.allocator, rest);
-                try res.connection.buffered.discard(@intCast(nchecked));
+                try res.connection.bufreader.discard(@intCast(nchecked));
             }
 
             if (has_trail) {
@@ -636,7 +636,8 @@ pub fn accept(server: *Server, options: AcceptOptions) AcceptError!Response {
     conn.* = .{
         .stream = in.stream,
         .protocol = .plain,
-        .buffered = Connection.BufferedReaderWriter.init(conn),
+        .bufreader = .{ .unbuffered_reader = conn },
+        .bufwriter = .{ .unbuffered_writer = conn },
     };
     return Response{
         .allocator = options.allocator,

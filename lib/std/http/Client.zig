@@ -147,7 +147,6 @@ pub const ConnectionPool = struct {
 pub const Connection = struct {
     pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
     pub const Protocol = enum { plain, tls };
-    pub const BufferedReaderWriter = std.io.BufferedReaderWriter(buffer_size, 4096, *Connection);
 
     stream: net.Stream,
     /// undefined unless protocol is tls.
@@ -160,7 +159,8 @@ pub const Connection = struct {
     proxied: bool = false,
     closing: bool = false,
 
-    buffered: BufferedReaderWriter,
+    bufreader: std.io.BufferedReader(buffer_size, 0, *Connection),
+    bufwriter: std.io.BufferedWriter(4096, *Connection),
 
     pub fn readAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
         return switch (conn.protocol) {
@@ -482,7 +482,7 @@ pub const Request = struct {
 
     /// Send the request to the server.
     pub fn start(req: *Request) StartError!void {
-        const w = req.connection.?.data.buffered.writer();
+        const w = req.connection.?.data.bufwriter.writer();
 
         try w.writeAll(@tagName(req.method));
         try w.writeByte(' ');
@@ -556,7 +556,7 @@ pub const Request = struct {
 
         try w.writeAll("\r\n");
 
-        try req.connection.?.data.buffered.flush();
+        try req.connection.?.data.bufwriter.flush();
     }
 
     pub const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
@@ -572,7 +572,7 @@ pub const Request = struct {
 
         var index: usize = 0;
         while (index == 0) {
-            const amt = try req.response.parser.read(&req.connection.?.data.buffered, buf[index..], req.response.skip);
+            const amt = try req.response.parser.read(&req.connection.?.data.bufreader, buf[index..], req.response.skip);
             if (amt == 0 and req.response.parser.done) break;
             index += amt;
         }
@@ -590,11 +590,11 @@ pub const Request = struct {
     pub fn wait(req: *Request) WaitError!void {
         while (true) { // handle redirects
             while (true) { // read headers
-                const rest = req.connection.?.data.buffered.peek(0);
+                const rest = req.connection.?.data.bufreader.peek(0);
                 if (rest.len == 0) return error.EndOfStream;
 
                 const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, rest);
-                try req.connection.?.data.buffered.discard(@intCast(nchecked));
+                try req.connection.?.data.bufreader.discard(@intCast(nchecked));
 
                 if (req.response.parser.state.isContent()) break;
             }
@@ -710,12 +710,12 @@ pub const Request = struct {
             const has_trail = !req.response.parser.state.isContent();
 
             while (!req.response.parser.state.isContent()) { // read trailing headers
-                const rest = req.connection.?.data.buffered.peek(0);
+                const rest = req.connection.?.data.bufreader.peek(0);
                 if (rest.len == 0) return error.EndOfStream;
 
                 const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, rest);
 
-                try req.connection.?.data.buffered.discard(@intCast(nchecked));
+                try req.connection.?.data.bufreader.discard(@intCast(nchecked));
             }
 
             if (has_trail) {
@@ -845,7 +845,8 @@ pub fn connectUnproxied(client: *Client, host: []const u8, port: u16, protocol: 
         .stream = stream,
         .tls_client = undefined,
         .protocol = protocol,
-        .buffered = Connection.BufferedReaderWriter.init(&conn.data),
+        .bufreader = .{ .unbuffered_reader = &conn.data },
+        .bufwriter = .{ .unbuffered_writer = &conn.data },
         .host = try client.allocator.dupe(u8, host),
         .port = port,
     };

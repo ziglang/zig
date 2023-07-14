@@ -121,7 +121,6 @@ pub const PeekStream = @compileError("Deprecated; use BufferedReader() instead."
 pub const peekStream = @compileError("Deprecated; use pushbackReader() instead.");
 
 pub const pushbackReader = @import("io/buffered_reader.zig").pushbackReader;
-pub const BufferedReaderWriter = @import("io/buffered_reader_writer.zig").BufferedReaderWriter;
 
 pub const FixedBufferStream = @import("io/fixed_buffer_stream.zig").FixedBufferStream;
 pub const fixedBufferStream = @import("io/fixed_buffer_stream.zig").fixedBufferStream;
