@@ -22,14 +22,14 @@ pub const Shake256 = Shake(256);
 /// It is based on the same permutation as SHA3 and SHAKE128, but which much higher performance.
 /// The delimiter is 0x1f by default, but can be changed for context-separation.
 /// For a protocol that uses both KangarooTwelve and TurboSHAKE128, it is recommended to avoid using 0x06, 0x07 or 0x0b for the delimiter.
-pub fn TurboShake128(comptime delim: ?u8) type {
+pub fn TurboShake128(comptime delim: ?u7) type {
     return TurboShake(128, delim);
 }
 
 /// TurboSHAKE256 is a XOF (a secure hash function with a variable output length), with a 256 bit security level.
 /// It is based on the same permutation as SHA3 and SHAKE256, but which much higher performance.
 /// The delimiter is 0x1f by default, but can be changed for context-separation.
-pub fn TurboShake256(comptime delim: ?u8) type {
+pub fn TurboShake256(comptime delim: ?u7) type {
     return TurboShake(256, delim);
 }
 
@@ -98,10 +98,10 @@ pub fn Shake(comptime security_level: u11) type {
 /// It is based on the same permutation as SHA3 and SHAKE, but which much higher performance.
 /// The delimiter is 0x1f by default, but can be changed for context-separation.
 /// https://eprint.iacr.org/2023/342
-pub fn TurboShake(comptime security_level: u11, comptime delim: ?u8) type {
+pub fn TurboShake(comptime security_level: u11, comptime delim: ?u7) type {
     comptime assert(security_level <= 256);
     const d = delim orelse 0x1f;
-    comptime assert(0x01 <= d and d <= 0x7f);
+    comptime assert(d >= 0x01); // delimiter must be >= 1
     return ShakeLike(security_level, d, 12);
 }
 
