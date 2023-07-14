@@ -69,13 +69,14 @@ test "json.parser.dynamic" {
     try testing.expect(mem.eql(u8, large_int.number_string, "18446744073709551615"));
 }
 
-const writeStream = @import("./write_stream.zig").writeStream;
+const writeStream = @import("./stringify.zig").writeStream;
 test "write json then parse it" {
     var out_buffer: [1000]u8 = undefined;
 
     var fixed_buffer_stream = std.io.fixedBufferStream(&out_buffer);
     const out_stream = fixed_buffer_stream.writer();
-    var jw = writeStream(out_stream, 4);
+    var jw = writeStream(testing.allocator, out_stream);
+    defer jw.deinit();
 
     try jw.beginObject();
     {
@@ -203,7 +204,8 @@ test "Value.jsonStringify" {
     var buffer: [0x1000]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
 
-    var jw = writeStream(fbs.writer(), 4);
+    var jw = writeStream(testing.allocator, fbs.writer());
+    defer jw.deinit();
     try jw.write(array);
 
     const expected =

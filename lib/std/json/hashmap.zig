@@ -70,14 +70,14 @@ pub fn ArrayHashMap(comptime T: type) type {
             return .{ .map = map };
         }
 
-        pub fn jsonStringify(self: @This(), jsonWriteStream: anytype) !void {
-            try jsonWriteStream.beginObject();
+        pub fn jsonStringify(self: @This(), jws: anytype) !void {
+            try jws.beginObject();
             var it = self.map.iterator();
             while (it.next()) |kv| {
-                try jsonWriteStream.write(kv.key_ptr.*);
-                try jsonWriteStream.write(kv.value_ptr.*);
+                try jws.write(kv.key_ptr.*);
+                try jws.write(kv.value_ptr.*);
             }
-            try jsonWriteStream.endObject();
+            try jws.endObject();
         }
     };
 }

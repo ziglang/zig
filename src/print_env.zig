@@ -28,7 +28,8 @@ pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writ
     var bw = std.io.bufferedWriter(stdout);
     const w = bw.writer();
 
-    var jws = std.json.writeStream(w, 6);
+    var jws_stack = std.json.WriteStreamFixedStack(6){};
+    var jws = jws_stack.init(w);
     try jws.beginObject();
 
     try jws.write("zig_exe");

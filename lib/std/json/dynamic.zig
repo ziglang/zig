@@ -59,23 +59,23 @@ pub const Value = union(enum) {
         stringify(self, .{}, stderr) catch return;
     }
 
-    pub fn jsonStringify(value: @This(), jsonWriteStream: anytype) !void {
+    pub fn jsonStringify(value: @This(), jws: anytype) !void {
         switch (value) {
-            .null => try jsonWriteStream.write(null),
-            .bool => |inner| try jsonWriteStream.write(inner),
-            .integer => |inner| try jsonWriteStream.write(inner),
-            .float => |inner| try jsonWriteStream.write(inner),
-            .number_string => |inner| try jsonWriteStream.writePreformatted(inner),
-            .string => |inner| try jsonWriteStream.write(inner),
-            .array => |inner| try jsonWriteStream.write(inner.items),
+            .null => try jws.write(null),
+            .bool => |inner| try jws.write(inner),
+            .integer => |inner| try jws.write(inner),
+            .float => |inner| try jws.write(inner),
+            .number_string => |inner| try jws.writePreformatted(inner),
+            .string => |inner| try jws.write(inner),
+            .array => |inner| try jws.write(inner.items),
             .object => |inner| {
-                try jsonWriteStream.beginObject();
+                try jws.beginObject();
                 var it = inner.iterator();
                 while (it.next()) |entry| {
-                    try jsonWriteStream.write(entry.key_ptr.*);
-                    try jsonWriteStream.write(entry.value_ptr.*);
+                    try jws.write(entry.key_ptr.*);
+                    try jws.write(entry.value_ptr.*);
                 }
-                try jsonWriteStream.endObject();
+                try jws.endObject();
             },
         }
     }
