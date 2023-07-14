@@ -3773,7 +3773,7 @@ fn tryResolveRefPath(
                     "TODO: handle `{s}`in tryResolveRefPath\nInfo: {}",
                     .{ @tagName(resolved_parent), resolved_parent },
                 );
-                path[i + 1] = (try self.cteTodo("<match failure>")).expr;
+                // path[i + 1] = (try self.cteTodo("<match failure>")).expr;
                 continue :outer;
             },
             .comptimeExpr, .call, .typeOf => {
