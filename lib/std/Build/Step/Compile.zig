@@ -2192,7 +2192,8 @@ const TransitiveDeps = struct {
                     if ((try td.seen_steps.fetchPut(&inner_other.step, {})) != null)
                         continue;
 
-                    if (!dyn)
+                    const included_in_lib = (other.kind == .lib and inner_other.kind == .obj);
+                    if (!dyn and !included_in_lib)
                         try td.link_objects.append(other_link_object);
 
                     try addInner(td, inner_other, dyn or inner_other.isDynamicLibrary());

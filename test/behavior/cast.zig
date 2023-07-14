@@ -639,7 +639,7 @@ test "vector casts" {
         }
 
         fn doTheTestFloat() !void {
-            var vec = @splat(2, @as(f32, 1234.0));
+            var vec: @Vector(2, f32) = @splat(1234.0);
             var wider: @Vector(2, f64) = vec;
             try expect(wider[0] == 1234.0);
             try expect(wider[1] == 1234.0);

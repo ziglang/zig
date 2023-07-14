@@ -36,8 +36,10 @@ env_map: ?*EnvMap,
 /// be skipped if all output files are up-to-date and input files are
 /// unchanged.
 stdio: StdIo = .infer_from_args,
-/// This field must be `null` if stdio is `inherit`.
-stdin: ?[]const u8 = null,
+
+/// This field must be `.none` if stdio is `inherit`.
+/// It should be only set using `setStdIn`.
+stdin: StdIn = .none,
 
 /// Additional file paths relative to build.zig that, when modified, indicate
 /// that the Run step should be re-executed.
@@ -76,6 +78,12 @@ captured_stdout: ?*Output = null,
 captured_stderr: ?*Output = null,
 
 has_side_effects: bool = false,
+
+pub const StdIn = union(enum) {
+    none,
+    bytes: []const u8,
+    file_source: std.Build.FileSource,
+};
 
 pub const StdIo = union(enum) {
     /// Whether the Run step has side-effects will be determined by whether or not one
@@ -227,6 +235,14 @@ pub fn addArgs(self: *Run, args: []const []const u8) void {
     for (args) |arg| {
         self.addArg(arg);
     }
+}
+
+pub fn setStdIn(self: *Run, stdin: StdIn) void {
+    switch (stdin) {
+        .file_source => |file_source| file_source.addStepDependencies(&self.step),
+        .bytes, .none => {},
+    }
+    self.stdin = stdin;
 }
 
 pub fn clearEnvironment(self: *Run) void {
@@ -454,8 +470,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
-    if (self.stdin) |bytes| {
-        man.hash.addBytes(bytes);
+    switch (self.stdin) {
+        .bytes => |bytes| {
+            man.hash.addBytes(bytes);
+        },
+        .file_source => |file_source| {
+            const file_path = file_source.getPath(b);
+            _ = try man.addFile(file_path, null);
+        },
+        .none => {},
     }
 
     if (self.captured_stdout) |output| {
@@ -934,7 +957,7 @@ fn spawnChildAndCollect(
     };
     if (self.captured_stdout != null) child.stdout_behavior = .Pipe;
     if (self.captured_stderr != null) child.stderr_behavior = .Pipe;
-    if (self.stdin != null) {
+    if (self.stdin != .none) {
         assert(child.stdin_behavior != .Inherit);
         child.stdin_behavior = .Pipe;
     }
@@ -1158,12 +1181,27 @@ fn sendRunTestMessage(file: std.fs.File, index: u32) !void {
 fn evalGeneric(self: *Run, child: *std.process.Child) !StdIoResult {
     const arena = self.step.owner.allocator;
 
-    if (self.stdin) |stdin| {
-        child.stdin.?.writeAll(stdin) catch |err| {
-            return self.step.fail("unable to write stdin: {s}", .{@errorName(err)});
-        };
-        child.stdin.?.close();
-        child.stdin = null;
+    switch (self.stdin) {
+        .bytes => |bytes| {
+            child.stdin.?.writeAll(bytes) catch |err| {
+                return self.step.fail("unable to write stdin: {s}", .{@errorName(err)});
+            };
+            child.stdin.?.close();
+            child.stdin = null;
+        },
+        .file_source => |file_source| {
+            const path = file_source.getPath(self.step.owner);
+            const file = self.step.owner.build_root.handle.openFile(path, .{}) catch |err| {
+                return self.step.fail("unable to open stdin file: {s}", .{@errorName(err)});
+            };
+            defer file.close();
+            child.stdin.?.writeFileAll(file, .{}) catch |err| {
+                return self.step.fail("unable to write file to stdin: {s}", .{@errorName(err)});
+            };
+            child.stdin.?.close();
+            child.stdin = null;
+        },
+        .none => {},
     }
 
     // These are not optionals, as a workaround for

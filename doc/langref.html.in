@@ -9239,10 +9239,10 @@ test "vector @shuffle" {
       {#header_close#}
 
       {#header_open|@splat#}
-      <pre>{#syntax#}@splat(comptime len: u32, scalar: anytype) @Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
+      <pre>{#syntax#}@splat(scalar: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
-      {#syntax#}scalar{#endsyntax#}:
+      Produces a vector where each element is the value {#syntax#}scalar{#endsyntax#}. 
+      The return type and thus the length of the vector is inferred.
       </p>
       {#code_begin|test|test_splat_builtin#}
 const std = @import("std");
@@ -9250,8 +9250,7 @@ const expect = std.testing.expect;
 
 test "vector @splat" {
     const scalar: u32 = 5;
-    const result = @splat(4, scalar);
-    try comptime expect(@TypeOf(result) == @Vector(4, u32));
+    const result: @Vector(4, u32) = @splat(scalar);
     try expect(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
@@ -9292,8 +9291,9 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "vector @reduce" {
-    const value = @Vector(4, i32){ 1, -1, 1, -1 };
-    const result = value > @splat(4, @as(i32, 0));
+    const V = @Vector(4, i32);
+    const value = V{ 1, -1, 1, -1 };
+    const result = value > @as(V, @splat(0));
     // result is { true, false, true, false };
     try comptime expect(@TypeOf(result) == @Vector(4, bool));
     const is_all_true = @reduce(.And, result);

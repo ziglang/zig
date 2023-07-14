@@ -29,6 +29,7 @@ pub const ws2_32 = @import("windows/ws2_32.zig");
 pub const gdi32 = @import("windows/gdi32.zig");
 pub const winmm = @import("windows/winmm.zig");
 pub const crypt32 = @import("windows/crypt32.zig");
+pub const nls = @import("windows/nls.zig");
 
 pub const self_process_handle = @as(HANDLE, @ptrFromInt(maxInt(usize)));
 
@@ -1911,8 +1912,31 @@ pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
     };
 }
 
-/// Compares two WTF16 strings using RtlEqualUnicodeString
+/// Compares two WTF16 strings using the equivalent functionality of
+/// `RtlEqualUnicodeString` (with case insensitive comparison enabled).
+/// This function can be called on any target.
 pub fn eqlIgnoreCaseWTF16(a: []const u16, b: []const u16) bool {
+    if (@inComptime() or builtin.os.tag != .windows) {
+        // This function compares the strings code unit by code unit (aka u16-to-u16),
+        // so any length difference implies inequality. In other words, there's no possible
+        // conversion that changes the number of UTF-16 code units needed for the uppercase/lowercase
+        // version in the conversion table since only codepoints <= max(u16) are eligible
+        // for conversion at all.
+        if (a.len != b.len) return false;
+
+        for (a, b) |a_c, b_c| {
+            // The slices are always UTF-16 LE, so need to convert the elements to native
+            // endianness for the uppercasing
+            const a_c_native = std.mem.littleToNative(u16, a_c);
+            const b_c_native = std.mem.littleToNative(u16, b_c);
+            if (a_c != b_c and nls.upcaseW(a_c_native) != nls.upcaseW(b_c_native)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    // Use RtlEqualUnicodeString on Windows when not in comptime to avoid including a
+    // redundant copy of the uppercase data.
     const a_bytes = @as(u16, @intCast(a.len * 2));
     const a_string = UNICODE_STRING{
         .Length = a_bytes,
@@ -1926,6 +1950,64 @@ pub fn eqlIgnoreCaseWTF16(a: []const u16, b: []const u16) bool {
         .Buffer = @constCast(b.ptr),
     };
     return ntdll.RtlEqualUnicodeString(&a_string, &b_string, TRUE) == TRUE;
+}
+
+/// Compares two UTF-8 strings using the equivalent functionality of
+/// `RtlEqualUnicodeString` (with case insensitive comparison enabled).
+/// This function can be called on any target.
+/// Assumes `a` and `b` are valid UTF-8.
+pub fn eqlIgnoreCaseUtf8(a: []const u8, b: []const u8) bool {
+    // A length equality check is not possible here because there are
+    // some codepoints that have a different length uppercase UTF-8 representations
+    // than their lowercase counterparts, e.g. U+0250 (2 bytes) <-> U+2C6F (3 bytes).
+    // There are 7 such codepoints in the uppercase data used by Windows.
+
+    var a_utf8_it = std.unicode.Utf8View.initUnchecked(a).iterator();
+    var b_utf8_it = std.unicode.Utf8View.initUnchecked(b).iterator();
+
+    // Use RtlUpcaseUnicodeChar on Windows when not in comptime to avoid including a
+    // redundant copy of the uppercase data.
+    const upcaseImpl = switch (builtin.os.tag) {
+        .windows => if (@inComptime()) nls.upcaseW else ntdll.RtlUpcaseUnicodeChar,
+        else => nls.upcaseW,
+    };
+
+    while (true) {
+        var a_cp = a_utf8_it.nextCodepoint() orelse break;
+        var b_cp = b_utf8_it.nextCodepoint() orelse return false;
+
+        if (a_cp <= std.math.maxInt(u16) and b_cp <= std.math.maxInt(u16)) {
+            if (a_cp != b_cp and upcaseImpl(@intCast(a_cp)) != upcaseImpl(@intCast(b_cp))) {
+                return false;
+            }
+        } else if (a_cp != b_cp) {
+            return false;
+        }
+    }
+    // Make sure there are no leftover codepoints in b
+    if (b_utf8_it.nextCodepoint() != null) return false;
+
+    return true;
+}
+
+fn testEqlIgnoreCase(comptime expect_eql: bool, comptime a: []const u8, comptime b: []const u8) !void {
+    try std.testing.expectEqual(expect_eql, eqlIgnoreCaseUtf8(a, b));
+    try std.testing.expectEqual(expect_eql, eqlIgnoreCaseWTF16(
+        std.unicode.utf8ToUtf16LeStringLiteral(a),
+        std.unicode.utf8ToUtf16LeStringLiteral(b),
+    ));
+
+    try comptime std.testing.expect(expect_eql == eqlIgnoreCaseUtf8(a, b));
+    try comptime std.testing.expect(expect_eql == eqlIgnoreCaseWTF16(
+        std.unicode.utf8ToUtf16LeStringLiteral(a),
+        std.unicode.utf8ToUtf16LeStringLiteral(b),
+    ));
+}
+
+test "eqlIgnoreCaseWTF16/Utf8" {
+    try testEqlIgnoreCase(true, "\x01 a B Λ ɐ", "\x01 A b λ Ɐ");
+    // does not do case-insensitive comparison for codepoints >= U+10000
+    try testEqlIgnoreCase(false, "𐓏", "𐓷");
 }
 
 pub const PathSpace = struct {

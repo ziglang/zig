@@ -6500,11 +6500,11 @@ fn forExpr(
                     return astgen.failTok(ident_tok, "cannot capture reference to range", .{});
                 }
                 const start_node = node_data[input].lhs;
-                const start_val = try expr(parent_gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, start_node);
+                const start_val = try expr(parent_gz, scope, .{ .rl = .{ .ty = .usize_type } }, start_node);
 
                 const end_node = node_data[input].rhs;
                 const end_val = if (end_node != 0)
-                    try expr(parent_gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_data[input].rhs)
+                    try expr(parent_gz, scope, .{ .rl = .{ .ty = .usize_type } }, node_data[input].rhs)
                 else
                     .none;
 
@@ -7936,7 +7936,7 @@ fn unionInit(
 ) InnerError!Zir.Inst.Ref {
     const union_type = try typeExpr(gz, scope, params[0]);
     const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[1]);
-    const field_type = try gz.addPlNode(.field_type_ref, params[1], Zir.Inst.FieldTypeRef{
+    const field_type = try gz.addPlNode(.field_type_ref, node, Zir.Inst.FieldTypeRef{
         .container_type = union_type,
         .field_name = field_name,
     });
@@ -8591,10 +8591,17 @@ fn builtinCall(
         },
 
         .splat => {
-            const len = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
-            const scalar = try expr(gz, scope, .{ .rl = .none }, params[1]);
+            const result_type = try ri.rl.resultType(gz, node, "@splat");
+            const elem_type = try gz.add(.{
+                .tag = .elem_type_index,
+                .data = .{ .bin = .{
+                    .lhs = result_type,
+                    .rhs = @as(Zir.Inst.Ref, @enumFromInt(0)),
+                } },
+            });
+            const scalar = try expr(gz, scope, .{ .rl = .{ .ty = elem_type } }, params[0]);
             const result = try gz.addPlNode(.splat, node, Zir.Inst.Bin{
-                .lhs = len,
+                .lhs = result_type,
                 .rhs = scalar,
             });
             return rvalue(gz, ri, result, node);
@@ -10339,8 +10346,8 @@ fn nodeUsesAnonNameStrategy(tree: *const Ast, node: Ast.Node.Index) bool {
 
 /// Applies `rl` semantics to `result`. Expressions which do not do their own handling of
 /// result locations must call this function on their result.
-/// As an example, if the `ResultLoc` is `ptr`, it will write the result to the pointer.
-/// If the `ResultLoc` is `ty`, it will coerce the result to the type.
+/// As an example, if `ri.rl` is `.ptr`, it will write the result to the pointer.
+/// If `ri.rl` is `.ty`, it will coerce the result to the type.
 /// Assumes nothing stacked on `gz`.
 fn rvalue(
     gz: *GenZir,

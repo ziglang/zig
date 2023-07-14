@@ -1088,25 +1088,25 @@ fn analyzeBodyInner(
             .error_set_decl_anon => try sema.zirErrorSetDecl(block, inst, .anon),
             .error_set_decl_func => try sema.zirErrorSetDecl(block, inst, .func),
 
-            .add       => try sema.zirArithmetic(block, inst, .add,        true),
-            .addwrap   => try sema.zirArithmetic(block, inst, .addwrap,    true),
-            .add_sat   => try sema.zirArithmetic(block, inst, .add_sat,    true),
-            .add_unsafe=> try sema.zirArithmetic(block, inst, .add_unsafe, false),
-            .mul       => try sema.zirArithmetic(block, inst, .mul,        true),
-            .mulwrap   => try sema.zirArithmetic(block, inst, .mulwrap,    true),
-            .mul_sat   => try sema.zirArithmetic(block, inst, .mul_sat,    true),
-            .sub       => try sema.zirArithmetic(block, inst, .sub,        true),
-            .subwrap   => try sema.zirArithmetic(block, inst, .subwrap,    true),
-            .sub_sat   => try sema.zirArithmetic(block, inst, .sub_sat,    true),
+            .add        => try sema.zirArithmetic(block, inst, .add,        true),
+            .addwrap    => try sema.zirArithmetic(block, inst, .addwrap,    true),
+            .add_sat    => try sema.zirArithmetic(block, inst, .add_sat,    true),
+            .add_unsafe => try sema.zirArithmetic(block, inst, .add_unsafe, false),
+            .mul        => try sema.zirArithmetic(block, inst, .mul,        true),
+            .mulwrap    => try sema.zirArithmetic(block, inst, .mulwrap,    true),
+            .mul_sat    => try sema.zirArithmetic(block, inst, .mul_sat,    true),
+            .sub        => try sema.zirArithmetic(block, inst, .sub,        true),
+            .subwrap    => try sema.zirArithmetic(block, inst, .subwrap,    true),
+            .sub_sat    => try sema.zirArithmetic(block, inst, .sub_sat,    true),
 
             .div       => try sema.zirDiv(block, inst),
             .div_exact => try sema.zirDivExact(block, inst),
             .div_floor => try sema.zirDivFloor(block, inst),
             .div_trunc => try sema.zirDivTrunc(block, inst),
 
-            .mod_rem   => try sema.zirModRem(block, inst),
-            .mod       => try sema.zirMod(block, inst),
-            .rem       => try sema.zirRem(block, inst),
+            .mod_rem => try sema.zirModRem(block, inst),
+            .mod     => try sema.zirMod(block, inst),
+            .rem     => try sema.zirRem(block, inst),
 
             .max => try sema.zirMinMax(block, inst, .max),
             .min => try sema.zirMinMax(block, inst, .min),
@@ -1820,7 +1820,7 @@ pub fn resolveType(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Ins
     return ty;
 }
 
-fn resolveCastDestType(
+fn resolveDestType(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -6628,7 +6628,7 @@ fn checkCallArgumentCount(
     const fn_params_len = func_ty_info.param_types.len;
     const args_len = total_args - @intFromBool(member_fn);
     if (func_ty_info.is_var_args) {
-        assert(func_ty_info.cc == .C);
+        assert(callConvSupportsVarArgs(func_ty_info.cc));
         if (total_args >= fn_params_len) return func_ty;
     } else if (fn_params_len == total_args) {
         return func_ty;
@@ -8337,7 +8337,7 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, .remove_eu_opt, "@enumFromInt");
+    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@enumFromInt");
     const operand = try sema.resolveInst(extra.rhs);
 
     if (dest_ty.zigTypeTag(mod) != .Enum) {
@@ -8917,6 +8917,41 @@ fn handleExternLibName(
     return sema.gpa.dupeZ(u8, lib_name);
 }
 
+/// These are calling conventions that are confirmed to work with variadic functions.
+/// Any calling conventions not included here are either not yet verified to work with variadic
+/// functions or there are no more other calling conventions that support variadic functions.
+const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention{
+    .C,
+};
+fn callConvSupportsVarArgs(cc: std.builtin.CallingConvention) bool {
+    return for (calling_conventions_supporting_var_args) |supported_cc| {
+        if (cc == supported_cc) return true;
+    } else false;
+}
+fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc: std.builtin.CallingConvention) CompileError!void {
+    const CallingConventionsSupportingVarArgsList = struct {
+        pub fn format(_: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = options;
+            for (calling_conventions_supporting_var_args, 0..) |cc_inner, i| {
+                if (i != 0)
+                    try writer.writeAll(", ");
+                try writer.print("'.{s}'", .{@tagName(cc_inner)});
+            }
+        }
+    };
+
+    if (!callConvSupportsVarArgs(cc)) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "variadic function does not support '.{s}' calling convention", .{@tagName(cc)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, src, msg, "supported calling conventions: {}", .{CallingConventionsSupportingVarArgsList{}});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+}
+
 const FuncLinkSection = union(enum) {
     generic,
     default,
@@ -8963,9 +8998,7 @@ fn funcCommon(
         if (is_generic) {
             return sema.fail(block, func_src, "generic function cannot be variadic", .{});
         }
-        if (cc.? != .C) {
-            return sema.fail(block, cc_src, "variadic function must have 'C' calling convention", .{});
-        }
+        try sema.checkCallConvSupportsVarArgs(block, cc_src, cc.?);
     }
 
     var destroy_fn_on_error = false;
@@ -9633,7 +9666,7 @@ fn zirIntCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
 
-    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, .remove_eu_opt, "@intCast");
+    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@intCast");
     const operand = try sema.resolveInst(extra.rhs);
 
     return sema.intCast(block, inst_data.src(), dest_ty, src, operand, operand_src, true);
@@ -9794,7 +9827,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
 
-    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, .remove_eu_opt, "@bitCast");
+    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@bitCast");
     const operand = try sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
     switch (dest_ty.zigTypeTag(mod)) {
@@ -9937,7 +9970,7 @@ fn zirFloatCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
 
-    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, .remove_eu_opt, "@floatCast");
+    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@floatCast");
     const operand = try sema.resolveInst(extra.rhs);
 
     const target = mod.getTarget();
@@ -17293,6 +17326,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                 } });
                             };
 
+                            try sema.resolveTypeLayout(field_ty.toType());
+
                             const is_comptime = field_val != .none;
                             const opt_default_val = if (is_comptime) field_val.toValue() else null;
                             const default_val_ptr = try sema.optRefValue(block, field_ty.toType(), opt_default_val);
@@ -18692,6 +18727,15 @@ fn zirUnionInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const init_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.UnionInit, inst_data.payload_index).data;
     const union_ty = try sema.resolveType(block, ty_src, extra.union_type);
+    if (union_ty.zigTypeTag(sema.mod) != .Union) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, ty_src, "expected union type, found '{}'", .{union_ty.fmt(sema.mod)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.addDeclaredHereNote(msg, union_ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
     const field_name = try sema.resolveConstStringIntern(block, field_src, extra.field_name, "name of field being initialized must be comptime-known");
     const init = try sema.resolveInst(extra.init);
     return sema.unionInit(block, init, init_src, union_ty, ty_src, field_name, field_src);
@@ -19333,8 +19377,8 @@ fn addConstantMaybeRef(
 fn zirFieldTypeRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.FieldTypeRef, inst_data.payload_index).data;
-    const ty_src = inst_data.src();
-    const field_src = inst_data.src();
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const field_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const aggregate_ty = try sema.resolveType(block, ty_src, extra.container_type);
     const field_name = try sema.resolveConstStringIntern(block, field_src, extra.field_name, "field name must be comptime-known");
     return sema.fieldType(block, aggregate_ty, field_name, field_src, ty_src);
@@ -20325,8 +20369,8 @@ fn zirReify(
 
             const is_var_args = is_var_args_val.toBool();
             const cc = mod.toEnum(std.builtin.CallingConvention, calling_convention_val);
-            if (is_var_args and cc != .C) {
-                return sema.fail(block, src, "varargs functions must have C calling convention", .{});
+            if (is_var_args) {
+                try sema.checkCallConvSupportsVarArgs(block, src, cc);
             }
 
             const alignment = alignment: {
@@ -20739,7 +20783,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, .remove_eu_opt, "@intFromFloat");
+    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@intFromFloat");
     const operand = try sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
 
@@ -20779,7 +20823,7 @@ fn zirFloatFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, .remove_eu_opt, "@floatFromInt");
+    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@floatFromInt");
     const operand = try sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
 
@@ -20808,7 +20852,7 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const operand_res = try sema.resolveInst(extra.rhs);
     const operand_coerced = try sema.coerce(block, Type.usize, operand_res, operand_src);
 
-    const ptr_ty = try sema.resolveCastDestType(block, src, extra.lhs, .remove_eu, "@ptrFromInt");
+    const ptr_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu, "@ptrFromInt");
     try sema.checkPtrType(block, src, ptr_ty);
     const elem_ty = ptr_ty.elemType2(mod);
     const ptr_align = try ptr_ty.ptrAlignmentAdvanced(mod, sema);
@@ -20866,7 +20910,7 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const src = LazySrcLoc.nodeOffset(extra.node);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
-    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, .remove_eu_opt, "@errSetCast");
+    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@errSetCast");
     const operand = try sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
     try sema.checkErrorSetType(block, src, dest_ty);
@@ -20953,7 +20997,7 @@ fn zirPtrCastFull(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDa
     const src = LazySrcLoc.nodeOffset(extra.node);
     const operand_src: LazySrcLoc = .{ .node_offset_ptrcast_operand = extra.node };
     const operand = try sema.resolveInst(extra.rhs);
-    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, .remove_eu, flags.needResultTypeBuiltinName());
+    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu, flags.needResultTypeBuiltinName());
     return sema.ptrCastFull(
         block,
         flags,
@@ -20969,7 +21013,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, .remove_eu, "@ptrCast");
+    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu, "@ptrCast");
     const operand = try sema.resolveInst(extra.rhs);
 
     return sema.ptrCastFull(
@@ -21382,7 +21426,7 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const dest_ty = try sema.resolveCastDestType(block, src, extra.lhs, .remove_eu_opt, "@truncate");
+    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@truncate");
     const dest_scalar_ty = try sema.checkIntOrVectorAllowComptime(block, dest_ty, src);
     const operand = try sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
@@ -22314,23 +22358,22 @@ fn zirSplat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const len_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
-    const scalar_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
-    const len = @as(u32, @intCast(try sema.resolveInt(block, len_src, extra.lhs, Type.u32, "vector splat destination length must be comptime-known")));
-    const scalar = try sema.resolveInst(extra.rhs);
-    const scalar_ty = sema.typeOf(scalar);
-    try sema.checkVectorElemType(block, scalar_src, scalar_ty);
-    const vector_ty = try mod.vectorType(.{
-        .len = len,
-        .child = scalar_ty.toIntern(),
-    });
+    const src = inst_data.src();
+    const scalar_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@splat");
+
+    if (!dest_ty.isVector(mod)) return sema.fail(block, src, "expected vector type, found '{}'", .{dest_ty.fmt(mod)});
+
+    const operand = try sema.resolveInst(extra.rhs);
+    const scalar_ty = dest_ty.childType(mod);
+    const scalar = try sema.coerce(block, scalar_ty, operand, scalar_src);
     if (try sema.resolveMaybeUndefVal(scalar)) |scalar_val| {
-        if (scalar_val.isUndef(mod)) return sema.addConstUndef(vector_ty);
-        return sema.addConstant(try sema.splat(vector_ty, scalar_val));
+        if (scalar_val.isUndef(mod)) return sema.addConstUndef(dest_ty);
+        return sema.addConstant(try sema.splat(dest_ty, scalar_val));
     }
 
     try sema.requireRuntimeBlock(block, inst_data.src(), scalar_src);
-    return block.addTyOp(.splat, vector_ty, scalar);
+    return block.addTyOp(.splat, dest_ty, scalar);
 }
 
 fn zirReduce(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -35635,7 +35678,7 @@ pub fn analyzeAddressSpace(
     ctx: AddressSpaceContext,
 ) !std.builtin.AddressSpace {
     const mod = sema.mod;
-    const addrspace_tv = try sema.resolveInstConst(block, src, zir_ref, "addresspace must be comptime-known");
+    const addrspace_tv = try sema.resolveInstConst(block, src, zir_ref, "address space must be comptime-known");
     const address_space = mod.toEnum(std.builtin.AddressSpace, addrspace_tv.val);
     const target = sema.mod.getTarget();
     const arch = target.cpu.arch;

@@ -197,7 +197,7 @@ test "stringify struct with custom stringifier" {
 }
 
 test "stringify vector" {
-    try teststringify("[1,1]", @splat(2, @as(u32, 1)), StringifyOptions{});
+    try teststringify("[1,1]", @as(@Vector(2, u32), @splat(1)), StringifyOptions{});
 }
 
 test "stringify tuple" {
@@ -258,23 +258,6 @@ fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions
     var vos = ValidationWriter.init(expected);
     try stringify(value, options, vos.writer());
     if (vos.expected_remaining.len > 0) return error.NotEnoughData;
-}
-
-test "stringify struct with custom stringify that returns a custom error" {
-    var ret = stringify(struct {
-        field: Field = .{},
-
-        pub const Field = struct {
-            field: ?[]*Field = null,
-
-            const Self = @This();
-            pub fn jsonStringify(_: Self, _: StringifyOptions, _: anytype) error{CustomError}!void {
-                return error.CustomError;
-            }
-        };
-    }{}, StringifyOptions{}, std.io.null_writer);
-
-    try std.testing.expectError(error.CustomError, ret);
 }
 
 test "stringify alloc" {

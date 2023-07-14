@@ -53,6 +53,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     check_exe.checkStart("cmd RPATH");
     check_exe.checkNextFileSource("path", dylib.getOutputDirectorySource());
+    test_step.dependOn(&check_exe.step);
 
     const run = b.addRunArtifact(exe);
     run.skip_foreign_checks = true;

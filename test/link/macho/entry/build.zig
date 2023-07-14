@@ -34,6 +34,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     check_exe.checkNext("{n_value} (__TEXT,__text) external _non_main");
 
     check_exe.checkComputeCompare("vmaddr entryoff +", .{ .op = .eq, .value = .{ .variable = "n_value" } });
+    test_step.dependOn(&check_exe.step);
 
     const run = b.addRunArtifact(exe);
     run.skip_foreign_checks = true;

@@ -276,7 +276,8 @@ pub fn zeroes(comptime T: type) T {
                     return null;
                 },
                 .One, .Many => {
-                    @compileError("Can't set a non nullable pointer to zero.");
+                    if (ptr_info.is_allowzero) return @ptrFromInt(0);
+                    @compileError("Only nullable and allowzero pointers can be set to zero.");
                 },
             }
         },
@@ -288,7 +289,7 @@ pub fn zeroes(comptime T: type) T {
             return [_]info.child{zeroes(info.child)} ** info.len;
         },
         .Vector => |info| {
-            return @splat(info.len, zeroes(info.child));
+            return @splat(zeroes(info.child));
         },
         .Union => |info| {
             if (comptime meta.containerLayout(T) == .Extern) {
@@ -392,9 +393,9 @@ test "zeroes" {
     for (b.array) |e| {
         try testing.expectEqual(@as(u32, 0), e);
     }
-    try testing.expectEqual(@splat(2, @as(u32, 0)), b.vector_u32);
-    try testing.expectEqual(@splat(2, @as(f32, 0.0)), b.vector_f32);
-    try testing.expectEqual(@splat(2, @as(bool, false)), b.vector_bool);
+    try testing.expectEqual(@as(@TypeOf(b.vector_u32), @splat(0)), b.vector_u32);
+    try testing.expectEqual(@as(@TypeOf(b.vector_f32), @splat(0.0)), b.vector_f32);
+    try testing.expectEqual(@as(@TypeOf(b.vector_bool), @splat(false)), b.vector_bool);
     try testing.expectEqual(@as(?u8, null), b.optional_int);
     for (b.sentinel) |e| {
         try testing.expectEqual(@as(u8, 0), e);
@@ -2240,15 +2241,18 @@ test "splitScalar" {
     try testing.expectEqualSlices(u8, it.first(), "abc");
 
     try testing.expectEqualSlices(u8, it.rest(), "def||ghi");
+    try testing.expectEqualSlices(u8, it.peek().?, "def");
     try testing.expectEqualSlices(u8, it.next().?, "def");
 
     try testing.expectEqualSlices(u8, it.rest(), "|ghi");
     try testing.expectEqualSlices(u8, it.next().?, "");
 
     try testing.expectEqualSlices(u8, it.rest(), "ghi");
+    try testing.expectEqualSlices(u8, it.peek().?, "ghi");
     try testing.expectEqualSlices(u8, it.next().?, "ghi");
 
     try testing.expectEqualSlices(u8, it.rest(), "");
+    try testing.expect(it.peek() == null);
     try testing.expect(it.next() == null);
 
     it = splitScalar(u8, "", '|');
@@ -2258,6 +2262,7 @@ test "splitScalar" {
     it = splitScalar(u8, "|", '|');
     try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expect(it.peek() == null);
     try testing.expect(it.next() == null);
 
     it = splitScalar(u8, "hello", ' ');
@@ -2861,6 +2866,18 @@ pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
                 self.index = null;
                 break :blk self.buffer.len;
             };
+            return self.buffer[start..end];
+        }
+
+        /// Returns a slice of the next field, or null if splitting is complete.
+        /// This method does not alter self.index.
+        pub fn peek(self: *Self) ?[]const T {
+            const start = self.index orelse return null;
+            const end = if (switch (delimiter_type) {
+                .sequence => indexOfPos(T, self.buffer, start, self.delimiter),
+                .any => indexOfAnyPos(T, self.buffer, start, self.delimiter),
+                .scalar => indexOfScalarPos(T, self.buffer, start, self.delimiter),
+            }) |delim_start| delim_start else self.buffer.len;
             return self.buffer[start..end];
         }
 
