@@ -45,6 +45,27 @@ pub fn spRegNum(reg_context: RegisterContext) u8 {
     };
 }
 
+/// Some platforms use pointer authentication - the upper bits of instruction pointers contain a signature.
+/// This function clears these signature bits to make the pointer usable.
+pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
+    if (builtin.cpu.arch == .aarch64) {
+        // `hint 0x07` maps to `xpaclri` (or `nop` if the hardware doesn't support it)
+        // The save / restore is because `xpaclri` operates on x30 (LR)
+        return asm (
+            \\mov x16, x30
+            \\mov x30, x15
+            \\hint 0x07
+            \\mov x15, x30
+            \\mov x30, x16
+            : [ret] "={x15}" (-> usize),
+            : [ptr] "{x15}" (ptr),
+            : "x16"
+        );
+    }
+
+    return ptr;
+}
+
 pub const RegisterContext = struct {
     eh_frame: bool,
     is_macho: bool,
@@ -160,7 +181,6 @@ pub fn regBytes(
     if (!std.debug.have_ucontext) return error.ThreadContextNotSupported;
 
     const ucontext_ptr = thread_context_ptr;
-    var m = &ucontext_ptr.mcontext;
     return switch (builtin.cpu.arch) {
         .x86 => switch (builtin.os.tag) {
             .linux, .netbsd, .solaris => switch (reg_number) {
@@ -216,7 +236,7 @@ pub fn regBytes(
                 14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R14]),
                 15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R15]),
                 16 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RIP]),
-                17...32 => |i| mem.asBytes(&m.fpregs.xmm[i - 17]),
+                17...32 => |i| mem.asBytes(&ucontext_ptr.mcontext.fpregs.xmm[i - 17]),
                 else => error.InvalidRegister,
             },
             .freebsd => switch (reg_number) {
@@ -313,6 +333,10 @@ pub fn regBytes(
                 30 => mem.asBytes(&ucontext_ptr.mcontext.ss.lr),
                 31 => mem.asBytes(&ucontext_ptr.mcontext.ss.sp),
                 32 => mem.asBytes(&ucontext_ptr.mcontext.ss.pc),
+
+                // TODO: Find storage for this state
+                //34 => mem.asBytes(&ucontext_ptr.ra_sign_state),
+
                 // V0-V31
                 64...95 => mem.asBytes(&ucontext_ptr.mcontext.ns.q[reg_number - 64]),
                 else => error.InvalidRegister,

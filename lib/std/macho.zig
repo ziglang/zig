@@ -2459,7 +2459,7 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
         else => return error.UnimplementedArch,
     };
 
-    context.pc = new_ip;
+    context.pc = dwarf.abi.stripInstructionPtrAuthCode(new_ip);
     if (context.pc > 0) context.pc -= 1;
     return new_ip;
 }

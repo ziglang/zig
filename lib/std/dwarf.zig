@@ -1758,12 +1758,16 @@ pub const DwarfInfo = struct {
         }
 
         if (has_next_ip) {
-            context.pc = mem.readIntSliceNative(usize, try abi.regBytes(context.thread_context, cie.return_address_register, context.reg_context));
+            context.pc = abi.stripInstructionPtrAuthCode(mem.readIntSliceNative(usize, try abi.regBytes(
+                context.thread_context,
+                cie.return_address_register,
+                context.reg_context,
+            )));
         } else {
             context.pc = 0;
         }
 
-        mem.writeIntSliceNative(usize, try abi.regBytes(context.thread_context, abi.spRegNum(context.reg_context), context.reg_context), context.cfa.?);
+        (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(context.reg_context), context.reg_context)).* = context.cfa.?;
 
         // The call instruction will have pushed the address of the instruction that follows the call as the return address
         // However, this return address may be past the end of the function if the caller was `noreturn`. By subtracting one,
@@ -1786,7 +1790,7 @@ pub const UnwindContext = struct {
     stack_machine: expressions.StackMachine(.{ .call_frame_context = true }) = .{},
 
     pub fn init(allocator: mem.Allocator, thread_context: *const debug.ThreadContext, isValidMemory: *const fn (address: usize) bool) !UnwindContext {
-        const pc = mem.readIntSliceNative(usize, try abi.regBytes(thread_context, abi.ipRegNum(), null));
+        const pc = abi.stripInstructionPtrAuthCode((try abi.regValueNative(usize, thread_context, abi.ipRegNum(), null)).*);
 
         const context_copy = try allocator.create(debug.ThreadContext);
         debug.copyContext(thread_context, context_copy);
