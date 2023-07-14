@@ -153,7 +153,7 @@ pub const FileInfo = extern struct {
     attribute: u64,
 
     pub fn getFileName(self: *const FileInfo) [*:0]const u16 {
-        return @as([*:0]const u16, @ptrCast(@as([*]const u8, @ptrCast(self)) + @sizeOf(FileInfo)));
+        return @ptrCast(@alignCast(@as([*]const u8, @ptrCast(self)) + @sizeOf(FileInfo)));
     }
 
     pub const efi_file_read_only: u64 = 0x0000000000000001;
