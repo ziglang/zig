@@ -24590,7 +24590,7 @@ fn validateExternType(
         .ErrorSet,
         .Frame,
         => return false,
-        .Void => return position == .union_field or position == .ret_ty,
+        .Void => return position == .union_field or position == .ret_ty or position == .struct_field or position == .element,
         .NoReturn => return position == .ret_ty,
         .Opaque,
         .Bool,
@@ -24599,7 +24599,7 @@ fn validateExternType(
         => return true,
         .Pointer => return !(ty.isSlice(mod) or try sema.typeRequiresComptime(ty)),
         .Int => switch (ty.intInfo(mod).bits) {
-            8, 16, 32, 64, 128 => return true,
+            0, 8, 16, 32, 64, 128 => return true,
             else => return false,
         },
         .Fn => {
@@ -24620,11 +24620,11 @@ fn validateExternType(
             .Packed => {
                 const bit_size = try ty.bitSizeAdvanced(mod, sema);
                 switch (bit_size) {
-                    8, 16, 32, 64, 128 => return true,
+                    0, 8, 16, 32, 64, 128 => return true,
                     else => return false,
                 }
             },
-            .Auto => return false,
+            .Auto => return !(try sema.typeHasRuntimeBits(ty)),
         },
         .Array => {
             if (position == .ret_ty or position == .param_ty) return false;
@@ -24673,9 +24673,9 @@ fn explainWhyTypeIsNotExtern(
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
         .NoReturn => try mod.errNoteNonLazy(src_loc, msg, "'noreturn' is only allowed as a return type", .{}),
         .Int => if (!std.math.isPowerOfTwo(ty.intInfo(mod).bits)) {
-            try mod.errNoteNonLazy(src_loc, msg, "only integers with power of two bits are extern compatible", .{});
+            try mod.errNoteNonLazy(src_loc, msg, "only integers with 0 or power of two bits are extern compatible", .{});
         } else {
-            try mod.errNoteNonLazy(src_loc, msg, "only integers with 8, 16, 32, 64 and 128 bits are extern compatible", .{});
+            try mod.errNoteNonLazy(src_loc, msg, "only integers with 0, 8, 16, 32, 64 and 128 bits are extern compatible", .{});
         },
         .Fn => {
             if (position != .other) {
