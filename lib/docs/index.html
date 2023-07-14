@@ -297,6 +297,13 @@
         overflow-x: auto;
       }
 
+      .docs pre.inline {
+        background-color: var(--bg-color);
+        padding: 0;
+        display: inline;
+      }
+
+
       .docs code {
         font-family: var(--mono);
         font-size: 1em;
@@ -685,15 +692,23 @@
   </style>
 
   <style>
-     pre{
+      pre {
         --zig-keyword: #333;
-        --zig-identifier: 'black'; 
+        --zig-builtin: #0086b3;
+        --zig-identifier: 'black';
+        --zig-string-literal: #d14;
+        --zig-type: #458;
+        --zig-fn: #900;
       }
       
       @media (prefers-color-scheme: dark) { 
         pre {
-          --zig-keyword: 'white';
-          --zig-identifier: 'purple'; 
+          --zig-keyword: #eee;
+          --zig-builtin: #ff894c;
+          --zig-identifier: 'purple';
+          --zig-string-literal: #2e5;
+          --zig-type: #68f;
+          --zig-fn: #e33;
         }
       }
     
@@ -748,7 +763,7 @@
     .zig_keyword_anytype,
     .zig_keyword_fn
     {
-      color: #333;
+      color: var(--zig-keyword);
       font-weight: bold;
     }
 
@@ -757,12 +772,12 @@
     .zig_multiline_string_literal_line,
     .zig_char_literal
     {
-      color: #d14;
+      color: var(--zig-string-literal);
     }
 
     .zig_builtin
     {
-      color: #0086b3;
+      color: var(--zig-builtin);
     }
 
     .zig_doc_comment,
@@ -772,15 +787,24 @@
     }
 
     .zig_identifier {
-      color: white;
+      color: var(--zig-identifier);
       font-weight: bold;
     }
 
-    .zig_number_literal {
-      color: #008080;
+    .zig_number_literal,
+    .zig_special {
+      color: #ff8080;
     }
 
+    .zig_type {
+      color: var(--zig-type);
+      font-weight: bold;
+    }
 
+    .zig_fn {
+      color: var(--zig-fn);
+      font-weight: bold;
+    }
    
     </style>
   </head>

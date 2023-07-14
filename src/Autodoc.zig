@@ -814,6 +814,7 @@ const DocData = struct {
         this: usize, // index in `types`
         declRef: *Scope.DeclStatus,
         declIndex: usize, // index into `decls`, alternative repr for `declRef`
+        declName: []const u8, // unresolved decl name
         builtinField: enum { len, ptr },
         fieldRef: FieldRef,
         refPath: []Expr,
@@ -2282,7 +2283,7 @@ fn walkInstruction(
 
             var path: std.ArrayListUnmanaged(DocData.Expr) = .{};
             try path.append(self.arena, .{
-                .string = file.zir.nullTerminatedString(extra.data.field_name_start),
+                .declName = file.zir.nullTerminatedString(extra.data.field_name_start),
             });
 
             // Put inside path the starting index of each decl name that
@@ -2304,7 +2305,7 @@ fn walkInstruction(
                     );
 
                     try path.append(self.arena, .{
-                        .string = file.zir.nullTerminatedString(lhs_extra.data.field_name_start),
+                        .declName = file.zir.nullTerminatedString(lhs_extra.data.field_name_start),
                     });
                 }
             };
@@ -3665,7 +3666,7 @@ fn tryResolveRefPath(
     var i: usize = 0;
     outer: while (i < path.len - 1) : (i += 1) {
         const parent = path[i];
-        const child_string = path[i + 1].string; // we expect to find a string union case
+        const child_string = path[i + 1].declName; // we expect to find an unsolved decl
 
         var resolved_parent = parent;
         var j: usize = 0;
@@ -3738,14 +3739,14 @@ fn tryResolveRefPath(
                         return;
                     }
 
-                    // If the last element is a string or a CTE, then we give up,
+                    // If the last element is a declName or a CTE, then we give up,
                     // otherwise we resovle the parent to it and loop again.
                     // NOTE: we assume that if we find a string, it's because of
                     // a CTE component somewhere in the path. We know that the path
                     // is not pending futher evaluation because we just checked!
                     const last = rp[rp.len - 1];
                     switch (last) {
-                        .comptimeExpr, .string => break :outer,
+                        .comptimeExpr, .declName => break :outer,
                         else => {
                             resolved_parent = last;
                             continue;
@@ -3772,7 +3773,7 @@ fn tryResolveRefPath(
                     "TODO: handle `{s}`in tryResolveRefPath\nInfo: {}",
                     .{ @tagName(resolved_parent), resolved_parent },
                 );
-                path[i + 1] = (try self.cteTodo("<match failure>")).expr;
+                // path[i + 1] = (try self.cteTodo("<match failure>")).expr;
                 continue :outer;
             },
             .comptimeExpr, .call, .typeOf => {
