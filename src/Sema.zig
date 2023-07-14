@@ -7552,6 +7552,18 @@ fn instantiateGenericCall(
     // Make a runtime call to the new function, making sure to omit the comptime args.
     const func_ty = callee.ty.toType();
     const func_ty_info = mod.typeToFunc(func_ty).?;
+
+    // If the call evaluated to a return type that requires comptime, never mind
+    // our generic instantiation. Instead we need to perform a comptime call.
+    if (try sema.typeRequiresComptime(func_ty_info.return_type.toType())) {
+        return error.ComptimeReturn;
+    }
+    // Similarly, if the call evaluated to a generic type we need to instead
+    // call it inline.
+    if (func_ty_info.is_generic or func_ty_info.cc == .Inline) {
+        return error.GenericPoison;
+    }
+
     const runtime_args_len: u32 = func_ty_info.param_types.len;
     const runtime_args = try sema.arena.alloc(Air.Inst.Ref, runtime_args_len);
     {
