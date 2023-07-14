@@ -44,6 +44,9 @@ lsdas_lookup: std.AutoHashMapUnmanaged(RecordIndex, u32) = .{},
 /// List of second level pages.
 pages: std.ArrayListUnmanaged(Page) = .{},
 
+/// Upper bound (exclusive) of all the record ranges
+end_boundary: u64 = 0,
+
 const RecordIndex = u32;
 
 const max_personalities = 3;
@@ -326,6 +329,13 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
             atom_indexes.appendAssumeCapacity(atom_index);
         }
     }
+
+    // Record the ending boundary before folding.
+    assert(records.items.len > 0);
+    info.end_boundary = blk: {
+        const last_record = records.items[records.items.len - 1];
+        break :blk last_record.rangeStart + last_record.rangeLength;
+    };
 
     // Fold records
     try info.records.ensureTotalCapacity(info.gpa, records.items.len);
@@ -629,10 +639,10 @@ pub fn write(info: *UnwindInfo, zld: *Zld) !void {
         });
     }
 
-    const last_entry = info.records.items[info.records.items.len - 1];
-    const sentinel_address = @as(u32, @intCast(last_entry.rangeStart + last_entry.rangeLength));
+    // Relocate end boundary address
+    const end_boundary = @as(u32, @intCast(info.end_boundary + text_sect.addr - seg.vmaddr));
     try writer.writeStruct(macho.unwind_info_section_header_index_entry{
-        .functionOffset = sentinel_address,
+        .functionOffset = end_boundary,
         .secondLevelPagesSectionOffset = 0,
         .lsdaIndexArraySectionOffset = lsda_base_offset +
             @as(u32, @intCast(info.lsdas.items.len)) * @sizeOf(macho.unwind_info_section_header_lsda_index_entry),
