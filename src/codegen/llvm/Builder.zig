@@ -1072,6 +1072,7 @@ pub const WipFunction = struct {
         instructions: std.ArrayListUnmanaged(Instruction.Index),
 
         const Index = enum(u32) {
+            entry,
             _,
 
             pub fn toLlvm(self: Index, wip: *const WipFunction) *llvm.BasicBlock {
@@ -1223,7 +1224,7 @@ pub const WipFunction = struct {
         if (self.builder.useLibLlvm()) {
             try self.llvm.instructions.ensureUnusedCapacity(self.builder.gpa, 1);
 
-            if (false) self.llvm.builder.positionBuilder(
+            self.llvm.builder.positionBuilder(
                 self.cursor.block.toLlvm(self),
                 if (self.cursor.instruction < block_instructions.items.len)
                     self.llvm.instructions.items[

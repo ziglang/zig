@@ -862,6 +862,7 @@ pub const Object = struct {
 
         const builder = wip.llvm.builder;
         const entry_block = try wip.block("Entry");
+        wip.cursor = .{ .block = entry_block };
         builder.positionBuilderAtEnd(entry_block.toLlvm(&wip));
         builder.clearCurrentDebugLocation();
 
@@ -1206,7 +1207,7 @@ pub const Object = struct {
                     if (isByRef(param_ty, mod)) {
                         const alignment = param_ty.abiAlignment(mod);
                         const param_llvm_ty = param.typeOf();
-                        const arg_ptr = try o.buildAllocaInner(builder, llvm_func, false, param_llvm_ty, alignment, target);
+                        const arg_ptr = try o.buildAllocaInner(&wip, builder, llvm_func, false, param_llvm_ty, alignment, target);
                         const store_inst = builder.buildStore(param, arg_ptr);
                         store_inst.setAlignment(alignment);
                         args.appendAssumeCapacity(arg_ptr);
@@ -1267,7 +1268,7 @@ pub const Object = struct {
                         param_ty.abiAlignment(mod),
                         o.target_data.abiAlignmentOfType(int_llvm_ty),
                     );
-                    const arg_ptr = try o.buildAllocaInner(builder, llvm_func, false, param_llvm_ty, alignment, target);
+                    const arg_ptr = try o.buildAllocaInner(&wip, builder, llvm_func, false, param_llvm_ty, alignment, target);
                     const store_inst = builder.buildStore(param, arg_ptr);
                     store_inst.setAlignment(alignment);
 
@@ -1316,7 +1317,7 @@ pub const Object = struct {
                     const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                     const param_llvm_ty = (try o.lowerType(param_ty)).toLlvm(&o.builder);
                     const param_alignment = param_ty.abiAlignment(mod);
-                    const arg_ptr = try o.buildAllocaInner(builder, llvm_func, false, param_llvm_ty, param_alignment, target);
+                    const arg_ptr = try o.buildAllocaInner(&wip, builder, llvm_func, false, param_llvm_ty, param_alignment, target);
                     const llvm_ty = (try o.builder.structType(.normal, field_types)).toLlvm(&o.builder);
                     for (0..field_types.len) |field_i| {
                         const param = llvm_func.getParam(llvm_arg_i);
@@ -1349,7 +1350,7 @@ pub const Object = struct {
                     llvm_arg_i += 1;
 
                     const alignment = param_ty.abiAlignment(mod);
-                    const arg_ptr = try o.buildAllocaInner(builder, llvm_func, false, param_llvm_ty, alignment, target);
+                    const arg_ptr = try o.buildAllocaInner(&wip, builder, llvm_func, false, param_llvm_ty, alignment, target);
                     _ = builder.buildStore(param, arg_ptr);
 
                     if (isByRef(param_ty, mod)) {
@@ -1367,7 +1368,7 @@ pub const Object = struct {
                     llvm_arg_i += 1;
 
                     const alignment = param_ty.abiAlignment(mod);
-                    const arg_ptr = try o.buildAllocaInner(builder, llvm_func, false, param_llvm_ty, alignment, target);
+                    const arg_ptr = try o.buildAllocaInner(&wip, builder, llvm_func, false, param_llvm_ty, alignment, target);
                     _ = builder.buildStore(param, arg_ptr);
 
                     if (isByRef(param_ty, mod)) {
@@ -4348,6 +4349,7 @@ pub const Object = struct {
 
     fn buildAllocaInner(
         o: *Object,
+        wip: *Builder.WipFunction,
         builder: *llvm.Builder,
         llvm_func: *llvm.Value,
         di_scope_non_null: bool,
@@ -4358,9 +4360,11 @@ pub const Object = struct {
         const address_space = llvmAllocaAddressSpace(target);
 
         const alloca = blk: {
+            const prev_cursor = wip.cursor;
             const prev_block = builder.getInsertBlock();
             const prev_debug_location = builder.getCurrentDebugLocation2();
             defer {
+                wip.cursor = prev_cursor;
                 builder.positionBuilderAtEnd(prev_block);
                 if (di_scope_non_null) {
                     builder.setCurrentDebugLocation2(prev_debug_location);
@@ -4368,6 +4372,7 @@ pub const Object = struct {
             }
 
             const entry_block = llvm_func.getFirstBasicBlock().?;
+            wip.cursor = .{ .block = .entry };
             builder.positionBuilder(entry_block, entry_block.getFirstInstruction());
             builder.clearCurrentDebugLocation();
 
@@ -5485,12 +5490,15 @@ pub const FuncGen = struct {
                 llvm_switch.addCase(llvm_i2_00.toLlvm(&o.builder), both_null_block.toLlvm(&self.wip));
                 llvm_switch.addCase(llvm_i2_11.toLlvm(&o.builder), both_pl_block.toLlvm(&self.wip));
 
+                self.wip.cursor = .{ .block = both_null_block };
                 self.builder.positionBuilderAtEnd(both_null_block.toLlvm(&self.wip));
                 _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
 
+                self.wip.cursor = .{ .block = mixed_block };
                 self.builder.positionBuilderAtEnd(mixed_block.toLlvm(&self.wip));
                 _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
 
+                self.wip.cursor = .{ .block = both_pl_block };
                 self.builder.positionBuilderAtEnd(both_pl_block.toLlvm(&self.wip));
                 const lhs_payload = try self.optPayloadHandle(opt_llvm_ty, lhs, scalar_ty, true);
                 const rhs_payload = try self.optPayloadHandle(opt_llvm_ty, rhs, scalar_ty, true);
@@ -5498,6 +5506,7 @@ pub const FuncGen = struct {
                 _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
                 const both_pl_block_end = self.builder.getInsertBlock();
 
+                self.wip.cursor = .{ .block = end_block };
                 self.builder.positionBuilderAtEnd(end_block.toLlvm(&self.wip));
                 const incoming_blocks: [3]*llvm.BasicBlock = .{
                     both_null_block.toLlvm(&self.wip),
@@ -5569,6 +5578,7 @@ pub const FuncGen = struct {
 
         try self.genBody(body);
 
+        self.wip.cursor = .{ .block = parent_bb };
         self.builder.positionBuilderAtEnd(parent_bb.toLlvm(&self.wip));
 
         // Create a phi node only if the block returns a value.
@@ -5630,9 +5640,11 @@ pub const FuncGen = struct {
         const else_block = try self.wip.block("Else");
         _ = self.builder.buildCondBr(cond, then_block.toLlvm(&self.wip), else_block.toLlvm(&self.wip));
 
+        self.wip.cursor = .{ .block = then_block };
         self.builder.positionBuilderAtEnd(then_block.toLlvm(&self.wip));
         try self.genBody(then_body);
 
+        self.wip.cursor = .{ .block = else_block };
         self.builder.positionBuilderAtEnd(else_block.toLlvm(&self.wip));
         try self.genBody(else_body);
 
@@ -5709,9 +5721,11 @@ pub const FuncGen = struct {
             const continue_block = try fg.wip.block("TryCont");
             _ = fg.builder.buildCondBr(is_err, return_block.toLlvm(&fg.wip), continue_block.toLlvm(&fg.wip));
 
+            fg.wip.cursor = .{ .block = return_block };
             fg.builder.positionBuilderAtEnd(return_block.toLlvm(&fg.wip));
             try fg.genBody(body);
 
+            fg.wip.cursor = .{ .block = continue_block };
             fg.builder.positionBuilderAtEnd(continue_block.toLlvm(&fg.wip));
         }
         if (is_unused) {
@@ -5771,10 +5785,12 @@ pub const FuncGen = struct {
                 llvm_switch.addCase(llvm_int_item, case_block.toLlvm(&self.wip));
             }
 
+            self.wip.cursor = .{ .block = case_block };
             self.builder.positionBuilderAtEnd(case_block.toLlvm(&self.wip));
             try self.genBody(case_body);
         }
 
+        self.wip.cursor = .{ .block = else_block };
         self.builder.positionBuilderAtEnd(else_block.toLlvm(&self.wip));
         const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
         if (else_body.len != 0) {
@@ -5796,6 +5812,7 @@ pub const FuncGen = struct {
         const loop_block = try self.wip.block("Loop");
         _ = self.builder.buildBr(loop_block.toLlvm(&self.wip));
 
+        self.wip.cursor = .{ .block = loop_block };
         self.builder.positionBuilderAtEnd(loop_block.toLlvm(&self.wip));
         try self.genBody(body);
 
@@ -7361,9 +7378,11 @@ pub const FuncGen = struct {
         const ok_block = try fg.wip.block("OverflowOk");
         _ = fg.builder.buildCondBr(scalar_overflow_bit, fail_block.toLlvm(&fg.wip), ok_block.toLlvm(&fg.wip));
 
+        fg.wip.cursor = .{ .block = fail_block };
         fg.builder.positionBuilderAtEnd(fail_block.toLlvm(&fg.wip));
         try fg.buildSimplePanic(.integer_overflow);
 
+        fg.wip.cursor = .{ .block = ok_block };
         fg.builder.positionBuilderAtEnd(ok_block.toLlvm(&fg.wip));
         return fg.builder.buildExtractValue(result_struct, 0, "");
     }
@@ -8483,7 +8502,7 @@ pub const FuncGen = struct {
         const o = self.dg.object;
         const mod = o.module;
         const target = mod.getTarget();
-        return o.buildAllocaInner(self.builder, self.llvm_func, self.di_scope != null, llvm_ty, alignment, target);
+        return o.buildAllocaInner(&self.wip, self.builder, self.llvm_func, self.di_scope != null, llvm_ty, alignment, target);
     }
 
     fn airStore(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !?*llvm.Value {
@@ -8894,11 +8913,13 @@ pub const FuncGen = struct {
         const end_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, dest_ptr, &len_gep, len_gep.len, "");
         _ = self.builder.buildBr(loop_block.toLlvm(&self.wip));
 
+        self.wip.cursor = .{ .block = loop_block };
         self.builder.positionBuilderAtEnd(loop_block.toLlvm(&self.wip));
         const it_ptr = self.builder.buildPhi(Builder.Type.ptr.toLlvm(&o.builder), "");
         const end = self.builder.buildICmp(.NE, it_ptr, end_ptr, "");
         _ = self.builder.buildCondBr(end, body_block.toLlvm(&self.wip), end_block.toLlvm(&self.wip));
 
+        self.wip.cursor = .{ .block = body_block };
         self.builder.positionBuilderAtEnd(body_block.toLlvm(&self.wip));
         const elem_abi_alignment = elem_ty.abiAlignment(mod);
         const it_ptr_alignment = @min(elem_abi_alignment, dest_ptr_align);
@@ -8922,6 +8943,7 @@ pub const FuncGen = struct {
         const next_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, it_ptr, &one_gep, one_gep.len, "");
         _ = self.builder.buildBr(loop_block.toLlvm(&self.wip));
 
+        self.wip.cursor = .{ .block = end_block };
         self.builder.positionBuilderAtEnd(end_block.toLlvm(&self.wip));
 
         const incoming_values: [2]*llvm.Value = .{ next_ptr, dest_ptr };
@@ -8945,9 +8967,11 @@ pub const FuncGen = struct {
         const memset_block = try self.wip.block("MemsetTrapSkip");
         const end_block = try self.wip.block("MemsetTrapEnd");
         _ = self.builder.buildCondBr(cond, memset_block.toLlvm(&self.wip), end_block.toLlvm(&self.wip));
+        self.wip.cursor = .{ .block = memset_block };
         self.builder.positionBuilderAtEnd(memset_block.toLlvm(&self.wip));
         _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
         _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
+        self.wip.cursor = .{ .block = end_block };
         self.builder.positionBuilderAtEnd(end_block.toLlvm(&self.wip));
     }
 
@@ -8978,6 +9002,7 @@ pub const FuncGen = struct {
             const memcpy_block = try self.wip.block("MemcpyTrapSkip");
             const end_block = try self.wip.block("MemcpyTrapEnd");
             _ = self.builder.buildCondBr(cond, memcpy_block.toLlvm(&self.wip), end_block.toLlvm(&self.wip));
+            self.wip.cursor = .{ .block = memcpy_block };
             self.builder.positionBuilderAtEnd(memcpy_block.toLlvm(&self.wip));
             _ = self.builder.buildMemCpy(
                 dest_ptr,
@@ -8988,6 +9013,7 @@ pub const FuncGen = struct {
                 is_volatile,
             );
             _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
+            self.wip.cursor = .{ .block = end_block };
             self.builder.positionBuilderAtEnd(end_block.toLlvm(&self.wip));
             return null;
         }
@@ -9182,12 +9208,15 @@ pub const FuncGen = struct {
                 try o.lowerValue((try mod.intValue(Type.err_int, err_int)).toIntern());
             switch_instr.addCase(this_tag_int_value.toLlvm(&o.builder), valid_block.toLlvm(&self.wip));
         }
+        self.wip.cursor = .{ .block = valid_block };
         self.builder.positionBuilderAtEnd(valid_block.toLlvm(&self.wip));
         _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
 
+        self.wip.cursor = .{ .block = invalid_block };
         self.builder.positionBuilderAtEnd(invalid_block.toLlvm(&self.wip));
         _ = self.builder.buildBr(end_block.toLlvm(&self.wip));
 
+        self.wip.cursor = .{ .block = end_block };
         self.builder.positionBuilderAtEnd(end_block.toLlvm(&self.wip));
 
         const incoming_values: [2]*llvm.Value = .{
@@ -9261,6 +9290,7 @@ pub const FuncGen = struct {
         defer wip.deinit();
 
         const entry_block = try wip.block("Entry");
+        wip.cursor = .{ .block = entry_block };
         self.builder.positionBuilderAtEnd(entry_block.toLlvm(&wip));
         self.builder.clearCurrentDebugLocation();
 
@@ -9274,9 +9304,11 @@ pub const FuncGen = struct {
                 try o.lowerValue((try mod.enumValueFieldIndex(enum_ty, @intCast(field_index))).toIntern());
             switch_instr.addCase(this_tag_int_value.toLlvm(&o.builder), named_block.toLlvm(&wip));
         }
+        wip.cursor = .{ .block = named_block };
         self.builder.positionBuilderAtEnd(named_block.toLlvm(&wip));
         _ = self.builder.buildRet(Builder.Constant.true.toLlvm(&o.builder));
 
+        wip.cursor = .{ .block = unnamed_block };
         self.builder.positionBuilderAtEnd(unnamed_block.toLlvm(&wip));
         _ = self.builder.buildRet(Builder.Constant.false.toLlvm(&o.builder));
 
@@ -9343,6 +9375,7 @@ pub const FuncGen = struct {
         defer wip.deinit();
 
         const entry_block = try wip.block("Entry");
+        wip.cursor = .{ .block = entry_block };
         self.builder.positionBuilderAtEnd(entry_block.toLlvm(&wip));
         self.builder.clearCurrentDebugLocation();
 
@@ -9387,10 +9420,12 @@ pub const FuncGen = struct {
                 try o.lowerValue((try mod.enumValueFieldIndex(enum_ty, @intCast(field_index))).toIntern());
             switch_instr.addCase(this_tag_int_value.toLlvm(&o.builder), return_block.toLlvm(&wip));
 
+            wip.cursor = .{ .block = return_block };
             self.builder.positionBuilderAtEnd(return_block.toLlvm(&wip));
             _ = self.builder.buildRet(slice_val.toLlvm(&o.builder));
         }
 
+        wip.cursor = .{ .block = bad_value_block };
         self.builder.positionBuilderAtEnd(bad_value_block.toLlvm(&wip));
         _ = self.builder.buildUnreachable();
 
@@ -9535,6 +9570,7 @@ pub const FuncGen = struct {
         const loop_exit = try self.wip.block("AfterReduce");
         _ = self.builder.buildBr(loop.toLlvm(&self.wip));
         {
+            self.wip.cursor = .{ .block = loop };
             self.builder.positionBuilderAtEnd(loop.toLlvm(&self.wip));
 
             // while (i < vec.len)
@@ -9545,6 +9581,7 @@ pub const FuncGen = struct {
             _ = self.builder.buildCondBr(cond, loop_then.toLlvm(&self.wip), loop_exit.toLlvm(&self.wip));
 
             {
+                self.wip.cursor = .{ .block = loop_then };
                 self.builder.positionBuilderAtEnd(loop_then.toLlvm(&self.wip));
 
                 // accum = f(accum, vec[i]);
@@ -9561,6 +9598,7 @@ pub const FuncGen = struct {
             }
         }
 
+        self.wip.cursor = .{ .block = loop_exit };
         self.builder.positionBuilderAtEnd(loop_exit.toLlvm(&self.wip));
         return self.builder.buildLoad(llvm_result_ty, accum_ptr, "");
     }
