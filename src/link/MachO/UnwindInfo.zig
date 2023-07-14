@@ -28,9 +28,6 @@ gpa: Allocator,
 records: std.ArrayListUnmanaged(macho.compact_unwind_entry) = .{},
 records_lookup: std.AutoHashMapUnmanaged(AtomIndex, RecordIndex) = .{},
 
-/// Upper bound (exclusive) of all the record ranges
-record_upper_bound: u32 = 0,
-
 /// List of all personalities referenced by either unwind info entries
 /// or __eh_frame entries.
 personalities: [max_personalities]SymbolWithLoc = undefined,
@@ -336,7 +333,6 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
 
     var maybe_prev: ?macho.compact_unwind_entry = null;
     for (records.items, 0..) |record, i| {
-        info.record_upper_bound = @intCast(record.rangeStart + record.rangeLength);
         const record_id = blk: {
             if (maybe_prev) |prev| {
                 const is_dwarf = UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch);
@@ -633,7 +629,8 @@ pub fn write(info: *UnwindInfo, zld: *Zld) !void {
         });
     }
 
-    const sentinel_address: u32 = @intCast(info.record_upper_bound + text_sect.addr - seg.vmaddr);
+    const last_entry = info.records.items[info.records.items.len - 1];
+    const sentinel_address = @as(u32, @intCast(last_entry.rangeStart + last_entry.rangeLength));
     try writer.writeStruct(macho.unwind_info_section_header_index_entry{
         .functionOffset = sentinel_address,
         .secondLevelPagesSectionOffset = 0,
