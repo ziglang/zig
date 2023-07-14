@@ -120,7 +120,7 @@ test {
     _ = @import("json/test.zig");
     _ = @import("json/scanner.zig");
     _ = @import("json/dynamic.zig");
-    _ = @import("json/hashmap_test.zig");
+    _ = @import("json/hashmap.zig");
     _ = @import("json/static.zig");
     _ = @import("json/stringify.zig");
     _ = @import("json/JSONTestSuite_test.zig");
