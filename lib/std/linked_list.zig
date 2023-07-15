@@ -62,9 +62,9 @@ pub fn SinglyLinkedList(comptime T: type) type {
                 return count;
             }
 
-            /// Invert the list starting from this node in-place.
+            /// Reverse the list starting from this node in-place.
             /// This operation is O(N).
-            pub fn invert(indirect: *?*Node) void {
+            pub fn reverse(indirect: *?*Node) void {
                 if (indirect.* == null) {
                     return;
                 }
@@ -164,7 +164,7 @@ test "basic SinglyLinkedList test" {
     try testing.expect(list.first.?.next.?.data == 4);
     try testing.expect(list.first.?.next.?.next == null);
 
-    L.Node.invert(&list.first);
+    L.Node.reverse(&list.first);
 
     try testing.expect(list.first.?.data == 4);
     try testing.expect(list.first.?.next.?.data == 2);
