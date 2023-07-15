@@ -1258,12 +1258,20 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
         .buffer = mapped_mem[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
     };
     var unwind_info: ?[]const u8 = null;
+    var eh_frame: ?[]const u8 = null;
     const symtab = while (it.next()) |cmd| switch (cmd.cmd()) {
         .SEGMENT_64 => {
             for (cmd.getSections()) |sect| {
-                if (std.mem.eql(u8, "__TEXT", sect.segName()) and mem.eql(u8, "__unwind_info", sect.sectName())) {
-                    unwind_info = try chopSlice(mapped_mem, sect.offset, sect.size);
-                    break;
+                if (std.mem.eql(u8, "__TEXT", sect.segName())) {
+                    if (mem.eql(u8, "__unwind_info", sect.sectName())) {
+                        unwind_info = try chopSlice(mapped_mem, sect.offset, sect.size);
+                        continue;
+                    }
+
+                    if (mem.eql(u8, "__eh_frame", sect.sectName())) {
+                        eh_frame = try chopSlice(mapped_mem, sect.offset, sect.size);
+                        continue;
+                    }
                 }
             }
         },
@@ -1377,6 +1385,7 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
         .symbols = symbols,
         .strings = strings,
         .unwind_info = unwind_info,
+        .eh_frame = eh_frame,
     };
 }
 
@@ -1919,6 +1928,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         ofiles: OFileTable,
         // Backed by mapped_memory
         unwind_info: ?[]const u8,
+        eh_frame: ?[]const u8,
 
         const OFileTable = std.StringHashMap(OFileInfo);
         const OFileInfo = struct {
@@ -1982,6 +1992,11 @@ pub const ModuleDebugInfo = switch (native_os) {
             }
 
             var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
+            if (self.eh_frame) |eh_frame| sections[@intFromEnum(DW.DwarfSection.eh_frame)] = .{
+                .data = eh_frame,
+                .owned = false,
+            };
+
             for (segcmd.?.getSections()) |sect| {
                 if (!std.mem.eql(u8, "__DWARF", sect.segName())) continue;
 
@@ -1989,7 +2004,7 @@ pub const ModuleDebugInfo = switch (native_os) {
                 inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
                     if (mem.eql(u8, "__" ++ section.name, sect.sectName())) section_index = i;
                 }
-                if (section_index == null) continue;
+                if (section_index == null or sections[section_index.?] != null) continue;
 
                 const section_bytes = try chopSlice(mapped_mem, sect.offset, sect.size);
                 sections[section_index.?] = .{
@@ -2010,6 +2025,8 @@ pub const ModuleDebugInfo = switch (native_os) {
                 .sections = sections,
                 .is_macho = true,
             };
+
+            // TODO: Don't actually need to scan unwind info in this case, since __unwind_info points us to the entries
 
             try DW.openDwarfDebugInfo(&di, allocator, mapped_mem);
             var info = OFileInfo{
