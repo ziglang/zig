@@ -4729,7 +4729,9 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
         .addrspace_is_generic = false,
     });
 
-    assert(arg.comptime_args.len == ip.funcTypeParamsLen(ip.typeOf(arg.generic_owner)));
+    const generic_owner = unwrapCoercedFunc(ip, arg.generic_owner);
+
+    assert(arg.comptime_args.len == ip.funcTypeParamsLen(ip.typeOf(generic_owner)));
 
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.FuncInstance).Struct.fields.len +
         arg.comptime_args.len);
@@ -4750,7 +4752,7 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
         .owner_decl = undefined,
         .ty = func_ty,
         .branch_quota = 0,
-        .generic_owner = arg.generic_owner,
+        .generic_owner = generic_owner,
     });
     ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.comptime_args));
 
@@ -4775,7 +4777,7 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
     return finishFuncInstance(
         ip,
         gpa,
-        arg.generic_owner,
+        generic_owner,
         func_index,
         func_extra_index,
         arg.generation,
@@ -5673,7 +5675,7 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                         } });
                     },
                     .elems => |elems| {
-                        const elems_copy = try gpa.dupe(InternPool.Index, elems[0..new_len]);
+                        const elems_copy = try gpa.dupe(Index, elems[0..new_len]);
                         defer gpa.free(elems_copy);
                         return ip.get(gpa, .{ .aggregate = .{
                             .ty = new_ty,
@@ -5689,7 +5691,7 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                 }
             }
             // Direct approach failed - we must recursively coerce elems
-            const agg_elems = try gpa.alloc(InternPool.Index, new_len);
+            const agg_elems = try gpa.alloc(Index, new_len);
             defer gpa.free(agg_elems);
             // First, fill the vector with the uncoerced elements. We do this to avoid key
             // lifetime issues, since it'll allow us to avoid referencing `aggregate` after we
@@ -6042,7 +6044,10 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
 
             .type_function => b: {
                 const info = ip.extraData(Tag.TypeFunction, data);
-                break :b @sizeOf(Tag.TypeFunction) + (@sizeOf(Index) * info.params_len);
+                break :b @sizeOf(Tag.TypeFunction) +
+                    (@sizeOf(Index) * info.params_len) +
+                    (@as(u32, 4) * @intFromBool(info.flags.has_comptime_bits)) +
+                    (@as(u32, 4) * @intFromBool(info.flags.has_noalias_bits));
             },
 
             .undef => 0,
@@ -6996,7 +7001,7 @@ pub fn funcZirBodyInst(ip: *const InternPool, i: Index) Zir.Inst.Index {
     return ip.extra.items[extra_index];
 }
 
-pub fn iesFuncIndex(ip: *const InternPool, ies_index: InternPool.Index) InternPool.Index {
+pub fn iesFuncIndex(ip: *const InternPool, ies_index: Index) Index {
     assert(ies_index != .none);
     const tags = ip.items.items(.tag);
     assert(tags[@intFromEnum(ies_index)] == .type_inferred_error_set);
@@ -7011,7 +7016,7 @@ pub fn iesFuncIndex(ip: *const InternPool, ies_index: InternPool.Index) InternPo
 /// Returns a mutable pointer to the resolved error set type of an inferred
 /// error set function. The returned pointer is invalidated when anything is
 /// added to `ip`.
-pub fn iesResolved(ip: *const InternPool, ies_index: InternPool.Index) *InternPool.Index {
+pub fn iesResolved(ip: *const InternPool, ies_index: Index) *Index {
     assert(ies_index != .none);
     const tags = ip.items.items(.tag);
     const datas = ip.items.items(.data);
@@ -7023,7 +7028,7 @@ pub fn iesResolved(ip: *const InternPool, ies_index: InternPool.Index) *InternPo
 /// Returns a mutable pointer to the resolved error set type of an inferred
 /// error set function. The returned pointer is invalidated when anything is
 /// added to `ip`.
-pub fn funcIesResolved(ip: *const InternPool, func_index: InternPool.Index) *InternPool.Index {
+pub fn funcIesResolved(ip: *const InternPool, func_index: Index) *Index {
     const tags = ip.items.items(.tag);
     const datas = ip.items.items(.data);
     assert(funcHasInferredErrorSet(ip, func_index));
@@ -7036,21 +7041,35 @@ pub fn funcIesResolved(ip: *const InternPool, func_index: InternPool.Index) *Int
     return @ptrCast(&ip.extra.items[extra_index]);
 }
 
-pub fn funcDeclInfo(ip: *const InternPool, i: InternPool.Index) Key.Func {
+pub fn funcDeclInfo(ip: *const InternPool, i: Index) Key.Func {
     const tags = ip.items.items(.tag);
     const datas = ip.items.items(.data);
     assert(tags[@intFromEnum(i)] == .func_decl);
     return extraFuncDecl(ip, datas[@intFromEnum(i)]);
 }
 
-pub fn funcDeclOwner(ip: *const InternPool, i: InternPool.Index) Module.Decl.Index {
+pub fn funcDeclOwner(ip: *const InternPool, i: Index) Module.Decl.Index {
     return funcDeclInfo(ip, i).owner_decl;
 }
 
-pub fn funcTypeParamsLen(ip: *const InternPool, i: InternPool.Index) u32 {
+pub fn funcTypeParamsLen(ip: *const InternPool, i: Index) u32 {
     const tags = ip.items.items(.tag);
     const datas = ip.items.items(.data);
     assert(tags[@intFromEnum(i)] == .type_function);
     const start = datas[@intFromEnum(i)];
     return ip.extra.items[start + std.meta.fieldIndex(Tag.TypeFunction, "params_len").?];
+}
+
+fn unwrapCoercedFunc(ip: *const InternPool, i: Index) Index {
+    const tags = ip.items.items(.tag);
+    return switch (tags[@intFromEnum(i)]) {
+        .func_coerced => {
+            const datas = ip.items.items(.data);
+            return @enumFromInt(ip.extra.items[
+                datas[@intFromEnum(i)] + std.meta.fieldIndex(Tag.FuncCoerced, "func").?
+            ]);
+        },
+        .func_instance, .func_decl => i,
+        else => unreachable,
+    };
 }
