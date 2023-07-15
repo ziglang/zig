@@ -26,11 +26,11 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
 /// only known at runtime, but whose maximum size is known at comptime, without
 /// requiring an `Allocator`.
 /// ```zig
-//  var a = try BoundedArrayAligned(u8, 16, 2).init(0);
-//  try a.append(255);
-//  try a.append(255);
-//  const b = @ptrCast(*const [1]u16, a.constSlice().ptr);
-//  try testing.expectEqual(@as(u16, 65535), b[0]);
+///  var a = try BoundedArrayAligned(u8, 16, 2).init(0);
+///  try a.append(255);
+///  try a.append(255);
+///  const b = @ptrCast(*const [1]u16, a.constSlice().ptr);
+///  try testing.expectEqual(@as(u16, 65535), b[0]);
 /// ```
 pub fn BoundedArrayAligned(
     comptime T: type,
