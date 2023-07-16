@@ -40,7 +40,7 @@ pub fn cmdTargets(
 
     var bw = io.bufferedWriter(stdout);
     const w = bw.writer();
-    var jws = std.json.writeStream(allocator, w);
+    var jws = std.json.writeStream(allocator, w, .{ .whitespace = .indent_1 });
     defer jws.deinit();
 
     try jws.beginObject();

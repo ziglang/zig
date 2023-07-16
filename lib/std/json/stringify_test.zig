@@ -18,13 +18,13 @@ test "json write stream" {
     const out = slice_stream.writer();
 
     {
-        var w = writeStream(testing.allocator, out);
+        var w = writeStream(testing.allocator, out, .{ .whitespace = .indent_2 });
         defer w.deinit();
         try testBasicWriteStream(&w, &slice_stream);
     }
 
     {
-        var w = writeStreamUnsafe(out);
+        var w = writeStreamUnsafe(out, .{ .whitespace = .indent_2 });
         try testBasicWriteStream(&w, &slice_stream);
     }
 }
@@ -60,18 +60,18 @@ fn testBasicWriteStream(w: anytype, slice_stream: anytype) !void {
     const result = slice_stream.getWritten();
     const expected =
         \\{
-        \\ "object": {
-        \\  "one": 1,
-        \\  "two": 2.0e+00
-        \\ },
-        \\ "string": "This is a string",
-        \\ "array": [
-        \\  "Another string",
-        \\  1,
-        \\  3.5e+00
-        \\ ],
-        \\ "int": 10,
-        \\ "float": 3.5e+00
+        \\  "object": {
+        \\    "one": 1,
+        \\    "two": 2.0e+00
+        \\  },
+        \\  "string": "This is a string",
+        \\  "array": [
+        \\    "Another string",
+        \\    1,
+        \\    3.5e+00
+        \\  ],
+        \\  "int": 10,
+        \\  "float": 3.5e+00
         \\}
     ;
     try std.testing.expectEqualStrings(expected, result);
@@ -92,7 +92,7 @@ test "json write stream primatives" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var w = writeStream(testing.allocator, out);
+    var w = writeStream(testing.allocator, out, .{ .whitespace = .indent_2 });
     defer w.deinit();
     try w.write(null);
     // TODO
@@ -109,13 +109,13 @@ test "stringify null optional fields" {
         \\{"optional":null,"required":"something","another_optional":null,"another_required":"something else"}
     ,
         MyStruct{},
-        StringifyOptions{},
+        .{},
     );
     try teststringify(
         \\{"required":"something","another_required":"something else"}
     ,
         MyStruct{},
-        StringifyOptions{ .emit_null_optional_fields = false },
+        .{ .emit_null_optional_fields = false },
     );
 }
 
@@ -214,12 +214,10 @@ test "stringify struct with indentation" {
             .foo = 42,
             .bar = .{ 1, 2, 3 },
         },
-        .{
-            .whitespace = .{},
-        },
+        .{ .whitespace = .indent_4 },
     );
     try teststringify(
-        "{\n\t\"foo\":42,\n\t\"bar\":[\n\t\t1,\n\t\t2,\n\t\t3\n\t]\n}",
+        "{\n\t\"foo\": 42,\n\t\"bar\": [\n\t\t1,\n\t\t2,\n\t\t3\n\t]\n}",
         struct {
             foo: u32,
             bar: [3]u32,
@@ -227,12 +225,7 @@ test "stringify struct with indentation" {
             .foo = 42,
             .bar = .{ 1, 2, 3 },
         },
-        .{
-            .whitespace = .{
-                .indent = .tab,
-                .separator = false,
-            },
-        },
+        .{ .whitespace = .indent_tab },
     );
     try teststringify(
         \\{"foo":42,"bar":[1,2,3]}
@@ -244,12 +237,7 @@ test "stringify struct with indentation" {
             .foo = 42,
             .bar = .{ 1, 2, 3 },
         },
-        .{
-            .whitespace = .{
-                .indent = .none,
-                .separator = false,
-            },
-        },
+        .{ .whitespace = .minified },
     );
 }
 

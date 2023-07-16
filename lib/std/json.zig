@@ -43,7 +43,7 @@ test Value {
 test writeStream {
     var out = ArrayList(u8).init(testing.allocator);
     defer out.deinit();
-    var write_stream = writeStream(testing.allocator, out.writer());
+    var write_stream = writeStream(testing.allocator, out.writer(), .{ .whitespace = .indent_2 });
     defer write_stream.deinit();
     try write_stream.beginObject();
     try write_stream.objectField("foo");
@@ -51,7 +51,7 @@ test writeStream {
     try write_stream.endObject();
     const expected =
         \\{
-        \\ "foo": 123
+        \\  "foo": 123
         \\}
     ;
     try testing.expectEqualSlices(u8, expected, out.items);

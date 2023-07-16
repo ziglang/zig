@@ -8,23 +8,20 @@ const OBJECT_MODE = 0;
 const ARRAY_MODE = 1;
 
 pub const StringifyOptions = struct {
-    pub const Whitespace = struct {
-        /// Additional levels of indentation to prefix every line.
-        indent_level: usize = 0,
-
-        /// What character(s) should be used for indentation?
-        indent: union(enum) {
-            space: u8,
-            tab: void,
-            none: void,
-        } = .{ .space = 4 },
-
-        /// After a colon, should whitespace be inserted?
-        separator: bool = true,
-    };
-
-    /// Controls the whitespace emitted
-    whitespace: Whitespace = .{ .indent = .none, .separator = false },
+    /// Controls the whitespace emitted.
+    /// The default `.minified` is a compact encoding with no whitespace between tokens.
+    /// Any setting other than `.minified` will use newlines, indentation, and a space after each ':'.
+    /// `.indent_1` means 1 space for each indentation level, `.indent_2` means 2 spaces, etc.
+    /// `.indent_tab` uses a tab for each indentation level.
+    whitespace: enum {
+        minified,
+        indent_1,
+        indent_2,
+        indent_3,
+        indent_4,
+        indent_8,
+        indent_tab,
+    } = .minified,
 
     /// Should optional fields with null value be written?
     emit_null_optional_fields: bool = true,
@@ -50,9 +47,8 @@ pub fn stringify(
     options: StringifyOptions,
     out_stream: anytype,
 ) WriteStream(@TypeOf(out_stream), .safe).Error!void {
-    var jw = writeStream(allocator, out_stream);
+    var jw = writeStream(allocator, out_stream, options);
     defer jw.deinit();
-    jw.options = options;
     try jw.write(value);
 }
 
@@ -62,9 +58,8 @@ pub fn stringifyUnsafe(
     options: StringifyOptions,
     out_stream: anytype,
 ) WriteStream(@TypeOf(out_stream), .unsafe).Error!void {
-    var jw = writeStreamUnsafe(out_stream);
+    var jw = writeStreamUnsafe(out_stream, options);
     defer jw.deinit();
-    jw.options = options;
     try jw.write(value);
 }
 
@@ -82,13 +77,13 @@ pub fn stringifyAlloc(
 }
 
 // TODO: docs
-pub fn writeStream(allocator: Allocator, out_stream: anytype) WriteStream(@TypeOf(out_stream), .safe) {
-    return WriteStream(@TypeOf(out_stream), .safe).init(allocator, out_stream);
+pub fn writeStream(allocator: Allocator, out_stream: anytype, options: StringifyOptions) WriteStream(@TypeOf(out_stream), .safe) {
+    return WriteStream(@TypeOf(out_stream), .safe).init(allocator, out_stream, options);
 }
 
 // TODO: docs
-pub fn writeStreamUnsafe(out_stream: anytype) WriteStream(@TypeOf(out_stream), .unsafe) {
-    return WriteStream(@TypeOf(out_stream), .unsafe).init(undefined, out_stream);
+pub fn writeStreamUnsafe(out_stream: anytype, options: StringifyOptions) WriteStream(@TypeOf(out_stream), .unsafe) {
+    return WriteStream(@TypeOf(out_stream), .unsafe).init(undefined, out_stream, options);
 }
 
 /// Writes JSON ([RFC8259](https://tools.ietf.org/html/rfc8259)) formatted data
@@ -113,16 +108,12 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
         pub const Stream = OutStream;
         pub const Error = if (enable_safety) Stream.Error || error{OutOfMemory} else Stream.Error;
 
-        // TODO: why is this the default?
-        options: StringifyOptions = .{
-            .whitespace = .{
-                .indent = .{ .space = 1 },
-            },
-        },
+        options: StringifyOptions,
 
         stream: OutStream,
         nesting_stack: if (enable_safety) BitStack else void,
         is_complete: if (enable_safety) bool else void = if (enable_safety) false else {},
+        indent_level: usize = 0,
         next_punctuation: enum {
             the_beginning,
             none,
@@ -130,8 +121,9 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
             colon,
         } = .the_beginning,
 
-        pub fn init(safety_allocator: Allocator, stream: OutStream) Self {
+        pub fn init(safety_allocator: Allocator, stream: OutStream, options: StringifyOptions) Self {
             return .{
+                .options = options,
                 .stream = stream,
                 .nesting_stack = if (enable_safety) BitStack.init(safety_allocator) else {},
             };
@@ -146,7 +138,7 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
             try self.valueStart();
             try self.stream.writeByte('[');
             if (enable_safety) try self.nesting_stack.push(ARRAY_MODE);
-            self.options.whitespace.indent_level += 1;
+            self.indent_level += 1;
             self.next_punctuation = .none;
         }
 
@@ -154,13 +146,13 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
             try self.valueStart();
             try self.stream.writeByte('{');
             if (enable_safety) try self.nesting_stack.push(OBJECT_MODE);
-            self.options.whitespace.indent_level += 1;
+            self.indent_level += 1;
             self.next_punctuation = .none;
         }
 
         pub fn endArray(self: *Self) Error!void {
             if (enable_safety) assert(self.nesting_stack.pop() == ARRAY_MODE);
-            self.options.whitespace.indent_level -= 1;
+            self.indent_level -= 1;
             switch (self.next_punctuation) {
                 .none => {},
                 .comma => {
@@ -174,7 +166,7 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
 
         pub fn endObject(self: *Self) Error!void {
             if (enable_safety) assert(self.nesting_stack.pop() == OBJECT_MODE);
-            self.options.whitespace.indent_level -= 1;
+            self.indent_level -= 1;
             switch (self.next_punctuation) {
                 .none => {},
                 .comma => {
@@ -187,20 +179,19 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
         }
 
         fn indent(self: *Self) !void {
-            const indent_level = self.options.whitespace.indent_level;
-            var char: u8 = undefined;
-            var n_chars: usize = undefined;
-            switch (self.options.whitespace.indent) {
-                .space => |n_spaces| {
-                    char = ' ';
-                    n_chars = n_spaces * indent_level;
-                },
-                .tab => {
+            var char: u8 = ' ';
+            const n_chars = switch (self.options.whitespace) {
+                .minified => return,
+                .indent_1 => 1 * self.indent_level,
+                .indent_2 => 2 * self.indent_level,
+                .indent_3 => 3 * self.indent_level,
+                .indent_4 => 4 * self.indent_level,
+                .indent_8 => 8 * self.indent_level,
+                .indent_tab => blk: {
                     char = '\t';
-                    n_chars = indent_level;
+                    break :blk self.indent_level;
                 },
-                .none => return,
-            }
+            };
             try self.stream.writeByte('\n');
             try self.stream.writeByteNTimes(char, n_chars);
         }
@@ -230,7 +221,7 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
                 },
                 .colon => {
                     try self.stream.writeByte(':');
-                    if (self.options.whitespace.separator) {
+                    if (self.options.whitespace != .minified) {
                         try self.stream.writeByte(' ');
                     }
                 },

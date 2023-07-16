@@ -101,11 +101,7 @@ test "stringify json hashmap whitespace" {
     try value.map.put(testing.allocator, "xyz", .{ .i = 1, .s = "w" });
 
     {
-        const doc = try stringifyAlloc(testing.allocator, value, .{
-            .whitespace = .{
-                .indent = .{ .space = 2 },
-            },
-        });
+        const doc = try stringifyAlloc(testing.allocator, value, .{ .whitespace = .indent_2 });
         defer testing.allocator.free(doc);
         try testing.expectEqualStrings(
             \\{
