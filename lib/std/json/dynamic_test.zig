@@ -79,27 +79,25 @@ test "write json then parse it" {
     defer jw.deinit();
 
     try jw.beginObject();
-    {
-        try jw.objectField("f");
-        try jw.write(false);
 
-        try jw.objectField("t");
-        try jw.write(true);
+    try jw.objectField("f");
+    try jw.write(false);
 
-        try jw.objectField("int");
-        try jw.write(1234);
+    try jw.objectField("t");
+    try jw.write(true);
 
-        try jw.objectField("array");
-        try jw.beginArray();
-        {
-            try jw.write(null);
-            try jw.write(12.34);
-        }
-        try jw.endArray();
+    try jw.objectField("int");
+    try jw.write(1234);
 
-        try jw.objectField("str");
-        try jw.write("hello");
-    }
+    try jw.objectField("array");
+    try jw.beginArray();
+    try jw.write(null);
+    try jw.write(12.34);
+    try jw.endArray();
+
+    try jw.objectField("str");
+    try jw.write("hello");
+
     try jw.endObject();
 
     fixed_buffer_stream = std.io.fixedBufferStream(fixed_buffer_stream.getWritten());
