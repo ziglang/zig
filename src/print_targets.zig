@@ -40,8 +40,8 @@ pub fn cmdTargets(
 
     var bw = io.bufferedWriter(stdout);
     const w = bw.writer();
-    var jws_stack = std.json.WriteStreamFixedStack(6){};
-    var jws = jws_stack.init(w);
+    var jws = std.json.writeStream(allocator, w);
+    defer jws.deinit();
 
     try jws.beginObject();
 
