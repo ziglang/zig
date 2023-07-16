@@ -1259,24 +1259,7 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
         .ncmds = hdr.ncmds,
         .buffer = mapped_mem[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
     };
-    var unwind_info: ?[]const u8 = null;
-    var eh_frame: ?[]const u8 = null;
     const symtab = while (it.next()) |cmd| switch (cmd.cmd()) {
-        .SEGMENT_64 => {
-            for (cmd.getSections()) |sect| {
-                if (std.mem.eql(u8, "__TEXT", sect.segName())) {
-                    if (mem.eql(u8, "__unwind_info", sect.sectName())) {
-                        unwind_info = try chopSlice(mapped_mem, sect.offset, sect.size);
-                        continue;
-                    }
-
-                    if (mem.eql(u8, "__eh_frame", sect.sectName())) {
-                        eh_frame = try chopSlice(mapped_mem, sect.offset, sect.size);
-                        continue;
-                    }
-                }
-            }
-        },
         .SYMTAB => break cmd.cast(macho.symtab_command).?,
         else => {},
     } else return error.MissingDebugInfo;
@@ -1386,8 +1369,6 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
         .ofiles = ModuleDebugInfo.OFileTable.init(allocator),
         .symbols = symbols,
         .strings = strings,
-        .unwind_info = unwind_info,
-        .eh_frame = eh_frame,
     };
 }
 
@@ -1602,17 +1583,26 @@ pub const DebugInfo = struct {
                 )[0..header.sizeofcmds]),
             };
 
+            var unwind_info: ?[]const u8 = null;
+            var eh_frame: ?[]const u8 = null;
             while (it.next()) |cmd| switch (cmd.cmd()) {
                 .SEGMENT_64 => {
                     const segment_cmd = cmd.cast(macho.segment_command_64).?;
                     if (!mem.eql(u8, "__TEXT", segment_cmd.segName())) continue;
 
-                    const original_address = address - vmaddr_slide;
-                    const seg_start = segment_cmd.vmaddr;
+                    const seg_start = segment_cmd.vmaddr + vmaddr_slide;
                     const seg_end = seg_start + segment_cmd.vmsize;
-                    if (original_address >= seg_start and original_address < seg_end) {
+                    if (address >= seg_start and address < seg_end) {
                         if (self.address_map.get(base_address)) |obj_di| {
                             return obj_di;
+                        }
+
+                        for (cmd.getSections()) |sect| {
+                            if (mem.eql(u8, "__unwind_info", sect.sectName())) {
+                                unwind_info = @as([*]const u8, @ptrFromInt(sect.addr + vmaddr_slide))[0..sect.size];
+                            } else if (mem.eql(u8, "__eh_frame", sect.sectName())) {
+                                eh_frame = @as([*]const u8, @ptrFromInt(sect.addr + vmaddr_slide))[0..sect.size];
+                            }
                         }
 
                         const obj_di = try self.allocator.create(ModuleDebugInfo);
@@ -1628,6 +1618,8 @@ pub const DebugInfo = struct {
                         obj_di.* = try readMachODebugInfo(self.allocator, macho_file);
                         obj_di.base_address = base_address;
                         obj_di.vmaddr_slide = vmaddr_slide;
+                        obj_di.unwind_info = unwind_info;
+                        obj_di.eh_frame = eh_frame;
 
                         try self.address_map.putNoClobber(base_address, obj_di);
 
@@ -1932,9 +1924,10 @@ pub const ModuleDebugInfo = switch (native_os) {
         symbols: []const MachoSymbol,
         strings: [:0]const u8,
         ofiles: OFileTable,
-        // Backed by mapped_memory
-        unwind_info: ?[]const u8,
-        eh_frame: ?[]const u8,
+
+        // Backed by the in-memory sections mapped by the loader
+        unwind_info: ?[]const u8 = null,
+        eh_frame: ?[]const u8 = null,
 
         const OFileTable = std.StringHashMap(OFileInfo);
         const OFileInfo = struct {
