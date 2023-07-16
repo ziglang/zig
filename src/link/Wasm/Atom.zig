@@ -174,14 +174,14 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
                 return 0;
             }
             const va = @as(i64, @intCast(symbol.virtual_address));
-            return @as(u32, @intCast(va + relocation.addend));
+            return @intCast(va + relocation.addend);
         },
         .R_WASM_EVENT_INDEX_LEB => return symbol.index,
         .R_WASM_SECTION_OFFSET_I32 => {
             const target_atom_index = wasm_bin.symbol_atom.get(target_loc).?;
             const target_atom = wasm_bin.getAtom(target_atom_index);
-            const rel_value = @as(i32, @intCast(target_atom.offset)) + relocation.addend;
-            return @as(u32, @intCast(rel_value));
+            const rel_value: i32 = @intCast(target_atom.offset);
+            return @intCast(rel_value + relocation.addend);
         },
         .R_WASM_FUNCTION_OFFSET_I32 => {
             const target_atom_index = wasm_bin.symbol_atom.get(target_loc) orelse {
@@ -189,13 +189,14 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             };
             const target_atom = wasm_bin.getAtom(target_atom_index);
             const offset: u32 = 11 + Wasm.getULEB128Size(target_atom.size); // Header (11 bytes fixed-size) + body size (leb-encoded)
-            const rel_value = @as(i32, @intCast(target_atom.offset + offset)) + relocation.addend;
-            return @as(u32, @intCast(rel_value));
+            const rel_value: i32 = @intCast(target_atom.offset + offset);
+            return @intCast(rel_value + relocation.addend);
         },
         .R_WASM_MEMORY_ADDR_TLS_SLEB,
         .R_WASM_MEMORY_ADDR_TLS_SLEB64,
         => {
-            @panic("TODO: Implement TLS relocations");
+            const va: i32 = @intCast(symbol.virtual_address);
+            return @intCast(va + relocation.addend);
         },
     }
 }

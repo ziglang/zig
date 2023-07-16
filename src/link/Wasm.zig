@@ -2153,7 +2153,14 @@ fn allocateVirtualAddresses(wasm: *Wasm) void {
         const segment_name = segment_info[symbol.index].outputName(merge_segment);
         const segment_index = wasm.data_segments.get(segment_name).?;
         const segment = wasm.segments.items[segment_index];
-        symbol.virtual_address = atom.offset + segment.offset;
+
+        // TLS symbols have their virtual address set relative to their own TLS segment,
+        // rather than the entire Data section.
+        if (symbol.hasFlag(.WASM_SYM_TLS)) {
+            symbol.virtual_address = atom.offset;
+        } else {
+            symbol.virtual_address = atom.offset + segment.offset;
+        }
     }
 }
 
