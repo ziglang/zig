@@ -2,11 +2,10 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const BitStack = std.BitStack;
 
-const Value = @import("./dynamic.zig").Value;
-const BitStack = @import("scanner.zig").BitStack;
-const OBJECT_MODE = @import("scanner.zig").OBJECT_MODE;
-const ARRAY_MODE = @import("scanner.zig").ARRAY_MODE;
+const OBJECT_MODE = 0;
+const ARRAY_MODE = 1;
 
 pub const StringifyOptions = struct {
     pub const Whitespace = struct {
