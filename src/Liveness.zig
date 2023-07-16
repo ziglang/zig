@@ -384,6 +384,7 @@ pub fn categorizeOperand(
         .addrspace_cast,
         .c_va_arg,
         .c_va_copy,
+        .abs,
         => {
             const o = air_datas[inst].ty_op;
             if (o.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
@@ -420,7 +421,6 @@ pub fn categorizeOperand(
         .log,
         .log2,
         .log10,
-        .fabs,
         .floor,
         .ceil,
         .round,
@@ -1027,6 +1027,7 @@ fn analyzeInst(
         .addrspace_cast,
         .c_va_arg,
         .c_va_copy,
+        .abs,
         => {
             const o = inst_datas[inst].ty_op;
             return analyzeOperands(a, pass, data, inst, .{ o.operand, .none, .none });
@@ -1054,7 +1055,6 @@ fn analyzeInst(
         .log,
         .log2,
         .log10,
-        .fabs,
         .floor,
         .ceil,
         .round,

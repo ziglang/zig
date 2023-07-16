@@ -542,7 +542,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .log,
             .log2,
             .log10,
-            .fabs,
+            .abs,
             .floor,
             .ceil,
             .round,

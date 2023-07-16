@@ -188,7 +188,7 @@ const Writer = struct {
             .log,
             .log2,
             .log10,
-            .fabs,
+            .abs,
             .floor,
             .ceil,
             .round,

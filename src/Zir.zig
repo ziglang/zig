@@ -822,8 +822,8 @@ pub const Inst = struct {
         log2,
         /// Implement builtin `@log10`. Uses `un_node`.
         log10,
-        /// Implement builtin `@fabs`. Uses `un_node`.
-        fabs,
+        /// Implement builtin `@abs`. Uses `un_node`.
+        abs,
         /// Implement builtin `@floor`. Uses `un_node`.
         floor,
         /// Implement builtin `@ceil`. Uses `un_node`.
@@ -1184,7 +1184,7 @@ pub const Inst = struct {
                 .log,
                 .log2,
                 .log10,
-                .fabs,
+                .abs,
                 .floor,
                 .ceil,
                 .trunc,
@@ -1468,7 +1468,7 @@ pub const Inst = struct {
                 .log,
                 .log2,
                 .log10,
-                .fabs,
+                .abs,
                 .floor,
                 .ceil,
                 .trunc,
@@ -1732,7 +1732,7 @@ pub const Inst = struct {
                 .log = .un_node,
                 .log2 = .un_node,
                 .log10 = .un_node,
-                .fabs = .un_node,
+                .abs = .un_node,
                 .floor = .un_node,
                 .ceil = .un_node,
                 .trunc = .un_node,
