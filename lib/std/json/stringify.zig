@@ -35,8 +35,8 @@ pub const StringifyOptions = struct {
     /// Should '/' be escaped in strings?
     escape_solidus: bool = false,
 
-    /// Should unicode characters be escaped in strings?
-    escape_unicode: bool = false,
+    /// Should Unicode code points greater than 0x7f be escaped using `\u` sequences?
+    ensure_ascii: bool = false,
 };
 
 /// If `value` has a method called `jsonStringify`, this will call that method instead of the
@@ -502,7 +502,6 @@ pub fn encodeJsonStringChars(chars: []const u8, options: StringifyOptions, write
                 }
             },
             // control characters with short escapes
-            // TODO: option to switch between unicode and 'short' forms?
             0x8 => try writer.writeAll("\\b"),
             0xC => try writer.writeAll("\\f"),
             '\n' => try writer.writeAll("\\n"),
@@ -511,7 +510,7 @@ pub fn encodeJsonStringChars(chars: []const u8, options: StringifyOptions, write
             else => {
                 const ulen = std.unicode.utf8ByteSequenceLength(chars[i]) catch unreachable;
                 // control characters (only things left with 1 byte length) should always be printed as unicode escapes
-                if (ulen == 1 or options.escape_unicode) {
+                if (ulen == 1 or options.ensure_ascii) {
                     const codepoint = std.unicode.utf8Decode(chars[i..][0..ulen]) catch unreachable;
                     try outputUnicodeEscape(codepoint, writer);
                 } else {

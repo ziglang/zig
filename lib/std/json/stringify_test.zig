@@ -136,33 +136,33 @@ test "stringify basic types" {
 test "stringify string" {
     try teststringify("\"hello\"", "hello", .{});
     try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r", .{});
-    try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r", .{ .escape_unicode = true });
+    try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r", .{ .ensure_ascii = true });
     try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}", .{});
-    try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}", .{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}", .{ .ensure_ascii = true });
     try teststringify("\"with unicode\u{80}\"", "with unicode\u{80}", .{});
-    try teststringify("\"with unicode\\u0080\"", "with unicode\u{80}", .{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u0080\"", "with unicode\u{80}", .{ .ensure_ascii = true });
     try teststringify("\"with unicode\u{FF}\"", "with unicode\u{FF}", .{});
-    try teststringify("\"with unicode\\u00ff\"", "with unicode\u{FF}", .{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u00ff\"", "with unicode\u{FF}", .{ .ensure_ascii = true });
     try teststringify("\"with unicode\u{100}\"", "with unicode\u{100}", .{});
-    try teststringify("\"with unicode\\u0100\"", "with unicode\u{100}", .{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u0100\"", "with unicode\u{100}", .{ .ensure_ascii = true });
     try teststringify("\"with unicode\u{800}\"", "with unicode\u{800}", .{});
-    try teststringify("\"with unicode\\u0800\"", "with unicode\u{800}", .{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u0800\"", "with unicode\u{800}", .{ .ensure_ascii = true });
     try teststringify("\"with unicode\u{8000}\"", "with unicode\u{8000}", .{});
-    try teststringify("\"with unicode\\u8000\"", "with unicode\u{8000}", .{ .escape_unicode = true });
+    try teststringify("\"with unicode\\u8000\"", "with unicode\u{8000}", .{ .ensure_ascii = true });
     try teststringify("\"with unicode\u{D799}\"", "with unicode\u{D799}", .{});
-    try teststringify("\"with unicode\\ud799\"", "with unicode\u{D799}", .{ .escape_unicode = true });
+    try teststringify("\"with unicode\\ud799\"", "with unicode\u{D799}", .{ .ensure_ascii = true });
     try teststringify("\"with unicode\u{10000}\"", "with unicode\u{10000}", .{});
-    try teststringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}", .{ .escape_unicode = true });
+    try teststringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}", .{ .ensure_ascii = true });
     try teststringify("\"with unicode\u{10FFFF}\"", "with unicode\u{10FFFF}", .{});
-    try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", .{ .escape_unicode = true });
+    try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", .{ .ensure_ascii = true });
     try teststringify("\"/\"", "/", .{});
     try teststringify("\"\\/\"", "/", .{ .escape_solidus = true });
 }
 
 test "stringify many-item sentinel-terminated string" {
     try teststringify("\"hello\"", @as([*:0]const u8, "hello"), .{});
-    try teststringify("\"with\\nescapes\\r\"", @as([*:0]const u8, "with\nescapes\r"), .{ .escape_unicode = true });
-    try teststringify("\"with unicode\\u0001\"", @as([*:0]const u8, "with unicode\u{1}"), .{ .escape_unicode = true });
+    try teststringify("\"with\\nescapes\\r\"", @as([*:0]const u8, "with\nescapes\r"), .{ .ensure_ascii = true });
+    try teststringify("\"with unicode\\u0001\"", @as([*:0]const u8, "with unicode\u{1}"), .{ .ensure_ascii = true });
 }
 
 test "stringify enums" {
