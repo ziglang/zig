@@ -81,7 +81,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
 
         pub fn seekBy(self: *Self, amt: i64) SeekError!void {
             if (amt < 0) {
-                const abs_amt = std.math.absCast(amt);
+                const abs_amt = @abs(amt);
                 const abs_amt_usize = std.math.cast(usize, abs_amt) orelse std.math.maxInt(usize);
                 if (abs_amt_usize > self.pos) {
                     self.pos = 0;

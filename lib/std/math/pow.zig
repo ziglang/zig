@@ -82,7 +82,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
         }
         // pow(x, +inf) = +0    for |x| < 1
         // pow(x, -inf) = +0    for |x| > 1
-        else if ((@fabs(x) < 1) == math.isPositiveInf(y)) {
+        else if ((@abs(x) < 1) == math.isPositiveInf(y)) {
             return 0;
         }
         // pow(x, -inf) = +inf  for |x| < 1
@@ -115,7 +115,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
         return 1 / @sqrt(x);
     }
 
-    const r1 = math.modf(@fabs(y));
+    const r1 = math.modf(@abs(y));
     var yi = r1.ipart;
     var yf = r1.fpart;
 

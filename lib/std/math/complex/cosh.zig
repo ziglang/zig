@@ -44,12 +44,12 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
         // |x|>= 9, so cosh(x) ~= exp(|x|)
         if (ix < 0x42b17218) {
             // x < 88.7: exp(|x|) won't overflow
-            const h = @exp(@fabs(x)) * 0.5;
+            const h = @exp(@abs(x)) * 0.5;
             return Complex(f32).init(math.copysign(h, x) * @cos(y), h * @sin(y));
         }
         // x < 192.7: scale to avoid overflow
         else if (ix < 0x4340b1e7) {
-            const v = Complex(f32).init(@fabs(x), y);
+            const v = Complex(f32).init(@abs(x), y);
             const r = ldexp_cexp(v, -1);
             return Complex(f32).init(r.re, r.im * math.copysign(@as(f32, 1.0), x));
         }
@@ -112,12 +112,12 @@ fn cosh64(z: Complex(f64)) Complex(f64) {
         // |x|>= 22, so cosh(x) ~= exp(|x|)
         if (ix < 0x40862e42) {
             // x < 710: exp(|x|) won't overflow
-            const h = @exp(@fabs(x)) * 0.5;
+            const h = @exp(@abs(x)) * 0.5;
             return Complex(f64).init(h * @cos(y), math.copysign(h, x) * @sin(y));
         }
         // x < 1455: scale to avoid overflow
         else if (ix < 0x4096bbaa) {
-            const v = Complex(f64).init(@fabs(x), y);
+            const v = Complex(f64).init(@abs(x), y);
             const r = ldexp_cexp(v, -1);
             return Complex(f64).init(r.re, r.im * math.copysign(@as(f64, 1.0), x));
         }

@@ -43,7 +43,7 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         if (math.signbit(x)) {
-            return Complex(f32).init(@fabs(x - y), math.copysign(x, y));
+            return Complex(f32).init(@abs(x - y), math.copysign(x, y));
         } else {
             return Complex(f32).init(x, math.copysign(y - y, y));
         }
@@ -64,7 +64,7 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
     } else {
         const t = @sqrt((-dx + math.hypot(f64, dx, dy)) * 0.5);
         return Complex(f32).init(
-            @as(f32, @floatCast(@fabs(y) / (2.0 * t))),
+            @as(f32, @floatCast(@abs(y) / (2.0 * t))),
             @as(f32, @floatCast(math.copysign(t, y))),
         );
     }
@@ -94,7 +94,7 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         if (math.signbit(x)) {
-            return Complex(f64).init(@fabs(x - y), math.copysign(x, y));
+            return Complex(f64).init(@abs(x - y), math.copysign(x, y));
         } else {
             return Complex(f64).init(x, math.copysign(y - y, y));
         }
@@ -104,7 +104,7 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
 
     // scale to avoid overflow
     var scale = false;
-    if (@fabs(x) >= threshold or @fabs(y) >= threshold) {
+    if (@abs(x) >= threshold or @abs(y) >= threshold) {
         x *= 0.25;
         y *= 0.25;
         scale = true;
@@ -116,7 +116,7 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
         result = Complex(f64).init(t, y / (2.0 * t));
     } else {
         const t = @sqrt((-x + math.hypot(f64, x, y)) * 0.5);
-        result = Complex(f64).init(@fabs(y) / (2.0 * t), math.copysign(t, y));
+        result = Complex(f64).init(@abs(y) / (2.0 * t), math.copysign(t, y));
     }
 
     if (scale) {

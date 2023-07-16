@@ -29,7 +29,7 @@ pub fn calcLimbLen(scalar: anytype) usize {
         return 1;
     }
 
-    const w_value = std.math.absCast(scalar);
+    const w_value = @abs(scalar);
     return @as(usize, @intCast(@divFloor(@as(Limb, @intCast(math.log2(w_value))), limb_bits) + 1));
 }
 
@@ -240,7 +240,7 @@ pub const Mutable = struct {
 
         switch (@typeInfo(T)) {
             .Int => |info| {
-                var w_value = std.math.absCast(value);
+                var w_value = @abs(value);
 
                 if (info.bits <= limb_bits) {
                     self.limbs[0] = w_value;
@@ -255,7 +255,7 @@ pub const Mutable = struct {
                 }
             },
             .ComptimeInt => {
-                comptime var w_value = std.math.absCast(value);
+                comptime var w_value = @abs(value);
 
                 if (w_value <= maxInt(Limb)) {
                     self.limbs[0] = w_value;
