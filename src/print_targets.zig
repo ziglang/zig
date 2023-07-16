@@ -45,28 +45,28 @@ pub fn cmdTargets(
 
     try jws.beginObject();
 
-    try jws.write("arch");
+    try jws.objectField("arch");
     try jws.beginArray();
     for (meta.fieldNames(Target.Cpu.Arch)) |field| {
         try jws.write(field);
     }
     try jws.endArray();
 
-    try jws.write("os");
+    try jws.objectField("os");
     try jws.beginArray();
     for (meta.fieldNames(Target.Os.Tag)) |field| {
         try jws.write(field);
     }
     try jws.endArray();
 
-    try jws.write("abi");
+    try jws.objectField("abi");
     try jws.beginArray();
     for (meta.fieldNames(Target.Abi)) |field| {
         try jws.write(field);
     }
     try jws.endArray();
 
-    try jws.write("libc");
+    try jws.objectField("libc");
     try jws.beginArray();
     for (target.available_libcs) |libc| {
         const tmp = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
@@ -77,7 +77,7 @@ pub fn cmdTargets(
     }
     try jws.endArray();
 
-    try jws.write("glibc");
+    try jws.objectField("glibc");
     try jws.beginArray();
     for (glibc_abi.all_versions) |ver| {
         const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
@@ -86,13 +86,13 @@ pub fn cmdTargets(
     }
     try jws.endArray();
 
-    try jws.write("cpus");
+    try jws.objectField("cpus");
     try jws.beginObject();
     for (meta.tags(Target.Cpu.Arch)) |arch| {
-        try jws.write(@tagName(arch));
+        try jws.objectField(@tagName(arch));
         try jws.beginObject();
         for (arch.allCpuModels()) |model| {
-            try jws.write(model.name);
+            try jws.objectField(model.name);
             try jws.beginArray();
             for (arch.allFeaturesList(), 0..) |feature, i_usize| {
                 const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
@@ -106,10 +106,10 @@ pub fn cmdTargets(
     }
     try jws.endObject();
 
-    try jws.write("cpuFeatures");
+    try jws.objectField("cpuFeatures");
     try jws.beginObject();
     for (meta.tags(Target.Cpu.Arch)) |arch| {
-        try jws.write(@tagName(arch));
+        try jws.objectField(@tagName(arch));
         try jws.beginArray();
         for (arch.allFeaturesList()) |feature| {
             try jws.write(feature.name);
@@ -118,26 +118,26 @@ pub fn cmdTargets(
     }
     try jws.endObject();
 
-    try jws.write("native");
+    try jws.objectField("native");
     try jws.beginObject();
     {
         const triple = try native_target.zigTriple(allocator);
         defer allocator.free(triple);
-        try jws.write("triple");
+        try jws.objectField("triple");
         try jws.write(triple);
     }
     {
-        try jws.write("cpu");
+        try jws.objectField("cpu");
         try jws.beginObject();
-        try jws.write("arch");
+        try jws.objectField("arch");
         try jws.write(@tagName(native_target.cpu.arch));
 
-        try jws.write("name");
+        try jws.objectField("name");
         const cpu = native_target.cpu;
         try jws.write(cpu.model.name);
 
         {
-            try jws.write("features");
+            try jws.objectField("features");
             try jws.beginArray();
             for (native_target.cpu.arch.allFeaturesList(), 0..) |feature, i_usize| {
                 const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
@@ -149,9 +149,9 @@ pub fn cmdTargets(
         }
         try jws.endObject();
     }
-    try jws.write("os");
+    try jws.objectField("os");
     try jws.write(@tagName(native_target.os.tag));
-    try jws.write("abi");
+    try jws.objectField("abi");
     try jws.write(@tagName(native_target.abi));
     try jws.endObject();
 

@@ -32,22 +32,22 @@ pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writ
     var jws = jws_stack.init(w);
     try jws.beginObject();
 
-    try jws.write("zig_exe");
+    try jws.objectField("zig_exe");
     try jws.write(self_exe_path);
 
-    try jws.write("lib_dir");
+    try jws.objectField("lib_dir");
     try jws.write(zig_lib_directory.path.?);
 
-    try jws.write("std_dir");
+    try jws.objectField("std_dir");
     try jws.write(zig_std_dir);
 
-    try jws.write("global_cache_dir");
+    try jws.objectField("global_cache_dir");
     try jws.write(global_cache_dir);
 
-    try jws.write("version");
+    try jws.objectField("version");
     try jws.write(build_options.version);
 
-    try jws.write("target");
+    try jws.objectField("target");
     try jws.write(triple);
 
     try jws.endObject();

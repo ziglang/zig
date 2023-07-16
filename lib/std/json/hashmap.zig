@@ -5,9 +5,6 @@ const ParseOptions = @import("static.zig").ParseOptions;
 const innerParse = @import("static.zig").innerParse;
 const innerParseFromValue = @import("static.zig").innerParseFromValue;
 const Value = @import("dynamic.zig").Value;
-const StringifyOptions = @import("stringify.zig").StringifyOptions;
-const stringify = @import("stringify.zig").stringify;
-const encodeJsonString = @import("stringify.zig").encodeJsonString;
 
 /// A thin wrapper around `std.StringArrayHashMapUnmanaged` that implements
 /// `jsonParse`, `jsonParseFromValue`, and `jsonStringify`.
@@ -74,7 +71,7 @@ pub fn ArrayHashMap(comptime T: type) type {
             try jws.beginObject();
             var it = self.map.iterator();
             while (it.next()) |kv| {
-                try jws.write(kv.key_ptr.*);
+                try jws.objectField(kv.key_ptr.*);
                 try jws.write(kv.value_ptr.*);
             }
             try jws.endObject();

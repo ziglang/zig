@@ -8,39 +8,51 @@ const Value = @import("dynamic.zig").Value;
 const StringifyOptions = @import("stringify.zig").StringifyOptions;
 const stringify = @import("stringify.zig").stringify;
 const stringifyAlloc = @import("stringify.zig").stringifyAlloc;
-const stringifyMaxDepth = @import("stringify.zig").stringifyMaxDepth;
+const stringifyUnsafe = @import("stringify.zig").stringifyUnsafe;
 const writeStream = @import("stringify.zig").writeStream;
+const writeStreamUnsafe = @import("stringify.zig").writeStreamUnsafe;
 
 test "json write stream" {
     var out_buf: [1024]u8 = undefined;
     var slice_stream = std.io.fixedBufferStream(&out_buf);
     const out = slice_stream.writer();
 
-    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_allocator.deinit();
+    {
+        var w = writeStream(testing.allocator, out);
+        defer w.deinit();
+        try testBasicWriteStream(&w, &slice_stream);
+    }
 
-    var w = writeStream(testing.allocator, out);
-    defer w.deinit();
+    {
+        var w = writeStreamUnsafe(out);
+        try testBasicWriteStream(&w, &slice_stream);
+    }
+}
+
+fn testBasicWriteStream(w: anytype, slice_stream: anytype) !void {
+    slice_stream.reset();
 
     try w.beginObject();
 
-    try w.write("object");
+    try w.objectField("object");
+    var arena_allocator = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_allocator.deinit();
     try w.write(try getJsonObject(arena_allocator.allocator()));
 
-    try w.write("string");
+    try w.objectField("string");
     try w.write("This is a string");
 
-    try w.write("array");
+    try w.objectField("array");
     try w.beginArray();
     try w.write("Another string");
     try w.write(@as(i32, 1));
     try w.write(@as(f32, 3.5));
     try w.endArray();
 
-    try w.write("int");
+    try w.objectField("int");
     try w.write(@as(i32, 10));
 
-    try w.write("float");
+    try w.objectField("float");
     try w.write(@as(f32, 3.5));
 
     try w.endObject();
@@ -62,7 +74,7 @@ test "json write stream" {
         \\ "float": 3.5e+00
         \\}
     ;
-    try std.testing.expect(std.mem.eql(u8, expected, result));
+    try std.testing.expectEqualStrings(expected, result);
 }
 
 fn getJsonObject(allocator: std.mem.Allocator) !Value {
@@ -336,16 +348,16 @@ fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions
     try stringify(testing.allocator, value, options, vos.writer());
     if (vos.expected_remaining.len > 0) return error.NotEnoughData;
 
-    // Also test with a fixed depth
-    try testStringifyFixedStack(expected, value, options, 99);
+    // Also test with safety disabled.
+    try testStringifyUnsafe(expected, value, options);
 }
 
-fn testStringifyFixedStack(expected: []const u8, value: anytype, options: StringifyOptions, comptime max_depth: usize) !void {
+fn testStringifyUnsafe(expected: []const u8, value: anytype, options: StringifyOptions) !void {
     var out_buf: [1024]u8 = undefined;
     var slice_stream = std.io.fixedBufferStream(&out_buf);
     const out = slice_stream.writer();
 
-    try stringifyMaxDepth(value, options, out, max_depth);
+    try stringifyUnsafe(value, options, out);
     const got = slice_stream.getWritten();
 
     try testing.expectEqualStrings(expected, got);
@@ -363,20 +375,14 @@ test "stringify alloc" {
 }
 
 test "comptime stringify" {
-    comptime testStringifyFixedStack("false", false, .{}, 0) catch unreachable;
+    comptime testStringifyUnsafe("false", false, .{}) catch unreachable;
 
     const MyStruct = struct {
         foo: u32,
     };
-    comptime testStringifyFixedStack("[{\"foo\":42},{\"foo\":100},{\"foo\":1000}]", [_]MyStruct{
+    comptime testStringifyUnsafe("[{\"foo\":42},{\"foo\":100},{\"foo\":1000}]", [_]MyStruct{
         MyStruct{ .foo = 42 },
         MyStruct{ .foo = 100 },
         MyStruct{ .foo = 1000 },
-    }, .{}, 2) catch unreachable;
-
-    try testing.expectError(error.OutOfMemory, testStringifyFixedStack("[{\"foo\":42},{\"foo\":100},{\"foo\":1000}]", [_]MyStruct{
-        MyStruct{ .foo = 42 },
-        MyStruct{ .foo = 100 },
-        MyStruct{ .foo = 1000 },
-    }, .{}, 1));
+    }, .{}) catch unreachable;
 }

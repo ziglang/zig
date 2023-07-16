@@ -1694,10 +1694,11 @@ pub const Scanner = struct {
     }
 };
 
-const OBJECT_MODE = 0;
-const ARRAY_MODE = 1;
+// Not really public. Only used by other code in this package.
+pub const OBJECT_MODE = 0;
+pub const ARRAY_MODE = 1;
 
-const BitStack = struct {
+pub const BitStack = struct {
     bytes: std.ArrayList(u8),
     bit_len: u32 = 0,
 

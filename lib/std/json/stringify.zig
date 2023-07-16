@@ -4,6 +4,9 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
 const Value = @import("./dynamic.zig").Value;
+const BitStack = @import("scanner.zig").BitStack;
+const OBJECT_MODE = @import("scanner.zig").OBJECT_MODE;
+const ARRAY_MODE = @import("scanner.zig").ARRAY_MODE;
 
 pub const StringifyOptions = struct {
     pub const Whitespace = struct {
@@ -43,8 +46,20 @@ pub fn stringify(
     value: anytype,
     options: StringifyOptions,
     out_stream: anytype,
-) WriteStream(@TypeOf(out_stream)).Error!void {
+) WriteStream(@TypeOf(out_stream), .safe).Error!void {
     var jw = writeStream(allocator, out_stream);
+    defer jw.deinit();
+    jw.options = options;
+    try jw.write(value);
+}
+
+// TODO: docs
+pub fn stringifyUnsafe(
+    value: anytype,
+    options: StringifyOptions,
+    out_stream: anytype,
+) WriteStream(@TypeOf(out_stream), .unsafe).Error!void {
+    var jw = writeStreamUnsafe(out_stream);
     defer jw.deinit();
     jw.options = options;
     try jw.write(value);
@@ -63,34 +78,14 @@ pub fn stringifyAlloc(
     return list.toOwnedSlice();
 }
 
-pub fn stringifyMaxDepth(
-    value: anytype,
-    options: StringifyOptions,
-    out_stream: anytype,
-    comptime max_depth: usize,
-) WriteStream(@TypeOf(out_stream)).Error!void {
-    var jw_stack = WriteStreamFixedStack(max_depth){};
-    var jw = jw_stack.init(out_stream);
-    jw.options = options;
-    try jw.write(value);
+// TODO: docs
+pub fn writeStream(allocator: Allocator, out_stream: anytype) WriteStream(@TypeOf(out_stream), .safe) {
+    return WriteStream(@TypeOf(out_stream), .safe).init(allocator, out_stream);
 }
 
-pub fn WriteStreamFixedStack(comptime max_depth: usize) type {
-    return struct {
-        fixed_buffer_allocator: std.heap.FixedBufferAllocator = undefined,
-        fixed_stack: [max_depth]u8 = undefined,
-
-        pub fn init(self: *@This(), out_stream: anytype) WriteStream(@TypeOf(out_stream)) {
-            self.fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(self.fixed_stack[0..]);
-            var jws = WriteStream(@TypeOf(out_stream)).init(self.fixed_buffer_allocator.allocator(), out_stream);
-            jws.state_stack.ensureTotalCapacityPrecise(max_depth) catch unreachable;
-            return jws;
-        }
-    };
-}
-
-pub fn writeStream(allocator: Allocator, out_stream: anytype) WriteStream(@TypeOf(out_stream)) {
-    return WriteStream(@TypeOf(out_stream)).init(allocator, out_stream);
+// TODO: docs
+pub fn writeStreamUnsafe(out_stream: anytype) WriteStream(@TypeOf(out_stream), .unsafe) {
+    return WriteStream(@TypeOf(out_stream), .unsafe).init(undefined, out_stream);
 }
 
 /// Writes JSON ([RFC8259](https://tools.ietf.org/html/rfc8259)) formatted data
@@ -104,16 +99,16 @@ pub fn writeStream(allocator: Allocator, out_stream: anytype) WriteStream(@TypeO
 ///    | <array>
 ///    | write
 ///    | writePreformatted
-///  <object> = beginObject ( <string> <value> )* endObject
+///  <object> = beginObject ( objectField <value> )* endObject
 ///  <array> = beginArray ( <value> )* endArray
-///  <string> = <it's a <value> which must be just a string>
 /// ```
-pub fn WriteStream(comptime OutStream: type) type {
+pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, unsafe }) type {
     return struct {
+        const enable_safety = safety_mode == .safe;
         const Self = @This();
 
         pub const Stream = OutStream;
-        pub const Error = Stream.Error || error{OutOfMemory};
+        pub const Error = if (enable_safety) Stream.Error || error{OutOfMemory} else Stream.Error;
 
         // TODO: why is this the default?
         options: StringifyOptions = .{
@@ -123,59 +118,73 @@ pub fn WriteStream(comptime OutStream: type) type {
         },
 
         stream: OutStream,
-        state_stack: ArrayList(State),
-        is_complete: bool = false,
+        nesting_stack: if (enable_safety) BitStack else void,
+        is_complete: if (enable_safety) bool else void = if (enable_safety) false else {},
+        next_punctuation: enum {
+            the_beginning,
+            none,
+            comma,
+            colon,
+        } = .the_beginning,
 
-        pub fn init(allocator: Allocator, stream: OutStream) Self {
+        pub fn init(safety_allocator: Allocator, stream: OutStream) Self {
             return .{
                 .stream = stream,
-                .state_stack = ArrayList(State).init(allocator),
+                .nesting_stack = if (enable_safety) BitStack.init(safety_allocator) else {},
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.state_stack.deinit();
+            if (enable_safety) self.nesting_stack.deinit();
             self.* = undefined;
         }
 
         pub fn beginArray(self: *Self) Error!void {
             try self.valueStart();
-            try self.state_stack.append(.array_start);
             try self.stream.writeByte('[');
+            if (enable_safety) try self.nesting_stack.push(ARRAY_MODE);
+            self.options.whitespace.indent_level += 1;
+            self.next_punctuation = .none;
         }
 
         pub fn beginObject(self: *Self) Error!void {
             try self.valueStart();
-            try self.state_stack.append(.object_start);
             try self.stream.writeByte('{');
+            if (enable_safety) try self.nesting_stack.push(OBJECT_MODE);
+            self.options.whitespace.indent_level += 1;
+            self.next_punctuation = .none;
         }
 
         pub fn endArray(self: *Self) Error!void {
-            switch (self.state_stack.pop()) {
-                .array_start => {},
-                .array_post_value => {
+            if (enable_safety) assert(self.nesting_stack.pop() == ARRAY_MODE);
+            self.options.whitespace.indent_level -= 1;
+            switch (self.next_punctuation) {
+                .none => {},
+                .comma => {
                     try self.indent();
                 },
-                else => unreachable,
+                .the_beginning, .colon => unreachable,
             }
             try self.stream.writeByte(']');
             self.valueDone();
         }
 
         pub fn endObject(self: *Self) Error!void {
-            switch (self.state_stack.pop()) {
-                .object_start => {},
-                .object_post_value => {
+            if (enable_safety) assert(self.nesting_stack.pop() == OBJECT_MODE);
+            self.options.whitespace.indent_level -= 1;
+            switch (self.next_punctuation) {
+                .none => {},
+                .comma => {
                     try self.indent();
                 },
-                else => unreachable,
+                .the_beginning, .colon => unreachable,
             }
             try self.stream.writeByte('}');
             self.valueDone();
         }
 
         fn indent(self: *Self) !void {
-            const indent_level = self.options.whitespace.indent_level + self.state_stack.items.len;
+            const indent_level = self.options.whitespace.indent_level;
             var char: u8 = undefined;
             var n_chars: usize = undefined;
             switch (self.options.whitespace.indent) {
@@ -194,31 +203,29 @@ pub fn WriteStream(comptime OutStream: type) type {
         }
 
         fn valueStart(self: *Self) !void {
-            // Non-strings are banned as object keys.
-            switch (self.state_stack.getLastOrNull() orelse .array_start) {
-                .object_start, .object_post_value => unreachable, // Illegal object key type.
-                else => {},
-            }
+            if (enable_safety) assert(!self.expectObjectKey()); // Call objectField(), not write(), for object keys.
             return self.valueStartAssumeTypeOk();
         }
-        fn stringValueStart(self: *Self) !void {
-            // Strings are allowed as values in every position.
+        fn objectFieldStart(self: *Self) !void {
+            if (enable_safety) assert(self.expectObjectKey()); // Expected write(), not objectField().
             return self.valueStartAssumeTypeOk();
         }
         fn valueStartAssumeTypeOk(self: *Self) !void {
-            assert(!self.is_complete); // JSON document already complete.
-            if (self.state_stack.items.len == 0) return;
-            switch (self.state_stack.getLast()) {
-                .array_start, .object_start => {
-                    // First item in the container.
+            if (enable_safety) assert(!self.is_complete); // JSON document already complete.
+            switch (self.next_punctuation) {
+                .the_beginning => {
+                    // No indentation for the very beginning.
+                },
+                .none => {
+                    // First item in a container.
                     try self.indent();
                 },
-                .array_post_value, .object_post_value => {
-                    // Subsequent item in the container.
+                .comma => {
+                    // Subsequent item in a container.
                     try self.stream.writeByte(',');
                     try self.indent();
                 },
-                .object_post_key => {
+                .colon => {
                     try self.stream.writeByte(':');
                     if (self.options.whitespace.separator) {
                         try self.stream.writeByte(' ');
@@ -227,27 +234,27 @@ pub fn WriteStream(comptime OutStream: type) type {
             }
         }
         fn valueDone(self: *Self) void {
-            assert(!self.is_complete); // JSON document already complete.
-            if (self.state_stack.items.len == 0) {
+            if (enable_safety and self.nesting_stack.bit_len == 0) {
                 // Done with everything.
                 self.is_complete = true;
-                return;
             }
-            // Keep track of whether we need a comma, a colon, indentation, etc. the next time we output something.
-            self.state_stack.items[self.state_stack.items.len - 1] = switch (self.state_stack.getLast()) {
-                .array_start => .array_post_value,
-                .array_post_value => return, // stay in the same state.
-                .object_start => .object_post_key,
-                .object_post_key => .object_post_value,
-                .object_post_value => .object_post_key,
-            };
+            self.next_punctuation = .comma;
+        }
+        fn expectObjectKey(self: *const Self) bool {
+            return self.nesting_stack.bit_len > 0 and self.nesting_stack.peek() == OBJECT_MODE and self.next_punctuation != .colon;
         }
 
         /// TODO: docs
         pub fn writePreformatted(self: *Self, value_slice: []const u8) Error!void {
-            try self.valueStart(); // TODO: is_string = value_slice.len > 0 and value_slice[0] == '"';
+            try self.valueStart();
             try self.stream.writeAll(value_slice);
             self.valueDone();
+        }
+
+        pub fn objectField(self: *Self, key: []const u8) Error!void {
+            try self.objectFieldStart();
+            try encodeJsonString(key, self.options, self.stream);
+            self.next_punctuation = .colon;
         }
 
         /// Supported types:
@@ -317,10 +324,7 @@ pub fn WriteStream(comptime OutStream: type) type {
                         return value.jsonStringify(self);
                     }
 
-                    try self.stringValueStart();
-                    try encodeJsonString(@tagName(value), self.options, self.stream);
-                    self.valueDone();
-                    return;
+                    return self.write(@tagName(value));
                 },
                 .Union => {
                     if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
@@ -332,7 +336,7 @@ pub fn WriteStream(comptime OutStream: type) type {
                         try self.beginObject();
                         inline for (info.fields) |u_field| {
                             if (value == @field(UnionTagType, u_field.name)) {
-                                try self.write(u_field.name);
+                                try self.objectField(u_field.name);
                                 if (u_field.type == void) {
                                     // void value is {}
                                     try self.beginObject();
@@ -378,7 +382,7 @@ pub fn WriteStream(comptime OutStream: type) type {
 
                         if (emit_field) {
                             if (!S.is_tuple) {
-                                try self.write(Field.name);
+                                try self.objectField(Field.name);
                             }
                             try self.write(@field(value, Field.name));
                         }
@@ -410,20 +414,8 @@ pub fn WriteStream(comptime OutStream: type) type {
 
                         if (ptr_info.child == u8) {
                             // This is a []const u8, or some similar Zig string.
-                            var render_as_string = !self.options.emit_strings_as_arrays;
-                            switch (self.state_stack.getLastOrNull() orelse .array_start) {
-                                .object_start, .object_post_value => {
-                                    // Object keys must always be rendered as strings.
-                                    render_as_string = true;
-                                    assert(std.unicode.utf8ValidateSlice(slice)); // Object keys must be valid UTF-8 strings.
-                                },
-                                else => {
-                                    // Fallback to array representation for non-UTF-8, even if .String mode was desired.
-                                    render_as_string = render_as_string and std.unicode.utf8ValidateSlice(slice);
-                                },
-                            }
-                            if (render_as_string) {
-                                try self.stringValueStart();
+                            if (!self.options.emit_strings_as_arrays and std.unicode.utf8ValidateSlice(slice)) {
+                                try self.valueStart();
                                 try encodeJsonString(slice, self.options, self.stream);
                                 self.valueDone();
                                 return;
@@ -453,7 +445,6 @@ pub fn WriteStream(comptime OutStream: type) type {
         }
 
         pub const arrayElem = @compileError("Deprecated; You don't need to call this anymore.");
-        pub const objectField = @compileError("Deprecated; Call write() for object keys instead.");
         pub const emitNull = @compileError("Deprecated; Use .write(null) instead.");
         pub const emitBool = @compileError("Deprecated; Use .write() instead.");
         pub const emitNumber = @compileError("Deprecated; Use .write() instead.");
@@ -461,14 +452,6 @@ pub fn WriteStream(comptime OutStream: type) type {
         pub const emitJson = @compileError("Deprecated; Use .write() instead.");
     };
 }
-
-const State = enum(u8) {
-    array_start,
-    array_post_value,
-    object_start,
-    object_post_key,
-    object_post_value,
-};
 
 fn outputUnicodeEscape(
     codepoint: u21,

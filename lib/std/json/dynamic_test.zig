@@ -80,16 +80,16 @@ test "write json then parse it" {
 
     try jw.beginObject();
     {
-        try jw.write("f");
+        try jw.objectField("f");
         try jw.write(false);
 
-        try jw.write("t");
+        try jw.objectField("t");
         try jw.write(true);
 
-        try jw.write("int");
+        try jw.objectField("int");
         try jw.write(1234);
 
-        try jw.write("array");
+        try jw.objectField("array");
         try jw.beginArray();
         {
             try jw.write(null);
@@ -97,7 +97,7 @@ test "write json then parse it" {
         }
         try jw.endArray();
 
-        try jw.write("str");
+        try jw.objectField("str");
         try jw.write("hello");
     }
     try jw.endObject();

@@ -46,7 +46,7 @@ test writeStream {
     var write_stream = writeStream(testing.allocator, out.writer());
     defer write_stream.deinit();
     try write_stream.beginObject();
-    try write_stream.write("foo");
+    try write_stream.objectField("foo");
     try write_stream.write(123);
     try write_stream.endObject();
     const expected =
@@ -101,9 +101,9 @@ pub const ParseFromValueError = @import("json/static.zig").ParseFromValueError;
 pub const StringifyOptions = @import("json/stringify.zig").StringifyOptions;
 pub const stringify = @import("json/stringify.zig").stringify;
 pub const stringifyAlloc = @import("json/stringify.zig").stringifyAlloc;
-pub const stringifyMaxDepth = @import("json/stringify.zig").stringifyMaxDepth;
-pub const WriteStreamFixedStack = @import("json/stringify.zig").WriteStreamFixedStack;
+pub const stringifyUnsafe = @import("json/stringify.zig").stringifyUnsafe;
 pub const writeStream = @import("json/stringify.zig").writeStream;
+pub const writeStreamUnsafe = @import("json/stringify.zig").writeStreamUnsafe;
 pub const WriteStream = @import("json/stringify.zig").WriteStream;
 pub const encodeJsonString = @import("json/stringify.zig").encodeJsonString;
 pub const encodeJsonStringChars = @import("json/stringify.zig").encodeJsonStringChars;
