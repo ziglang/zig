@@ -3519,6 +3519,7 @@ fn writeToFile(
 
     // Import section
     const import_memory = wasm.base.options.import_memory or is_obj;
+    const export_memory = wasm.base.options.export_memory;
     if (wasm.imports.count() != 0 or import_memory) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
@@ -3621,7 +3622,7 @@ fn writeToFile(
     }
 
     // Export section
-    if (wasm.exports.items.len != 0 or !import_memory) {
+    if (wasm.exports.items.len != 0 or export_memory) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
         for (wasm.exports.items) |exp| {
@@ -3632,7 +3633,7 @@ fn writeToFile(
             try leb.writeULEB128(binary_writer, exp.index);
         }
 
-        if (!import_memory) {
+        if (export_memory) {
             try leb.writeULEB128(binary_writer, @as(u32, @intCast("memory".len)));
             try binary_writer.writeAll("memory");
             try binary_writer.writeByte(std.wasm.externalKind(.memory));
@@ -3644,7 +3645,7 @@ fn writeToFile(
             header_offset,
             .@"export",
             @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, @intCast(wasm.exports.items.len)) + @intFromBool(!import_memory),
+            @as(u32, @intCast(wasm.exports.items.len)) + @intFromBool(export_memory),
         );
         section_count += 1;
     }
