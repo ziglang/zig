@@ -434,10 +434,7 @@ pub const Response = struct {
         }
 
         while (true) {
-            var rest = res.connection.bufreader.peek(0);
-            if (rest.len == 0) return error.EndOfStream;
-
-            const nchecked = try res.request.parser.checkCompleteHead(res.allocator, rest);
+            const nchecked = try res.request.parser.checkCompleteHead(res.allocator, try res.connection.bufreader.peek(0));
             try res.connection.bufreader.discard(@intCast(nchecked));
 
             if (res.request.parser.state.isContent()) break;
@@ -502,10 +499,8 @@ pub const Response = struct {
             const has_trail = !res.request.parser.state.isContent();
 
             while (!res.request.parser.state.isContent()) { // read trailing headers
-                var rest = res.connection.bufreader.peek(0);
-                if (rest.len == 0) return error.EndOfStream;
 
-                const nchecked = try res.request.parser.checkCompleteHead(res.allocator, rest);
+                const nchecked = try res.request.parser.checkCompleteHead(res.allocator, try res.connection.bufreader.peek(0));
                 try res.connection.bufreader.discard(@intCast(nchecked));
             }
 

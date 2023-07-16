@@ -35,12 +35,12 @@ pub fn TokenIterator(comptime Context: type, comptime delimiter_type: mem.Delimi
             var buffer: []const u8 = undefined;
             while (true) {
                 var index: usize = 0;
-                buffer = self.context.peek(0);
+                buffer = self.context.peek(0) catch return null;
                 while (index < buffer.len and self.isDelimiter(buffer, index)) {
                     index += delimiter_len;
                     if (index >= buffer.len) {
                         self.context.discard(buffer.len) catch return null;
-                        buffer = self.context.peek(0);
+                        buffer = self.context.peek(0) catch return null;
                         index = 0;
                     }
                 }
@@ -60,7 +60,7 @@ pub fn TokenIterator(comptime Context: type, comptime delimiter_type: mem.Delimi
                 }
 
                 // Grab one more byte
-                const newbuf = self.context.peek(buffer.len + 1);
+                const newbuf = self.context.peek(buffer.len + 1) catch return null;
                 if (newbuf.len == buffer.len) {
                     break;
                 }
@@ -106,14 +106,15 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime pushback_size: usize
         /// If the returned slice length is lesser than `least`, it means the reader had reached end.
         /// It will automatically fill buffer if buffer is empty or buffered data
         /// is less than the request `least` length.
+        /// If peek bytes length is zero, it returns `error.EndOfStream`.
         ///
         /// If this method was used with pushback buffer, data move may occur
         /// when there is a hole in the buffer.
-        pub fn peek(self: *Self, least: usize) []const u8 {
+        pub fn peek(self: *Self, least: usize) ![]const u8 {
             if (self.start == self.end) {
                 self.start = 0;
                 self.end = 0;
-                const n = self.unbuffered_reader.read(self.buf[pushback_size..][0..]) catch 0;
+                const n = try self.unbuffered_reader.read(self.buf[pushback_size..]);
                 self.end += n;
             }
             var remain = self.end - self.start;
@@ -126,7 +127,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime pushback_size: usize
                 }
                 var nread: usize = 0;
                 while (nread < delta) {
-                    const n = self.unbuffered_reader.read(self.buf[pushback_size..][self.end..]) catch 0;
+                    const n = try self.unbuffered_reader.read(self.buf[pushback_size..][self.end..]);
                     if (n == 0) break;
                     self.end += n;
                     nread += n;
@@ -136,6 +137,9 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime pushback_size: usize
 
             var nsize: usize = if (least > 0) @min(least, remain) else remain;
             if (pushback_size == 0 or self.pushback == 0) {
+                if (nsize == 0) {
+                    return error.EndOfStream;
+                }
                 return self.buf[pushback_size..][self.start..(self.start + nsize)];
             }
 
@@ -149,6 +153,9 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime pushback_size: usize
             }
             remain += self.pushback;
             nsize = if (least > 0) @min(least, remain) else remain;
+            if (nsize == 0) {
+                return error.EndOfStream;
+            }
             return self.buf[@intCast(pushback_size - self.pushback)..][0..nsize];
         }
 
@@ -170,7 +177,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime pushback_size: usize
                 self.start += delta;
                 amt -= delta;
                 if (self.start == self.end and amt > 0) {
-                    const n = try self.unbuffered_reader.read(self.buf[pushback_size..][0..]);
+                    const n = try self.unbuffered_reader.read(self.buf[pushback_size..]);
                     if (n == 0) return error.EndOfStream;
                     self.start = 0;
                     self.end = n;
@@ -230,8 +237,9 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime pushback_size: usize
                     if (dest_index == dest.len) {
                         break;
                     }
-                    least += written;
                 }
+
+                assert(dest.len == 0 or self.end == self.start);
 
                 var n: usize = 0;
                 const remain = dest.len - dest_index;
@@ -244,6 +252,8 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime pushback_size: usize
                     n = try self.unbuffered_reader.read(self.buf[pushback_size..]);
                     self.start = 0;
                     self.end = n;
+                    // least is 1 when used with read, try another fill
+                    if (least == 1) least += dest_index;
                 }
                 if (n == 0) {
                     // reading from the unbuffered stream returned nothing
@@ -285,9 +295,17 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime pushback_size: usize
         /// stops when reader returns 0 bytes (EOF).
         pub fn toWriter(self: *Self, writer: anytype) !void {
             while (true) {
-                const buffer = self.peek(0);
+                const buffer = self.peek(0) catch |err| switch (err) {
+                    error.EndOfStream => return,
+                    else => return err,
+                };
                 if (buffer.len == 0) return;
-                try self.discard(try writer.write(buffer));
+                var index: usize = 0;
+                while (index < buffer.len) {
+                    const n = try writer.write(buffer);
+                    try self.discard(n);
+                    index += n;
+                }
             }
         }
     };
@@ -314,13 +332,15 @@ test "peek" {
     const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     var fbs = io.fixedBufferStream(&bytes);
     var reader = bufferedReader(fbs.reader());
-    const dest = reader.peek(0);
+    const dest = try reader.peek(0);
     try testing.expect(mem.eql(u8, dest[0..], bytes[0..]));
 
     try reader.discard(bytes.len);
     var buf: [4]u8 = undefined;
     var read = try reader.read(buf[0..]);
     try testing.expect(read == 0);
+    try testing.expectError(error.EndOfStream, reader.peek(0));
+    try testing.expectError(error.EndOfStream, reader.discard(bytes.len));
 }
 
 test "tokenize" {
@@ -432,7 +452,7 @@ test "pushbackReader" {
     try testing.expect(mem.eql(u8, dest[0..4], bytes[2..6]));
 
     try ps.push(&[_]u8{ 11, 12 });
-    const peekdest = ps.peek(2);
+    const peekdest = try ps.peek(2);
     try testing.expect(peekdest.len == 2);
     try testing.expect(mem.eql(u8, peekdest[0..], &[_]u8{ 11, 12 }));
     try ps.discard(2);
@@ -517,11 +537,11 @@ test "io.BufferedReader OneByte" {
         try testing.expect(lines.next() == null);
 
         onebyte.reset();
-        try testing.expectEqualSlices(u8, br.peek(3), "GET");
+        try testing.expectEqualSlices(u8, try br.peek(3), "GET");
         try br.discard(2);
-        try testing.expectEqualSlices(u8, br.peek(3), "T /");
+        try testing.expectEqualSlices(u8, try br.peek(3), "T /");
         try br.discard(2);
-        try testing.expectEqualSlices(u8, br.peek(3), "/ H");
+        try testing.expectEqualSlices(u8, try br.peek(3), "/ H");
     }
 }
 
@@ -593,7 +613,7 @@ test "io.BufferedReader Block" {
         var block_reader = BlockReader.init(block, 2);
         var test_buf_reader = BufferedReader(4, 0, BlockReader){ .unbuffered_reader = block_reader };
         var out_buf: [5]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.readAtLeast(&out_buf, out_buf.len);
         try testing.expectEqualSlices(u8, &out_buf, "01230");
         const n = try test_buf_reader.read(&out_buf);
         try testing.expectEqualSlices(u8, out_buf[0..n], "123");

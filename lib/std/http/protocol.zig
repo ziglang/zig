@@ -526,8 +526,7 @@ pub const HeadersParser = struct {
                     const data_avail = r.next_chunk_length;
 
                     if (skip) {
-                        const rest = conn.peek(0);
-                        if (rest.len == 0) return error.EndOfStream;
+                        const rest = try conn.peek(0);
 
                         const nread = @min(rest.len, data_avail);
                         try conn.discard(@intCast(nread));
@@ -549,16 +548,13 @@ pub const HeadersParser = struct {
                     }
                 },
                 .chunk_data_suffix, .chunk_data_suffix_r, .chunk_head_size, .chunk_head_ext, .chunk_head_r => {
-                    const rest = conn.peek(0);
-                    if (rest.len == 0) return error.EndOfStream;
-
-                    const i = r.findChunkedLen(rest);
+                    const i = r.findChunkedLen(try conn.peek(0));
                     try conn.discard(@intCast(i));
 
                     switch (r.state) {
                         .invalid => return error.HttpChunkInvalid,
                         .chunk_data => if (r.next_chunk_length == 0) {
-                            if (std.mem.eql(u8, conn.peek(0), "\r\n")) {
+                            if (std.mem.eql(u8, try conn.peek(0), "\r\n")) {
                                 r.state = .finished;
                             } else {
                                 // The trailer section is formatted identically to the header section.
@@ -578,8 +574,7 @@ pub const HeadersParser = struct {
                     const out_avail = buffer.len - out_index;
 
                     if (skip) {
-                        const rest = conn.peek(0);
-                        if (rest.len == 0) return error.EndOfStream;
+                        const rest = try conn.peek(0);
 
                         const nread = @min(rest.len, data_avail);
                         try conn.discard(@intCast(nread));
@@ -684,7 +679,7 @@ test "HeadersParser.read length" {
     };
 
     while (true) { // read headers
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek(0));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, try conn.peek(0));
         try conn.discard(@intCast(nchecked));
 
         if (r.state.isContent()) break;
@@ -713,7 +708,7 @@ test "HeadersParser.read chunked" {
     };
 
     while (true) { // read headers
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek(0));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, try conn.peek(0));
         try conn.discard(@intCast(nchecked));
 
         if (r.state.isContent()) break;
@@ -741,7 +736,7 @@ test "HeadersParser.read chunked trailer" {
     };
 
     while (true) { // read headers
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek(0));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, try conn.peek(0));
         try conn.discard(@intCast(nchecked));
 
         if (r.state.isContent()) break;
@@ -754,7 +749,7 @@ test "HeadersParser.read chunked trailer" {
     try std.testing.expectEqualStrings("Hello", buf[0..len]);
 
     while (true) { // read headers
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek(0));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, try conn.peek(0));
         try conn.discard(@intCast(nchecked));
 
         if (r.state.isContent()) break;

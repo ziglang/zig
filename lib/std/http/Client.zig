@@ -590,10 +590,7 @@ pub const Request = struct {
     pub fn wait(req: *Request) WaitError!void {
         while (true) { // handle redirects
             while (true) { // read headers
-                const rest = req.connection.?.data.bufreader.peek(0);
-                if (rest.len == 0) return error.EndOfStream;
-
-                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, rest);
+                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, try req.connection.?.data.bufreader.peek(0));
                 try req.connection.?.data.bufreader.discard(@intCast(nchecked));
 
                 if (req.response.parser.state.isContent()) break;
@@ -710,10 +707,8 @@ pub const Request = struct {
             const has_trail = !req.response.parser.state.isContent();
 
             while (!req.response.parser.state.isContent()) { // read trailing headers
-                const rest = req.connection.?.data.bufreader.peek(0);
-                if (rest.len == 0) return error.EndOfStream;
 
-                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, rest);
+                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, try req.connection.?.data.bufreader.peek(0));
 
                 try req.connection.?.data.bufreader.discard(@intCast(nchecked));
             }
