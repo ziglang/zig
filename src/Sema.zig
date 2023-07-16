@@ -30613,12 +30613,20 @@ fn analyzeIsNonErrComptimeOnly(
                             ies.func == func_index)
                         {
                             // Try to avoid resolving inferred error set if possible.
+                            if (ies.errors.count() != 0) break :blk;
+                            switch (ies.resolved) {
+                                .anyerror_type => break :blk,
+                                .none => {},
+                                else => if (ip.indexToKey(ies.resolved).error_set_type.names.len != 0) {
+                                    break :blk;
+                                },
+                            }
                             for (ies.inferred_error_sets.keys()) |other_ies_index| {
                                 if (set_ty == other_ies_index) continue;
                                 const other_resolved =
                                     try sema.resolveInferredErrorSet(block, src, other_ies_index);
                                 if (other_resolved == .anyerror_type) {
-                                    ip.funcIesResolved(func_index).* = .anyerror_type;
+                                    ies.resolved = .anyerror_type;
                                     break :blk;
                                 }
                                 if (ip.indexToKey(other_resolved).error_set_type.names.len != 0)
