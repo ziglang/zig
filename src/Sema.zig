@@ -1156,6 +1156,7 @@ fn analyzeBodyInner(
             .clz       => try sema.zirBitCount(block, inst, .clz,      Value.clz),
             .ctz       => try sema.zirBitCount(block, inst, .ctz,      Value.ctz),
             .pop_count => try sema.zirBitCount(block, inst, .popcount, Value.popCount),
+            .abs       => try sema.zirAbs(block, inst),
 
             .sqrt  => try sema.zirUnaryMath(block, inst, .sqrt, Value.sqrt),
             .sin   => try sema.zirUnaryMath(block, inst, .sin, Value.sin),
@@ -1166,7 +1167,6 @@ fn analyzeBodyInner(
             .log   => try sema.zirUnaryMath(block, inst, .log, Value.log),
             .log2  => try sema.zirUnaryMath(block, inst, .log2, Value.log2),
             .log10 => try sema.zirUnaryMath(block, inst, .log10, Value.log10),
-            .fabs  => try sema.zirUnaryMath(block, inst, .fabs, Value.fabs),
             .floor => try sema.zirUnaryMath(block, inst, .floor, Value.floor),
             .ceil  => try sema.zirUnaryMath(block, inst, .ceil, Value.ceil),
             .round => try sema.zirUnaryMath(block, inst, .round, Value.round),
@@ -20178,6 +20178,69 @@ fn zirErrorName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     return block.addUnOp(.error_name, operand);
 }
 
+fn zirAbs(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const operand = try sema.resolveInst(inst_data.operand);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_ty = sema.typeOf(operand);
+    const scalar_ty = operand_ty.scalarType(mod);
+
+    const result_ty = switch (scalar_ty.zigTypeTag(mod)) {
+        .ComptimeFloat, .Float, .ComptimeInt => operand_ty,
+        .Int => if (scalar_ty.isSignedInt(mod)) try operand_ty.toUnsigned(mod) else return operand,
+        else => return sema.fail(
+            block,
+            operand_src,
+            "expected integer, float, or vector of either integers or floats, found '{}'",
+            .{operand_ty.fmt(mod)},
+        ),
+    };
+
+    return (try sema.maybeConstantUnaryMath(operand, result_ty, Value.abs)) orelse {
+        try sema.requireRuntimeBlock(block, operand_src, null);
+        return block.addTyOp(.abs, result_ty, operand);
+    };
+}
+
+fn maybeConstantUnaryMath(
+    sema: *Sema,
+    operand: Air.Inst.Ref,
+    result_ty: Type,
+    comptime eval: fn (Value, Type, Allocator, *Module) Allocator.Error!Value,
+) CompileError!?Air.Inst.Ref {
+    const mod = sema.mod;
+    switch (result_ty.zigTypeTag(mod)) {
+        .Vector => if (try sema.resolveMaybeUndefVal(operand)) |val| {
+            const scalar_ty = result_ty.scalarType(mod);
+            const vec_len = result_ty.vectorLen(mod);
+            if (val.isUndef(mod))
+                return try mod.undefRef(result_ty);
+
+            const elems = try sema.arena.alloc(InternPool.Index, vec_len);
+            for (elems, 0..) |*elem, i| {
+                const elem_val = try val.elemValue(sema.mod, i);
+                elem.* = try (try eval(elem_val, scalar_ty, sema.arena, sema.mod)).intern(scalar_ty, mod);
+            }
+            return Air.internedToRef((try mod.intern(.{ .aggregate = .{
+                .ty = result_ty.toIntern(),
+                .storage = .{ .elems = elems },
+            } })));
+        },
+        else => if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
+            if (operand_val.isUndef(mod))
+                return try mod.undefRef(result_ty);
+            const result_val = try eval(operand_val, result_ty, sema.arena, sema.mod);
+            return Air.internedToRef(result_val.toIntern());
+        },
+    }
+    return null;
+}
+
 fn zirUnaryMath(
     sema: *Sema,
     block: *Block,
@@ -20193,58 +20256,22 @@ fn zirUnaryMath(
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_ty = sema.typeOf(operand);
+    const scalar_ty = operand_ty.scalarType(mod);
 
-    switch (operand_ty.zigTypeTag(mod)) {
+    switch (scalar_ty.zigTypeTag(mod)) {
         .ComptimeFloat, .Float => {},
-        .Vector => {
-            const scalar_ty = operand_ty.scalarType(mod);
-            switch (scalar_ty.zigTypeTag(mod)) {
-                .ComptimeFloat, .Float => {},
-                else => return sema.fail(block, operand_src, "expected vector of floats or float type, found '{}'", .{scalar_ty.fmt(sema.mod)}),
-            }
-        },
-        else => return sema.fail(block, operand_src, "expected vector of floats or float type, found '{}'", .{operand_ty.fmt(sema.mod)}),
+        else => return sema.fail(
+            block,
+            operand_src,
+            "expected vector of floats or float type, found '{}'",
+            .{operand_ty.fmt(sema.mod)},
+        ),
     }
 
-    switch (operand_ty.zigTypeTag(mod)) {
-        .Vector => {
-            const scalar_ty = operand_ty.scalarType(mod);
-            const vec_len = operand_ty.vectorLen(mod);
-            const result_ty = try mod.vectorType(.{
-                .len = vec_len,
-                .child = scalar_ty.toIntern(),
-            });
-            if (try sema.resolveMaybeUndefVal(operand)) |val| {
-                if (val.isUndef(mod))
-                    return mod.undefRef(result_ty);
-
-                const elems = try sema.arena.alloc(InternPool.Index, vec_len);
-                for (elems, 0..) |*elem, i| {
-                    const elem_val = try val.elemValue(sema.mod, i);
-                    elem.* = try (try eval(elem_val, scalar_ty, sema.arena, sema.mod)).intern(scalar_ty, mod);
-                }
-                return Air.internedToRef((try mod.intern(.{ .aggregate = .{
-                    .ty = result_ty.toIntern(),
-                    .storage = .{ .elems = elems },
-                } })));
-            }
-
-            try sema.requireRuntimeBlock(block, operand_src, null);
-            return block.addUnOp(air_tag, operand);
-        },
-        .ComptimeFloat, .Float => {
-            if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
-                if (operand_val.isUndef(mod))
-                    return mod.undefRef(operand_ty);
-                const result_val = try eval(operand_val, operand_ty, sema.arena, sema.mod);
-                return Air.internedToRef(result_val.toIntern());
-            }
-
-            try sema.requireRuntimeBlock(block, operand_src, null);
-            return block.addUnOp(air_tag, operand);
-        },
-        else => unreachable,
-    }
+    return (try sema.maybeConstantUnaryMath(operand, operand_ty, eval)) orelse {
+        try sema.requireRuntimeBlock(block, operand_src, null);
+        return block.addUnOp(air_tag, operand);
+    };
 }
 
 fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -37503,7 +37530,7 @@ fn float128IntPartToBigInt(
     float: f128,
 ) !std.math.big.int.Managed {
     const is_negative = std.math.signbit(float);
-    const floored = @floor(@fabs(float));
+    const floored = @floor(@abs(float));
 
     var rational = try std.math.big.Rational.init(arena);
     defer rational.q.deinit();

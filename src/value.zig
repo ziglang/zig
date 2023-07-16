@@ -1989,7 +1989,7 @@ pub const Value = struct {
             return 1;
         }
 
-        const w_value = @fabs(scalar);
+        const w_value = @abs(scalar);
         return @divFloor(@as(std.math.big.Limb, @intFromFloat(std.math.log2(w_value))), @typeInfo(std.math.big.Limb).Int.bits) + 1;
     }
 
@@ -3706,36 +3706,55 @@ pub const Value = struct {
         } })).toValue();
     }
 
-    pub fn fabs(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
-            const scalar_ty = float_type.scalarType(mod);
+    pub fn abs(val: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
+        if (ty.zigTypeTag(mod) == .Vector) {
+            const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try (try fabsScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
+                scalar.* = try (try absScalar(elem_val, scalar_ty, mod, arena)).intern(scalar_ty, mod);
             }
             return (try mod.intern(.{ .aggregate = .{
-                .ty = float_type.toIntern(),
+                .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
             } })).toValue();
         }
-        return fabsScalar(val, float_type, mod);
+        return absScalar(val, ty, mod, arena);
     }
 
-    pub fn fabsScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
-        const target = mod.getTarget();
-        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
-            16 => .{ .f16 = @fabs(val.toFloat(f16, mod)) },
-            32 => .{ .f32 = @fabs(val.toFloat(f32, mod)) },
-            64 => .{ .f64 = @fabs(val.toFloat(f64, mod)) },
-            80 => .{ .f80 = @fabs(val.toFloat(f80, mod)) },
-            128 => .{ .f128 = @fabs(val.toFloat(f128, mod)) },
+    pub fn absScalar(val: Value, ty: Type, mod: *Module, arena: Allocator) Allocator.Error!Value {
+        switch (ty.zigTypeTag(mod)) {
+            .Int => {
+                var buffer: Value.BigIntSpace = undefined;
+                var operand_bigint = try val.toBigInt(&buffer, mod).toManaged(arena);
+                operand_bigint.abs();
+
+                return mod.intValue_big(try ty.toUnsigned(mod), operand_bigint.toConst());
+            },
+            .ComptimeInt => {
+                var buffer: Value.BigIntSpace = undefined;
+                var operand_bigint = try val.toBigInt(&buffer, mod).toManaged(arena);
+                operand_bigint.abs();
+
+                return mod.intValue_big(ty, operand_bigint.toConst());
+            },
+            .ComptimeFloat, .Float => {
+                const target = mod.getTarget();
+                const storage: InternPool.Key.Float.Storage = switch (ty.floatBits(target)) {
+                    16 => .{ .f16 = @abs(val.toFloat(f16, mod)) },
+                    32 => .{ .f32 = @abs(val.toFloat(f32, mod)) },
+                    64 => .{ .f64 = @abs(val.toFloat(f64, mod)) },
+                    80 => .{ .f80 = @abs(val.toFloat(f80, mod)) },
+                    128 => .{ .f128 = @abs(val.toFloat(f128, mod)) },
+                    else => unreachable,
+                };
+                return (try mod.intern(.{ .float = .{
+                    .ty = ty.toIntern(),
+                    .storage = storage,
+                } })).toValue();
+            },
             else => unreachable,
-        };
-        return (try mod.intern(.{ .float = .{
-            .ty = float_type.toIntern(),
-            .storage = storage,
-        } })).toValue();
+        }
     }
 
     pub fn floor(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {

@@ -1866,12 +1866,13 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .log => func.airUnaryFloatOp(inst, .log),
         .log2 => func.airUnaryFloatOp(inst, .log2),
         .log10 => func.airUnaryFloatOp(inst, .log10),
-        .fabs => func.airUnaryFloatOp(inst, .fabs),
         .floor => func.airUnaryFloatOp(inst, .floor),
         .ceil => func.airUnaryFloatOp(inst, .ceil),
         .round => func.airUnaryFloatOp(inst, .round),
         .trunc_float => func.airUnaryFloatOp(inst, .trunc),
         .neg => func.airUnaryFloatOp(inst, .neg),
+
+        .abs => func.airAbs(inst),
 
         .add_with_overflow => func.airAddSubWithOverflow(inst, .add),
         .sub_with_overflow => func.airAddSubWithOverflow(inst, .sub),
@@ -2785,6 +2786,82 @@ const FloatOp = enum {
         };
     }
 };
+
+fn airAbs(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const mod = func.bin_file.base.options.module.?;
+    const ty_op = func.air.instructions.items(.data)[inst].ty_op;
+    const operand = try func.resolveInst(ty_op.operand);
+    const ty = func.typeOf(ty_op.operand);
+    const scalar_ty = ty.scalarType(mod);
+
+    switch (scalar_ty.zigTypeTag(mod)) {
+        .Int => if (ty.zigTypeTag(mod) == .Vector) {
+            return func.fail("TODO implement airAbs for {}", .{ty.fmt(mod)});
+        } else {
+            const int_bits = ty.intInfo(mod).bits;
+            const wasm_bits = toWasmBits(int_bits) orelse {
+                return func.fail("TODO: airAbs for signed integers larger than '{d}' bits", .{int_bits});
+            };
+
+            const op = try operand.toLocal(func, ty);
+
+            try func.emitWValue(op);
+            switch (wasm_bits) {
+                32 => {
+                    if (wasm_bits != int_bits) {
+                        try func.addImm32(wasm_bits - int_bits);
+                        try func.addTag(.i32_shl);
+                    }
+                    try func.addImm32(31);
+                    try func.addTag(.i32_shr_s);
+
+                    const tmp = try func.allocLocal(ty);
+                    try func.addLabel(.local_tee, tmp.local.value);
+
+                    try func.emitWValue(op);
+                    try func.addTag(.i32_xor);
+                    try func.emitWValue(tmp);
+                    try func.addTag(.i32_sub);
+
+                    if (int_bits != wasm_bits) {
+                        try func.emitWValue(WValue{ .imm32 = (@as(u32, 1) << @intCast(int_bits)) - 1 });
+                        try func.addTag(.i32_and);
+                    }
+                },
+                64 => {
+                    if (wasm_bits != int_bits) {
+                        try func.addImm64(wasm_bits - int_bits);
+                        try func.addTag(.i64_shl);
+                    }
+                    try func.addImm64(63);
+                    try func.addTag(.i64_shr_s);
+
+                    const tmp = try func.allocLocal(ty);
+                    try func.addLabel(.local_tee, tmp.local.value);
+
+                    try func.emitWValue(op);
+                    try func.addTag(.i64_xor);
+                    try func.emitWValue(tmp);
+                    try func.addTag(.i64_sub);
+
+                    if (int_bits != wasm_bits) {
+                        try func.emitWValue(WValue{ .imm64 = (@as(u64, 1) << @intCast(int_bits)) - 1 });
+                        try func.addTag(.i64_and);
+                    }
+                },
+                else => return func.fail("TODO: Implement airAbs for {}", .{ty.fmt(mod)}),
+            }
+
+            const result = try (WValue{ .stack = {} }).toLocal(func, ty);
+            func.finishAir(inst, result, &.{ty_op.operand});
+        },
+        .Float => {
+            const result = try (try func.floatOp(.fabs, ty, &.{operand})).toLocal(func, ty);
+            func.finishAir(inst, result, &.{ty_op.operand});
+        },
+        else => unreachable,
+    }
+}
 
 fn airUnaryFloatOp(func: *CodeGen, inst: Air.Inst.Index, op: FloatOp) InnerError!void {
     const un_op = func.air.instructions.items(.data)[inst].un_op;

@@ -356,9 +356,10 @@ pub const Inst = struct {
         /// Base 10 logarithm of a floating point number.
         /// Uses the `un_op` field.
         log10,
-        /// Aboslute value of a floating point number.
-        /// Uses the `un_op` field.
-        fabs,
+        /// Aboslute value of an integer, floating point number or vector.
+        /// Result type is always unsigned if the operand is an integer.
+        /// Uses the `ty_op` field.
+        abs,
         /// Floor: rounds a floating pointer number down to the nearest integer.
         /// Uses the `un_op` field.
         floor,
@@ -1279,7 +1280,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .log,
         .log2,
         .log10,
-        .fabs,
         .floor,
         .ceil,
         .round,
@@ -1384,6 +1384,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .addrspace_cast,
         .c_va_arg,
         .c_va_copy,
+        .abs,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,
@@ -1697,7 +1698,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .log,
         .log2,
         .log10,
-        .fabs,
+        .abs,
         .floor,
         .ceil,
         .round,

@@ -2912,6 +2912,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             },
             .div_floor => try airBinBuiltinCall(f, inst, "div_floor", .none),
             .mod       => try airBinBuiltinCall(f, inst, "mod", .none),
+            .abs       => try airAbs(f, inst),
 
             .add_wrap => try airBinBuiltinCall(f, inst, "addw", .bits),
             .sub_wrap => try airBinBuiltinCall(f, inst, "subw", .bits),
@@ -2931,7 +2932,6 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .log         => try airUnFloatOp(f, inst, "log"),
             .log2        => try airUnFloatOp(f, inst, "log2"),
             .log10       => try airUnFloatOp(f, inst, "log10"),
-            .fabs        => try airUnFloatOp(f, inst, "fabs"),
             .floor       => try airUnFloatOp(f, inst, "floor"),
             .ceil        => try airUnFloatOp(f, inst, "ceil"),
             .round       => try airUnFloatOp(f, inst, "round"),
@@ -7076,23 +7076,35 @@ fn airFloatNeg(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airUnFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CValue {
+fn airAbs(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const operand = try f.resolveInst(ty_op.operand);
+    const ty = f.typeOf(ty_op.operand);
+    const scalar_ty = ty.scalarType(mod);
 
-    const operand = try f.resolveInst(un_op);
-    try reap(f, inst, &.{un_op});
+    switch (scalar_ty.zigTypeTag(mod)) {
+        .Int => if (ty.zigTypeTag(mod) == .Vector) {
+            return f.fail("TODO implement airAbs for '{}'", .{ty.fmt(mod)});
+        } else {
+            return airUnBuiltinCall(f, inst, "abs", .none);
+        },
+        .Float => return unFloatOp(f, inst, operand, ty, "fabs"),
+        else => unreachable,
+    }
+}
 
-    const inst_ty = f.typeOfIndex(inst);
-    const inst_scalar_ty = inst_ty.scalarType(mod);
+fn unFloatOp(f: *Function, inst: Air.Inst.Index, operand: CValue, ty: Type, operation: []const u8) !CValue {
+    const mod = f.object.dg.module;
+    const scalar_ty = ty.scalarType(mod);
 
     const writer = f.object.writer();
-    const local = try f.allocLocal(inst, inst_ty);
-    const v = try Vectorize.start(f, inst, writer, inst_ty);
+    const local = try f.allocLocal(inst, ty);
+    const v = try Vectorize.start(f, inst, writer, ty);
     try f.writeCValue(writer, local, .Other);
     try v.elem(f, writer);
     try writer.writeAll(" = zig_libc_name_");
-    try f.object.dg.renderTypeForBuiltinFnName(writer, inst_scalar_ty);
+    try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
     try writer.writeByte('(');
     try writer.writeAll(operation);
     try writer.writeAll(")(");
@@ -7102,6 +7114,16 @@ fn airUnFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CVal
     try v.end(f, inst, writer);
 
     return local;
+}
+
+fn airUnFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CValue {
+    const un_op = f.air.instructions.items(.data)[inst].un_op;
+
+    const operand = try f.resolveInst(un_op);
+    try reap(f, inst, &.{un_op});
+
+    const inst_ty = f.typeOfIndex(inst);
+    return unFloatOp(f, inst, operand, inst_ty, operation);
 }
 
 fn airBinFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CValue {

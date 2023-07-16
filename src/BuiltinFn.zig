@@ -102,7 +102,7 @@ pub const Tag = enum {
     log,
     log2,
     log10,
-    fabs,
+    abs,
     floor,
     ceil,
     trunc,
@@ -874,9 +874,9 @@ pub const list = list: {
             },
         },
         .{
-            "@fabs",
+            "@abs",
             .{
-                .tag = .fabs,
+                .tag = .abs,
                 .param_count = 1,
             },
         },

@@ -1809,11 +1809,13 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .round,
             => try self.airUnaryMath(inst),
 
-            .floor => try self.airRound(inst, 0b1_0_01),
-            .ceil => try self.airRound(inst, 0b1_0_10),
+            .floor       => try self.airRound(inst, 0b1_0_01),
+            .ceil        => try self.airRound(inst, 0b1_0_10),
             .trunc_float => try self.airRound(inst, 0b1_0_11),
-            .sqrt => try self.airSqrt(inst),
-            .neg, .fabs => try self.airFloatSign(inst),
+            .sqrt        => try self.airSqrt(inst),
+            .neg         => try self.airFloatSign(inst),
+
+            .abs => try self.airAbs(inst),
 
             .add_with_overflow => try self.airAddSubWithOverflow(inst),
             .sub_with_overflow => try self.airAddSubWithOverflow(inst),
@@ -4885,28 +4887,26 @@ fn airBitReverse(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
-fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
+fn floatSign(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, ty: Type) !void {
     const mod = self.bin_file.options.module.?;
     const tag = self.air.instructions.items(.tag)[inst];
-    const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const ty = self.typeOf(un_op);
     const abi_size: u32 = switch (ty.abiSize(mod)) {
         1...16 => 16,
         17...32 => 32,
-        else => return self.fail("TODO implement airFloatSign for {}", .{
+        else => return self.fail("TODO implement floatSign for {}", .{
             ty.fmt(mod),
         }),
     };
     const scalar_bits = ty.scalarType(mod).floatBits(self.target.*);
-    if (scalar_bits == 80) return self.fail("TODO implement airFloatSign for {}", .{
+    if (scalar_bits == 80) return self.fail("TODO implement floatSign for {}", .{
         ty.fmt(mod),
     });
 
-    const src_mcv = try self.resolveInst(un_op);
+    const src_mcv = try self.resolveInst(operand);
     const src_lock = if (src_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
     defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const dst_mcv: MCValue = if (src_mcv.isRegister() and self.reuseOperand(inst, un_op, 0, src_mcv))
+    const dst_mcv: MCValue = if (src_mcv.isRegister() and self.reuseOperand(inst, operand, 0, src_mcv))
         src_mcv
     else if (self.hasFeature(.avx))
         .{ .register = try self.register_manager.allocReg(inst, sse) }
@@ -4923,7 +4923,7 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
 
     const sign_val = switch (tag) {
         .neg => try vec_ty.minInt(mod, vec_ty),
-        .fabs => try vec_ty.maxInt(mod, vec_ty),
+        .abs => try vec_ty.maxInt(mod, vec_ty),
         else => unreachable,
     };
 
@@ -4939,24 +4939,24 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
         switch (scalar_bits) {
             16, 128 => if (abi_size <= 16 or self.hasFeature(.avx2)) switch (tag) {
                 .neg => .{ .vp_, .xor },
-                .fabs => .{ .vp_, .@"and" },
+                .abs => .{ .vp_, .@"and" },
                 else => unreachable,
             } else switch (tag) {
                 .neg => .{ .v_ps, .xor },
-                .fabs => .{ .v_ps, .@"and" },
+                .abs => .{ .v_ps, .@"and" },
                 else => unreachable,
             },
             32 => switch (tag) {
                 .neg => .{ .v_ps, .xor },
-                .fabs => .{ .v_ps, .@"and" },
+                .abs => .{ .v_ps, .@"and" },
                 else => unreachable,
             },
             64 => switch (tag) {
                 .neg => .{ .v_pd, .xor },
-                .fabs => .{ .v_pd, .@"and" },
+                .abs => .{ .v_pd, .@"and" },
                 else => unreachable,
             },
-            80 => return self.fail("TODO implement airFloatSign for {}", .{
+            80 => return self.fail("TODO implement floatSign for {}", .{
                 ty.fmt(self.bin_file.options.module.?),
             }),
             else => unreachable,
@@ -4971,20 +4971,20 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
         switch (scalar_bits) {
             16, 128 => switch (tag) {
                 .neg => .{ .p_, .xor },
-                .fabs => .{ .p_, .@"and" },
+                .abs => .{ .p_, .@"and" },
                 else => unreachable,
             },
             32 => switch (tag) {
                 .neg => .{ ._ps, .xor },
-                .fabs => .{ ._ps, .@"and" },
+                .abs => .{ ._ps, .@"and" },
                 else => unreachable,
             },
             64 => switch (tag) {
                 .neg => .{ ._pd, .xor },
-                .fabs => .{ ._pd, .@"and" },
+                .abs => .{ ._pd, .@"and" },
                 else => unreachable,
             },
-            80 => return self.fail("TODO implement airFloatSign for {}", .{
+            80 => return self.fail("TODO implement floatSign for {}", .{
                 ty.fmt(self.bin_file.options.module.?),
             }),
             else => unreachable,
@@ -4992,7 +4992,14 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
         registerAlias(dst_reg, abi_size),
         sign_mem,
     );
-    return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
+    return self.finishAir(inst, dst_mcv, .{ operand, .none, .none });
+}
+
+fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const ty = self.typeOf(un_op);
+
+    return self.floatSign(inst, un_op, ty);
 }
 
 fn airRound(self: *Self, inst: Air.Inst.Index, mode: u4) !void {
@@ -5079,6 +5086,52 @@ fn genRound(self: *Self, ty: Type, dst_reg: Register, src_mcv: MCValue, mode: u4
                 try self.copyToTmpRegister(ty, src_mcv), abi_size),
             Immediate.u(mode),
         ),
+    }
+}
+
+fn airAbs(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const ty = self.typeOf(ty_op.operand);
+    const scalar_ty = ty.scalarType(mod);
+
+    switch (scalar_ty.zigTypeTag(mod)) {
+        .Int => if (ty.zigTypeTag(mod) == .Vector) {
+            return self.fail("TODO implement airAbs for {}", .{ty.fmt(mod)});
+        } else {
+            if (ty.abiSize(mod) > 8) {
+                return self.fail("TODO implement abs for integer abi sizes larger than 8", .{});
+            }
+            const src_mcv = try self.resolveInst(ty_op.operand);
+            const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
+
+            try self.genUnOpMir(.{ ._, .neg }, ty, dst_mcv);
+
+            const cmov_abi_size = @max(@as(u32, @intCast(ty.abiSize(mod))), 2);
+            switch (src_mcv) {
+                .register => |val_reg| try self.asmCmovccRegisterRegister(
+                    registerAlias(dst_mcv.register, cmov_abi_size),
+                    registerAlias(val_reg, cmov_abi_size),
+                    .l,
+                ),
+                .memory, .indirect, .load_frame => try self.asmCmovccRegisterMemory(
+                    registerAlias(dst_mcv.register, cmov_abi_size),
+                    src_mcv.mem(Memory.PtrSize.fromSize(cmov_abi_size)),
+                    .l,
+                ),
+                else => {
+                    const val_reg = try self.copyToTmpRegister(ty, src_mcv);
+                    try self.asmCmovccRegisterRegister(
+                        registerAlias(dst_mcv.register, cmov_abi_size),
+                        registerAlias(val_reg, cmov_abi_size),
+                        .l,
+                    );
+                },
+            }
+            return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
+        },
+        .Float => return self.floatSign(inst, ty_op.operand, ty),
+        else => unreachable,
     }
 }
 
