@@ -234,6 +234,10 @@ pub const build_cases = [_]BuildCase{
         .build_root = "test/standalone/stack_iterator",
         .import = @import("standalone/stack_iterator/build.zig"),
     },
+    .{
+        .build_root = "test/standalone/coff_dwarf",
+        .import = @import("standalone/coff_dwarf/build.zig"),
+    },
 };
 
 const std = @import("std");
