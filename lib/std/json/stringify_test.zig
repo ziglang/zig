@@ -155,8 +155,6 @@ test "stringify string" {
     try teststringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}", .{ .escape_unicode = true });
     try teststringify("\"with unicode\u{10FFFF}\"", "with unicode\u{10FFFF}", .{});
     try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", .{ .escape_unicode = true });
-    try teststringify("\"/\"", "/", .{});
-    try teststringify("\"\\/\"", "/", .{ .escape_solidus = true });
 }
 
 test "stringify many-item sentinel-terminated string" {

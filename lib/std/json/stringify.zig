@@ -28,12 +28,8 @@ pub const StringifyOptions = struct {
 
     /// Arrays/slices of u8 are typically encoded as JSON strings.
     /// This option emits them as arrays of numbers instead.
-    /// Does not affect calls to objectField().
+    /// Does not affect calls to `objectField()`.
     emit_strings_as_arrays: bool = false,
-
-    /// Should '/' be escaped in strings?
-    /// TODO: Remove this option.
-    escape_solidus: bool = false,
 
     /// Should unicode characters be escaped in strings?
     escape_unicode: bool = false,
@@ -483,18 +479,10 @@ pub fn encodeJsonStringChars(chars: []const u8, options: StringifyOptions, write
     while (i < chars.len) : (i += 1) {
         switch (chars[i]) {
             // normal ascii character
-            0x20...0x21, 0x23...0x2E, 0x30...0x5B, 0x5D...0x7F => |c| try writer.writeByte(c),
+            0x20...0x21, 0x23...0x5B, 0x5D...0x7F => |c| try writer.writeByte(c),
             // only 2 characters that *must* be escaped
             '\\' => try writer.writeAll("\\\\"),
             '\"' => try writer.writeAll("\\\""),
-            // solidus is optional to escape
-            '/' => {
-                if (options.escape_solidus) {
-                    try writer.writeAll("\\/");
-                } else {
-                    try writer.writeByte('/');
-                }
-            },
             // control characters with short escapes
             0x8 => try writer.writeAll("\\b"),
             0xC => try writer.writeAll("\\f"),
