@@ -24,11 +24,12 @@ pub fn ArrayHashMap(comptime T: type) type {
 
             if (.object_begin != try source.next()) return error.UnexpectedToken;
             while (true) {
-                const token = try source.nextAlloc(allocator, .alloc_if_needed);
+                const token = try source.nextAlloc(allocator, options.allocate.?);
                 switch (token) {
                     inline .string, .allocated_string => |k| {
                         const gop = try map.getOrPut(allocator, k);
-                        if (token == .allocated_string) {
+                        // Don't free the key if its allocation was intentional
+                        if (token == .allocated_string and options.allocate != .alloc_always) {
                             // Free the key before recursing in case we're using an allocator
                             // that optimizes freeing the last allocated object.
                             allocator.free(k);
