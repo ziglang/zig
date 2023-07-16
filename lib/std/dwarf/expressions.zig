@@ -520,7 +520,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
                     const value: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
                     self.stack.items[self.stack.items.len - 1] = .{
-                        .generic = std.math.absCast(value),
+                        .generic = @abs(value),
                     };
                 },
                 OP.@"and" => {
