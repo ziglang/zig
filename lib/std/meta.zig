@@ -1104,6 +1104,6 @@ pub fn isError(error_union: anytype) bool {
 }
 
 test "isError" {
-    try std.testing.expect(isError(math.absInt(@as(i8, -128))));
-    try std.testing.expect(!isError(math.absInt(@as(i8, -127))));
+    try std.testing.expect(isError(math.divTrunc(u8, 5, 0)));
+    try std.testing.expect(!isError(math.divTrunc(u8, 5, 5)));
 }

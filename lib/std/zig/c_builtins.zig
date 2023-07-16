@@ -88,13 +88,19 @@ pub inline fn __builtin_log10f(val: f32) f32 {
 
 // Standard C Library bug: The absolute value of the most negative integer remains negative.
 pub inline fn __builtin_abs(val: c_int) c_int {
-    return std.math.absInt(val) catch std.math.minInt(c_int);
+    return if (val == std.math.minInt(c_int)) val else @intCast(@abs(val));
+}
+pub inline fn __builtin_labs(val: c_long) c_long {
+    return if (val == std.math.minInt(c_long)) val else @intCast(@abs(val));
+}
+pub inline fn __builtin_llabs(val: c_longlong) c_longlong {
+    return if (val == std.math.minInt(c_longlong)) val else @intCast(@abs(val));
 }
 pub inline fn __builtin_fabs(val: f64) f64 {
-    return @fabs(val);
+    return @abs(val);
 }
 pub inline fn __builtin_fabsf(val: f32) f32 {
-    return @fabs(val);
+    return @abs(val);
 }
 
 pub inline fn __builtin_floor(val: f64) f64 {
