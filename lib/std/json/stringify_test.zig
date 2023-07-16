@@ -117,6 +117,7 @@ test "stringify basic types" {
     try testStringify("4.2e+01", @as(f32, 42), .{});
     try testStringify("4.2e+01", @as(f64, 42), .{});
     try testStringify("\"ItBroke\"", @as(anyerror, error.ItBroke), .{});
+    try testStringify("\"ItBroke\"", error.ItBroke, .{});
 }
 
 test "stringify string" {
@@ -175,9 +176,18 @@ test "stringify struct" {
     }{ .foo = 42 }, .{});
 }
 
-test "stringify struct with string as array" {
+test "emit_strings_as_arrays" {
+    // Should only affect string values, not object keys.
     try testStringify("{\"foo\":\"bar\"}", .{ .foo = "bar" }, .{});
     try testStringify("{\"foo\":[98,97,114]}", .{ .foo = "bar" }, .{ .emit_strings_as_arrays = true });
+    // Should *not* affect these types:
+    try testStringify("\"foo\"", @as(enum { foo, bar }, .foo), .{ .emit_strings_as_arrays = true });
+    try testStringify("\"ItBroke\"", error.ItBroke, .{ .emit_strings_as_arrays = true });
+    // Should work on these:
+    try testStringify("\"bar\"", @Vector(3, u8){ 'b', 'a', 'r' }, .{});
+    try testStringify("[98,97,114]", @Vector(3, u8){ 'b', 'a', 'r' }, .{ .emit_strings_as_arrays = true });
+    try testStringify("\"bar\"", [3]u8{ 'b', 'a', 'r' }, .{});
+    try testStringify("[98,97,114]", [3]u8{ 'b', 'a', 'r' }, .{ .emit_strings_as_arrays = true });
 }
 
 test "stringify struct with indentation" {

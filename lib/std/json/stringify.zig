@@ -121,6 +121,7 @@ pub fn writeStreamUnsafe(out_stream: anytype, options: StringifyOptions) WriteSt
 ///      * If the union declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
 ///  * Zig `enum` -> JSON string naming the active tag.
 ///      * If the enum declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
+///  * Zig error -> JSON string naming the error.
 ///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
 pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, unsafe }) type {
     return struct {
@@ -338,12 +339,7 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
                         return value.jsonStringify(self);
                     }
 
-                    const tmp = self.options.emit_strings_as_arrays;
-                    defer {
-                        self.options.emit_strings_as_arrays = tmp;
-                    }
-                    self.options.emit_strings_as_arrays = false;
-                    return self.write(@tagName(value));
+                    return self.stringValue(@tagName(value));
                 },
                 .Union => {
                     if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
@@ -413,7 +409,7 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
                     }
                     return;
                 },
-                .ErrorSet => return self.write(@as([]const u8, @errorName(value))),
+                .ErrorSet => return self.stringValue(@errorName(value)),
                 .Pointer => |ptr_info| switch (ptr_info.size) {
                     .One => switch (@typeInfo(ptr_info.child)) {
                         .Array => {
@@ -433,10 +429,7 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
                         if (ptr_info.child == u8) {
                             // This is a []const u8, or some similar Zig string.
                             if (!self.options.emit_strings_as_arrays and std.unicode.utf8ValidateSlice(slice)) {
-                                try self.valueStart();
-                                try encodeJsonString(slice, self.options, self.stream);
-                                self.valueDone();
-                                return;
+                                return self.stringValue(slice);
                             }
                         }
 
@@ -460,6 +453,12 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
                 else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
             }
             unreachable;
+        }
+
+        fn stringValue(self: *Self, s: []const u8) !void {
+            try self.valueStart();
+            try encodeJsonString(s, self.options, self.stream);
+            self.valueDone();
         }
 
         pub const arrayElem = @compileError("Deprecated; You don't need to call this anymore.");
