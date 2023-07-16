@@ -10,7 +10,7 @@ const ARRAY_MODE = @import("scanner.zig").ARRAY_MODE;
 
 pub const StringifyOptions = struct {
     pub const Whitespace = struct {
-        /// How many indentation levels deep are we?
+        /// Additional levels of indentation to prefix every line.
         indent_level: usize = 0,
 
         /// What character(s) should be used for indentation?
@@ -30,13 +30,17 @@ pub const StringifyOptions = struct {
     /// Should optional fields with null value be written?
     emit_null_optional_fields: bool = true,
 
+    /// Arrays/slices of u8 are typically encoded as JSON strings.
+    /// This option emits them as arrays of numbers instead.
+    /// Does not affect calls to objectField().
     emit_strings_as_arrays: bool = false,
 
     /// Should '/' be escaped in strings?
+    /// TODO: Remove this option.
     escape_solidus: bool = false,
 
-    /// Should Unicode code points greater than 0x7f be escaped using `\u` sequences?
-    ensure_ascii: bool = false,
+    /// Should unicode characters be escaped in strings?
+    escape_unicode: bool = false,
 };
 
 /// If `value` has a method called `jsonStringify`, this will call that method instead of the
