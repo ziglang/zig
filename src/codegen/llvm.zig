@@ -4729,6 +4729,7 @@ pub const FuncGen = struct {
                 .div_exact => try self.airDivExact(inst, .normal),
                 .rem       => try self.airRem(inst, .normal),
                 .mod       => try self.airMod(inst, .normal),
+                .abs       => try self.airAbs(inst),
                 .ptr_add   => try self.airPtrAdd(inst),
                 .ptr_sub   => try self.airPtrSub(inst),
                 .shl       => try self.airShl(inst),
@@ -4766,7 +4767,6 @@ pub const FuncGen = struct {
                 .log          => try self.airUnaryOp(inst, .log),
                 .log2         => try self.airUnaryOp(inst, .log2),
                 .log10        => try self.airUnaryOp(inst, .log10),
-                .fabs         => try self.airUnaryOp(inst, .fabs),
                 .floor        => try self.airUnaryOp(inst, .floor),
                 .ceil         => try self.airUnaryOp(inst, .ceil),
                 .round        => try self.airUnaryOp(inst, .round),
@@ -8235,6 +8235,28 @@ pub const FuncGen = struct {
         return self.wip.bin(if (is_exact)
             if (is_signed_int) .@"ashr exact" else .@"lshr exact"
         else if (is_signed_int) .ashr else .lshr, lhs, casted_rhs, "");
+    }
+
+    fn airAbs(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = self.dg.object;
+        const mod = o.module;
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.typeOf(ty_op.operand);
+        const scalar_ty = operand_ty.scalarType(mod);
+
+        switch (scalar_ty.zigTypeTag(mod)) {
+            .Int => return self.wip.callIntrinsic(
+                .normal,
+                .none,
+                .abs,
+                &.{try o.lowerType(operand_ty)},
+                &.{ operand, try o.builder.intValue(.i1, 0) },
+                "",
+            ),
+            .Float => return self.buildFloatOp(.fabs, .normal, operand_ty, 1, .{operand}),
+            else => unreachable,
+        }
     }
 
     fn airIntCast(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {

@@ -3197,6 +3197,17 @@ pub const Type = struct {
         };
     }
 
+    pub fn toUnsigned(ty: Type, mod: *Module) !Type {
+        return switch (ty.zigTypeTag(mod)) {
+            .Int => mod.intType(.unsigned, ty.intInfo(mod).bits),
+            .Vector => try mod.vectorType(.{
+                .len = ty.vectorLen(mod),
+                .child = (try ty.childType(mod).toUnsigned(mod)).toIntern(),
+            }),
+            else => unreachable,
+        };
+    }
+
     pub const @"u1": Type = .{ .ip_index = .u1_type };
     pub const @"u8": Type = .{ .ip_index = .u8_type };
     pub const @"u16": Type = .{ .ip_index = .u16_type };
