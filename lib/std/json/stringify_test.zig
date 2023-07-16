@@ -91,13 +91,13 @@ test "stringify null optional fields" {
         another_optional: ?[]const u8 = null,
         another_required: []const u8 = "something else",
     };
-    try teststringify(
+    try testStringify(
         \\{"optional":null,"required":"something","another_optional":null,"another_required":"something else"}
     ,
         MyStruct{},
         .{},
     );
-    try teststringify(
+    try testStringify(
         \\{"required":"something","another_required":"something else"}
     ,
         MyStruct{},
@@ -106,47 +106,47 @@ test "stringify null optional fields" {
 }
 
 test "stringify basic types" {
-    try teststringify("false", false, .{});
-    try teststringify("true", true, .{});
-    try teststringify("null", @as(?u8, null), .{});
-    try teststringify("null", @as(?*u32, null), .{});
-    try teststringify("42", 42, .{});
-    try teststringify("4.2e+01", 42.0, .{});
-    try teststringify("42", @as(u8, 42), .{});
-    try teststringify("42", @as(u128, 42), .{});
-    try teststringify("4.2e+01", @as(f32, 42), .{});
-    try teststringify("4.2e+01", @as(f64, 42), .{});
-    try teststringify("\"ItBroke\"", @as(anyerror, error.ItBroke), .{});
+    try testStringify("false", false, .{});
+    try testStringify("true", true, .{});
+    try testStringify("null", @as(?u8, null), .{});
+    try testStringify("null", @as(?*u32, null), .{});
+    try testStringify("42", 42, .{});
+    try testStringify("4.2e+01", 42.0, .{});
+    try testStringify("42", @as(u8, 42), .{});
+    try testStringify("42", @as(u128, 42), .{});
+    try testStringify("4.2e+01", @as(f32, 42), .{});
+    try testStringify("4.2e+01", @as(f64, 42), .{});
+    try testStringify("\"ItBroke\"", @as(anyerror, error.ItBroke), .{});
 }
 
 test "stringify string" {
-    try teststringify("\"hello\"", "hello", .{});
-    try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r", .{});
-    try teststringify("\"with\\nescapes\\r\"", "with\nescapes\r", .{ .escape_unicode = true });
-    try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}", .{});
-    try teststringify("\"with unicode\\u0001\"", "with unicode\u{1}", .{ .escape_unicode = true });
-    try teststringify("\"with unicode\u{80}\"", "with unicode\u{80}", .{});
-    try teststringify("\"with unicode\\u0080\"", "with unicode\u{80}", .{ .escape_unicode = true });
-    try teststringify("\"with unicode\u{FF}\"", "with unicode\u{FF}", .{});
-    try teststringify("\"with unicode\\u00ff\"", "with unicode\u{FF}", .{ .escape_unicode = true });
-    try teststringify("\"with unicode\u{100}\"", "with unicode\u{100}", .{});
-    try teststringify("\"with unicode\\u0100\"", "with unicode\u{100}", .{ .escape_unicode = true });
-    try teststringify("\"with unicode\u{800}\"", "with unicode\u{800}", .{});
-    try teststringify("\"with unicode\\u0800\"", "with unicode\u{800}", .{ .escape_unicode = true });
-    try teststringify("\"with unicode\u{8000}\"", "with unicode\u{8000}", .{});
-    try teststringify("\"with unicode\\u8000\"", "with unicode\u{8000}", .{ .escape_unicode = true });
-    try teststringify("\"with unicode\u{D799}\"", "with unicode\u{D799}", .{});
-    try teststringify("\"with unicode\\ud799\"", "with unicode\u{D799}", .{ .escape_unicode = true });
-    try teststringify("\"with unicode\u{10000}\"", "with unicode\u{10000}", .{});
-    try teststringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}", .{ .escape_unicode = true });
-    try teststringify("\"with unicode\u{10FFFF}\"", "with unicode\u{10FFFF}", .{});
-    try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", .{ .escape_unicode = true });
+    try testStringify("\"hello\"", "hello", .{});
+    try testStringify("\"with\\nescapes\\r\"", "with\nescapes\r", .{});
+    try testStringify("\"with\\nescapes\\r\"", "with\nescapes\r", .{ .escape_unicode = true });
+    try testStringify("\"with unicode\\u0001\"", "with unicode\u{1}", .{});
+    try testStringify("\"with unicode\\u0001\"", "with unicode\u{1}", .{ .escape_unicode = true });
+    try testStringify("\"with unicode\u{80}\"", "with unicode\u{80}", .{});
+    try testStringify("\"with unicode\\u0080\"", "with unicode\u{80}", .{ .escape_unicode = true });
+    try testStringify("\"with unicode\u{FF}\"", "with unicode\u{FF}", .{});
+    try testStringify("\"with unicode\\u00ff\"", "with unicode\u{FF}", .{ .escape_unicode = true });
+    try testStringify("\"with unicode\u{100}\"", "with unicode\u{100}", .{});
+    try testStringify("\"with unicode\\u0100\"", "with unicode\u{100}", .{ .escape_unicode = true });
+    try testStringify("\"with unicode\u{800}\"", "with unicode\u{800}", .{});
+    try testStringify("\"with unicode\\u0800\"", "with unicode\u{800}", .{ .escape_unicode = true });
+    try testStringify("\"with unicode\u{8000}\"", "with unicode\u{8000}", .{});
+    try testStringify("\"with unicode\\u8000\"", "with unicode\u{8000}", .{ .escape_unicode = true });
+    try testStringify("\"with unicode\u{D799}\"", "with unicode\u{D799}", .{});
+    try testStringify("\"with unicode\\ud799\"", "with unicode\u{D799}", .{ .escape_unicode = true });
+    try testStringify("\"with unicode\u{10000}\"", "with unicode\u{10000}", .{});
+    try testStringify("\"with unicode\\ud800\\udc00\"", "with unicode\u{10000}", .{ .escape_unicode = true });
+    try testStringify("\"with unicode\u{10FFFF}\"", "with unicode\u{10FFFF}", .{});
+    try testStringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", .{ .escape_unicode = true });
 }
 
 test "stringify many-item sentinel-terminated string" {
-    try teststringify("\"hello\"", @as([*:0]const u8, "hello"), .{});
-    try teststringify("\"with\\nescapes\\r\"", @as([*:0]const u8, "with\nescapes\r"), .{ .escape_unicode = true });
-    try teststringify("\"with unicode\\u0001\"", @as([*:0]const u8, "with unicode\u{1}"), .{ .escape_unicode = true });
+    try testStringify("\"hello\"", @as([*:0]const u8, "hello"), .{});
+    try testStringify("\"with\\nescapes\\r\"", @as([*:0]const u8, "with\nescapes\r"), .{ .escape_unicode = true });
+    try testStringify("\"with unicode\\u0001\"", @as([*:0]const u8, "with unicode\u{1}"), .{ .escape_unicode = true });
 }
 
 test "stringify enums" {
@@ -154,8 +154,8 @@ test "stringify enums" {
         foo,
         bar,
     };
-    try teststringify("\"foo\"", E.foo, .{});
-    try teststringify("\"bar\"", E.bar, .{});
+    try testStringify("\"foo\"", E.foo, .{});
+    try testStringify("\"bar\"", E.bar, .{});
 }
 
 test "stringify tagged unions" {
@@ -164,24 +164,24 @@ test "stringify tagged unions" {
         foo: u32,
         bar: bool,
     };
-    try teststringify("{\"nothing\":{}}", T{ .nothing = {} }, .{});
-    try teststringify("{\"foo\":42}", T{ .foo = 42 }, .{});
-    try teststringify("{\"bar\":true}", T{ .bar = true }, .{});
+    try testStringify("{\"nothing\":{}}", T{ .nothing = {} }, .{});
+    try testStringify("{\"foo\":42}", T{ .foo = 42 }, .{});
+    try testStringify("{\"bar\":true}", T{ .bar = true }, .{});
 }
 
 test "stringify struct" {
-    try teststringify("{\"foo\":42}", struct {
+    try testStringify("{\"foo\":42}", struct {
         foo: u32,
     }{ .foo = 42 }, .{});
 }
 
 test "stringify struct with string as array" {
-    try teststringify("{\"foo\":\"bar\"}", .{ .foo = "bar" }, .{});
-    try teststringify("{\"foo\":[98,97,114]}", .{ .foo = "bar" }, .{ .emit_strings_as_arrays = true });
+    try testStringify("{\"foo\":\"bar\"}", .{ .foo = "bar" }, .{});
+    try testStringify("{\"foo\":[98,97,114]}", .{ .foo = "bar" }, .{ .emit_strings_as_arrays = true });
 }
 
 test "stringify struct with indentation" {
-    try teststringify(
+    try testStringify(
         \\{
         \\    "foo": 42,
         \\    "bar": [
@@ -200,7 +200,7 @@ test "stringify struct with indentation" {
         },
         .{ .whitespace = .indent_4 },
     );
-    try teststringify(
+    try testStringify(
         "{\n\t\"foo\": 42,\n\t\"bar\": [\n\t\t1,\n\t\t2,\n\t\t3\n\t]\n}",
         struct {
             foo: u32,
@@ -211,7 +211,7 @@ test "stringify struct with indentation" {
         },
         .{ .whitespace = .indent_tab },
     );
-    try teststringify(
+    try testStringify(
         \\{"foo":42,"bar":[1,2,3]}
     ,
         struct {
@@ -226,7 +226,7 @@ test "stringify struct with indentation" {
 }
 
 test "stringify struct with void field" {
-    try teststringify("{\"foo\":42}", struct {
+    try testStringify("{\"foo\":42}", struct {
         foo: u32,
         bar: void = {},
     }{ .foo = 42 }, .{});
@@ -236,7 +236,7 @@ test "stringify array of structs" {
     const MyStruct = struct {
         foo: u32,
     };
-    try teststringify("[{\"foo\":42},{\"foo\":100},{\"foo\":1000}]", [_]MyStruct{
+    try testStringify("[{\"foo\":42},{\"foo\":100},{\"foo\":1000}]", [_]MyStruct{
         MyStruct{ .foo = 42 },
         MyStruct{ .foo = 100 },
         MyStruct{ .foo = 1000 },
@@ -244,7 +244,7 @@ test "stringify array of structs" {
 }
 
 test "stringify struct with custom stringifier" {
-    try teststringify("[\"something special\",42]", struct {
+    try testStringify("[\"something special\",42]", struct {
         foo: u32,
         const Self = @This();
         pub fn jsonStringify(value: @This(), jws: anytype) !void {
@@ -258,14 +258,16 @@ test "stringify struct with custom stringifier" {
 }
 
 test "stringify vector" {
-    try teststringify("[1,1]", @as(@Vector(2, u32), @splat(1)), .{});
+    try testStringify("[1,1]", @as(@Vector(2, u32), @splat(1)), .{});
+    try testStringify("\"AA\"", @as(@Vector(2, u8), @splat('A')), .{});
+    try testStringify("[65,65]", @as(@Vector(2, u8), @splat('A')), .{ .emit_strings_as_arrays = true });
 }
 
 test "stringify tuple" {
-    try teststringify("[\"foo\",42]", std.meta.Tuple(&.{ []const u8, usize }){ "foo", 42 }, .{});
+    try testStringify("[\"foo\",42]", std.meta.Tuple(&.{ []const u8, usize }){ "foo", 42 }, .{});
 }
 
-fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions) !void {
+fn testStringify(expected: []const u8, value: anytype, options: StringifyOptions) !void {
     const ValidationWriter = struct {
         const Self = @This();
         pub const Writer = std.io.Writer(*Self, Error, write);
@@ -357,4 +359,35 @@ test "comptime stringify" {
         MyStruct{ .foo = 100 },
         MyStruct{ .foo = 1000 },
     }, .{}) catch unreachable;
+}
+
+test "writePreformatted" {
+    var out_buf: [1024]u8 = undefined;
+    var slice_stream = std.io.fixedBufferStream(&out_buf);
+    const out = slice_stream.writer();
+
+    var w = writeStream(testing.allocator, out, .{ .whitespace = .indent_2 });
+    defer w.deinit();
+
+    try w.beginObject();
+    try w.objectField("a");
+    try w.writePreformatted("[  ]");
+    try w.objectField("b");
+    try w.beginArray();
+    try w.writePreformatted("[[]] ");
+    try w.writePreformatted("  {}");
+    try w.endArray();
+    try w.endObject();
+
+    const result = slice_stream.getWritten();
+    const expected =
+        \\{
+        \\  "a": [  ],
+        \\  "b": [
+        \\    [[]] ,
+        \\      {}
+        \\  ]
+        \\}
+    ;
+    try std.testing.expectEqualStrings(expected, result);
 }

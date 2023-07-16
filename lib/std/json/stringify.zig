@@ -35,8 +35,10 @@ pub const StringifyOptions = struct {
     escape_unicode: bool = false,
 };
 
-/// If `value` has a method called `jsonStringify`, this will call that method instead of the
-/// default implementation, passing it the `options` and `out_stream` parameters.
+/// Writes the given value to the `std.io.Writer` stream.
+/// See `WriteStream` for how the given value is serialized into JSON.
+/// The allocator is only required for safety checks for custom `jsonStringify` implementations;
+/// to opt out of the safety checks see `stringifyUnsafe`.
 pub fn stringify(
     allocator: Allocator,
     value: anytype,
@@ -48,19 +50,18 @@ pub fn stringify(
     try jw.write(value);
 }
 
-// TODO: docs
+/// Like `stringify`, but does not require an allocator because it uses `writeStreamUnsafe`.
 pub fn stringifyUnsafe(
     value: anytype,
     options: StringifyOptions,
     out_stream: anytype,
 ) WriteStream(@TypeOf(out_stream), .unsafe).Error!void {
     var jw = writeStreamUnsafe(out_stream, options);
-    defer jw.deinit();
     try jw.write(value);
 }
 
-// Same as `stringify` but accepts an Allocator and stores result in dynamically allocated memory instead of using a Writer.
-// Caller owns returned memory.
+/// Calls `stringify` and stores result in dynamically allocated memory instead of taking a `std.io.Writer`.
+/// Caller owns returned memory.
 pub fn stringifyAlloc(
     allocator: Allocator,
     value: anytype,
@@ -72,12 +73,14 @@ pub fn stringifyAlloc(
     return list.toOwnedSlice();
 }
 
-// TODO: docs
+/// See `WriteStream`.
+/// The caller should call `deinit()` on the returned object.
 pub fn writeStream(allocator: Allocator, out_stream: anytype, options: StringifyOptions) WriteStream(@TypeOf(out_stream), .safe) {
     return WriteStream(@TypeOf(out_stream), .safe).init(allocator, out_stream, options);
 }
 
-// TODO: docs
+/// See `WriteStream`.
+/// The caller does *not* need to call `deinit()` on the returned object.
 pub fn writeStreamUnsafe(out_stream: anytype, options: StringifyOptions) WriteStream(@TypeOf(out_stream), .unsafe) {
     return WriteStream(@TypeOf(out_stream), .unsafe).init(undefined, out_stream, options);
 }
@@ -96,6 +99,29 @@ pub fn writeStreamUnsafe(out_stream: anytype, options: StringifyOptions) WriteSt
 ///  <object> = beginObject ( objectField <value> )* endObject
 ///  <array> = beginArray ( <value> )* endArray
 /// ```
+///
+/// Supported types:
+///  * Zig `bool` -> JSON `true` or `false`.
+///  * Zig `?T` -> `null` or the rendering of `T`.
+///  * Zig `i32`, `u64`, etc. -> JSON number or string.
+///      * If the value is outside the range `±1<<53` (the precise integer rage of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
+///  * Zig floats -> JSON number or string.
+///      * If the value cannot be precisely represented by an f64, it is rendered as a JSON string. Otherwise, it is rendered as JSON number.
+///      * TODO: Float rendering will likely change in the future, e.g. to remove the unnecessary "e+00".
+///  * Zig `[]const u8`, `[]u8`, `*[N]u8`, `@Vector(N, u8)`, and similar -> JSON string.
+///      * See `StringifyOptions.emit_strings_as_arrays`.
+///      * If the content is not valid UTF-8, rendered as an array of numbers instead.
+///  * Zig `[]T`, `[N]T`, `*[N]T`, `@Vector(N, T)`, and similar -> JSON array of the rendering of each item.
+///  * Zig tuple -> JSON array of the rendering of each item.
+///  * Zig `struct` -> JSON object with each field in declaration order.
+///      * If the struct declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`. See `std.json.Value` for an example.
+///      * See `StringifyOptions.emit_null_optional_fields`.
+///  * Zig `union(enum)` -> JSON object with one field named for the active tag and a value representing the payload.
+///      * If the payload is `void`, then the emitted value is `{}`.
+///      * If the union declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
+///  * Zig `enum` -> JSON string naming the active tag.
+///      * If the enum declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
+///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
 pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, unsafe }) type {
     return struct {
         const enable_safety = safety_mode == .safe;
@@ -234,7 +260,10 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
             return self.nesting_stack.bit_len > 0 and self.nesting_stack.peek() == OBJECT_MODE and self.next_punctuation != .colon;
         }
 
-        /// TODO: docs
+        /// An alternative to calling `write` that outputs the given bytes verbatim.
+        /// This function does the usual punctuation and indentation formatting
+        /// assuming the given slice represents a single complete value;
+        /// e.g. `"1"`, `"[]"`, `"[1,2]"`, not `"1,2"`.
         pub fn writePreformatted(self: *Self, value_slice: []const u8) Error!void {
             try self.valueStart();
             try self.stream.writeAll(value_slice);
@@ -247,12 +276,7 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
             self.next_punctuation = .colon;
         }
 
-        /// Supported types:
-        ///
-        /// Number: An integer, float, or `std.math.BigInt`. Emitted as a bare number if it fits losslessly
-        /// in a IEEE 754 double float, otherwise emitted as a string to the full precision.
-        ///
-        /// TODO: more docs.
+        /// See `WriteStream`.
         pub fn write(self: *Self, value: anytype) Error!void {
             const T = @TypeOf(value);
             switch (@typeInfo(T)) {
@@ -314,6 +338,11 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
                         return value.jsonStringify(self);
                     }
 
+                    const tmp = self.options.emit_strings_as_arrays;
+                    defer {
+                        self.options.emit_strings_as_arrays = tmp;
+                    }
+                    self.options.emit_strings_as_arrays = false;
                     return self.write(@tagName(value));
                 },
                 .Union => {
@@ -393,7 +422,6 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
                             return self.write(@as(Slice, value));
                         },
                         else => {
-                            // TODO: avoid loops?
                             return self.write(value.*);
                         },
                     },
