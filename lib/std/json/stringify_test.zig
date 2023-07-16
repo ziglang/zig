@@ -84,20 +84,6 @@ fn getJsonObject(allocator: std.mem.Allocator) !Value {
     return value;
 }
 
-test "json write stream primatives" {
-    var out_buf: [1024]u8 = undefined;
-    var slice_stream = std.io.fixedBufferStream(&out_buf);
-    const out = slice_stream.writer();
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    var w = writeStream(testing.allocator, out, .{ .whitespace = .indent_2 });
-    defer w.deinit();
-    try w.write(null);
-    // TODO
-}
-
 test "stringify null optional fields" {
     const MyStruct = struct {
         optional: ?[]const u8 = null,
