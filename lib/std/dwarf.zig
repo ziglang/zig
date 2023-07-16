@@ -663,7 +663,22 @@ pub const DwarfSection = enum {
 pub const DwarfInfo = struct {
     pub const Section = struct {
         data: []const u8,
+        // Module-relative virtual address.
+        // Only set if the section data was loaded from disk.
+        virtual_address: ?usize = null,
+        // If `data` is owned by this DwarfInfo.
         owned: bool,
+
+        // For sections that are not memory mapped by the loader, this is an offset
+        // from `data.ptr` to where the section would have been mapped. Otherwise,
+        // `data` is directly backed by the section and the offset is zero.
+        pub fn virtualOffset(self: Section, base_address: usize) i64 {
+            return if (self.virtual_address) |va|
+                @as(i64, @intCast(base_address + va)) -
+                    @as(i64, @intCast(@intFromPtr(self.data.ptr)))
+            else
+                0;
+        }
     };
 
     const num_sections = std.enums.directEnumArrayLen(DwarfSection, 0);
@@ -688,6 +703,10 @@ pub const DwarfInfo = struct {
 
     pub fn section(di: DwarfInfo, dwarf_section: DwarfSection) ?[]const u8 {
         return if (di.sections[@intFromEnum(dwarf_section)]) |s| s.data else null;
+    }
+
+    pub fn sectionVirtualOffset(di: DwarfInfo, dwarf_section: DwarfSection, base_address: usize) ?i64 {
+        return if (di.sections[@intFromEnum(dwarf_section)]) |s| s.virtualOffset(base_address) else null;
     }
 
     pub fn deinit(di: *DwarfInfo, allocator: mem.Allocator) void {
@@ -1540,7 +1559,12 @@ pub const DwarfInfo = struct {
         };
     }
 
-    pub fn scanAllUnwindInfo(di: *DwarfInfo, allocator: mem.Allocator, binary_mem: []const u8) !void {
+    /// If .eh_frame_hdr is present, then only the header needs to be parsed.
+    ///
+    /// Otherwise, .eh_frame and .debug_frame are scanned and a sorted list
+    /// of FDEs is built. In this case, the decoded PC ranges in the FDEs
+    /// are all normalized to be relative to the module's base.
+    pub fn scanAllUnwindInfo(di: *DwarfInfo, allocator: mem.Allocator, base_address: usize) !void {
         if (di.section(.eh_frame_hdr)) |eh_frame_hdr| blk: {
             var stream = io.fixedBufferStream(eh_frame_hdr);
             const reader = stream.reader();
@@ -1582,15 +1606,15 @@ pub const DwarfInfo = struct {
 
         const frame_sections = [2]DwarfSection{ .eh_frame, .debug_frame };
         for (frame_sections) |frame_section| {
-            if (di.section(frame_section)) |eh_frame| {
-                var stream = io.fixedBufferStream(eh_frame);
+            if (di.section(frame_section)) |section_data| {
+                var stream = io.fixedBufferStream(section_data);
                 while (stream.pos < stream.buffer.len) {
                     const entry_header = try EntryHeader.read(&stream, frame_section, di.endian);
                     switch (entry_header.type) {
                         .cie => {
                             const cie = try CommonInformationEntry.parse(
                                 entry_header.entry_bytes,
-                                -@as(i64, @intCast(@intFromPtr(binary_mem.ptr))),
+                                di.sectionVirtualOffset(frame_section, base_address).?,
                                 true,
                                 entry_header.is_64,
                                 frame_section,
@@ -1604,7 +1628,7 @@ pub const DwarfInfo = struct {
                             const cie = di.cie_map.get(cie_offset) orelse return badDwarf();
                             const fde = try FrameDescriptionEntry.parse(
                                 entry_header.entry_bytes,
-                                -@as(i64, @intCast(@intFromPtr(binary_mem.ptr))),
+                                di.sectionVirtualOffset(frame_section, base_address).?,
                                 true,
                                 cie,
                                 @sizeOf(usize),
@@ -1637,7 +1661,7 @@ pub const DwarfInfo = struct {
         var fde: FrameDescriptionEntry = undefined;
 
         // In order to support reading .eh_frame from the ELF file (vs using the already-mapped section),
-        // scanAllUnwindInfo has already mapped any pc-relative offsets such that they we be relative to zero
+        // scanAllUnwindInfo has already mapped any pc-relative offsets such that they will be relative to zero
         // instead of the actual base address of the module. When using .eh_frame_hdr, PC can be used directly
         // as pointers will be decoded relative to the already-mapped .eh_frame.
         var mapped_pc: usize = undefined;
@@ -1653,7 +1677,8 @@ pub const DwarfInfo = struct {
                 &fde,
             );
         } else {
-            mapped_pc = context.pc - module_base_address;
+            //mapped_pc = context.pc - module_base_address;
+            mapped_pc = context.pc;
             const index = std.sort.binarySearch(FrameDescriptionEntry, mapped_pc, di.fde_list.items, {}, struct {
                 pub fn compareFn(_: void, pc: usize, mid_item: FrameDescriptionEntry) std.math.Order {
                     if (pc < mid_item.pc_begin) return .lt;
@@ -1819,12 +1844,9 @@ pub const UnwindContext = struct {
 /// Initialize DWARF info. The caller has the responsibility to initialize most
 /// the DwarfInfo fields before calling. `binary_mem` is the raw bytes of the
 /// main binary file (not the secondary debug info file).
-pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator, binary_mem: []const u8) !void {
+pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
     try di.scanAllFunctions(allocator);
     try di.scanAllCompileUnits(allocator);
-
-    // Unwind info is not required
-    di.scanAllUnwindInfo(allocator, binary_mem) catch {};
 }
 
 /// This function is to make it handy to comment out the return and make it
@@ -1898,9 +1920,10 @@ fn readEhPointer(reader: anytype, enc: u8, addr_size_bytes: u8, ctx: EhPointerCo
         else => null,
     };
 
-    const ptr = if (base) |b| switch (value) {
-        .signed => |s| @as(u64, @intCast(s + @as(i64, @intCast(b)))),
-        .unsigned => |u| u + b,
+    const ptr: u64 = if (base) |b| switch (value) {
+        .signed => |s| @intCast(try math.add(i64, s, @as(i64, @intCast(b)))),
+        // absptr can actually contain signed values in some cases (aarch64 MachO)
+        .unsigned => |u| u +% b,
     } else switch (value) {
         .signed => |s| @as(u64, @intCast(s)),
         .unsigned => |u| u,
@@ -2311,15 +2334,14 @@ pub const FrameDescriptionEntry = struct {
     instructions: []const u8,
 
     /// This function expects to read the FDE starting at the PC Begin field.
-    /// The returned struct references memory backed by fde_bytes.
+    /// The returned struct references memory backed by `fde_bytes`.
     ///
     /// `pc_rel_offset` specifies an offset to be applied to pc_rel_base values
     /// used when decoding pointers. This should be set to zero if fde_bytes is
-    /// backed by the memory of the .eh_frame section in the running executable.
-    ///
+    /// backed by the memory of a .eh_frame / .debug_frame section in the running executable.
     /// Otherwise, it should be the relative offset to translate addresses from
     /// where the section is currently stored in memory, to where it *would* be
-    /// stored at runtime: section runtime offset - backing section data base ptr.
+    /// stored at runtime: section base addr - backing data base ptr.
     ///
     /// Similarly, `is_runtime` specifies this function is being called on a runtime
     /// section, and so indirect pointers can be followed.

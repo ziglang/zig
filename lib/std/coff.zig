@@ -1253,14 +1253,12 @@ pub const Coff = struct {
         return null;
     }
 
-    pub fn getSectionData(self: *const Coff, comptime name: []const u8) ![]const u8 {
-        const sec = self.getSectionByName(name) orelse return error.MissingCoffSection;
+    pub fn getSectionData(self: *const Coff, sec: *align(1) const SectionHeader) []const u8 {
         return self.data[sec.pointer_to_raw_data..][0..sec.virtual_size];
     }
 
-    // Return an owned slice full of the section data
-    pub fn getSectionDataAlloc(self: *const Coff, comptime name: []const u8, allocator: mem.Allocator) ![]u8 {
-        const section_data = try self.getSectionData(name);
+    pub fn getSectionDataAlloc(self: *const Coff, sec: *align(1) const SectionHeader, allocator: mem.Allocator) ![]u8 {
+        const section_data = self.getSectionData(sec);
         return allocator.dupe(u8, section_data);
     }
 };

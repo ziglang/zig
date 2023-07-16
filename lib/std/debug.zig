@@ -987,23 +987,19 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
             .debug_data = undefined,
         };
 
-        if (coff_obj.getSectionByName(".debug_info")) |sec| {
+        if (coff_obj.getSectionByName(".debug_info")) |_| {
             // This coff file has embedded DWARF debug info
-            _ = sec;
-
             var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
             errdefer for (sections) |section| if (section) |s| if (s.owned) allocator.free(s.data);
 
             inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
-                sections[i] = if (coff_obj.getSectionDataAlloc("." ++ section.name, allocator)) |data| blk: {
+                sections[i] = if (coff_obj.getSectionByName("." ++ section.name)) |section_header| blk: {
                     break :blk .{
-                        .data = data,
+                        .data = try coff_obj.getSectionDataAlloc(section_header, allocator),
+                        .virtual_address = section_header.virtual_address,
                         .owned = true,
                     };
-                } else |err| blk: {
-                    if (err == error.MissingCoffSection) break :blk null;
-                    return err;
-                };
+                } else null;
             }
 
             var dwarf = DW.DwarfInfo{
@@ -1012,7 +1008,7 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
                 .is_macho = false,
             };
 
-            try DW.openDwarfDebugInfo(&dwarf, allocator, coff_obj.data);
+            try DW.openDwarfDebugInfo(&dwarf, allocator);
             di.debug_data = PdbOrDwarf{ .dwarf = dwarf };
             return di;
         }
@@ -1049,6 +1045,10 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) error{Overflow}![]const u8
     return ptr[start..end];
 }
 
+/// Reads debug info from an ELF file, or the current binary if none in specified.
+/// If the required sections aren't present but a reference to external debug info is,
+/// then this this function will recurse to attempt to load the debug sections from
+/// an external file.
 pub fn readElfDebugInfo(
     allocator: mem.Allocator,
     elf_filename: ?[]const u8,
@@ -1146,10 +1146,12 @@ pub fn readElfDebugInfo(
 
                 break :blk .{
                     .data = decompressed_section,
+                    .virtual_address = shdr.sh_addr,
                     .owned = true,
                 };
             } else .{
                 .data = section_bytes,
+                .virtual_address = shdr.sh_addr,
                 .owned = false,
             };
         }
@@ -1232,7 +1234,7 @@ pub fn readElfDebugInfo(
             .is_macho = false,
         };
 
-        try DW.openDwarfDebugInfo(&di, allocator, parent_mapped_mem orelse mapped_mem);
+        try DW.openDwarfDebugInfo(&di, allocator);
 
         return ModuleDebugInfo{
             .base_address = undefined,
@@ -1900,6 +1902,10 @@ pub const DebugInfo = struct {
         obj_di.* = try readElfDebugInfo(self.allocator, if (ctx.name.len > 0) ctx.name else null, ctx.build_id, null, &sections, null);
         obj_di.base_address = ctx.base_address;
 
+        // TODO: Don't actually scan everything, search on demand
+        // Missing unwind info isn't treated as a failure, as the unwinder will fall back to FP-based unwinding
+        obj_di.dwarf.scanAllUnwindInfo(self.allocator, ctx.base_address) catch {};
+
         try self.address_map.putNoClobber(ctx.base_address, obj_di);
 
         return obj_di;
@@ -2004,11 +2010,12 @@ pub const ModuleDebugInfo = switch (native_os) {
                 inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
                     if (mem.eql(u8, "__" ++ section.name, sect.sectName())) section_index = i;
                 }
-                if (section_index == null or sections[section_index.?] != null) continue;
+                if (section_index == null) continue;
 
                 const section_bytes = try chopSlice(mapped_mem, sect.offset, sect.size);
                 sections[section_index.?] = .{
                     .data = section_bytes,
+                    .virtual_address = sect.addr,
                     .owned = false,
                 };
             }
@@ -2026,9 +2033,11 @@ pub const ModuleDebugInfo = switch (native_os) {
                 .is_macho = true,
             };
 
-            // TODO: Don't actually need to scan unwind info in this case, since __unwind_info points us to the entries
+            try DW.openDwarfDebugInfo(&di, allocator);
 
-            try DW.openDwarfDebugInfo(&di, allocator, mapped_mem);
+            // TODO: Don't actually scan everything, search on demand
+            di.scanAllUnwindInfo(allocator, self.base_address) catch {};
+
             var info = OFileInfo{
                 .di = di,
                 .addr_table = addr_table,
