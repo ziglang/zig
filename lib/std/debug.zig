@@ -642,7 +642,7 @@ pub const StackIterator = struct {
                 // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
-                    if (macho.unwindFrame(&unwind_state.dwarf_context, unwind_info, module.base_address)) |return_address| {
+                    if (macho.unwindFrame(&unwind_state.dwarf_context, unwind_info, module.eh_frame, module.base_address)) |return_address| {
                         return return_address;
                     } else |err| {
                         if (err != error.RequiresDWARFUnwind) return err;
@@ -2026,10 +2026,6 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
 
             try DW.openDwarfDebugInfo(&di, allocator);
-
-            // TODO: Don't actually scan everything, search on demand
-            di.scanAllUnwindInfo(allocator, self.base_address) catch {};
-
             var info = OFileInfo{
                 .di = di,
                 .addr_table = addr_table,

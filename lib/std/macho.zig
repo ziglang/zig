@@ -2142,7 +2142,7 @@ fn dwarfRegNumber(unwind_reg_number: u3) !u8 {
 const dwarf = std.dwarf;
 const abi = dwarf.abi;
 
-pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, module_base_address: usize) !usize {
+pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, eh_frame: ?[]const u8, module_base_address: usize) !usize {
     const header = mem.bytesAsValue(
         unwind_info_section_header,
         unwind_info[0..@sizeOf(unwind_info_section_header)],
@@ -2396,7 +2396,9 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
 
                 break :blk new_ip;
             },
-            .DWARF => return error.RequiresDWARFUnwind,
+            .DWARF => {
+                return unwindFrameDwarf(context, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
+            },
         },
         .aarch64 => switch (encoding.mode.arm64) {
             .OLD => return error.UnimplementedUnwindEncoding,
@@ -2408,8 +2410,10 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
                 (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).* = new_sp;
                 break :blk new_ip;
             },
-            .DWARF => return error.RequiresDWARFUnwind,
-            .FRAME => {
+            .DWARF => {
+                return unwindFrameDwarf(context, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.arm64.dwarf));
+            },
+            .FRAME => blk: {
                 const fp = (try abi.regValueNative(usize, context.thread_context, abi.fpRegNum(reg_context), reg_context)).*;
                 const new_sp = fp + 16;
                 const ip_ptr = fp + @sizeOf(usize);
@@ -2453,7 +2457,7 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
                 (try abi.regValueNative(usize, context.thread_context, abi.fpRegNum(reg_context), reg_context)).* = new_fp;
                 (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), reg_context)).* = new_ip;
 
-                return error.UnimplementedUnwindEncoding;
+                break :blk new_ip;
             },
         },
         else => return error.UnimplementedArch,
@@ -2462,4 +2466,19 @@ pub fn unwindFrame(context: *dwarf.UnwindContext, unwind_info: []const u8, modul
     context.pc = dwarf.abi.stripInstructionPtrAuthCode(new_ip);
     if (context.pc > 0) context.pc -= 1;
     return new_ip;
+}
+
+fn unwindFrameDwarf(context: *dwarf.UnwindContext, eh_frame: []const u8, fde_offset: usize) !usize {
+    var di = dwarf.DwarfInfo{
+        .endian = builtin.cpu.arch.endian(),
+        .is_macho = true,
+    };
+    defer di.deinit(context.allocator);
+
+    di.sections[@intFromEnum(dwarf.DwarfSection.eh_frame)] = .{
+        .data = eh_frame,
+        .owned = false,
+    };
+
+    return di.unwindFrame(context, fde_offset);
 }
