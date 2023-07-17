@@ -80,6 +80,11 @@ pub const Sha1 = struct {
         d.total_len += b.len;
     }
 
+    pub fn peek(d: Self) [digest_length]u8 {
+        var copy = d;
+        return copy.finalResult();
+    }
+
     pub fn final(d: *Self, out: *[digest_length]u8) void {
         // The buffer here will never be completely full.
         @memset(d.buf[d.buf_len..], 0);
@@ -108,6 +113,12 @@ pub const Sha1 = struct {
         for (d.s, 0..) |s, j| {
             mem.writeIntBig(u32, out[4 * j ..][0..4], s);
         }
+    }
+
+    pub fn finalResult(d: *Self) [digest_length]u8 {
+        var result: [digest_length]u8 = undefined;
+        d.final(&result);
+        return result;
     }
 
     fn round(d: *Self, b: *const [64]u8) void {
