@@ -15,7 +15,7 @@ pub const ChaCha20IETF = ChaChaIETF(20);
 
 /// IETF-variant of the ChaCha20 stream cipher, reduced to 12 rounds.
 /// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
-/// However, ChaCha is still believed to have a comfortable security even with only 12 rounds.
+/// However, ChaCha is still believed to have a comfortable security even with only 8 rounds.
 pub const ChaCha12IETF = ChaChaIETF(12);
 
 /// IETF-variant of the ChaCha20 stream cipher, reduced to 8 rounds.
@@ -28,7 +28,7 @@ pub const ChaCha20With64BitNonce = ChaChaWith64BitNonce(20);
 
 /// Original ChaCha20 stream cipher, reduced to 12 rounds.
 /// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
-/// However, ChaCha is still believed to have a comfortable security even with only 12 rounds.
+/// However, ChaCha is still believed to have a comfortable security even with only 8 rounds.
 pub const ChaCha12With64BitNonce = ChaChaWith64BitNonce(12);
 
 /// Original ChaCha20 stream cipher, reduced to 8 rounds.
@@ -41,7 +41,7 @@ pub const XChaCha20IETF = XChaChaIETF(20);
 
 /// XChaCha20 (nonce-extended version of the IETF ChaCha20 variant) stream cipher, reduced to 12 rounds
 /// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
-/// However, ChaCha is still believed to have a comfortable security even with only 12 rounds.
+/// However, ChaCha is still believed to have a comfortable security even with only 8 rounds.
 pub const XChaCha12IETF = XChaChaIETF(12);
 
 /// XChaCha20 (nonce-extended version of the IETF ChaCha20 variant) stream cipher, reduced to 8 rounds
@@ -54,7 +54,7 @@ pub const ChaCha20Poly1305 = ChaChaPoly1305(20);
 
 /// ChaCha20-Poly1305 authenticated cipher, reduced to 12 rounds
 /// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
-/// However, ChaCha is still believed to have a comfortable security even with only 12 rounds.
+/// However, ChaCha is still believed to have a comfortable security even with only 8 rounds.
 pub const ChaCha12Poly1305 = ChaChaPoly1305(12);
 
 /// ChaCha20-Poly1305 authenticated cipher, reduced to 8 rounds
@@ -67,7 +67,7 @@ pub const XChaCha20Poly1305 = XChaChaPoly1305(20);
 
 /// XChaCha20-Poly1305 authenticated cipher
 /// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
-/// However, ChaCha is still believed to have a comfortable security even with only 12 rounds.
+/// However, ChaCha is still believed to have a comfortable security even with only 8 rounds.
 pub const XChaCha12Poly1305 = XChaChaPoly1305(12);
 
 /// XChaCha20-Poly1305 authenticated cipher
