@@ -65,9 +65,13 @@ pub const ExtraIndex = enum(u32) {
     _,
 };
 
+fn ExtraData(comptime T: type) type {
+    return struct { data: T, end: usize };
+}
+
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
-pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, end: usize } {
+pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
     const fields = @typeInfo(T).Struct.fields;
     var i: usize = index;
     var result: T = undefined;

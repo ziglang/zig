@@ -1802,7 +1802,12 @@ pub const DeclGen = struct {
         }
     }
 
-    fn writeCValueMember(dg: *DeclGen, writer: anytype, c_value: CValue, member: CValue) !void {
+    fn writeCValueMember(
+        dg: *DeclGen,
+        writer: anytype,
+        c_value: CValue,
+        member: CValue,
+    ) error{ OutOfMemory, AnalysisFail }!void {
         try dg.writeCValue(writer, c_value);
         try writer.writeByte('.');
         try dg.writeCValue(writer, member);
