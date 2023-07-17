@@ -1034,15 +1034,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         if (must_single_thread and !single_threaded) {
             return error.TargetRequiresSingleThreaded;
         }
-        if (!single_threaded and options.link_libcpp) {
-            if (options.target.cpu.arch.isARM()) {
-                log.warn(
-                    \\libc++ does not work on multi-threaded ARM yet.
-                    \\For more details: https://github.com/ziglang/zig/issues/6573
-                , .{});
-                return error.TargetRequiresSingleThreaded;
-            }
-        }
 
         const llvm_cpu_features: ?[*:0]const u8 = if (build_options.have_llvm and use_llvm) blk: {
             var buf = std.ArrayList(u8).init(arena);
