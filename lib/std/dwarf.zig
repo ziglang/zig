@@ -1562,8 +1562,7 @@ pub const DwarfInfo = struct {
     /// If .eh_frame_hdr is present, then only the header needs to be parsed.
     ///
     /// Otherwise, .eh_frame and .debug_frame are scanned and a sorted list
-    /// of FDEs is built. In this case, the decoded PC ranges in the FDEs
-    /// are all normalized to be relative to the module's base.
+    /// of FDEs is built for binary searching during unwinding.
     pub fn scanAllUnwindInfo(di: *DwarfInfo, allocator: mem.Allocator, base_address: usize) !void {
         if (di.section(.eh_frame_hdr)) |eh_frame_hdr| blk: {
             var stream = io.fixedBufferStream(eh_frame_hdr);
@@ -1650,7 +1649,14 @@ pub const DwarfInfo = struct {
         }
     }
 
-    pub fn unwindFrame(di: *const DwarfInfo, context: *UnwindContext, module_base_address: usize) !usize {
+    /// Unwind a stack frame using DWARF unwinding info, updating the register context.
+    ///
+    /// If `.eh_frame_hdr` is available, it will be used to binary search for the FDE.
+    /// Otherwise, a linear scan of `.eh_frame` and `.debug_frame` is done to find the FDE.
+    ///
+    /// `explicit_fde_offset` is for cases where the FDE offset is known, such as when __unwind_info
+    /// defers unwinding to DWARF. This is an offset into the `.eh_frame` section.
+    pub fn unwindFrame(di: *const DwarfInfo, context: *UnwindContext, explicit_fde_offset: ?usize) !usize {
         if (!comptime abi.isSupportedArch(builtin.target.cpu.arch)) return error.UnsupportedCpuArchitecture;
         if (context.pc == 0) return 0;
 
@@ -1660,26 +1666,54 @@ pub const DwarfInfo = struct {
         var cie: CommonInformationEntry = undefined;
         var fde: FrameDescriptionEntry = undefined;
 
-        // In order to support reading .eh_frame from the ELF file (vs using the already-mapped section),
-        // scanAllUnwindInfo has already mapped any pc-relative offsets such that they will be relative to zero
-        // instead of the actual base address of the module. When using .eh_frame_hdr, PC can be used directly
-        // as pointers will be decoded relative to the already-mapped .eh_frame.
-        var mapped_pc: usize = undefined;
-        if (di.eh_frame_hdr) |header| {
+        if (explicit_fde_offset) |fde_offset| {
+            const dwarf_section: DwarfSection = .eh_frame;
+            const frame_section = di.section(dwarf_section) orelse return error.MissingFDE;
+            if (fde_offset >= frame_section.len) return error.MissingFDE;
+
+            var stream = io.fixedBufferStream(frame_section);
+            const fde_entry_header = try EntryHeader.read(&stream, dwarf_section, di.endian);
+            if (fde_entry_header.type != .fde) return error.MissingFDE;
+
+            const cie_offset = fde_entry_header.type.fde;
+            try stream.seekTo(cie_offset);
+
+            const cie_entry_header = try EntryHeader.read(&stream, dwarf_section, builtin.cpu.arch.endian());
+            if (cie_entry_header.type != .cie) return badDwarf();
+
+            cie = try CommonInformationEntry.parse(
+                cie_entry_header.entry_bytes,
+                0,
+                true,
+                cie_entry_header.is_64,
+                dwarf_section,
+                cie_entry_header.length_offset,
+                @sizeOf(usize),
+                builtin.cpu.arch.endian(),
+            );
+
+            fde = try FrameDescriptionEntry.parse(
+                fde_entry_header.entry_bytes,
+                0,
+                true,
+                cie,
+                @sizeOf(usize),
+                builtin.cpu.arch.endian(),
+            );
+        } else if (di.eh_frame_hdr) |header| {
+            std.debug.print("EH_FRAME_HDR\n", .{});
+
             const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
-            mapped_pc = context.pc;
             try header.findEntry(
                 context.isValidMemory,
                 eh_frame_len,
                 @intFromPtr(di.section(.eh_frame_hdr).?.ptr),
-                mapped_pc,
+                context.pc,
                 &cie,
                 &fde,
             );
         } else {
-            //mapped_pc = context.pc - module_base_address;
-            mapped_pc = context.pc;
-            const index = std.sort.binarySearch(FrameDescriptionEntry, mapped_pc, di.fde_list.items, {}, struct {
+            const index = std.sort.binarySearch(FrameDescriptionEntry, context.pc, di.fde_list.items, {}, struct {
                 pub fn compareFn(_: void, pc: usize, mid_item: FrameDescriptionEntry) std.math.Order {
                     if (pc < mid_item.pc_begin) return .lt;
 
@@ -1707,7 +1741,7 @@ pub const DwarfInfo = struct {
         context.reg_context.eh_frame = cie.version != 4;
         context.reg_context.is_macho = di.is_macho;
 
-        _ = try context.vm.runToNative(context.allocator, mapped_pc, cie, fde);
+        _ = try context.vm.runToNative(context.allocator, context.pc, cie, fde);
         const row = &context.vm.current_row;
 
         context.cfa = switch (row.cfa.rule) {
@@ -2056,7 +2090,7 @@ pub const ExceptionFrameHeader = struct {
         if (!self.isValidPtr(@intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]), isValidMemory, eh_frame_len)) return badDwarf();
         if (fde_entry_header.type != .fde) return badDwarf();
 
-        // CIEs always come before FDEs (the offset is a subtration), so we can assume this memory is readable
+        // CIEs always come before FDEs (the offset is a subtraction), so we can assume this memory is readable
         const cie_offset = fde_entry_header.type.fde;
         try eh_frame_stream.seekTo(cie_offset);
         const cie_entry_header = try EntryHeader.read(&eh_frame_stream, .eh_frame, builtin.cpu.arch.endian());

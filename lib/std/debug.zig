@@ -653,7 +653,7 @@ pub const StackIterator = struct {
         }
 
         if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
-            return di.unwindFrame(&unwind_state.dwarf_context, module.base_address);
+            return di.unwindFrame(&unwind_state.dwarf_context, null);
         } else return error.MissingDebugInfo;
     }
 
@@ -1894,7 +1894,6 @@ pub const DebugInfo = struct {
         obj_di.* = try readElfDebugInfo(self.allocator, if (ctx.name.len > 0) ctx.name else null, ctx.build_id, null, &sections, null);
         obj_di.base_address = ctx.base_address;
 
-        // TODO: Don't actually scan everything, search on demand
         // Missing unwind info isn't treated as a failure, as the unwinder will fall back to FP-based unwinding
         obj_di.dwarf.scanAllUnwindInfo(self.allocator, ctx.base_address) catch {};
 
