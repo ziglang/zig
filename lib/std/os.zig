@@ -1927,7 +1927,7 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
 
             if (!mem.eql(u8, this_key, key)) continue;
 
-            return mem.span(line + line_i + 1);
+            return mem.sliceTo(line + line_i + 1, 0);
         }
         return null;
     }
@@ -1943,7 +1943,7 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
         const this_key = ptr[0..line_i];
         if (!mem.eql(u8, key, this_key)) continue;
 
-        return mem.span(ptr + line_i + 1);
+        return mem.sliceTo(ptr + line_i + 1, 0);
     }
     return null;
 }
@@ -1953,12 +1953,12 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
 pub fn getenvZ(key: [*:0]const u8) ?[:0]const u8 {
     if (builtin.link_libc) {
         const value = system.getenv(key) orelse return null;
-        return mem.span(value);
+        return mem.sliceTo(value, 0);
     }
     if (builtin.os.tag == .windows) {
         @compileError("std.os.getenvZ is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
     }
-    return getenv(mem.span(key));
+    return getenv(mem.sliceTo(key, 0));
 }
 
 /// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
