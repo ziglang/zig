@@ -1383,7 +1383,7 @@ fn frem(comptime T: type) !void {
 }
 
 fn fremOne(comptime T: type, a: T, b: T, c: T, epsilon: T) !void {
-    try expect(@fabs(@rem(a, b) - c) < epsilon);
+    try expect(@abs(@rem(a, b) - c) < epsilon);
 }
 
 test "float modulo division using @mod" {
@@ -1426,7 +1426,7 @@ fn fmod(comptime T: type) !void {
 }
 
 fn fmodOne(comptime T: type, a: T, b: T, c: T, epsilon: T) !void {
-    try expect(@fabs(@mod(@as(T, a), @as(T, b)) - @as(T, c)) < epsilon);
+    try expect(@abs(@mod(@as(T, a), @as(T, b)) - @as(T, c)) < epsilon);
 }
 
 test "@round" {
@@ -1626,7 +1626,7 @@ fn testAbsFloat() !void {
     try testAbsFloatOne(10.05, 10.05);
 }
 fn testAbsFloatOne(in: f32, out: f32) !void {
-    try expect(@fabs(@as(f32, in)) == @as(f32, out));
+    try expect(@abs(@as(f32, in)) == @as(f32, out));
 }
 
 test "mod lazy values" {
