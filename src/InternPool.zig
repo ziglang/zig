@@ -6975,6 +6975,16 @@ pub fn funcAnalysis(ip: *const InternPool, i: Index) *FuncAnalysis {
     const extra_index = switch (item.tag) {
         .func_decl => item.data + std.meta.fieldIndex(Tag.FuncDecl, "analysis").?,
         .func_instance => item.data + std.meta.fieldIndex(Tag.FuncInstance, "analysis").?,
+        .func_coerced => i: {
+            const extra_index = item.data + std.meta.fieldIndex(Tag.FuncCoerced, "func").?;
+            const func_index: Index = @enumFromInt(ip.extra.items[extra_index]);
+            const sub_item = ip.items.get(@intFromEnum(func_index));
+            break :i switch (sub_item.tag) {
+                .func_decl => sub_item.data + std.meta.fieldIndex(Tag.FuncDecl, "analysis").?,
+                .func_instance => sub_item.data + std.meta.fieldIndex(Tag.FuncInstance, "analysis").?,
+                else => unreachable,
+            };
+        },
         else => unreachable,
     };
     return @ptrCast(&ip.extra.items[extra_index]);
