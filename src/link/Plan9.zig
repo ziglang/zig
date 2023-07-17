@@ -1407,26 +1407,7 @@ pub fn getDeclVAddr(
         // TODO handle other extern variables and functions
         return undefined;
     }
-    // we might already know the vaddr
-    if (decl.ty.zigTypeTag(mod) == .Fn) {
-        var start = self.bases.text;
-        var it_file = self.fn_decl_table.iterator();
-        while (it_file.next()) |fentry| {
-            var symidx_and_submap = fentry.value_ptr;
-            var submap_it = symidx_and_submap.functions.iterator();
-            while (submap_it.next()) |entry| {
-                if (entry.key_ptr.* == decl_index) return start;
-                start += entry.value_ptr.code.len;
-            }
-        }
-    } else {
-        var start = self.bases.data + self.got_len * if (!self.sixtyfour_bit) @as(u32, 4) else 8;
-        var it = self.data_decl_table.iterator();
-        while (it.next()) |kv| {
-            if (decl_index == kv.key_ptr.*) return start;
-            start += kv.value_ptr.len;
-        }
-    }
+    // otherwise, we just add a relocation
     const atom_index = try self.seeDecl(decl_index);
     // the parent_atom_index in this case is just the decl_index of the parent
     try self.addReloc(reloc_info.parent_atom_index, .{
