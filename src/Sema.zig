@@ -7046,10 +7046,13 @@ fn analyzeCall(
         const bare_return_type = try sema.analyzeAsType(&child_block, ret_ty_src, ret_ty_inst);
         const parent_fn_ret_ty = sema.fn_ret_ty;
         const parent_fn_ret_ty_ies = sema.fn_ret_ty_ies;
+        const parent_generic_owner = sema.generic_owner;
         sema.fn_ret_ty = bare_return_type;
         sema.fn_ret_ty_ies = null;
+        sema.generic_owner = .none;
         defer sema.fn_ret_ty = parent_fn_ret_ty;
         defer sema.fn_ret_ty_ies = parent_fn_ret_ty_ies;
+        defer sema.generic_owner = parent_generic_owner;
 
         if (module_fn.analysis(ip).inferred_error_set) {
             // Create a fresh inferred error set type for inline/comptime calls.
