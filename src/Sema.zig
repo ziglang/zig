@@ -7509,12 +7509,15 @@ fn instantiateGenericCall(
     };
     defer child_sema.deinit();
 
+    var wip_captures = try WipCaptureScope.init(gpa, sema.owner_decl.src_scope);
+    defer wip_captures.deinit();
+
     var child_block: Block = .{
         .parent = null,
         .sema = &child_sema,
         .src_decl = generic_owner_func.owner_decl,
         .namespace = namespace_index,
-        .wip_capture_scope = block.wip_capture_scope,
+        .wip_capture_scope = wip_captures.scope,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -7550,6 +7553,8 @@ fn instantiateGenericCall(
     // Make a runtime call to the new function, making sure to omit the comptime args.
     const func_ty = callee.ty.toType();
     const func_ty_info = mod.typeToFunc(func_ty).?;
+
+    try wip_captures.finalize();
 
     // If the call evaluated to a return type that requires comptime, never mind
     // our generic instantiation. Instead we need to perform a comptime call.
