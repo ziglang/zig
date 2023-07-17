@@ -30619,12 +30619,13 @@ fn analyzeIsNonErrComptimeOnly(
                             ies.func == func_index)
                         {
                             // Try to avoid resolving inferred error set if possible.
-                            if (ies.errors.count() != 0) break :blk;
+                            if (ies.errors.count() != 0) return .none;
                             switch (ies.resolved) {
-                                .anyerror_type => break :blk,
+                                .anyerror_type => return .none,
                                 .none => {},
-                                else => if (ip.indexToKey(ies.resolved).error_set_type.names.len != 0) {
-                                    break :blk;
+                                else => switch (ip.indexToKey(ies.resolved).error_set_type.names.len) {
+                                    0 => return .bool_true,
+                                    else => return .none,
                                 },
                             }
                             for (ies.inferred_error_sets.keys()) |other_ies_index| {
@@ -30633,10 +30634,10 @@ fn analyzeIsNonErrComptimeOnly(
                                     try sema.resolveInferredErrorSet(block, src, other_ies_index);
                                 if (other_resolved == .anyerror_type) {
                                     ies.resolved = .anyerror_type;
-                                    break :blk;
+                                    return .none;
                                 }
                                 if (ip.indexToKey(other_resolved).error_set_type.names.len != 0)
-                                    break :blk;
+                                    return .none;
                             }
                             return .bool_true;
                         }
@@ -33113,16 +33114,21 @@ fn typeIsArrayLike(sema: *Sema, ty: Type) ?ArrayLike {
     };
 }
 
-pub fn resolveFnTypes(sema: *Sema, block: *Block, src: LazySrcLoc, fn_ty: Type) CompileError!void {
+pub fn resolveIes(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError!void {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
-    const fn_ty_info = mod.typeToFunc(fn_ty).?;
 
     if (sema.fn_ret_ty_ies) |ies| {
         try sema.resolveInferredErrorSetPtr(block, src, ies);
         assert(ies.resolved != .none);
         ip.funcIesResolved(sema.func_index).* = ies.resolved;
     }
+}
+
+pub fn resolveFnTypes(sema: *Sema, fn_ty: Type) CompileError!void {
+    const mod = sema.mod;
+    const ip = &mod.intern_pool;
+    const fn_ty_info = mod.typeToFunc(fn_ty).?;
 
     try sema.resolveTypeFully(fn_ty_info.return_type.toType());
 
@@ -34111,7 +34117,7 @@ fn resolveInferredErrorSet(
     return final_resolved_ty;
 }
 
-fn resolveInferredErrorSetPtr(
+pub fn resolveInferredErrorSetPtr(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,

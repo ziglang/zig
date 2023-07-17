@@ -5348,6 +5348,27 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     sema.air_extra.appendSliceAssumeCapacity(inner_block.instructions.items);
     sema.air_extra.items[@intFromEnum(Air.ExtraIndex.main_block)] = main_block_index;
 
+    // Resolving inferred error sets is done *before* setting the function
+    // state to success, so that "unable to resolve inferred error set" errors
+    // can be emitted here.
+    if (sema.fn_ret_ty_ies) |ies| {
+        sema.resolveInferredErrorSetPtr(&inner_block, LazySrcLoc.nodeOffset(0), ies) catch |err| switch (err) {
+            error.NeededSourceLocation => unreachable,
+            error.GenericPoison => unreachable,
+            error.ComptimeReturn => unreachable,
+            error.ComptimeBreak => unreachable,
+            error.AnalysisFail => {
+                // In this case our function depends on a type that had a compile error.
+                // We should not try to lower this function.
+                decl.analysis = .dependency_failure;
+                return error.AnalysisFail;
+            },
+            else => |e| return e,
+        };
+        assert(ies.resolved != .none);
+        ip.funcIesResolved(func_index).* = ies.resolved;
+    }
+
     func.analysis(ip).state = .success;
 
     // Finally we must resolve the return type and parameter types so that backends
@@ -5355,7 +5376,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     // Crucially, this happens *after* we set the function state to success above,
     // so that dependencies on the function body will now be satisfied rather than
     // result in circular dependency errors.
-    sema.resolveFnTypes(&inner_block, LazySrcLoc.nodeOffset(0), fn_ty) catch |err| switch (err) {
+    sema.resolveFnTypes(fn_ty) catch |err| switch (err) {
         error.NeededSourceLocation => unreachable,
         error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
