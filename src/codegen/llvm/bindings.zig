@@ -135,9 +135,6 @@ pub const Value = opaque {
     pub const getNextInstruction = LLVMGetNextInstruction;
     extern fn LLVMGetNextInstruction(Inst: *Value) ?*Value;
 
-    pub const typeOf = LLVMTypeOf;
-    extern fn LLVMTypeOf(Val: *Value) *Type;
-
     pub const setGlobalConstant = LLVMSetGlobalConstant;
     extern fn LLVMSetGlobalConstant(GlobalVar: *Value, IsConstant: Bool) void;
 
@@ -291,6 +288,9 @@ pub const Value = opaque {
         MaskConstant: *Value,
     ) *Value;
 
+    pub const isConstant = LLVMIsConstant;
+    extern fn LLVMIsConstant(Val: *Value) Bool;
+
     pub const blockAddress = LLVMBlockAddress;
     extern fn LLVMBlockAddress(F: *Value, BB: *BasicBlock) *Value;
 
@@ -302,6 +302,9 @@ pub const Value = opaque {
 
     pub const setVolatile = LLVMSetVolatile;
     extern fn LLVMSetVolatile(MemoryAccessInst: *Value, IsVolatile: Bool) void;
+
+    pub const setAtomicSingleThread = LLVMSetAtomicSingleThread;
+    extern fn LLVMSetAtomicSingleThread(AtomicInst: *Value, SingleThread: Bool) void;
 
     pub const setAlignment = LLVMSetAlignment;
     extern fn LLVMSetAlignment(V: *Value, Bytes: c_uint) void;
@@ -348,16 +351,8 @@ pub const Value = opaque {
     pub const addCase = LLVMAddCase;
     extern fn LLVMAddCase(Switch: *Value, OnVal: *Value, Dest: *BasicBlock) void;
 
-    pub inline fn isPoison(Val: *Value) bool {
-        return LLVMIsPoison(Val).toBool();
-    }
-    extern fn LLVMIsPoison(Val: *Value) Bool;
-
     pub const replaceAllUsesWith = LLVMReplaceAllUsesWith;
     extern fn LLVMReplaceAllUsesWith(OldVal: *Value, NewVal: *Value) void;
-
-    pub const globalGetValueType = LLVMGlobalGetValueType;
-    extern fn LLVMGlobalGetValueType(Global: *Value) *Type;
 
     pub const getLinkage = LLVMGetLinkage;
     extern fn LLVMGetLinkage(Global: *Value) Linkage;
@@ -410,6 +405,9 @@ pub const Type = opaque {
     pub const getUndef = LLVMGetUndef;
     extern fn LLVMGetUndef(Ty: *Type) *Value;
 
+    pub const getPoison = LLVMGetPoison;
+    extern fn LLVMGetPoison(Ty: *Type) *Value;
+
     pub const arrayType = LLVMArrayType;
     extern fn LLVMArrayType(ElementType: *Type, ElementCount: c_uint) *Type;
 
@@ -426,24 +424,6 @@ pub const Type = opaque {
         ElementCount: c_uint,
         Packed: Bool,
     ) void;
-
-    pub const structGetTypeAtIndex = LLVMStructGetTypeAtIndex;
-    extern fn LLVMStructGetTypeAtIndex(StructTy: *Type, i: c_uint) *Type;
-
-    pub const getTypeKind = LLVMGetTypeKind;
-    extern fn LLVMGetTypeKind(Ty: *Type) TypeKind;
-
-    pub const getElementType = LLVMGetElementType;
-    extern fn LLVMGetElementType(Ty: *Type) *Type;
-
-    pub const countStructElementTypes = LLVMCountStructElementTypes;
-    extern fn LLVMCountStructElementTypes(StructTy: *Type) c_uint;
-
-    pub const isOpaqueStruct = LLVMIsOpaqueStruct;
-    extern fn LLVMIsOpaqueStruct(StructTy: *Type) Bool;
-
-    pub const isSized = LLVMTypeIsSized;
-    extern fn LLVMTypeIsSized(Ty: *Type) Bool;
 
     pub const constGEP = LLVMConstGEP2;
     extern fn LLVMConstGEP2(
@@ -815,6 +795,16 @@ pub const Builder = opaque {
     pub const buildBitCast = LLVMBuildBitCast;
     extern fn LLVMBuildBitCast(*Builder, Val: *Value, DestTy: *Type, Name: [*:0]const u8) *Value;
 
+    pub const buildGEP = LLVMBuildGEP2;
+    extern fn LLVMBuildGEP2(
+        B: *Builder,
+        Ty: *Type,
+        Pointer: *Value,
+        Indices: [*]const *Value,
+        NumIndices: c_uint,
+        Name: [*:0]const u8,
+    ) *Value;
+
     pub const buildInBoundsGEP = LLVMBuildInBoundsGEP2;
     extern fn LLVMBuildInBoundsGEP2(
         B: *Builder,
@@ -868,14 +858,6 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *Value;
 
-    pub const buildVectorSplat = LLVMBuildVectorSplat;
-    extern fn LLVMBuildVectorSplat(
-        *Builder,
-        ElementCount: c_uint,
-        EltVal: *Value,
-        Name: [*:0]const u8,
-    ) *Value;
-
     pub const buildPtrToInt = LLVMBuildPtrToInt;
     extern fn LLVMBuildPtrToInt(
         *Builder,
@@ -889,15 +871,6 @@ pub const Builder = opaque {
         *Builder,
         Val: *Value,
         DestTy: *Type,
-        Name: [*:0]const u8,
-    ) *Value;
-
-    pub const buildStructGEP = LLVMBuildStructGEP2;
-    extern fn LLVMBuildStructGEP2(
-        B: *Builder,
-        Ty: *Type,
-        Pointer: *Value,
-        Idx: c_uint,
         Name: [*:0]const u8,
     ) *Value;
 
@@ -1156,9 +1129,6 @@ pub const RealPredicate = enum(c_uint) {
 pub const BasicBlock = opaque {
     pub const deleteBasicBlock = LLVMDeleteBasicBlock;
     extern fn LLVMDeleteBasicBlock(BB: *BasicBlock) void;
-
-    pub const getFirstInstruction = LLVMGetFirstInstruction;
-    extern fn LLVMGetFirstInstruction(BB: *BasicBlock) ?*Value;
 };
 
 pub const TargetMachine = opaque {
@@ -1580,29 +1550,6 @@ pub const AtomicRMWBinOp = enum(c_int) {
     FMin,
 };
 
-pub const TypeKind = enum(c_int) {
-    Void,
-    Half,
-    Float,
-    Double,
-    X86_FP80,
-    FP128,
-    PPC_FP128,
-    Label,
-    Integer,
-    Function,
-    Struct,
-    Array,
-    Pointer,
-    Vector,
-    Metadata,
-    X86_MMX,
-    Token,
-    ScalableVector,
-    BFloat,
-    X86_AMX,
-};
-
 pub const CallConv = enum(c_uint) {
     C = 0,
     Fast = 8,
@@ -1729,7 +1676,7 @@ pub const address_space = struct {
         pub const constant_buffer_15: c_uint = 23;
     };
 
-    // See llvm/lib/Target/WebAssembly/Utils/WebAssemblyTypeUtilities.h
+    // See llvm/lib/Target/WebAssembly/Utils/WebAssemblyTypetilities.h
     pub const wasm = struct {
         pub const variable: c_uint = 1;
         pub const externref: c_uint = 10;

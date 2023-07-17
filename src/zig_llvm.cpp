@@ -560,10 +560,6 @@ LLVMValueRef ZigLLVMBuildUShlSat(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRe
     return wrap(call_inst);
 }
 
-LLVMValueRef LLVMBuildVectorSplat(LLVMBuilderRef B, unsigned elem_count, LLVMValueRef V, const char *Name) {
-  return wrap(unwrap(B)->CreateVectorSplat(elem_count, unwrap(V), Name));
-}
-
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
     assert( isa<Function>(unwrap(fn)) );
     Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(fn));
