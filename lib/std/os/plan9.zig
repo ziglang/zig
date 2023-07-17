@@ -216,3 +216,37 @@ pub const O = struct {
     pub const RCLOSE = 64; // or'ed in, remove on close
     pub const EXCL = 0x1000; // or'ed in, exclusive create
 };
+
+pub const ExecData = struct {
+    pub extern const etext: anyopaque;
+    pub extern const edata: anyopaque;
+    pub extern const end: anyopaque;
+};
+
+/// Brk sets the system's idea of the lowest bss location not
+/// used by the program (called the break) to addr rounded up to
+/// the next multiple of 8 bytes.  Locations not less than addr
+/// and below the stack pointer may cause a memory violation if
+/// accessed. -9front brk(2)
+pub fn brk_(addr: usize) i32 {
+    return @intCast(syscall_bits.syscall1(.BRK_, addr));
+}
+var bloc: usize = 0;
+var bloc_max: usize = 0;
+
+pub fn sbrk(n: usize) usize {
+    if (bloc == 0) {
+        // we are at the start
+        bloc = @intFromPtr(&ExecData.end);
+        bloc_max = @intFromPtr(&ExecData.end);
+    }
+    var bl = std.mem.alignForward(usize, bloc, std.mem.page_size);
+    const n_aligned = std.mem.alignForward(usize, n, std.mem.page_size);
+    if (bl + n_aligned > bloc_max) {
+        // we need to allocate
+        if (brk_(bl + n_aligned) < 0) return 0;
+        bloc_max = bl + n_aligned;
+    }
+    bloc = bloc + n_aligned;
+    return bl;
+}
