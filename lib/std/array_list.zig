@@ -501,8 +501,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Returns a slice of all the items plus the extra capacity, whose memory
         /// contents are `undefined`.
         pub fn allocatedSlice(self: Self) Slice {
-            // For a nicer API, `items.len` is the length, not the capacity.
-            // This requires "unsafe" slicing.
+            // `items.len` is the length, not the capacity.
             return self.items.ptr[0..self.capacity];
         }
 
@@ -1010,8 +1009,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return self.pop();
         }
 
-        /// For a nicer API, `items.len` is the length, not the capacity.
-        /// This requires "unsafe" slicing.
+        /// Returns a slice of all the items plus the extra capacity, whose memory
+        /// contents are `undefined`.
         pub fn allocatedSlice(self: Self) Slice {
             return self.items.ptr[0..self.capacity];
         }

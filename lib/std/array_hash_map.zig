@@ -728,7 +728,7 @@ pub fn ArrayHashMapUnmanaged(
                 }
 
                 const index = self.entries.addOneAssumeCapacity();
-                // unsafe indexing because the length changed
+                // The slice length changed, so we directly index the pointer.
                 if (store_hash) hashes_array.ptr[index] = h;
 
                 return GetOrPutResult{
