@@ -5282,12 +5282,10 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
     //   %b = store(%a, %c)
     // Where %c is an error union or error set. In such case we need to add
     // to the current function's inferred error set, if any.
-    if (is_ret and (sema.typeOf(operand).zigTypeTag(mod) == .ErrorUnion or
-        sema.typeOf(operand).zigTypeTag(mod) == .ErrorSet) and
-        sema.fn_ret_ty.zigTypeTag(mod) == .ErrorUnion)
-    {
-        try sema.addToInferredErrorSet(operand);
-    }
+    if (is_ret and sema.fn_ret_ty_ies != null) switch (sema.typeOf(operand).zigTypeTag(mod)) {
+        .ErrorUnion, .ErrorSet => try sema.addToInferredErrorSet(operand),
+        else => {},
+    };
 
     const ptr_src: LazySrcLoc = .{ .node_offset_store_ptr = inst_data.src_node };
     const operand_src: LazySrcLoc = .{ .node_offset_store_operand = inst_data.src_node };
