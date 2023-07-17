@@ -166,28 +166,7 @@ fn exit2(code: usize) noreturn {
             else => @compileError("TODO"),
         },
         // exits(0)
-        .plan9 => switch (builtin.cpu.arch) {
-            .x86_64 => {
-                asm volatile (
-                    \\push $0
-                    \\push $0
-                    \\syscall
-                    :
-                    : [syscall_number] "{rbp}" (8),
-                    : "rcx", "r11", "memory"
-                );
-            },
-            // TODO once we get stack setting with assembly on
-            // arm, exit with 0 instead of stack garbage
-            .aarch64 => {
-                asm volatile ("svc #0"
-                    :
-                    : [exit] "{x0}" (0x08),
-                    : "memory", "cc"
-                );
-            },
-            else => @compileError("TODO"),
-        },
+        .plan9 => std.os.plan9.exits(null),
         .windows => {
             ExitProcess(@as(u32, @truncate(code)));
         },
@@ -254,6 +233,13 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
 }
 
 fn _start() callconv(.Naked) noreturn {
+    // TODO set Top of Stack on non x86_64-plan9
+    if (native_os == .plan9 and native_arch == .x86_64) {
+        // from /sys/src/libc/amd64/main9.s
+        std.os.plan9.tos = asm volatile (""
+            : [tos] "={rax}" (-> *std.os.plan9.Tos),
+        );
+    }
     asm volatile (switch (native_arch) {
             .x86_64 =>
             \\ xorl %%ebp, %%ebp

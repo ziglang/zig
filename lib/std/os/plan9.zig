@@ -18,6 +18,43 @@ pub fn getErrno(r: usize) E {
     const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
     return @as(E, @enumFromInt(int));
 }
+// The max bytes that can be in the errstr buff
+pub const ERRMAX = 128;
+var errstr_buf: [ERRMAX]u8 = undefined;
+/// Gets whatever the last errstr was
+pub fn errstr() []const u8 {
+    _ = syscall_bits.syscall2(.ERRSTR, @intFromPtr(&errstr_buf), ERRMAX);
+    return std.mem.span(@as([*:0]u8, @ptrCast(&errstr_buf)));
+}
+pub const Plink = anyopaque;
+pub const Tos = extern struct {
+    /// Per process profiling
+    prof: extern struct {
+        /// known to be 0(ptr)
+        pp: *Plink,
+        /// known to be 4(ptr)
+        next: *Plink,
+        last: *Plink,
+        first: *Plink,
+        pid: u32,
+        what: u32,
+    },
+    /// cycle clock frequency if there is one, 0 otherwise
+    cyclefreq: u64,
+    /// cycles spent in kernel
+    kcycles: i64,
+    /// cycles spent in process (kernel + user)
+    pcycles: i64,
+    /// might as well put the pid here
+    pid: u32,
+    clock: u32,
+    // top of stack is here
+};
+
+pub var tos: *Tos = undefined; // set in start.zig
+pub fn getpid() u32 {
+    return tos.pid;
+}
 pub const SIG = struct {
     /// hangup
     pub const HUP = 1;
@@ -143,26 +180,27 @@ pub const SYS = enum(usize) {
 };
 
 pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
-    return syscall_bits.syscall3(._WRITE, @bitCast(@as(isize, fd)), @intFromPtr(buf), count);
+    return syscall_bits.syscall4(.PWRITE, @bitCast(@as(isize, fd)), @intFromPtr(buf), count, @bitCast(@as(isize, -1)));
 }
-pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
-    return syscall_bits.syscall4(.PWRITE, @bitCast(@as(isize, fd)), @intFromPtr(buf), count, offset);
+pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: isize) usize {
+    return syscall_bits.syscall4(.PWRITE, @bitCast(@as(isize, fd)), @intFromPtr(buf), count, @bitCast(offset));
 }
 
 pub fn read(fd: i32, buf: [*]const u8, count: usize) usize {
-    return syscall_bits.syscall3(._READ, @bitCast(@as(isize, fd)), @intFromPtr(buf), count);
+    return syscall_bits.syscall4(.PREAD, @bitCast(@as(isize, fd)), @intFromPtr(buf), count, @bitCast(@as(isize, -1)));
 }
-pub fn pread(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
-    return syscall_bits.syscall4(.PREAD, @bitCast(@as(isize, fd)), @intFromPtr(buf), count, offset);
-}
-
-pub fn open(path: [*:0]const u8, omode: mode_t) usize {
-    return syscall_bits.syscall2(.OPEN, @intFromPtr(path), @bitCast(@as(isize, omode)));
+pub fn pread(fd: i32, buf: [*]const u8, count: usize, offset: isize) usize {
+    return syscall_bits.syscall4(.PREAD, @bitCast(@as(isize, fd)), @intFromPtr(buf), count, @bitCast(offset));
 }
 
-pub fn openat(dirfd: i32, path: [*:0]const u8, _: u32, omode: mode_t) usize {
+pub fn open(path: [*:0]const u8, flags: u32) usize {
+    return syscall_bits.syscall2(.OPEN, @intFromPtr(path), @bitCast(@as(isize, flags)));
+}
+
+pub fn openat(dirfd: i32, path: [*:0]const u8, flags: u32, _: mode_t) usize {
+    // we skip perms because only create supports perms
     if (dirfd == AT.FDCWD) { // openat(AT_FDCWD, ...) == open(...)
-        return open(path, omode);
+        return open(path, flags);
     }
     var dir_path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     var total_path_buf: [std.fs.MAX_PATH_BYTES + 1]u8 = undefined;
@@ -174,7 +212,7 @@ pub fn openat(dirfd: i32, path: [*:0]const u8, _: u32, omode: mode_t) usize {
     const total_path = std.fs.path.join(alloc, &.{ dir_path, std.mem.span(path) }) catch unreachable; // the allocation shouldn't fail because it should not exceed MAX_PATH_BYTES
     fba.reset();
     const total_path_z = alloc.dupeZ(u8, total_path) catch unreachable; // should not exceed MAX_PATH_BYTES + 1
-    return open(total_path_z.ptr, omode);
+    return open(total_path_z.ptr, flags);
 }
 
 pub fn fd2path(fd: i32, buf: [*]u8, nbuf: usize) usize {
