@@ -9424,14 +9424,14 @@ fn doTheTest() !void {
       Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
-      {#header_open|@fabs#}
-      <pre>{#syntax#}@fabs(value: anytype) @TypeOf(value){#endsyntax#}</pre>
+      {#header_open|@abs#}
+      <pre>{#syntax#}@abs(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Returns the absolute value of a floating point number. Uses a dedicated hardware instruction
+      Returns the absolute value of a floating point or signed integer number. Uses a dedicated hardware instruction
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats.
+      Supports {#link|Floats#}, {#link|Integers#} and {#link|Vectors#} of floats and integers.
       </p>
       {#header_close#}
       {#header_open|@floor#}
