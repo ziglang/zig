@@ -2808,6 +2808,8 @@ fn floatOp(func: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) In
         try func.addImm32(std.math.minInt(i16));
         try func.addTag(Mir.Inst.Tag.fromOpcode(.i32_xor));
         return .stack;
+    } else if (float_bits == 80 and float_op == .neg) {
+        return func.fail("TODO: Implement neg for f80", .{});
     } else if (float_bits == 128 and float_op == .neg) {
         return func.fail("TODO: Implement neg for f128", .{});
     }
