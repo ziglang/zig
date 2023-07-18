@@ -410,7 +410,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
                 },
             );
         } else {
-            symbol.index = @as(u32, @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len));
+            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
             const global = try wasm_bin.wasm_globals.addOne(allocator);
             global.* = .{
@@ -433,7 +433,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         };
         if (options.output_mode == .Obj or options.import_table) {
             symbol.setUndefined(true);
-            symbol.index = @as(u32, @intCast(wasm_bin.imported_tables_count));
+            symbol.index = @intCast(wasm_bin.imported_tables_count);
             wasm_bin.imported_tables_count += 1;
             try wasm_bin.imports.put(allocator, loc, .{
                 .module_name = try wasm_bin.string_table.put(allocator, wasm_bin.host_name),
@@ -467,16 +467,31 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             const loc = try wasm_bin.createSyntheticSymbol("__tls_base", .global);
             const symbol = loc.getSymbol(wasm_bin);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
+            try wasm_bin.wasm_globals.append(wasm_bin.base.allocator, .{
+                .global_type = .{ .valtype = .i32, .mutable = true },
+                .init = .{ .i32_const = undefined },
+            });
         }
         {
             const loc = try wasm_bin.createSyntheticSymbol("__tls_size", .global);
             const symbol = loc.getSymbol(wasm_bin);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
+            try wasm_bin.wasm_globals.append(wasm_bin.base.allocator, .{
+                .global_type = .{ .valtype = .i32, .mutable = false },
+                .init = .{ .i32_const = undefined },
+            });
         }
         {
             const loc = try wasm_bin.createSyntheticSymbol("__tls_align", .global);
             const symbol = loc.getSymbol(wasm_bin);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
+            try wasm_bin.wasm_globals.append(wasm_bin.base.allocator, .{
+                .global_type = .{ .valtype = .i32, .mutable = false },
+                .init = .{ .i32_const = undefined },
+            });
         }
         {
             const loc = try wasm_bin.createSyntheticSymbol("__wasm_init_tls", .function);
@@ -2757,27 +2772,18 @@ fn setupMemory(wasm: *Wasm) !void {
         if (mem.eql(u8, entry.key_ptr.*, ".tdata")) {
             if (wasm.findGlobalSymbol("__tls_size")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                sym.index = @as(u32, @intCast(wasm.wasm_globals.items.len)) + wasm.imported_globals_count;
-                try wasm.wasm_globals.append(wasm.base.allocator, .{
-                    .global_type = .{ .valtype = .i32, .mutable = false },
-                    .init = .{ .i32_const = @as(i32, @intCast(segment.size)) },
-                });
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.size);
             }
             if (wasm.findGlobalSymbol("__tls_align")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                sym.index = @as(u32, @intCast(wasm.wasm_globals.items.len)) + wasm.imported_globals_count;
-                try wasm.wasm_globals.append(wasm.base.allocator, .{
-                    .global_type = .{ .valtype = .i32, .mutable = false },
-                    .init = .{ .i32_const = @as(i32, @intCast(segment.alignment)) },
-                });
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.alignment);
             }
             if (wasm.findGlobalSymbol("__tls_base")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                sym.index = @as(u32, @intCast(wasm.wasm_globals.items.len)) + wasm.imported_globals_count;
-                try wasm.wasm_globals.append(wasm.base.allocator, .{
-                    .global_type = .{ .valtype = .i32, .mutable = wasm.base.options.shared_memory },
-                    .init = .{ .i32_const = if (wasm.base.options.shared_memory) @as(u32, 0) else @as(i32, @intCast(memory_ptr)) },
-                });
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = if (wasm.base.options.shared_memory)
+                    @as(i32, 0)
+                else
+                    @as(i32, @intCast(memory_ptr));
             }
         }
 

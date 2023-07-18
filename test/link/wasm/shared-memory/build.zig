@@ -5,11 +5,9 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     add(b, test_step, .Debug);
-
-    // Enable the following build modes once garbage-collection is implemented properly.
-    // add(b, test_step, .ReleaseFast);
-    // add(b, test_step, .ReleaseSmall);
-    // add(b, test_step, .ReleaseSafe);
+    add(b, test_step, .ReleaseFast);
+    add(b, test_step, .ReleaseSmall);
+    add(b, test_step, .ReleaseSafe);
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.OptimizeMode) void {
@@ -47,30 +45,53 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
 
         // This section *must* be emit as the start function is set to the index
         // of __wasm_init_memory
-        check_lib.checkStart("Section start");
+        // release modes will have the TLS segment optimized out in our test-case.
+        // This means we won't have __wasm_init_memory in such case, and therefore
+        // should also not have a section "start"
+        if (optimize_mode == .Debug) {
+            check_lib.checkStart("Section start");
+        }
 
         // This section is only and *must* be emit when shared-memory is enabled
-        check_lib.checkStart("Section data_count");
-        check_lib.checkNext("count 3");
+        // release modes will have the TLS segment optimized out in our test-case.
+        if (optimize_mode == .Debug) {
+            check_lib.checkStart("Section data_count");
+            check_lib.checkNext("count 3");
+        }
 
         check_lib.checkStart("Section custom");
         check_lib.checkNext("name name");
         check_lib.checkNext("type function");
-        check_lib.checkNext("name __wasm_init_memory");
+        if (optimize_mode == .Debug) {
+            check_lib.checkNext("name __wasm_init_memory");
+        }
         check_lib.checkNext("name __wasm_init_tls");
         check_lib.checkNext("type global");
-        check_lib.checkNext("name __tls_size");
-        check_lib.checkNext("name __tls_align");
-        check_lib.checkNext("name __tls_base");
+
+        // In debug mode the symbol __tls_base is resolved to an undefined symbol
+        // from the object file, hence its placement differs than in release modes
+        // where the entire tls segment is optimized away, and tls_base will have
+        // its original position.
+        if (optimize_mode == .Debug) {
+            check_lib.checkNext("name __tls_size");
+            check_lib.checkNext("name __tls_align");
+            check_lib.checkNext("name __tls_base");
+        } else {
+            check_lib.checkNext("name __tls_base");
+            check_lib.checkNext("name __tls_size");
+            check_lib.checkNext("name __tls_align");
+        }
 
         check_lib.checkNext("type data_segment");
-        check_lib.checkNext("names 3");
-        check_lib.checkNext("index 0");
-        check_lib.checkNext("name .rodata");
-        check_lib.checkNext("index 1");
-        check_lib.checkNext("name .bss");
-        check_lib.checkNext("index 2");
-        check_lib.checkNext("name .tdata");
+        if (optimize_mode == .Debug) {
+            check_lib.checkNext("names 3");
+            check_lib.checkNext("index 0");
+            check_lib.checkNext("name .rodata");
+            check_lib.checkNext("index 1");
+            check_lib.checkNext("name .bss");
+            check_lib.checkNext("index 2");
+            check_lib.checkNext("name .tdata");
+        }
 
         test_step.dependOn(&check_lib.step);
     }
