@@ -1810,6 +1810,7 @@ pub const DwarfInfo = struct {
             }
         }
 
+        (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(context.reg_context), context.reg_context)).* = context.cfa.?;
         while (update_tail) |tail| {
             @memcpy(tail.old_value, tail.new_value);
             update_tail = tail.prev;
