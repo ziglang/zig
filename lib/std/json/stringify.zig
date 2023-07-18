@@ -44,7 +44,7 @@ pub fn stringify(
     value: anytype,
     options: StringifyOptions,
     out_stream: anytype,
-) WriteStream(@TypeOf(out_stream), .safe_to_arbitrary_depth).Error!void {
+) WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth).Error!void {
     var jw = writeStream(allocator, out_stream, options);
     defer jw.deinit();
     try jw.write(value);
@@ -59,7 +59,7 @@ pub fn stringifyMaxDepth(
     comptime max_depth: ?usize,
 ) WriteStream(
     @TypeOf(out_stream),
-    if (max_depth) |d| .{ .safe_to_fixed_depth = d } else .unsafe,
+    if (max_depth) |d| .{ .checked_to_fixed_depth = d } else .assumed_correct,
 ).Error!void {
     var jw = writeStreamMaxDepth(out_stream, options, max_depth);
     try jw.write(value);
@@ -84,8 +84,8 @@ pub fn writeStream(
     allocator: Allocator,
     out_stream: anytype,
     options: StringifyOptions,
-) WriteStream(@TypeOf(out_stream), .safe_to_arbitrary_depth) {
-    return WriteStream(@TypeOf(out_stream), .safe_to_arbitrary_depth).init(allocator, out_stream, options);
+) WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth) {
+    return WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth).init(allocator, out_stream, options);
 }
 
 /// See `WriteStream`.
@@ -97,11 +97,11 @@ pub fn writeStreamMaxDepth(
     comptime max_depth: ?usize,
 ) WriteStream(
     @TypeOf(out_stream),
-    if (max_depth) |d| .{ .safe_to_fixed_depth = d } else .unsafe,
+    if (max_depth) |d| .{ .checked_to_fixed_depth = d } else .assumed_correct,
 ) {
     return WriteStream(
         @TypeOf(out_stream),
-        if (max_depth) |d| .{ .safe_to_fixed_depth = d } else .unsafe,
+        if (max_depth) |d| .{ .checked_to_fixed_depth = d } else .assumed_correct,
     ).init(undefined, out_stream, options);
 }
 
@@ -145,20 +145,19 @@ pub fn writeStreamMaxDepth(
 ///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
 pub fn WriteStream(
     comptime OutStream: type,
-    comptime safety_mode: union(enum) {
-        safe_to_arbitrary_depth,
-        safe_to_fixed_depth: usize, // Rounded up to the nearest multiple of 8.
-        unsafe,
+    comptime safety_checks: union(enum) {
+        checked_to_arbitrary_depth,
+        checked_to_fixed_depth: usize, // Rounded up to the nearest multiple of 8.
+        assumed_correct,
     },
 ) type {
     return struct {
-        const enable_safety = safety_mode != .unsafe;
         const Self = @This();
 
         pub const Stream = OutStream;
-        pub const Error = switch (safety_mode) {
-            .safe_to_arbitrary_depth => Stream.Error || error{OutOfMemory},
-            .safe_to_fixed_depth, .unsafe => Stream.Error,
+        pub const Error = switch (safety_checks) {
+            .checked_to_arbitrary_depth => Stream.Error || error{OutOfMemory},
+            .checked_to_fixed_depth, .assumed_correct => Stream.Error,
         };
 
         options: StringifyOptions,
@@ -172,28 +171,28 @@ pub fn WriteStream(
             colon,
         } = .the_beginning,
 
-        nesting_stack: switch (safety_mode) {
-            .safe_to_arbitrary_depth => BitStack,
-            .safe_to_fixed_depth => |fixed_buffer_size| [(fixed_buffer_size + 7) >> 3]u8,
-            .unsafe => void,
+        nesting_stack: switch (safety_checks) {
+            .checked_to_arbitrary_depth => BitStack,
+            .checked_to_fixed_depth => |fixed_buffer_size| [(fixed_buffer_size + 7) >> 3]u8,
+            .assumed_correct => void,
         },
 
         pub fn init(safety_allocator: Allocator, stream: OutStream, options: StringifyOptions) Self {
             return .{
                 .options = options,
                 .stream = stream,
-                .nesting_stack = switch (safety_mode) {
-                    .safe_to_arbitrary_depth => BitStack.init(safety_allocator),
-                    .safe_to_fixed_depth => |fixed_buffer_size| [_]u8{0} ** ((fixed_buffer_size + 7) >> 3),
-                    .unsafe => {},
+                .nesting_stack = switch (safety_checks) {
+                    .checked_to_arbitrary_depth => BitStack.init(safety_allocator),
+                    .checked_to_fixed_depth => |fixed_buffer_size| [_]u8{0} ** ((fixed_buffer_size + 7) >> 3),
+                    .assumed_correct => {},
                 },
             };
         }
 
         pub fn deinit(self: *Self) void {
-            switch (safety_mode) {
-                .safe_to_arbitrary_depth => self.nesting_stack.deinit(),
-                .safe_to_fixed_depth, .unsafe => {},
+            switch (safety_checks) {
+                .checked_to_arbitrary_depth => self.nesting_stack.deinit(),
+                .checked_to_fixed_depth, .assumed_correct => {},
             }
             self.* = undefined;
         }
@@ -239,29 +238,29 @@ pub fn WriteStream(
         }
 
         fn pushIndentation(self: *Self, mode: u1) !void {
-            switch (safety_mode) {
-                .safe_to_arbitrary_depth => {
+            switch (safety_checks) {
+                .checked_to_arbitrary_depth => {
                     try self.nesting_stack.push(mode);
                     self.indent_level += 1;
                 },
-                .safe_to_fixed_depth => {
+                .checked_to_fixed_depth => {
                     BitStack.pushWithStateAssumeCapacity(&self.nesting_stack, &self.indent_level, mode);
                 },
-                .unsafe => {
+                .assumed_correct => {
                     self.indent_level += 1;
                 },
             }
         }
         fn popIndentation(self: *Self, assert_its_this_one: u1) void {
-            switch (safety_mode) {
-                .safe_to_arbitrary_depth => {
+            switch (safety_checks) {
+                .checked_to_arbitrary_depth => {
                     assert(self.nesting_stack.pop() == assert_its_this_one);
                     self.indent_level -= 1;
                 },
-                .safe_to_fixed_depth => {
+                .checked_to_fixed_depth => {
                     assert(BitStack.popWithState(&self.nesting_stack, &self.indent_level) == assert_its_this_one);
                 },
-                .unsafe => {
+                .assumed_correct => {
                     self.indent_level -= 1;
                 },
             }
@@ -322,14 +321,14 @@ pub fn WriteStream(
 
         // Only when safety is enabled:
         fn isObjectKeyExpected(self: *const Self) ?bool {
-            switch (safety_mode) {
-                .safe_to_arbitrary_depth => return self.indent_level > 0 and
+            switch (safety_checks) {
+                .checked_to_arbitrary_depth => return self.indent_level > 0 and
                     self.nesting_stack.peek() == OBJECT_MODE and
                     self.next_punctuation != .colon,
-                .safe_to_fixed_depth => return self.indent_level > 0 and
+                .checked_to_fixed_depth => return self.indent_level > 0 and
                     BitStack.peekWithState(&self.nesting_stack, self.indent_level) == OBJECT_MODE and
                     self.next_punctuation != .colon,
-                .unsafe => return null,
+                .assumed_correct => return null,
             }
         }
         fn isComplete(self: *const Self) bool {
