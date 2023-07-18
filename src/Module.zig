@@ -888,13 +888,17 @@ pub const Decl = struct {
         assert(decl.dependencies.swapRemove(other));
     }
 
-    pub fn isExtern(decl: Decl, mod: *Module) bool {
+    pub fn getExternDecl(decl: Decl, mod: *Module) OptionalIndex {
         assert(decl.has_tv);
         return switch (mod.intern_pool.indexToKey(decl.val.toIntern())) {
-            .variable => |variable| variable.is_extern,
-            .extern_func => true,
-            else => false,
+            .variable => |variable| if (variable.is_extern) variable.decl.toOptional() else .none,
+            .extern_func => |extern_func| extern_func.decl.toOptional(),
+            else => .none,
         };
+    }
+
+    pub fn isExtern(decl: Decl, mod: *Module) bool {
+        return decl.getExternDecl(mod) != .none;
     }
 
     pub fn getAlignment(decl: Decl, mod: *Module) u32 {
