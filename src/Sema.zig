@@ -63,6 +63,13 @@ comptime_args: []InternPool.Index = &.{},
 /// Used to communicate from a generic function instantiation to the logic that
 /// creates a generic function instantiation value in `funcCommon`.
 generic_owner: InternPool.Index = .none,
+/// When `generic_owner` is not none, this contains the generic function
+/// instantiation callsite so that compile errors on the parameter types of the
+/// instantiation can point back to the instantiation site in addition to the
+/// declaration site.
+generic_call_src: LazySrcLoc = .unneeded,
+/// Corresponds to `generic_call_src`.
+generic_call_decl: Decl.OptionalIndex = .none,
 /// The key is types that must be fully resolved prior to machine code
 /// generation pass. Types are added to this set when resolving them
 /// immediately could cause a dependency loop, but they do need to be resolved
@@ -2055,10 +2062,7 @@ fn resolveDefinedValue(
 /// Value Tag `variable` causes this function to return `null`.
 /// Value Tag `undef` causes this function to return the Value.
 /// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
-fn resolveMaybeUndefVal(
-    sema: *Sema,
-    inst: Air.Inst.Ref,
-) CompileError!?Value {
+fn resolveMaybeUndefVal(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
     const val = (try sema.resolveMaybeUndefValAllowVariables(inst)) orelse return null;
     if (val.isGenericPoison()) return error.GenericPoison;
     if (val.ip_index != .none and sema.mod.intern_pool.isVariable(val.toIntern())) return null;
@@ -2069,10 +2073,7 @@ fn resolveMaybeUndefVal(
 /// Value Tag `undef` causes this function to return the Value.
 /// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
 /// Lazy values are recursively resolved.
-fn resolveMaybeUndefLazyVal(
-    sema: *Sema,
-    inst: Air.Inst.Ref,
-) CompileError!?Value {
+fn resolveMaybeUndefLazyVal(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
     return try sema.resolveLazyValue((try sema.resolveMaybeUndefVal(inst)) orelse return null);
 }
 
@@ -2081,10 +2082,7 @@ fn resolveMaybeUndefLazyVal(
 /// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
 /// Value Tag `decl_ref` and `decl_ref_mut` or any nested such value results in `null`.
 /// Lazy values are recursively resolved.
-fn resolveMaybeUndefValIntable(
-    sema: *Sema,
-    inst: Air.Inst.Ref,
-) CompileError!?Value {
+fn resolveMaybeUndefValIntable(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
     const val = (try sema.resolveMaybeUndefValAllowVariables(inst)) orelse return null;
     if (val.isGenericPoison()) return error.GenericPoison;
     if (val.ip_index == .none) return val;
@@ -7047,12 +7045,18 @@ fn analyzeCall(
         const parent_fn_ret_ty = sema.fn_ret_ty;
         const parent_fn_ret_ty_ies = sema.fn_ret_ty_ies;
         const parent_generic_owner = sema.generic_owner;
+        const parent_generic_call_src = sema.generic_call_src;
+        const parent_generic_call_decl = sema.generic_call_decl;
         sema.fn_ret_ty = bare_return_type;
         sema.fn_ret_ty_ies = null;
         sema.generic_owner = .none;
+        sema.generic_call_src = .unneeded;
+        sema.generic_call_decl = .none;
         defer sema.fn_ret_ty = parent_fn_ret_ty;
         defer sema.fn_ret_ty_ies = parent_fn_ret_ty_ies;
         defer sema.generic_owner = parent_generic_owner;
+        defer sema.generic_call_src = parent_generic_call_src;
+        defer sema.generic_call_decl = parent_generic_call_decl;
 
         if (module_fn.analysis(ip).inferred_error_set) {
             // Create a fresh inferred error set type for inline/comptime calls.
@@ -7506,6 +7510,8 @@ fn instantiateGenericCall(
         .owner_func_index = .none,
         .comptime_args = comptime_args,
         .generic_owner = generic_owner,
+        .generic_call_src = call_src,
+        .generic_call_decl = block.src_decl.toOptional(),
         .branch_quota = sema.branch_quota,
         .branch_count = sema.branch_count,
         .comptime_mutable_decls = sema.comptime_mutable_decls,
@@ -9167,13 +9173,19 @@ fn zirParam(
             const prev_params = block.params;
             const prev_no_partial_func_type = sema.no_partial_func_ty;
             const prev_generic_owner = sema.generic_owner;
+            const prev_generic_call_src = sema.generic_call_src;
+            const prev_generic_call_decl = sema.generic_call_decl;
             block.params = .{};
             sema.no_partial_func_ty = true;
             sema.generic_owner = .none;
+            sema.generic_call_src = .unneeded;
+            sema.generic_call_decl = .none;
             defer {
                 block.params = prev_params;
                 sema.no_partial_func_ty = prev_no_partial_func_type;
                 sema.generic_owner = prev_generic_owner;
+                sema.generic_call_src = prev_generic_call_src;
+                sema.generic_call_decl = prev_generic_call_decl;
             }
 
             if (sema.resolveBody(block, body, inst)) |param_ty_inst| {
@@ -9289,6 +9301,8 @@ fn zirParamAnytype(
     param_index: u32,
     comptime_syntax: bool,
 ) CompileError!void {
+    const mod = sema.mod;
+    const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
     const param_name: Zir.NullTerminatedString = @enumFromInt(inst_data.start);
     const src = inst_data.src();
@@ -9301,13 +9315,68 @@ fn zirParamAnytype(
             sema.comptime_args[param_index] = opv.toIntern();
             return;
         }
+        const arg_src: LazySrcLoc = if (sema.generic_call_src == .node_offset) .{ .call_arg = .{
+            .call_node_offset = sema.generic_call_src.node_offset.x,
+            .arg_index = param_index,
+        } } else .unneeded;
+
         if (comptime_syntax) {
-            sema.comptime_args[param_index] = (try sema.resolveConstMaybeUndefVal(block, src, air_ref, "parameter is declared comptime")).toIntern();
-            return;
+            if (try sema.resolveMaybeUndefVal(air_ref)) |val| {
+                sema.comptime_args[param_index] = val.toIntern();
+                return;
+            }
+            const msg = msg: {
+                const fallback_src = src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+                const src_loc = if (sema.generic_call_decl.unwrap()) |decl|
+                    if (arg_src != .unneeded)
+                        arg_src.toSrcLoc(mod.declPtr(decl), mod)
+                    else
+                        fallback_src
+                else
+                    fallback_src;
+
+                const msg = try Module.ErrorMsg.create(gpa, src_loc, "{s}", .{
+                    @as([]const u8, "runtime-known argument passed to comptime parameter"),
+                });
+                errdefer msg.destroy(gpa);
+
+                if (sema.generic_call_decl != .none) {
+                    try sema.errNote(block, src, msg, "{s}", .{@as([]const u8, "declared here")});
+                }
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
         }
+
         if (try sema.typeRequiresComptime(param_ty)) {
-            sema.comptime_args[param_index] = (try sema.resolveConstMaybeUndefVal(block, src, air_ref, "parameter type requires comptime")).toIntern();
-            return;
+            if (try sema.resolveMaybeUndefVal(air_ref)) |val| {
+                sema.comptime_args[param_index] = val.toIntern();
+                return;
+            }
+            const msg = msg: {
+                const fallback_src = src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+                const src_loc = if (sema.generic_call_decl.unwrap()) |decl|
+                    if (arg_src != .unneeded)
+                        arg_src.toSrcLoc(mod.declPtr(decl), mod)
+                    else
+                        fallback_src
+                else
+                    fallback_src;
+
+                const msg = try Module.ErrorMsg.create(gpa, src_loc, "{s}", .{
+                    @as([]const u8, "runtime-known argument passed to comptime-only type parameter"),
+                });
+                errdefer msg.destroy(gpa);
+
+                if (sema.generic_call_decl != .none) {
+                    try sema.errNote(block, src, msg, "{s}", .{@as([]const u8, "declared here")});
+                }
+
+                try sema.explainWhyTypeIsComptime(msg, src_loc, param_ty);
+
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
         }
 
         // The parameter is runtime-known.
