@@ -2789,10 +2789,6 @@ pub const WipFunction = struct {
         name: []const u8,
     ) Allocator.Error!Value {
         assert(ptr.typeOfWip(self).isPointer(self.builder));
-        const final_scope = switch (ordering) {
-            .none => .system,
-            else => scope,
-        };
         try self.ensureUnusedExtraCapacity(1, Instruction.Load, 0);
         const instruction = try self.addInst(name, .{
             .tag = switch (ordering) {
@@ -2808,7 +2804,10 @@ pub const WipFunction = struct {
             .data = self.addExtraAssumeCapacity(Instruction.Load{
                 .type = ty,
                 .ptr = ptr,
-                .info = .{ .scope = final_scope, .ordering = ordering, .alignment = alignment },
+                .info = .{ .scope = switch (ordering) {
+                    .none => .system,
+                    else => scope,
+                }, .ordering = ordering, .alignment = alignment },
             }),
         });
         if (self.builder.useLibLlvm()) {
@@ -2817,7 +2816,6 @@ pub const WipFunction = struct {
                 ptr.toLlvm(self),
                 instruction.llvmName(self),
             );
-            if (final_scope == .singlethread) llvm_instruction.setAtomicSingleThread(.True);
             if (ordering != .none) llvm_instruction.setOrdering(@enumFromInt(@intFromEnum(ordering)));
             if (alignment.toByteUnits()) |a| llvm_instruction.setAlignment(@intCast(a));
             self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
@@ -2845,10 +2843,6 @@ pub const WipFunction = struct {
         alignment: Alignment,
     ) Allocator.Error!Instruction.Index {
         assert(ptr.typeOfWip(self).isPointer(self.builder));
-        const final_scope = switch (ordering) {
-            .none => .system,
-            else => scope,
-        };
         try self.ensureUnusedExtraCapacity(1, Instruction.Store, 0);
         const instruction = try self.addInst(null, .{
             .tag = switch (ordering) {
@@ -2864,7 +2858,10 @@ pub const WipFunction = struct {
             .data = self.addExtraAssumeCapacity(Instruction.Store{
                 .val = val,
                 .ptr = ptr,
-                .info = .{ .scope = final_scope, .ordering = ordering, .alignment = alignment },
+                .info = .{ .scope = switch (ordering) {
+                    .none => .system,
+                    else => scope,
+                }, .ordering = ordering, .alignment = alignment },
             }),
         });
         if (self.builder.useLibLlvm()) {
@@ -2873,7 +2870,6 @@ pub const WipFunction = struct {
                 .normal => {},
                 .@"volatile" => llvm_instruction.setVolatile(.True),
             }
-            if (final_scope == .singlethread) llvm_instruction.setAtomicSingleThread(.True);
             if (ordering != .none) llvm_instruction.setOrdering(@enumFromInt(@intFromEnum(ordering)));
             if (alignment.toByteUnits()) |a| llvm_instruction.setAlignment(@intCast(a));
             self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
