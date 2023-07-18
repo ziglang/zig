@@ -8459,9 +8459,7 @@ fn zirFunc(
     inst: Zir.Inst.Index,
     inferred_error_set: bool,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
+    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
     const target = sema.mod.getTarget();
@@ -8502,8 +8500,7 @@ fn zirFunc(
     // If this instruction has a body it means it's the type of the `owner_decl`
     // otherwise it's a function type without a `callconv` attribute and should
     // never be `.C`.
-    // NOTE: revisit when doing #1717
-    const cc: std.builtin.CallingConvention = if (sema.owner_decl.is_exported and has_body)
+    const cc: std.builtin.CallingConvention = if (has_body and mod.declPtr(block.src_decl).is_exported)
         .C
     else
         .Unspecified;
