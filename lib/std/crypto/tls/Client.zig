@@ -952,7 +952,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
     // too small to fit the cleartext, which may be as large as `max_ciphertext_len`.
     var cleartext_stack_buffer: [max_ciphertext_len]u8 = undefined;
     // Temporarily stores ciphertext before decrypting it and giving it to `iovecs`.
-    var in_stack_buffer: [max_ciphertext_len * 4]u8 = undefined;
+    var in_stack_buffer: [max_ciphertext_len]u8 = undefined;
     // How many bytes left in the user's buffer.
     const free_size = vp.freeSize();
     // The amount of the user's buffer that we need to repurpose for storing
