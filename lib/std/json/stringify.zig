@@ -577,10 +577,7 @@ pub fn WriteStream(
     };
 }
 
-fn outputUnicodeEscape(
-    codepoint: u21,
-    out_stream: anytype,
-) !void {
+fn outputUnicodeEscape(codepoint: u21, out_stream: anytype) !void {
     if (codepoint <= 0xFFFF) {
         // If the character is in the Basic Multilingual Plane (U+0000 through U+FFFF),
         // then it may be represented as a six-character sequence: a reverse solidus, followed
@@ -600,6 +597,19 @@ fn outputUnicodeEscape(
     }
 }
 
+fn outputSpecialEscape(c: u8, writer: anytype) !void {
+    switch (c) {
+        '\\' => try writer.writeAll("\\\\"),
+        '\"' => try writer.writeAll("\\\""),
+        0x08 => try writer.writeAll("\\b"),
+        0x0C => try writer.writeAll("\\f"),
+        '\n' => try writer.writeAll("\\n"),
+        '\r' => try writer.writeAll("\\r"),
+        '\t' => try writer.writeAll("\\t"),
+        else => try outputUnicodeEscape(c, writer),
+    }
+}
+
 /// Write `string` to `writer` as a JSON encoded string.
 pub fn encodeJsonString(string: []const u8, options: StringifyOptions, writer: anytype) !void {
     try writer.writeByte('\"');
@@ -609,33 +619,44 @@ pub fn encodeJsonString(string: []const u8, options: StringifyOptions, writer: a
 
 /// Write `chars` to `writer` as JSON encoded string characters.
 pub fn encodeJsonStringChars(chars: []const u8, options: StringifyOptions, writer: anytype) !void {
+    var write_cursor: usize = 0;
     var i: usize = 0;
-    while (i < chars.len) : (i += 1) {
-        switch (chars[i]) {
-            // normal ascii character
-            0x20...0x21, 0x23...0x5B, 0x5D...0x7F => |c| try writer.writeByte(c),
-            // only 2 characters that *must* be escaped
-            '\\' => try writer.writeAll("\\\\"),
-            '\"' => try writer.writeAll("\\\""),
-            // control characters with short escapes
-            0x8 => try writer.writeAll("\\b"),
-            0xC => try writer.writeAll("\\f"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
-            else => {
-                const ulen = std.unicode.utf8ByteSequenceLength(chars[i]) catch unreachable;
-                // control characters (only things left with 1 byte length) should always be printed as unicode escapes
-                if (ulen == 1 or options.escape_unicode) {
+    if (options.escape_unicode) {
+        while (i < chars.len) : (i += 1) {
+            switch (chars[i]) {
+                // normal ascii character
+                0x20...0x21, 0x23...0x5B, 0x5D...0x7E => {},
+                0x00...0x1F, '\\', '\"' => {
+                    // Always must escape these.
+                    try writer.writeAll(chars[write_cursor..i]);
+                    try outputSpecialEscape(chars[i], writer);
+                    write_cursor = i + 1;
+                },
+                0x7F...0xFF => {
+                    try writer.writeAll(chars[write_cursor..i]);
+                    const ulen = std.unicode.utf8ByteSequenceLength(chars[i]) catch unreachable;
                     const codepoint = std.unicode.utf8Decode(chars[i..][0..ulen]) catch unreachable;
                     try outputUnicodeEscape(codepoint, writer);
-                } else {
-                    try writer.writeAll(chars[i..][0..ulen]);
-                }
-                i += ulen - 1;
-            },
+                    i += ulen - 1;
+                    write_cursor = i + 1;
+                },
+            }
+        }
+    } else {
+        while (i < chars.len) : (i += 1) {
+            switch (chars[i]) {
+                // normal bytes
+                0x20...0x21, 0x23...0x5B, 0x5D...0xFF => {},
+                0x00...0x1F, '\\', '\"' => {
+                    // Always must escape these.
+                    try writer.writeAll(chars[write_cursor..i]);
+                    try outputSpecialEscape(chars[i], writer);
+                    write_cursor = i + 1;
+                },
+            }
         }
     }
+    try writer.writeAll(chars[write_cursor..chars.len]);
 }
 
 test {
