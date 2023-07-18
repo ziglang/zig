@@ -262,6 +262,11 @@ pub const Value = struct {
         return ip.getOrPutTrailingString(gpa, len);
     }
 
+    pub fn intern2(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
+        if (val.ip_index != .none) return val.ip_index;
+        return intern(val, ty, mod);
+    }
+
     pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
         if (val.ip_index != .none) return (try mod.getCoerced(val, ty)).toIntern();
         switch (val.tag()) {

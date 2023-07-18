@@ -2238,7 +2238,7 @@ pub const Type = struct {
         var ty = starting_ty;
 
         while (true) switch (ty.toIntern()) {
-            .anyerror_type => {
+            .anyerror_type, .adhoc_inferred_error_set_type => {
                 // TODO revisit this when error sets support custom int types
                 return .{ .signedness = .unsigned, .bits = 16 };
             },

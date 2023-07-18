@@ -751,6 +751,7 @@ pub const Decl = struct {
         };
     }
 
+    /// This returns an InternPool.Index even when the value is not a function.
     pub fn getOwnedFunctionIndex(decl: Decl) InternPool.Index {
         return if (decl.owns_tv) decl.val.toIntern() else .none;
     }
@@ -4978,7 +4979,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     decl.has_align = has_align;
     decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
     decl.zir_decl_index = @as(u32, @intCast(decl_sub_index));
-    if (decl.getOwnedFunctionIndex() != .none) {
+    if (decl.getOwnedFunction(mod) != null) {
         switch (comp.bin_file.tag) {
             .coff, .elf, .macho, .plan9 => {
                 // TODO Look into detecting when this would be unnecessary by storing enough state

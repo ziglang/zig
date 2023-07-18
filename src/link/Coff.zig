@@ -1424,7 +1424,7 @@ pub fn updateDeclExports(
         // detect the default subsystem.
         for (exports) |exp| {
             const exported_decl = mod.declPtr(exp.exported_decl);
-            if (exported_decl.getOwnedFunctionIndex() == .none) continue;
+            if (exported_decl.getOwnedFunction(mod) == null) continue;
             const winapi_cc = switch (self.base.options.target.cpu.arch) {
                 .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,

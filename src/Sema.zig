@@ -7140,7 +7140,7 @@ fn analyzeCall(
 
             if (should_memoize and is_comptime_call) {
                 const result_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, result, "");
-                const result_interned = try result_val.intern(sema.fn_ret_ty, mod);
+                const result_interned = try result_val.intern2(sema.fn_ret_ty, mod);
 
                 // Transform ad-hoc inferred error set types into concrete error sets.
                 const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_interned);
@@ -7157,7 +7157,7 @@ fn analyzeCall(
             }
 
             if (try sema.resolveMaybeUndefVal(result)) |result_val| {
-                const result_interned = try result_val.intern(sema.fn_ret_ty, mod);
+                const result_interned = try result_val.intern2(sema.fn_ret_ty, mod);
                 const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_interned);
                 break :res2 Air.internedToRef(result_transformed);
             }
@@ -18319,7 +18319,7 @@ fn analyzeRet(
     // add the error tag to the inferred error set of the in-scope function, so
     // that the coercion below works correctly.
     const mod = sema.mod;
-    if (sema.fn_ret_ty.zigTypeTag(mod) == .ErrorUnion) {
+    if (sema.fn_ret_ty_ies != null and sema.fn_ret_ty.zigTypeTag(mod) == .ErrorUnion) {
         try sema.addToInferredErrorSet(uncasted_operand);
     }
     const operand = sema.coerceExtra(block, sema.fn_ret_ty, uncasted_operand, src, .{ .is_ret = true }) catch |err| switch (err) {
