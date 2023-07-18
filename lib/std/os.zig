@@ -1910,15 +1910,6 @@ pub fn execvpeZ(
 /// See also `getenvZ`.
 pub fn getenv(key: []const u8) ?[:0]const u8 {
     if (builtin.link_libc) {
-        // Append null byte to the key to use with cstd getenv
-        var small_key_buf: [64]u8 = undefined;
-        if (key.len < small_key_buf.len) {
-            @memcpy(small_key_buf[0..key.len], key);
-            small_key_buf[key.len] = 0;
-            return getenvZ(small_key_buf[0..key.len :0]);
-        }
-
-        // Search the entire `environ` because we don't have a null terminated pointer.
         var ptr = std.c.environ;
         while (ptr[0]) |line| : (ptr += 1) {
             var line_i: usize = 0;
