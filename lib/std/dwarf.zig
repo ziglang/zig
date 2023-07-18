@@ -1796,6 +1796,7 @@ pub const DwarfInfo = struct {
         };
 
         var update_tail: ?*RegisterUpdate = null;
+        var has_next_ip = true;
         for (context.vm.rowColumns(row)) |column| {
             if (column.register) |register| {
                 if (register == cie.return_address_register) {
@@ -1828,11 +1829,15 @@ pub const DwarfInfo = struct {
             update_tail = tail.prev;
         }
 
-        context.pc = abi.stripInstructionPtrAuthCode(mem.readIntSliceNative(usize, try abi.regBytes(
-            context.thread_context,
-            cie.return_address_register,
-            context.reg_context,
-        )));
+        if (has_next_ip) {
+            context.pc = abi.stripInstructionPtrAuthCode(mem.readIntSliceNative(usize, try abi.regBytes(
+                context.thread_context,
+                cie.return_address_register,
+                context.reg_context,
+            )));
+        } else {
+            context.pc = 0;
+        }
         (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), context.reg_context)).* = context.pc;
         std.debug.print("     new context.pc: 0x{x}\n", .{context.pc});
 
