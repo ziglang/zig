@@ -63,3 +63,11 @@ pub extern "advapi32" fn RegGetValueW(
     pvData: ?*anyopaque,
     pcbData: ?*DWORD,
 ) callconv(WINAPI) LSTATUS;
+
+pub extern "advapi32" fn RegLoadAppKeyW(
+    lpFile: LPCWSTR,
+    phkResult: *HKEY,
+    samDesired: REGSAM,
+    dwOptions: DWORD,
+    reserved: DWORD,
+) callconv(WINAPI) LSTATUS;
