@@ -1846,8 +1846,8 @@ pub const DeclGen = struct {
 
         if (mod.decl_exports.get(decl_index)) |exports| {
             try writer.print("{}", .{exports.items[export_index].opts.name.fmt(&mod.intern_pool)});
-        } else if (decl.isExtern(mod)) {
-            try writer.print("{}", .{decl.name.fmt(&mod.intern_pool)});
+        } else if (decl.getExternDecl(mod).unwrap()) |extern_decl_index| {
+            try writer.print("{}", .{mod.declPtr(extern_decl_index).name.fmt(&mod.intern_pool)});
         } else {
             // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
             // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
