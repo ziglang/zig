@@ -75,7 +75,7 @@ test "write json then parse it" {
 
     var fixed_buffer_stream = std.io.fixedBufferStream(&out_buffer);
     const out_stream = fixed_buffer_stream.writer();
-    var jw = writeStream(testing.allocator, out_stream, .{});
+    var jw = writeStream(out_stream, .{});
     defer jw.deinit();
 
     try jw.beginObject();
@@ -202,7 +202,7 @@ test "Value.jsonStringify" {
     var buffer: [0x1000]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
 
-    var jw = writeStream(testing.allocator, fbs.writer(), .{ .whitespace = .indent_1 });
+    var jw = writeStream(fbs.writer(), .{ .whitespace = .indent_1 });
     defer jw.deinit();
     try jw.write(array);
 

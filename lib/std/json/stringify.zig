@@ -37,35 +37,49 @@ pub const StringifyOptions = struct {
 
 /// Writes the given value to the `std.io.Writer` stream.
 /// See `WriteStream` for how the given value is serialized into JSON.
-/// The allocator is only required for safety checks for custom `jsonStringify` implementations;
-/// to opt out of the safety checks see `stringifyMaxDepth`.
+/// The maximum nesting depth of the output JSON document is 256.
+/// See also `stringifyMaxDepth` and `stringifyArbitraryDepth`.
 pub fn stringify(
-    allocator: Allocator,
     value: anytype,
     options: StringifyOptions,
     out_stream: anytype,
-) WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth).Error!void {
-    var jw = writeStream(allocator, out_stream, options);
+) @TypeOf(out_stream).Error!void {
+    var jw = writeStream(out_stream, options);
     defer jw.deinit();
     try jw.write(value);
 }
 
-/// Like `stringify`, but uses a fixed-size buffer instead of an allocator for safety checks.
+/// Like `stringify` with configurable nesting depth.
 /// `max_depth` is rounded up to the nearest multiple of 8.
+/// Give `null` for `max_depth` to disable some safety checks and allow arbitrary nesting depth.
+/// See `writeStreamMaxDepth` for more info.
 pub fn stringifyMaxDepth(
     value: anytype,
     options: StringifyOptions,
     out_stream: anytype,
     comptime max_depth: ?usize,
-) WriteStream(
-    @TypeOf(out_stream),
-    if (max_depth) |d| .{ .checked_to_fixed_depth = d } else .assumed_correct,
-).Error!void {
+) @TypeOf(out_stream).Error!void {
     var jw = writeStreamMaxDepth(out_stream, options, max_depth);
     try jw.write(value);
 }
 
-/// Calls `stringify` and stores result in dynamically allocated memory instead of taking a `std.io.Writer`.
+/// Like `stringify` but takes an allocator to facilitate safety checks while allowing arbitrary nesting depth.
+/// These safety checks can be helpful when debugging custom `jsonStringify` implementations;
+/// See `WriteStream`.
+pub fn stringifyArbitraryDepth(
+    allocator: Allocator,
+    value: anytype,
+    options: StringifyOptions,
+    out_stream: anytype,
+) WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth).Error!void {
+    var jw = writeStreamArbitraryDepth(allocator, out_stream, options);
+    defer jw.deinit();
+    try jw.write(value);
+}
+
+/// Calls `stringifyArbitraryDepth` and stores the result in dynamically allocated memory
+/// instead of taking a `std.io.Writer`.
+///
 /// Caller owns returned memory.
 pub fn stringifyAlloc(
     allocator: Allocator,
@@ -74,23 +88,30 @@ pub fn stringifyAlloc(
 ) error{OutOfMemory}![]const u8 {
     var list = std.ArrayList(u8).init(allocator);
     errdefer list.deinit();
-    try stringify(allocator, value, options, list.writer());
+    try stringifyArbitraryDepth(allocator, value, options, list.writer());
     return list.toOwnedSlice();
 }
 
-/// See `WriteStream`.
-/// The caller should call `deinit()` on the returned object.
+/// See `WriteStream` for documentation.
+/// Equivalent to calling `writeStreamMaxDepth` with a depth of `256`.
+///
+/// The caller does *not* need to call `deinit()` on the returned object.
 pub fn writeStream(
-    allocator: Allocator,
     out_stream: anytype,
     options: StringifyOptions,
-) WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth) {
-    return WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth).init(allocator, out_stream, options);
+) WriteStream(@TypeOf(out_stream), .{ .checked_to_fixed_depth = 256 }) {
+    return writeStreamMaxDepth(out_stream, options, 256);
 }
 
-/// See `WriteStream`.
-/// The caller does *not* need to call `deinit()` on the returned object.
+/// See `WriteStream` for documentation.
+/// The returned object includes 1 bit of size per `max_depth` to enable safety checks on the order of method calls;
+/// see the grammar in the `WriteStream` documentation.
 /// `max_depth` is rounded up to the nearest multiple of 8.
+/// If the nesting depth exceeds `max_depth`, it is detectable illegal behavior.
+/// Give `null` for `max_depth` to disable safety checks for the grammar and allow arbitrary nesting depth.
+/// Alternatively, see `writeStreamArbitraryDepth` to do safety checks to arbitrary depth.
+///
+/// The caller does *not* need to call `deinit()` on the returned object.
 pub fn writeStreamMaxDepth(
     out_stream: anytype,
     options: StringifyOptions,
@@ -103,6 +124,18 @@ pub fn writeStreamMaxDepth(
         @TypeOf(out_stream),
         if (max_depth) |d| .{ .checked_to_fixed_depth = d } else .assumed_correct,
     ).init(undefined, out_stream, options);
+}
+
+/// See `WriteStream` for documentation.
+/// This version of the write stream enables safety checks to arbitrarily deep nesting levels
+/// by using the given allocator.
+/// The caller should call `deinit()` on the returned object to free allocated memory.
+pub fn writeStreamArbitraryDepth(
+    allocator: Allocator,
+    out_stream: anytype,
+    options: StringifyOptions,
+) WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth) {
+    return WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth).init(allocator, out_stream, options);
 }
 
 /// Writes JSON ([RFC8259](https://tools.ietf.org/html/rfc8259)) formatted data

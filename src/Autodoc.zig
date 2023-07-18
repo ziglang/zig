@@ -385,7 +385,7 @@ pub fn generateZirData(self: *Autodoc) !void {
             \\ /** @type {{DocData}} */
             \\ var zigAnalysis=
         , .{});
-        try std.json.stringify(
+        try std.json.stringifyArbitraryDepth(
             arena_allocator.allocator(),
             data,
             .{

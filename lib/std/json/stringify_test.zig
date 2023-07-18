@@ -7,10 +7,12 @@ const Value = @import("dynamic.zig").Value;
 
 const StringifyOptions = @import("stringify.zig").StringifyOptions;
 const stringify = @import("stringify.zig").stringify;
-const stringifyAlloc = @import("stringify.zig").stringifyAlloc;
 const stringifyMaxDepth = @import("stringify.zig").stringifyMaxDepth;
+const stringifyArbitraryDepth = @import("stringify.zig").stringifyArbitraryDepth;
+const stringifyAlloc = @import("stringify.zig").stringifyAlloc;
 const writeStream = @import("stringify.zig").writeStream;
 const writeStreamMaxDepth = @import("stringify.zig").writeStreamMaxDepth;
+const writeStreamArbitraryDepth = @import("stringify.zig").writeStreamArbitraryDepth;
 
 test "json write stream" {
     var out_buf: [1024]u8 = undefined;
@@ -18,8 +20,7 @@ test "json write stream" {
     const out = slice_stream.writer();
 
     {
-        var w = writeStream(testing.allocator, out, .{ .whitespace = .indent_2 });
-        defer w.deinit();
+        var w = writeStream(out, .{ .whitespace = .indent_2 });
         try testBasicWriteStream(&w, &slice_stream);
     }
 
@@ -30,6 +31,12 @@ test "json write stream" {
 
     {
         var w = writeStreamMaxDepth(out, .{ .whitespace = .indent_2 }, null);
+        try testBasicWriteStream(&w, &slice_stream);
+    }
+
+    {
+        var w = writeStreamArbitraryDepth(testing.allocator, out, .{ .whitespace = .indent_2 });
+        defer w.deinit();
         try testBasicWriteStream(&w, &slice_stream);
     }
 }
@@ -334,31 +341,31 @@ fn testStringify(expected: []const u8, value: anytype, options: StringifyOptions
     };
 
     var vos = ValidationWriter.init(expected);
-    try stringify(testing.allocator, value, options, vos.writer());
+    try stringifyArbitraryDepth(testing.allocator, value, options, vos.writer());
     if (vos.expected_remaining.len > 0) return error.NotEnoughData;
 
     // Also test with safety disabled.
-    try testStringifyUnsafe(expected, value, options);
-    try testStringifyMaxDepth(expected, value, options, 128);
+    try testStringifyMaxDepth(expected, value, options, null);
+    try testStringifyArbitraryDepth(expected, value, options);
 }
 
-fn testStringifyUnsafe(expected: []const u8, value: anytype, options: StringifyOptions) !void {
-    var out_buf: [1024]u8 = undefined;
-    var slice_stream = std.io.fixedBufferStream(&out_buf);
-    const out = slice_stream.writer();
-
-    try stringifyMaxDepth(value, options, out, null);
-    const got = slice_stream.getWritten();
-
-    try testing.expectEqualStrings(expected, got);
-}
-
-fn testStringifyMaxDepth(expected: []const u8, value: anytype, options: StringifyOptions, comptime max_depth: usize) !void {
+fn testStringifyMaxDepth(expected: []const u8, value: anytype, options: StringifyOptions, comptime max_depth: ?usize) !void {
     var out_buf: [1024]u8 = undefined;
     var slice_stream = std.io.fixedBufferStream(&out_buf);
     const out = slice_stream.writer();
 
     try stringifyMaxDepth(value, options, out, max_depth);
+    const got = slice_stream.getWritten();
+
+    try testing.expectEqualStrings(expected, got);
+}
+
+fn testStringifyArbitraryDepth(expected: []const u8, value: anytype, options: StringifyOptions) !void {
+    var out_buf: [1024]u8 = undefined;
+    var slice_stream = std.io.fixedBufferStream(&out_buf);
+    const out = slice_stream.writer();
+
+    try stringifyArbitraryDepth(testing.allocator, value, options, out);
     const got = slice_stream.getWritten();
 
     try testing.expectEqualStrings(expected, got);
@@ -376,17 +383,18 @@ test "stringify alloc" {
 }
 
 test "comptime stringify" {
-    comptime testStringifyUnsafe("false", false, .{}) catch unreachable;
+    comptime testStringifyMaxDepth("false", false, .{}, null) catch unreachable;
     comptime testStringifyMaxDepth("false", false, .{}, 0) catch unreachable;
+    comptime testStringifyArbitraryDepth("false", false, .{}) catch unreachable;
 
     const MyStruct = struct {
         foo: u32,
     };
-    comptime testStringifyUnsafe("[{\"foo\":42},{\"foo\":100},{\"foo\":1000}]", [_]MyStruct{
+    comptime testStringifyMaxDepth("[{\"foo\":42},{\"foo\":100},{\"foo\":1000}]", [_]MyStruct{
         MyStruct{ .foo = 42 },
         MyStruct{ .foo = 100 },
         MyStruct{ .foo = 1000 },
-    }, .{}) catch unreachable;
+    }, .{}, null) catch unreachable;
     comptime testStringifyMaxDepth("[{\"foo\":42},{\"foo\":100},{\"foo\":1000}]", [_]MyStruct{
         MyStruct{ .foo = 42 },
         MyStruct{ .foo = 100 },
@@ -399,7 +407,7 @@ test "writePreformatted" {
     var slice_stream = std.io.fixedBufferStream(&out_buf);
     const out = slice_stream.writer();
 
-    var w = writeStream(testing.allocator, out, .{ .whitespace = .indent_2 });
+    var w = writeStream(out, .{ .whitespace = .indent_2 });
     defer w.deinit();
 
     try w.beginObject();

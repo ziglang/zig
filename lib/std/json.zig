@@ -43,7 +43,7 @@ test Value {
 test writeStream {
     var out = ArrayList(u8).init(testing.allocator);
     defer out.deinit();
-    var write_stream = writeStream(testing.allocator, out.writer(), .{ .whitespace = .indent_2 });
+    var write_stream = writeStream(out.writer(), .{ .whitespace = .indent_2 });
     defer write_stream.deinit();
     try write_stream.beginObject();
     try write_stream.objectField("foo");
@@ -62,7 +62,7 @@ test stringify {
     defer out.deinit();
 
     const T = struct { a: i32, b: []const u8 };
-    try stringify(testing.allocator, T{ .a = 123, .b = "xy" }, .{}, out.writer());
+    try stringify(T{ .a = 123, .b = "xy" }, .{}, out.writer());
     try testing.expectEqualSlices(u8, "{\"a\":123,\"b\":\"xy\"}", out.items);
 }
 
@@ -100,10 +100,12 @@ pub const ParseFromValueError = @import("json/static.zig").ParseFromValueError;
 
 pub const StringifyOptions = @import("json/stringify.zig").StringifyOptions;
 pub const stringify = @import("json/stringify.zig").stringify;
-pub const stringifyAlloc = @import("json/stringify.zig").stringifyAlloc;
 pub const stringifyMaxDepth = @import("json/stringify.zig").stringifyMaxDepth;
+pub const stringifyArbitraryDepth = @import("json/stringify.zig").stringifyArbitraryDepth;
+pub const stringifyAlloc = @import("json/stringify.zig").stringifyAlloc;
 pub const writeStream = @import("json/stringify.zig").writeStream;
 pub const writeStreamMaxDepth = @import("json/stringify.zig").writeStreamMaxDepth;
+pub const writeStreamArbitraryDepth = @import("json/stringify.zig").writeStreamArbitraryDepth;
 pub const WriteStream = @import("json/stringify.zig").WriteStream;
 pub const encodeJsonString = @import("json/stringify.zig").encodeJsonString;
 pub const encodeJsonStringChars = @import("json/stringify.zig").encodeJsonStringChars;
