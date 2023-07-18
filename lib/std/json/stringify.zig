@@ -623,7 +623,6 @@ pub fn encodeJsonStringChars(chars: []const u8, options: StringifyOptions, write
             '\n' => try writer.writeAll("\\n"),
             '\r' => try writer.writeAll("\\r"),
             '\t' => try writer.writeAll("\\t"),
-            // TODO: 0x00...0x1f => try outputUnicodeEscape(chars[i], writer) ,
             else => {
                 const ulen = std.unicode.utf8ByteSequenceLength(chars[i]) catch unreachable;
                 // control characters (only things left with 1 byte length) should always be printed as unicode escapes
