@@ -439,8 +439,8 @@ const usage_build_generic =
     \\  -fno-unwind-tables        Never produce unwind table entries
     \\  -fLLVM                    Force using LLVM as the codegen backend
     \\  -fno-LLVM                 Prevent using LLVM as the codegen backend
-    \\  -flibLLVM                 Force using LLVM shared library apias the codegen backend
-    \\  -fno-libLLVM              Prevent using LLVM as the codegen backend
+    \\  -flibLLVM                 Force using the LLVM API in the codegen backend
+    \\  -fno-libLLVM              Prevent using the LLVM API in the codegen backend
     \\  -fClang                   Force using Clang as the C/C++ compilation backend
     \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
     \\  -freference-trace[=num]   How many lines of reference trace should be shown per compile error

@@ -8,7 +8,7 @@ const native_endian = builtin.cpu.arch.endian();
 const DW = std.dwarf;
 
 const Builder = @import("llvm/Builder.zig");
-const llvm = if (build_options.have_llvm)
+const llvm = if (build_options.have_llvm or true)
     @import("llvm/bindings.zig")
 else
     @compileError("LLVM unavailable");

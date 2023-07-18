@@ -6644,7 +6644,7 @@ fn bigIntConstAssumeCapacity(
             } else |_| {
                 const llvm_limbs = try allocator.alloc(u64, std.math.divCeil(
                     usize,
-                    canonical_value.bitCountTwosComp(),
+                    if (canonical_value.positive) canonical_value.bitCountAbs() else bits,
                     @bitSizeOf(u64),
                 ) catch unreachable);
                 defer allocator.free(llvm_limbs);
