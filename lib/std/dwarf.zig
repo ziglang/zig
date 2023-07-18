@@ -1740,8 +1740,20 @@ pub const DwarfInfo = struct {
         context.reg_context.eh_frame = cie.version != 4;
         context.reg_context.is_macho = di.is_macho;
 
-        _ = try context.vm.runToNative(context.allocator, context.pc, cie, fde);
-        const row = &context.vm.current_row;
+        if (comptime builtin.target.isDarwin()) {
+            std.debug.print("  state before:\n", .{});
+            std.debug.print("    cfa {?x}:\n", .{context.cfa});
+            for (context.thread_context.mcontext.ss.regs, 0..) |reg, i| {
+                std.debug.print("    {}:0x{x}\n", .{i, reg});
+            }
+            std.debug.print("    fp:0x{x}\n", .{context.thread_context.mcontext.ss.fp});
+            std.debug.print("    lr:0x{x}\n", .{context.thread_context.mcontext.ss.lr});
+            std.debug.print("    sp:0x{x}\n", .{context.thread_context.mcontext.ss.sp});
+            std.debug.print("    pc:0x{x}\n", .{context.thread_context.mcontext.ss.pc});
+        }
+
+        const row = try context.vm.runToNative(context.allocator, context.pc, cie, fde);
+        std.debug.print("     ran to 0x{x}\n", .{row.offset + fde.pc_begin});
 
         context.cfa = switch (row.cfa.rule) {
             .val_offset => |offset| blk: {
@@ -1785,7 +1797,7 @@ pub const DwarfInfo = struct {
 
         var update_tail: ?*RegisterUpdate = null;
         var has_next_ip = false;
-        for (context.vm.rowColumns(row.*)) |column| {
+        for (context.vm.rowColumns(row)) |column| {
             if (column.register) |register| {
                 if (register == cie.return_address_register) {
                     has_next_ip = column.rule != .undefined;

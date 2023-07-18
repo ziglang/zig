@@ -395,9 +395,7 @@ pub const VirtualMachine = struct {
     }
 
     /// Runs the CIE instructions, then the FDE instructions. Execution halts
-    /// once the row that corresponds to `pc` is known (and set as `current_row`).
-    ///
-    /// The state of the row prior to the last execution step is returned.
+    /// once the row that corresponds to `pc` is known, and the row is returned.
     pub fn runTo(
         self: *VirtualMachine,
         allocator: std.mem.Allocator,
@@ -419,17 +417,15 @@ pub const VirtualMachine = struct {
             &fde_stream,
         };
 
-        outer: for (&streams, 0..) |stream, i| {
+        for (&streams, 0..) |stream, i| {
             while (stream.pos < stream.buffer.len) {
                 const instruction = try dwarf.call_frame.Instruction.read(stream, addr_size_bytes, endian);
                 prev_row = try self.step(allocator, cie, i == 0, instruction);
-                if (pc < fde.pc_begin + self.current_row.offset) {
-                    break :outer;
-                }
+                if (pc < fde.pc_begin + self.current_row.offset) return prev_row;
             }
         }
 
-        return prev_row;
+        return self.current_row;
     }
 
     pub fn runToNative(
