@@ -28,7 +28,7 @@ pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writ
     var bw = std.io.bufferedWriter(stdout);
     const w = bw.writer();
 
-    var jws = std.json.writeStream(gpa, w, .{ .whitespace = .indent_1 });
+    var jws = std.json.writeStreamMaxDepth(w, .{ .whitespace = .indent_1 }, 2);
     defer jws.deinit();
 
     try jws.beginObject();

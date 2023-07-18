@@ -9,8 +9,10 @@ const StringifyOptions = @import("stringify.zig").StringifyOptions;
 const stringify = @import("stringify.zig").stringify;
 const stringifyAlloc = @import("stringify.zig").stringifyAlloc;
 const stringifyUnsafe = @import("stringify.zig").stringifyUnsafe;
+const stringifyMaxDepth = @import("stringify.zig").stringifyMaxDepth;
 const writeStream = @import("stringify.zig").writeStream;
 const writeStreamUnsafe = @import("stringify.zig").writeStreamUnsafe;
+const writeStreamMaxDepth = @import("stringify.zig").writeStreamMaxDepth;
 
 test "json write stream" {
     var out_buf: [1024]u8 = undefined;
@@ -25,6 +27,11 @@ test "json write stream" {
 
     {
         var w = writeStreamUnsafe(out, .{ .whitespace = .indent_2 });
+        try testBasicWriteStream(&w, &slice_stream);
+    }
+
+    {
+        var w = writeStreamMaxDepth(out, .{ .whitespace = .indent_2 }, 3);
         try testBasicWriteStream(&w, &slice_stream);
     }
 }
@@ -334,6 +341,7 @@ fn testStringify(expected: []const u8, value: anytype, options: StringifyOptions
 
     // Also test with safety disabled.
     try testStringifyUnsafe(expected, value, options);
+    try testStringifyMaxDepth(expected, value, options, 128);
 }
 
 fn testStringifyUnsafe(expected: []const u8, value: anytype, options: StringifyOptions) !void {
@@ -342,6 +350,17 @@ fn testStringifyUnsafe(expected: []const u8, value: anytype, options: StringifyO
     const out = slice_stream.writer();
 
     try stringifyUnsafe(value, options, out);
+    const got = slice_stream.getWritten();
+
+    try testing.expectEqualStrings(expected, got);
+}
+
+fn testStringifyMaxDepth(expected: []const u8, value: anytype, options: StringifyOptions, comptime max_depth: usize) !void {
+    var out_buf: [1024]u8 = undefined;
+    var slice_stream = std.io.fixedBufferStream(&out_buf);
+    const out = slice_stream.writer();
+
+    try stringifyMaxDepth(value, options, out, max_depth);
     const got = slice_stream.getWritten();
 
     try testing.expectEqualStrings(expected, got);
@@ -360,6 +379,7 @@ test "stringify alloc" {
 
 test "comptime stringify" {
     comptime testStringifyUnsafe("false", false, .{}) catch unreachable;
+    comptime testStringifyMaxDepth("false", false, .{}, 0) catch unreachable;
 
     const MyStruct = struct {
         foo: u32,
@@ -369,6 +389,11 @@ test "comptime stringify" {
         MyStruct{ .foo = 100 },
         MyStruct{ .foo = 1000 },
     }, .{}) catch unreachable;
+    comptime testStringifyMaxDepth("[{\"foo\":42},{\"foo\":100},{\"foo\":1000}]", [_]MyStruct{
+        MyStruct{ .foo = 42 },
+        MyStruct{ .foo = 100 },
+        MyStruct{ .foo = 1000 },
+    }, .{}, 8) catch unreachable;
 }
 
 test "writePreformatted" {

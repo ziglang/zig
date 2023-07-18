@@ -338,7 +338,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
             }
         }
         /// Like `std.json.Scanner.skipUntilStackHeight()` but handles `error.BufferUnderrun`.
-        pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: u32) NextError!void {
+        pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: usize) NextError!void {
             while (true) {
                 return self.scanner.skipUntilStackHeight(terminal_stack_height) catch |err| switch (err) {
                     error.BufferUnderrun => {
@@ -351,11 +351,11 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
         }
 
         /// Calls `std.json.Scanner.stackHeight`.
-        pub fn stackHeight(self: *const @This()) u32 {
+        pub fn stackHeight(self: *const @This()) usize {
             return self.scanner.stackHeight();
         }
         /// Calls `std.json.Scanner.ensureTotalStackCapacity`.
-        pub fn ensureTotalStackCapacity(self: *@This(), height: u32) Allocator.Error!void {
+        pub fn ensureTotalStackCapacity(self: *@This(), height: usize) Allocator.Error!void {
             try self.scanner.ensureTotalStackCapacity(height);
         }
 
@@ -655,7 +655,7 @@ pub const Scanner = struct {
 
     /// Skip tokens until an `.object_end` or `.array_end` token results in a `stackHeight()` equal the given stack height.
     /// Unlike `skipValue()`, this function is available in streaming mode.
-    pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: u32) NextError!void {
+    pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: usize) NextError!void {
         while (true) {
             switch (try self.next()) {
                 .object_end, .array_end => {
@@ -668,13 +668,13 @@ pub const Scanner = struct {
     }
 
     /// The depth of `{}` or `[]` nesting levels at the current position.
-    pub fn stackHeight(self: *const @This()) u32 {
+    pub fn stackHeight(self: *const @This()) usize {
         return self.stack.bit_len;
     }
 
     /// Pre allocate memory to hold the given number of nesting levels.
     /// `stackHeight()` up to the given number will not cause allocations.
-    pub fn ensureTotalStackCapacity(self: *@This(), height: u32) Allocator.Error!void {
+    pub fn ensureTotalStackCapacity(self: *@This(), height: usize) Allocator.Error!void {
         try self.stack.ensureTotalCapacity(height);
     }
 

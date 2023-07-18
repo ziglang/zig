@@ -44,7 +44,7 @@ pub fn stringify(
     value: anytype,
     options: StringifyOptions,
     out_stream: anytype,
-) WriteStream(@TypeOf(out_stream), .safe).Error!void {
+) WriteStream(@TypeOf(out_stream), .safe_to_arbitrary_depth).Error!void {
     var jw = writeStream(allocator, out_stream, options);
     defer jw.deinit();
     try jw.write(value);
@@ -57,6 +57,18 @@ pub fn stringifyUnsafe(
     out_stream: anytype,
 ) WriteStream(@TypeOf(out_stream), .unsafe).Error!void {
     var jw = writeStreamUnsafe(out_stream, options);
+    try jw.write(value);
+}
+
+/// Like `stringify`, but uses a fixed-size buffer instead of an allocator for safety checks.
+/// `max_depth` is rounded up to the nearest multiple of 8.
+pub fn stringifyMaxDepth(
+    value: anytype,
+    options: StringifyOptions,
+    out_stream: anytype,
+    comptime max_depth: usize,
+) WriteStream(@TypeOf(out_stream), .{ .safe_to_fixed_depth = max_depth }).Error!void {
+    var jw = writeStreamMaxDepth(out_stream, options, max_depth);
     try jw.write(value);
 }
 
@@ -75,14 +87,32 @@ pub fn stringifyAlloc(
 
 /// See `WriteStream`.
 /// The caller should call `deinit()` on the returned object.
-pub fn writeStream(allocator: Allocator, out_stream: anytype, options: StringifyOptions) WriteStream(@TypeOf(out_stream), .safe) {
-    return WriteStream(@TypeOf(out_stream), .safe).init(allocator, out_stream, options);
+pub fn writeStream(
+    allocator: Allocator,
+    out_stream: anytype,
+    options: StringifyOptions,
+) WriteStream(@TypeOf(out_stream), .safe_to_arbitrary_depth) {
+    return WriteStream(@TypeOf(out_stream), .safe_to_arbitrary_depth).init(allocator, out_stream, options);
 }
 
 /// See `WriteStream`.
 /// The caller does *not* need to call `deinit()` on the returned object.
-pub fn writeStreamUnsafe(out_stream: anytype, options: StringifyOptions) WriteStream(@TypeOf(out_stream), .unsafe) {
+pub fn writeStreamUnsafe(
+    out_stream: anytype,
+    options: StringifyOptions,
+) WriteStream(@TypeOf(out_stream), .unsafe) {
     return WriteStream(@TypeOf(out_stream), .unsafe).init(undefined, out_stream, options);
+}
+
+/// See `WriteStream`.
+/// The caller does *not* need to call `deinit()` on the returned object.
+/// `max_depth` is rounded up to the nearest multiple of 8.
+pub fn writeStreamMaxDepth(
+    out_stream: anytype,
+    options: StringifyOptions,
+    comptime max_depth: usize,
+) WriteStream(@TypeOf(out_stream), .{ .safe_to_fixed_depth = max_depth }) {
+    return WriteStream(@TypeOf(out_stream), .{ .safe_to_fixed_depth = max_depth }).init(undefined, out_stream, options);
 }
 
 /// Writes JSON ([RFC8259](https://tools.ietf.org/html/rfc8259)) formatted data
@@ -123,19 +153,27 @@ pub fn writeStreamUnsafe(out_stream: anytype, options: StringifyOptions) WriteSt
 ///      * If the enum declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
 ///  * Zig error -> JSON string naming the error.
 ///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
-pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, unsafe }) type {
+pub fn WriteStream(
+    comptime OutStream: type,
+    comptime safety_mode: union(enum) {
+        safe_to_arbitrary_depth,
+        safe_to_fixed_depth: usize, // Rounded up to the nearest multiple of 8.
+        unsafe,
+    },
+) type {
     return struct {
-        const enable_safety = safety_mode == .safe;
+        const enable_safety = safety_mode != .unsafe;
         const Self = @This();
 
         pub const Stream = OutStream;
-        pub const Error = if (enable_safety) Stream.Error || error{OutOfMemory} else Stream.Error;
+        pub const Error = switch (safety_mode) {
+            .safe_to_arbitrary_depth => Stream.Error || error{OutOfMemory},
+            .safe_to_fixed_depth, .unsafe => Stream.Error,
+        };
 
         options: StringifyOptions,
 
         stream: OutStream,
-        nesting_stack: if (enable_safety) BitStack else void,
-        is_complete: if (enable_safety) bool else void = if (enable_safety) false else {},
         indent_level: usize = 0,
         next_punctuation: enum {
             the_beginning,
@@ -144,38 +182,48 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
             colon,
         } = .the_beginning,
 
+        nesting_stack: switch (safety_mode) {
+            .safe_to_arbitrary_depth => BitStack,
+            .safe_to_fixed_depth => |fixed_buffer_size| [(fixed_buffer_size + 7) >> 3]u8,
+            .unsafe => void,
+        },
+
         pub fn init(safety_allocator: Allocator, stream: OutStream, options: StringifyOptions) Self {
             return .{
                 .options = options,
                 .stream = stream,
-                .nesting_stack = if (enable_safety) BitStack.init(safety_allocator) else {},
+                .nesting_stack = switch (safety_mode) {
+                    .safe_to_arbitrary_depth => BitStack.init(safety_allocator),
+                    .safe_to_fixed_depth => |fixed_buffer_size| [_]u8{0} ** ((fixed_buffer_size + 7) >> 3),
+                    .unsafe => {},
+                },
             };
         }
 
         pub fn deinit(self: *Self) void {
-            if (enable_safety) self.nesting_stack.deinit();
+            switch (safety_mode) {
+                .safe_to_arbitrary_depth => self.nesting_stack.deinit(),
+                .safe_to_fixed_depth, .unsafe => {},
+            }
             self.* = undefined;
         }
 
         pub fn beginArray(self: *Self) Error!void {
             try self.valueStart();
             try self.stream.writeByte('[');
-            if (enable_safety) try self.nesting_stack.push(ARRAY_MODE);
-            self.indent_level += 1;
+            try self.pushIndentation(ARRAY_MODE);
             self.next_punctuation = .none;
         }
 
         pub fn beginObject(self: *Self) Error!void {
             try self.valueStart();
             try self.stream.writeByte('{');
-            if (enable_safety) try self.nesting_stack.push(OBJECT_MODE);
-            self.indent_level += 1;
+            try self.pushIndentation(OBJECT_MODE);
             self.next_punctuation = .none;
         }
 
         pub fn endArray(self: *Self) Error!void {
-            if (enable_safety) assert(self.nesting_stack.pop() == ARRAY_MODE);
-            self.indent_level -= 1;
+            self.popIndentation(ARRAY_MODE);
             switch (self.next_punctuation) {
                 .none => {},
                 .comma => {
@@ -188,8 +236,7 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
         }
 
         pub fn endObject(self: *Self) Error!void {
-            if (enable_safety) assert(self.nesting_stack.pop() == OBJECT_MODE);
-            self.indent_level -= 1;
+            self.popIndentation(OBJECT_MODE);
             switch (self.next_punctuation) {
                 .none => {},
                 .comma => {
@@ -199,6 +246,35 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
             }
             try self.stream.writeByte('}');
             self.valueDone();
+        }
+
+        fn pushIndentation(self: *Self, mode: u1) !void {
+            switch (safety_mode) {
+                .safe_to_arbitrary_depth => {
+                    try self.nesting_stack.push(mode);
+                    self.indent_level += 1;
+                },
+                .safe_to_fixed_depth => {
+                    BitStack.pushWithStateAssumeCapacity(&self.nesting_stack, &self.indent_level, mode);
+                },
+                .unsafe => {
+                    self.indent_level += 1;
+                },
+            }
+        }
+        fn popIndentation(self: *Self, assert_its_this_one: u1) void {
+            switch (safety_mode) {
+                .safe_to_arbitrary_depth => {
+                    assert(self.nesting_stack.pop() == assert_its_this_one);
+                    self.indent_level -= 1;
+                },
+                .safe_to_fixed_depth => {
+                    assert(BitStack.popWithState(&self.nesting_stack, &self.indent_level) == assert_its_this_one);
+                },
+                .unsafe => {
+                    self.indent_level -= 1;
+                },
+            }
         }
 
         fn indent(self: *Self) !void {
@@ -220,15 +296,15 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
         }
 
         fn valueStart(self: *Self) !void {
-            if (enable_safety) assert(!self.expectObjectKey()); // Call objectField(), not write(), for object keys.
+            if (self.isObjectKeyExpected()) |is_it| assert(!is_it); // Call objectField(), not write(), for object keys.
             return self.valueStartAssumeTypeOk();
         }
         fn objectFieldStart(self: *Self) !void {
-            if (enable_safety) assert(self.expectObjectKey()); // Expected write(), not objectField().
+            if (self.isObjectKeyExpected()) |is_it| assert(is_it); // Expected write(), not objectField().
             return self.valueStartAssumeTypeOk();
         }
         fn valueStartAssumeTypeOk(self: *Self) !void {
-            if (enable_safety) assert(!self.is_complete); // JSON document already complete.
+            assert(!self.isComplete()); // JSON document already complete.
             switch (self.next_punctuation) {
                 .the_beginning => {
                     // No indentation for the very beginning.
@@ -251,14 +327,23 @@ pub fn WriteStream(comptime OutStream: type, comptime safety_mode: enum { safe, 
             }
         }
         fn valueDone(self: *Self) void {
-            if (enable_safety and self.nesting_stack.bit_len == 0) {
-                // Done with everything.
-                self.is_complete = true;
-            }
             self.next_punctuation = .comma;
         }
-        fn expectObjectKey(self: *const Self) bool {
-            return self.nesting_stack.bit_len > 0 and self.nesting_stack.peek() == OBJECT_MODE and self.next_punctuation != .colon;
+
+        // Only when safety is enabled:
+        fn isObjectKeyExpected(self: *const Self) ?bool {
+            switch (safety_mode) {
+                .safe_to_arbitrary_depth => return self.indent_level > 0 and
+                    self.nesting_stack.peek() == OBJECT_MODE and
+                    self.next_punctuation != .colon,
+                .safe_to_fixed_depth => return self.indent_level > 0 and
+                    BitStack.peekWithState(&self.nesting_stack, self.indent_level) == OBJECT_MODE and
+                    self.next_punctuation != .colon,
+                .unsafe => return null,
+            }
+        }
+        fn isComplete(self: *const Self) bool {
+            return self.indent_level == 0 and self.next_punctuation == .comma;
         }
 
         /// An alternative to calling `write` that outputs the given bytes verbatim.
@@ -516,6 +601,7 @@ pub fn encodeJsonStringChars(chars: []const u8, options: StringifyOptions, write
             '\n' => try writer.writeAll("\\n"),
             '\r' => try writer.writeAll("\\r"),
             '\t' => try writer.writeAll("\\t"),
+            // TODO: 0x00...0x1f => try outputUnicodeEscape(chars[i], writer) ,
             else => {
                 const ulen = std.unicode.utf8ByteSequenceLength(chars[i]) catch unreachable;
                 // control characters (only things left with 1 byte length) should always be printed as unicode escapes
