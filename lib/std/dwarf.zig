@@ -1796,12 +1796,12 @@ pub const DwarfInfo = struct {
         };
 
         var update_tail: ?*RegisterUpdate = null;
-        var has_next_ip = false;
         for (context.vm.rowColumns(row)) |column| {
             if (column.register) |register| {
                 if (register == cie.return_address_register) {
                     has_next_ip = column.rule != .undefined;
                 }
+                std.debug.print("      updated {}\n", .{register});
 
                 const old_value = try abi.regBytes(context.thread_context, register, context.reg_context);
                 const new_value = try update_allocator.alloc(u8, old_value.len);
@@ -1828,15 +1828,13 @@ pub const DwarfInfo = struct {
             update_tail = tail.prev;
         }
 
-        if (has_next_ip) {
-            context.pc = abi.stripInstructionPtrAuthCode(mem.readIntSliceNative(usize, try abi.regBytes(
-                context.thread_context,
-                cie.return_address_register,
-                context.reg_context,
-            )));
-        } else {
-            context.pc = 0;
-        }
+        context.pc = abi.stripInstructionPtrAuthCode(mem.readIntSliceNative(usize, try abi.regBytes(
+            context.thread_context,
+            cie.return_address_register,
+            context.reg_context,
+        )));
+        (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), context.reg_context)).* = context.pc;
+        std.debug.print("     new context.pc: 0x{x}\n", .{context.pc});
 
         (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(context.reg_context), context.reg_context)).* = context.cfa.?;
 
