@@ -32,7 +32,12 @@ pub fn getShift(n: usize) usize {
 ///
 /// The algorithms described here are based on "Processing Long Numbers Quickly",
 /// available here: <https://arxiv.org/pdf/2101.11408.pdf#section.11>.
+///
+/// Note that this function needs a lot of stack space and is marked
+/// cold to hint against inlining into the caller.
 pub fn convertSlow(comptime T: type, s: []const u8) BiasedFp(T) {
+    @setCold(true);
+
     const MantissaT = mantissaType(T);
     const min_exponent = -(1 << (math.floatExponentBits(T) - 1)) + 1;
     const infinite_power = (1 << math.floatExponentBits(T)) - 1;
