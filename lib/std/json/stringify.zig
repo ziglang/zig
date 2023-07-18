@@ -38,7 +38,7 @@ pub const StringifyOptions = struct {
 /// Writes the given value to the `std.io.Writer` stream.
 /// See `WriteStream` for how the given value is serialized into JSON.
 /// The allocator is only required for safety checks for custom `jsonStringify` implementations;
-/// to opt out of the safety checks see `stringifyUnsafe`.
+/// to opt out of the safety checks see `stringifyMaxDepth`.
 pub fn stringify(
     allocator: Allocator,
     value: anytype,
@@ -50,24 +50,17 @@ pub fn stringify(
     try jw.write(value);
 }
 
-/// Like `stringify`, but does not require an allocator because it uses `writeStreamUnsafe`.
-pub fn stringifyUnsafe(
-    value: anytype,
-    options: StringifyOptions,
-    out_stream: anytype,
-) WriteStream(@TypeOf(out_stream), .unsafe).Error!void {
-    var jw = writeStreamUnsafe(out_stream, options);
-    try jw.write(value);
-}
-
 /// Like `stringify`, but uses a fixed-size buffer instead of an allocator for safety checks.
 /// `max_depth` is rounded up to the nearest multiple of 8.
 pub fn stringifyMaxDepth(
     value: anytype,
     options: StringifyOptions,
     out_stream: anytype,
-    comptime max_depth: usize,
-) WriteStream(@TypeOf(out_stream), .{ .safe_to_fixed_depth = max_depth }).Error!void {
+    comptime max_depth: ?usize,
+) WriteStream(
+    @TypeOf(out_stream),
+    if (max_depth) |d| .{ .safe_to_fixed_depth = d } else .unsafe,
+).Error!void {
     var jw = writeStreamMaxDepth(out_stream, options, max_depth);
     try jw.write(value);
 }
@@ -97,22 +90,19 @@ pub fn writeStream(
 
 /// See `WriteStream`.
 /// The caller does *not* need to call `deinit()` on the returned object.
-pub fn writeStreamUnsafe(
-    out_stream: anytype,
-    options: StringifyOptions,
-) WriteStream(@TypeOf(out_stream), .unsafe) {
-    return WriteStream(@TypeOf(out_stream), .unsafe).init(undefined, out_stream, options);
-}
-
-/// See `WriteStream`.
-/// The caller does *not* need to call `deinit()` on the returned object.
 /// `max_depth` is rounded up to the nearest multiple of 8.
 pub fn writeStreamMaxDepth(
     out_stream: anytype,
     options: StringifyOptions,
-    comptime max_depth: usize,
-) WriteStream(@TypeOf(out_stream), .{ .safe_to_fixed_depth = max_depth }) {
-    return WriteStream(@TypeOf(out_stream), .{ .safe_to_fixed_depth = max_depth }).init(undefined, out_stream, options);
+    comptime max_depth: ?usize,
+) WriteStream(
+    @TypeOf(out_stream),
+    if (max_depth) |d| .{ .safe_to_fixed_depth = d } else .unsafe,
+) {
+    return WriteStream(
+        @TypeOf(out_stream),
+        if (max_depth) |d| .{ .safe_to_fixed_depth = d } else .unsafe,
+    ).init(undefined, out_stream, options);
 }
 
 /// Writes JSON ([RFC8259](https://tools.ietf.org/html/rfc8259)) formatted data

@@ -8,10 +8,8 @@ const Value = @import("dynamic.zig").Value;
 const StringifyOptions = @import("stringify.zig").StringifyOptions;
 const stringify = @import("stringify.zig").stringify;
 const stringifyAlloc = @import("stringify.zig").stringifyAlloc;
-const stringifyUnsafe = @import("stringify.zig").stringifyUnsafe;
 const stringifyMaxDepth = @import("stringify.zig").stringifyMaxDepth;
 const writeStream = @import("stringify.zig").writeStream;
-const writeStreamUnsafe = @import("stringify.zig").writeStreamUnsafe;
 const writeStreamMaxDepth = @import("stringify.zig").writeStreamMaxDepth;
 
 test "json write stream" {
@@ -26,12 +24,12 @@ test "json write stream" {
     }
 
     {
-        var w = writeStreamUnsafe(out, .{ .whitespace = .indent_2 });
+        var w = writeStreamMaxDepth(out, .{ .whitespace = .indent_2 }, 8);
         try testBasicWriteStream(&w, &slice_stream);
     }
 
     {
-        var w = writeStreamMaxDepth(out, .{ .whitespace = .indent_2 }, 3);
+        var w = writeStreamMaxDepth(out, .{ .whitespace = .indent_2 }, null);
         try testBasicWriteStream(&w, &slice_stream);
     }
 }
@@ -349,7 +347,7 @@ fn testStringifyUnsafe(expected: []const u8, value: anytype, options: StringifyO
     var slice_stream = std.io.fixedBufferStream(&out_buf);
     const out = slice_stream.writer();
 
-    try stringifyUnsafe(value, options, out);
+    try stringifyMaxDepth(value, options, out, null);
     const got = slice_stream.getWritten();
 
     try testing.expectEqualStrings(expected, got);
