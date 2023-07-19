@@ -8550,8 +8550,22 @@ fn resolveGenericBody(
     const err = err: {
         // Make sure any nested param instructions don't clobber our work.
         const prev_params = block.params;
+        const prev_no_partial_func_type = sema.no_partial_func_ty;
+        const prev_generic_owner = sema.generic_owner;
+        const prev_generic_call_src = sema.generic_call_src;
+        const prev_generic_call_decl = sema.generic_call_decl;
         block.params = .{};
-        defer block.params = prev_params;
+        sema.no_partial_func_ty = true;
+        sema.generic_owner = .none;
+        sema.generic_call_src = .unneeded;
+        sema.generic_call_decl = .none;
+        defer {
+            block.params = prev_params;
+            sema.no_partial_func_ty = prev_no_partial_func_type;
+            sema.generic_owner = prev_generic_owner;
+            sema.generic_call_src = prev_generic_call_src;
+            sema.generic_call_decl = prev_generic_call_decl;
+        }
 
         const uncasted = sema.resolveBody(block, body, func_inst) catch |err| break :err err;
         const result = sema.coerce(block, dest_ty, uncasted, src) catch |err| break :err err;
