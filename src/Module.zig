@@ -2146,9 +2146,17 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(fn_proto_param.fn_proto_node_offset);
                 var buf: [1]Ast.Node.Index = undefined;
-                const fn_proto_full = tree.fullFnProto(&buf, node).?;
-                const src_node = fn_proto_full.ast.params[fn_proto_param.param_index];
-                return nodeToSpan(tree, src_node);
+                const full = tree.fullFnProto(&buf, node).?;
+                var it = full.iterate(tree);
+                var i: usize = 0;
+                while (it.next()) |param| : (i += 1) {
+                    if (i == fn_proto_param.param_index) {
+                        if (param.anytype_ellipsis3) |token| return tokenToSpan(tree, token);
+                        if (param.name_token) |token| return tokenToSpan(tree, token);
+                        return nodeToSpan(tree, param.type_expr);
+                    }
+                }
+                unreachable;
             },
             .node_offset_bin_lhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2500,6 +2508,10 @@ pub const SrcLoc = struct {
             tree.lastToken(node),
             tree.nodes.items(.main_token)[node],
         );
+    }
+
+    fn tokenToSpan(tree: *const Ast, token: Ast.TokenIndex) Span {
+        return tokensToSpan(tree, token, token, token);
     }
 
     fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex, main: Ast.TokenIndex) Span {
