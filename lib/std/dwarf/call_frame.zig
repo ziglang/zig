@@ -295,12 +295,18 @@ pub const VirtualMachine = struct {
             switch (self.rule) {
                 .default => {
                     const register = self.register orelse return error.InvalidRegister;
-                    abi.getRegDefaultValue(register, out);
+                    try abi.getRegDefaultValue(register, context, out);
                 },
                 .undefined => {
                     @memset(out, undefined);
                 },
-                .same_value => {},
+                .same_value => {
+                    // TODO: This copy could be eliminated if callers always copy the state then call this function to update it
+                    const register = self.register orelse return error.InvalidRegister;
+                    const src = try abi.regBytes(context.thread_context, register, context.reg_context);
+                    if (src.len != out.len) return error.RegisterSizeMismatch;
+                    @memcpy(out, src);
+                },
                 .offset => |offset| {
                     if (context.cfa) |cfa| {
                         const addr = try applyOffset(cfa, offset);
@@ -316,7 +322,7 @@ pub const VirtualMachine = struct {
                 },
                 .register => |register| {
                     const src = try abi.regBytes(context.thread_context, register, context.reg_context);
-                    if (src.len != out.len) return error.RegisterTypeMismatch;
+                    if (src.len != out.len) return error.RegisterSizeMismatch;
                     @memcpy(out, try abi.regBytes(context.thread_context, register, context.reg_context));
                 },
                 .expression => |expression| {

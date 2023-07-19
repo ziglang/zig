@@ -367,12 +367,21 @@ pub fn regBytes(
 }
 
 /// Returns the ABI-defined default value this register has in the unwinding table
-/// before running any of the CIE instructions. The DWARF spec defines these values
-///  to be undefined, but allows ABI authors to override that default.
-pub fn getRegDefaultValue(reg_number: u8, out: []u8) void {
+/// before running any of the CIE instructions. The DWARF spec defines these as having
+/// the .undefined rule by default, but allows ABI authors to override that.
+pub fn getRegDefaultValue(reg_number: u8, context: *std.dwarf.UnwindContext, out: []u8) !void {
+    switch (builtin.cpu.arch) {
+        .aarch64 => {
+            // Callee-saved registers are initialized as if they had the .same_value rule
+            if (reg_number >= 19 and reg_number <= 28) {
+                const src = try regBytes(context.thread_context, reg_number, context.reg_context);
+                if (src.len != out.len) return error.RegisterSizeMismatch;
+                @memcpy(out, src);
+                return;
+            }
+        },
+        else => {},
+    }
 
-    // Implement any ABI-specific rules here
-
-    _ = reg_number;
     @memset(out, undefined);
 }

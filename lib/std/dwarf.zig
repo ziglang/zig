@@ -1740,21 +1740,7 @@ pub const DwarfInfo = struct {
         context.reg_context.eh_frame = cie.version != 4;
         context.reg_context.is_macho = di.is_macho;
 
-        if (comptime builtin.target.isDarwin()) {
-            std.debug.print("  state before:\n", .{});
-            std.debug.print("    cfa {?x}:\n", .{context.cfa});
-            for (context.thread_context.mcontext.ss.regs, 0..) |reg, i| {
-                std.debug.print("    {}:0x{x}\n", .{i, reg});
-            }
-            std.debug.print("    fp:0x{x}\n", .{context.thread_context.mcontext.ss.fp});
-            std.debug.print("    lr:0x{x}\n", .{context.thread_context.mcontext.ss.lr});
-            std.debug.print("    sp:0x{x}\n", .{context.thread_context.mcontext.ss.sp});
-            std.debug.print("    pc:0x{x}\n", .{context.thread_context.mcontext.ss.pc});
-        }
-
         const row = try context.vm.runToNative(context.allocator, context.pc, cie, fde);
-        std.debug.print("     ran to 0x{x}\n", .{row.offset + fde.pc_begin});
-
         context.cfa = switch (row.cfa.rule) {
             .val_offset => |offset| blk: {
                 const register = row.cfa.register orelse return error.InvalidCFARule;
@@ -1789,47 +1775,48 @@ pub const DwarfInfo = struct {
 
         const RegisterUpdate = struct {
             // Backed by thread_context
-            old_value: []u8,
+            dest: []u8,
             // Backed by arena
-            new_value: []const u8,
+            src: []const u8,
             prev: ?*@This(),
         };
 
         var update_tail: ?*RegisterUpdate = null;
-        var has_next_ip = true;
+        var has_return_address= true;
         for (context.vm.rowColumns(row)) |column| {
             if (column.register) |register| {
                 if (register == cie.return_address_register) {
-                    has_next_ip = column.rule != .undefined;
+                    has_return_address = column.rule != .undefined;
                 }
-                std.debug.print("      updated {}\n", .{register});
 
-                const old_value = try abi.regBytes(context.thread_context, register, context.reg_context);
-                const new_value = try update_allocator.alloc(u8, old_value.len);
+                const dest = try abi.regBytes(context.thread_context, register, context.reg_context);
+                const src = try update_allocator.alloc(u8, dest.len);
 
                 const prev = update_tail;
                 update_tail = try update_allocator.create(RegisterUpdate);
                 update_tail.?.* = .{
-                    .old_value = old_value,
-                    .new_value = new_value,
+                    .dest = dest,
+                    .src = src,
                     .prev = prev,
                 };
 
                 try column.resolveValue(
                     context,
                     expression_context,
-                    new_value,
+                    src,
                 );
             }
         }
 
+        // On all implemented architectures, the CFA is defined as being the previous frame's SP
         (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(context.reg_context), context.reg_context)).* = context.cfa.?;
+
         while (update_tail) |tail| {
-            @memcpy(tail.old_value, tail.new_value);
+            @memcpy(tail.dest, tail.src);
             update_tail = tail.prev;
         }
 
-        if (has_next_ip) {
+        if (has_return_address) {
             context.pc = abi.stripInstructionPtrAuthCode(mem.readIntSliceNative(usize, try abi.regBytes(
                 context.thread_context,
                 cie.return_address_register,
@@ -1838,10 +1825,8 @@ pub const DwarfInfo = struct {
         } else {
             context.pc = 0;
         }
-        (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), context.reg_context)).* = context.pc;
-        std.debug.print("     new context.pc: 0x{x}\n", .{context.pc});
 
-        (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(context.reg_context), context.reg_context)).* = context.cfa.?;
+        (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), context.reg_context)).* = context.pc;
 
         // The call instruction will have pushed the address of the instruction that follows the call as the return address
         // However, this return address may be past the end of the function if the caller was `noreturn`. By subtracting one,
