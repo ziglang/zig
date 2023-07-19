@@ -16,6 +16,7 @@ const Compilation = @import("Compilation.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const Liveness = @import("Liveness.zig");
 const Module = @import("Module.zig");
+const InternPool = @import("InternPool.zig");
 const Package = @import("Package.zig");
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
@@ -562,7 +563,7 @@ pub const File = struct {
     }
 
     /// May be called before or after updateDeclExports for any given Decl.
-    pub fn updateFunc(base: *File, module: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) UpdateDeclError!void {
+    pub fn updateFunc(base: *File, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) UpdateDeclError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
             return @fieldParentPtr(C, "base", base).updateFunc(module, func_index, air, liveness);

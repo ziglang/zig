@@ -238,7 +238,7 @@ pub const DeclGen = struct {
             if (ty.zigTypeTag(mod) == .Fn) {
                 const fn_decl_index = switch (mod.intern_pool.indexToKey(val.ip_index)) {
                     .extern_func => |extern_func| extern_func.decl,
-                    .func => |func| mod.funcPtr(func.index).owner_decl,
+                    .func => |func| func.owner_decl,
                     else => unreachable,
                 };
                 const spv_decl_index = try self.resolveDecl(fn_decl_index);
@@ -255,13 +255,14 @@ pub const DeclGen = struct {
     /// Fetch or allocate a result id for decl index. This function also marks the decl as alive.
     /// Note: Function does not actually generate the decl.
     fn resolveDecl(self: *DeclGen, decl_index: Module.Decl.Index) !SpvModule.Decl.Index {
-        const decl = self.module.declPtr(decl_index);
-        try self.module.markDeclAlive(decl);
+        const mod = self.module;
+        const decl = mod.declPtr(decl_index);
+        try mod.markDeclAlive(decl);
 
         const entry = try self.decl_link.getOrPut(decl_index);
         if (!entry.found_existing) {
             // TODO: Extern fn?
-            const kind: SpvModule.DeclKind = if (decl.val.getFunctionIndex(self.module) != .none)
+            const kind: SpvModule.DeclKind = if (decl.val.isFuncBody(mod))
                 .func
             else
                 .global;
@@ -1268,6 +1269,7 @@ pub const DeclGen = struct {
             },
             .Fn => switch (repr) {
                 .direct => {
+                    const ip = &mod.intern_pool;
                     const fn_info = mod.typeToFunc(ty).?;
                     // TODO: Put this somewhere in Sema.zig
                     if (fn_info.is_var_args)
@@ -1275,8 +1277,8 @@ pub const DeclGen = struct {
 
                     const param_ty_refs = try self.gpa.alloc(CacheRef, fn_info.param_types.len);
                     defer self.gpa.free(param_ty_refs);
-                    for (param_ty_refs, 0..) |*param_type, i| {
-                        param_type.* = try self.resolveType(fn_info.param_types[i].toType(), .direct);
+                    for (param_ty_refs, fn_info.param_types.get(ip)) |*param_type, fn_param_type| {
+                        param_type.* = try self.resolveType(fn_param_type.toType(), .direct);
                     }
                     const return_ty_ref = try self.resolveType(fn_info.return_type.toType(), .direct);
 
@@ -1576,6 +1578,7 @@ pub const DeclGen = struct {
 
     fn genDecl(self: *DeclGen) !void {
         const mod = self.module;
+        const ip = &mod.intern_pool;
         const decl = mod.declPtr(self.decl_index);
         const spv_decl_index = try self.resolveDecl(self.decl_index);
 
@@ -1594,7 +1597,8 @@ pub const DeclGen = struct {
             const fn_info = mod.typeToFunc(decl.ty).?;
 
             try self.args.ensureUnusedCapacity(self.gpa, fn_info.param_types.len);
-            for (fn_info.param_types) |param_type| {
+            for (0..fn_info.param_types.len) |i| {
+                const param_type = fn_info.param_types.get(ip)[i];
                 const param_type_id = try self.resolveTypeId(param_type.toType());
                 const arg_result_id = self.spv.allocId();
                 try self.func.prologue.emit(self.spv.gpa, .OpFunctionParameter, .{
@@ -1621,7 +1625,7 @@ pub const DeclGen = struct {
             try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
             try self.spv.addFunction(spv_decl_index, self.func);
 
-            const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(self.module));
+            const fqn = ip.stringToSlice(try decl.getFullyQualifiedName(self.module));
 
             try self.spv.sections.debug_names.emit(self.gpa, .OpName, .{
                 .target = decl_id,

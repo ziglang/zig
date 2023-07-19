@@ -110,20 +110,21 @@ const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
 const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 
 const Owner = union(enum) {
-    mod_fn: *const Module.Fn,
+    func_index: InternPool.Index,
     lazy_sym: link.File.LazySymbol,
 
     fn getDecl(owner: Owner, mod: *Module) Module.Decl.Index {
         return switch (owner) {
-            .mod_fn => |mod_fn| mod_fn.owner_decl,
+            .func_index => |func_index| mod.funcOwnerDeclIndex(func_index),
             .lazy_sym => |lazy_sym| lazy_sym.ty.getOwnerDecl(mod),
         };
     }
 
     fn getSymbolIndex(owner: Owner, ctx: *Self) !u32 {
         switch (owner) {
-            .mod_fn => |mod_fn| {
-                const decl_index = mod_fn.owner_decl;
+            .func_index => |func_index| {
+                const mod = ctx.bin_file.options.module.?;
+                const decl_index = mod.funcOwnerDeclIndex(func_index);
                 if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
                     const atom = try macho_file.getOrCreateAtomForDecl(decl_index);
                     return macho_file.getAtom(atom).getSymbolIndex().?;
@@ -638,7 +639,7 @@ const Self = @This();
 pub fn generate(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    module_fn_index: Module.Fn.Index,
+    func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
@@ -649,8 +650,8 @@ pub fn generate(
     }
 
     const mod = bin_file.options.module.?;
-    const module_fn = mod.funcPtr(module_fn_index);
-    const fn_owner_decl = mod.declPtr(module_fn.owner_decl);
+    const func = mod.funcInfo(func_index);
+    const fn_owner_decl = mod.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
 
@@ -662,15 +663,15 @@ pub fn generate(
         .target = &bin_file.options.target,
         .bin_file = bin_file,
         .debug_output = debug_output,
-        .owner = .{ .mod_fn = module_fn },
+        .owner = .{ .func_index = func_index },
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
         .fn_type = fn_type,
         .arg_index = 0,
         .src_loc = src_loc,
-        .end_di_line = module_fn.rbrace_line,
-        .end_di_column = module_fn.rbrace_column,
+        .end_di_line = func.rbrace_line,
+        .end_di_column = func.rbrace_column,
     };
     defer {
         function.frame_allocs.deinit(gpa);
@@ -687,17 +688,16 @@ pub fn generate(
         if (builtin.mode == .Debug) function.mir_to_air_map.deinit(gpa);
     }
 
-    wip_mir_log.debug("{}:", .{function.fmtDecl(module_fn.owner_decl)});
+    wip_mir_log.debug("{}:", .{function.fmtDecl(func.owner_decl)});
+
+    const ip = &mod.intern_pool;
 
     try function.frame_allocs.resize(gpa, FrameIndex.named_count);
     function.frame_allocs.set(
         @intFromEnum(FrameIndex.stack_frame),
         FrameAlloc.init(.{
             .size = 0,
-            .alignment = if (mod.align_stack_fns.get(module_fn_index)) |set_align_stack|
-                @intCast(set_align_stack.alignment.toByteUnitsOptional().?)
-            else
-                1,
+            .alignment = @intCast(func.analysis(ip).stack_alignment.toByteUnitsOptional() orelse 1),
         }),
     );
     function.frame_allocs.set(
@@ -761,8 +761,8 @@ pub fn generate(
         .debug_output = debug_output,
         .code = code,
         .prev_di_pc = 0,
-        .prev_di_line = module_fn.lbrace_line,
-        .prev_di_column = module_fn.lbrace_column,
+        .prev_di_line = func.lbrace_line,
+        .prev_di_column = func.lbrace_column,
     };
     defer emit.deinit();
     emit.emitMir() catch |err| switch (err) {
@@ -7942,7 +7942,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 
         const ty = self.typeOfIndex(inst);
         const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
-        const name = self.owner.mod_fn.getParamName(mod, src_index);
+        const name = mod.getParamName(self.owner.func_index, src_index);
         try self.genArgDbgInfo(ty, name, dst_mcv);
 
         break :result dst_mcv;
@@ -8139,7 +8139,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     if (try self.air.value(callee, mod)) |func_value| {
         const func_key = mod.intern_pool.indexToKey(func_value.ip_index);
         if (switch (func_key) {
-            .func => |func| mod.funcPtr(func.index).owner_decl,
+            .func => |func| func.owner_decl,
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl| decl,
                 else => null,
@@ -8582,9 +8582,9 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
     const mod = self.bin_file.options.module.?;
-    const function = mod.funcPtr(ty_fn.func);
+    const func = mod.funcInfo(ty_fn.func);
     // TODO emit debug info for function change
-    _ = function;
+    _ = func;
     return self.finishAir(inst, .unreach, .{ .none, .none, .none });
 }
 
@@ -11719,11 +11719,12 @@ fn resolveCallingConventionValues(
     stack_frame_base: FrameIndex,
 ) !CallMCValues {
     const mod = self.bin_file.options.module.?;
+    const ip = &mod.intern_pool;
     const cc = fn_info.cc;
     const param_types = try self.gpa.alloc(Type, fn_info.param_types.len + var_args.len);
     defer self.gpa.free(param_types);
 
-    for (param_types[0..fn_info.param_types.len], fn_info.param_types) |*dest, src| {
+    for (param_types[0..fn_info.param_types.len], fn_info.param_types.get(ip)) |*dest, src| {
         dest.* = src.toType();
     }
     // TODO: promote var arg types

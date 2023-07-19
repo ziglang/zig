@@ -205,7 +205,7 @@ pub fn print(
                 mod.declPtr(extern_func.decl).name.fmt(ip),
             }),
             .func => |func| return writer.print("(function '{}')", .{
-                mod.declPtr(mod.funcPtr(func.index).owner_decl).name.fmt(ip),
+                mod.declPtr(func.owner_decl).name.fmt(ip),
             }),
             .int => |int| switch (int.storage) {
                 inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),

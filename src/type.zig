@@ -250,21 +250,19 @@ pub const Type = struct {
                 try print(error_union_type.payload_type.toType(), writer, mod);
                 return;
             },
-            .inferred_error_set_type => |index| {
-                const ies = mod.inferredErrorSetPtr(index);
-                const func = ies.func;
-
+            .inferred_error_set_type => |func_index| {
                 try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
-                const owner_decl = mod.declPtr(mod.funcPtr(func).owner_decl);
+                const owner_decl = mod.funcOwnerDeclPtr(func_index);
                 try owner_decl.renderFullyQualifiedName(mod, writer);
                 try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
             },
             .error_set_type => |error_set_type| {
+                const ip = &mod.intern_pool;
                 const names = error_set_type.names;
                 try writer.writeAll("error{");
-                for (names, 0..) |name, i| {
+                for (names.get(ip), 0..) |name, i| {
                     if (i != 0) try writer.writeByte(',');
-                    try writer.print("{}", .{name.fmt(&mod.intern_pool)});
+                    try writer.print("{}", .{name.fmt(ip)});
                 }
                 try writer.writeAll("}");
             },
@@ -294,6 +292,7 @@ pub const Type = struct {
                 .comptime_int,
                 .comptime_float,
                 .noreturn,
+                .adhoc_inferred_error_set,
                 => return writer.writeAll(@tagName(s)),
 
                 .null,
@@ -367,7 +366,8 @@ pub const Type = struct {
                     try writer.writeAll("noinline ");
                 }
                 try writer.writeAll("fn(");
-                for (fn_info.param_types, 0..) |param_ty, i| {
+                const param_types = fn_info.param_types.get(&mod.intern_pool);
+                for (param_types, 0..) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
                     if (std.math.cast(u5, i)) |index| {
                         if (fn_info.paramIsComptime(index)) {
@@ -384,7 +384,7 @@ pub const Type = struct {
                     }
                 }
                 if (fn_info.is_var_args) {
-                    if (fn_info.param_types.len != 0) {
+                    if (param_types.len != 0) {
                         try writer.writeAll(", ");
                     }
                     try writer.writeAll("...");
@@ -534,6 +534,7 @@ pub const Type = struct {
                     .c_longdouble,
                     .bool,
                     .anyerror,
+                    .adhoc_inferred_error_set,
                     .anyopaque,
                     .atomic_order,
                     .atomic_rmw_op,
@@ -697,6 +698,7 @@ pub const Type = struct {
                 => true,
 
                 .anyerror,
+                .adhoc_inferred_error_set,
                 .anyopaque,
                 .atomic_order,
                 .atomic_rmw_op,
@@ -955,7 +957,9 @@ pub const Type = struct {
                     },
 
                     // TODO revisit this when we have the concept of the error tag type
-                    .anyerror => return AbiAlignmentAdvanced{ .scalar = 2 },
+                    .anyerror,
+                    .adhoc_inferred_error_set,
+                    => return AbiAlignmentAdvanced{ .scalar = 2 },
 
                     .void,
                     .type,
@@ -1419,7 +1423,9 @@ pub const Type = struct {
                     => return AbiSizeAdvanced{ .scalar = 0 },
 
                     // TODO revisit this when we have the concept of the error tag type
-                    .anyerror => return AbiSizeAdvanced{ .scalar = 2 },
+                    .anyerror,
+                    .adhoc_inferred_error_set,
+                    => return AbiSizeAdvanced{ .scalar = 2 },
 
                     .prefetch_options => unreachable, // missing call to resolveTypeFields
                     .export_options => unreachable, // missing call to resolveTypeFields
@@ -1662,7 +1668,9 @@ pub const Type = struct {
                 .void => return 0,
 
                 // TODO revisit this when we have the concept of the error tag type
-                .anyerror => return 16,
+                .anyerror,
+                .adhoc_inferred_error_set,
+                => return 16,
 
                 .anyopaque => unreachable,
                 .type => unreachable,
@@ -2050,21 +2058,19 @@ pub const Type = struct {
 
     /// Asserts that the type is an error union.
     pub fn errorUnionSet(ty: Type, mod: *Module) Type {
-        return mod.intern_pool.indexToKey(ty.toIntern()).error_union_type.error_set_type.toType();
+        return mod.intern_pool.errorUnionSet(ty.toIntern()).toType();
     }
 
     /// Returns false for unresolved inferred error sets.
     pub fn errorSetIsEmpty(ty: Type, mod: *Module) bool {
+        const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
             .anyerror_type => false,
-            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            else => switch (ip.indexToKey(ty.toIntern())) {
                 .error_set_type => |error_set_type| error_set_type.names.len == 0,
-                .inferred_error_set_type => |index| {
-                    const inferred_error_set = mod.inferredErrorSetPtr(index);
-                    // Can't know for sure.
-                    if (!inferred_error_set.is_resolved) return false;
-                    if (inferred_error_set.is_anyerror) return false;
-                    return inferred_error_set.errors.count() == 0;
+                .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+                    .none, .anyerror_type => false,
+                    else => |t| ip.indexToKey(t).error_set_type.names.len == 0,
                 },
                 else => unreachable,
             },
@@ -2075,10 +2081,11 @@ pub const Type = struct {
     /// Note that the result may be a false negative if the type did not get error set
     /// resolution prior to this call.
     pub fn isAnyError(ty: Type, mod: *Module) bool {
+        const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
             .anyerror_type => true,
             else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-                .inferred_error_set_type => |i| mod.inferredErrorSetPtr(i).is_anyerror,
+                .inferred_error_set_type => |i| ip.funcIesResolved(i).* == .anyerror_type,
                 else => false,
             },
         };
@@ -2102,13 +2109,11 @@ pub const Type = struct {
         return switch (ty) {
             .anyerror_type => true,
             else => switch (ip.indexToKey(ty)) {
-                .error_set_type => |error_set_type| {
-                    return error_set_type.nameIndex(ip, name) != null;
-                },
-                .inferred_error_set_type => |index| {
-                    const ies = ip.inferredErrorSetPtrConst(index);
-                    if (ies.is_anyerror) return true;
-                    return ies.errors.contains(name);
+                .error_set_type => |error_set_type| error_set_type.nameIndex(ip, name) != null,
+                .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+                    .anyerror_type => true,
+                    .none => false,
+                    else => |t| ip.indexToKey(t).error_set_type.nameIndex(ip, name) != null,
                 },
                 else => unreachable,
             },
@@ -2128,12 +2133,14 @@ pub const Type = struct {
                     const field_name_interned = ip.getString(name).unwrap() orelse return false;
                     return error_set_type.nameIndex(ip, field_name_interned) != null;
                 },
-                .inferred_error_set_type => |index| {
-                    const ies = ip.inferredErrorSetPtr(index);
-                    if (ies.is_anyerror) return true;
-                    // If the string is not interned, then the field certainly is not present.
-                    const field_name_interned = ip.getString(name).unwrap() orelse return false;
-                    return ies.errors.contains(field_name_interned);
+                .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+                    .anyerror_type => true,
+                    .none => false,
+                    else => |t| {
+                        // If the string is not interned, then the field certainly is not present.
+                        const field_name_interned = ip.getString(name).unwrap() orelse return false;
+                        return ip.indexToKey(t).error_set_type.nameIndex(ip, field_name_interned) != null;
+                    },
                 },
                 else => unreachable,
             },
@@ -2231,7 +2238,7 @@ pub const Type = struct {
         var ty = starting_ty;
 
         while (true) switch (ty.toIntern()) {
-            .anyerror_type => {
+            .anyerror_type, .adhoc_inferred_error_set_type => {
                 // TODO revisit this when error sets support custom int types
                 return .{ .signedness = .unsigned, .bits = 16 };
             },
@@ -2365,7 +2372,7 @@ pub const Type = struct {
 
     /// Asserts the type is a function or a function pointer.
     pub fn fnReturnType(ty: Type, mod: *Module) Type {
-        return mod.intern_pool.funcReturnType(ty.toIntern()).toType();
+        return mod.intern_pool.funcTypeReturnType(ty.toIntern()).toType();
     }
 
     /// Asserts the type is a function.
@@ -2505,6 +2512,7 @@ pub const Type = struct {
                     .export_options,
                     .extern_options,
                     .type_info,
+                    .adhoc_inferred_error_set,
                     => return null,
 
                     .void => return Value.void,
@@ -2699,6 +2707,7 @@ pub const Type = struct {
                     .bool,
                     .void,
                     .anyerror,
+                    .adhoc_inferred_error_set,
                     .noreturn,
                     .generic_poison,
                     .atomic_order,
@@ -2942,14 +2951,15 @@ pub const Type = struct {
     }
 
     // Asserts that `ty` is an error set and not `anyerror`.
+    // Asserts that `ty` is resolved if it is an inferred error set.
     pub fn errorSetNames(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .error_set_type => |x| x.names,
-            .inferred_error_set_type => |index| {
-                const inferred_error_set = mod.inferredErrorSetPtr(index);
-                assert(inferred_error_set.is_resolved);
-                assert(!inferred_error_set.is_anyerror);
-                return inferred_error_set.errors.keys();
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
+            .error_set_type => |x| x.names.get(ip),
+            .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+                .none => unreachable, // unresolved inferred error set
+                .anyerror_type => unreachable,
+                else => |t| ip.indexToKey(t).error_set_type.names.get(ip),
             },
             else => unreachable,
         };

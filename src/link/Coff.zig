@@ -1032,7 +1032,7 @@ fn freeAtom(self: *Coff, atom_index: Atom.Index) void {
     self.getAtomPtr(atom_index).sym_index = 0;
 }
 
-pub fn updateFunc(self: *Coff, mod: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -1044,7 +1044,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: Module.Fn.Index, air: A
     const tracy = trace(@src());
     defer tracy.end();
 
-    const func = mod.funcPtr(func_index);
+    const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
 
@@ -1424,7 +1424,7 @@ pub fn updateDeclExports(
         // detect the default subsystem.
         for (exports) |exp| {
             const exported_decl = mod.declPtr(exp.exported_decl);
-            if (exported_decl.getOwnedFunctionIndex(mod) == .none) continue;
+            if (exported_decl.getOwnedFunction(mod) == null) continue;
             const winapi_cc = switch (self.base.options.target.cpu.arch) {
                 .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,

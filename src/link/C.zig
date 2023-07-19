@@ -88,13 +88,13 @@ pub fn freeDecl(self: *C, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn updateFunc(self: *C, module: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *C, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.allocator;
 
-    const func = module.funcPtr(func_index);
+    const func = module.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const gop = try self.decl_table.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {

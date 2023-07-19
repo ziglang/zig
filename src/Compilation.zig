@@ -29,6 +29,7 @@ const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
 const Module = @import("Module.zig");
+const InternPool = @import("InternPool.zig");
 const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const translate_c = @import("translate_c.zig");
@@ -227,7 +228,8 @@ const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
     codegen_decl: Module.Decl.Index,
     /// Write the machine code for a function to the output file.
-    codegen_func: Module.Fn.Index,
+    /// This will either be a non-generic `func_decl` or a `func_instance`.
+    codegen_func: InternPool.Index,
     /// Render the .h file snippet for the Decl.
     emit_h_decl: Module.Decl.Index,
     /// The Decl needs to be analyzed and possibly export itself.
@@ -2053,15 +2055,9 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             const decl = module.declPtr(decl_index);
             assert(decl.deletion_flag);
             assert(decl.dependants.count() == 0);
-            const is_anon = if (decl.zir_decl_index == 0) blk: {
-                break :blk module.namespacePtr(decl.src_namespace).anon_decls.swapRemove(decl_index);
-            } else false;
+            assert(decl.zir_decl_index != 0);
 
             try module.clearDecl(decl_index, null);
-
-            if (is_anon) {
-                module.destroyDecl(decl_index);
-            }
         }
 
         try module.processExports();
@@ -3216,8 +3212,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                 // Tests are always emitted in test binaries. The decl_refs are created by
                 // Module.populateTestFunctions, but this will not queue body analysis, so do
                 // that now.
-                const func_index = module.intern_pool.indexToFunc(decl.val.ip_index).unwrap().?;
-                try module.ensureFuncBodyAnalysisQueued(func_index);
+                try module.ensureFuncBodyAnalysisQueued(decl.val.toIntern());
             }
         },
         .update_embed_file => |embed_file| {

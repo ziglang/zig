@@ -12095,7 +12095,10 @@ const GenZir = struct {
         return gz.addAsIndex(.{
             .tag = .save_err_ret_index,
             .data = .{ .save_err_ret_index = .{
-                .operand = if (cond == .if_of_error_type) cond.if_of_error_type else .none,
+                .operand = switch (cond) {
+                    .if_of_error_type => |x| x,
+                    else => .none,
+                },
             } },
         });
     }

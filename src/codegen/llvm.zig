@@ -867,14 +867,15 @@ pub const Object = struct {
     pub fn updateFunc(
         o: *Object,
         mod: *Module,
-        func_index: Module.Fn.Index,
+        func_index: InternPool.Index,
         air: Air,
         liveness: Liveness,
     ) !void {
-        const func = mod.funcPtr(func_index);
+        const func = mod.funcInfo(func_index);
         const decl_index = func.owner_decl;
         const decl = mod.declPtr(decl_index);
         const target = mod.getTarget();
+        const ip = &mod.intern_pool;
 
         var dg: DeclGen = .{
             .object = o,
@@ -885,24 +886,23 @@ pub const Object = struct {
 
         const llvm_func = try o.resolveLlvmFunction(decl_index);
 
-        if (mod.align_stack_fns.get(func_index)) |align_info| {
-            o.addFnAttrInt(llvm_func, "alignstack", align_info.alignment.toByteUnitsOptional().?);
-            o.addFnAttr(llvm_func, "noinline");
-        } else {
-            Object.removeFnAttr(llvm_func, "alignstack");
-            if (!func.is_noinline) Object.removeFnAttr(llvm_func, "noinline");
-        }
-
-        if (func.is_cold) {
-            o.addFnAttr(llvm_func, "cold");
-        } else {
-            Object.removeFnAttr(llvm_func, "cold");
-        }
-
-        if (func.is_noinline) {
+        if (func.analysis(ip).is_noinline) {
             o.addFnAttr(llvm_func, "noinline");
         } else {
             Object.removeFnAttr(llvm_func, "noinline");
+        }
+
+        if (func.analysis(ip).stack_alignment.toByteUnitsOptional()) |alignment| {
+            o.addFnAttrInt(llvm_func, "alignstack", alignment);
+            o.addFnAttr(llvm_func, "noinline");
+        } else {
+            Object.removeFnAttr(llvm_func, "alignstack");
+        }
+
+        if (func.analysis(ip).is_cold) {
+            o.addFnAttr(llvm_func, "cold");
+        } else {
+            Object.removeFnAttr(llvm_func, "cold");
         }
 
         // TODO: disable this if safety is off for the function scope
@@ -921,7 +921,7 @@ pub const Object = struct {
             o.addFnAttrString(llvm_func, "no-stack-arg-probe", "");
         }
 
-        if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |section|
+        if (ip.stringToSliceUnwrap(decl.@"linksection")) |section|
             llvm_func.setSection(section);
 
         // Remove all the basic blocks of a function in order to start over, generating
@@ -968,7 +968,7 @@ pub const Object = struct {
                 .byval => {
                     assert(!it.byval_attr);
                     const param_index = it.zig_index - 1;
-                    const param_ty = fn_info.param_types[param_index].toType();
+                    const param_ty = fn_info.param_types.get(ip)[param_index].toType();
                     const param = llvm_func.getParam(llvm_arg_i);
                     try args.ensureUnusedCapacity(1);
 
@@ -987,7 +987,7 @@ pub const Object = struct {
                     llvm_arg_i += 1;
                 },
                 .byref => {
-                    const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                    const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                     const param_llvm_ty = try o.lowerType(param_ty);
                     const param = llvm_func.getParam(llvm_arg_i);
                     const alignment = param_ty.abiAlignment(mod);
@@ -1006,7 +1006,7 @@ pub const Object = struct {
                     }
                 },
                 .byref_mut => {
-                    const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                    const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                     const param_llvm_ty = try o.lowerType(param_ty);
                     const param = llvm_func.getParam(llvm_arg_i);
                     const alignment = param_ty.abiAlignment(mod);
@@ -1026,7 +1026,7 @@ pub const Object = struct {
                 },
                 .abi_sized_int => {
                     assert(!it.byval_attr);
-                    const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                    const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                     const param = llvm_func.getParam(llvm_arg_i);
                     llvm_arg_i += 1;
 
@@ -1053,7 +1053,7 @@ pub const Object = struct {
                 },
                 .slice => {
                     assert(!it.byval_attr);
-                    const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                    const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                     const ptr_info = param_ty.ptrInfo(mod);
 
                     if (math.cast(u5, it.zig_index - 1)) |i| {
@@ -1083,7 +1083,7 @@ pub const Object = struct {
                 .multiple_llvm_types => {
                     assert(!it.byval_attr);
                     const field_types = it.llvm_types_buffer[0..it.llvm_types_len];
-                    const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                    const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                     const param_llvm_ty = try o.lowerType(param_ty);
                     const param_alignment = param_ty.abiAlignment(mod);
                     const arg_ptr = buildAllocaInner(o.context, builder, llvm_func, false, param_llvm_ty, param_alignment, target);
@@ -1114,7 +1114,7 @@ pub const Object = struct {
                     args.appendAssumeCapacity(casted);
                 },
                 .float_array => {
-                    const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                    const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                     const param_llvm_ty = try o.lowerType(param_ty);
                     const param = llvm_func.getParam(llvm_arg_i);
                     llvm_arg_i += 1;
@@ -1132,7 +1132,7 @@ pub const Object = struct {
                     }
                 },
                 .i32_array, .i64_array => {
-                    const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                    const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                     const param_llvm_ty = try o.lowerType(param_ty);
                     const param = llvm_func.getParam(llvm_arg_i);
                     llvm_arg_i += 1;
@@ -1168,7 +1168,7 @@ pub const Object = struct {
             const decl_di_ty = try o.lowerDebugType(decl.ty, .full);
             const subprogram = dib.createFunction(
                 di_file.?.toScope(),
-                mod.intern_pool.stringToSlice(decl.name),
+                ip.stringToSlice(decl.name),
                 llvm_func.getValueName(),
                 di_file.?,
                 line_number,
@@ -1460,6 +1460,7 @@ pub const Object = struct {
         const target = o.target;
         const dib = o.di_builder.?;
         const mod = o.module;
+        const ip = &mod.intern_pool;
         switch (ty.zigTypeTag(mod)) {
             .Void, .NoReturn => {
                 const di_type = dib.createBasicType("void", 0, DW.ATE.signed);
@@ -1492,7 +1493,6 @@ pub const Object = struct {
                     return enum_di_ty;
                 }
 
-                const ip = &mod.intern_pool;
                 const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
 
                 const enumerators = try gpa.alloc(*llvm.DIEnumerator, enum_type.names.len);
@@ -1518,7 +1518,7 @@ pub const Object = struct {
                     if (@sizeOf(usize) == @sizeOf(u64)) {
                         enumerators[i] = dib.createEnumerator2(
                             field_name_z,
-                            @as(c_uint, @intCast(bigint.limbs.len)),
+                            @intCast(bigint.limbs.len),
                             bigint.limbs.ptr,
                             int_info.bits,
                             int_info.signedness == .unsigned,
@@ -2320,8 +2320,8 @@ pub const Object = struct {
                     try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
                 }
 
-                for (0..mod.typeToFunc(ty).?.param_types.len) |i| {
-                    const param_ty = mod.typeToFunc(ty).?.param_types[i].toType();
+                for (0..fn_info.param_types.len) |i| {
+                    const param_ty = fn_info.param_types.get(ip)[i].toType();
                     if (!param_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                     if (isByRef(param_ty, mod)) {
@@ -2475,9 +2475,10 @@ pub const Object = struct {
         const fn_type = try o.lowerType(zig_fn_type);
 
         const fqn = try decl.getFullyQualifiedName(mod);
+        const ip = &mod.intern_pool;
 
         const llvm_addrspace = toLlvmAddressSpace(decl.@"addrspace", target);
-        const llvm_fn = o.llvm_module.addFunctionInAddressSpace(mod.intern_pool.stringToSlice(fqn), fn_type, llvm_addrspace);
+        const llvm_fn = o.llvm_module.addFunctionInAddressSpace(ip.stringToSlice(fqn), fn_type, llvm_addrspace);
         gop.value_ptr.* = llvm_fn;
 
         const is_extern = decl.isExtern(mod);
@@ -2486,8 +2487,8 @@ pub const Object = struct {
             llvm_fn.setUnnamedAddr(.True);
         } else {
             if (target.isWasm()) {
-                o.addFnAttrString(llvm_fn, "wasm-import-name", mod.intern_pool.stringToSlice(decl.name));
-                if (mod.intern_pool.stringToSliceUnwrap(decl.getOwnedExternFunc(mod).?.lib_name)) |lib_name| {
+                o.addFnAttrString(llvm_fn, "wasm-import-name", ip.stringToSlice(decl.name));
+                if (ip.stringToSliceUnwrap(decl.getOwnedExternFunc(mod).?.lib_name)) |lib_name| {
                     if (!std.mem.eql(u8, lib_name, "c")) {
                         o.addFnAttrString(llvm_fn, "wasm-import-module", lib_name);
                     }
@@ -2546,13 +2547,13 @@ pub const Object = struct {
             while (it.next()) |lowering| switch (lowering) {
                 .byval => {
                     const param_index = it.zig_index - 1;
-                    const param_ty = fn_info.param_types[param_index].toType();
+                    const param_ty = fn_info.param_types.get(ip)[param_index].toType();
                     if (!isByRef(param_ty, mod)) {
                         o.addByValParamAttrs(llvm_fn, param_ty, param_index, fn_info, it.llvm_index - 1);
                     }
                 },
                 .byref => {
-                    const param_ty = fn_info.param_types[it.zig_index - 1];
+                    const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1];
                     const param_llvm_ty = try o.lowerType(param_ty.toType());
                     const alignment = param_ty.toType().abiAlignment(mod);
                     o.addByRefParamAttrs(llvm_fn, it.llvm_index - 1, alignment, it.byval_attr, param_llvm_ty);
@@ -3031,6 +3032,7 @@ pub const Object = struct {
 
     fn lowerTypeFn(o: *Object, fn_ty: Type) Allocator.Error!*llvm.Type {
         const mod = o.module;
+        const ip = &mod.intern_pool;
         const fn_info = mod.typeToFunc(fn_ty).?;
         const llvm_ret_ty = try lowerFnRetTy(o, fn_info);
 
@@ -3052,19 +3054,19 @@ pub const Object = struct {
         while (it.next()) |lowering| switch (lowering) {
             .no_bits => continue,
             .byval => {
-                const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                 try llvm_params.append(try o.lowerType(param_ty));
             },
             .byref, .byref_mut => {
                 try llvm_params.append(o.context.pointerType(0));
             },
             .abi_sized_int => {
-                const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                 const abi_size = @as(c_uint, @intCast(param_ty.abiSize(mod)));
                 try llvm_params.append(o.context.intType(abi_size * 8));
             },
             .slice => {
-                const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                 const ptr_ty = if (param_ty.zigTypeTag(mod) == .Optional)
                     param_ty.optionalChild(mod).slicePtrFieldType(mod)
                 else
@@ -3083,7 +3085,7 @@ pub const Object = struct {
                 try llvm_params.append(o.context.intType(16));
             },
             .float_array => |count| {
-                const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                 const float_ty = try o.lowerType(aarch64_c_abi.getFloatArrayType(param_ty, mod).?);
                 const field_count = @as(c_uint, @intCast(count));
                 const arr_ty = float_ty.arrayType(field_count);
@@ -3137,8 +3139,7 @@ pub const Object = struct {
             return llvm_type.getUndef();
         }
 
-        const val_key = mod.intern_pool.indexToKey(tv.val.toIntern());
-        switch (val_key) {
+        switch (mod.intern_pool.indexToKey(tv.val.toIntern())) {
             .int_type,
             .ptr_type,
             .array_type,
@@ -3175,12 +3176,14 @@ pub const Object = struct {
             .enum_literal,
             .empty_enum_value,
             => unreachable, // non-runtime values
-            .extern_func, .func => {
-                const fn_decl_index = switch (val_key) {
-                    .extern_func => |extern_func| extern_func.decl,
-                    .func => |func| mod.funcPtr(func.index).owner_decl,
-                    else => unreachable,
-                };
+            .extern_func => |extern_func| {
+                const fn_decl_index = extern_func.decl;
+                const fn_decl = mod.declPtr(fn_decl_index);
+                try mod.markDeclAlive(fn_decl);
+                return o.resolveLlvmFunction(fn_decl_index);
+            },
+            .func => |func| {
+                const fn_decl_index = func.owner_decl;
                 const fn_decl = mod.declPtr(fn_decl_index);
                 try mod.markDeclAlive(fn_decl);
                 return o.resolveLlvmFunction(fn_decl_index);
@@ -4598,6 +4601,7 @@ pub const FuncGen = struct {
         const args = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]));
         const o = self.dg.object;
         const mod = o.module;
+        const ip = &mod.intern_pool;
         const callee_ty = self.typeOf(pl_op.operand);
         const zig_fn_ty = switch (callee_ty.zigTypeTag(mod)) {
             .Fn => callee_ty,
@@ -4801,14 +4805,14 @@ pub const FuncGen = struct {
             while (it.next()) |lowering| switch (lowering) {
                 .byval => {
                     const param_index = it.zig_index - 1;
-                    const param_ty = fn_info.param_types[param_index].toType();
+                    const param_ty = fn_info.param_types.get(ip)[param_index].toType();
                     if (!isByRef(param_ty, mod)) {
                         o.addByValParamAttrs(call, param_ty, param_index, fn_info, it.llvm_index - 1);
                     }
                 },
                 .byref => {
                     const param_index = it.zig_index - 1;
-                    const param_ty = fn_info.param_types[param_index].toType();
+                    const param_ty = fn_info.param_types.get(ip)[param_index].toType();
                     const param_llvm_ty = try o.lowerType(param_ty);
                     const alignment = param_ty.abiAlignment(mod);
                     o.addByRefParamAttrs(call, it.llvm_index - 1, alignment, it.byval_attr, param_llvm_ty);
@@ -4828,7 +4832,7 @@ pub const FuncGen = struct {
 
                 .slice => {
                     assert(!it.byval_attr);
-                    const param_ty = fn_info.param_types[it.zig_index - 1].toType();
+                    const param_ty = fn_info.param_types.get(ip)[it.zig_index - 1].toType();
                     const ptr_info = param_ty.ptrInfo(mod);
                     const llvm_arg_i = it.llvm_index - 2;
 
@@ -4930,7 +4934,7 @@ pub const FuncGen = struct {
             fg.context.pointerType(0).constNull(),
             null_opt_addr_global,
         };
-        const panic_func = mod.funcPtrUnwrap(mod.panic_func_index).?;
+        const panic_func = mod.funcInfo(mod.panic_func_index);
         const panic_decl = mod.declPtr(panic_func.owner_decl);
         const fn_info = mod.typeToFunc(panic_decl.ty).?;
         const panic_global = try o.resolveLlvmFunction(panic_func.owner_decl);
@@ -6030,7 +6034,7 @@ pub const FuncGen = struct {
         const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
 
         const mod = o.module;
-        const func = mod.funcPtr(ty_fn.func);
+        const func = mod.funcInfo(ty_fn.func);
         const decl_index = func.owner_decl;
         const decl = mod.declPtr(decl_index);
         const di_file = try o.getDIFile(self.gpa, mod.namespacePtr(decl.src_namespace).file_scope);
@@ -6039,7 +6043,7 @@ pub const FuncGen = struct {
         const cur_debug_location = self.builder.getCurrentDebugLocation2();
 
         try self.dbg_inlined.append(self.gpa, .{
-            .loc = @as(*llvm.DILocation, @ptrCast(cur_debug_location)),
+            .loc = @ptrCast(cur_debug_location),
             .scope = self.di_scope.?,
             .base_line = self.base_line,
         });
@@ -6057,8 +6061,6 @@ pub const FuncGen = struct {
             .is_var_args = false,
             .is_generic = false,
             .is_noinline = false,
-            .align_is_generic = false,
-            .cc_is_generic = false,
             .section_is_generic = false,
             .addrspace_is_generic = false,
         });
@@ -6090,8 +6092,7 @@ pub const FuncGen = struct {
         const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
 
         const mod = o.module;
-        const func = mod.funcPtr(ty_fn.func);
-        const decl = mod.declPtr(func.owner_decl);
+        const decl = mod.funcOwnerDeclPtr(ty_fn.func);
         const di_file = try o.getDIFile(self.gpa, mod.namespacePtr(decl.src_namespace).file_scope);
         self.di_file = di_file;
         const old = self.dbg_inlined.pop();
@@ -8137,12 +8138,13 @@ pub const FuncGen = struct {
             }
 
             const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
-            const func = self.dg.decl.getOwnedFunction(mod).?;
+            const func_index = self.dg.decl.getOwnedFunctionIndex();
+            const func = mod.funcInfo(func_index);
             const lbrace_line = mod.declPtr(func.owner_decl).src_line + func.lbrace_line + 1;
             const lbrace_col = func.lbrace_column + 1;
             const di_local_var = dib.createParameterVariable(
                 self.di_scope.?,
-                func.getParamName(mod, src_index).ptr, // TODO test 0 bit args
+                mod.getParamName(func_index, src_index).ptr, // TODO test 0 bit args
                 self.di_file.?,
                 lbrace_line,
                 try o.lowerDebugType(inst_ty, .full),
@@ -10653,30 +10655,31 @@ fn llvmField(ty: Type, field_index: usize, mod: *Module) ?LlvmField {
 }
 
 fn firstParamSRet(fn_info: InternPool.Key.FuncType, mod: *Module) bool {
-    if (!fn_info.return_type.toType().hasRuntimeBitsIgnoreComptime(mod)) return false;
+    const return_type = fn_info.return_type.toType();
+    if (!return_type.hasRuntimeBitsIgnoreComptime(mod)) return false;
 
     const target = mod.getTarget();
     switch (fn_info.cc) {
-        .Unspecified, .Inline => return isByRef(fn_info.return_type.toType(), mod),
+        .Unspecified, .Inline => return isByRef(return_type, mod),
         .C => switch (target.cpu.arch) {
             .mips, .mipsel => return false,
             .x86_64 => switch (target.os.tag) {
-                .windows => return x86_64_abi.classifyWindows(fn_info.return_type.toType(), mod) == .memory,
-                else => return firstParamSRetSystemV(fn_info.return_type.toType(), mod),
+                .windows => return x86_64_abi.classifyWindows(return_type, mod) == .memory,
+                else => return firstParamSRetSystemV(return_type, mod),
             },
-            .wasm32 => return wasm_c_abi.classifyType(fn_info.return_type.toType(), mod)[0] == .indirect,
-            .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(fn_info.return_type.toType(), mod) == .memory,
-            .arm, .armeb => switch (arm_c_abi.classifyType(fn_info.return_type.toType(), mod, .ret)) {
+            .wasm32 => return wasm_c_abi.classifyType(return_type, mod)[0] == .indirect,
+            .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(return_type, mod) == .memory,
+            .arm, .armeb => switch (arm_c_abi.classifyType(return_type, mod, .ret)) {
                 .memory, .i64_array => return true,
                 .i32_array => |size| return size != 1,
                 .byval => return false,
             },
-            .riscv32, .riscv64 => return riscv_c_abi.classifyType(fn_info.return_type.toType(), mod) == .memory,
+            .riscv32, .riscv64 => return riscv_c_abi.classifyType(return_type, mod) == .memory,
             else => return false, // TODO investigate C ABI for other architectures
         },
-        .SysV => return firstParamSRetSystemV(fn_info.return_type.toType(), mod),
-        .Win64 => return x86_64_abi.classifyWindows(fn_info.return_type.toType(), mod) == .memory,
-        .Stdcall => return !isScalar(mod, fn_info.return_type.toType()),
+        .SysV => return firstParamSRetSystemV(return_type, mod),
+        .Win64 => return x86_64_abi.classifyWindows(return_type, mod) == .memory,
+        .Stdcall => return !isScalar(mod, return_type),
         else => return false,
     }
 }
@@ -10888,13 +10891,17 @@ const ParamTypeIterator = struct {
 
     pub fn next(it: *ParamTypeIterator) ?Lowering {
         if (it.zig_index >= it.fn_info.param_types.len) return null;
-        const ty = it.fn_info.param_types[it.zig_index];
+        const mod = it.object.module;
+        const ip = &mod.intern_pool;
+        const ty = it.fn_info.param_types.get(ip)[it.zig_index];
         it.byval_attr = false;
         return nextInner(it, ty.toType());
     }
 
     /// `airCall` uses this instead of `next` so that it can take into account variadic functions.
     pub fn nextCall(it: *ParamTypeIterator, fg: *FuncGen, args: []const Air.Inst.Ref) ?Lowering {
+        const mod = it.object.module;
+        const ip = &mod.intern_pool;
         if (it.zig_index >= it.fn_info.param_types.len) {
             if (it.zig_index >= args.len) {
                 return null;
@@ -10902,7 +10909,7 @@ const ParamTypeIterator = struct {
                 return nextInner(it, fg.typeOf(args[it.zig_index]));
             }
         } else {
-            return nextInner(it, it.fn_info.param_types[it.zig_index].toType());
+            return nextInner(it, it.fn_info.param_types.get(ip)[it.zig_index].toType());
         }
     }
 

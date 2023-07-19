@@ -1043,6 +1043,7 @@ pub fn commitDeclState(
     var dbg_line_buffer = &decl_state.dbg_line;
     var dbg_info_buffer = &decl_state.dbg_info;
     const decl = mod.declPtr(decl_index);
+    const ip = &mod.intern_pool;
 
     const target_endian = self.target.cpu.arch.endian();
 
@@ -1241,20 +1242,9 @@ pub fn commitDeclState(
         while (sym_index < decl_state.abbrev_table.items.len) : (sym_index += 1) {
             const symbol = &decl_state.abbrev_table.items[sym_index];
             const ty = symbol.type;
-            const deferred: bool = blk: {
-                if (ty.isAnyError(mod)) break :blk true;
-                switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                    .inferred_error_set_type => |ies_index| {
-                        const ies = mod.inferredErrorSetPtr(ies_index);
-                        if (!ies.is_resolved) break :blk true;
-                    },
-                    else => {},
-                }
-                break :blk false;
-            };
-            if (deferred) continue;
+            if (ip.isErrorSetType(ty.toIntern())) continue;
 
-            symbol.offset = @as(u32, @intCast(dbg_info_buffer.items.len));
+            symbol.offset = @intCast(dbg_info_buffer.items.len);
             try decl_state.addDbgInfoType(mod, di_atom_index, ty);
         }
     }
@@ -1265,18 +1255,7 @@ pub fn commitDeclState(
         if (reloc.target) |target| {
             const symbol = decl_state.abbrev_table.items[target];
             const ty = symbol.type;
-            const deferred: bool = blk: {
-                if (ty.isAnyError(mod)) break :blk true;
-                switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                    .inferred_error_set_type => |ies_index| {
-                        const ies = mod.inferredErrorSetPtr(ies_index);
-                        if (!ies.is_resolved) break :blk true;
-                    },
-                    else => {},
-                }
-                break :blk false;
-            };
-            if (deferred) {
+            if (ip.isErrorSetType(ty.toIntern())) {
                 log.debug("resolving %{d} deferred until flush", .{target});
                 try self.global_abbrev_relocs.append(gpa, .{
                     .target = null,
@@ -2505,18 +2484,18 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
         defer arena_alloc.deinit();
         const arena = arena_alloc.allocator();
 
-        // TODO: don't create a zig type for this, just make the dwarf info
-        // without touching the zig type system.
-        const names = try arena.dupe(InternPool.NullTerminatedString, module.global_error_set.keys());
-        std.mem.sort(InternPool.NullTerminatedString, names, {}, InternPool.NullTerminatedString.indexLessThan);
-
-        const error_ty = try module.intern(.{ .error_set_type = .{ .names = names } });
         var dbg_info_buffer = std.ArrayList(u8).init(arena);
-        try addDbgInfoErrorSet(module, error_ty.toType(), self.target, &dbg_info_buffer);
+        try addDbgInfoErrorSetNames(
+            module,
+            Type.anyerror,
+            module.global_error_set.keys(),
+            self.target,
+            &dbg_info_buffer,
+        );
 
         const di_atom_index = try self.createAtom(.di_atom);
         log.debug("updateDeclDebugInfoAllocation in flushModule", .{});
-        try self.updateDeclDebugInfoAllocation(di_atom_index, @as(u32, @intCast(dbg_info_buffer.items.len)));
+        try self.updateDeclDebugInfoAllocation(di_atom_index, @intCast(dbg_info_buffer.items.len));
         log.debug("writeDeclDebugInfo in flushModule", .{});
         try self.writeDeclDebugInfo(di_atom_index, dbg_info_buffer.items);
 
@@ -2634,6 +2613,17 @@ fn addDbgInfoErrorSet(
     target: std.Target,
     dbg_info_buffer: *std.ArrayList(u8),
 ) !void {
+    return addDbgInfoErrorSetNames(mod, ty, ty.errorSetNames(mod), target, dbg_info_buffer);
+}
+
+fn addDbgInfoErrorSetNames(
+    mod: *Module,
+    /// Used for printing the type name only.
+    ty: Type,
+    error_names: []const InternPool.NullTerminatedString,
+    target: std.Target,
+    dbg_info_buffer: *std.ArrayList(u8),
+) !void {
     const target_endian = target.cpu.arch.endian();
 
     // DW.AT.enumeration_type
@@ -2655,7 +2645,6 @@ fn addDbgInfoErrorSet(
     // DW.AT.const_value, DW.FORM.data8
     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), 0, target_endian);
 
-    const error_names = ty.errorSetNames(mod);
     for (error_names) |error_name_ip| {
         const int = try mod.getErrorValue(error_name_ip);
         const error_name = mod.intern_pool.stringToSlice(error_name_ip);

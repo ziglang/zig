@@ -1669,8 +1669,9 @@ pub fn ArrayHashMapUnmanaged(
 
         inline fn checkedHash(ctx: anytype, key: anytype) u32 {
             comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(key), K, u32, true);
-            // If you get a compile error on the next line, it means that
-            const hash = ctx.hash(key); // your generic hash function doesn't accept your key
+            // If you get a compile error on the next line, it means that your
+            // generic hash function doesn't accept your key.
+            const hash = ctx.hash(key);
             if (@TypeOf(hash) != u32) {
                 @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type!\n" ++
                     @typeName(u32) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
@@ -1679,8 +1680,9 @@ pub fn ArrayHashMapUnmanaged(
         }
         inline fn checkedEql(ctx: anytype, a: anytype, b: K, b_index: usize) bool {
             comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(a), K, u32, true);
-            // If you get a compile error on the next line, it means that
-            const eql = ctx.eql(a, b, b_index); // your generic eql function doesn't accept (self, adapt key, K, index)
+            // If you get a compile error on the next line, it means that your
+            // generic eql function doesn't accept (self, adapt key, K, index).
+            const eql = ctx.eql(a, b, b_index);
             if (@TypeOf(eql) != bool) {
                 @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type!\n" ++
                     @typeName(bool) ++ " was expected, but found " ++ @typeName(@TypeOf(eql)));

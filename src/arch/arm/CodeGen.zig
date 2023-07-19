@@ -13,6 +13,7 @@ const Value = @import("../../value.zig").Value;
 const TypedValue = @import("../../TypedValue.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
+const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
@@ -50,7 +51,7 @@ liveness: Liveness,
 bin_file: *link.File,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
-mod_fn: *const Module.Fn,
+func_index: InternPool.Index,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
@@ -258,6 +259,7 @@ const DbgInfoReloc = struct {
     }
 
     fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) error{OutOfMemory}!void {
+        const mod = function.bin_file.options.module.?;
         switch (function.debug_output) {
             .dwarf => |dw| {
                 const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (reloc.mcv) {
@@ -278,7 +280,7 @@ const DbgInfoReloc = struct {
                     else => unreachable, // not a possible argument
                 };
 
-                try dw.genArgDbgInfo(reloc.name, reloc.ty, function.mod_fn.owner_decl, loc);
+                try dw.genArgDbgInfo(reloc.name, reloc.ty, mod.funcOwnerDeclIndex(function.func_index), loc);
             },
             .plan9 => {},
             .none => {},
@@ -286,6 +288,7 @@ const DbgInfoReloc = struct {
     }
 
     fn genVarDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
+        const mod = function.bin_file.options.module.?;
         const is_ptr = switch (reloc.tag) {
             .dbg_var_ptr => true,
             .dbg_var_val => false,
@@ -321,7 +324,7 @@ const DbgInfoReloc = struct {
                         break :blk .nop;
                     },
                 };
-                try dw.genVarDbgInfo(reloc.name, reloc.ty, function.mod_fn.owner_decl, is_ptr, loc);
+                try dw.genVarDbgInfo(reloc.name, reloc.ty, mod.funcOwnerDeclIndex(function.func_index), is_ptr, loc);
             },
             .plan9 => {},
             .none => {},
@@ -334,7 +337,7 @@ const Self = @This();
 pub fn generate(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    module_fn_index: Module.Fn.Index,
+    func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
@@ -345,8 +348,8 @@ pub fn generate(
     }
 
     const mod = bin_file.options.module.?;
-    const module_fn = mod.funcPtr(module_fn_index);
-    const fn_owner_decl = mod.declPtr(module_fn.owner_decl);
+    const func = mod.funcInfo(func_index);
+    const fn_owner_decl = mod.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
 
@@ -365,7 +368,7 @@ pub fn generate(
         .target = &bin_file.options.target,
         .bin_file = bin_file,
         .debug_output = debug_output,
-        .mod_fn = module_fn,
+        .func_index = func_index,
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
@@ -374,8 +377,8 @@ pub fn generate(
         .branch_stack = &branch_stack,
         .src_loc = src_loc,
         .stack_align = undefined,
-        .end_di_line = module_fn.rbrace_line,
-        .end_di_column = module_fn.rbrace_column,
+        .end_di_line = func.rbrace_line,
+        .end_di_column = func.rbrace_column,
     };
     defer function.stack.deinit(bin_file.allocator);
     defer function.blocks.deinit(bin_file.allocator);
@@ -422,8 +425,8 @@ pub fn generate(
         .src_loc = src_loc,
         .code = code,
         .prev_di_pc = 0,
-        .prev_di_line = module_fn.lbrace_line,
-        .prev_di_column = module_fn.lbrace_column,
+        .prev_di_line = func.lbrace_line,
+        .prev_di_column = func.lbrace_column,
         .stack_size = function.max_end_stack,
         .saved_regs_stack_space = function.saved_regs_stack_space,
     };
@@ -4163,10 +4166,11 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     while (self.args[arg_index] == .none) arg_index += 1;
     self.arg_index = arg_index + 1;
 
+    const mod = self.bin_file.options.module.?;
     const ty = self.typeOfIndex(inst);
     const tag = self.air.instructions.items(.tag)[inst];
     const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
-    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, src_index);
+    const name = mod.getParamName(self.func_index, src_index);
 
     try self.dbg_info_relocs.append(self.gpa, .{
         .tag = tag,
@@ -4569,9 +4573,9 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
     const mod = self.bin_file.options.module.?;
-    const function = mod.funcPtr(ty_fn.func);
+    const func = mod.funcInfo(ty_fn.func);
     // TODO emit debug info for function change
-    _ = function;
+    _ = func;
     return self.finishAir(inst, .dead, .{ .none, .none, .none });
 }
 
@@ -6113,11 +6117,12 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
 }
 
 fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
+    const mod = self.bin_file.options.module.?;
     const mcv: MCValue = switch (try codegen.genTypedValue(
         self.bin_file,
         self.src_loc,
         arg_tv,
-        self.mod_fn.owner_decl,
+        mod.funcOwnerDeclIndex(self.func_index),
     )) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
@@ -6149,6 +6154,7 @@ const CallMCValues = struct {
 /// Caller must call `CallMCValues.deinit`.
 fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
     const mod = self.bin_file.options.module.?;
+    const ip = &mod.intern_pool;
     const fn_info = mod.typeToFunc(fn_ty).?;
     const cc = fn_info.cc;
     var result: CallMCValues = .{
@@ -6194,14 +6200,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 }
             }
 
-            for (fn_info.param_types, 0..) |ty, i| {
+            for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
                 if (ty.toType().abiAlignment(mod) == 8)
                     ncrn = std.mem.alignForward(usize, ncrn, 2);
 
                 const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
                 if (std.math.divCeil(u32, param_size, 4) catch unreachable <= 4 - ncrn) {
                     if (param_size <= 4) {
-                        result.args[i] = .{ .register = c_abi_int_param_regs[ncrn] };
+                        result_arg.* = .{ .register = c_abi_int_param_regs[ncrn] };
                         ncrn += 1;
                     } else {
                         return self.fail("TODO MCValues with multiple registers", .{});
@@ -6213,7 +6219,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     if (ty.toType().abiAlignment(mod) == 8)
                         nsaa = std.mem.alignForward(u32, nsaa, 8);
 
-                    result.args[i] = .{ .stack_argument_offset = nsaa };
+                    result_arg.* = .{ .stack_argument_offset = nsaa };
                     nsaa += param_size;
                 }
             }
@@ -6244,16 +6250,16 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
             var stack_offset: u32 = 0;
 
-            for (fn_info.param_types, 0..) |ty, i| {
+            for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
                 if (ty.toType().abiSize(mod) > 0) {
                     const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
                     const param_alignment = ty.toType().abiAlignment(mod);
 
                     stack_offset = std.mem.alignForward(u32, stack_offset, param_alignment);
-                    result.args[i] = .{ .stack_argument_offset = stack_offset };
+                    result_arg.* = .{ .stack_argument_offset = stack_offset };
                     stack_offset += param_size;
                 } else {
-                    result.args[i] = .{ .none = {} };
+                    result_arg.* = .{ .none = {} };
                 }
             }
 
