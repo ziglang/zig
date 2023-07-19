@@ -4705,6 +4705,7 @@ pub const GetFuncInstanceKey = struct {
     bare_return_type: Index,
     cc: std.builtin.CallingConvention,
     alignment: Alignment,
+    section: OptionalNullTerminatedString,
     is_noinline: bool,
     generic_owner: Index,
     inferred_error_set: bool,
@@ -4782,6 +4783,7 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
         func_extra_index,
         arg.generation,
         func_ty,
+        arg.section,
     );
 }
 
@@ -4911,6 +4913,7 @@ pub fn getFuncInstanceIes(
         func_extra_index,
         arg.generation,
         func_ty,
+        arg.section,
     );
 }
 
@@ -4922,6 +4925,7 @@ fn finishFuncInstance(
     func_extra_index: u32,
     generation: u32,
     func_ty: Index,
+    section: OptionalNullTerminatedString,
 ) Allocator.Error!Index {
     const fn_owner_decl = ip.declPtr(ip.funcDeclOwner(generic_owner));
     const decl_index = try ip.createDecl(gpa, .{
@@ -4934,7 +4938,7 @@ fn finishFuncInstance(
         .ty = func_ty.toType(),
         .val = func_index.toValue(),
         .alignment = .none,
-        .@"linksection" = fn_owner_decl.@"linksection",
+        .@"linksection" = section,
         .@"addrspace" = fn_owner_decl.@"addrspace",
         .analysis = .complete,
         .deletion_flag = false,

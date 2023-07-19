@@ -8846,6 +8846,11 @@ fn funcCommon(
             .bare_return_type = bare_return_type.toIntern(),
             .cc = cc_resolved,
             .alignment = alignment.?,
+            .section = switch (section) {
+                .generic => unreachable,
+                .default => .none,
+                .explicit => |x| x.toOptional(),
+            },
             .is_noinline = is_noinline,
             .inferred_error_set = inferred_error_set,
             .generic_owner = sema.generic_owner,
