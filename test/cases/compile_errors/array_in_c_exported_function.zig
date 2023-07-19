@@ -10,7 +10,7 @@ export fn zig_return_array() [10]u8 {
 // backend=stage2
 // target=native
 //
-// :1:24: error: parameter of type '[10]u8' not allowed in function with calling convention 'C'
-// :1:24: note: arrays are not allowed as a parameter type
+// :1:21: error: parameter of type '[10]u8' not allowed in function with calling convention 'C'
+// :1:21: note: arrays are not allowed as a parameter type
 // :5:30: error: return type '[10]u8' not allowed in function with calling convention 'C'
 // :5:30: note: arrays are not allowed as a return type

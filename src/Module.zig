@@ -2152,8 +2152,15 @@ pub const SrcLoc = struct {
                 while (it.next()) |param| : (i += 1) {
                     if (i == fn_proto_param.param_index) {
                         if (param.anytype_ellipsis3) |token| return tokenToSpan(tree, token);
-                        if (param.name_token) |token| return tokenToSpan(tree, token);
-                        return nodeToSpan(tree, param.type_expr);
+                        const first_token = param.comptime_noalias orelse
+                            param.name_token orelse
+                            tree.firstToken(param.type_expr);
+                        return tokensToSpan(
+                            tree,
+                            first_token,
+                            tree.lastToken(param.type_expr),
+                            first_token,
+                        );
                     }
                 }
                 unreachable;
