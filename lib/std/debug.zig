@@ -521,13 +521,19 @@ pub const StackIterator = struct {
     }
 
     pub fn initWithContext(first_address: ?usize, debug_info: *DebugInfo, context: *const os.ucontext_t) !StackIterator {
-        var iterator = init(first_address, null);
-        iterator.unwind_state = .{
-            .debug_info = debug_info,
-            .dwarf_context = try DW.UnwindContext.init(debug_info.allocator, context, &isValidMemory),
-        };
+        // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
+        // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
+        if (comptime builtin.target.isDarwin() and native_arch == .aarch64) {
+            return init(first_address, context.mcontext.ss.fp);
+        } else {
+            var iterator = init(first_address, null);
+            iterator.unwind_state = .{
+                .debug_info = debug_info,
+                .dwarf_context = try DW.UnwindContext.init(debug_info.allocator, context, &isValidMemory),
+            };
 
-        return iterator;
+            return iterator;
+        }
     }
 
     pub fn deinit(self: *StackIterator) void {
@@ -663,15 +669,15 @@ pub const StackIterator = struct {
                 if (!unwind_state.failed) {
                     if (unwind_state.dwarf_context.pc == 0) return null;
                     if (self.next_unwind()) |return_address| {
+                        self.fp = unwind_state.dwarf_context.getFp() catch 0;
                         return return_address;
                     } else |err| {
                         unwind_state.last_error = err;
                         unwind_state.failed = true;
 
                         // Fall back to fp-based unwinding on the first failure.
-                        // We can't attempt it for other modules later in the
-                        // stack because the full register state won't be unwound.
-                        self.fp = unwind_state.dwarf_context.getFp() catch 0;
+                        // We can't attempt it again for other modules higher in the
+                        // stack because the full register state won't have been unwound.
                     }
                 }
             }

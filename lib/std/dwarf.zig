@@ -1782,7 +1782,7 @@ pub const DwarfInfo = struct {
         };
 
         var update_tail: ?*RegisterUpdate = null;
-        var has_return_address= true;
+        var has_return_address = true;
         for (context.vm.rowColumns(row)) |column| {
             if (column.register) |register| {
                 if (register == cie.return_address_register) {
@@ -1871,7 +1871,7 @@ pub const UnwindContext = struct {
     }
 
     pub fn getFp(self: *const UnwindContext) !usize {
-        return mem.readIntSliceNative(usize, try abi.regBytes(self.thread_context, abi.fpRegNum(self.reg_context), self.reg_context));
+        return (try abi.regValueNative(usize, self.thread_context, abi.fpRegNum(self.reg_context), self.reg_context)).*;
     }
 };
 
