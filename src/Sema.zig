@@ -6997,10 +6997,14 @@ fn analyzeCall(
         var has_comptime_args = false;
         var arg_i: u32 = 0;
         for (fn_info.param_body) |inst| {
-            const arg_src: LazySrcLoc = .{ .call_arg = .{
-                .call_node_offset = call_src.node_offset.x,
-                .arg_index = arg_i,
-            } };
+            const arg_src: LazySrcLoc = if (arg_i == 0 and bound_arg_src != null)
+                bound_arg_src.?
+            else
+                .{ .call_arg = .{
+                    .decl = block.src_decl,
+                    .call_node_offset = call_src.node_offset.x,
+                    .arg_index = arg_i - @intFromBool(bound_arg_src != null),
+                } };
             try sema.analyzeInlineCallArg(
                 block,
                 &child_block,
@@ -7356,7 +7360,7 @@ fn analyzeInlineCallArg(
             }
             const casted_arg = sema.coerceExtra(arg_block, param_ty.toType(), uncasted_arg, arg_src, .{ .param_src = .{
                 .func_inst = func_inst,
-                .param_i = @as(u32, @intCast(arg_i.*)),
+                .param_i = @intCast(arg_i.*),
             } }) catch |err| switch (err) {
                 error.NotCoercible => unreachable,
                 else => |e| return e,
@@ -7586,6 +7590,7 @@ fn instantiateGenericCall(
             const arg_src: LazySrcLoc = if (total_i == 0 and bound_arg_src != null)
                 bound_arg_src.?
             else if (call_src == .node_offset) .{ .call_arg = .{
+                .decl = block.src_decl,
                 .call_node_offset = call_src.node_offset.x,
                 .arg_index = @intCast(total_i),
             } } else .unneeded;
@@ -8729,6 +8734,7 @@ fn funcCommon(
             break :blk @as(u1, @truncate(noalias_bits >> index)) != 0;
         };
         const param_src: LazySrcLoc = .{ .fn_proto_param = .{
+            .decl = block.src_decl,
             .fn_proto_node_offset = src_node_offset,
             .param_index = @intCast(i),
         } };
@@ -9316,9 +9322,10 @@ fn zirParamAnytype(
             return;
         }
         const arg_src: LazySrcLoc = if (sema.generic_call_src == .node_offset) .{ .call_arg = .{
+            .decl = sema.generic_call_decl.unwrap().?,
             .call_node_offset = sema.generic_call_src.node_offset.x,
             .arg_index = param_index,
-        } } else .unneeded;
+        } } else src;
 
         if (comptime_syntax) {
             if (try sema.resolveMaybeUndefVal(air_ref)) |val| {
@@ -9326,15 +9333,7 @@ fn zirParamAnytype(
                 return;
             }
             const msg = msg: {
-                const fallback_src = src.toSrcLoc(mod.declPtr(block.src_decl), mod);
-                const src_loc = if (sema.generic_call_decl.unwrap()) |decl|
-                    if (arg_src != .unneeded)
-                        arg_src.toSrcLoc(mod.declPtr(decl), mod)
-                    else
-                        fallback_src
-                else
-                    fallback_src;
-
+                const src_loc = arg_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
                 const msg = try Module.ErrorMsg.create(gpa, src_loc, "{s}", .{
                     @as([]const u8, "runtime-known argument passed to comptime parameter"),
                 });
@@ -9354,15 +9353,7 @@ fn zirParamAnytype(
                 return;
             }
             const msg = msg: {
-                const fallback_src = src.toSrcLoc(mod.declPtr(block.src_decl), mod);
-                const src_loc = if (sema.generic_call_decl.unwrap()) |decl|
-                    if (arg_src != .unneeded)
-                        arg_src.toSrcLoc(mod.declPtr(decl), mod)
-                    else
-                        fallback_src
-                else
-                    fallback_src;
-
+                const src_loc = arg_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
                 const msg = try Module.ErrorMsg.create(gpa, src_loc, "{s}", .{
                     @as([]const u8, "runtime-known argument passed to comptime-only type parameter"),
                 });

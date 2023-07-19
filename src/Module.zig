@@ -1821,8 +1821,8 @@ pub const SrcLoc = struct {
         return tree.firstToken(src_loc.parent_decl_node);
     }
 
-    pub fn declRelativeToNodeIndex(src_loc: SrcLoc, offset: i32) Ast.TokenIndex {
-        return @as(Ast.Node.Index, @bitCast(offset + @as(i32, @bitCast(src_loc.parent_decl_node))));
+    pub fn declRelativeToNodeIndex(src_loc: SrcLoc, offset: i32) Ast.Node.Index {
+        return @bitCast(offset + @as(i32, @bitCast(src_loc.parent_decl_node)));
     }
 
     pub const Span = struct {
@@ -2829,14 +2829,15 @@ pub const LazySrcLoc = union(enum) {
     /// The Decl is determined contextually.
     for_capture_from_input: i32,
     /// The source location points to the argument node of a function call.
-    /// The Decl is determined contextually.
     call_arg: struct {
+        decl: Decl.Index,
         /// Points to the function call AST node.
         call_node_offset: i32,
         /// The index of the argument the source location points to.
         arg_index: u32,
     },
     fn_proto_param: struct {
+        decl: Decl.Index,
         /// Points to the function prototype AST node.
         fn_proto_node_offset: i32,
         /// The index of the parameter the source location points to.
@@ -2931,11 +2932,16 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_store_operand,
             .for_input,
             .for_capture_from_input,
-            .call_arg,
-            .fn_proto_param,
             => .{
                 .file_scope = decl.getFileScope(mod),
                 .parent_decl_node = decl.src_node,
+                .lazy = lazy,
+            },
+            inline .call_arg,
+            .fn_proto_param,
+            => |x| .{
+                .file_scope = decl.getFileScope(mod),
+                .parent_decl_node = mod.declPtr(x.decl).src_node,
                 .lazy = lazy,
             },
         };
