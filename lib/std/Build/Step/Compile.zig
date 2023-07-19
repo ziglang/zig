@@ -65,6 +65,7 @@ sanitize_thread: bool,
 rdynamic: bool,
 dwarf_format: ?std.dwarf.Format = null,
 import_memory: bool = false,
+export_memory: bool = false,
 /// For WebAssembly targets, this will allow for undefined symbols to
 /// be imported from the host environment.
 import_symbols: bool = false,
@@ -1661,6 +1662,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.import_memory) {
         try zig_args.append("--import-memory");
+    }
+    if (self.export_memory) {
+        try zig_args.append("--export-memory");
     }
     if (self.import_symbols) {
         try zig_args.append("--import-symbols");

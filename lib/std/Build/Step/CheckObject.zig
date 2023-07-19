@@ -1012,6 +1012,10 @@ const WasmDumper = struct {
                 const start = try std.leb.readULEB128(u32, reader);
                 try writer.print("\nstart {d}\n", .{start});
             },
+            .data_count => {
+                const count = try std.leb.readULEB128(u32, reader);
+                try writer.print("\ncount {d}\n", .{count});
+            },
             else => {}, // skip unknown sections
         }
     }
@@ -1143,9 +1147,16 @@ const WasmDumper = struct {
             .data => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const index = try std.leb.readULEB128(u32, reader);
+                    const flags = try std.leb.readULEB128(u32, reader);
+                    const index = if (flags & 0x02 != 0)
+                        try std.leb.readULEB128(u32, reader)
+                    else
+                        0;
                     try writer.print("memory index 0x{x}\n", .{index});
-                    try parseDumpInit(step, reader, writer);
+                    if (flags == 0) {
+                        try parseDumpInit(step, reader, writer);
+                    }
+
                     const size = try std.leb.readULEB128(u32, reader);
                     try writer.print("size {d}\n", .{size});
                     try reader.skipBytes(size, .{}); // we do not care about the content of the segments
@@ -1174,7 +1185,7 @@ const WasmDumper = struct {
     }
 
     fn parseDumpInit(step: *Step, reader: anytype, writer: anytype) !void {
-        const byte = try std.leb.readULEB128(u8, reader);
+        const byte = try reader.readByte();
         const opcode = std.meta.intToEnum(std.wasm.Opcode, byte) catch {
             return step.fail("invalid wasm opcode '{d}'", .{byte});
         };
