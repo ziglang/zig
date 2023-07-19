@@ -281,6 +281,7 @@ pub fn generateZirData(self: *Autodoc) !void {
                     // Poison and special tag
                     .generic_poison_type,
                     .var_args_param_type,
+                    .adhoc_inferred_error_set_type,
                     => .{
                         .Type = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
