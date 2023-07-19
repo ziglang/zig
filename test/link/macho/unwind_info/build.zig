@@ -75,7 +75,7 @@ fn createScenario(
         .target = target,
     });
     b.default_step.dependOn(&exe.step);
-    exe.addIncludePath(".");
+    exe.addIncludePath(.{ .path = "." });
     exe.addCSourceFiles(&[_][]const u8{
         "main.cpp",
         "simple_string.cpp",

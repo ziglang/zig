@@ -18,7 +18,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });
-    exe.addCSourceFile("main.c", &.{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkLibC();
     exe.entry_symbol_name = "_non_main";
 

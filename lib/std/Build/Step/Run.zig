@@ -82,7 +82,7 @@ has_side_effects: bool = false,
 pub const StdIn = union(enum) {
     none,
     bytes: []const u8,
-    file_source: std.Build.FileSource,
+    file_source: std.Build.LazyPath,
 };
 
 pub const StdIo = union(enum) {
@@ -120,15 +120,15 @@ pub const StdIo = union(enum) {
 
 pub const Arg = union(enum) {
     artifact: *Step.Compile,
-    file_source: PrefixedFileSource,
-    directory_source: PrefixedFileSource,
+    file_source: PrefixedLazyPath,
+    directory_source: PrefixedLazyPath,
     bytes: []u8,
     output: *Output,
 };
 
-pub const PrefixedFileSource = struct {
+pub const PrefixedLazyPath = struct {
     prefix: []const u8,
-    file_source: std.Build.FileSource,
+    file_source: std.Build.LazyPath,
 };
 
 pub const Output = struct {
@@ -169,9 +169,9 @@ pub fn addArtifactArg(self: *Run, artifact: *Step.Compile) void {
 }
 
 /// This provides file path as a command line argument to the command being
-/// run, and returns a FileSource which can be used as inputs to other APIs
+/// run, and returns a LazyPath which can be used as inputs to other APIs
 /// throughout the build system.
-pub fn addOutputFileArg(self: *Run, basename: []const u8) std.Build.FileSource {
+pub fn addOutputFileArg(self: *Run, basename: []const u8) std.Build.LazyPath {
     return self.addPrefixedOutputFileArg("", basename);
 }
 
@@ -179,7 +179,7 @@ pub fn addPrefixedOutputFileArg(
     self: *Run,
     prefix: []const u8,
     basename: []const u8,
-) std.Build.FileSource {
+) std.Build.LazyPath {
     const b = self.step.owner;
 
     const output = b.allocator.create(Output) catch @panic("OOM");
@@ -197,14 +197,18 @@ pub fn addPrefixedOutputFileArg(
     return .{ .generated = &output.generated_file };
 }
 
-pub fn addFileSourceArg(self: *Run, file_source: std.Build.FileSource) void {
-    self.addPrefixedFileSourceArg("", file_source);
+pub const addFileSourceArg = addFileArg; // DEPRECATED, use addFileArg
+
+pub fn addFileArg(self: *Run, file_source: std.Build.LazyPath) void {
+    self.addPrefixedFileArg("", file_source);
 }
 
-pub fn addPrefixedFileSourceArg(self: *Run, prefix: []const u8, file_source: std.Build.FileSource) void {
+pub const addPrefixedFileSourceArg = addPrefixedFileArg; // DEPRECATED, use addPrefixedFileArg
+
+pub fn addPrefixedFileArg(self: *Run, prefix: []const u8, file_source: std.Build.LazyPath) void {
     const b = self.step.owner;
 
-    const prefixed_file_source: PrefixedFileSource = .{
+    const prefixed_file_source: PrefixedLazyPath = .{
         .prefix = b.dupe(prefix),
         .file_source = file_source.dupe(b),
     };
@@ -212,14 +216,18 @@ pub fn addPrefixedFileSourceArg(self: *Run, prefix: []const u8, file_source: std
     file_source.addStepDependencies(&self.step);
 }
 
-pub fn addDirectorySourceArg(self: *Run, directory_source: std.Build.FileSource) void {
-    self.addPrefixedDirectorySourceArg("", directory_source);
+pub const addDirectorySourceArg = addDirectoryArg; // DEPRECATED, use addDirectoryArg
+
+pub fn addDirectoryArg(self: *Run, directory_source: std.Build.LazyPath) void {
+    self.addPrefixedDirectoryArg("", directory_source);
 }
 
-pub fn addPrefixedDirectorySourceArg(self: *Run, prefix: []const u8, directory_source: std.Build.FileSource) void {
+pub const addPrefixedDirectorySourceArg = addPrefixedDirectoryArg; // DEPRECATED, use addPrefixedDirectoryArg
+
+pub fn addPrefixedDirectoryArg(self: *Run, prefix: []const u8, directory_source: std.Build.LazyPath) void {
     const b = self.step.owner;
 
-    const prefixed_directory_source: PrefixedFileSource = .{
+    const prefixed_directory_source: PrefixedLazyPath = .{
         .prefix = b.dupe(prefix),
         .file_source = directory_source.dupe(b),
     };
@@ -331,7 +339,7 @@ pub fn addCheck(self: *Run, new_check: StdIo.Check) void {
     }
 }
 
-pub fn captureStdErr(self: *Run) std.Build.FileSource {
+pub fn captureStdErr(self: *Run) std.Build.LazyPath {
     assert(self.stdio != .inherit);
 
     if (self.captured_stderr) |output| return .{ .generated = &output.generated_file };
@@ -346,7 +354,7 @@ pub fn captureStdErr(self: *Run) std.Build.FileSource {
     return .{ .generated = &output.generated_file };
 }
 
-pub fn captureStdOut(self: *Run) std.Build.FileSource {
+pub fn captureStdOut(self: *Run) std.Build.LazyPath {
     assert(self.stdio != .inherit);
 
     if (self.captured_stdout) |output| return .{ .generated = &output.generated_file };
@@ -449,7 +457,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     self.addPathForDynLibs(artifact);
                 }
                 const file_path = artifact.installed_path orelse
-                    artifact.getOutputSource().getPath(b);
+                    artifact.getEmittedBin().getPath(b);
 
                 try argv_list.append(file_path);
 
@@ -1241,7 +1249,7 @@ fn addPathForDynLibs(self: *Run, artifact: *Step.Compile) void {
         switch (link_object) {
             .other_step => |other| {
                 if (other.target.isWindows() and other.isDynamicLibrary()) {
-                    addPathDir(self, fs.path.dirname(other.getOutputSource().getPath(b)).?);
+                    addPathDir(self, fs.path.dirname(other.getEmittedBin().getPath(b)).?);
                     addPathForDynLibs(self, other);
                 }
             },

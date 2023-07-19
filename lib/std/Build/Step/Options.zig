@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const fs = std.fs;
 const Step = std.Build.Step;
 const GeneratedFile = std.Build.GeneratedFile;
-const FileSource = std.Build.FileSource;
+const LazyPath = std.Build.LazyPath;
 
 const Options = @This();
 
@@ -13,8 +13,7 @@ step: Step,
 generated_file: GeneratedFile,
 
 contents: std.ArrayList(u8),
-artifact_args: std.ArrayList(OptionArtifactArg),
-file_source_args: std.ArrayList(OptionFileSourceArg),
+args: std.ArrayList(OptionLazyPathArg),
 
 pub fn create(owner: *std.Build) *Options {
     const self = owner.allocator.create(Options) catch @panic("OOM");
@@ -27,8 +26,7 @@ pub fn create(owner: *std.Build) *Options {
         }),
         .generated_file = undefined,
         .contents = std.ArrayList(u8).init(owner.allocator),
-        .artifact_args = std.ArrayList(OptionArtifactArg).init(owner.allocator),
-        .file_source_args = std.ArrayList(OptionFileSourceArg).init(owner.allocator),
+        .args = std.ArrayList(OptionLazyPathArg).init(owner.allocator),
     };
     self.generated_file = .{ .step = &self.step };
 
@@ -168,35 +166,42 @@ fn printLiteral(out: anytype, val: anytype, indent: u8) !void {
     }
 }
 
+pub const addOptionFileSource = addOptionPath; // DEPRECATED, use addPathOption
+
 /// The value is the path in the cache dir.
 /// Adds a dependency automatically.
-pub fn addOptionFileSource(
+pub fn addOptionPath(
     self: *Options,
     name: []const u8,
-    source: FileSource,
+    path: LazyPath,
 ) void {
-    self.file_source_args.append(.{
-        .name = name,
-        .source = source.dupe(self.step.owner),
+    self.args.append(.{
+        .name = self.step.owner.dupe(name),
+        .path = path.dupe(self.step.owner),
     }) catch @panic("OOM");
-    source.addStepDependencies(&self.step);
+    path.addStepDependencies(&self.step);
 }
 
 /// The value is the path in the cache dir.
 /// Adds a dependency automatically.
 pub fn addOptionArtifact(self: *Options, name: []const u8, artifact: *Step.Compile) void {
-    self.artifact_args.append(.{ .name = self.step.owner.dupe(name), .artifact = artifact }) catch @panic("OOM");
+    self.args.append(.{
+        .name = self.step.owner.dupe(name),
+        .artifact = artifact.getEmittedBin,
+    }) catch @panic("OOM");
     self.step.dependOn(&artifact.step);
 }
 
 pub fn createModule(self: *Options) *std.Build.Module {
     return self.step.owner.createModule(.{
-        .source_file = self.getSource(),
+        .source_file = self.getOutput(),
         .dependencies = &.{},
     });
 }
 
-pub fn getSource(self: *Options) FileSource {
+pub const getSource = getOutput; // DEPRECATED, use getOutput
+
+pub fn getOutput(self: *Options) LazyPath {
     return .{ .generated = &self.generated_file };
 }
 
@@ -207,19 +212,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const self = @fieldParentPtr(Options, "step", step);
 
-    for (self.artifact_args.items) |item| {
+    for (self.args.items) |item| {
         self.addOption(
             []const u8,
             item.name,
-            b.pathFromRoot(item.artifact.getOutputSource().getPath(b)),
-        );
-    }
-
-    for (self.file_source_args.items) |item| {
-        self.addOption(
-            []const u8,
-            item.name,
-            item.source.getPath(b),
+            item.path.getPath(b),
         );
     }
 
@@ -294,14 +291,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 }
 
-const OptionArtifactArg = struct {
+const OptionLazyPathArg = struct {
     name: []const u8,
-    artifact: *Step.Compile,
-};
-
-const OptionFileSourceArg = struct {
-    name: []const u8,
-    source: FileSource,
+    path: LazyPath,
 };
 
 test Options {

@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .Debug,
     });
     exe.addAnonymousModule("bootloader.elf", .{
-        .source_file = bootloader.getOutputSource(),
+        .source_file = bootloader.getEmittedBin(),
     });
 
     test_step.dependOn(&exe.step);

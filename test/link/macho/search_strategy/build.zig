@@ -55,7 +55,7 @@ fn createScenario(
         .optimize = optimize,
         .target = target,
     });
-    static.addCSourceFile("a.c", &.{});
+    static.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     static.linkLibC();
     static.override_dest_dir = std.Build.InstallDir{
         .custom = "static",
@@ -67,7 +67,7 @@ fn createScenario(
         .optimize = optimize,
         .target = target,
     });
-    dylib.addCSourceFile("a.c", &.{});
+    dylib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     dylib.linkLibC();
     dylib.override_dest_dir = std.Build.InstallDir{
         .custom = "dynamic",
@@ -78,11 +78,11 @@ fn createScenario(
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &.{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkSystemLibraryName(name);
     exe.linkLibC();
-    exe.addLibraryPathDirectorySource(static.getOutputDirectorySource());
-    exe.addLibraryPathDirectorySource(dylib.getOutputDirectorySource());
-    exe.addRPathDirectorySource(dylib.getOutputDirectorySource());
+    exe.addLibraryPath(static.getEmitDirectory());
+    exe.addLibraryPath(dylib.getEmitDirectory());
+    exe.addRPath(dylib.getEmitDirectory());
     return exe;
 }

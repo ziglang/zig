@@ -759,7 +759,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             "-fno-emit-bin", "-fno-emit-h",
             "-fstrip",       "-OReleaseFast",
         });
-        run.addFileSourceArg(writefile.files.items[0].getFileSource());
+        run.addFileArg(writefile.files.items[0].getPath());
         const example_s = run.addPrefixedOutputFileArg("-femit-asm=", "example.s");
 
         const checkfile = b.addCheckFile(example_s, .{
@@ -1017,8 +1017,8 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         else
             "";
 
-        these_tests.overrideZigLibDir("lib");
-        these_tests.addIncludePath("test");
+        these_tests.overrideZigLibDir(.{ .path = "lib" });
+        these_tests.addIncludePath(.{ .path = "test" });
 
         const qualified_name = b.fmt("{s}-{s}-{s}{s}{s}{s}", .{
             options.name,
@@ -1038,10 +1038,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 .link_libc = test_target.link_libc,
                 .target = altered_target,
             });
-            compile_c.overrideZigLibDir("lib");
-            compile_c.addCSourceFileSource(.{
-                .source = these_tests.getOutputSource(),
-                .args = &.{
+            compile_c.overrideZigLibDir(.{ .path = "lib" });
+            compile_c.addCSourceFile(.{
+                .file = these_tests.getEmittedBin(),
+                .flags = &.{
                     // TODO output -std=c89 compatible C code
                     "-std=c99",
                     "-pedantic",
@@ -1058,7 +1058,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     "-Wno-absolute-value",
                 },
             });
-            compile_c.addIncludePath("lib"); // for zig.h
+            compile_c.addIncludePath(.{ .path = "lib" }); // for zig.h
             if (test_target.target.getOsTag() == .windows) {
                 if (true) {
                     // Unfortunately this requires about 8G of RAM for clang to compile
@@ -1131,7 +1131,10 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 test_step.target_info.dynamic_linker.max_byte = null;
             }
             test_step.linkLibC();
-            test_step.addCSourceFile("test/c_abi/cfuncs.c", &.{"-std=c99"});
+            test_step.addCSourceFile(.{
+                .file = .{ .path = "test/c_abi/cfuncs.c" },
+                .flags = &.{"-std=c99"},
+            });
 
             // This test is intentionally trying to check if the external ABI is
             // done properly. LTO would be a hindrance to this.

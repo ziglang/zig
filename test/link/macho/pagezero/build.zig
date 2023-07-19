@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .target = target,
         });
-        exe.addCSourceFile("main.c", &.{});
+        exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
         exe.linkLibC();
         exe.pagezero_size = 0x4000;
 
@@ -39,7 +39,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .target = target,
         });
-        exe.addCSourceFile("main.c", &.{});
+        exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
         exe.linkLibC();
         exe.pagezero_size = 0;
 

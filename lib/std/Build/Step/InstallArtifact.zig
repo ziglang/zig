@@ -76,7 +76,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var all_cached = true;
 
     {
-        const full_src_path = self.artifact.getOutputSource().getPath(src_builder);
+        const full_src_path = self.artifact.getEmittedBin().getPath(src_builder);
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_dest_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
                 full_src_path, full_dest_path, @errorName(err),
@@ -95,7 +95,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         self.artifact.target.isWindows() and
         self.artifact.emit_implib != .no_emit)
     {
-        const full_src_path = self.artifact.getOutputLibSource().getPath(src_builder);
+        const full_src_path = self.artifact.getEmittedImplib().getPath(src_builder);
         const full_implib_path = dest_builder.getInstallPath(self.dest_dir, self.artifact.out_lib_filename);
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_implib_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
@@ -105,7 +105,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         all_cached = all_cached and p == .fresh;
     }
     if (self.pdb_dir) |pdb_dir| {
-        const full_src_path = self.artifact.getOutputPdbSource().getPath(src_builder);
+        const full_src_path = self.artifact.getEmittedPdb().getPath(src_builder);
         const full_pdb_path = dest_builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_pdb_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
@@ -115,7 +115,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         all_cached = all_cached and p == .fresh;
     }
     if (self.h_dir) |h_dir| {
-        const full_src_path = self.artifact.getOutputHSource().getPath(src_builder);
+        const full_src_path = self.artifact.getEmittedH().getPath(src_builder);
         const full_h_path = dest_builder.getInstallPath(h_dir, self.artifact.out_h_filename);
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_h_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{

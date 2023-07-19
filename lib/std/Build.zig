@@ -471,7 +471,7 @@ pub fn addOptions(self: *Build) *Step.Options {
 
 pub const ExecutableOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
@@ -502,7 +502,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
 
 pub const ObjectOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    root_source_file: ?LazyPath = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     max_rss: usize = 0,
@@ -529,7 +529,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
 
 pub const SharedLibraryOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
@@ -559,7 +559,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
 
 pub const StaticLibraryOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    root_source_file: ?LazyPath = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     version: ?std.SemanticVersion = null,
@@ -589,7 +589,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
 
 pub const TestOptions = struct {
     name: []const u8 = "test",
-    root_source_file: FileSource,
+    root_source_file: LazyPath,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
     version: ?std.SemanticVersion = null,
@@ -621,7 +621,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
 
 pub const AssemblyOptions = struct {
     name: []const u8,
-    source_file: FileSource,
+    source_file: LazyPath,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     max_rss: usize = 0,
@@ -636,7 +636,7 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
         .optimize = options.optimize,
         .max_rss = options.max_rss,
     });
-    obj_step.addAssemblyFileSource(options.source_file.dupe(b));
+    obj_step.addAssemblyLazyPath(options.source_file.dupe(b));
     return obj_step;
 }
 
@@ -655,7 +655,7 @@ pub const ModuleDependency = struct {
 };
 
 pub const CreateModuleOptions = struct {
-    source_file: FileSource,
+    source_file: LazyPath,
     dependencies: []const ModuleDependency = &.{},
 };
 
@@ -1284,22 +1284,22 @@ pub fn installLibFile(self: *Build, src_path: []const u8, dest_rel_path: []const
     self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .lib, dest_rel_path).step);
 }
 
-pub fn addObjCopy(b: *Build, source: FileSource, options: Step.ObjCopy.Options) *Step.ObjCopy {
+pub fn addObjCopy(b: *Build, source: LazyPath, options: Step.ObjCopy.Options) *Step.ObjCopy {
     return Step.ObjCopy.create(b, source, options);
 }
 
 ///`dest_rel_path` is relative to install prefix path
-pub fn addInstallFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *Step.InstallFile {
+pub fn addInstallFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return self.addInstallFileWithDir(source.dupe(self), .prefix, dest_rel_path);
 }
 
 ///`dest_rel_path` is relative to bin path
-pub fn addInstallBinFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *Step.InstallFile {
+pub fn addInstallBinFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return self.addInstallFileWithDir(source.dupe(self), .bin, dest_rel_path);
 }
 
 ///`dest_rel_path` is relative to lib path
-pub fn addInstallLibFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *Step.InstallFile {
+pub fn addInstallLibFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return self.addInstallFileWithDir(source.dupe(self), .lib, dest_rel_path);
 }
 
@@ -1309,7 +1309,7 @@ pub fn addInstallHeaderFile(b: *Build, src_path: []const u8, dest_rel_path: []co
 
 pub fn addInstallFileWithDir(
     self: *Build,
-    source: FileSource,
+    source: LazyPath,
     install_dir: InstallDir,
     dest_rel_path: []const u8,
 ) *Step.InstallFile {
@@ -1322,7 +1322,7 @@ pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *Step
 
 pub fn addCheckFile(
     b: *Build,
-    file_source: FileSource,
+    file_source: LazyPath,
     options: Step.CheckFile.Options,
 ) *Step.CheckFile {
     return Step.CheckFile.create(b, file_source, options);
@@ -1608,7 +1608,7 @@ pub const Module = struct {
     /// This could either be a generated file, in which case the module
     /// contains exactly one file, or it could be a path to the root source
     /// file of directory of files which constitute the module.
-    source_file: FileSource,
+    source_file: LazyPath,
     dependencies: std.StringArrayHashMap(*Module),
 };
 
@@ -1630,8 +1630,10 @@ pub const GeneratedFile = struct {
     }
 };
 
-/// A file source is a reference to an existing or future file.
-pub const FileSource = union(enum) {
+pub const FileSource = LazyPath; // DEPRECATED, use LazyPath now
+
+/// A reference to an existing or future path.
+pub const LazyPath = union(enum) {
     /// A plain file path, relative to build root or absolute.
     path: []const u8,
 
@@ -1641,14 +1643,14 @@ pub const FileSource = union(enum) {
 
     /// Returns a new file source that will have a relative path to the build root guaranteed.
     /// This should be preferred over setting `.path` directly as it documents that the files are in the project directory.
-    pub fn relative(path: []const u8) FileSource {
+    pub fn relative(path: []const u8) LazyPath {
         std.debug.assert(!std.fs.path.isAbsolute(path));
-        return FileSource{ .path = path };
+        return LazyPath{ .path = path };
     }
 
     /// Returns a string that can be shown to represent the file source.
     /// Either returns the path or `"generated"`.
-    pub fn getDisplayName(self: FileSource) []const u8 {
+    pub fn getDisplayName(self: LazyPath) []const u8 {
         return switch (self) {
             .path => self.path,
             .generated => "generated",
@@ -1656,7 +1658,7 @@ pub const FileSource = union(enum) {
     }
 
     /// Adds dependencies this file source implies to the given step.
-    pub fn addStepDependencies(self: FileSource, other_step: *Step) void {
+    pub fn addStepDependencies(self: LazyPath, other_step: *Step) void {
         switch (self) {
             .path => {},
             .generated => |gen| other_step.dependOn(gen.step),
@@ -1664,14 +1666,14 @@ pub const FileSource = union(enum) {
     }
 
     /// Should only be called during make(), returns a path relative to the build root or absolute.
-    pub fn getPath(self: FileSource, src_builder: *Build) []const u8 {
+    pub fn getPath(self: LazyPath, src_builder: *Build) []const u8 {
         return getPath2(self, src_builder, null);
     }
 
     /// Should only be called during make(), returns a path relative to the build root or absolute.
     /// asking_step is only used for debugging purposes; it's the step being run that is asking for
     /// the path.
-    pub fn getPath2(self: FileSource, src_builder: *Build, asking_step: ?*Step) []const u8 {
+    pub fn getPath2(self: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
         switch (self) {
             .path => |p| return src_builder.pathFromRoot(p),
             .generated => |gen| return gen.path orelse {
@@ -1684,7 +1686,7 @@ pub const FileSource = union(enum) {
     }
 
     /// Duplicates the file source for a given builder.
-    pub fn dupe(self: FileSource, b: *Build) FileSource {
+    pub fn dupe(self: LazyPath, b: *Build) LazyPath {
         return switch (self) {
             .path => |p| .{ .path = b.dupePath(p) },
             .generated => |gen| .{ .generated = gen },
