@@ -639,11 +639,11 @@ pub fn HashMap(
             return self.unmanaged.removeAdapted(key, ctx);
         }
 
-        /// Delete the entry with key pointed to by keyPtr from the hash map.
-        /// keyPtr is assumed to be a valid pointer to a key that is present
+        /// Delete the entry with key pointed to by key_ptr from the hash map.
+        /// key_ptr is assumed to be a valid pointer to a key that is present
         /// in the hash map.
-        pub fn removeByPtr(self: *Self, keyPtr: *K) void {
-            self.unmanaged.removeByPtr(keyPtr);
+        pub fn removeByPtr(self: *Self, key_ptr: *K) void {
+            self.unmanaged.removeByPtr(key_ptr);
         }
 
         /// Creates a copy of this map, using the same allocator
@@ -1433,16 +1433,16 @@ pub fn HashMapUnmanaged(
             return false;
         }
 
-        /// Delete the entry with key pointed to by keyPtr from the hash map.
-        /// keyPtr is assumed to be a valid pointer to a key that is present
+        /// Delete the entry with key pointed to by key_ptr from the hash map.
+        /// key_ptr is assumed to be a valid pointer to a key that is present
         /// in the hash map.
-        pub fn removeByPtr(self: *Self, keyPtr: *K) void {
+        pub fn removeByPtr(self: *Self, key_ptr: *K) void {
             // TODO: replace with pointer subtraction once supported by zig
             // if @sizeOf(K) == 0 then there is at most one item in the hash
-            // map, which is assumed to exist as keyPtr must be valid.  This
+            // map, which is assumed to exist as key_ptr must be valid.  This
             // item must be at index 0.
             const idx = if (@sizeOf(K) > 0)
-                (@intFromPtr(keyPtr) - @intFromPtr(self.keys())) / @sizeOf(K)
+                (@intFromPtr(key_ptr) - @intFromPtr(self.keys())) / @sizeOf(K)
             else
                 0;
 
@@ -2166,10 +2166,10 @@ test "std.hash_map removeByPtr" {
 
     i = 0;
     while (i < 10) : (i += 1) {
-        const keyPtr = map.getKeyPtr(i);
-        try testing.expect(keyPtr != null);
+        const key_ptr = map.getKeyPtr(i);
+        try testing.expect(key_ptr != null);
 
-        if (keyPtr) |ptr| {
+        if (key_ptr) |ptr| {
             map.removeByPtr(ptr);
         }
     }
@@ -2185,10 +2185,10 @@ test "std.hash_map removeByPtr 0 sized key" {
 
     try testing.expect(map.count() == 1);
 
-    const keyPtr = map.getKeyPtr(0);
-    try testing.expect(keyPtr != null);
+    const key_ptr = map.getKeyPtr(0);
+    try testing.expect(key_ptr != null);
 
-    if (keyPtr) |ptr| {
+    if (key_ptr) |ptr| {
         map.removeByPtr(ptr);
     }
 
