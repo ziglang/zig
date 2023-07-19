@@ -9086,7 +9086,11 @@ fn finishFunc(
         const tags = sema.code.instructions.items(.tag);
         const data = sema.code.instructions.items(.data);
         const param_body = sema.code.getParamBody(func_inst);
-        for (block.params.items(.is_comptime), block.params.items(.name), param_body) |is_comptime, name_nts, param_index| {
+        for (
+            block.params.items(.is_comptime),
+            block.params.items(.name),
+            param_body[0..block.params.len],
+        ) |is_comptime, name_nts, param_index| {
             if (!is_comptime) {
                 const param_src = switch (tags[param_index]) {
                     .param => data[param_index].pl_tok.src(),
@@ -9165,6 +9169,8 @@ fn zirParam(
     param_index: u32,
     comptime_syntax: bool,
 ) CompileError!void {
+    const mod = sema.mod;
+    const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_tok;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index);
@@ -9260,8 +9266,28 @@ fn zirParam(
                 else => |e| return e,
             };
             sema.inst_map.putAssumeCapacity(inst, coerced_arg);
-            sema.comptime_args[param_index] = (try sema.resolveConstMaybeUndefVal(block, src, coerced_arg, "parameter is declared comptime")).toIntern();
-            return;
+            if (try sema.resolveMaybeUndefVal(coerced_arg)) |val| {
+                sema.comptime_args[param_index] = val.toIntern();
+                return;
+            }
+            const arg_src: LazySrcLoc = if (sema.generic_call_src == .node_offset) .{ .call_arg = .{
+                .decl = sema.generic_call_decl.unwrap().?,
+                .call_node_offset = sema.generic_call_src.node_offset.x,
+                .arg_index = param_index,
+            } } else src;
+            const msg = msg: {
+                const src_loc = arg_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+                const msg = try Module.ErrorMsg.create(gpa, src_loc, "{s}", .{
+                    @as([]const u8, "runtime-known argument passed to comptime parameter"),
+                });
+                errdefer msg.destroy(gpa);
+
+                if (sema.generic_call_decl != .none) {
+                    try sema.errNote(block, src, msg, "{s}", .{@as([]const u8, "declared comptime here")});
+                }
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
         }
         // Even though a comptime argument is provided, the generic function wants to treat
         // this as a runtime parameter.
@@ -9340,7 +9366,7 @@ fn zirParamAnytype(
                 errdefer msg.destroy(gpa);
 
                 if (sema.generic_call_decl != .none) {
-                    try sema.errNote(block, src, msg, "{s}", .{@as([]const u8, "declared here")});
+                    try sema.errNote(block, src, msg, "{s}", .{@as([]const u8, "declared comptime here")});
                 }
                 break :msg msg;
             };
