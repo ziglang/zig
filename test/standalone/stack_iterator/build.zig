@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Unwinding pure zig code, with a frame pointer
+    // Unwinding with a frame pointer
     //
     // getcontext version: zig std
     //
@@ -18,8 +18,8 @@ pub fn build(b: *std.Build) void {
     //     - aarch64: FRAME, DWARF
     {
         const exe = b.addExecutable(.{
-            .name = "zig_unwind_fp",
-            .root_source_file = .{ .path = "zig_unwind.zig" },
+            .name = "unwind_fp",
+            .root_source_file = .{ .path = "unwind.zig" },
             .target = target,
             .optimize = optimize,
         });
@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&run_cmd.step);
     }
 
-    // Unwinding pure zig code, without a frame pointer.
+    // Unwinding without a frame pointer
     //
     // getcontext version: zig std
     //
@@ -42,13 +42,12 @@ pub fn build(b: *std.Build) void {
     //     - aarch64: FRAMELESS, DWARF
     {
         const exe = b.addExecutable(.{
-            .name = "zig_unwind_nofp",
-            .root_source_file = .{ .path = "zig_unwind.zig" },
+            .name = "unwind_nofp",
+            .root_source_file = .{ .path = "unwind.zig" },
             .target = target,
             .optimize = optimize,
         });
 
-        if (target.isDarwin()) exe.unwind_tables = true;
         exe.omit_frame_pointer = true;
         exe.unwind_tables = true;
 

@@ -1659,8 +1659,6 @@ pub const DwarfInfo = struct {
         if (!comptime abi.isSupportedArch(builtin.target.cpu.arch)) return error.UnsupportedCpuArchitecture;
         if (context.pc == 0) return 0;
 
-        // TODO: Handle unwinding from a signal frame (ie. use_prev_instr in libunwind)
-
         // Find the FDE and CIE
         var cie: CommonInformationEntry = undefined;
         var fde: FrameDescriptionEntry = undefined;
@@ -1828,11 +1826,16 @@ pub const DwarfInfo = struct {
 
         (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), context.reg_context)).* = context.pc;
 
-        // The call instruction will have pushed the address of the instruction that follows the call as the return address
-        // However, this return address may be past the end of the function if the caller was `noreturn`. By subtracting one,
-        // then `context.pc` will always point to an instruction within the FDE for the previous function.
+        // The call instruction will have pushed the address of the instruction that follows the call as the return address.
+        // This next instruction may be past the end of the function if the caller was `noreturn` (ie. the last instruction in
+        // the function was the call). If we were to look up an FDE entry using the return address directly, it could end up
+        // either not finding an FDE at all, or using the next FDE in the program, producing incorrect results. To prevent this,
+        // we subtract one so that the next lookup is guaranteed to land inside the
+        //
+        // The exception to this rule is signal frames, where we return execution would be returned to the instruction
+        // that triggered the handler.
         const return_address = context.pc;
-        if (context.pc > 0) context.pc -= 1;
+        if (context.pc > 0 and !cie.isSignalFrame()) context.pc -= 1;
 
         return return_address;
     }
