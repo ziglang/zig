@@ -2802,22 +2802,18 @@ fn setupMemory(wasm: *Wasm) !void {
 
     // Setup the max amount of pages
     // For now we only support wasm32 by setting the maximum allowed memory size 2^32-1
-    const max_memory_allowed: u64 = (1 << 32) - 1;
+    const max_memory_allowed: u64 = ((1 << 32) - 1) / page_size;
 
     if (wasm.base.options.initial_memory) |initial_memory| {
-        if (!std.mem.isAlignedGeneric(u64, initial_memory, page_size)) {
-            log.err("Initial memory must be {d}-byte aligned", .{page_size});
-            return error.MissAlignment;
-        }
-        if (memory_ptr > initial_memory) {
-            log.err("Initial memory too small, must be at least {d} bytes", .{memory_ptr});
+        if (memory_ptr / page_size > initial_memory) {
+            log.err("Initial memory too small, must be at least {d} pages", .{memory_ptr / page_size});
             return error.MemoryTooSmall;
         }
         if (initial_memory > max_memory_allowed) {
             log.err("Initial memory exceeds maximum memory {d}", .{max_memory_allowed});
             return error.MemoryTooBig;
         }
-        memory_ptr = initial_memory;
+        memory_ptr = initial_memory * page_size;
     }
     memory_ptr = mem.alignForward(u64, memory_ptr, std.wasm.page_size);
     // In case we do not import memory, but define it ourselves,
@@ -2831,19 +2827,15 @@ fn setupMemory(wasm: *Wasm) !void {
     }
 
     if (wasm.base.options.max_memory) |max_memory| {
-        if (!std.mem.isAlignedGeneric(u64, max_memory, page_size)) {
-            log.err("Maximum memory must be {d}-byte aligned", .{page_size});
-            return error.MissAlignment;
-        }
-        if (memory_ptr > max_memory) {
-            log.err("Maxmimum memory too small, must be at least {d} bytes", .{memory_ptr});
+        if (memory_ptr / page_size > max_memory) {
+            log.err("Maximum memory too small, must be at least {d} pages", .{memory_ptr / page_size});
             return error.MemoryTooSmall;
         }
         if (max_memory > max_memory_allowed) {
-            log.err("Maximum memory exceeds maxmium amount {d}", .{max_memory_allowed});
+            log.err("Maximum memory exceeds maximum amount {d}", .{max_memory_allowed});
             return error.MemoryTooBig;
         }
-        wasm.memories.limits.max = @as(u32, @intCast(max_memory / page_size));
+        wasm.memories.limits.max = @intCast(max_memory);
         wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_HAS_MAX);
         if (wasm.base.options.shared_memory) {
             wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_IS_SHARED);

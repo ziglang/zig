@@ -548,8 +548,8 @@ const usage_build_generic =
     \\  --import-symbols               (WebAssembly) import missing symbols from the host environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
     \\  --export-table                 (WebAssembly) export function table to the host environment
-    \\  --initial-memory=[bytes]       (WebAssembly) initial size of the linear memory
-    \\  --max-memory=[bytes]           (WebAssembly) maximum size of the linear memory
+    \\  --initial-memory=[pages]       (WebAssembly) initial size of the linear memory
+    \\  --max-memory=[pages]           (WebAssembly) maximum size of the linear memory
     \\  --shared-memory                (WebAssembly) use shared linear memory
     \\  --global-base=[addr]           (WebAssembly) where to start to place global data
     \\  --export=[value]               (WebAssembly) Force a symbol to be exported
