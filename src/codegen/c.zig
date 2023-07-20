@@ -2406,22 +2406,24 @@ pub fn genErrDecls(o: *Object) !void {
     const mod = o.dg.module;
     const writer = o.writer();
 
-    try writer.writeAll("enum {\n");
-    o.indent_writer.pushIndent();
     var max_name_len: usize = 0;
-    for (mod.global_error_set.keys()[1..], 1..) |name_nts, value| {
-        const name = mod.intern_pool.stringToSlice(name_nts);
-        max_name_len = @max(name.len, max_name_len);
-        const err_val = try mod.intern(.{ .err = .{
-            .ty = .anyerror_type,
-            .name = name_nts,
-        } });
-        try o.dg.renderValue(writer, Type.anyerror, err_val.toValue(), .Other);
-        try writer.print(" = {d}u,\n", .{value});
+    // do not generate an invalid empty enum when the global error set is empty
+    if (mod.global_error_set.keys().len > 1) {
+        try writer.writeAll("enum {\n");
+        o.indent_writer.pushIndent();
+        for (mod.global_error_set.keys()[1..], 1..) |name_nts, value| {
+            const name = mod.intern_pool.stringToSlice(name_nts);
+            max_name_len = @max(name.len, max_name_len);
+            const err_val = try mod.intern(.{ .err = .{
+                .ty = .anyerror_type,
+                .name = name_nts,
+            } });
+            try o.dg.renderValue(writer, Type.anyerror, err_val.toValue(), .Other);
+            try writer.print(" = {d}u,\n", .{value});
+        }
+        o.indent_writer.popIndent();
+        try writer.writeAll("};\n");
     }
-    o.indent_writer.popIndent();
-    try writer.writeAll("};\n");
-
     const array_identifier = "zig_errorName";
     const name_prefix = array_identifier ++ "_";
     const name_buf = try o.dg.gpa.alloc(u8, name_prefix.len + max_name_len);
