@@ -950,6 +950,8 @@ const ElfDumper = struct {
     fn dumpShdrs(ctx: Context, writer: anytype) !void {
         if (ctx.shdrs.len == 0) return;
 
+        try writer.writeAll("section headers\n");
+
         for (ctx.shdrs, 0..) |shdr, shndx| {
             try writer.print("shdr {d}\n", .{shndx});
             try writer.print("name {s}\n", .{getSectionName(ctx, shndx)});
@@ -1113,45 +1115,45 @@ const ElfDumper = struct {
     ) !void {
         _ = unused_fmt_string;
         _ = options;
-        if (elf.SHT_LOOS <= sh_type and sh_type < elf.SHT_HIOS) {
-            try writer.print("LOOS+0x{x}", .{sh_type - elf.SHT_LOOS});
-        } else if (elf.SHT_LOPROC <= sh_type and sh_type < elf.SHT_HIPROC) {
-            try writer.print("LOPROC+0x{x}", .{sh_type - elf.SHT_LOPROC});
-        } else if (elf.SHT_LOUSER <= sh_type and sh_type < elf.SHT_HIUSER) {
-            try writer.print("LOUSER+0x{x}", .{sh_type - elf.SHT_LOUSER});
-        } else {
-            const name = switch (sh_type) {
-                elf.SHT_NULL => "NULL",
-                elf.SHT_PROGBITS => "PROGBITS",
-                elf.SHT_SYMTAB => "SYMTAB",
-                elf.SHT_STRTAB => "STRTAB",
-                elf.SHT_RELA => "RELA",
-                elf.SHT_HASH => "HASH",
-                elf.SHT_DYNAMIC => "DYNAMIC",
-                elf.SHT_NOTE => "NOTE",
-                elf.SHT_NOBITS => "NOBITS",
-                elf.SHT_REL => "REL",
-                elf.SHT_SHLIB => "SHLIB",
-                elf.SHT_DYNSYM => "DYNSYM",
-                elf.SHT_INIT_ARRAY => "INIT_ARRAY",
-                elf.SHT_FINI_ARRAY => "FINI_ARRAY",
-                elf.SHT_PREINIT_ARRAY => "PREINIT_ARRAY",
-                elf.SHT_GROUP => "GROUP",
-                elf.SHT_SYMTAB_SHNDX => "SYMTAB_SHNDX",
-                elf.SHT_X86_64_UNWIND => "X86_64_UNWIND",
-                elf.SHT_LLVM_ADDRSIG => "LLVM_ADDRSIG",
-                elf.SHT_GNU_HASH => "GNU_HASH",
-                elf.SHT_GNU_VERDEF => "VERDEF",
-                elf.SHT_GNU_VERNEED => "VERNEED",
-                elf.SHT_GNU_VERSYM => "VERSYM",
-                else => "UNKNOWN",
-            };
-            try writer.writeAll(name);
-        }
+        const name = switch (sh_type) {
+            elf.SHT_NULL => "NULL",
+            elf.SHT_PROGBITS => "PROGBITS",
+            elf.SHT_SYMTAB => "SYMTAB",
+            elf.SHT_STRTAB => "STRTAB",
+            elf.SHT_RELA => "RELA",
+            elf.SHT_HASH => "HASH",
+            elf.SHT_DYNAMIC => "DYNAMIC",
+            elf.SHT_NOTE => "NOTE",
+            elf.SHT_NOBITS => "NOBITS",
+            elf.SHT_REL => "REL",
+            elf.SHT_SHLIB => "SHLIB",
+            elf.SHT_DYNSYM => "DYNSYM",
+            elf.SHT_INIT_ARRAY => "INIT_ARRAY",
+            elf.SHT_FINI_ARRAY => "FINI_ARRAY",
+            elf.SHT_PREINIT_ARRAY => "PREINIT_ARRAY",
+            elf.SHT_GROUP => "GROUP",
+            elf.SHT_SYMTAB_SHNDX => "SYMTAB_SHNDX",
+            elf.SHT_X86_64_UNWIND => "X86_64_UNWIND",
+            elf.SHT_LLVM_ADDRSIG => "LLVM_ADDRSIG",
+            elf.SHT_GNU_HASH => "GNU_HASH",
+            elf.SHT_GNU_VERDEF => "VERDEF",
+            elf.SHT_GNU_VERNEED => "VERNEED",
+            elf.SHT_GNU_VERSYM => "VERSYM",
+            else => if (elf.SHT_LOOS <= sh_type and sh_type < elf.SHT_HIOS) {
+                return try writer.print("LOOS+0x{x}", .{sh_type - elf.SHT_LOOS});
+            } else if (elf.SHT_LOPROC <= sh_type and sh_type < elf.SHT_HIPROC) {
+                return try writer.print("LOPROC+0x{x}", .{sh_type - elf.SHT_LOPROC});
+            } else if (elf.SHT_LOUSER <= sh_type and sh_type < elf.SHT_HIUSER) {
+                return try writer.print("LOUSER+0x{x}", .{sh_type - elf.SHT_LOUSER});
+            } else "UNKNOWN",
+        };
+        try writer.writeAll(name);
     }
 
     fn dumpPhdrs(ctx: Context, writer: anytype) !void {
         if (ctx.phdrs.len == 0) return;
+
+        try writer.writeAll("program headers\n");
 
         for (ctx.phdrs, 0..) |phdr, phndx| {
             try writer.print("phdr {d}\n", .{phndx});
@@ -1162,7 +1164,28 @@ const ElfDumper = struct {
             try writer.print("memsz {x}\n", .{phdr.p_memsz});
             try writer.print("filesz {x}\n", .{phdr.p_filesz});
             try writer.print("align {x}\n", .{phdr.p_align});
-            // TODO dump formatted p_flags
+
+            {
+                const flags = phdr.p_flags;
+                try writer.writeAll("flags");
+                if (flags > 0) try writer.writeByte(' ');
+                if (flags & elf.PF_R != 0) {
+                    try writer.writeByte('R');
+                }
+                if (flags & elf.PF_W != 0) {
+                    try writer.writeByte('W');
+                }
+                if (flags & elf.PF_X != 0) {
+                    try writer.writeByte('E');
+                }
+                if (flags & elf.PF_MASKOS != 0) {
+                    try writer.writeAll("OS");
+                }
+                if (flags & elf.PF_MASKPROC != 0) {
+                    try writer.writeAll("PROC");
+                }
+                try writer.writeByte('\n');
+            }
         }
     }
 
@@ -1178,28 +1201,26 @@ const ElfDumper = struct {
     ) !void {
         _ = unused_fmt_string;
         _ = options;
-        if (elf.PT_LOOS <= ph_type and ph_type < elf.PT_HIOS) {
-            try writer.print("LOOS+0x{x}", .{ph_type - elf.PT_LOOS});
-        } else if (elf.PT_LOPROC <= ph_type and ph_type < elf.PT_HIPROC) {
-            try writer.print("LOPROC+0x{x}", .{ph_type - elf.PT_LOPROC});
-        } else {
-            const p_type = switch (ph_type) {
-                elf.PT_NULL => "NULL",
-                elf.PT_LOAD => "LOAD",
-                elf.PT_DYNAMIC => "DYNAMIC",
-                elf.PT_INTERP => "INTERP",
-                elf.PT_NOTE => "NOTE",
-                elf.PT_SHLIB => "SHLIB",
-                elf.PT_PHDR => "PHDR",
-                elf.PT_TLS => "TLS",
-                elf.PT_NUM => "NUM",
-                elf.PT_GNU_EH_FRAME => "GNU_EH_FRAME",
-                elf.PT_GNU_STACK => "GNU_STACK",
-                elf.PT_GNU_RELRO => "GNU_RELRO",
-                else => "UNKNOWN",
-            };
-            try writer.writeAll(p_type);
-        }
+        const p_type = switch (ph_type) {
+            elf.PT_NULL => "NULL",
+            elf.PT_LOAD => "LOAD",
+            elf.PT_DYNAMIC => "DYNAMIC",
+            elf.PT_INTERP => "INTERP",
+            elf.PT_NOTE => "NOTE",
+            elf.PT_SHLIB => "SHLIB",
+            elf.PT_PHDR => "PHDR",
+            elf.PT_TLS => "TLS",
+            elf.PT_NUM => "NUM",
+            elf.PT_GNU_EH_FRAME => "GNU_EH_FRAME",
+            elf.PT_GNU_STACK => "GNU_STACK",
+            elf.PT_GNU_RELRO => "GNU_RELRO",
+            else => if (elf.PT_LOOS <= ph_type and ph_type < elf.PT_HIOS) {
+                return try writer.print("LOOS+0x{x}", .{ph_type - elf.PT_LOOS});
+            } else if (elf.PT_LOPROC <= ph_type and ph_type < elf.PT_HIPROC) {
+                return try writer.print("LOPROC+0x{x}", .{ph_type - elf.PT_LOPROC});
+            } else "UNKNOWN",
+        };
+        try writer.writeAll(p_type);
     }
 
     fn dumpSymtab(ctx: Context, comptime @"type": enum { symtab, dysymtab }, writer: anytype) !void {
