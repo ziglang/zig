@@ -20,13 +20,15 @@ pub fn build(b: *std.Build) void {
         exe.pagezero_size = 0x4000;
 
         const check = exe.checkObject();
-        check.checkStart("LC 0");
-        check.checkNext("segname __PAGEZERO");
-        check.checkNext("vmaddr 0");
-        check.checkNext("vmsize 4000");
+        check.checkStart();
+        check.checkExact("LC 0");
+        check.checkExact("segname __PAGEZERO");
+        check.checkExact("vmaddr 0");
+        check.checkExact("vmsize 4000");
 
-        check.checkStart("segname __TEXT");
-        check.checkNext("vmaddr 4000");
+        check.checkStart();
+        check.checkExact("segname __TEXT");
+        check.checkExact("vmaddr 4000");
 
         test_step.dependOn(&check.step);
     }
@@ -42,9 +44,10 @@ pub fn build(b: *std.Build) void {
         exe.pagezero_size = 0;
 
         const check = exe.checkObject();
-        check.checkStart("LC 0");
-        check.checkNext("segname __TEXT");
-        check.checkNext("vmaddr 0");
+        check.checkStart();
+        check.checkExact("LC 0");
+        check.checkExact("segname __TEXT");
+        check.checkExact("vmaddr 0");
 
         test_step.dependOn(&check.step);
     }

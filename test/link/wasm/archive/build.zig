@@ -26,8 +26,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.strip = false;
 
     const check = lib.checkObject();
-    check.checkStart("Section custom");
-    check.checkNext("name __trunch"); // Ensure it was imported and resolved
+    check.checkStart();
+    check.checkExact("Section custom");
+    check.checkExact("name __trunch"); // Ensure it was imported and resolved
 
     test_step.dependOn(&check.step);
 }

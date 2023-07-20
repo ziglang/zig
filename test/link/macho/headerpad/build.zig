@@ -21,8 +21,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         exe.headerpad_max_install_names = true;
 
         const check = exe.checkObject();
-        check.checkStart("sectname __text");
-        check.checkNext("offset {offset}");
+        check.checkStart();
+        check.checkExact("sectname __text");
+        check.checkExtract("offset {offset}");
 
         switch (builtin.cpu.arch) {
             .aarch64 => {
@@ -46,8 +47,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         exe.headerpad_size = 0x10000;
 
         const check = exe.checkObject();
-        check.checkStart("sectname __text");
-        check.checkNext("offset {offset}");
+        check.checkStart();
+        check.checkExact("sectname __text");
+        check.checkExtract("offset {offset}");
         check.checkComputeCompare("offset", .{ .op = .gte, .value = .{ .literal = 0x10000 } });
 
         test_step.dependOn(&check.step);
@@ -63,8 +65,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         exe.headerpad_size = 0x10000;
 
         const check = exe.checkObject();
-        check.checkStart("sectname __text");
-        check.checkNext("offset {offset}");
+        check.checkStart();
+        check.checkExact("sectname __text");
+        check.checkExtract("offset {offset}");
         check.checkComputeCompare("offset", .{ .op = .gte, .value = .{ .literal = 0x10000 } });
 
         test_step.dependOn(&check.step);
@@ -80,8 +83,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         exe.headerpad_max_install_names = true;
 
         const check = exe.checkObject();
-        check.checkStart("sectname __text");
-        check.checkNext("offset {offset}");
+        check.checkStart();
+        check.checkExact("sectname __text");
+        check.checkExtract("offset {offset}");
 
         switch (builtin.cpu.arch) {
             .aarch64 => {

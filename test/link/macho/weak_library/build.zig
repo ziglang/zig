@@ -37,14 +37,15 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.addRPathDirectorySource(dylib.getOutputDirectorySource());
 
     const check = exe.checkObject();
-    check.checkStart("cmd LOAD_WEAK_DYLIB");
-    check.checkNext("name @rpath/liba.dylib");
+    check.checkStart();
+    check.checkExact("cmd LOAD_WEAK_DYLIB");
+    check.checkExact("name @rpath/liba.dylib");
 
     check.checkInSymtab();
-    check.checkNext("(undefined) weak external _a (from liba)");
+    check.checkExact("(undefined) weak external _a (from liba)");
 
     check.checkInSymtab();
-    check.checkNext("(undefined) weak external _asStr (from liba)");
+    check.checkExact("(undefined) weak external _asStr (from liba)");
     test_step.dependOn(&check.step);
 
     const run = b.addRunArtifact(exe);

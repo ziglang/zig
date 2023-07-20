@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
 
         const check = exe.checkObject();
         check.checkInSymtab();
-        check.checkNext("{*} (__TEXT,__text) external _iAmUnused");
+        check.checkContains("(__TEXT,__text) external _iAmUnused");
         test_step.dependOn(&check.step);
 
         const run = b.addRunArtifact(exe);
@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
 
         const check = exe.checkObject();
         check.checkInSymtab();
-        check.checkNotPresent("{*} (__TEXT,__text) external _iAmUnused");
+        check.checkNotPresent("(__TEXT,__text) external _iAmUnused");
         test_step.dependOn(&check.step);
 
         const run = b.addRunArtifact(exe);

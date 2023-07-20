@@ -18,7 +18,6 @@ step: Step,
 source: std.Build.FileSource,
 max_bytes: usize = 20 * 1024 * 1024,
 checks: std.ArrayList(Check),
-dump_symtab: bool = false,
 obj_format: std.Target.ObjectFormat,
 
 pub fn create(
@@ -53,62 +52,41 @@ const SearchPhrase = struct {
     }
 };
 
-/// There two types of actions currently supported:
-/// * `.match` - is the main building block of standard matchers with optional eat-all token `{*}`
-/// and extractors by name such as `{n_value}`. Please note this action is very simplistic in nature
-/// i.e., it won't really handle edge cases/nontrivial examples. But given that we do want to use
-/// it mainly to test the output of our object format parser-dumpers when testing the linkers, etc.
-/// it should be plenty useful in its current form.
-/// * `.compute_cmp` - can be used to perform an operation on the extracted global variables
+/// There five types of actions currently supported:
+/// .exact - will do an exact match against the haystack
+/// .contains - will check for existence within the haystack
+/// .not_present - will check for non-existence within the haystack
+/// .extract - will do an exact match and extract into a variable enclosed within `{name}` braces
+/// .compute_cmp - will perform an operation on the extracted global variables
 /// using the MatchAction. It currently only supports an addition. The operation is required
 /// to be specified in Reverse Polish Notation to ease in operator-precedence parsing (well,
 /// to avoid any parsing really).
 /// For example, if the two extracted values were saved as `vmaddr` and `entryoff` respectively
 /// they could then be added with this simple program `vmaddr entryoff +`.
 const Action = struct {
-    tag: enum { match, not_present, compute_cmp },
+    tag: enum { exact, contains, not_present, extract, compute_cmp },
     phrase: SearchPhrase,
     expected: ?ComputeCompareExpected = null,
 
-    /// Will return true if the `phrase` was found in the `haystack`.
-    /// Some examples include:
-    ///
-    /// LC 0                     => will match in its entirety
-    /// vmaddr {vmaddr}          => will match `vmaddr` and then extract the following value as u64
-    ///                             and save under `vmaddr` global name (see `global_vars` param)
-    /// name {*}libobjc{*}.dylib => will match `name` followed by a token which contains `libobjc` and `.dylib`
-    ///                             in that order with other letters in between
-    fn match(
+    /// Returns true if the `phrase` is an exact match with the haystack and variable was successfully extracted.
+    fn extract(
         act: Action,
         b: *std.Build,
         step: *Step,
         haystack: []const u8,
         global_vars: anytype,
     ) !bool {
-        assert(act.tag == .match or act.tag == .not_present);
-        const phrase = act.phrase.resolve(b, step);
+        assert(act.tag == .extract);
+        const hay = mem.trim(u8, haystack, " ");
+        const phrase = mem.trim(u8, act.phrase.resolve(b, step), " ");
+
         var candidate_var: ?struct { name: []const u8, value: u64 } = null;
-        var hay_it = mem.tokenizeScalar(u8, mem.trim(u8, haystack, " "), ' ');
-        var needle_it = mem.tokenizeScalar(u8, mem.trim(u8, phrase, " "), ' ');
+        var hay_it = mem.tokenizeScalar(u8, hay, ' ');
+        var needle_it = mem.tokenizeScalar(u8, phrase, ' ');
 
         while (needle_it.next()) |needle_tok| {
-            const hay_tok = hay_it.next() orelse return false;
-
-            if (mem.indexOf(u8, needle_tok, "{*}")) |index| {
-                // We have fuzzy matchers within the search pattern, so we match substrings.
-                var start = index;
-                var n_tok = needle_tok;
-                var h_tok = hay_tok;
-                while (true) {
-                    n_tok = n_tok[start + 3 ..];
-                    const inner = if (mem.indexOf(u8, n_tok, "{*}")) |sub_end|
-                        n_tok[0..sub_end]
-                    else
-                        n_tok;
-                    if (mem.indexOf(u8, h_tok, inner) == null) return false;
-                    start = mem.indexOf(u8, n_tok, "{*}") orelse break;
-                }
-            } else if (mem.startsWith(u8, needle_tok, "{")) {
+            const hay_tok = hay_it.next() orelse break;
+            if (mem.startsWith(u8, needle_tok, "{")) {
                 const closing_brace = mem.indexOf(u8, needle_tok, "}") orelse return error.MissingClosingBrace;
                 if (closing_brace != needle_tok.len - 1) return error.ClosingBraceNotLast;
 
@@ -124,11 +102,49 @@ const Action = struct {
             }
         }
 
-        if (candidate_var) |v| {
-            try global_vars.putNoClobber(v.name, v.value);
-        }
+        if (candidate_var) |v| try global_vars.putNoClobber(v.name, v.value);
+        return candidate_var != null;
+    }
 
-        return true;
+    /// Returns true if the `phrase` is an exact match with the haystack.
+    fn exact(
+        act: Action,
+        b: *std.Build,
+        step: *Step,
+        haystack: []const u8,
+    ) bool {
+        assert(act.tag == .exact);
+        const hay = mem.trim(u8, haystack, " ");
+        const phrase = mem.trim(u8, act.phrase.resolve(b, step), " ");
+        return mem.eql(u8, hay, phrase);
+    }
+
+    /// Returns true if the `phrase` exists within the haystack.
+    fn contains(
+        act: Action,
+        b: *std.Build,
+        step: *Step,
+        haystack: []const u8,
+    ) bool {
+        assert(act.tag == .contains);
+        const hay = mem.trim(u8, haystack, " ");
+        const phrase = mem.trim(u8, act.phrase.resolve(b, step), " ");
+        return mem.indexOf(u8, hay, phrase) != null;
+    }
+
+    /// Returns true if the `phrase` does not exist within the haystack.
+    fn notPresent(
+        act: Action,
+        b: *std.Build,
+        step: *Step,
+        haystack: []const u8,
+    ) bool {
+        assert(act.tag == .not_present);
+        return !contains(.{
+            .tag = .contains,
+            .phrase = act.phrase,
+            .expected = act.expected,
+        }, b, step, haystack);
     }
 
     /// Will return true if the `phrase` is correctly parsed into an RPN program and
@@ -235,9 +251,23 @@ const Check = struct {
         };
     }
 
-    fn match(self: *Check, phrase: SearchPhrase) void {
+    fn extract(self: *Check, phrase: SearchPhrase) void {
         self.actions.append(.{
-            .tag = .match,
+            .tag = .extract,
+            .phrase = phrase,
+        }) catch @panic("OOM");
+    }
+
+    fn exact(self: *Check, phrase: SearchPhrase) void {
+        self.actions.append(.{
+            .tag = .exact,
+            .phrase = phrase,
+        }) catch @panic("OOM");
+    }
+
+    fn contains(self: *Check, phrase: SearchPhrase) void {
+        self.actions.append(.{
+            .tag = .contains,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
@@ -258,52 +288,118 @@ const Check = struct {
     }
 };
 
-/// Creates a new sequence of actions with `phrase` as the first anchor searched phrase.
-pub fn checkStart(self: *CheckObject, phrase: []const u8) void {
+/// Creates a new empty sequence of actions.
+pub fn checkStart(self: *CheckObject) void {
     var new_check = Check.create(self.step.owner.allocator);
-    new_check.match(.{ .string = self.step.owner.dupe(phrase) });
     self.checks.append(new_check) catch @panic("OOM");
 }
 
-/// Adds another searched phrase to the latest created Check with `CheckObject.checkStart(...)`.
-/// Asserts at least one check already exists.
-pub fn checkNext(self: *CheckObject, phrase: []const u8) void {
-    assert(self.checks.items.len > 0);
-    const last = &self.checks.items[self.checks.items.len - 1];
-    last.match(.{ .string = self.step.owner.dupe(phrase) });
+/// Adds an exact match phrase to the latest created Check with `CheckObject.checkStart()`.
+pub fn checkExact(self: *CheckObject, phrase: []const u8) void {
+    self.checkExactInner(phrase, null);
 }
 
-/// Like `checkNext()` but takes an additional argument `FileSource` which will be
+/// Like `checkExact()` but takes an additional argument `FileSource` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkNextFileSource(
-    self: *CheckObject,
-    phrase: []const u8,
-    file_source: std.Build.FileSource,
-) void {
+pub fn checkExactFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
+    self.checkExactInner(phrase, file_source);
+}
+
+fn checkExactInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.match(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
+    last.exact(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
+}
+
+/// Adds a fuzzy match phrase to the latest created Check with `CheckObject.checkStart()`.
+pub fn checkContains(self: *CheckObject, phrase: []const u8) void {
+    self.checkContainsInner(phrase, null);
+}
+
+/// Like `checkContains()` but takes an additional argument `FileSource` which will be
+/// resolved to a full search query in `make()`.
+pub fn checkContainsFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
+    self.checkContainsInner(phrase, file_source);
+}
+
+fn checkContainsInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
+    assert(self.checks.items.len > 0);
+    const last = &self.checks.items[self.checks.items.len - 1];
+    last.contains(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
+}
+
+/// Adds an exact match phrase with variable extractor to the latest created Check
+/// with `CheckObject.checkStart()`.
+pub fn checkExtract(self: *CheckObject, phrase: []const u8) void {
+    self.checkExtractInner(phrase, null);
+}
+
+/// Like `checkExtract()` but takes an additional argument `FileSource` which will be
+/// resolved to a full search query in `make()`.
+pub fn checkExtractFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
+    self.checkExtractInner(phrase, file_source);
+}
+
+fn checkExtractInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
+    assert(self.checks.items.len > 0);
+    const last = &self.checks.items[self.checks.items.len - 1];
+    last.extract(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
 }
 
 /// Adds another searched phrase to the latest created Check with `CheckObject.checkStart(...)`
 /// however ensures there is no matching phrase in the output.
-/// Asserts at least one check already exists.
 pub fn checkNotPresent(self: *CheckObject, phrase: []const u8) void {
+    self.checkNotPresentInner(phrase, null);
+}
+
+/// Like `checkExtract()` but takes an additional argument `FileSource` which will be
+/// resolved to a full search query in `make()`.
+pub fn checkNotPresentFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
+    self.checkNotPresentInner(phrase, file_source);
+}
+
+fn checkNotPresentInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.notPresent(.{ .string = self.step.owner.dupe(phrase) });
+    last.notPresent(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
 }
 
 /// Creates a new check checking specifically symbol table parsed and dumped from the object
 /// file.
-/// Issuing this check will force parsing and dumping of the symbol table.
 pub fn checkInSymtab(self: *CheckObject) void {
-    self.dump_symtab = true;
-    const symtab_label = switch (self.obj_format) {
+    const label = switch (self.obj_format) {
         .macho => MachODumper.symtab_label,
-        else => @panic("TODO other parsers"),
+        .elf => ElfDumper.symtab_label,
+        .wasm => WasmDumper.symtab_label,
+        .coff => @panic("TODO symtab for coff"),
+        else => @panic("TODO other file formats"),
     };
-    self.checkStart(symtab_label);
+    self.checkStart();
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically dynamic symbol table parsed and dumped from the object
+/// file.
+/// This check is target-dependent and applicable to ELF only.
+pub fn checkInDynamicSymtab(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .elf => ElfDumper.dynamic_symtab_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart();
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically dynamic section parsed and dumped from the object
+/// file.
+/// This check is target-dependent and applicable to ELF only.
+pub fn checkInDynamicSection(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .elf => ElfDumper.dynamic_section_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart();
+    self.checkExact(label);
 }
 
 /// Creates a new standalone, singular check which allows running simple binary operations
@@ -336,16 +432,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     ) catch |err| return step.fail("unable to read '{s}': {s}", .{ src_path, @errorName(err) });
 
     const output = switch (self.obj_format) {
-        .macho => try MachODumper.parseAndDump(step, contents, .{
-            .dump_symtab = self.dump_symtab,
-        }),
-        .elf => try ElfDumper.parseAndDump(step, contents, .{
-            .dump_symtab = self.dump_symtab,
-        }),
+        .macho => try MachODumper.parseAndDump(step, contents),
+        .elf => try ElfDumper.parseAndDump(step, contents),
         .coff => @panic("TODO coff parser"),
-        .wasm => try WasmDumper.parseAndDump(step, contents, .{
-            .dump_symtab = self.dump_symtab,
-        }),
+        .wasm => try WasmDumper.parseAndDump(step, contents),
         else => unreachable,
     };
 
@@ -355,9 +445,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         var it = mem.tokenizeAny(u8, output, "\r\n");
         for (chk.actions.items) |act| {
             switch (act.tag) {
-                .match => {
+                .exact => {
                     while (it.next()) |line| {
-                        if (try act.match(b, step, line, &vars)) break;
+                        if (act.exact(b, step, line)) break;
                     } else {
                         return step.fail(
                             \\
@@ -369,18 +459,46 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         , .{ act.phrase.resolve(b, step), output });
                     }
                 },
+                .contains => {
+                    while (it.next()) |line| {
+                        if (act.contains(b, step, line)) break;
+                    } else {
+                        return step.fail(
+                            \\
+                            \\========= expected to find: ==========================
+                            \\*{s}*
+                            \\========= but parsed file does not contain it: =======
+                            \\{s}
+                            \\======================================================
+                        , .{ act.phrase.resolve(b, step), output });
+                    }
+                },
                 .not_present => {
                     while (it.next()) |line| {
-                        if (try act.match(b, step, line, &vars)) {
-                            return step.fail(
-                                \\
-                                \\========= expected not to find: ===================
-                                \\{s}
-                                \\========= but parsed file does contain it: ========
-                                \\{s}
-                                \\===================================================
-                            , .{ act.phrase.resolve(b, step), output });
-                        }
+                        if (act.notPresent(b, step, line)) break;
+                    } else {
+                        return step.fail(
+                            \\
+                            \\========= expected not to find: ===================
+                            \\{s}
+                            \\========= but parsed file does contain it: ========
+                            \\{s}
+                            \\===================================================
+                        , .{ act.phrase.resolve(b, step), output });
+                    }
+                },
+                .extract => {
+                    while (it.next()) |line| {
+                        if (try act.extract(b, step, line, &vars)) break;
+                    } else {
+                        return step.fail(
+                            \\
+                            \\========= expected to find and extract: ==============
+                            \\{s}
+                            \\========= but parsed file does not contain it: =======
+                            \\{s}
+                            \\======================================================
+                        , .{ act.phrase.resolve(b, step), output });
                     }
                 },
                 .compute_cmp => {
@@ -410,15 +528,16 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 }
 
-const Opts = struct {
-    dump_symtab: bool = false,
-};
-
 const MachODumper = struct {
     const LoadCommandIterator = macho.LoadCommandIterator;
-    const symtab_label = "symtab";
+    const symtab_label = "symbol table";
 
-    fn parseAndDump(step: *Step, bytes: []align(@alignOf(u64)) const u8, opts: Opts) ![]const u8 {
+    const Symtab = struct {
+        symbols: []align(1) const macho.nlist_64,
+        strings: []const u8,
+    };
+
+    fn parseAndDump(step: *Step, bytes: []align(@alignOf(u64)) const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -431,8 +550,7 @@ const MachODumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        var symtab: []const macho.nlist_64 = undefined;
-        var strtab: []const u8 = undefined;
+        var symtab: ?Symtab = null;
         var sections = std.ArrayList(macho.section_64).init(gpa);
         var imports = std.ArrayList([]const u8).init(gpa);
 
@@ -450,13 +568,11 @@ const MachODumper = struct {
                         sections.appendAssumeCapacity(sect);
                     }
                 },
-                .SYMTAB => if (opts.dump_symtab) {
+                .SYMTAB => {
                     const lc = cmd.cast(macho.symtab_command).?;
-                    symtab = @as(
-                        [*]const macho.nlist_64,
-                        @ptrCast(@alignCast(&bytes[lc.symoff])),
-                    )[0..lc.nsyms];
-                    strtab = bytes[lc.stroff..][0..lc.strsize];
+                    const symbols = @as([*]align(1) const macho.nlist_64, @ptrCast(bytes.ptr + lc.symoff))[0..lc.nsyms];
+                    const strings = bytes[lc.stroff..][0..lc.strsize];
+                    symtab = .{ .symbols = symbols, .strings = strings };
                 },
                 .LOAD_DYLIB,
                 .LOAD_WEAK_DYLIB,
@@ -473,53 +589,8 @@ const MachODumper = struct {
             i += 1;
         }
 
-        if (opts.dump_symtab) {
-            try writer.print("{s}\n", .{symtab_label});
-            for (symtab) |sym| {
-                if (sym.stab()) continue;
-                const sym_name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + sym.n_strx)), 0);
-                if (sym.sect()) {
-                    const sect = sections.items[sym.n_sect - 1];
-                    try writer.print("{x} ({s},{s})", .{
-                        sym.n_value,
-                        sect.segName(),
-                        sect.sectName(),
-                    });
-                    if (sym.ext()) {
-                        try writer.writeAll(" external");
-                    }
-                    try writer.print(" {s}\n", .{sym_name});
-                } else if (sym.undf()) {
-                    const ordinal = @divTrunc(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
-                    const import_name = blk: {
-                        if (ordinal <= 0) {
-                            if (ordinal == macho.BIND_SPECIAL_DYLIB_SELF)
-                                break :blk "self import";
-                            if (ordinal == macho.BIND_SPECIAL_DYLIB_MAIN_EXECUTABLE)
-                                break :blk "main executable";
-                            if (ordinal == macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP)
-                                break :blk "flat lookup";
-                            unreachable;
-                        }
-                        const full_path = imports.items[@as(u16, @bitCast(ordinal)) - 1];
-                        const basename = fs.path.basename(full_path);
-                        assert(basename.len > 0);
-                        const ext = mem.lastIndexOfScalar(u8, basename, '.') orelse basename.len;
-                        break :blk basename[0..ext];
-                    };
-                    try writer.writeAll("(undefined)");
-                    if (sym.weakRef()) {
-                        try writer.writeAll(" weak");
-                    }
-                    if (sym.ext()) {
-                        try writer.writeAll(" external");
-                    }
-                    try writer.print(" {s} (from {s})\n", .{
-                        sym_name,
-                        import_name,
-                    });
-                } else unreachable;
-            }
+        if (symtab) |stab| {
+            try dumpSymtab(sections.items, imports.items, stab, writer);
         }
 
         return output.toOwnedSlice();
@@ -696,10 +767,67 @@ const MachODumper = struct {
             else => {},
         }
     }
+
+    fn dumpSymtab(
+        sections: []const macho.section_64,
+        imports: []const []const u8,
+        symtab: Symtab,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll(symtab_label ++ "\n");
+
+        for (symtab.symbols) |sym| {
+            if (sym.stab()) continue;
+            const sym_name = mem.sliceTo(@as([*:0]const u8, @ptrCast(symtab.strings.ptr + sym.n_strx)), 0);
+            if (sym.sect()) {
+                const sect = sections[sym.n_sect - 1];
+                try writer.print("{x} ({s},{s})", .{
+                    sym.n_value,
+                    sect.segName(),
+                    sect.sectName(),
+                });
+                if (sym.ext()) {
+                    try writer.writeAll(" external");
+                }
+                try writer.print(" {s}\n", .{sym_name});
+            } else if (sym.undf()) {
+                const ordinal = @divTrunc(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
+                const import_name = blk: {
+                    if (ordinal <= 0) {
+                        if (ordinal == macho.BIND_SPECIAL_DYLIB_SELF)
+                            break :blk "self import";
+                        if (ordinal == macho.BIND_SPECIAL_DYLIB_MAIN_EXECUTABLE)
+                            break :blk "main executable";
+                        if (ordinal == macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP)
+                            break :blk "flat lookup";
+                        unreachable;
+                    }
+                    const full_path = imports[@as(u16, @bitCast(ordinal)) - 1];
+                    const basename = fs.path.basename(full_path);
+                    assert(basename.len > 0);
+                    const ext = mem.lastIndexOfScalar(u8, basename, '.') orelse basename.len;
+                    break :blk basename[0..ext];
+                };
+                try writer.writeAll("(undefined)");
+                if (sym.weakRef()) {
+                    try writer.writeAll(" weak");
+                }
+                if (sym.ext()) {
+                    try writer.writeAll(" external");
+                }
+                try writer.print(" {s} (from {s})\n", .{
+                    sym_name,
+                    import_name,
+                });
+            } else unreachable;
+        }
+    }
 };
 
 const ElfDumper = struct {
-    const symtab_label = "symtab";
+    const symtab_label = "symbol table";
+    const dynamic_symtab_label = "dynamic symbol table";
+    const dynamic_section_label = "dynamic section";
 
     const Symtab = struct {
         symbols: []align(1) const elf.Elf64_Sym,
@@ -727,7 +855,7 @@ const ElfDumper = struct {
         dysymtab: ?Symtab = null,
     };
 
-    fn parseAndDump(step: *Step, bytes: []const u8, opts: Opts) ![]const u8 {
+    fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -750,34 +878,32 @@ const ElfDumper = struct {
         };
         ctx.shstrtab = getSectionContents(ctx, ctx.hdr.e_shstrndx);
 
-        if (opts.dump_symtab) {
-            for (ctx.shdrs, 0..) |shdr, i| switch (shdr.sh_type) {
-                elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
-                    const raw = getSectionContents(ctx, i);
-                    const nsyms = @divExact(raw.len, @sizeOf(elf.Elf64_Sym));
-                    const symbols = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw.ptr))[0..nsyms];
-                    const strings = getSectionContents(ctx, shdr.sh_link);
+        for (ctx.shdrs, 0..) |shdr, i| switch (shdr.sh_type) {
+            elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
+                const raw = getSectionContents(ctx, i);
+                const nsyms = @divExact(raw.len, @sizeOf(elf.Elf64_Sym));
+                const symbols = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw.ptr))[0..nsyms];
+                const strings = getSectionContents(ctx, shdr.sh_link);
 
-                    switch (shdr.sh_type) {
-                        elf.SHT_SYMTAB => {
-                            ctx.symtab = .{
-                                .symbols = symbols,
-                                .strings = strings,
-                            };
-                        },
-                        elf.SHT_DYNSYM => {
-                            ctx.dysymtab = .{
-                                .symbols = symbols,
-                                .strings = strings,
-                            };
-                        },
-                        else => unreachable,
-                    }
-                },
+                switch (shdr.sh_type) {
+                    elf.SHT_SYMTAB => {
+                        ctx.symtab = .{
+                            .symbols = symbols,
+                            .strings = strings,
+                        };
+                    },
+                    elf.SHT_DYNSYM => {
+                        ctx.dysymtab = .{
+                            .symbols = symbols,
+                            .strings = strings,
+                        };
+                    },
+                    else => unreachable,
+                }
+            },
 
-                else => {},
-            };
-        }
+            else => {},
+        };
 
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
@@ -785,15 +911,16 @@ const ElfDumper = struct {
         try dumpHeader(ctx, writer);
         try dumpShdrs(ctx, writer);
         try dumpPhdrs(ctx, writer);
-        try dumpDynamic(ctx, writer);
+        try dumpDynamicSection(ctx, writer);
+        try dumpSymtab(ctx, .symtab, writer);
+        try dumpSymtab(ctx, .dysymtab, writer);
 
         return output.toOwnedSlice();
     }
 
-    fn getSectionName(ctx: Context, shndx: usize) []const u8 {
+    inline fn getSectionName(ctx: Context, shndx: usize) []const u8 {
         const shdr = ctx.shdrs[shndx];
-        assert(shdr.sh_name < ctx.shstrtab.len);
-        return mem.sliceTo(@as([*:0]const u8, @ptrCast(ctx.shstrtab.ptr + shdr.sh_name)), 0);
+        return getString(ctx.shstrtab, shdr.sh_name);
     }
 
     fn getSectionContents(ctx: Context, shndx: usize) []const u8 {
@@ -835,13 +962,15 @@ const ElfDumper = struct {
         }
     }
 
-    fn dumpDynamic(ctx: Context, writer: anytype) !void {
+    fn dumpDynamicSection(ctx: Context, writer: anytype) !void {
         const shndx = getSectionByName(ctx, ".dynamic") orelse return;
         const shdr = ctx.shdrs[shndx];
         const strtab = getSectionContents(ctx, shdr.sh_link);
         const data = getSectionContents(ctx, shndx);
         const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
         const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
+
+        try writer.writeAll(ElfDumper.dynamic_section_label ++ "\n");
 
         for (entries) |entry| {
             const key = @as(u64, @bitCast(entry.d_tag));
@@ -1072,17 +1201,98 @@ const ElfDumper = struct {
             try writer.writeAll(p_type);
         }
     }
+
+    fn dumpSymtab(ctx: Context, comptime @"type": enum { symtab, dysymtab }, writer: anytype) !void {
+        const symtab = switch (@"type") {
+            .symtab => ctx.symtab,
+            .dysymtab => ctx.dysymtab,
+        } orelse return;
+
+        try writer.writeAll(switch (@"type") {
+            .symtab => symtab_label,
+            .dysymtab => dynamic_symtab_label,
+        } ++ "\n");
+
+        for (symtab.symbols, 0..) |sym, index| {
+            try writer.print("{x} {x}", .{ sym.st_value, sym.st_size });
+
+            {
+                const tt = sym.st_type();
+                if (elf.STT_LOPROC <= tt and tt < elf.STT_HIPROC) {
+                    try writer.print(" LOPROC+{d}", .{tt - elf.STT_LOPROC});
+                } else if (elf.STT_LOOS <= tt and tt < elf.STT_HIOS) {
+                    try writer.print(" LOOS+{d}", .{tt - elf.STT_LOOS});
+                } else {
+                    const sym_type = switch (tt) {
+                        elf.STT_NOTYPE => "NOTYPE",
+                        elf.STT_OBJECT => "OBJECT",
+                        elf.STT_FUNC => "FUNC",
+                        elf.STT_SECTION => "SECTION",
+                        elf.STT_FILE => "FILE",
+                        elf.STT_COMMON => "COMMON",
+                        elf.STT_TLS => "TLS",
+                        elf.STT_NUM => "NUM",
+                        else => "UNK",
+                    };
+                    try writer.print(" {s}", .{sym_type});
+                }
+            }
+
+            {
+                const bind = sym.st_bind();
+                if (elf.STB_LOPROC <= bind and bind < elf.STB_HIPROC) {
+                    try writer.print(" LOPROC+{d}", .{bind - elf.STB_LOPROC});
+                } else if (elf.STB_LOOS <= bind and bind < elf.STB_HIOS) {
+                    try writer.print(" LOOS+{d}", .{bind - elf.STB_LOOS});
+                } else {
+                    const sym_bind = switch (bind) {
+                        elf.STB_LOCAL => "LOCAL",
+                        elf.STB_GLOBAL => "GLOBAL",
+                        elf.STB_WEAK => "WEAK",
+                        elf.STB_NUM => "NUM",
+                        else => "UNKNOWN",
+                    };
+                    try writer.print(" {s}", .{sym_bind});
+                }
+            }
+
+            const sym_vis = @as(elf.STV, @enumFromInt(sym.st_other));
+            try writer.print(" {s}", .{@tagName(sym_vis)});
+
+            {
+                if (elf.SHN_LORESERVE <= sym.st_shndx and sym.st_shndx < elf.SHN_HIRESERVE) {
+                    if (elf.SHN_LOPROC <= sym.st_shndx and sym.st_shndx < elf.SHN_HIPROC) {
+                        try writer.print(" LO+{d}", .{sym.st_shndx - elf.SHN_LOPROC});
+                    } else {
+                        const sym_ndx = &switch (sym.st_shndx) {
+                            elf.SHN_ABS => "ABS",
+                            elf.SHN_COMMON => "COM",
+                            elf.SHN_LIVEPATCH => "LIV",
+                            else => "UNK",
+                        };
+                        try writer.print(" {s}", .{sym_ndx});
+                    }
+                } else if (sym.st_shndx == elf.SHN_UNDEF) {
+                    try writer.writeAll(" UND");
+                } else {
+                    try writer.print(" {d}", .{sym.st_shndx});
+                }
+            }
+
+            const sym_name = switch (sym.st_type()) {
+                elf.STT_SECTION => getSectionName(ctx, sym.st_shndx),
+                else => symtab.getName(index).?,
+            };
+            try writer.print(" {s}\n", .{sym_name});
+        }
+    }
 };
 
 const WasmDumper = struct {
     const symtab_label = "symbols";
 
-    fn parseAndDump(step: *Step, bytes: []const u8, opts: Opts) ![]const u8 {
+    fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        if (opts.dump_symtab) {
-            @panic("TODO: Implement symbol table parsing and dumping");
-        }
-
         var fbs = std.io.fixedBufferStream(bytes);
         const reader = fbs.reader();
 
