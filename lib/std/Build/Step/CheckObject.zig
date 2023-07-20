@@ -1238,49 +1238,6 @@ const ElfDumper = struct {
             try writer.print("{x} {x}", .{ sym.st_value, sym.st_size });
 
             {
-                const tt = sym.st_type();
-                if (elf.STT_LOPROC <= tt and tt < elf.STT_HIPROC) {
-                    try writer.print(" LOPROC+{d}", .{tt - elf.STT_LOPROC});
-                } else if (elf.STT_LOOS <= tt and tt < elf.STT_HIOS) {
-                    try writer.print(" LOOS+{d}", .{tt - elf.STT_LOOS});
-                } else {
-                    const sym_type = switch (tt) {
-                        elf.STT_NOTYPE => "NOTYPE",
-                        elf.STT_OBJECT => "OBJECT",
-                        elf.STT_FUNC => "FUNC",
-                        elf.STT_SECTION => "SECTION",
-                        elf.STT_FILE => "FILE",
-                        elf.STT_COMMON => "COMMON",
-                        elf.STT_TLS => "TLS",
-                        elf.STT_NUM => "NUM",
-                        else => "UNK",
-                    };
-                    try writer.print(" {s}", .{sym_type});
-                }
-            }
-
-            {
-                const bind = sym.st_bind();
-                if (elf.STB_LOPROC <= bind and bind < elf.STB_HIPROC) {
-                    try writer.print(" LOPROC+{d}", .{bind - elf.STB_LOPROC});
-                } else if (elf.STB_LOOS <= bind and bind < elf.STB_HIOS) {
-                    try writer.print(" LOOS+{d}", .{bind - elf.STB_LOOS});
-                } else {
-                    const sym_bind = switch (bind) {
-                        elf.STB_LOCAL => "LOCAL",
-                        elf.STB_GLOBAL => "GLOBAL",
-                        elf.STB_WEAK => "WEAK",
-                        elf.STB_NUM => "NUM",
-                        else => "UNKNOWN",
-                    };
-                    try writer.print(" {s}", .{sym_bind});
-                }
-            }
-
-            const sym_vis = @as(elf.STV, @enumFromInt(sym.st_other));
-            try writer.print(" {s}", .{@tagName(sym_vis)});
-
-            {
                 if (elf.SHN_LORESERVE <= sym.st_shndx and sym.st_shndx < elf.SHN_HIRESERVE) {
                     if (elf.SHN_LOPROC <= sym.st_shndx and sym.st_shndx < elf.SHN_HIPROC) {
                         try writer.print(" LO+{d}", .{sym.st_shndx - elf.SHN_LOPROC});
@@ -1299,6 +1256,46 @@ const ElfDumper = struct {
                     try writer.print(" {d}", .{sym.st_shndx});
                 }
             }
+
+            blk: {
+                const tt = sym.st_type();
+                const sym_type = switch (tt) {
+                    elf.STT_NOTYPE => "NOTYPE",
+                    elf.STT_OBJECT => "OBJECT",
+                    elf.STT_FUNC => "FUNC",
+                    elf.STT_SECTION => "SECTION",
+                    elf.STT_FILE => "FILE",
+                    elf.STT_COMMON => "COMMON",
+                    elf.STT_TLS => "TLS",
+                    elf.STT_NUM => "NUM",
+                    elf.STT_GNU_IFUNC => "IFUNC",
+                    else => if (elf.STT_LOPROC <= tt and tt < elf.STT_HIPROC) {
+                        break :blk try writer.print(" LOPROC+{d}", .{tt - elf.STT_LOPROC});
+                    } else if (elf.STT_LOOS <= tt and tt < elf.STT_HIOS) {
+                        break :blk try writer.print(" LOOS+{d}", .{tt - elf.STT_LOOS});
+                    } else "UNK",
+                };
+                try writer.print(" {s}", .{sym_type});
+            }
+
+            blk: {
+                const bind = sym.st_bind();
+                const sym_bind = switch (bind) {
+                    elf.STB_LOCAL => "LOCAL",
+                    elf.STB_GLOBAL => "GLOBAL",
+                    elf.STB_WEAK => "WEAK",
+                    elf.STB_NUM => "NUM",
+                    else => if (elf.STB_LOPROC <= bind and bind < elf.STB_HIPROC) {
+                        break :blk try writer.print(" LOPROC+{d}", .{bind - elf.STB_LOPROC});
+                    } else if (elf.STB_LOOS <= bind and bind < elf.STB_HIOS) {
+                        break :blk try writer.print(" LOOS+{d}", .{bind - elf.STB_LOOS});
+                    } else "UNKNOWN",
+                };
+                try writer.print(" {s}", .{sym_bind});
+            }
+
+            const sym_vis = @as(elf.STV, @enumFromInt(sym.st_other));
+            try writer.print(" {s}", .{@tagName(sym_vis)});
 
             const sym_name = switch (sym.st_type()) {
                 elf.STT_SECTION => getSectionName(ctx, sym.st_shndx),
