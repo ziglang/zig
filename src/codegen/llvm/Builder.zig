@@ -311,8 +311,8 @@ pub const Type = enum(u32) {
             .function,
             .vararg_function,
             => {
-                const extra = builder.typeExtraDataTrail(Type.Function, item.data);
-                return @ptrCast(builder.type_extra.items[extra.end..][0..extra.data.params_len]);
+                var extra = builder.typeExtraDataTrail(Type.Function, item.data);
+                return extra.trail.next(extra.data.params_len, Type, builder);
             },
             else => unreachable,
         }
@@ -519,8 +519,8 @@ pub const Type = enum(u32) {
             .structure,
             .packed_structure,
             => {
-                const extra = builder.typeExtraDataTrail(Type.Structure, item.data);
-                return @ptrCast(builder.type_extra.items[extra.end..][0..extra.data.fields_len]);
+                var extra = builder.typeExtraDataTrail(Type.Structure, item.data);
+                return extra.trail.next(extra.data.fields_len, Type, builder);
             },
             .named_structure => return builder.typeExtraData(Type.NamedStructure, item.data).body
                 .structFields(builder),
@@ -539,9 +539,8 @@ pub const Type = enum(u32) {
             .structure,
             .packed_structure,
             => {
-                const extra = builder.typeExtraDataTrail(Type.Structure, item.data);
-                const fields: []const Type =
-                    @ptrCast(builder.type_extra.items[extra.end..][0..extra.data.fields_len]);
+                var extra = builder.typeExtraDataTrail(Type.Structure, item.data);
+                const fields = extra.trail.next(extra.data.fields_len, Type, builder);
                 return fields[indices[0]].childTypeAt(indices[1..], builder);
             },
             .named_structure => builder.typeExtraData(Type.NamedStructure, item.data).body
@@ -590,9 +589,8 @@ pub const Type = enum(u32) {
                     .metadata => "Metadata",
                 }),
                 .function, .vararg_function => |kind| {
-                    const extra = data.builder.typeExtraDataTrail(Type.Function, item.data);
-                    const params: []const Type =
-                        @ptrCast(data.builder.type_extra.items[extra.end..][0..extra.data.params_len]);
+                    var extra = data.builder.typeExtraDataTrail(Type.Function, item.data);
+                    const params = extra.trail.next(extra.data.params_len, Type, data.builder);
                     try writer.print("f_{m}", .{extra.data.ret.fmt(data.builder)});
                     for (params) |param| try writer.print("{m}", .{param.fmt(data.builder)});
                     switch (kind) {
@@ -605,11 +603,9 @@ pub const Type = enum(u32) {
                 .integer => try writer.print("i{d}", .{item.data}),
                 .pointer => try writer.print("p{d}", .{item.data}),
                 .target => {
-                    const extra = data.builder.typeExtraDataTrail(Type.Target, item.data);
-                    const types: []const Type =
-                        @ptrCast(data.builder.type_extra.items[extra.end..][0..extra.data.types_len]);
-                    const ints: []const u32 = @ptrCast(data.builder.type_extra.items[extra.end +
-                        extra.data.types_len ..][0..extra.data.ints_len]);
+                    var extra = data.builder.typeExtraDataTrail(Type.Target, item.data);
+                    const types = extra.trail.next(extra.data.types_len, Type, data.builder);
+                    const ints = extra.trail.next(extra.data.ints_len, u32, data.builder);
                     try writer.print("t{s}", .{extra.data.name.toSlice(data.builder).?});
                     for (types) |ty| try writer.print("_{m}", .{ty.fmt(data.builder)});
                     for (ints) |int| try writer.print("_{d}", .{int});
@@ -636,9 +632,8 @@ pub const Type = enum(u32) {
                     try writer.print("a{d}{m}", .{ extra.length(), extra.child.fmt(data.builder) });
                 },
                 .structure, .packed_structure => {
-                    const extra = data.builder.typeExtraDataTrail(Type.Structure, item.data);
-                    const fields: []const Type =
-                        @ptrCast(data.builder.type_extra.items[extra.end..][0..extra.data.fields_len]);
+                    var extra = data.builder.typeExtraDataTrail(Type.Structure, item.data);
+                    const fields = extra.trail.next(extra.data.fields_len, Type, data.builder);
                     try writer.writeAll("sl_");
                     for (fields) |field| try writer.print("{m}", .{field.fmt(data.builder)});
                     try writer.writeByte('s');
@@ -656,9 +651,8 @@ pub const Type = enum(u32) {
         switch (item.tag) {
             .simple => unreachable,
             .function, .vararg_function => |kind| {
-                const extra = data.builder.typeExtraDataTrail(Type.Function, item.data);
-                const params: []const Type =
-                    @ptrCast(data.builder.type_extra.items[extra.end..][0..extra.data.params_len]);
+                var extra = data.builder.typeExtraDataTrail(Type.Function, item.data);
+                const params = extra.trail.next(extra.data.params_len, Type, data.builder);
                 if (!comptime std.mem.eql(u8, fmt_str, ">"))
                     try writer.print("{%} ", .{extra.data.ret.fmt(data.builder)});
                 if (!comptime std.mem.eql(u8, fmt_str, "<")) {
@@ -681,11 +675,9 @@ pub const Type = enum(u32) {
             .integer => try writer.print("i{d}", .{item.data}),
             .pointer => try writer.print("ptr{}", .{@as(AddrSpace, @enumFromInt(item.data))}),
             .target => {
-                const extra = data.builder.typeExtraDataTrail(Type.Target, item.data);
-                const types: []const Type =
-                    @ptrCast(data.builder.type_extra.items[extra.end..][0..extra.data.types_len]);
-                const ints: []const u32 = @ptrCast(data.builder.type_extra.items[extra.end +
-                    extra.data.types_len ..][0..extra.data.ints_len]);
+                var extra = data.builder.typeExtraDataTrail(Type.Target, item.data);
+                const types = extra.trail.next(extra.data.types_len, Type, data.builder);
+                const ints = extra.trail.next(extra.data.ints_len, u32, data.builder);
                 try writer.print(
                     \\target({"}
                 , .{extra.data.name.fmt(data.builder)});
@@ -714,9 +706,8 @@ pub const Type = enum(u32) {
                 try writer.print("[{d} x {%}]", .{ extra.length(), extra.child.fmt(data.builder) });
             },
             .structure, .packed_structure => |kind| {
-                const extra = data.builder.typeExtraDataTrail(Type.Structure, item.data);
-                const fields: []const Type =
-                    @ptrCast(data.builder.type_extra.items[extra.end..][0..extra.data.fields_len]);
+                var extra = data.builder.typeExtraDataTrail(Type.Structure, item.data);
+                const fields = extra.trail.next(extra.data.fields_len, Type, data.builder);
                 switch (kind) {
                     .structure => {},
                     .packed_structure => try writer.writeByte('<'),
@@ -812,10 +803,8 @@ pub const Type = enum(u32) {
                     => {
                         if (try visited.fetchPut(builder.gpa, self, {})) |_| return false;
 
-                        const extra = builder.typeExtraDataTrail(Type.Structure, item.data);
-                        const fields: []const Type = @ptrCast(
-                            builder.type_extra.items[extra.end..][0..extra.data.fields_len],
-                        );
+                        var extra = builder.typeExtraDataTrail(Type.Structure, item.data);
+                        const fields = extra.trail.next(extra.data.fields_len, Type, builder);
                         for (fields) |field| {
                             if (field.isVector(builder) and field.vectorKind(builder) == .scalable)
                                 return false;
@@ -1639,9 +1628,8 @@ pub const Function = struct {
                     .extractelement => wip.extraData(ExtractElement, instruction.data)
                         .val.typeOfWip(wip).childType(wip.builder),
                     .extractvalue => {
-                        const extra = wip.extraDataTrail(ExtractValue, instruction.data);
-                        const indices: []const u32 =
-                            wip.extra.items[extra.end..][0..extra.data.indices_len];
+                        var extra = wip.extraDataTrail(ExtractValue, instruction.data);
+                        const indices = extra.trail.next(extra.data.indices_len, u32, wip);
                         return extra.data.val.typeOfWip(wip).childTypeAt(indices, wip.builder);
                     },
                     .@"fcmp false",
@@ -1694,9 +1682,8 @@ pub const Function = struct {
                     .getelementptr,
                     .@"getelementptr inbounds",
                     => {
-                        const extra = wip.extraDataTrail(GetElementPtr, instruction.data);
-                        const indices: []const Value =
-                            @ptrCast(wip.extra.items[extra.end..][0..extra.data.indices_len]);
+                        var extra = wip.extraDataTrail(GetElementPtr, instruction.data);
+                        const indices = extra.trail.next(extra.data.indices_len, Value, wip);
                         const base_ty = extra.data.base.typeOfWip(wip);
                         if (!base_ty.isVector(wip.builder)) for (indices) |index| {
                             const index_ty = index.typeOfWip(wip);
@@ -1829,9 +1816,8 @@ pub const Function = struct {
                     .extractelement => function.extraData(ExtractElement, instruction.data)
                         .val.typeOf(function_index, builder).childType(builder),
                     .extractvalue => {
-                        const extra = function.extraDataTrail(ExtractValue, instruction.data);
-                        const indices: []const u32 =
-                            function.extra[extra.end..][0..extra.data.indices_len];
+                        var extra = function.extraDataTrail(ExtractValue, instruction.data);
+                        const indices = extra.trail.next(extra.data.indices_len, u32, function);
                         return extra.data.val.typeOf(function_index, builder)
                             .childTypeAt(indices, builder);
                     },
@@ -1885,9 +1871,8 @@ pub const Function = struct {
                     .getelementptr,
                     .@"getelementptr inbounds",
                     => {
-                        const extra = function.extraDataTrail(GetElementPtr, instruction.data);
-                        const indices: []const Value =
-                            @ptrCast(function.extra[extra.end..][0..extra.data.indices_len]);
+                        var extra = function.extraDataTrail(GetElementPtr, instruction.data);
+                        const indices = extra.trail.next(extra.data.indices_len, Value, function);
                         const base_ty = extra.data.base.typeOf(function_index, builder);
                         if (!base_ty.isVector(builder)) for (indices) |index| {
                             const index_ty = index.typeOf(function_index, builder);
@@ -1908,10 +1893,9 @@ pub const Function = struct {
                     .phi,
                     .@"phi fast",
                     => {
-                        const extra = function.extraDataTrail(Phi, instruction.data);
-                        const incoming_vals: []const Value =
-                            @ptrCast(function.extra[extra.end..][0..extra.data.incoming_len]);
-                        return incoming_vals[0].typeOf(function_index, builder);
+                        var extra = function.extraDataTrail(Phi, instruction.data);
+                        const vals = extra.trail.next(extra.data.incoming_len, Value, function);
+                        return vals[0].typeOf(function_index, builder);
                     },
                     .select,
                     .@"select fast",
@@ -2112,11 +2096,32 @@ pub const Function = struct {
         return argument_index.toValue();
     }
 
+    const ExtraDataTrail = struct {
+        index: Instruction.ExtraIndex,
+
+        fn nextMut(self: *ExtraDataTrail, len: u32, comptime Item: type, function: *Function) []Item {
+            const items: []Item = @ptrCast(function.extra[self.index..][0..len]);
+            self.index += @intCast(len);
+            return items;
+        }
+
+        fn next(
+            self: *ExtraDataTrail,
+            len: u32,
+            comptime Item: type,
+            function: *const Function,
+        ) []const Item {
+            const items: []const Item = @ptrCast(function.extra[self.index..][0..len]);
+            self.index += @intCast(len);
+            return items;
+        }
+    };
+
     fn extraDataTrail(
         self: *const Function,
         comptime T: type,
         index: Instruction.ExtraIndex,
-    ) struct { data: T, end: Instruction.ExtraIndex } {
+    ) struct { data: T, trail: ExtraDataTrail } {
         var result: T = undefined;
         const fields = @typeInfo(T).Struct.fields;
         inline for (fields, self.extra[index..][0..fields.len]) |field, value|
@@ -2126,7 +2131,10 @@ pub const Function = struct {
                 MemoryAccessInfo, Instruction.Alloca.Info => @bitCast(value),
                 else => @compileError("bad field type: " ++ @typeName(field.type)),
             };
-        return .{ .data = result, .end = index + @as(Type.Item.ExtraIndex, @intCast(fields.len)) };
+        return .{
+            .data = result,
+            .trail = .{ .index = index + @as(Type.Item.ExtraIndex, @intCast(fields.len)) },
+        };
     }
 
     fn extraData(self: *const Function, comptime T: type, index: Instruction.ExtraIndex) T {
@@ -2315,14 +2323,10 @@ pub const WipFunction = struct {
             wip: *WipFunction,
         ) Allocator.Error!void {
             const instruction = wip.instructions.get(@intFromEnum(self.instruction));
-            const extra = wip.extraDataTrail(Instruction.Switch, instruction.data);
-            const case_vals: []Constant =
-                @ptrCast(wip.extra.items[extra.end..][0..extra.data.cases_len]);
-            const case_dests: []Block.Index =
-                @ptrCast(wip.extra.items[extra.end + extra.data.cases_len ..][0..extra.data.cases_len]);
+            var extra = wip.extraDataTrail(Instruction.Switch, instruction.data);
             assert(val.typeOf(wip.builder) == extra.data.val.typeOfWip(wip));
-            case_vals[self.index] = val;
-            case_dests[self.index] = dest;
+            extra.trail.nextMut(extra.data.cases_len, Constant, wip)[self.index] = val;
+            extra.trail.nextMut(extra.data.cases_len, Block.Index, wip)[self.index] = dest;
             self.index += 1;
             dest.ptr(wip).branches += 1;
             if (wip.builder.useLibLlvm())
@@ -3113,13 +3117,10 @@ pub const WipFunction = struct {
             const incoming_len = self.block.ptrConst(wip).incoming;
             assert(vals.len == incoming_len and blocks.len == incoming_len);
             const instruction = wip.instructions.get(@intFromEnum(self.instruction));
-            const extra = wip.extraDataTrail(Instruction.WipPhi, instruction.data);
+            var extra = wip.extraDataTrail(Instruction.WipPhi, instruction.data);
             for (vals) |val| assert(val.typeOfWip(wip) == extra.data.type);
-            const incoming_vals: []Value = @ptrCast(wip.extra.items[extra.end..][0..incoming_len]);
-            const incoming_blocks: []Block.Index =
-                @ptrCast(wip.extra.items[extra.end + incoming_len ..][0..incoming_len]);
-            @memcpy(incoming_vals, vals);
-            @memcpy(incoming_blocks, blocks);
+            @memcpy(extra.trail.nextMut(incoming_len, Value, wip), vals);
+            @memcpy(extra.trail.nextMut(incoming_len, Block.Index, wip), blocks);
             if (wip.builder.useLibLlvm()) {
                 const ExpectedContents = extern struct {
                     [expected_incoming_len]*llvm.Value,
@@ -3504,9 +3505,8 @@ pub const WipFunction = struct {
                         });
                     },
                     .extractvalue => {
-                        const extra = self.extraDataTrail(Instruction.ExtractValue, instruction.data);
-                        const indices: []const u32 =
-                            self.extra.items[extra.end..][0..extra.data.indices_len];
+                        var extra = self.extraDataTrail(Instruction.ExtractValue, instruction.data);
+                        const indices = extra.trail.next(extra.data.indices_len, u32, self);
                         instruction.data = wip_extra.addExtra(Instruction.ExtractValue{
                             .val = instructions.map(extra.data.val),
                             .indices_len = extra.data.indices_len,
@@ -3520,9 +3520,8 @@ pub const WipFunction = struct {
                     .getelementptr,
                     .@"getelementptr inbounds",
                     => {
-                        const extra = self.extraDataTrail(Instruction.GetElementPtr, instruction.data);
-                        const indices: []const Value =
-                            @ptrCast(self.extra.items[extra.end..][0..extra.data.indices_len]);
+                        var extra = self.extraDataTrail(Instruction.GetElementPtr, instruction.data);
+                        const indices = extra.trail.next(extra.data.indices_len, Value, self);
                         instruction.data = wip_extra.addExtra(Instruction.GetElementPtr{
                             .type = extra.data.type,
                             .base = instructions.map(extra.data.base),
@@ -3539,9 +3538,8 @@ pub const WipFunction = struct {
                         });
                     },
                     .insertvalue => {
-                        const extra = self.extraDataTrail(Instruction.InsertValue, instruction.data);
-                        const indices: []const u32 =
-                            self.extra.items[extra.end..][0..extra.data.indices_len];
+                        var extra = self.extraDataTrail(Instruction.InsertValue, instruction.data);
+                        const indices = extra.trail.next(extra.data.indices_len, u32, self);
                         instruction.data = wip_extra.addExtra(Instruction.InsertValue{
                             .val = instructions.map(extra.data.val),
                             .elem = instructions.map(extra.data.elem),
@@ -3564,12 +3562,10 @@ pub const WipFunction = struct {
                     .phi,
                     .@"phi fast",
                     => {
-                        const extra = self.extraDataTrail(Instruction.WipPhi, instruction.data);
                         const incoming_len = current_block.incoming;
-                        const incoming_vals: []const Value =
-                            @ptrCast(self.extra.items[extra.end..][0..incoming_len]);
-                        const incoming_blocks: []const Block.Index =
-                            @ptrCast(self.extra.items[extra.end + incoming_len ..][0..incoming_len]);
+                        var extra = self.extraDataTrail(Instruction.WipPhi, instruction.data);
+                        const incoming_vals = extra.trail.next(incoming_len, Value, self);
+                        const incoming_blocks = extra.trail.next(incoming_len, Block.Index, self);
                         instruction.data = wip_extra.addExtra(Instruction.Phi{
                             .incoming_len = incoming_len,
                         });
@@ -3607,11 +3603,9 @@ pub const WipFunction = struct {
                         });
                     },
                     .@"switch" => {
-                        const extra = self.extraDataTrail(Instruction.Switch, instruction.data);
-                        const case_vals: []const Constant =
-                            @ptrCast(self.extra.items[extra.end..][0..extra.data.cases_len]);
-                        const case_blocks: []const Block.Index = @ptrCast(self.extra
-                            .items[extra.end + extra.data.cases_len ..][0..extra.data.cases_len]);
+                        var extra = self.extraDataTrail(Instruction.Switch, instruction.data);
+                        const case_vals = extra.trail.next(extra.data.cases_len, Constant, self);
+                        const case_blocks = extra.trail.next(extra.data.cases_len, Block.Index, self);
                         instruction.data = wip_extra.addExtra(Instruction.Switch{
                             .val = instructions.map(extra.data.val),
                             .default = extra.data.default,
@@ -3956,11 +3950,32 @@ pub const WipFunction = struct {
         return result;
     }
 
+    const ExtraDataTrail = struct {
+        index: Instruction.ExtraIndex,
+
+        fn nextMut(self: *ExtraDataTrail, len: u32, comptime Item: type, wip: *WipFunction) []Item {
+            const items: []Item = @ptrCast(wip.extra.items[self.index..][0..len]);
+            self.index += @intCast(len);
+            return items;
+        }
+
+        fn next(
+            self: *ExtraDataTrail,
+            len: u32,
+            comptime Item: type,
+            wip: *const WipFunction,
+        ) []const Item {
+            const items: []const Item = @ptrCast(wip.extra.items[self.index..][0..len]);
+            self.index += @intCast(len);
+            return items;
+        }
+    };
+
     fn extraDataTrail(
         self: *const WipFunction,
         comptime T: type,
         index: Instruction.ExtraIndex,
-    ) struct { data: T, end: Instruction.ExtraIndex } {
+    ) struct { data: T, trail: ExtraDataTrail } {
         var result: T = undefined;
         const fields = @typeInfo(T).Struct.fields;
         inline for (fields, self.extra.items[index..][0..fields.len]) |field, value|
@@ -3970,7 +3985,10 @@ pub const WipFunction = struct {
                 MemoryAccessInfo, Instruction.Alloca.Info => @bitCast(value),
                 else => @compileError("bad field type: " ++ @typeName(field.type)),
             };
-        return .{ .data = result, .end = index + @as(Type.Item.ExtraIndex, @intCast(fields.len)) };
+        return .{
+            .data = result,
+            .trail = .{ .index = index + @as(Type.Item.ExtraIndex, @intCast(fields.len)) },
+        };
     }
 
     fn extraData(self: *const WipFunction, comptime T: type, index: Instruction.ExtraIndex) T {
@@ -4315,9 +4333,9 @@ pub const Constant = enum(u32) {
                     .getelementptr,
                     .@"getelementptr inbounds",
                     => {
-                        const extra = builder.constantExtraDataTrail(GetElementPtr, item.data);
-                        const indices: []const Constant = @ptrCast(builder.constant_extra
-                            .items[extra.end..][0..extra.data.info.indices_len]);
+                        var extra = builder.constantExtraDataTrail(GetElementPtr, item.data);
+                        const indices =
+                            extra.trail.next(extra.data.info.indices_len, Constant, builder);
                         const base_ty = extra.data.base.typeOf(builder);
                         if (!base_ty.isVector(builder)) for (indices) |index| {
                             const index_ty = index.typeOf(builder);
@@ -4392,10 +4410,9 @@ pub const Constant = enum(u32) {
                         return extra.lo_lo == 0 and extra.lo_hi == 0 and extra.hi == 0;
                     },
                     .vector => {
-                        const extra = builder.constantExtraDataTrail(Aggregate, item.data);
-                        const len = extra.data.type.aggregateLen(builder);
-                        const vals: []const Constant =
-                            @ptrCast(builder.constant_extra.items[extra.end..][0..len]);
+                        var extra = builder.constantExtraDataTrail(Aggregate, item.data);
+                        const len: u32 = @intCast(extra.data.type.aggregateLen(builder));
+                        const vals = extra.trail.next(len, Constant, builder);
                         for (vals) |val| if (!val.isZeroInit(builder)) return false;
                         return true;
                     },
@@ -4549,10 +4566,9 @@ pub const Constant = enum(u32) {
                     .array,
                     .vector,
                     => |tag| {
-                        const extra = data.builder.constantExtraDataTrail(Aggregate, item.data);
-                        const len = extra.data.type.aggregateLen(data.builder);
-                        const vals: []const Constant =
-                            @ptrCast(data.builder.constant_extra.items[extra.end..][0..len]);
+                        var extra = data.builder.constantExtraDataTrail(Aggregate, item.data);
+                        const len: u32 = @intCast(extra.data.type.aggregateLen(data.builder));
+                        const vals = extra.trail.next(len, Constant, data.builder);
                         try writer.writeAll(switch (tag) {
                             .structure => "{ ",
                             .packed_structure => "<{ ",
@@ -4631,9 +4647,9 @@ pub const Constant = enum(u32) {
                     .getelementptr,
                     .@"getelementptr inbounds",
                     => |tag| {
-                        const extra = data.builder.constantExtraDataTrail(GetElementPtr, item.data);
-                        const indices: []const Constant = @ptrCast(data.builder.constant_extra
-                            .items[extra.end..][0..extra.data.info.indices_len]);
+                        var extra = data.builder.constantExtraDataTrail(GetElementPtr, item.data);
+                        const indices =
+                            extra.trail.next(extra.data.info.indices_len, Constant, data.builder);
                         try writer.print("{s} ({%}, {%}", .{
                             @tagName(tag),
                             extra.data.type.fmt(data.builder),
@@ -5243,9 +5259,8 @@ pub fn namedTypeSetBody(
         @intFromEnum(body_type);
     if (self.useLibLlvm()) {
         const body_item = self.type_items.items[@intFromEnum(body_type)];
-        const body_extra = self.typeExtraDataTrail(Type.Structure, body_item.data);
-        const body_fields: []const Type =
-            @ptrCast(self.type_extra.items[body_extra.end..][0..body_extra.data.fields_len]);
+        var body_extra = self.typeExtraDataTrail(Type.Structure, body_item.data);
+        const body_fields = body_extra.trail.next(body_extra.data.fields_len, Type, self);
         const llvm_fields = try self.gpa.alloc(*llvm.Type, body_fields.len);
         defer self.gpa.free(llvm_fields);
         for (llvm_fields, body_fields) |*llvm_field, body_field| llvm_field.* = body_field.toLlvm(self);
@@ -5947,10 +5962,9 @@ pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator
                         });
                     },
                     .extractvalue => |tag| {
-                        const extra =
+                        var extra =
                             function.extraDataTrail(Function.Instruction.ExtractValue, instruction.data);
-                        const indices: []const u32 =
-                            function.extra[extra.end..][0..extra.data.indices_len];
+                        const indices = extra.trail.next(extra.data.indices_len, u32, &function);
                         try writer.print("  %{} = {s} {%}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
@@ -5976,12 +5990,11 @@ pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator
                     .getelementptr,
                     .@"getelementptr inbounds",
                     => |tag| {
-                        const extra = function.extraDataTrail(
+                        var extra = function.extraDataTrail(
                             Function.Instruction.GetElementPtr,
                             instruction.data,
                         );
-                        const indices: []const Value =
-                            @ptrCast(function.extra[extra.end..][0..extra.data.indices_len]);
+                        const indices = extra.trail.next(extra.data.indices_len, Value, &function);
                         try writer.print("  %{} = {s} {%}, {%}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
@@ -6005,10 +6018,9 @@ pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator
                         });
                     },
                     .insertvalue => |tag| {
-                        const extra =
+                        var extra =
                             function.extraDataTrail(Function.Instruction.InsertValue, instruction.data);
-                        const indices: []const u32 =
-                            function.extra[extra.end..][0..extra.data.indices_len];
+                        const indices = extra.trail.next(extra.data.indices_len, u32, &function);
                         try writer.print("  %{} = {s} {%}, {%}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
@@ -6063,12 +6075,10 @@ pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator
                     .phi,
                     .@"phi fast",
                     => |tag| {
-                        const extra =
-                            function.extraDataTrail(Function.Instruction.Phi, instruction.data);
-                        const vals: []const Value =
-                            @ptrCast(function.extra[extra.end..][0..extra.data.incoming_len]);
-                        const blocks: []const Function.Block.Index = @ptrCast(function.extra[extra.end +
-                            extra.data.incoming_len ..][0..extra.data.incoming_len]);
+                        var extra = function.extraDataTrail(Function.Instruction.Phi, instruction.data);
+                        const vals = extra.trail.next(extra.data.incoming_len, Value, &function);
+                        const blocks =
+                            extra.trail.next(extra.data.incoming_len, Function.Block.Index, &function);
                         try writer.print("  %{} = {s} {%} ", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
@@ -6125,12 +6135,11 @@ pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator
                         });
                     },
                     .@"switch" => |tag| {
-                        const extra =
+                        var extra =
                             function.extraDataTrail(Function.Instruction.Switch, instruction.data);
-                        const vals: []const Constant =
-                            @ptrCast(function.extra[extra.end..][0..extra.data.cases_len]);
-                        const blocks: []const Function.Block.Index = @ptrCast(function.extra[extra.end +
-                            extra.data.cases_len ..][0..extra.data.cases_len]);
+                        const vals = extra.trail.next(extra.data.cases_len, Constant, &function);
+                        const blocks =
+                            extra.trail.next(extra.data.cases_len, Function.Block.Index, &function);
                         try writer.print("  {s} {%}, {%} [", .{
                             @tagName(tag),
                             extra.data.val.fmt(function_index, self),
@@ -6216,9 +6225,8 @@ fn fnTypeAssumeCapacity(
         }
         pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
             const rhs_data = ctx.builder.type_items.items[rhs_index];
-            const rhs_extra = ctx.builder.typeExtraDataTrail(Type.Function, rhs_data.data);
-            const rhs_params: []const Type =
-                @ptrCast(ctx.builder.type_extra.items[rhs_extra.end..][0..rhs_extra.data.params_len]);
+            var rhs_extra = ctx.builder.typeExtraDataTrail(Type.Function, rhs_data.data);
+            const rhs_params = rhs_extra.trail.next(rhs_extra.data.params_len, Type, ctx.builder);
             return rhs_data.tag == tag and lhs_key.ret == rhs_extra.data.ret and
                 std.mem.eql(Type, lhs_key.params, rhs_params);
         }
@@ -6400,9 +6408,8 @@ fn structTypeAssumeCapacity(
         }
         pub fn eql(ctx: @This(), lhs_key: []const Type, _: void, rhs_index: usize) bool {
             const rhs_data = ctx.builder.type_items.items[rhs_index];
-            const rhs_extra = ctx.builder.typeExtraDataTrail(Type.Structure, rhs_data.data);
-            const rhs_fields: []const Type =
-                @ptrCast(ctx.builder.type_extra.items[rhs_extra.end..][0..rhs_extra.data.fields_len]);
+            var rhs_extra = ctx.builder.typeExtraDataTrail(Type.Structure, rhs_data.data);
+            const rhs_fields = rhs_extra.trail.next(rhs_extra.data.fields_len, Type, ctx.builder);
             return rhs_data.tag == tag and std.mem.eql(Type, lhs_key, rhs_fields);
         }
     };
@@ -6542,11 +6549,32 @@ fn addTypeExtraAssumeCapacity(self: *Builder, extra: anytype) Type.Item.ExtraInd
     return result;
 }
 
+const TypeExtraDataTrail = struct {
+    index: Type.Item.ExtraIndex,
+
+    fn nextMut(self: *TypeExtraDataTrail, len: u32, comptime Item: type, builder: *Builder) []Item {
+        const items: []Item = @ptrCast(builder.type_extra.items[self.index..][0..len]);
+        self.index += @intCast(len);
+        return items;
+    }
+
+    fn next(
+        self: *TypeExtraDataTrail,
+        len: u32,
+        comptime Item: type,
+        builder: *const Builder,
+    ) []const Item {
+        const items: []const Item = @ptrCast(builder.type_extra.items[self.index..][0..len]);
+        self.index += @intCast(len);
+        return items;
+    }
+};
+
 fn typeExtraDataTrail(
     self: *const Builder,
     comptime T: type,
     index: Type.Item.ExtraIndex,
-) struct { data: T, end: Type.Item.ExtraIndex } {
+) struct { data: T, trail: TypeExtraDataTrail } {
     var result: T = undefined;
     const fields = @typeInfo(T).Struct.fields;
     inline for (fields, self.type_extra.items[index..][0..fields.len]) |field, value|
@@ -6555,7 +6583,10 @@ fn typeExtraDataTrail(
             String, Type => @enumFromInt(value),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
-    return .{ .data = result, .end = index + @as(Type.Item.ExtraIndex, @intCast(fields.len)) };
+    return .{
+        .data = result,
+        .trail = .{ .index = index + @as(Type.Item.ExtraIndex, @intCast(fields.len)) },
+    };
 }
 
 fn typeExtraData(self: *const Builder, comptime T: type, index: Type.Item.ExtraIndex) T {
@@ -6914,7 +6945,7 @@ fn structConstAssumeCapacity(
     vals: []const Constant,
 ) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
     const type_item = self.type_items.items[@intFromEnum(ty)];
-    const extra = self.typeExtraDataTrail(Type.Structure, switch (type_item.tag) {
+    var extra = self.typeExtraDataTrail(Type.Structure, switch (type_item.tag) {
         .structure, .packed_structure => type_item.data,
         .named_structure => data: {
             const body_ty = self.typeExtraData(Type.NamedStructure, type_item.data).body;
@@ -6926,8 +6957,7 @@ fn structConstAssumeCapacity(
         },
         else => unreachable,
     });
-    const fields: []const Type =
-        @ptrCast(self.type_extra.items[extra.end..][0..extra.data.fields_len]);
+    const fields = extra.trail.next(extra.data.fields_len, Type, self);
     for (fields, vals) |field, val| assert(field == val.typeOf(self));
 
     for (vals) |val| {
@@ -7405,9 +7435,9 @@ fn gepConstAssumeCapacity(
         pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
             if (ctx.builder.constant_items.items(.tag)[rhs_index] != tag) return false;
             const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraDataTrail(Constant.GetElementPtr, rhs_data);
-            const rhs_indices: []const Constant = @ptrCast(ctx.builder.constant_extra
-                .items[rhs_extra.end..][0..rhs_extra.data.info.indices_len]);
+            var rhs_extra = ctx.builder.constantExtraDataTrail(Constant.GetElementPtr, rhs_data);
+            const rhs_indices =
+                rhs_extra.trail.next(rhs_extra.data.info.indices_len, Constant, ctx.builder);
             return lhs_key.type == rhs_extra.data.type and lhs_key.base == rhs_extra.data.base and
                 lhs_key.inrange == rhs_extra.data.info.inrange and
                 std.mem.eql(Constant, lhs_key.indices, rhs_indices);
@@ -7767,10 +7797,9 @@ fn getOrPutConstantAggregateAssumeCapacity(
         pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
             if (lhs_key.tag != ctx.builder.constant_items.items(.tag)[rhs_index]) return false;
             const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraDataTrail(Constant.Aggregate, rhs_data);
+            var rhs_extra = ctx.builder.constantExtraDataTrail(Constant.Aggregate, rhs_data);
             if (lhs_key.type != rhs_extra.data.type) return false;
-            const rhs_vals: []const Constant =
-                @ptrCast(ctx.builder.constant_extra.items[rhs_extra.end..][0..lhs_key.vals.len]);
+            const rhs_vals = rhs_extra.trail.next(@intCast(lhs_key.vals.len), Constant, ctx.builder);
             return std.mem.eql(Constant, lhs_key.vals, rhs_vals);
         }
     };
@@ -7804,11 +7833,32 @@ fn addConstantExtraAssumeCapacity(self: *Builder, extra: anytype) Constant.Item.
     return result;
 }
 
+const ConstantExtraDataTrail = struct {
+    index: Constant.Item.ExtraIndex,
+
+    fn nextMut(self: *ConstantExtraDataTrail, len: u32, comptime Item: type, builder: *Builder) []Item {
+        const items: []Item = @ptrCast(builder.constant_extra.items[self.index..][0..len]);
+        self.index += @intCast(len);
+        return items;
+    }
+
+    fn next(
+        self: *ConstantExtraDataTrail,
+        len: u32,
+        comptime Item: type,
+        builder: *const Builder,
+    ) []const Item {
+        const items: []const Item = @ptrCast(builder.constant_extra.items[self.index..][0..len]);
+        self.index += @intCast(len);
+        return items;
+    }
+};
+
 fn constantExtraDataTrail(
     self: *const Builder,
     comptime T: type,
     index: Constant.Item.ExtraIndex,
-) struct { data: T, end: Constant.Item.ExtraIndex } {
+) struct { data: T, trail: ConstantExtraDataTrail } {
     var result: T = undefined;
     const fields = @typeInfo(T).Struct.fields;
     inline for (fields, self.constant_extra.items[index..][0..fields.len]) |field, value|
@@ -7818,7 +7868,10 @@ fn constantExtraDataTrail(
             Constant.GetElementPtr.Info => @bitCast(value),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
-    return .{ .data = result, .end = index + @as(Constant.Item.ExtraIndex, @intCast(fields.len)) };
+    return .{
+        .data = result,
+        .trail = .{ .index = index + @as(Constant.Item.ExtraIndex, @intCast(fields.len)) },
+    };
 }
 
 fn constantExtraData(self: *const Builder, comptime T: type, index: Constant.Item.ExtraIndex) T {
