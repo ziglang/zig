@@ -80,7 +80,7 @@ const Action = struct {
         const hay = mem.trim(u8, haystack, " ");
         const phrase = mem.trim(u8, act.phrase.resolve(b, step), " ");
 
-        var candidate_var: ?struct { name: []const u8, value: u64 } = null;
+        var candidate_vars = std.ArrayList(struct { name: []const u8, value: u64 }).init(b.allocator);
         var hay_it = mem.tokenizeScalar(u8, hay, ' ');
         var needle_it = mem.tokenizeScalar(u8, phrase, ' ');
 
@@ -92,18 +92,21 @@ const Action = struct {
 
                 const name = needle_tok[1..closing_brace];
                 if (name.len == 0) return error.MissingBraceValue;
-                const value = try std.fmt.parseInt(u64, hay_tok, 16);
-                candidate_var = .{
+                const value = std.fmt.parseInt(u64, hay_tok, 16) catch return false;
+                try candidate_vars.append(.{
                     .name = name,
                     .value = value,
-                };
+                });
             } else {
                 if (!mem.eql(u8, hay_tok, needle_tok)) return false;
             }
         }
 
-        if (candidate_var) |v| try global_vars.putNoClobber(v.name, v.value);
-        return candidate_var != null;
+        if (candidate_vars.items.len == 0) return false;
+
+        for (candidate_vars.items) |cv| try global_vars.putNoClobber(cv.name, cv.value);
+
+        return true;
     }
 
     /// Returns true if the `phrase` is an exact match with the haystack.
@@ -1253,7 +1256,7 @@ const ElfDumper = struct {
                 } else if (sym.st_shndx == elf.SHN_UNDEF) {
                     try writer.writeAll(" UND");
                 } else {
-                    try writer.print(" {d}", .{sym.st_shndx});
+                    try writer.print(" {x}", .{sym.st_shndx});
                 }
             }
 
