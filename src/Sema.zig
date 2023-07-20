@@ -3899,7 +3899,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             try mod.declareDeclDependency(sema.owner_decl_index, decl_index);
 
             const decl = mod.declPtr(decl_index);
-            if (iac.is_const) try decl.intern(mod);
+            if (iac.is_const) _ = try decl.internValue(mod);
             const final_elem_ty = decl.ty;
             const final_ptr_ty = try mod.ptrType(.{
                 .child = final_elem_ty.toIntern(),
@@ -33577,7 +33577,7 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
         try wip_captures.finalize();
         for (comptime_mutable_decls.items) |ct_decl_index| {
             const ct_decl = mod.declPtr(ct_decl_index);
-            try ct_decl.intern(mod);
+            _ = try ct_decl.internValue(mod);
         }
     } else {
         if (fields_bit_sum > std.math.maxInt(u16)) {
@@ -34645,7 +34645,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
     try wip_captures.finalize();
     for (comptime_mutable_decls.items) |ct_decl_index| {
         const ct_decl = mod.declPtr(ct_decl_index);
-        try ct_decl.intern(mod);
+        _ = try ct_decl.internValue(mod);
     }
 
     struct_obj.have_field_inits = true;
@@ -34744,7 +34744,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     try wip_captures.finalize();
     for (comptime_mutable_decls.items) |ct_decl_index| {
         const ct_decl = mod.declPtr(ct_decl_index);
-        try ct_decl.intern(mod);
+        _ = try ct_decl.internValue(mod);
     }
 
     try union_obj.fields.ensureTotalCapacity(mod.tmp_hack_arena.allocator(), fields_len);

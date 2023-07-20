@@ -40,20 +40,41 @@ pub const Context = opaque {
     pub const halfType = LLVMHalfTypeInContext;
     extern fn LLVMHalfTypeInContext(C: *Context) *Type;
 
+    pub const bfloatType = LLVMBFloatTypeInContext;
+    extern fn LLVMBFloatTypeInContext(C: *Context) *Type;
+
     pub const floatType = LLVMFloatTypeInContext;
     extern fn LLVMFloatTypeInContext(C: *Context) *Type;
 
     pub const doubleType = LLVMDoubleTypeInContext;
     extern fn LLVMDoubleTypeInContext(C: *Context) *Type;
 
-    pub const x86FP80Type = LLVMX86FP80TypeInContext;
-    extern fn LLVMX86FP80TypeInContext(C: *Context) *Type;
-
     pub const fp128Type = LLVMFP128TypeInContext;
     extern fn LLVMFP128TypeInContext(C: *Context) *Type;
 
+    pub const x86_fp80Type = LLVMX86FP80TypeInContext;
+    extern fn LLVMX86FP80TypeInContext(C: *Context) *Type;
+
+    pub const ppc_fp128Type = LLVMPPCFP128TypeInContext;
+    extern fn LLVMPPCFP128TypeInContext(C: *Context) *Type;
+
+    pub const x86_amxType = LLVMX86AMXTypeInContext;
+    extern fn LLVMX86AMXTypeInContext(C: *Context) *Type;
+
+    pub const x86_mmxType = LLVMX86MMXTypeInContext;
+    extern fn LLVMX86MMXTypeInContext(C: *Context) *Type;
+
     pub const voidType = LLVMVoidTypeInContext;
     extern fn LLVMVoidTypeInContext(C: *Context) *Type;
+
+    pub const labelType = LLVMLabelTypeInContext;
+    extern fn LLVMLabelTypeInContext(C: *Context) *Type;
+
+    pub const tokenType = LLVMTokenTypeInContext;
+    extern fn LLVMTokenTypeInContext(C: *Context) *Type;
+
+    pub const metadataType = LLVMMetadataTypeInContext;
+    extern fn LLVMMetadataTypeInContext(C: *Context) *Type;
 
     pub const structType = LLVMStructTypeInContext;
     extern fn LLVMStructTypeInContext(
@@ -114,9 +135,6 @@ pub const Value = opaque {
     pub const getNextInstruction = LLVMGetNextInstruction;
     extern fn LLVMGetNextInstruction(Inst: *Value) ?*Value;
 
-    pub const typeOf = LLVMTypeOf;
-    extern fn LLVMTypeOf(Val: *Value) *Type;
-
     pub const setGlobalConstant = LLVMSetGlobalConstant;
     extern fn LLVMSetGlobalConstant(GlobalVar: *Value, IsConstant: Bool) void;
 
@@ -147,26 +165,17 @@ pub const Value = opaque {
     pub const setAliasee = LLVMAliasSetAliasee;
     extern fn LLVMAliasSetAliasee(Alias: *Value, Aliasee: *Value) void;
 
-    pub const constBitCast = LLVMConstBitCast;
-    extern fn LLVMConstBitCast(ConstantVal: *Value, ToType: *Type) *Value;
-
-    pub const constIntToPtr = LLVMConstIntToPtr;
-    extern fn LLVMConstIntToPtr(ConstantVal: *Value, ToType: *Type) *Value;
-
-    pub const constPtrToInt = LLVMConstPtrToInt;
-    extern fn LLVMConstPtrToInt(ConstantVal: *Value, ToType: *Type) *Value;
-
-    pub const constShl = LLVMConstShl;
-    extern fn LLVMConstShl(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
-    pub const constOr = LLVMConstOr;
-    extern fn LLVMConstOr(LHSConstant: *Value, RHSConstant: *Value) *Value;
-
-    pub const constZExt = LLVMConstZExt;
-    extern fn LLVMConstZExt(ConstantVal: *Value, ToType: *Type) *Value;
-
     pub const constZExtOrBitCast = LLVMConstZExtOrBitCast;
     extern fn LLVMConstZExtOrBitCast(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constNeg = LLVMConstNeg;
+    extern fn LLVMConstNeg(ConstantVal: *Value) *Value;
+
+    pub const constNSWNeg = LLVMConstNSWNeg;
+    extern fn LLVMConstNSWNeg(ConstantVal: *Value) *Value;
+
+    pub const constNUWNeg = LLVMConstNUWNeg;
+    extern fn LLVMConstNUWNeg(ConstantVal: *Value) *Value;
 
     pub const constNot = LLVMConstNot;
     extern fn LLVMConstNot(ConstantVal: *Value) *Value;
@@ -174,8 +183,116 @@ pub const Value = opaque {
     pub const constAdd = LLVMConstAdd;
     extern fn LLVMConstAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
 
+    pub const constNSWAdd = LLVMConstNSWAdd;
+    extern fn LLVMConstNSWAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNUWAdd = LLVMConstNUWAdd;
+    extern fn LLVMConstNUWAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constSub = LLVMConstSub;
+    extern fn LLVMConstSub(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNSWSub = LLVMConstNSWSub;
+    extern fn LLVMConstNSWSub(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNUWSub = LLVMConstNUWSub;
+    extern fn LLVMConstNUWSub(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constMul = LLVMConstMul;
+    extern fn LLVMConstMul(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNSWMul = LLVMConstNSWMul;
+    extern fn LLVMConstNSWMul(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNUWMul = LLVMConstNUWMul;
+    extern fn LLVMConstNUWMul(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constAnd = LLVMConstAnd;
+    extern fn LLVMConstAnd(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constOr = LLVMConstOr;
+    extern fn LLVMConstOr(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constXor = LLVMConstXor;
+    extern fn LLVMConstXor(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constShl = LLVMConstShl;
+    extern fn LLVMConstShl(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constLShr = LLVMConstLShr;
+    extern fn LLVMConstLShr(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constAShr = LLVMConstAShr;
+    extern fn LLVMConstAShr(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constTrunc = LLVMConstTrunc;
+    extern fn LLVMConstTrunc(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constSExt = LLVMConstSExt;
+    extern fn LLVMConstSExt(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constZExt = LLVMConstZExt;
+    extern fn LLVMConstZExt(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constFPTrunc = LLVMConstFPTrunc;
+    extern fn LLVMConstFPTrunc(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constFPExt = LLVMConstFPExt;
+    extern fn LLVMConstFPExt(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constUIToFP = LLVMConstUIToFP;
+    extern fn LLVMConstUIToFP(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constSIToFP = LLVMConstSIToFP;
+    extern fn LLVMConstSIToFP(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constFPToUI = LLVMConstFPToUI;
+    extern fn LLVMConstFPToUI(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constFPToSI = LLVMConstFPToSI;
+    extern fn LLVMConstFPToSI(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constPtrToInt = LLVMConstPtrToInt;
+    extern fn LLVMConstPtrToInt(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constIntToPtr = LLVMConstIntToPtr;
+    extern fn LLVMConstIntToPtr(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constBitCast = LLVMConstBitCast;
+    extern fn LLVMConstBitCast(ConstantVal: *Value, ToType: *Type) *Value;
+
     pub const constAddrSpaceCast = LLVMConstAddrSpaceCast;
     extern fn LLVMConstAddrSpaceCast(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constSelect = LLVMConstSelect;
+    extern fn LLVMConstSelect(
+        ConstantCondition: *Value,
+        ConstantIfTrue: *Value,
+        ConstantIfFalse: *Value,
+    ) *Value;
+
+    pub const constExtractElement = LLVMConstExtractElement;
+    extern fn LLVMConstExtractElement(VectorConstant: *Value, IndexConstant: *Value) *Value;
+
+    pub const constInsertElement = LLVMConstInsertElement;
+    extern fn LLVMConstInsertElement(
+        VectorConstant: *Value,
+        ElementValueConstant: *Value,
+        IndexConstant: *Value,
+    ) *Value;
+
+    pub const constShuffleVector = LLVMConstShuffleVector;
+    extern fn LLVMConstShuffleVector(
+        VectorAConstant: *Value,
+        VectorBConstant: *Value,
+        MaskConstant: *Value,
+    ) *Value;
+
+    pub const isConstant = LLVMIsConstant;
+    extern fn LLVMIsConstant(Val: *Value) Bool;
+
+    pub const blockAddress = LLVMBlockAddress;
+    extern fn LLVMBlockAddress(F: *Value, BB: *BasicBlock) *Value;
 
     pub const setWeak = LLVMSetWeak;
     extern fn LLVMSetWeak(CmpXchgInst: *Value, IsWeak: Bool) void;
@@ -185,6 +302,9 @@ pub const Value = opaque {
 
     pub const setVolatile = LLVMSetVolatile;
     extern fn LLVMSetVolatile(MemoryAccessInst: *Value, IsVolatile: Bool) void;
+
+    pub const setAtomicSingleThread = LLVMSetAtomicSingleThread;
+    extern fn LLVMSetAtomicSingleThread(AtomicInst: *Value, SingleThread: Bool) void;
 
     pub const setAlignment = LLVMSetAlignment;
     extern fn LLVMSetAlignment(V: *Value, Bytes: c_uint) void;
@@ -231,16 +351,8 @@ pub const Value = opaque {
     pub const addCase = LLVMAddCase;
     extern fn LLVMAddCase(Switch: *Value, OnVal: *Value, Dest: *BasicBlock) void;
 
-    pub inline fn isPoison(Val: *Value) bool {
-        return LLVMIsPoison(Val).toBool();
-    }
-    extern fn LLVMIsPoison(Val: *Value) Bool;
-
     pub const replaceAllUsesWith = LLVMReplaceAllUsesWith;
     extern fn LLVMReplaceAllUsesWith(OldVal: *Value, NewVal: *Value) void;
-
-    pub const globalGetValueType = LLVMGlobalGetValueType;
-    extern fn LLVMGlobalGetValueType(Global: *Value) *Type;
 
     pub const getLinkage = LLVMGetLinkage;
     extern fn LLVMGetLinkage(Global: *Value) Linkage;
@@ -259,6 +371,9 @@ pub const Value = opaque {
 
     pub const attachMetaData = ZigLLVMAttachMetaData;
     extern fn ZigLLVMAttachMetaData(GlobalVar: *Value, DIG: *DIGlobalVariableExpression) void;
+
+    pub const dump = LLVMDumpValue;
+    extern fn LLVMDumpValue(Val: *Value) void;
 };
 
 pub const Type = opaque {
@@ -290,11 +405,17 @@ pub const Type = opaque {
     pub const getUndef = LLVMGetUndef;
     extern fn LLVMGetUndef(Ty: *Type) *Value;
 
+    pub const getPoison = LLVMGetPoison;
+    extern fn LLVMGetPoison(Ty: *Type) *Value;
+
     pub const arrayType = LLVMArrayType;
     extern fn LLVMArrayType(ElementType: *Type, ElementCount: c_uint) *Type;
 
     pub const vectorType = LLVMVectorType;
     extern fn LLVMVectorType(ElementType: *Type, ElementCount: c_uint) *Type;
+
+    pub const scalableVectorType = LLVMScalableVectorType;
+    extern fn LLVMScalableVectorType(ElementType: *Type, ElementCount: c_uint) *Type;
 
     pub const structSetBody = LLVMStructSetBody;
     extern fn LLVMStructSetBody(
@@ -304,23 +425,13 @@ pub const Type = opaque {
         Packed: Bool,
     ) void;
 
-    pub const structGetTypeAtIndex = LLVMStructGetTypeAtIndex;
-    extern fn LLVMStructGetTypeAtIndex(StructTy: *Type, i: c_uint) *Type;
-
-    pub const getTypeKind = LLVMGetTypeKind;
-    extern fn LLVMGetTypeKind(Ty: *Type) TypeKind;
-
-    pub const getElementType = LLVMGetElementType;
-    extern fn LLVMGetElementType(Ty: *Type) *Type;
-
-    pub const countStructElementTypes = LLVMCountStructElementTypes;
-    extern fn LLVMCountStructElementTypes(StructTy: *Type) c_uint;
-
-    pub const isOpaqueStruct = LLVMIsOpaqueStruct;
-    extern fn LLVMIsOpaqueStruct(StructTy: *Type) Bool;
-
-    pub const isSized = LLVMTypeIsSized;
-    extern fn LLVMTypeIsSized(Ty: *Type) Bool;
+    pub const constGEP = LLVMConstGEP2;
+    extern fn LLVMConstGEP2(
+        Ty: *Type,
+        ConstantVal: *Value,
+        ConstantIndices: [*]const *Value,
+        NumIndices: c_uint,
+    ) *Value;
 
     pub const constInBoundsGEP = LLVMConstInBoundsGEP2;
     extern fn LLVMConstInBoundsGEP2(
@@ -329,6 +440,9 @@ pub const Type = opaque {
         ConstantIndices: [*]const *Value,
         NumIndices: c_uint,
     ) *Value;
+
+    pub const dump = LLVMDumpType;
+    extern fn LLVMDumpType(Ty: *Type) void;
 };
 
 pub const Module = opaque {
@@ -439,14 +553,17 @@ pub const VerifierFailureAction = enum(c_int) {
     ReturnStatus,
 };
 
-pub const constNeg = LLVMConstNeg;
-extern fn LLVMConstNeg(ConstantVal: *Value) *Value;
-
 pub const constVector = LLVMConstVector;
 extern fn LLVMConstVector(
     ScalarConstantVals: [*]*Value,
     Size: c_uint,
 ) *Value;
+
+pub const constICmp = LLVMConstICmp;
+extern fn LLVMConstICmp(Predicate: IntPredicate, LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+pub const constFCmp = LLVMConstFCmp;
+extern fn LLVMConstFCmp(Predicate: RealPredicate, LHSConstant: *Value, RHSConstant: *Value) *Value;
 
 pub const getEnumAttributeKindForName = LLVMGetEnumAttributeKindForName;
 extern fn LLVMGetEnumAttributeKindForName(Name: [*]const u8, SLen: usize) c_uint;
@@ -484,7 +601,7 @@ pub const Builder = opaque {
     extern fn LLVMPositionBuilder(
         Builder: *Builder,
         Block: *BasicBlock,
-        Instr: *Value,
+        Instr: ?*Value,
     ) void;
 
     pub const positionBuilderAtEnd = LLVMPositionBuilderAtEnd;
@@ -678,6 +795,16 @@ pub const Builder = opaque {
     pub const buildBitCast = LLVMBuildBitCast;
     extern fn LLVMBuildBitCast(*Builder, Val: *Value, DestTy: *Type, Name: [*:0]const u8) *Value;
 
+    pub const buildGEP = LLVMBuildGEP2;
+    extern fn LLVMBuildGEP2(
+        B: *Builder,
+        Ty: *Type,
+        Pointer: *Value,
+        Indices: [*]const *Value,
+        NumIndices: c_uint,
+        Name: [*:0]const u8,
+    ) *Value;
+
     pub const buildInBoundsGEP = LLVMBuildInBoundsGEP2;
     extern fn LLVMBuildInBoundsGEP2(
         B: *Builder,
@@ -731,14 +858,6 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *Value;
 
-    pub const buildVectorSplat = LLVMBuildVectorSplat;
-    extern fn LLVMBuildVectorSplat(
-        *Builder,
-        ElementCount: c_uint,
-        EltVal: *Value,
-        Name: [*:0]const u8,
-    ) *Value;
-
     pub const buildPtrToInt = LLVMBuildPtrToInt;
     extern fn LLVMBuildPtrToInt(
         *Builder,
@@ -752,15 +871,6 @@ pub const Builder = opaque {
         *Builder,
         Val: *Value,
         DestTy: *Type,
-        Name: [*:0]const u8,
-    ) *Value;
-
-    pub const buildStructGEP = LLVMBuildStructGEP2;
-    extern fn LLVMBuildStructGEP2(
-        B: *Builder,
-        Ty: *Type,
-        Pointer: *Value,
-        Idx: c_uint,
         Name: [*:0]const u8,
     ) *Value;
 
@@ -1019,9 +1129,6 @@ pub const RealPredicate = enum(c_uint) {
 pub const BasicBlock = opaque {
     pub const deleteBasicBlock = LLVMDeleteBasicBlock;
     extern fn LLVMDeleteBasicBlock(BB: *BasicBlock) void;
-
-    pub const getFirstInstruction = LLVMGetFirstInstruction;
-    extern fn LLVMGetFirstInstruction(BB: *BasicBlock) ?*Value;
 };
 
 pub const TargetMachine = opaque {
@@ -1071,6 +1178,9 @@ pub const TargetData = opaque {
 
     pub const abiSizeOfType = LLVMABISizeOfType;
     extern fn LLVMABISizeOfType(TD: *TargetData, Ty: *Type) c_ulonglong;
+
+    pub const stringRep = LLVMCopyStringRepOfTargetData;
+    extern fn LLVMCopyStringRepOfTargetData(TD: *TargetData) [*:0]const u8;
 };
 
 pub const CodeModel = enum(c_int) {
@@ -1440,29 +1550,6 @@ pub const AtomicRMWBinOp = enum(c_int) {
     FMin,
 };
 
-pub const TypeKind = enum(c_int) {
-    Void,
-    Half,
-    Float,
-    Double,
-    X86_FP80,
-    FP128,
-    PPC_FP128,
-    Label,
-    Integer,
-    Function,
-    Struct,
-    Array,
-    Pointer,
-    Vector,
-    Metadata,
-    X86_MMX,
-    Token,
-    ScalableVector,
-    BFloat,
-    X86_AMX,
-};
-
 pub const CallConv = enum(c_uint) {
     C = 0,
     Fast = 8,
@@ -1587,6 +1674,13 @@ pub const address_space = struct {
         pub const constant_buffer_13: c_uint = 21;
         pub const constant_buffer_14: c_uint = 22;
         pub const constant_buffer_15: c_uint = 23;
+    };
+
+    // See llvm/lib/Target/WebAssembly/Utils/WebAssemblyTypetilities.h
+    pub const wasm = struct {
+        pub const variable: c_uint = 1;
+        pub const externref: c_uint = 10;
+        pub const funcref: c_uint = 20;
     };
 };
 

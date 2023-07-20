@@ -538,6 +538,7 @@ pub const InitOptions = struct {
     want_lto: ?bool = null,
     want_unwind_tables: ?bool = null,
     use_llvm: ?bool = null,
+    use_lib_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
     single_threaded: ?bool = null,
@@ -753,7 +754,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const root_name = try arena.dupeZ(u8, options.root_name);
 
         // Make a decision on whether to use LLVM or our own backend.
-        const use_llvm = build_options.have_llvm and blk: {
+        const use_lib_llvm = options.use_lib_llvm orelse build_options.have_llvm;
+        const use_llvm = blk: {
             if (options.use_llvm) |explicit|
                 break :blk explicit;
 
@@ -1161,6 +1163,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             hash.add(valgrind);
             hash.add(single_threaded);
             hash.add(use_llvm);
+            hash.add(use_lib_llvm);
             hash.add(dll_export_fns);
             hash.add(options.is_test);
             hash.add(options.test_evented_io);
@@ -1444,6 +1447,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .optimize_mode = options.optimize_mode,
             .use_lld = use_lld,
             .use_llvm = use_llvm,
+            .use_lib_llvm = use_lib_llvm,
             .link_libc = link_libc,
             .link_libcpp = link_libcpp,
             .link_libunwind = link_libunwind,

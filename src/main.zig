@@ -439,6 +439,8 @@ const usage_build_generic =
     \\  -fno-unwind-tables        Never produce unwind table entries
     \\  -fLLVM                    Force using LLVM as the codegen backend
     \\  -fno-LLVM                 Prevent using LLVM as the codegen backend
+    \\  -flibLLVM                 Force using the LLVM API in the codegen backend
+    \\  -fno-libLLVM              Prevent using the LLVM API in the codegen backend
     \\  -fClang                   Force using Clang as the C/C++ compilation backend
     \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
     \\  -freference-trace[=num]   How many lines of reference trace should be shown per compile error
@@ -821,6 +823,7 @@ fn buildOutputType(
     var stack_size_override: ?u64 = null;
     var image_base_override: ?u64 = null;
     var use_llvm: ?bool = null;
+    var use_lib_llvm: ?bool = null;
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
     var link_eh_frame_hdr = false;
@@ -1261,6 +1264,10 @@ fn buildOutputType(
                         use_llvm = true;
                     } else if (mem.eql(u8, arg, "-fno-LLVM")) {
                         use_llvm = false;
+                    } else if (mem.eql(u8, arg, "-flibLLVM")) {
+                        use_lib_llvm = true;
+                    } else if (mem.eql(u8, arg, "-fno-libLLVM")) {
+                        use_lib_llvm = false;
                     } else if (mem.eql(u8, arg, "-fLLD")) {
                         use_lld = true;
                     } else if (mem.eql(u8, arg, "-fno-LLD")) {
@@ -3119,6 +3126,7 @@ fn buildOutputType(
         .want_tsan = want_tsan,
         .want_compiler_rt = want_compiler_rt,
         .use_llvm = use_llvm,
+        .use_lib_llvm = use_lib_llvm,
         .use_lld = use_lld,
         .use_clang = use_clang,
         .hash_style = hash_style,

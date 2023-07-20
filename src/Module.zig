@@ -835,10 +835,6 @@ pub const Decl = struct {
         assert(decl.has_tv);
         return @as(u32, @intCast(decl.alignment.toByteUnitsOptional() orelse decl.ty.abiAlignment(mod)));
     }
-
-    pub fn intern(decl: *Decl, mod: *Module) Allocator.Error!void {
-        decl.val = (try decl.val.intern(decl.ty, mod)).toValue();
-    }
 };
 
 /// This state is attached to every Decl when Module emit_h is non-null.
@@ -4204,7 +4200,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
             try wip_captures.finalize();
             for (comptime_mutable_decls.items) |decl_index| {
                 const decl = mod.declPtr(decl_index);
-                try decl.intern(mod);
+                _ = try decl.internValue(mod);
             }
             new_decl.analysis = .complete;
         } else |err| switch (err) {
@@ -4315,7 +4311,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     try wip_captures.finalize();
     for (comptime_mutable_decls.items) |ct_decl_index| {
         const ct_decl = mod.declPtr(ct_decl_index);
-        try ct_decl.intern(mod);
+        _ = try ct_decl.internValue(mod);
     }
     const align_src: LazySrcLoc = .{ .node_offset_var_decl_align = 0 };
     const section_src: LazySrcLoc = .{ .node_offset_var_decl_section = 0 };
@@ -5362,7 +5358,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     try wip_captures.finalize();
     for (comptime_mutable_decls.items) |ct_decl_index| {
         const ct_decl = mod.declPtr(ct_decl_index);
-        try ct_decl.intern(mod);
+        _ = try ct_decl.internValue(mod);
     }
 
     // Copy the block into place and mark that as the main block.
@@ -6369,7 +6365,7 @@ pub fn markDeclAlive(mod: *Module, decl: *Decl) Allocator.Error!void {
     if (decl.alive) return;
     decl.alive = true;
 
-    try decl.intern(mod);
+    _ = try decl.internValue(mod);
 
     // This is the first time we are marking this Decl alive. We must
     // therefore recurse into its value and mark any Decl it references

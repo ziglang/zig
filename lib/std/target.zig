@@ -1357,8 +1357,6 @@ pub const Target = struct {
         }
     };
 
-    pub const stack_align = 16;
-
     pub fn zigTriple(self: Target, allocator: mem.Allocator) ![]u8 {
         return std.zig.CrossTarget.fromTarget(self).zigTriple(allocator);
     }
@@ -1833,7 +1831,7 @@ pub const Target = struct {
         };
     }
 
-    pub fn ptrBitWidth(target: std.Target) u16 {
+    pub fn ptrBitWidth(target: Target) u16 {
         switch (target.abi) {
             .gnux32, .muslx32, .gnuabin32, .gnuilp32 => return 32,
             .gnuabi64 => return 64,
@@ -1908,6 +1906,43 @@ pub const Target = struct {
 
             .sparc => return if (std.Target.sparc.featureSetHas(target.cpu.features, .v9)) 64 else 32,
         }
+    }
+
+    pub fn stackAlignment(target: Target) u16 {
+        return switch (target.cpu.arch) {
+            .amdgcn => 4,
+            .x86 => switch (target.os.tag) {
+                .windows => 4,
+                else => 16,
+            },
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            .mips,
+            .mipsel,
+            .sparc,
+            .sparcel,
+            => 8,
+            .aarch64,
+            .aarch64_be,
+            .aarch64_32,
+            .bpfeb,
+            .bpfel,
+            .mips64,
+            .mips64el,
+            .powerpc64,
+            .powerpc64le,
+            .riscv32,
+            .riscv64,
+            .sparc64,
+            .x86_64,
+            .ve,
+            .wasm32,
+            .wasm64,
+            => 16,
+            else => @divExact(target.ptrBitWidth(), 8),
+        };
     }
 
     /// Default signedness of `char` for the native C compiler for this target
@@ -2428,7 +2463,7 @@ pub const Target = struct {
                 else => {},
             },
             .avr => switch (c_type) {
-                .int, .uint, .long, .ulong, .float, .longdouble => return 1,
+                .char, .int, .uint, .long, .ulong, .float, .longdouble => return 1,
                 .short, .ushort => return 2,
                 .double => return 4,
                 .longlong, .ulonglong => return 8,
