@@ -1701,7 +1701,7 @@ pub const Function = struct {
                     => wip.extraData(Load, instruction.data).type,
                     .phi,
                     .@"phi fast",
-                    => wip.extraData(WipPhi, instruction.data).type,
+                    => wip.extraData(Phi, instruction.data).type,
                     .select,
                     .@"select fast",
                     => wip.extraData(Select, instruction.data).lhs.typeOfWip(wip),
@@ -1892,11 +1892,7 @@ pub const Function = struct {
                     => function.extraData(Load, instruction.data).type,
                     .phi,
                     .@"phi fast",
-                    => {
-                        var extra = function.extraDataTrail(Phi, instruction.data);
-                        const vals = extra.trail.next(extra.data.incoming_len, Value, function);
-                        return vals[0].typeOf(function_index, builder);
-                    },
+                    => function.extraData(Phi, instruction.data).type,
                     .select,
                     .@"select fast",
                     => function.extraData(Select, instruction.data).lhs.typeOf(function_index, builder),
@@ -2055,16 +2051,10 @@ pub const Function = struct {
             pub const Signedness = Constant.Cast.Signedness;
         };
 
-        pub const WipPhi = struct {
+        pub const Phi = struct {
             type: Type,
             //incoming_vals: [block.incoming]Value,
             //incoming_blocks: [block.incoming]Block.Index,
-        };
-
-        pub const Phi = struct {
-            incoming_len: u32,
-            //incoming_vals: [incoming_len]Value,
-            //incoming_blocks: [incoming_len]Block.Index,
         };
 
         pub const Select = struct {
@@ -3117,7 +3107,7 @@ pub const WipFunction = struct {
             const incoming_len = self.block.ptrConst(wip).incoming;
             assert(vals.len == incoming_len and blocks.len == incoming_len);
             const instruction = wip.instructions.get(@intFromEnum(self.instruction));
-            var extra = wip.extraDataTrail(Instruction.WipPhi, instruction.data);
+            var extra = wip.extraDataTrail(Instruction.Phi, instruction.data);
             for (vals) |val| assert(val.typeOfWip(wip) == extra.data.type);
             @memcpy(extra.trail.nextMut(incoming_len, Value, wip), vals);
             @memcpy(extra.trail.nextMut(incoming_len, Block.Index, wip), blocks);
@@ -3563,11 +3553,11 @@ pub const WipFunction = struct {
                     .@"phi fast",
                     => {
                         const incoming_len = current_block.incoming;
-                        var extra = self.extraDataTrail(Instruction.WipPhi, instruction.data);
+                        var extra = self.extraDataTrail(Instruction.Phi, instruction.data);
                         const incoming_vals = extra.trail.next(incoming_len, Value, self);
                         const incoming_blocks = extra.trail.next(incoming_len, Block.Index, self);
                         instruction.data = wip_extra.addExtra(Instruction.Phi{
-                            .incoming_len = incoming_len,
+                            .type = extra.data.type,
                         });
                         wip_extra.appendValues(incoming_vals, instructions);
                         wip_extra.appendSlice(incoming_blocks);
@@ -3831,10 +3821,10 @@ pub const WipFunction = struct {
         }
         const incoming = self.cursor.block.ptrConst(self).incoming;
         assert(incoming > 0);
-        try self.ensureUnusedExtraCapacity(1, Instruction.WipPhi, incoming * 2);
+        try self.ensureUnusedExtraCapacity(1, Instruction.Phi, incoming * 2);
         const instruction = try self.addInst(name, .{
             .tag = tag,
-            .data = self.addExtraAssumeCapacity(Instruction.WipPhi{ .type = ty }),
+            .data = self.addExtraAssumeCapacity(Instruction.Phi{ .type = ty }),
         });
         _ = self.extra.addManyAsSliceAssumeCapacity(incoming * 2);
         if (self.builder.useLibLlvm()) {
@@ -5729,7 +5719,51 @@ pub fn binValue(self: *Builder, tag: Constant.Tag, lhs: Constant, rhs: Constant)
     return (try self.binConst(tag, lhs, rhs)).toValue();
 }
 
-pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator.Error)!void {
+pub fn dump(self: *Builder) void {
+    if (self.useLibLlvm())
+        self.llvm.module.?.dump()
+    else
+        self.print(std.io.getStdErr().writer()) catch {};
+}
+
+pub fn printToFile(self: *Builder, path: []const u8) Allocator.Error!bool {
+    const path_z = try self.gpa.dupeZ(u8, path);
+    defer self.gpa.free(path_z);
+    return self.printToFileZ(path_z);
+}
+
+pub fn printToFileZ(self: *Builder, path: [*:0]const u8) bool {
+    if (self.useLibLlvm()) {
+        var error_message: [*:0]const u8 = undefined;
+        if (self.llvm.module.?.printModuleToFile(path, &error_message).toBool()) {
+            defer llvm.disposeMessage(error_message);
+            log.err("failed printing LLVM module to \"{s}\": {s}", .{ path, error_message });
+            return false;
+        }
+    } else {
+        var file = std.fs.cwd().createFileZ(path, .{}) catch |err| {
+            log.err("failed printing LLVM module to \"{s}\": {s}", .{ path, @errorName(err) });
+            return false;
+        };
+        defer file.close();
+        self.print(file.writer()) catch |err| {
+            log.err("failed printing LLVM module to \"{s}\": {s}", .{ path, @errorName(err) });
+            return false;
+        };
+    }
+    return true;
+}
+
+pub fn print(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator.Error)!void {
+    var bw = std.io.bufferedWriter(writer);
+    try self.printUnbuffered(bw.writer());
+    try bw.flush();
+}
+
+pub fn printUnbuffered(
+    self: *Builder,
+    writer: anytype,
+) (@TypeOf(writer).Error || Allocator.Error)!void {
     if (self.source_filename != .none) try writer.print(
         \\; ModuleID = '{s}'
         \\source_filename = {"}
@@ -5790,7 +5824,10 @@ pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator
         });
         for (0..params_len) |arg| {
             if (arg > 0) try writer.writeAll(", ");
-            try writer.print("{%}", .{function.arg(@intCast(arg)).fmt(function_index, self)});
+            if (function.instructions.len > 0)
+                try writer.print("{%}", .{function.arg(@intCast(arg)).fmt(function_index, self)})
+            else
+                try writer.print("{%}", .{global.type.functionParameters(self)[arg].fmt(self)});
         }
         switch (global.type.functionKind(self)) {
             .normal => {},
@@ -5801,6 +5838,7 @@ pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator
         }
         try writer.print("){}{}", .{ global.unnamed_addr, function.alignment });
         if (function.instructions.len > 0) {
+            var block_incoming_len: u32 = undefined;
             try writer.writeAll(" {\n");
             for (params_len..function.instructions.len) |instruction_i| {
                 const instruction_index: Function.Instruction.Index = @enumFromInt(instruction_i);
@@ -5933,6 +5971,7 @@ pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator
                     },
                     .arg => unreachable,
                     .block => {
+                        block_incoming_len = instruction.data;
                         const name = instruction_index.name(&function);
                         if (@intFromEnum(instruction_index) > params_len) try writer.writeByte('\n');
                         try writer.print("{}:\n", .{name.fmt(self)});
@@ -6076,9 +6115,9 @@ pub fn dump(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocator
                     .@"phi fast",
                     => |tag| {
                         var extra = function.extraDataTrail(Function.Instruction.Phi, instruction.data);
-                        const vals = extra.trail.next(extra.data.incoming_len, Value, &function);
+                        const vals = extra.trail.next(block_incoming_len, Value, &function);
                         const blocks =
-                            extra.trail.next(extra.data.incoming_len, Function.Block.Index, &function);
+                            extra.trail.next(block_incoming_len, Function.Block.Index, &function);
                         try writer.print("  %{} = {s} {%} ", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),

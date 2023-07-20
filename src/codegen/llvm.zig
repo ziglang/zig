@@ -1104,24 +1104,9 @@ pub const Object = struct {
 
         if (comp.verbose_llvm_ir) |path| {
             if (std.mem.eql(u8, path, "-")) {
-                self.llvm_module.dump();
-
-                const writer = std.io.getStdErr().writer();
-                try writer.writeAll("\n" ++ "-" ** 200 ++ "\n\n");
-                try self.builder.dump(writer);
+                self.builder.dump();
             } else {
-                const path_z = try comp.gpa.dupeZ(u8, path);
-                defer comp.gpa.free(path_z);
-
-                var error_message: [*:0]const u8 = undefined;
-
-                if (self.llvm_module.printModuleToFile(path_z, &error_message).toBool()) {
-                    defer llvm.disposeMessage(error_message);
-
-                    log.err("dump LLVM module failed ir={s}: {s}", .{
-                        path, error_message,
-                    });
-                }
+                _ = try self.builder.printToFile(path);
             }
         }
 
