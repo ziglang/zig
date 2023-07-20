@@ -2521,7 +2521,7 @@ fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValu
         .valtype1 = typeToValtype(ty, mod),
         .width = abi_size * 8,
         .op = .load,
-        .signedness = .unsigned,
+        .signedness = if (ty.isSignedInt(mod)) .signed else .unsigned,
     });
 
     try func.addMemArg(
