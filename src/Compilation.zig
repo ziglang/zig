@@ -4438,6 +4438,12 @@ pub fn addCCArgs(
         },
         .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res => {},
         .assembly, .assembly_with_cpp => {
+            if (ext == .assembly_with_cpp) {
+                const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
+                try argv.append("-isystem");
+                try argv.append(c_headers_dir);
+            }
+
             // The Clang assembler does not accept the list of CPU features like the
             // compiler frontend does. Therefore we must hard-code the -m flags for
             // all CPU features here.
