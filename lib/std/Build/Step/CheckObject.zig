@@ -712,8 +712,7 @@ const ElfDumper = struct {
 
         fn getName(st: Symtab, index: usize) ?[]const u8 {
             const sym = st.get(index) orelse return null;
-            assert(sym.st_name < st.strings.len);
-            return mem.sliceTo(@ptrCast(st.strings.ptr + sym.st_name), 0);
+            return getString(st.strings, sym.st_name);
         }
     };
 
@@ -786,6 +785,7 @@ const ElfDumper = struct {
         try dumpHeader(ctx, writer);
         try dumpShdrs(ctx, writer);
         try dumpPhdrs(ctx, writer);
+        try dumpDynamic(ctx, writer);
 
         return output.toOwnedSlice();
     }
@@ -801,6 +801,17 @@ const ElfDumper = struct {
         assert(shdr.sh_offset < ctx.data.len);
         assert(shdr.sh_offset + shdr.sh_size <= ctx.data.len);
         return ctx.data[shdr.sh_offset..][0..shdr.sh_size];
+    }
+
+    fn getSectionByName(ctx: Context, name: []const u8) ?usize {
+        for (0..ctx.shdrs.len) |shndx| {
+            if (mem.eql(u8, getSectionName(ctx, shndx), name)) return shndx;
+        } else return null;
+    }
+
+    fn getString(strtab: []const u8, off: u32) []const u8 {
+        assert(off < strtab.len);
+        return mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + off)), 0);
     }
 
     fn dumpHeader(ctx: Context, writer: anytype) !void {
@@ -821,6 +832,143 @@ const ElfDumper = struct {
             try writer.print("size {x}\n", .{shdr.sh_size});
             try writer.print("addralign {x}\n", .{shdr.sh_addralign});
             // TODO dump formatted sh_flags
+        }
+    }
+
+    fn dumpDynamic(ctx: Context, writer: anytype) !void {
+        const shndx = getSectionByName(ctx, ".dynamic") orelse return;
+        const shdr = ctx.shdrs[shndx];
+        const strtab = getSectionContents(ctx, shdr.sh_link);
+        const data = getSectionContents(ctx, shndx);
+        const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
+        const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
+
+        for (entries) |entry| {
+            const key = @as(u64, @bitCast(entry.d_tag));
+            const value = entry.d_val;
+
+            const key_str = switch (key) {
+                elf.DT_NEEDED => "NEEDED",
+                elf.DT_SONAME => "SONAME",
+                elf.DT_INIT_ARRAY => "INIT_ARRAY",
+                elf.DT_INIT_ARRAYSZ => "INIT_ARRAYSZ",
+                elf.DT_FINI_ARRAY => "FINI_ARRAY",
+                elf.DT_FINI_ARRAYSZ => "FINI_ARRAYSZ",
+                elf.DT_HASH => "HASH",
+                elf.DT_GNU_HASH => "GNU_HASH",
+                elf.DT_STRTAB => "STRTAB",
+                elf.DT_SYMTAB => "SYMTAB",
+                elf.DT_STRSZ => "STRSZ",
+                elf.DT_SYMENT => "SYMENT",
+                elf.DT_PLTGOT => "PLTGOT",
+                elf.DT_PLTRELSZ => "PLTRELSZ",
+                elf.DT_PLTREL => "PLTREL",
+                elf.DT_JMPREL => "JMPREL",
+                elf.DT_RELA => "RELA",
+                elf.DT_RELASZ => "RELASZ",
+                elf.DT_RELAENT => "RELAENT",
+                elf.DT_VERDEF => "VERDEF",
+                elf.DT_VERDEFNUM => "VERDEFNUM",
+                elf.DT_FLAGS => "FLAGS",
+                elf.DT_FLAGS_1 => "FLAGS_1",
+                elf.DT_VERNEED => "VERNEED",
+                elf.DT_VERNEEDNUM => "VERNEEDNUM",
+                elf.DT_VERSYM => "VERSYM",
+                elf.DT_RELACOUNT => "RELACOUNT",
+                elf.DT_RPATH => "RPATH",
+                elf.DT_RUNPATH => "RUNPATH",
+                elf.DT_INIT => "INIT",
+                elf.DT_FINI => "FINI",
+                elf.DT_NULL => "NULL",
+                else => "UNKNOWN",
+            };
+            try writer.print("{s}", .{key_str});
+
+            switch (key) {
+                elf.DT_NEEDED,
+                elf.DT_SONAME,
+                elf.DT_RPATH,
+                elf.DT_RUNPATH,
+                => {
+                    const name = getString(strtab, @intCast(value));
+                    try writer.print(" {s}", .{name});
+                },
+
+                elf.DT_INIT_ARRAY,
+                elf.DT_FINI_ARRAY,
+                elf.DT_HASH,
+                elf.DT_GNU_HASH,
+                elf.DT_STRTAB,
+                elf.DT_SYMTAB,
+                elf.DT_PLTGOT,
+                elf.DT_JMPREL,
+                elf.DT_RELA,
+                elf.DT_VERDEF,
+                elf.DT_VERNEED,
+                elf.DT_VERSYM,
+                elf.DT_INIT,
+                elf.DT_FINI,
+                elf.DT_NULL,
+                => try writer.print(" {x}", .{value}),
+
+                elf.DT_INIT_ARRAYSZ,
+                elf.DT_FINI_ARRAYSZ,
+                elf.DT_STRSZ,
+                elf.DT_SYMENT,
+                elf.DT_PLTRELSZ,
+                elf.DT_RELASZ,
+                elf.DT_RELAENT,
+                elf.DT_RELACOUNT,
+                => try writer.print(" {d}", .{value}),
+
+                elf.DT_PLTREL => try writer.writeAll(switch (value) {
+                    elf.DT_REL => " REL",
+                    elf.DT_RELA => " RELA",
+                    else => " UNKNOWN",
+                }),
+
+                elf.DT_FLAGS => if (value > 0) {
+                    if (value & elf.DF_ORIGIN != 0) try writer.writeAll(" ORIGIN");
+                    if (value & elf.DF_SYMBOLIC != 0) try writer.writeAll(" SYMBOLIC");
+                    if (value & elf.DF_TEXTREL != 0) try writer.writeAll(" TEXTREL");
+                    if (value & elf.DF_BIND_NOW != 0) try writer.writeAll(" BIND_NOW");
+                    if (value & elf.DF_STATIC_TLS != 0) try writer.writeAll(" STATIC_TLS");
+                },
+
+                elf.DT_FLAGS_1 => if (value > 0) {
+                    if (value & elf.DF_1_NOW != 0) try writer.writeAll(" NOW");
+                    if (value & elf.DF_1_GLOBAL != 0) try writer.writeAll(" GLOBAL");
+                    if (value & elf.DF_1_GROUP != 0) try writer.writeAll(" GROUP");
+                    if (value & elf.DF_1_NODELETE != 0) try writer.writeAll(" NODELETE");
+                    if (value & elf.DF_1_LOADFLTR != 0) try writer.writeAll(" LOADFLTR");
+                    if (value & elf.DF_1_INITFIRST != 0) try writer.writeAll(" INITFIRST");
+                    if (value & elf.DF_1_NOOPEN != 0) try writer.writeAll(" NOOPEN");
+                    if (value & elf.DF_1_ORIGIN != 0) try writer.writeAll(" ORIGIN");
+                    if (value & elf.DF_1_DIRECT != 0) try writer.writeAll(" DIRECT");
+                    if (value & elf.DF_1_TRANS != 0) try writer.writeAll(" TRANS");
+                    if (value & elf.DF_1_INTERPOSE != 0) try writer.writeAll(" INTERPOSE");
+                    if (value & elf.DF_1_NODEFLIB != 0) try writer.writeAll(" NODEFLIB");
+                    if (value & elf.DF_1_NODUMP != 0) try writer.writeAll(" NODUMP");
+                    if (value & elf.DF_1_CONFALT != 0) try writer.writeAll(" CONFALT");
+                    if (value & elf.DF_1_ENDFILTEE != 0) try writer.writeAll(" ENDFILTEE");
+                    if (value & elf.DF_1_DISPRELDNE != 0) try writer.writeAll(" DISPRELDNE");
+                    if (value & elf.DF_1_DISPRELPND != 0) try writer.writeAll(" DISPRELPND");
+                    if (value & elf.DF_1_NODIRECT != 0) try writer.writeAll(" NODIRECT");
+                    if (value & elf.DF_1_IGNMULDEF != 0) try writer.writeAll(" IGNMULDEF");
+                    if (value & elf.DF_1_NOKSYMS != 0) try writer.writeAll(" NOKSYMS");
+                    if (value & elf.DF_1_NOHDR != 0) try writer.writeAll(" NOHDR");
+                    if (value & elf.DF_1_EDITED != 0) try writer.writeAll(" EDITED");
+                    if (value & elf.DF_1_NORELOC != 0) try writer.writeAll(" NORELOC");
+                    if (value & elf.DF_1_SYMINTPOSE != 0) try writer.writeAll(" SYMINTPOSE");
+                    if (value & elf.DF_1_GLOBAUDIT != 0) try writer.writeAll(" GLOBAUDIT");
+                    if (value & elf.DF_1_SINGLETON != 0) try writer.writeAll(" SINGLETON");
+                    if (value & elf.DF_1_STUB != 0) try writer.writeAll(" STUB");
+                    if (value & elf.DF_1_PIE != 0) try writer.writeAll(" PIE");
+                },
+
+                else => try writer.print(" {x}", .{value}),
+            }
+            try writer.writeByte('\n');
         }
     }
 
