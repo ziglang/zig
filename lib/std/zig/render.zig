@@ -1398,10 +1398,6 @@ fn renderBuiltinCall(
         "@floatCast",
         "@intCast",
         "@ptrCast",
-        "@alignCast",
-        "@addrSpaceCast",
-        "@constCast",
-        "@volatileCast",
 
         "@intFromFloat",
         "@floatToInt",
