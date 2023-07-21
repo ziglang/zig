@@ -2228,8 +2228,19 @@ fn failWithModRemNegative(sema: *Sema, block: *Block, src: LazySrcLoc, lhs_ty: T
     });
 }
 
-fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, optional_ty: Type) CompileError {
-    return sema.fail(block, src, "expected optional type, found '{}'", .{optional_ty.fmt(sema.mod)});
+fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, non_optional_ty: Type) CompileError {
+    const mod = sema.mod;
+    const msg = msg: {
+        const msg = try sema.errMsg(block, src, "expected optional type, found '{}'", .{
+            non_optional_ty.fmt(mod),
+        });
+        errdefer msg.destroy(sema.gpa);
+        if (non_optional_ty.zigTypeTag(mod) == .ErrorUnion) {
+            try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
+        }
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(block, msg);
 }
 
 fn failWithArrayInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError {
@@ -9038,7 +9049,7 @@ fn analyzeOptionalPayloadPtr(
 
     const opt_type = optional_ptr_ty.childType(zcu);
     if (opt_type.zigTypeTag(zcu) != .Optional) {
-        return sema.fail(block, src, "expected optional type, found '{}'", .{opt_type.fmt(zcu)});
+        return sema.failWithExpectedOptionalType(block, src, opt_type);
     }
 
     const child_type = opt_type.optionalChild(zcu);
