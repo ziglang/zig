@@ -180,6 +180,9 @@ pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize
     };
 }
 
+// the array and array pointer benchmarks for xxhash are very sensitive to in-lining,
+// if you see strange performance changes consider using `.never_inline` or `.always_inline`
+// to ensure the changes are not only due to the optimiser inlining the benchmark differently
 pub fn benchmarkHashSmallKeysArrayPtr(
     comptime H: anytype,
     comptime key_size: usize,
@@ -225,6 +228,9 @@ pub fn benchmarkHashSmallKeysArrayPtr(
     };
 }
 
+// the array and array pointer benchmarks for xxhash are very sensitive to in-lining,
+// if you see strange performance changes consider using `.never_inline` or `.always_inline`
+// to ensure the changes are not only due to the optimiser inlining the benchmark differently
 pub fn benchmarkHashSmallKeysArray(
     comptime H: anytype,
     comptime key_size: usize,
@@ -342,7 +348,7 @@ pub fn main() !void {
     var key_size: ?usize = null;
     var seed: u32 = 0;
     var test_iterative_only = false;
-    var test_small_only = false;
+    var test_arrays = false;
 
     const default_small_key_size = 32;
 
@@ -391,8 +397,8 @@ pub fn main() !void {
             }
         } else if (std.mem.eql(u8, args[i], "--iterative-only")) {
             test_iterative_only = true;
-        } else if (std.mem.eql(u8, args[i], "--small-only")) {
-            test_small_only = true;
+        } else if (std.mem.eql(u8, args[i], "--include-array")) {
+            test_arrays = true;
         } else if (std.mem.eql(u8, args[i], "--help")) {
             usage();
             return;
@@ -407,7 +413,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     inline for (hashes) |H| {
-        if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) loop: {
+        if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) hash: {
             if (!test_iterative_only or H.has_iterative_api) {
                 try stdout.print("{s}\n", .{H.name});
 
@@ -430,7 +436,7 @@ pub fn main() !void {
                             result_small.hash,
                         });
 
-                        if (test_small_only) break :loop;
+                        if (!test_arrays) break :hash;
                         if (H.has_anytype_api) |sizes| {
                             inline for (sizes) |exact_size| {
                                 if (size == exact_size) {
@@ -459,7 +465,7 @@ pub fn main() !void {
                             result_small.hash,
                         });
 
-                        if (test_small_only) break :loop;
+                        if (!test_arrays) break :hash;
                         if (H.has_anytype_api) |sizes| {
                             try stdout.print("       array:\n", .{});
                             inline for (sizes) |exact_size| {
