@@ -1910,16 +1910,21 @@ pub fn execvpeZ(
 /// See also `getenvZ`.
 pub fn getenv(key: []const u8) ?[:0]const u8 {
     if (builtin.link_libc) {
-        var ptr = std.c.environ;
+        var ptr = if (builtin.os.tag == .windows) std.c._environ else std.c.environ;
         while (ptr[0]) |line| : (ptr += 1) {
             var line_i: usize = 0;
             while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
             const this_key = line[0..line_i];
 
-            if (!mem.eql(u8, this_key, key)) continue;
+            if (builtin.os.tag == .windows) {
+                if (!windows.eqlIgnoreCaseUtf8(this_key, key)) continue;
+            } else {
+                if (!mem.eql(u8, this_key, key)) continue;
+            }
 
             return mem.sliceTo(line + line_i + 1, 0);
         }
+
         return null;
     }
     if (builtin.os.tag == .windows) {
