@@ -496,14 +496,14 @@ pub const Type = enum(u32) {
         };
     }
 
-    pub fn aggregateLen(self: Type, builder: *const Builder) u64 {
+    pub fn aggregateLen(self: Type, builder: *const Builder) usize {
         const item = builder.type_items.items[@intFromEnum(self)];
         return switch (item.tag) {
             .vector,
             .scalable_vector,
             .small_array,
             => builder.typeExtraData(Type.Vector, item.data).len,
-            .array => builder.typeExtraData(Type.Array, item.data).length(),
+            .array => @intCast(builder.typeExtraData(Type.Array, item.data).length()),
             .structure,
             .packed_structure,
             => builder.typeExtraData(Type.Structure, item.data).fields_len,
@@ -5158,7 +5158,7 @@ pub fn stringIfExists(self: *const Builder, bytes: []const u8) ?String {
 
 pub fn fmt(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) Allocator.Error!String {
     try self.string_map.ensureUnusedCapacity(self.gpa, 1);
-    try self.string_bytes.ensureUnusedCapacity(self.gpa, std.fmt.count(fmt_str ++ .{0}, fmt_args));
+    try self.string_bytes.ensureUnusedCapacity(self.gpa, @intCast(std.fmt.count(fmt_str ++ .{0}, fmt_args)));
     try self.string_indices.ensureUnusedCapacity(self.gpa, 1);
     return self.fmtAssumeCapacity(fmt_str, fmt_args);
 }
@@ -5230,8 +5230,10 @@ pub fn structType(
 
 pub fn opaqueType(self: *Builder, name: String) Allocator.Error!Type {
     try self.string_map.ensureUnusedCapacity(self.gpa, 1);
-    if (name.toSlice(self)) |id| try self.string_bytes.ensureUnusedCapacity(self.gpa, id.len +
-        comptime std.fmt.count("{d}" ++ .{0}, .{std.math.maxInt(u32)}));
+    if (name.toSlice(self)) |id| {
+        const count: usize = comptime std.fmt.count("{d}" ++ .{0}, .{std.math.maxInt(u32)});
+        try self.string_bytes.ensureUnusedCapacity(self.gpa, id.len + count);
+    }
     try self.string_indices.ensureUnusedCapacity(self.gpa, 1);
     try self.types.ensureUnusedCapacity(self.gpa, 1);
     try self.next_unique_type_id.ensureUnusedCapacity(self.gpa, 1);
@@ -6236,8 +6238,10 @@ fn isValidIdentifier(id: []const u8) bool {
 fn ensureUnusedGlobalCapacity(self: *Builder, name: String) Allocator.Error!void {
     if (self.useLibLlvm()) try self.llvm.globals.ensureUnusedCapacity(self.gpa, 1);
     try self.string_map.ensureUnusedCapacity(self.gpa, 1);
-    if (name.toSlice(self)) |id| try self.string_bytes.ensureUnusedCapacity(self.gpa, id.len +
-        comptime std.fmt.count("{d}" ++ .{0}, .{std.math.maxInt(u32)}));
+    if (name.toSlice(self)) |id| {
+        const count: usize = comptime std.fmt.count("{d}" ++ .{0}, .{std.math.maxInt(u32)});
+        try self.string_bytes.ensureUnusedCapacity(self.gpa, id.len + count);
+    }
     try self.string_indices.ensureUnusedCapacity(self.gpa, 1);
     try self.globals.ensureUnusedCapacity(self.gpa, 1);
     try self.next_unique_global_id.ensureUnusedCapacity(self.gpa, 1);
