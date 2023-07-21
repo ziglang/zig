@@ -33,6 +33,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
+const BitStack = std.BitStack;
 
 /// Scan the input and check for malformed JSON.
 /// On `SyntaxError` or `UnexpectedEndOfInput`, returns `false`.
@@ -337,7 +338,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
             }
         }
         /// Like `std.json.Scanner.skipUntilStackHeight()` but handles `error.BufferUnderrun`.
-        pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: u32) NextError!void {
+        pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: usize) NextError!void {
             while (true) {
                 return self.scanner.skipUntilStackHeight(terminal_stack_height) catch |err| switch (err) {
                     error.BufferUnderrun => {
@@ -350,11 +351,11 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
         }
 
         /// Calls `std.json.Scanner.stackHeight`.
-        pub fn stackHeight(self: *const @This()) u32 {
+        pub fn stackHeight(self: *const @This()) usize {
             return self.scanner.stackHeight();
         }
         /// Calls `std.json.Scanner.ensureTotalStackCapacity`.
-        pub fn ensureTotalStackCapacity(self: *@This(), height: u32) Allocator.Error!void {
+        pub fn ensureTotalStackCapacity(self: *@This(), height: usize) Allocator.Error!void {
             try self.scanner.ensureTotalStackCapacity(height);
         }
 
@@ -654,7 +655,7 @@ pub const Scanner = struct {
 
     /// Skip tokens until an `.object_end` or `.array_end` token results in a `stackHeight()` equal the given stack height.
     /// Unlike `skipValue()`, this function is available in streaming mode.
-    pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: u32) NextError!void {
+    pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: usize) NextError!void {
         while (true) {
             switch (try self.next()) {
                 .object_end, .array_end => {
@@ -667,13 +668,13 @@ pub const Scanner = struct {
     }
 
     /// The depth of `{}` or `[]` nesting levels at the current position.
-    pub fn stackHeight(self: *const @This()) u32 {
+    pub fn stackHeight(self: *const @This()) usize {
         return self.stack.bit_len;
     }
 
     /// Pre allocate memory to hold the given number of nesting levels.
     /// `stackHeight()` up to the given number will not cause allocations.
-    pub fn ensureTotalStackCapacity(self: *@This(), height: u32) Allocator.Error!void {
+    pub fn ensureTotalStackCapacity(self: *@This(), height: usize) Allocator.Error!void {
         try self.stack.ensureTotalCapacity(height);
     }
 
@@ -1696,53 +1697,6 @@ pub const Scanner = struct {
 
 const OBJECT_MODE = 0;
 const ARRAY_MODE = 1;
-
-const BitStack = struct {
-    bytes: std.ArrayList(u8),
-    bit_len: u32 = 0,
-
-    pub fn init(allocator: Allocator) @This() {
-        return .{
-            .bytes = std.ArrayList(u8).init(allocator),
-        };
-    }
-
-    pub fn deinit(self: *@This()) void {
-        self.bytes.deinit();
-        self.* = undefined;
-    }
-
-    pub fn ensureTotalCapacity(self: *@This(), bit_capcity: u32) Allocator.Error!void {
-        const byte_capacity = (bit_capcity + 7) >> 3;
-        try self.bytes.ensureTotalCapacity(byte_capacity);
-    }
-
-    pub fn push(self: *@This(), b: u1) Allocator.Error!void {
-        const byte_index = self.bit_len >> 3;
-        const bit_index = @as(u3, @intCast(self.bit_len & 7));
-
-        if (self.bytes.items.len <= byte_index) {
-            try self.bytes.append(0);
-        }
-
-        self.bytes.items[byte_index] &= ~(@as(u8, 1) << bit_index);
-        self.bytes.items[byte_index] |= @as(u8, b) << bit_index;
-
-        self.bit_len += 1;
-    }
-
-    pub fn peek(self: *const @This()) u1 {
-        const byte_index = (self.bit_len - 1) >> 3;
-        const bit_index = @as(u3, @intCast((self.bit_len - 1) & 7));
-        return @as(u1, @intCast((self.bytes.items[byte_index] >> bit_index) & 1));
-    }
-
-    pub fn pop(self: *@This()) u1 {
-        const b = self.peek();
-        self.bit_len -= 1;
-        return b;
-    }
-};
 
 fn appendSlice(list: *std.ArrayList(u8), buf: []const u8, max_value_len: usize) !void {
     const new_len = std.math.add(usize, list.items.len, buf.len) catch return error.ValueTooLong;

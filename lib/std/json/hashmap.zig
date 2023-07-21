@@ -5,9 +5,6 @@ const ParseOptions = @import("static.zig").ParseOptions;
 const innerParse = @import("static.zig").innerParse;
 const innerParseFromValue = @import("static.zig").innerParseFromValue;
 const Value = @import("dynamic.zig").Value;
-const StringifyOptions = @import("stringify.zig").StringifyOptions;
-const stringify = @import("stringify.zig").stringify;
-const encodeJsonString = @import("stringify.zig").encodeJsonString;
 
 /// A thin wrapper around `std.StringArrayHashMapUnmanaged` that implements
 /// `jsonParse`, `jsonParseFromValue`, and `jsonStringify`.
@@ -70,30 +67,14 @@ pub fn ArrayHashMap(comptime T: type) type {
             return .{ .map = map };
         }
 
-        pub fn jsonStringify(self: @This(), options: StringifyOptions, out_stream: anytype) !void {
-            try out_stream.writeByte('{');
-            var field_output = false;
-            var child_options = options;
-            child_options.whitespace.indent_level += 1;
+        pub fn jsonStringify(self: @This(), jws: anytype) !void {
+            try jws.beginObject();
             var it = self.map.iterator();
             while (it.next()) |kv| {
-                if (!field_output) {
-                    field_output = true;
-                } else {
-                    try out_stream.writeByte(',');
-                }
-                try child_options.whitespace.outputIndent(out_stream);
-                try encodeJsonString(kv.key_ptr.*, options, out_stream);
-                try out_stream.writeByte(':');
-                if (child_options.whitespace.separator) {
-                    try out_stream.writeByte(' ');
-                }
-                try stringify(kv.value_ptr.*, child_options, out_stream);
+                try jws.objectField(kv.key_ptr.*);
+                try jws.write(kv.value_ptr.*);
             }
-            if (field_output) {
-                try options.whitespace.outputIndent(out_stream);
-            }
-            try out_stream.writeByte('}');
+            try jws.endObject();
         }
     };
 }

@@ -385,10 +385,11 @@ pub fn generateZirData(self: *Autodoc) !void {
             \\ /** @type {{DocData}} */
             \\ var zigAnalysis=
         , .{});
-        try std.json.stringify(
+        try std.json.stringifyArbitraryDepth(
+            arena_allocator.allocator(),
             data,
             .{
-                .whitespace = .{ .indent = .none, .separator = false },
+                .whitespace = .minified,
                 .emit_null_optional_fields = true,
             },
             out,
@@ -532,28 +533,16 @@ const DocData = struct {
         ret: Expr,
     };
 
-    pub fn jsonStringify(
-        self: DocData,
-        opts: std.json.StringifyOptions,
-        w: anytype,
-    ) !void {
-        var jsw = std.json.writeStream(w, 15);
-        jsw.whitespace = opts.whitespace;
+    pub fn jsonStringify(self: DocData, jsw: anytype) !void {
         try jsw.beginObject();
         inline for (comptime std.meta.tags(std.meta.FieldEnum(DocData))) |f| {
             const f_name = @tagName(f);
             try jsw.objectField(f_name);
             switch (f) {
-                .files => try writeFileTableToJson(self.files, self.modules, &jsw),
-                .guide_sections => try writeGuidesToJson(self.guide_sections, &jsw),
-                .modules => {
-                    try std.json.stringify(self.modules.values(), opts, w);
-                    jsw.state_index -= 1;
-                },
-                else => {
-                    try std.json.stringify(@field(self, f_name), opts, w);
-                    jsw.state_index -= 1;
-                },
+                .files => try writeFileTableToJson(self.files, self.modules, jsw),
+                .guide_sections => try writeGuidesToJson(self.guide_sections, jsw),
+                .modules => try jsw.write(self.modules.values()),
+                else => try jsw.write(@field(self, f_name)),
             }
         }
         try jsw.endObject();
@@ -583,24 +572,14 @@ const DocData = struct {
             value: usize,
         };
 
-        pub fn jsonStringify(
-            self: DocModule,
-            opts: std.json.StringifyOptions,
-            w: anytype,
-        ) !void {
-            var jsw = std.json.writeStream(w, 15);
-            jsw.whitespace = opts.whitespace;
-
+        pub fn jsonStringify(self: DocModule, jsw: anytype) !void {
             try jsw.beginObject();
             inline for (comptime std.meta.tags(std.meta.FieldEnum(DocModule))) |f| {
                 const f_name = @tagName(f);
                 try jsw.objectField(f_name);
                 switch (f) {
-                    .table => try writeModuleTableToJson(self.table, &jsw),
-                    else => {
-                        try std.json.stringify(@field(self, f_name), opts, w);
-                        jsw.state_index -= 1;
-                    },
+                    .table => try writeModuleTableToJson(self.table, jsw),
+                    else => try jsw.write(@field(self, f_name)),
                 }
             }
             try jsw.endObject();
@@ -617,18 +596,10 @@ const DocData = struct {
         is_uns: bool = false, // usingnamespace
         parent_container: ?usize, // index into `types`
 
-        pub fn jsonStringify(
-            self: Decl,
-            opts: std.json.StringifyOptions,
-            w: anytype,
-        ) !void {
-            var jsw = std.json.writeStream(w, 15);
-            jsw.whitespace = opts.whitespace;
+        pub fn jsonStringify(self: Decl, jsw: anytype) !void {
             try jsw.beginArray();
             inline for (comptime std.meta.fields(Decl)) |f| {
-                try jsw.arrayElem();
-                try std.json.stringify(@field(self, f.name), opts, w);
-                jsw.state_index -= 1;
+                try jsw.write(@field(self, f.name));
             }
             try jsw.endArray();
         }
@@ -644,18 +615,10 @@ const DocData = struct {
         fields: ?[]usize = null, // index into astNodes
         @"comptime": bool = false,
 
-        pub fn jsonStringify(
-            self: AstNode,
-            opts: std.json.StringifyOptions,
-            w: anytype,
-        ) !void {
-            var jsw = std.json.writeStream(w, 15);
-            jsw.whitespace = opts.whitespace;
+        pub fn jsonStringify(self: AstNode, jsw: anytype) !void {
             try jsw.beginArray();
             inline for (comptime std.meta.fields(AstNode)) |f| {
-                try jsw.arrayElem();
-                try std.json.stringify(@field(self, f.name), opts, w);
-                jsw.state_index -= 1;
+                try jsw.write(@field(self, f.name));
             }
             try jsw.endArray();
         }
@@ -776,27 +739,18 @@ const DocData = struct {
             docs: []const u8,
         };
 
-        pub fn jsonStringify(
-            self: Type,
-            opts: std.json.StringifyOptions,
-            w: anytype,
-        ) !void {
+        pub fn jsonStringify(self: Type, jsw: anytype) !void {
             const active_tag = std.meta.activeTag(self);
-            var jsw = std.json.writeStream(w, 15);
-            jsw.whitespace = opts.whitespace;
             try jsw.beginArray();
-            try jsw.arrayElem();
-            try jsw.emitNumber(@intFromEnum(active_tag));
+            try jsw.write(@intFromEnum(active_tag));
             inline for (comptime std.meta.fields(Type)) |case| {
                 if (@field(Type, case.name) == active_tag) {
                     const current_value = @field(self, case.name);
                     inline for (comptime std.meta.fields(case.type)) |f| {
-                        try jsw.arrayElem();
                         if (f.type == std.builtin.Type.Pointer.Size) {
-                            try jsw.emitNumber(@intFromEnum(@field(current_value, f.name)));
+                            try jsw.write(@intFromEnum(@field(current_value, f.name)));
                         } else {
-                            try std.json.stringify(@field(current_value, f.name), opts, w);
-                            jsw.state_index -= 1;
+                            try jsw.write(@field(current_value, f.name));
                         }
                     }
                 }
@@ -919,14 +873,8 @@ const DocData = struct {
             val: WalkResult,
         };
 
-        pub fn jsonStringify(
-            self: Expr,
-            opts: std.json.StringifyOptions,
-            w: anytype,
-        ) @TypeOf(w).Error!void {
+        pub fn jsonStringify(self: Expr, jsw: anytype) !void {
             const active_tag = std.meta.activeTag(self);
-            var jsw = std.json.writeStream(w, 15);
-            jsw.whitespace = opts.whitespace;
             try jsw.beginObject();
             if (active_tag == .declIndex) {
                 try jsw.objectField("declRef");
@@ -935,14 +883,17 @@ const DocData = struct {
             }
             switch (self) {
                 .int => {
-                    if (self.int.negated) try w.writeAll("-");
-                    try jsw.emitNumber(self.int.value);
+                    if (self.int.negated) {
+                        try jsw.write(-@as(i65, self.int.value));
+                    } else {
+                        try jsw.write(self.int.value);
+                    }
                 },
                 .builtinField => {
-                    try jsw.emitString(@tagName(self.builtinField));
+                    try jsw.write(@tagName(self.builtinField));
                 },
                 .declRef => {
-                    try jsw.emitNumber(self.declRef.Analyzed);
+                    try jsw.write(self.declRef.Analyzed);
                 },
                 else => {
                     inline for (comptime std.meta.fields(Expr)) |case| {
@@ -952,14 +903,7 @@ const DocData = struct {
                         if (comptime std.mem.eql(u8, case.name, "declRef"))
                             continue;
                         if (@field(Expr, case.name) == active_tag) {
-                            try std.json.stringify(@field(self, case.name), opts, w);
-                            jsw.state_index -= 1;
-                            // TODO: we should not reach into the state of the
-                            //       json writer, but alas, this is what's
-                            //       necessary with the current api.
-                            //       would be nice to have a proper integration
-                            //       between the json writer and the generic
-                            //       std.json.stringify implementation
+                            try jsw.write(@field(self, case.name));
                         }
                     }
                 },
@@ -5440,12 +5384,9 @@ fn writeFileTableToJson(
     try jsw.beginArray();
     var it = map.iterator();
     while (it.next()) |entry| {
-        try jsw.arrayElem();
         try jsw.beginArray();
-        try jsw.arrayElem();
-        try jsw.emitString(entry.key_ptr.*.sub_file_path);
-        try jsw.arrayElem();
-        try jsw.emitNumber(mods.getIndex(entry.key_ptr.*.pkg) orelse 0);
+        try jsw.write(entry.key_ptr.*.sub_file_path);
+        try jsw.write(mods.getIndex(entry.key_ptr.*.pkg) orelse 0);
         try jsw.endArray();
     }
     try jsw.endArray();
@@ -5462,21 +5403,19 @@ fn writeGuidesToJson(sections: std.ArrayListUnmanaged(Section), jsw: anytype) !v
 
     for (sections.items) |s| {
         // section name
-        try jsw.arrayElem();
         try jsw.beginObject();
         try jsw.objectField("name");
-        try jsw.emitString(s.name);
+        try jsw.write(s.name);
         try jsw.objectField("guides");
 
         // section value
         try jsw.beginArray();
         for (s.guides.items) |g| {
-            try jsw.arrayElem();
             try jsw.beginObject();
             try jsw.objectField("name");
-            try jsw.emitString(g.name);
+            try jsw.write(g.name);
             try jsw.objectField("body");
-            try jsw.emitString(g.body);
+            try jsw.write(g.body);
             try jsw.endObject();
         }
         try jsw.endArray();
@@ -5494,7 +5433,7 @@ fn writeModuleTableToJson(
     var it = map.valueIterator();
     while (it.next()) |entry| {
         try jsw.objectField(entry.name);
-        try jsw.emitNumber(entry.value);
+        try jsw.write(entry.value);
     }
     try jsw.endObject();
 }
