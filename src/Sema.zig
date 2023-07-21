@@ -9531,7 +9531,7 @@ fn handleExternLibName(
             return sema.fail(
                 block,
                 src_loc,
-                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by '-l{s}' or '-fPIC'.",
+                "dependency on dynamic library '{s}' requires enabling Position Independent Code; fixed by '-l{s}' or '-fPIC'",
                 .{ lib_name, lib_name },
             );
         }
