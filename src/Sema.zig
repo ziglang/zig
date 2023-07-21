@@ -9307,7 +9307,7 @@ fn handleExternLibName(
             return sema.fail(
                 block,
                 src_loc,
-                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by '-l{s}' or '-fPIC'.",
+                "dependency on dynamic library '{s}' requires enabling Position Independent Code; fixed by '-l{s}' or '-fPIC'",
                 .{ lib_name, lib_name },
             );
         }
@@ -33208,7 +33208,7 @@ fn analyzeSlice(
                     .needed_well_defined => |ty| return sema.fail(
                         block,
                         src,
-                        "comptime dereference requires '{}' to have a well-defined layout, but it does not.",
+                        "comptime dereference requires '{}' to have a well-defined layout, but it does not",
                         .{ty.fmt(mod)},
                     ),
                     .out_of_bounds => |ty| return sema.fail(
@@ -38131,7 +38131,7 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
         .needed_well_defined => |ty| return sema.fail(
             block,
             src,
-            "comptime dereference requires '{}' to have a well-defined layout, but it does not.",
+            "comptime dereference requires '{}' to have a well-defined layout, but it does not",
             .{ty.fmt(sema.mod)},
         ),
         .out_of_bounds => |ty| return sema.fail(

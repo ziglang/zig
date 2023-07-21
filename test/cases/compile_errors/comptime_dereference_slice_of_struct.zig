@@ -10,4 +10,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :5:16: error: comptime dereference requires '[1]tmp.MyStruct' to have a well-defined layout, but it does not.
+// :5:16: error: comptime dereference requires '[1]tmp.MyStruct' to have a well-defined layout, but it does not
