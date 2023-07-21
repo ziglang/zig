@@ -8625,12 +8625,23 @@ test "@hasDecl" {
       The following packages are always available:
       </p>
       <ul>
-          <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
-          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information
-              The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.
+          <li>
+              {#syntax#}@import("std"){#endsyntax#} - Zig Standard Library
+              <p>
+              This is <code>lib/std.zig</code> and can be changed by passing a different directory to <code>--zig-lib-dir</code>.
+              </p>
           </li>
-          <li>{#syntax#}@import("root"){#endsyntax#} - Root source file
-              This is usually <code>src/main.zig</code> but depends on what file is built.
+          <li>
+              {#syntax#}@import("builtin"){#endsyntax#} - Target-specific information
+              <p>
+              The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.
+              </p>
+          </li>
+          <li>
+              {#syntax#}@import("root"){#endsyntax#} - Root source file
+              <p>
+              This is often <code>src/main.zig</code> but depends on which file is built.
+              </p>
           </li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
