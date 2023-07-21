@@ -3568,9 +3568,10 @@ fn ensureResultUsed(
     const mod = sema.mod;
     switch (ty.zigTypeTag(mod)) {
         .Void, .NoReturn => return,
-        .ErrorSet, .ErrorUnion => {
+        .ErrorSet => return sema.fail(block, src, "error set is ignored", .{}),
+        .ErrorUnion => {
             const msg = msg: {
-                const msg = try sema.errMsg(block, src, "error is ignored", .{});
+                const msg = try sema.errMsg(block, src, "error union is ignored", .{});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
                 break :msg msg;
@@ -3600,9 +3601,10 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     const src = inst_data.src();
     const operand_ty = sema.typeOf(operand);
     switch (operand_ty.zigTypeTag(mod)) {
-        .ErrorSet, .ErrorUnion => {
+        .ErrorSet => return sema.fail(block, src, "error set is discarded", .{}),
+        .ErrorUnion => {
             const msg = msg: {
-                const msg = try sema.errMsg(block, src, "error is discarded", .{});
+                const msg = try sema.errMsg(block, src, "error union is discarded", .{});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
                 break :msg msg;
