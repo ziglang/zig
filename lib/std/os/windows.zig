@@ -3301,6 +3301,35 @@ pub const REGSAM = ACCESS_MASK;
 pub const ACCESS_MASK = DWORD;
 pub const LSTATUS = LONG;
 
+pub const SECTION_INHERIT = enum(c_int) {
+    ViewShare = 0,
+    ViewUnmap = 1,
+};
+
+pub const SECTION_QUERY = 0x0001;
+pub const SECTION_MAP_WRITE = 0x0002;
+pub const SECTION_MAP_READ = 0x0004;
+pub const SECTION_MAP_EXECUTE = 0x0008;
+pub const SECTION_EXTEND_SIZE = 0x0010;
+pub const SECTION_ALL_ACCESS =
+    STANDARD_RIGHTS_REQUIRED |
+    SECTION_QUERY |
+    SECTION_MAP_WRITE |
+    SECTION_MAP_READ |
+    SECTION_MAP_EXECUTE |
+    SECTION_EXTEND_SIZE;
+
+pub const SEC_64K_PAGES = 0x80000;
+pub const SEC_FILE = 0x800000;
+pub const SEC_IMAGE = 0x1000000;
+pub const SEC_PROTECTED_IMAGE = 0x2000000;
+pub const SEC_RESERVE = 0x4000000;
+pub const SEC_COMMIT = 0x8000000;
+pub const SEC_IMAGE_NO_EXECUTE = SEC_IMAGE | SEC_NOCACHE;
+pub const SEC_NOCACHE = 0x10000000;
+pub const SEC_WRITECOMBINE = 0x40000000;
+pub const SEC_LARGE_PAGES = 0x80000000;
+
 pub const HKEY = *opaque {};
 
 pub const HKEY_LOCAL_MACHINE: HKEY = @as(HKEY, @ptrFromInt(0x80000002));

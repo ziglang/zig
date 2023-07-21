@@ -371,6 +371,9 @@ pub const SHT_LOUSER = 0x80000000;
 /// End of application-specific
 pub const SHT_HIUSER = 0xffffffff;
 
+// Note type for .note.gnu.build_id
+pub const NT_GNU_BUILD_ID = 3;
+
 /// Local symbol
 pub const STB_LOCAL = 0;
 /// Global symbol
@@ -1053,6 +1056,11 @@ pub const Rela = switch (@sizeOf(usize)) {
 pub const Shdr = switch (@sizeOf(usize)) {
     4 => Elf32_Shdr,
     8 => Elf64_Shdr,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
+pub const Chdr = switch (@sizeOf(usize)) {
+    4 => Elf32_Chdr,
+    8 => Elf64_Chdr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
 pub const Sym = switch (@sizeOf(usize)) {
