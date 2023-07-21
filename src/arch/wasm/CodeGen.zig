@@ -4160,7 +4160,7 @@ fn airIntcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const op_bits = toWasmBits(@as(u16, @intCast(operand_ty.bitSize(mod)))).?;
     const wanted_bits = toWasmBits(@as(u16, @intCast(ty.bitSize(mod)))).?;
-    const result = if (op_bits == wanted_bits)
+    const result = if (op_bits == wanted_bits and !ty.isSignedInt(mod))
         func.reuseOperand(ty_op.operand, operand)
     else
         try (try func.intcast(operand, operand_ty, ty)).toLocal(func, ty);
@@ -4181,7 +4181,19 @@ fn intcast(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerErro
 
     const op_bits = toWasmBits(given_bitsize).?;
     const wanted_bits = toWasmBits(wanted_bitsize).?;
-    if (op_bits == wanted_bits) return operand;
+    if (op_bits == wanted_bits) {
+        if (given.isSignedInt(mod)) {
+            if (given_bitsize < wanted_bitsize) {
+                // signed integers are stored as two's complement,
+                // when we upcast from a smaller integer to larger
+                // integers, we must get its absolute value similar to
+                // i64_extend_i32_s instruction.
+                return func.signAbsValue(operand, given);
+            }
+            return func.wrapOperand(operand, wanted);
+        }
+        return operand;
+    }
 
     if (op_bits > 32 and op_bits <= 64 and wanted_bits == 32) {
         try func.emitWValue(operand);
