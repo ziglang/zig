@@ -12633,6 +12633,10 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const name = try sema.resolveConstString(block, operand_src, inst_data.operand, "file path name must be comptime-known");
 
+    if (name.len == 0) {
+        return sema.fail(block, operand_src, "file path name cannot be empty", .{});
+    }
+
     const embed_file = mod.embedFile(block.getFileScope(mod), name) catch |err| switch (err) {
         error.ImportOutsidePkgPath => {
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
