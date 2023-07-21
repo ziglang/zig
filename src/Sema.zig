@@ -3571,7 +3571,7 @@ fn ensureResultUsed(
                 const msg = try sema.errMsg(block, src, "value of type '{}' ignored", .{ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, src, msg, "all non-void values must be used", .{});
-                try sema.errNote(block, src, msg, "this error can be suppressed by assigning the value to '_'", .{});
+                try sema.errNote(block, src, msg, "to discard the value, assign it to '_'", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);
