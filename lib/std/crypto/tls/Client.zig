@@ -662,7 +662,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     P.AEAD.encrypt(ciphertext, auth_tag, &out_cleartext, ad, nonce, p.client_handshake_key);
 
                                     const both_msgs = client_change_cipher_spec_msg ++ finished_msg;
-                                    try stream.writeAll(&both_msgs);
+                                    var both_msgs_vec = [_]std.os.iovec_const{.{
+                                        .iov_base = &both_msgs,
+                                        .iov_len = both_msgs.len,
+                                    }};
+                                    try stream.writevAll(&both_msgs_vec);
 
                                     const client_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "c ap traffic", &handshake_hash, P.Hash.digest_length);
                                     const server_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "s ap traffic", &handshake_hash, P.Hash.digest_length);
