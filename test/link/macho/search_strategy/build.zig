@@ -21,8 +21,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         exe.search_strategy = .dylibs_first;
 
         const check = exe.checkObject();
-        check.checkStart("cmd LOAD_DYLIB");
-        check.checkNext("name @rpath/libsearch_dylibs_first.dylib");
+        check.checkStart();
+        check.checkExact("cmd LOAD_DYLIB");
+        check.checkExact("name @rpath/libsearch_dylibs_first.dylib");
         test_step.dependOn(&check.step);
 
         const run = b.addRunArtifact(exe);

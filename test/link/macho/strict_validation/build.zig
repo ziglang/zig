@@ -26,44 +26,51 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const check_exe = exe.checkObject();
 
-    check_exe.checkStart("cmd SEGMENT_64");
-    check_exe.checkNext("segname __LINKEDIT");
-    check_exe.checkNext("fileoff {fileoff}");
-    check_exe.checkNext("filesz {filesz}");
+    check_exe.checkStart();
+    check_exe.checkExact("cmd SEGMENT_64");
+    check_exe.checkExact("segname __LINKEDIT");
+    check_exe.checkExtract("fileoff {fileoff}");
+    check_exe.checkExtract("filesz {filesz}");
 
-    check_exe.checkStart("cmd DYLD_INFO_ONLY");
-    check_exe.checkNext("rebaseoff {rebaseoff}");
-    check_exe.checkNext("rebasesize {rebasesize}");
-    check_exe.checkNext("bindoff {bindoff}");
-    check_exe.checkNext("bindsize {bindsize}");
-    check_exe.checkNext("lazybindoff {lazybindoff}");
-    check_exe.checkNext("lazybindsize {lazybindsize}");
-    check_exe.checkNext("exportoff {exportoff}");
-    check_exe.checkNext("exportsize {exportsize}");
+    check_exe.checkStart();
+    check_exe.checkExact("cmd DYLD_INFO_ONLY");
+    check_exe.checkExtract("rebaseoff {rebaseoff}");
+    check_exe.checkExtract("rebasesize {rebasesize}");
+    check_exe.checkExtract("bindoff {bindoff}");
+    check_exe.checkExtract("bindsize {bindsize}");
+    check_exe.checkExtract("lazybindoff {lazybindoff}");
+    check_exe.checkExtract("lazybindsize {lazybindsize}");
+    check_exe.checkExtract("exportoff {exportoff}");
+    check_exe.checkExtract("exportsize {exportsize}");
 
-    check_exe.checkStart("cmd FUNCTION_STARTS");
-    check_exe.checkNext("dataoff {fstartoff}");
-    check_exe.checkNext("datasize {fstartsize}");
+    check_exe.checkStart();
+    check_exe.checkExact("cmd FUNCTION_STARTS");
+    check_exe.checkExtract("dataoff {fstartoff}");
+    check_exe.checkExtract("datasize {fstartsize}");
 
-    check_exe.checkStart("cmd DATA_IN_CODE");
-    check_exe.checkNext("dataoff {diceoff}");
-    check_exe.checkNext("datasize {dicesize}");
+    check_exe.checkStart();
+    check_exe.checkExact("cmd DATA_IN_CODE");
+    check_exe.checkExtract("dataoff {diceoff}");
+    check_exe.checkExtract("datasize {dicesize}");
 
-    check_exe.checkStart("cmd SYMTAB");
-    check_exe.checkNext("symoff {symoff}");
-    check_exe.checkNext("nsyms {symnsyms}");
-    check_exe.checkNext("stroff {stroff}");
-    check_exe.checkNext("strsize {strsize}");
+    check_exe.checkStart();
+    check_exe.checkExact("cmd SYMTAB");
+    check_exe.checkExtract("symoff {symoff}");
+    check_exe.checkExtract("nsyms {symnsyms}");
+    check_exe.checkExtract("stroff {stroff}");
+    check_exe.checkExtract("strsize {strsize}");
 
-    check_exe.checkStart("cmd DYSYMTAB");
-    check_exe.checkNext("indirectsymoff {dysymoff}");
-    check_exe.checkNext("nindirectsyms {dysymnsyms}");
+    check_exe.checkStart();
+    check_exe.checkExact("cmd DYSYMTAB");
+    check_exe.checkExtract("indirectsymoff {dysymoff}");
+    check_exe.checkExtract("nindirectsyms {dysymnsyms}");
 
     switch (builtin.cpu.arch) {
         .aarch64 => {
-            check_exe.checkStart("cmd CODE_SIGNATURE");
-            check_exe.checkNext("dataoff {codesigoff}");
-            check_exe.checkNext("datasize {codesigsize}");
+            check_exe.checkStart();
+            check_exe.checkExact("cmd CODE_SIGNATURE");
+            check_exe.checkExtract("dataoff {codesigoff}");
+            check_exe.checkExtract("datasize {codesigsize}");
         },
         .x86_64 => {},
         else => unreachable,
