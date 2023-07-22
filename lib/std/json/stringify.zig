@@ -190,13 +190,12 @@ pub fn WriteStream(
         assumed_correct,
     },
 ) type {
-    comptime var safety_checks = safety_checks_hint;
-    safety_checks = switch (@import("builtin").mode) {
-        .Debug, .ReleaseSafe => safety_checks_hint,
-        .ReleaseFast, .ReleaseSmall => .assumed_correct,
-    };
     return struct {
         const Self = @This();
+        const safety_checks: @TypeOf(safety_checks_hint) = switch (@import("builtin").mode) {
+            .Debug, .ReleaseSafe => safety_checks_hint,
+            .ReleaseFast, .ReleaseSmall => .assumed_correct,
+        };
 
         pub const Stream = OutStream;
         pub const Error = switch (safety_checks) {
