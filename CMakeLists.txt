@@ -81,6 +81,8 @@ message(STATUS "Configuring zig version ${RESOLVED_ZIG_VERSION}")
 set(ZIG_NO_LIB off CACHE BOOL
     "Disable copying lib/ files to install prefix during the build phase")
 
+# This used to do something and it may or may not do something in the future.
+# Right now it does nothing.
 set(ZIG_NO_LANGREF off CACHE BOOL
     "Disable copying of langref to the install prefix during the build phase")
 
@@ -828,11 +830,6 @@ if(ZIG_NO_LIB)
 else()
   set(ZIG_NO_LIB_ARG "")
 endif()
-if(ZIG_NO_LANGREF)
-  set(ZIG_NO_LANGREF_ARG "-Dno-langref")
-else()
-  set(ZIG_NO_LANGREF_ARG "")
-endif()
 if(ZIG_SINGLE_THREADED)
   set(ZIG_SINGLE_THREADED_ARG "-Dsingle-threaded")
 else()
@@ -850,6 +847,10 @@ else()
   set(ZIG_PIE_ARG "")
 endif()
 
+# -Dno-langref is currently hardcoded because building the langref takes too damn long
+# -Dno-autodocs is currently hardcoded because the C backend generates a miscompilation
+#   that prevents it from working.
+# To obtain these two forms of documentation, run zig build against stage3 rather than stage2.
 set(ZIG_BUILD_ARGS
   --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
   "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
@@ -857,7 +858,8 @@ set(ZIG_BUILD_ARGS
   ${ZIG_RELEASE_ARG}
   ${ZIG_STATIC_ARG}
   ${ZIG_NO_LIB_ARG}
-  ${ZIG_NO_LANGREF_ARG}
+  "-Dno-langref"
+  "-Dno-autodocs"
   ${ZIG_SINGLE_THREADED_ARG}
   ${ZIG_PIE_ARG}
   "-Dtarget=${ZIG_TARGET_TRIPLE}"
