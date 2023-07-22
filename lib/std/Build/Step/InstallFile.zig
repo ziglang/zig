@@ -53,5 +53,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             full_src_path, full_dest_path, @errorName(err),
         });
     };
+    Step.handleVerboseInstallUpdateFile(dest_builder, prev, full_dest_path);
     step.result_cached = prev == .fresh;
 }

@@ -657,7 +657,7 @@ fn runCommand(
     const cwd: ?[]const u8 = if (self.cwd) |lazy_cwd| lazy_cwd.getPath(b) else null;
 
     try step.handleChildProcUnsupported(cwd, argv);
-    try Step.handleVerbose2(step.owner, cwd, self.env_map, argv);
+    try Step.handleVerboseSpawn2(step.owner, cwd, self.env_map, argv);
 
     const allow_skip = switch (self.stdio) {
         .check, .zig_test => self.skip_foreign_checks,
@@ -784,7 +784,7 @@ fn runCommand(
                 self.addPathForDynLibs(exe);
             }
 
-            try Step.handleVerbose2(step.owner, cwd, self.env_map, interp_argv.items);
+            try Step.handleVerboseSpawn2(step.owner, cwd, self.env_map, interp_argv.items);
 
             break :term spawnChildAndCollect(self, interp_argv.items, has_side_effects, prog_node) catch |e| {
                 if (!self.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;

@@ -116,8 +116,12 @@ pub fn main() !void {
                     usageAndErr(builder, false, stderr_stream);
             }
         } else if (mem.startsWith(u8, arg, "-")) {
-            if (mem.eql(u8, arg, "--verbose")) {
-                builder.verbose = true;
+            if (mem.eql(u8, arg, "--verbose-spawn")) {
+                builder.verbose_spawn = true;
+            } else if (mem.eql(u8, arg, "--verbose-install")) {
+                builder.verbose_install = true;
+            } else if (mem.eql(u8, arg, "--verbose-uninstall")) {
+                builder.verbose_uninstall = true;
             } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                 return usage(builder, false, stdout_stream);
             } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--prefix")) {
@@ -988,7 +992,9 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\
         \\  -h, --help                   Print this help and exit
         \\  -l, --list-steps             Print available steps
-        \\  --verbose                    Print commands before executing them
+        \\  --verbose-spawn              Print to stderr the commandline before spawning any child process
+        \\  --verbose-install            Print to stderr more info during install step (copying build artifacts)
+        \\  --verbose-uninstall          Print to stderr more info during uninstall step (removing build artifacts)
         \\  --color [auto|off|on]        Enable or disable colored error messages
         \\  --summary [mode]             Control the printing of the build summary
         \\    all                        Print the build summary in its entirety

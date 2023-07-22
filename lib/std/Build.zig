@@ -66,7 +66,9 @@ allocator: Allocator,
 user_input_options: UserInputOptionsMap,
 available_options_map: AvailableOptionsMap,
 available_options_list: ArrayList(AvailableOption),
-verbose: bool,
+verbose_spawn: bool,
+verbose_install: bool,
+verbose_uninstall: bool,
 verbose_link: bool,
 verbose_cc: bool,
 verbose_air: bool,
@@ -267,7 +269,9 @@ pub fn create(
         .cache_root = cache_root,
         .global_cache_root = global_cache_root,
         .cache = cache,
-        .verbose = false,
+        .verbose_spawn = false,
+        .verbose_install = false,
+        .verbose_uninstall = false,
         .verbose_link = false,
         .verbose_cc = false,
         .verbose_air = false,
@@ -358,7 +362,9 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .user_input_options = user_input_options,
         .available_options_map = AvailableOptionsMap.init(allocator),
         .available_options_list = ArrayList(AvailableOption).init(allocator),
-        .verbose = parent.verbose,
+        .verbose_spawn = parent.verbose_spawn,
+        .verbose_install = parent.verbose_install,
+        .verbose_uninstall = parent.verbose_uninstall,
         .verbose_link = parent.verbose_link,
         .verbose_cc = parent.verbose_cc,
         .verbose_air = parent.verbose_air,
@@ -985,7 +991,8 @@ fn makeUninstall(uninstall_step: *Step, prog_node: *std.Progress.Node) anyerror!
 
     for (self.installed_files.items) |installed_file| {
         const full_path = self.getInstallPath(installed_file.dir, installed_file.path);
-        if (self.verbose) {
+        if (self.verbose_uninstall) {
+            // log implementation must acquire stdErr mutex during parallel builds
             log.info("rm {s}", .{full_path});
         }
         fs.cwd().deleteTree(full_path) catch {};
@@ -1535,10 +1542,7 @@ pub fn pushInstalledFile(self: *Build, dir: InstallDir, dest_rel_path: []const u
     self.installed_files.append(file.dupe(self)) catch @panic("OOM");
 }
 
-pub fn truncateFile(self: *Build, dest_path: []const u8) !void {
-    if (self.verbose) {
-        log.info("truncate {s}", .{dest_path});
-    }
+pub fn truncateFile(dest_path: []const u8) !void {
     const cwd = fs.cwd();
     var src_file = cwd.createFile(dest_path, .{}) catch |err| switch (err) {
         error.FileNotFound => blk: {
@@ -1633,6 +1637,7 @@ pub fn execAllowFail(
     child.stderr_behavior = stderr_behavior;
     child.env_map = self.env_map;
 
+    try Step.handleVerboseSpawn2(self, child.cwd, child.env_map, argv);
     try child.spawn();
 
     const stdout = child.stdout.?.reader().readAllAlloc(self.allocator, max_output_size) catch {

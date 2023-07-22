@@ -271,7 +271,7 @@ pub fn evalChildProcess(s: *Step, argv: []const []const u8) !void {
     const arena = s.owner.allocator;
 
     try handleChildProcUnsupported(s, null, argv);
-    try handleVerbose(s.owner, null, argv);
+    try handleVerboseSpawn(s.owner, null, argv);
 
     const result = std.ChildProcess.exec(.{
         .allocator = arena,
@@ -309,7 +309,7 @@ pub fn evalZigProcess(
     const gpa = arena;
 
     try handleChildProcUnsupported(s, null, argv);
-    try handleVerbose(s.owner, null, argv);
+    try handleVerboseSpawn(s.owner, null, argv);
 
     var child = std.ChildProcess.init(argv, arena);
     child.env_map = b.env_map;
@@ -442,22 +442,22 @@ fn sendMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag) !void {
     try file.writeAll(std.mem.asBytes(&header));
 }
 
-pub fn handleVerbose(
+pub fn handleVerboseSpawn(
     b: *Build,
     opt_cwd: ?[]const u8,
     argv: []const []const u8,
 ) error{OutOfMemory}!void {
-    return handleVerbose2(b, opt_cwd, null, argv);
+    return handleVerboseSpawn2(b, opt_cwd, null, argv);
 }
 
-pub fn handleVerbose2(
+pub fn handleVerboseSpawn2(
     b: *Build,
     opt_cwd: ?[]const u8,
     opt_env: ?*const std.process.EnvMap,
     argv: []const []const u8,
 ) error{OutOfMemory}!void {
-    if (b.verbose) {
-        // Intention of verbose is to print all sub-process command lines to
+    if (b.verbose_spawn) {
+        // Intention of verbose_spawn is to print all sub-process command lines to
         // stderr before spawning them.
         const text = try allocPrintCmd2(b.allocator, opt_cwd, opt_env, argv);
         std.debug.print("{s}\n", .{text});
@@ -499,6 +499,20 @@ pub fn handleChildProcessTerm(
                 .{try allocPrintCmd(arena, opt_cwd, argv)},
             );
         },
+    }
+}
+pub fn handleVerboseInstallUpdateFile(
+    b: *Build,
+    status_result: std.fs.PrevStatus,
+    dest_path: []const u8,
+) void {
+    if (b.verbose_install) {
+        // log implementation responsible for acquiring stdErr mutex
+        const action_was = switch (status_result) {
+            .fresh => "cached",
+            .stale => "update",
+        };
+        std.log.info("{s} {s}", .{ action_was, dest_path });
     }
 }
 
