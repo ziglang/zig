@@ -2456,45 +2456,45 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
         while (true) {
             switch (node_tags[inner_node]) {
                 // zig fmt: off
-            .global_var_decl,
-            .local_var_decl,
-            .simple_var_decl,
-            .aligned_var_decl, => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.fullVarDecl(statement).?),
+                .global_var_decl,
+                .local_var_decl,
+                .simple_var_decl,
+                .aligned_var_decl, => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.fullVarDecl(statement).?),
 
-            .@"defer"    => scope = try deferStmt(gz, scope, statement, block_arena_allocator, .defer_normal),
-            .@"errdefer" => scope = try deferStmt(gz, scope, statement, block_arena_allocator, .defer_error),
+                .@"defer"    => scope = try deferStmt(gz, scope, statement, block_arena_allocator, .defer_normal),
+                .@"errdefer" => scope = try deferStmt(gz, scope, statement, block_arena_allocator, .defer_error),
 
-            .assign => try assign(gz, scope, statement),
+                .assign => try assign(gz, scope, statement),
 
-            .assign_shl => try assignShift(gz, scope, statement, .shl),
-            .assign_shr => try assignShift(gz, scope, statement, .shr),
+                .assign_shl => try assignShift(gz, scope, statement, .shl),
+                .assign_shr => try assignShift(gz, scope, statement, .shr),
 
-            .assign_bit_and  => try assignOp(gz, scope, statement, .bit_and),
-            .assign_bit_or   => try assignOp(gz, scope, statement, .bit_or),
-            .assign_bit_xor  => try assignOp(gz, scope, statement, .xor),
-            .assign_div      => try assignOp(gz, scope, statement, .div),
-            .assign_sub      => try assignOp(gz, scope, statement, .sub),
-            .assign_sub_wrap => try assignOp(gz, scope, statement, .subwrap),
-            .assign_mod      => try assignOp(gz, scope, statement, .mod_rem),
-            .assign_add      => try assignOp(gz, scope, statement, .add),
-            .assign_add_wrap => try assignOp(gz, scope, statement, .addwrap),
-            .assign_mul      => try assignOp(gz, scope, statement, .mul),
-            .assign_mul_wrap => try assignOp(gz, scope, statement, .mulwrap),
+                .assign_bit_and  => try assignOp(gz, scope, statement, .bit_and),
+                .assign_bit_or   => try assignOp(gz, scope, statement, .bit_or),
+                .assign_bit_xor  => try assignOp(gz, scope, statement, .xor),
+                .assign_div      => try assignOp(gz, scope, statement, .div),
+                .assign_sub      => try assignOp(gz, scope, statement, .sub),
+                .assign_sub_wrap => try assignOp(gz, scope, statement, .subwrap),
+                .assign_mod      => try assignOp(gz, scope, statement, .mod_rem),
+                .assign_add      => try assignOp(gz, scope, statement, .add),
+                .assign_add_wrap => try assignOp(gz, scope, statement, .addwrap),
+                .assign_mul      => try assignOp(gz, scope, statement, .mul),
+                .assign_mul_wrap => try assignOp(gz, scope, statement, .mulwrap),
 
-            .grouped_expression => {
-                inner_node = node_data[statement].lhs;
-                continue;
-            },
+                .grouped_expression => {
+                    inner_node = node_data[statement].lhs;
+                    continue;
+                },
 
-            .while_simple,
-            .while_cont,
-            .@"while", => _ = try whileExpr(gz, scope, .{ .rl = .none }, inner_node, tree.fullWhile(inner_node).?, true),
+                .while_simple,
+                .while_cont,
+                .@"while", => _ = try whileExpr(gz, scope, .{ .rl = .none }, inner_node, tree.fullWhile(inner_node).?, true),
 
-            .for_simple,
-            .@"for", => _ = try forExpr(gz, scope, .{ .rl = .none }, inner_node, tree.fullFor(inner_node).?, true),
+                .for_simple,
+                .@"for", => _ = try forExpr(gz, scope, .{ .rl = .none }, inner_node, tree.fullFor(inner_node).?, true),
 
-            else => noreturn_src_node = try unusedResultExpr(gz, scope, inner_node),
-            // zig fmt: on
+                else => noreturn_src_node = try unusedResultExpr(gz, scope, inner_node),
+                // zig fmt: on
             }
             break;
         }
@@ -8428,11 +8428,11 @@ fn builtinCall(
         .bit_size_of => return simpleUnOpType(gz, scope, ri, node, params[0], .bit_size_of),
         .align_of    => return simpleUnOpType(gz, scope, ri, node, params[0], .align_of),
 
-        .int_from_ptr            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .int_from_ptr),
+        .int_from_ptr          => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .int_from_ptr),
         .compile_error         => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[0], .compile_error),
         .set_eval_branch_quota => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .coerced_ty = .u32_type } },    params[0], .set_eval_branch_quota),
-        .int_from_enum           => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .int_from_enum),
-        .int_from_bool           => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .int_from_bool),
+        .int_from_enum         => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .int_from_enum),
+        .int_from_bool         => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .int_from_bool),
         .embed_file            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[0], .embed_file),
         .error_name            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .anyerror_type } },       params[0], .error_name),
         .set_runtime_safety    => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .set_runtime_safety),
@@ -8550,8 +8550,8 @@ fn builtinCall(
         .shl_exact => return shiftOp(gz, scope, ri, node, params[0], params[1], .shl_exact),
         .shr_exact => return shiftOp(gz, scope, ri, node, params[0], params[1], .shr_exact),
 
-        .bit_offset_of  => return offsetOf(gz, scope, ri, node, params[0], params[1], .bit_offset_of),
-        .offset_of => return offsetOf(gz, scope, ri, node, params[0], params[1], .offset_of),
+        .bit_offset_of => return offsetOf(gz, scope, ri, node, params[0], params[1], .bit_offset_of),
+        .offset_of     => return offsetOf(gz, scope, ri, node, params[0], params[1], .offset_of),
 
         .c_undef   => return simpleCBuiltin(gz, scope, ri, node, params[0], .c_undef),
         .c_include => return simpleCBuiltin(gz, scope, ri, node, params[0], .c_include),
