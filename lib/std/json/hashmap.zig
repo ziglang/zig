@@ -28,12 +28,6 @@ pub fn ArrayHashMap(comptime T: type) type {
                 switch (token) {
                     inline .string, .allocated_string => |k| {
                         const gop = try map.getOrPut(allocator, k);
-                        // Don't free the key if its allocation was intentional
-                        if (token == .allocated_string and options.allocate != .alloc_always) {
-                            // Free the key before recursing in case we're using an allocator
-                            // that optimizes freeing the last allocated object.
-                            allocator.free(k);
-                        }
                         if (gop.found_existing) {
                             switch (options.duplicate_field_behavior) {
                                 .use_first => {
