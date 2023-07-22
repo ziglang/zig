@@ -109,6 +109,7 @@ pub fn writeStream(
 /// `max_depth` is rounded up to the nearest multiple of 8.
 /// If the nesting depth exceeds `max_depth`, it is detectable illegal behavior.
 /// Give `null` for `max_depth` to disable safety checks for the grammar and allow arbitrary nesting depth.
+/// In `ReleaseFast` and `ReleaseSmall`, `max_depth` is ignored, effectively equivalent to passing `null`.
 /// Alternatively, see `writeStreamArbitraryDepth` to do safety checks to arbitrary depth.
 ///
 /// The caller does *not* need to call `deinit()` on the returned object.
@@ -130,6 +131,9 @@ pub fn writeStreamMaxDepth(
 /// This version of the write stream enables safety checks to arbitrarily deep nesting levels
 /// by using the given allocator.
 /// The caller should call `deinit()` on the returned object to free allocated memory.
+///
+/// In `ReleaseFast` and `ReleaseSmall` mode, this function is effectively equivalent to calling `writeStreamMaxDepth(..., null)`;
+/// in those build modes, the allocator is *not used*.
 pub fn writeStreamArbitraryDepth(
     allocator: Allocator,
     out_stream: anytype,
@@ -176,9 +180,11 @@ pub fn writeStreamArbitraryDepth(
 ///      * If the enum declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
 ///  * Zig error -> JSON string naming the error.
 ///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
+///
+/// In `ReleaseFast` and `ReleaseSmall` mode, the given `safety_checks_hint` is ignored and is always treated as `.assumed_correct`.
 pub fn WriteStream(
     comptime OutStream: type,
-    comptime safety_checks: union(enum) {
+    comptime safety_checks_hint: union(enum) {
         checked_to_arbitrary_depth,
         checked_to_fixed_depth: usize, // Rounded up to the nearest multiple of 8.
         assumed_correct,
@@ -186,6 +192,10 @@ pub fn WriteStream(
 ) type {
     return struct {
         const Self = @This();
+        const safety_checks: @TypeOf(safety_checks_hint) = switch (@import("builtin").mode) {
+            .Debug, .ReleaseSafe => safety_checks_hint,
+            .ReleaseFast, .ReleaseSmall => .assumed_correct,
+        };
 
         pub const Stream = OutStream;
         pub const Error = switch (safety_checks) {
