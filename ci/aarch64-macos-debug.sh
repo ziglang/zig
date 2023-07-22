@@ -39,6 +39,7 @@ PATH="$HOME/local/bin:$PATH" cmake .. \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
+  -DZIG_NO_LIB=ON \
   -GNinja
 
 $HOME/local/bin/ninja install
@@ -49,6 +50,3 @@ stage3-debug/bin/zig build test docs \
   -Dstatic-llvm \
   -Dskip-non-native \
   --search-prefix "$PREFIX"
-
-# Produce the experimental std lib documentation.
-stage3-debug/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib

@@ -15,7 +15,6 @@ const log = std.log.scoped(.autodoc);
 const renderer = @import("autodoc/render_source.zig");
 
 comp_module: *CompilationModule,
-doc_location: Compilation.EmitLoc,
 arena: std.mem.Allocator,
 
 // The goal of autodoc is to fill up these arrays
@@ -74,28 +73,23 @@ const Section = struct {
     };
 };
 
-var arena_allocator: std.heap.ArenaAllocator = undefined;
-pub fn init(m: *CompilationModule, doc_location: Compilation.EmitLoc) Autodoc {
-    arena_allocator = std.heap.ArenaAllocator.init(m.gpa);
-    return .{
-        .comp_module = m,
-        .doc_location = doc_location,
+pub fn generate(cm: *CompilationModule, output_dir: std.fs.Dir) !void {
+    var arena_allocator = std.heap.ArenaAllocator.init(cm.gpa);
+    defer arena_allocator.deinit();
+    var autodoc: Autodoc = .{
+        .comp_module = cm,
         .arena = arena_allocator.allocator(),
     };
+    try autodoc.generateZirData(output_dir);
+
+    const lib_dir = cm.comp.zig_lib_directory.handle;
+    try lib_dir.copyFile("docs/main.js", output_dir, "main.js", .{});
+    try lib_dir.copyFile("docs/ziglexer.js", output_dir, "ziglexer.js", .{});
+    try lib_dir.copyFile("docs/commonmark.js", output_dir, "commonmark.js", .{});
+    try lib_dir.copyFile("docs/index.html", output_dir, "index.html", .{});
 }
 
-pub fn deinit(_: *Autodoc) void {
-    arena_allocator.deinit();
-}
-
-/// The entry point of the Autodoc generation process.
-pub fn generateZirData(self: *Autodoc) !void {
-    if (self.doc_location.directory) |dir| {
-        if (dir.path) |path| {
-            log.debug("path: {s}", .{path});
-        }
-    }
-
+fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
     const root_src_dir = self.comp_module.main_pkg.root_src_directory;
     const root_src_path = self.comp_module.main_pkg.root_src_path;
     const joined_src_path = try root_src_dir.join(self.arena, &.{root_src_path});
@@ -362,19 +356,6 @@ pub fn generateZirData(self: *Autodoc) !void {
         .guide_sections = self.guide_sections,
     };
 
-    const base_dir = self.doc_location.directory orelse
-        self.comp_module.zig_cache_artifact_directory;
-
-    base_dir.handle.makeDir(self.doc_location.basename) catch |e| switch (e) {
-        error.PathAlreadyExists => {},
-        else => |err| return err,
-    };
-
-    const output_dir = if (self.doc_location.directory) |d|
-        try d.handle.openDir(self.doc_location.basename, .{})
-    else
-        try self.comp_module.zig_cache_artifact_directory.handle.openDir(self.doc_location.basename, .{});
-
     {
         const data_js_f = try output_dir.createFile("data.js", .{});
         defer data_js_f.close();
@@ -386,7 +367,7 @@ pub fn generateZirData(self: *Autodoc) !void {
             \\ var zigAnalysis=
         , .{});
         try std.json.stringifyArbitraryDepth(
-            arena_allocator.allocator(),
+            self.arena,
             data,
             .{
                 .whitespace = .minified,
@@ -439,14 +420,6 @@ pub fn generateZirData(self: *Autodoc) !void {
             try buffer.flush();
         }
     }
-
-    // copy main.js, index.html
-    var docs_dir = try self.comp_module.comp.zig_lib_directory.handle.openDir("docs", .{});
-    defer docs_dir.close();
-    try docs_dir.copyFile("main.js", output_dir, "main.js", .{});
-    try docs_dir.copyFile("ziglexer.js", output_dir, "ziglexer.js", .{});
-    try docs_dir.copyFile("commonmark.js", output_dir, "commonmark.js", .{});
-    try docs_dir.copyFile("index.html", output_dir, "index.html", .{});
 }
 
 /// Represents a chain of scopes, used to resolve decl references to the
