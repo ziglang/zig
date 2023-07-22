@@ -436,7 +436,7 @@ pub const FixedBufferAllocator = struct {
         const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
         _ = log2_buf_align;
         _ = return_address;
-        assert(self.ownsSlice(buf)); // sanity check
+        assert(@inComptime() or self.ownsSlice(buf));
 
         if (!self.isLastAllocation(buf)) {
             if (new_size > buf.len) return false;
@@ -465,7 +465,7 @@ pub const FixedBufferAllocator = struct {
         const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
         _ = log2_buf_align;
         _ = return_address;
-        assert(self.ownsSlice(buf)); // sanity check
+        assert(@inComptime() or self.ownsSlice(buf));
 
         if (self.isLastAllocation(buf)) {
             self.end_index -= buf.len;
