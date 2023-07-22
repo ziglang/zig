@@ -43,7 +43,8 @@ cmake .. \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-target;$TARGET;-mcpu=$MCPU" \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON
+  -DZIG_STATIC=ON \
+  -DZIG_NO_LIB=ON
 
 make $JOBS install
 
@@ -53,9 +54,6 @@ stage3/bin/zig build test docs \
   -Dstatic-llvm \
   -Dskip-non-native \
   --search-prefix "$PREFIX"
-
-# Produce the experimental std lib documentation.
-stage3/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3/bin/zig build \

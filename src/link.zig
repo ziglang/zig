@@ -71,8 +71,10 @@ pub const Emit = struct {
 pub const Options = struct {
     /// This is `null` when `-fno-emit-bin` is used.
     emit: ?Emit,
-    /// This is `null` not building a Windows DLL, or when `-fno-emit-implib` is used.
+    /// This is `null` when not building a Windows DLL, or when `-fno-emit-implib` is used.
     implib_emit: ?Emit,
+    /// This is non-null when `-femit-docs` is provided.
+    docs_emit: ?Emit,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
