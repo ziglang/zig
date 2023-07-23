@@ -2065,7 +2065,7 @@ pub const Type = struct {
     pub fn errorSetIsEmpty(ty: Type, mod: *Module) bool {
         const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
-            .anyerror_type => false,
+            .anyerror_type, .adhoc_inferred_error_set_type => false,
             else => switch (ip.indexToKey(ty.toIntern())) {
                 .error_set_type => |error_set_type| error_set_type.names.len == 0,
                 .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
@@ -2084,6 +2084,7 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
             .anyerror_type => true,
+            .adhoc_inferred_error_set_type => false,
             else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .inferred_error_set_type => |i| ip.funcIesResolved(i).* == .anyerror_type,
                 else => false,
