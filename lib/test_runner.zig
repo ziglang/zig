@@ -26,6 +26,7 @@ pub fn main() void {
             listen = true;
         } else {
             @panic("unrecognized command line argument");
+            //listen = false;
         }
     }
 
