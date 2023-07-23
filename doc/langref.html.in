@@ -2286,7 +2286,7 @@ value == null{#endsyntax#}</pre>
           <td>
             Array concatenation.
             <ul>
-              <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
+              <li>Only available when the lengths of both {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
           </td>
           <td>
@@ -2307,7 +2307,7 @@ mem.eql(u32, &together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           <td>
             Array multiplication.
             <ul>
-              <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
+              <li>Only available when the length of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
           </td>
           <td>
