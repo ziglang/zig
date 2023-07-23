@@ -5491,6 +5491,7 @@ fn buildOutputFromZig(
         .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
         .want_valgrind = false,
         .want_tsan = false,
+        .want_unwind_tables = comp.bin_file.options.eh_frame_hdr,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
@@ -5639,9 +5640,5 @@ pub fn compilerRtOptMode(comp: Compilation) std.builtin.Mode {
 /// This decides whether to strip debug info for all zig-provided libraries, including
 /// compiler-rt, libcxx, libc, libunwind, etc.
 pub fn compilerRtStrip(comp: Compilation) bool {
-    if (comp.debug_compiler_runtime_libs) {
-        return comp.bin_file.options.strip;
-    } else {
-        return true;
-    }
+    return comp.bin_file.options.strip;
 }
