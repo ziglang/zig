@@ -32,7 +32,7 @@ pub const XxHash64 = struct {
             };
         }
 
-        inline fn updateEmpty(self: *Accumulator, input: anytype, comptime unroll_count: usize) usize {
+        fn updateEmpty(self: *Accumulator, input: anytype, comptime unroll_count: usize) usize {
             var i: usize = 0;
 
             if (unroll_count > 0) {
@@ -51,14 +51,14 @@ pub const XxHash64 = struct {
             return i;
         }
 
-        inline fn processStripe(self: *Accumulator, buf: *const [32]u8) void {
+        fn processStripe(self: *Accumulator, buf: *const [32]u8) void {
             self.acc1 = round(self.acc1, mem.readIntLittle(u64, buf[0..8]));
             self.acc2 = round(self.acc2, mem.readIntLittle(u64, buf[8..16]));
             self.acc3 = round(self.acc3, mem.readIntLittle(u64, buf[16..24]));
             self.acc4 = round(self.acc4, mem.readIntLittle(u64, buf[24..32]));
         }
 
-        inline fn merge(self: Accumulator) u64 {
+        fn merge(self: Accumulator) u64 {
             var acc = rotl(u64, self.acc1, 1) +% rotl(u64, self.acc2, 7) +%
                 rotl(u64, self.acc3, 12) +% rotl(u64, self.acc4, 18);
             acc = mergeAccumulator(acc, self.acc1);
@@ -68,14 +68,14 @@ pub const XxHash64 = struct {
             return acc;
         }
 
-        inline fn mergeAccumulator(acc: u64, other: u64) u64 {
+        fn mergeAccumulator(acc: u64, other: u64) u64 {
             const a = acc ^ round(0, other);
             const b = a *% prime_1;
             return b +% prime_4;
         }
     };
 
-    inline fn finalize(
+    fn finalize(
         unfinished: u64,
         byte_count: usize,
         partial: anytype,
@@ -136,7 +136,7 @@ pub const XxHash64 = struct {
         }
     }
 
-    inline fn finalize8(v: u64, bytes: *const [8]u8) u64 {
+    fn finalize8(v: u64, bytes: *const [8]u8) u64 {
         var acc = v;
         const lane = mem.readIntLittle(u64, bytes);
         acc ^= round(0, lane);
@@ -145,7 +145,7 @@ pub const XxHash64 = struct {
         return acc;
     }
 
-    inline fn finalize4(v: u64, bytes: *const [4]u8) u64 {
+    fn finalize4(v: u64, bytes: *const [4]u8) u64 {
         var acc = v;
         const lane = @as(u64, mem.readIntLittle(u32, bytes));
         acc ^= lane *% prime_1;
@@ -154,7 +154,7 @@ pub const XxHash64 = struct {
         return acc;
     }
 
-    inline fn finalize1(v: u64, byte: u8) u64 {
+    fn finalize1(v: u64, byte: u8) u64 {
         var acc = v;
         const lane = @as(u64, byte);
         acc ^= lane *% prime_5;
@@ -162,7 +162,7 @@ pub const XxHash64 = struct {
         return acc;
     }
 
-    inline fn avalanche(value: u64) u64 {
+    fn avalanche(value: u64) u64 {
         var result = value ^ (value >> 33);
         result *%= prime_2;
         result ^= result >> 29;
@@ -208,7 +208,7 @@ pub const XxHash64 = struct {
         self.buf_len = remaining_bytes.len;
     }
 
-    inline fn round(acc: u64, lane: u64) u64 {
+    fn round(acc: u64, lane: u64) u64 {
         const a = acc +% (lane *% prime_2);
         const b = rotl(u64, a, 31);
         return b *% prime_1;
@@ -270,7 +270,7 @@ pub const XxHash32 = struct {
             };
         }
 
-        inline fn updateEmpty(self: *Accumulator, input: anytype, comptime unroll_count: usize) usize {
+        fn updateEmpty(self: *Accumulator, input: anytype, comptime unroll_count: usize) usize {
             var i: usize = 0;
 
             if (unroll_count > 0) {
@@ -289,14 +289,14 @@ pub const XxHash32 = struct {
             return i;
         }
 
-        inline fn processStripe(self: *Accumulator, buf: *const [16]u8) void {
+        fn processStripe(self: *Accumulator, buf: *const [16]u8) void {
             self.acc1 = round(self.acc1, mem.readIntLittle(u32, buf[0..4]));
             self.acc2 = round(self.acc2, mem.readIntLittle(u32, buf[4..8]));
             self.acc3 = round(self.acc3, mem.readIntLittle(u32, buf[8..12]));
             self.acc4 = round(self.acc4, mem.readIntLittle(u32, buf[12..16]));
         }
 
-        inline fn merge(self: Accumulator) u32 {
+        fn merge(self: Accumulator) u32 {
             return rotl(u32, self.acc1, 1) +% rotl(u32, self.acc2, 7) +%
                 rotl(u32, self.acc3, 12) +% rotl(u32, self.acc4, 18);
         }
@@ -339,7 +339,7 @@ pub const XxHash32 = struct {
         self.buf_len = remaining_bytes.len;
     }
 
-    inline fn round(acc: u32, lane: u32) u32 {
+    fn round(acc: u32, lane: u32) u32 {
         const a = acc +% (lane *% prime_2);
         const b = rotl(u32, a, 13);
         return b *% prime_1;
@@ -354,7 +354,7 @@ pub const XxHash32 = struct {
         return finalize(unfinished, self.byte_count, self.buf[0..self.buf_len]);
     }
 
-    inline fn finalize(unfinished: u32, byte_count: usize, partial: anytype) u32 {
+    fn finalize(unfinished: u32, byte_count: usize, partial: anytype) u32 {
         std.debug.assert(partial.len < 16);
         var acc = unfinished +% @as(u32, @intCast(byte_count)) +% @as(u32, @intCast(partial.len));
 
@@ -387,7 +387,7 @@ pub const XxHash32 = struct {
         return avalanche(acc);
     }
 
-    inline fn finalize4(v: u32, bytes: *const [4]u8) u32 {
+    fn finalize4(v: u32, bytes: *const [4]u8) u32 {
         var acc = v;
         const lane = mem.readIntLittle(u32, bytes);
         acc +%= lane *% prime_3;
@@ -395,7 +395,7 @@ pub const XxHash32 = struct {
         return acc;
     }
 
-    inline fn finalize1(v: u32, byte: u8) u32 {
+    fn finalize1(v: u32, byte: u8) u32 {
         var acc = v;
         const lane = @as(u32, byte);
         acc +%= lane *% prime_5;
@@ -403,7 +403,7 @@ pub const XxHash32 = struct {
         return acc;
     }
 
-    inline fn avalanche(value: u32) u32 {
+    fn avalanche(value: u32) u32 {
         var acc = value ^ value >> 15;
         acc *%= prime_2;
         acc ^= acc >> 13;
