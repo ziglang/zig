@@ -6780,7 +6780,7 @@ pub const FuncGen = struct {
 
         const max_param_count = inputs.len + outputs.len;
         const llvm_param_types = try arena.alloc(Builder.Type, max_param_count);
-        const llvm_param_values = try arena.alloc(*llvm.Value, max_param_count);
+        const llvm_param_values = try arena.alloc(Builder.Value, max_param_count);
         // This stores whether we need to add an elementtype attribute and
         // if so, the element type itself.
         const llvm_param_attrs = try arena.alloc(Builder.Type, max_param_count);
@@ -6820,7 +6820,7 @@ pub const FuncGen = struct {
                     // Pass the result by reference as an indirect output (e.g. "=*m")
                     llvm_constraints.appendAssumeCapacity('*');
 
-                    llvm_param_values[llvm_param_i] = output_inst.toLlvm(&self.wip);
+                    llvm_param_values[llvm_param_i] = output_inst;
                     llvm_param_types[llvm_param_i] = output_inst.typeOfWip(&self.wip);
                     llvm_param_attrs[llvm_param_i] = elem_llvm_ty;
                     llvm_param_i += 1;
@@ -6870,25 +6870,25 @@ pub const FuncGen = struct {
             if (isByRef(arg_ty, mod)) {
                 llvm_elem_ty = try o.lowerPtrElemTy(arg_ty);
                 if (constraintAllowsMemory(constraint)) {
-                    llvm_param_values[llvm_param_i] = arg_llvm_value.toLlvm(&self.wip);
+                    llvm_param_values[llvm_param_i] = arg_llvm_value;
                     llvm_param_types[llvm_param_i] = arg_llvm_value.typeOfWip(&self.wip);
                 } else {
                     const alignment = Builder.Alignment.fromByteUnits(arg_ty.abiAlignment(mod));
                     const arg_llvm_ty = try o.lowerType(arg_ty);
                     const load_inst =
                         try self.wip.load(.normal, arg_llvm_ty, arg_llvm_value, alignment, "");
-                    llvm_param_values[llvm_param_i] = load_inst.toLlvm(&self.wip);
+                    llvm_param_values[llvm_param_i] = load_inst;
                     llvm_param_types[llvm_param_i] = arg_llvm_ty;
                 }
             } else {
                 if (constraintAllowsRegister(constraint)) {
-                    llvm_param_values[llvm_param_i] = arg_llvm_value.toLlvm(&self.wip);
+                    llvm_param_values[llvm_param_i] = arg_llvm_value;
                     llvm_param_types[llvm_param_i] = arg_llvm_value.typeOfWip(&self.wip);
                 } else {
                     const alignment = Builder.Alignment.fromByteUnits(arg_ty.abiAlignment(mod));
                     const arg_ptr = try self.buildAlloca(arg_llvm_value.typeOfWip(&self.wip), alignment);
                     _ = try self.wip.store(.normal, arg_llvm_value, arg_ptr, alignment);
-                    llvm_param_values[llvm_param_i] = arg_ptr.toLlvm(&self.wip);
+                    llvm_param_values[llvm_param_i] = arg_ptr;
                     llvm_param_types[llvm_param_i] = arg_ptr.typeOfWip(&self.wip);
                 }
             }
@@ -7037,40 +7037,24 @@ pub const FuncGen = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
+        for (llvm_param_attrs[0..param_count], 0..) |llvm_elem_ty, i| if (llvm_elem_ty != .none)
+            try attributes.addParamAttr(i, .{ .elementtype = llvm_elem_ty }, &o.builder);
 
         const ret_llvm_ty = switch (return_count) {
             0 => .void,
             1 => llvm_ret_types[0],
             else => try o.builder.structType(.normal, llvm_ret_types),
         };
-
         const llvm_fn_ty = try o.builder.fnType(ret_llvm_ty, llvm_param_types[0..param_count], .normal);
-        const asm_fn = llvm.getInlineAsm(
-            llvm_fn_ty.toLlvm(&o.builder),
-            rendered_template.items.ptr,
-            rendered_template.items.len,
-            llvm_constraints.items.ptr,
-            llvm_constraints.items.len,
-            llvm.Bool.fromBool(is_volatile),
-            .False,
-            .ATT,
-            .False,
-        );
-        const call = (try self.wip.unimplemented(ret_llvm_ty, "")).finish(self.builder.buildCallOld(
-            llvm_fn_ty.toLlvm(&o.builder),
-            asm_fn,
-            llvm_param_values.ptr,
-            @intCast(param_count),
-            .C,
-            .Auto,
+        const call = try self.wip.callAsm(
+            try attributes.finish(&o.builder),
+            llvm_fn_ty,
+            .{ .sideeffect = is_volatile },
+            try o.builder.string(rendered_template.items),
+            try o.builder.string(llvm_constraints.items),
+            llvm_param_values[0..param_count],
             "",
-        ), &self.wip);
-        for (llvm_param_attrs[0..param_count], 0..) |llvm_elem_ty, i| {
-            if (llvm_elem_ty != .none) {
-                try attributes.addParamAttr(i, .{ .elementtype = llvm_elem_ty }, &o.builder);
-                llvm.setCallElemTypeAttr(call.toLlvm(&self.wip), i, llvm_elem_ty.toLlvm(&o.builder));
-            }
-        }
+        );
 
         var ret_val = call;
         llvm_ret_i = 0;

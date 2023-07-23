@@ -1072,7 +1072,7 @@ pub const Attribute = union(Kind) {
             _: std.fmt.FormatOptions,
             writer: anytype,
         ) @TypeOf(writer).Error!void {
-            if (comptime std.mem.indexOfNone(u8, fmt_str, "\"")) |_|
+            if (comptime std.mem.indexOfNone(u8, fmt_str, "\"#")) |_|
                 @compileError("invalid format string: '" ++ fmt_str ++ "'");
             const attribute = data.attribute_index.toAttribute(data.builder);
             switch (attribute) {
@@ -1154,17 +1154,72 @@ pub const Attribute = union(Kind) {
                 .sret,
                 .elementtype,
                 => |ty| try writer.print(" {s}({%})", .{ @tagName(attribute), ty.fmt(data.builder) }),
-                .@"align" => @panic("todo"),
+                .@"align" => |alignment| try writer.print("{}", .{alignment}),
                 .dereferenceable,
                 .dereferenceable_or_null,
-                => @panic("todo"),
-                .nofpclass => @panic("todo"),
-                .alignstack => @panic("todo"),
-                .allockind => @panic("todo"),
-                .allocsize => @panic("todo"),
-                .memory => @panic("todo"),
-                .uwtable => @panic("todo"),
-                .vscale_range => @panic("todo"),
+                => |size| try writer.print(" {s}({d})", .{ @tagName(attribute), size }),
+                .nofpclass => |fpclass| {
+                    const Int = @typeInfo(FpClass).Struct.backing_integer.?;
+                    try writer.print("{s}(", .{@tagName(attribute)});
+                    var any = false;
+                    var remaining: Int = @bitCast(fpclass);
+                    inline for (@typeInfo(FpClass).Struct.decls) |decl| {
+                        if (!decl.is_pub) continue;
+                        const pattern: Int = @bitCast(@field(FpClass, decl.name));
+                        if (remaining & pattern == pattern) {
+                            if (!any) {
+                                try writer.writeByte(' ');
+                                any = true;
+                            }
+                            try writer.writeAll(decl.name);
+                            remaining &= ~pattern;
+                        }
+                    }
+                    try writer.writeByte(')');
+                },
+                .alignstack => |alignment| try writer.print(
+                    if (comptime std.mem.indexOfScalar(u8, fmt_str, '#') != null)
+                        "{s}={d}"
+                    else
+                        "{s}({d})",
+                    .{ @tagName(attribute), alignment.toByteUnits() orelse return },
+                ),
+                .allockind => |allockind| {
+                    try writer.print("{s}(\"", .{@tagName(attribute)});
+                    var any = false;
+                    inline for (@typeInfo(AllocKind).Struct.fields) |field| {
+                        if (comptime std.mem.eql(u8, field.name, "_")) continue;
+                        if (@field(allockind, field.name)) {
+                            if (!any) {
+                                try writer.writeByte(',');
+                                any = true;
+                            }
+                            try writer.writeAll(field.name);
+                        }
+                    }
+                    try writer.writeAll("\")");
+                },
+                .allocsize => |allocsize| {
+                    try writer.print("{s}({d}", .{ @tagName(attribute), allocsize.elem_size });
+                    if (allocsize.num_elems != AllocSize.none)
+                        try writer.print(",{d}", .{allocsize.num_elems});
+                    try writer.writeByte(')');
+                },
+                .memory => |memory| try writer.print("{s}({s}, argmem: {s}, inaccessiblemem: {s})", .{
+                    @tagName(attribute),
+                    @tagName(memory.other),
+                    @tagName(memory.argmem),
+                    @tagName(memory.inaccessiblemem),
+                }),
+                .uwtable => |uwtable| if (uwtable != .none) {
+                    try writer.writeAll(@tagName(attribute));
+                    if (uwtable != UwTable.default) try writer.print("({s})", .{@tagName(uwtable)});
+                },
+                .vscale_range => |vscale_range| try writer.print("{s}({d},{d})", .{
+                    @tagName(attribute),
+                    vscale_range.min.toByteUnits().?,
+                    vscale_range.max.toByteUnits() orelse 0,
+                }),
                 .string => |string_attr| if (comptime std.mem.indexOfScalar(u8, fmt_str, '"') != null) {
                     try writer.print(" {\"}", .{string_attr.kind.fmt(data.builder)});
                     if (string_attr.value != .empty)
@@ -1314,11 +1369,6 @@ pub const Attribute = union(Kind) {
         positive_infinity: bool = false,
         _: u22 = 0,
 
-        pub const nan = FpClass{ .signaling_nan = true, .quiet_nan = true };
-        pub const inf = FpClass{ .negative_infinity = true, .positive_infinity = true };
-        pub const norm = FpClass{ .positive_normal = true, .negative_normal = true };
-        pub const sub = FpClass{ .positive_subnormal = true, .negative_subnormal = true };
-        pub const zero = FpClass{ .positive_zero = true, .negative_zero = true };
         pub const all = FpClass{
             .signaling_nan = true,
             .quiet_nan = true,
@@ -1331,16 +1381,26 @@ pub const Attribute = union(Kind) {
             .positive_normal = true,
             .positive_infinity = true,
         };
+
+        pub const nan = FpClass{ .signaling_nan = true, .quiet_nan = true };
         pub const snan = FpClass{ .signaling_nan = true };
         pub const qnan = FpClass{ .quiet_nan = true };
+
+        pub const inf = FpClass{ .negative_infinity = true, .positive_infinity = true };
         pub const ninf = FpClass{ .negative_infinity = true };
-        pub const nnorm = FpClass{ .negative_normal = true };
-        pub const nsub = FpClass{ .negative_subnormal = true };
+        pub const pinf = FpClass{ .positive_infinity = true };
+
+        pub const zero = FpClass{ .positive_zero = true, .negative_zero = true };
         pub const nzero = FpClass{ .negative_zero = true };
         pub const pzero = FpClass{ .positive_zero = true };
+
+        pub const sub = FpClass{ .positive_subnormal = true, .negative_subnormal = true };
+        pub const nsub = FpClass{ .negative_subnormal = true };
         pub const psub = FpClass{ .positive_subnormal = true };
+
+        pub const norm = FpClass{ .positive_normal = true, .negative_normal = true };
+        pub const nnorm = FpClass{ .negative_normal = true };
         pub const pnorm = FpClass{ .positive_normal = true };
-        pub const pinf = FpClass{ .positive_infinity = true };
     };
 
     pub const AllocKind = packed struct(u32) {
@@ -1924,7 +1984,7 @@ pub const CallConv = enum(u10) {
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         switch (self) {
-            .ccc => {},
+            default => {},
             .fastcc,
             .coldcc,
             .ghccc,
@@ -2445,6 +2505,7 @@ pub const Function = struct {
                     .br_cond,
                     .ret,
                     .@"ret void",
+                    .@"switch",
                     .@"unreachable",
                     => true,
                     else => false,
@@ -2462,6 +2523,7 @@ pub const Function = struct {
                     .@"store atomic",
                     .@"store atomic volatile",
                     .@"store volatile",
+                    .@"switch",
                     .@"unreachable",
                     => false,
                     .call,
@@ -2472,6 +2534,7 @@ pub const Function = struct {
                     .@"notail call fast",
                     .@"tail call",
                     .@"tail call fast",
+                    .unimplemented,
                     => self.typeOfWip(wip) != .void,
                     else => true,
                 };
@@ -4165,7 +4228,7 @@ pub const WipFunction = struct {
         callee: Value,
         args: []const Value,
         name: []const u8,
-    ) if (build_options.have_llvm) Allocator.Error!Value else Value {
+    ) Allocator.Error!Value {
         const ret_ty = ty.functionReturn(self.builder);
         assert(ty.isFunction(self.builder));
         assert(callee.typeOfWip(self).isPointer(self.builder));
@@ -4236,6 +4299,20 @@ pub const WipFunction = struct {
             self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
         }
         return instruction.toValue();
+    }
+
+    pub fn callAsm(
+        self: *WipFunction,
+        function_attributes: FunctionAttributes,
+        ty: Type,
+        kind: Constant.Asm.Info,
+        assembly: String,
+        constraints: String,
+        args: []const Value,
+        name: []const u8,
+    ) Allocator.Error!Value {
+        const callee = try self.builder.asmValue(ty, kind, assembly, constraints);
+        return self.call(.normal, CallConv.default, function_attributes, ty, callee, args, name);
     }
 
     pub fn vaArg(self: *WipFunction, list: Value, ty: Type, name: []const u8) Allocator.Error!Value {
@@ -5216,7 +5293,7 @@ pub const Constant = enum(u32) {
 
     const first_global: Constant = @enumFromInt(1 << 30);
 
-    pub const Tag = enum(u6) {
+    pub const Tag = enum(u7) {
         positive_integer,
         negative_integer,
         half,
@@ -5276,6 +5353,22 @@ pub const Constant = enum(u32) {
         @"and",
         @"or",
         xor,
+        @"asm",
+        @"asm sideeffect",
+        @"asm alignstack",
+        @"asm sideeffect alignstack",
+        @"asm inteldialect",
+        @"asm sideeffect inteldialect",
+        @"asm alignstack inteldialect",
+        @"asm sideeffect alignstack inteldialect",
+        @"asm unwind",
+        @"asm sideeffect unwind",
+        @"asm alignstack unwind",
+        @"asm sideeffect alignstack unwind",
+        @"asm inteldialect unwind",
+        @"asm sideeffect inteldialect unwind",
+        @"asm alignstack inteldialect unwind",
+        @"asm sideeffect alignstack inteldialect unwind",
     };
 
     pub const Item = struct {
@@ -5369,6 +5462,19 @@ pub const Constant = enum(u32) {
     pub const Binary = extern struct {
         lhs: Constant,
         rhs: Constant,
+    };
+
+    pub const Asm = extern struct {
+        type: Type,
+        assembly: String,
+        constraints: String,
+
+        pub const Info = packed struct {
+            sideeffect: bool = false,
+            alignstack: bool = false,
+            inteldialect: bool = false,
+            unwind: bool = false,
+        };
     };
 
     pub fn unwrap(self: Constant) union(enum) {
@@ -5489,6 +5595,23 @@ pub const Constant = enum(u32) {
                     .@"or",
                     .xor,
                     => builder.constantExtraData(Binary, item.data).lhs.typeOf(builder),
+                    .@"asm",
+                    .@"asm sideeffect",
+                    .@"asm alignstack",
+                    .@"asm sideeffect alignstack",
+                    .@"asm inteldialect",
+                    .@"asm sideeffect inteldialect",
+                    .@"asm alignstack inteldialect",
+                    .@"asm sideeffect alignstack inteldialect",
+                    .@"asm unwind",
+                    .@"asm sideeffect unwind",
+                    .@"asm alignstack unwind",
+                    .@"asm sideeffect alignstack unwind",
+                    .@"asm inteldialect unwind",
+                    .@"asm sideeffect inteldialect unwind",
+                    .@"asm alignstack inteldialect unwind",
+                    .@"asm sideeffect alignstack inteldialect unwind",
+                    => .ptr,
                 };
             },
             .global => |global| return builder.ptrTypeAssumeCapacity(
@@ -5834,6 +5957,30 @@ pub const Constant = enum(u32) {
                             @tagName(tag),
                             extra.lhs.fmt(data.builder),
                             extra.rhs.fmt(data.builder),
+                        });
+                    },
+                    .@"asm",
+                    .@"asm sideeffect",
+                    .@"asm alignstack",
+                    .@"asm sideeffect alignstack",
+                    .@"asm inteldialect",
+                    .@"asm sideeffect inteldialect",
+                    .@"asm alignstack inteldialect",
+                    .@"asm sideeffect alignstack inteldialect",
+                    .@"asm unwind",
+                    .@"asm sideeffect unwind",
+                    .@"asm alignstack unwind",
+                    .@"asm sideeffect alignstack unwind",
+                    .@"asm inteldialect unwind",
+                    .@"asm sideeffect inteldialect unwind",
+                    .@"asm alignstack inteldialect unwind",
+                    .@"asm sideeffect alignstack inteldialect unwind",
+                    => |tag| {
+                        const extra = data.builder.constantExtraData(Asm, item.data);
+                        try writer.print("{s} {\"}, {\"}", .{
+                            @tagName(tag),
+                            extra.assembly.fmt(data.builder),
+                            extra.constraints.fmt(data.builder),
                         });
                     },
                 }
@@ -6972,6 +7119,27 @@ pub fn binValue(self: *Builder, tag: Constant.Tag, lhs: Constant, rhs: Constant)
     return (try self.binConst(tag, lhs, rhs)).toValue();
 }
 
+pub fn asmConst(
+    self: *Builder,
+    ty: Type,
+    info: Constant.Asm.Info,
+    assembly: String,
+    constraints: String,
+) Allocator.Error!Constant {
+    try self.ensureUnusedConstantCapacity(1, Constant.Asm, 0);
+    return self.asmConstAssumeCapacity(ty, info, assembly, constraints);
+}
+
+pub fn asmValue(
+    self: *Builder,
+    ty: Type,
+    info: Constant.Asm.Info,
+    assembly: String,
+    constraints: String,
+) Allocator.Error!Value {
+    return (try self.asmConst(ty, info, assembly, constraints)).toValue();
+}
+
 pub fn dump(self: *Builder) void {
     if (self.useLibLlvm())
         self.llvm.module.?.dump()
@@ -7303,7 +7471,15 @@ pub fn printUnbuffered(
                                 arg.fmt(function_index, self),
                             });
                         }
-                        try writer.print("){}\n", .{extra.data.attributes.func(self).fmt(self)});
+                        try writer.writeByte(')');
+                        const call_function_attributes = extra.data.attributes.func(self);
+                        if (call_function_attributes != .none) try writer.print(" #{d}", .{
+                            (try attribute_groups.getOrPutValue(
+                                self.gpa,
+                                call_function_attributes,
+                                {},
+                            )).index,
+                        });
                     },
                     .extractelement => |tag| {
                         const extra =
@@ -7401,13 +7577,19 @@ pub fn printUnbuffered(
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Binary, instruction.data);
                         const ty = instruction_index.typeOf(function_index, self);
-                        try writer.print("  %{} = call {%} @{s}{m}({%}, {%})\n", .{
+                        try writer.print("  %{} = call {%} @{s}{m}({%}, {%}{s})\n", .{
                             instruction_index.name(&function).fmt(self),
                             ty.fmt(self),
                             @tagName(tag),
                             ty.fmt(self),
                             extra.lhs.fmt(function_index, self),
                             extra.rhs.fmt(function_index, self),
+                            switch (tag) {
+                                .@"llvm.smul.fix.sat.",
+                                .@"llvm.umul.fix.sat.",
+                                => ", i32 0",
+                                else => "",
+                            },
                         });
                     },
                     .load,
@@ -7494,7 +7676,7 @@ pub fn printUnbuffered(
                         const vals = extra.trail.next(extra.data.cases_len, Constant, &function);
                         const blocks =
                             extra.trail.next(extra.data.cases_len, Function.Block.Index, &function);
-                        try writer.print("  {s} {%}, {%} [", .{
+                        try writer.print("  {s} {%}, {%} [\n", .{
                             @tagName(tag),
                             extra.data.val.fmt(function_index, self),
                             extra.data.default.toInst(&function).fmt(function_index, self),
@@ -7507,14 +7689,22 @@ pub fn printUnbuffered(
                     },
                     .unimplemented => |tag| {
                         const ty: Type = @enumFromInt(instruction.data);
-                        try writer.writeAll("  ");
-                        switch (ty) {
+                        if (true) {
+                            try writer.writeAll("  ");
+                            switch (ty) {
+                                .none, .void => {},
+                                else => try writer.print("%{} = ", .{
+                                    instruction_index.name(&function).fmt(self),
+                                }),
+                            }
+                            try writer.print("{s} {%}\n", .{ @tagName(tag), ty.fmt(self) });
+                        } else switch (ty) {
                             .none, .void => {},
-                            else => try writer.print("%{} = ", .{
+                            else => try writer.print("  %{} = load {%}, ptr undef\n", .{
                                 instruction_index.name(&function).fmt(self),
+                                ty.fmt(self),
                             }),
                         }
-                        try writer.print("{s} {%}\n", .{ @tagName(tag), ty.fmt(self) });
                     },
                     .va_arg => |tag| {
                         const extra = function.extraData(Function.Instruction.VaArg, instruction.data);
@@ -7534,7 +7724,7 @@ pub fn printUnbuffered(
 
     for (0.., attribute_groups.keys()) |attribute_group_index, attribute_group|
         try writer.print(
-            \\attribute #{d} = {{{"} }}
+            \\attributes #{d} = {{{#"} }}
             \\
         , .{ attribute_group_index, attribute_group.fmt(self) });
 }
@@ -9080,30 +9270,30 @@ fn binConstAssumeCapacity(
         => {},
         else => unreachable,
     }
-    const Key = struct { tag: Constant.Tag, bin: Constant.Binary };
+    const Key = struct { tag: Constant.Tag, extra: Constant.Binary };
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
             return @truncate(std.hash.Wyhash.hash(
                 std.hash.uint32(@intFromEnum(key.tag)),
-                std.mem.asBytes(&key.bin),
+                std.mem.asBytes(&key.extra),
             ));
         }
         pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
             if (lhs_key.tag != ctx.builder.constant_items.items(.tag)[rhs_index]) return false;
             const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
             const rhs_extra = ctx.builder.constantExtraData(Constant.Binary, rhs_data);
-            return std.meta.eql(lhs_key.bin, rhs_extra);
+            return std.meta.eql(lhs_key.extra, rhs_extra);
         }
     };
-    const data = Key{ .tag = tag, .bin = .{ .lhs = lhs, .rhs = rhs } };
+    const data = Key{ .tag = tag, .extra = .{ .lhs = lhs, .rhs = rhs } };
     const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
     if (!gop.found_existing) {
         gop.key_ptr.* = {};
         gop.value_ptr.* = {};
         self.constant_items.appendAssumeCapacity(.{
             .tag = tag,
-            .data = self.addConstantExtraAssumeCapacity(data.bin),
+            .data = self.addConstantExtraAssumeCapacity(data.extra),
         });
         if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(switch (tag) {
             .add => &llvm.Value.constAdd,
@@ -9117,6 +9307,61 @@ fn binConstAssumeCapacity(
             .xor => &llvm.Value.constXor,
             else => unreachable,
         }(lhs.toLlvm(self), rhs.toLlvm(self)));
+    }
+    return @enumFromInt(gop.index);
+}
+
+fn asmConstAssumeCapacity(
+    self: *Builder,
+    ty: Type,
+    info: Constant.Asm.Info,
+    assembly: String,
+    constraints: String,
+) Constant {
+    const Key = struct { tag: Constant.Tag, extra: Constant.Asm };
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Key) u32 {
+            return @truncate(std.hash.Wyhash.hash(
+                std.hash.uint32(@intFromEnum(key.tag)),
+                std.mem.asBytes(&key.extra),
+            ));
+        }
+        pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
+            if (lhs_key.tag != ctx.builder.constant_items.items(.tag)[rhs_index]) return false;
+            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.constantExtraData(Constant.Asm, rhs_data);
+            return std.meta.eql(lhs_key.extra, rhs_extra);
+        }
+    };
+
+    const data = Key{
+        .tag = @enumFromInt(@intFromEnum(Constant.Tag.@"asm") + @as(u4, @bitCast(info))),
+        .extra = .{ .type = ty, .assembly = assembly, .constraints = constraints },
+    };
+    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.constant_items.appendAssumeCapacity(.{
+            .tag = data.tag,
+            .data = self.addConstantExtraAssumeCapacity(data.extra),
+        });
+        if (self.useLibLlvm()) {
+            const assembly_slice = assembly.slice(self).?;
+            const constraints_slice = constraints.slice(self).?;
+            self.llvm.constants.appendAssumeCapacity(llvm.getInlineAsm(
+                ty.toLlvm(self),
+                assembly_slice.ptr,
+                assembly_slice.len,
+                constraints_slice.ptr,
+                constraints_slice.len,
+                llvm.Bool.fromBool(info.sideeffect),
+                llvm.Bool.fromBool(info.alignstack),
+                if (info.inteldialect) .Intel else .ATT,
+                llvm.Bool.fromBool(info.unwind),
+            ));
+        }
     }
     return @enumFromInt(gop.index);
 }
@@ -9211,7 +9456,7 @@ fn addConstantExtraAssumeCapacity(self: *Builder, extra: anytype) Constant.Item.
         const value = @field(extra, field.name);
         self.constant_extra.appendAssumeCapacity(switch (field.type) {
             u32 => value,
-            Type, Constant, Function.Index, Function.Block.Index => @intFromEnum(value),
+            String, Type, Constant, Function.Index, Function.Block.Index => @intFromEnum(value),
             Constant.GetElementPtr.Info => @bitCast(value),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         });
@@ -9250,7 +9495,7 @@ fn constantExtraDataTrail(
     inline for (fields, self.constant_extra.items[index..][0..fields.len]) |field, value|
         @field(result, field.name) = switch (field.type) {
             u32 => value,
-            Type, Constant, Function.Index, Function.Block.Index => @enumFromInt(value),
+            String, Type, Constant, Function.Index, Function.Block.Index => @enumFromInt(value),
             Constant.GetElementPtr.Info => @bitCast(value),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
