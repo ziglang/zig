@@ -538,12 +538,12 @@ pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!u64 {
                 return error.CertificateTimeInvalid;
 
             return Date.toSeconds(.{
-                .year = @as(u16, 2000) + try parseTimeDigits(bytes[0..2].*, 0, 99),
-                .month = try parseTimeDigits(bytes[2..4].*, 1, 12),
-                .day = try parseTimeDigits(bytes[4..6].*, 1, 31),
-                .hour = try parseTimeDigits(bytes[6..8].*, 0, 23),
-                .minute = try parseTimeDigits(bytes[8..10].*, 0, 59),
-                .second = try parseTimeDigits(bytes[10..12].*, 0, 59),
+                .year = @as(u16, 2000) + try parseTimeDigits(bytes[0..2], 0, 99),
+                .month = try parseTimeDigits(bytes[2..4], 1, 12),
+                .day = try parseTimeDigits(bytes[4..6], 1, 31),
+                .hour = try parseTimeDigits(bytes[6..8], 0, 23),
+                .minute = try parseTimeDigits(bytes[8..10], 0, 59),
+                .second = try parseTimeDigits(bytes[10..12], 0, 59),
             });
         },
         .generalized_time => {
@@ -555,11 +555,11 @@ pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!u64 {
                 return error.CertificateTimeInvalid;
             return Date.toSeconds(.{
                 .year = try parseYear4(bytes[0..4]),
-                .month = try parseTimeDigits(bytes[4..6].*, 1, 12),
-                .day = try parseTimeDigits(bytes[6..8].*, 1, 31),
-                .hour = try parseTimeDigits(bytes[8..10].*, 0, 23),
-                .minute = try parseTimeDigits(bytes[10..12].*, 0, 59),
-                .second = try parseTimeDigits(bytes[12..14].*, 0, 59),
+                .month = try parseTimeDigits(bytes[4..6], 1, 12),
+                .day = try parseTimeDigits(bytes[6..8], 1, 31),
+                .hour = try parseTimeDigits(bytes[8..10], 0, 23),
+                .minute = try parseTimeDigits(bytes[10..12], 0, 59),
+                .second = try parseTimeDigits(bytes[12..14], 0, 59),
             });
         },
         else => return error.CertificateFieldHasWrongDataType,
@@ -613,8 +613,8 @@ const Date = struct {
     }
 };
 
-pub fn parseTimeDigits(nn_u8: @Vector(2, u8), min: u8, max: u8) !u8 {
-    const nn: @Vector(2, u16) = .{ nn_u8[0], nn_u8[1] };
+pub fn parseTimeDigits(text: *const [2]u8, min: u8, max: u8) !u8 {
+    const nn: @Vector(2, u16) = .{ text[0], text[1] };
     const zero: @Vector(2, u16) = .{ '0', '0' };
     const mm: @Vector(2, u16) = .{ 10, 1 };
     const result = @reduce(.Add, (nn -% zero) *% mm);
@@ -625,14 +625,14 @@ pub fn parseTimeDigits(nn_u8: @Vector(2, u8), min: u8, max: u8) !u8 {
 
 test parseTimeDigits {
     const expectEqual = std.testing.expectEqual;
-    try expectEqual(@as(u8, 0), try parseTimeDigits("00".*, 0, 99));
-    try expectEqual(@as(u8, 99), try parseTimeDigits("99".*, 0, 99));
-    try expectEqual(@as(u8, 42), try parseTimeDigits("42".*, 0, 99));
+    try expectEqual(@as(u8, 0), try parseTimeDigits("00", 0, 99));
+    try expectEqual(@as(u8, 99), try parseTimeDigits("99", 0, 99));
+    try expectEqual(@as(u8, 42), try parseTimeDigits("42", 0, 99));
 
     const expectError = std.testing.expectError;
-    try expectError(error.CertificateTimeInvalid, parseTimeDigits("13".*, 1, 12));
-    try expectError(error.CertificateTimeInvalid, parseTimeDigits("00".*, 1, 12));
-    try expectError(error.CertificateTimeInvalid, parseTimeDigits("Di".*, 0, 99));
+    try expectError(error.CertificateTimeInvalid, parseTimeDigits("13", 1, 12));
+    try expectError(error.CertificateTimeInvalid, parseTimeDigits("00", 1, 12));
+    try expectError(error.CertificateTimeInvalid, parseTimeDigits("Di", 0, 99));
 }
 
 pub fn parseYear4(text: *const [4]u8) !u16 {
