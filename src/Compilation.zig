@@ -2153,16 +2153,9 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             try comp.flush(main_progress_node);
             if (comp.totalErrorCount() != 0) return;
 
-            // TODO: do this in a separate job during performAllTheWork(). The
-            // file copies at the end of generate() can also be extracted to
-            // separate jobs
-            if (!build_options.only_c and !build_options.only_core_functionality) {
-                if (comp.bin_file.options.docs_emit) |emit| {
-                    var dir = try emit.directory.handle.makeOpenPath(emit.sub_path, .{});
-                    defer dir.close();
-                    try Autodoc.generate(module, dir);
-                }
-            }
+            // Note the placement of this logic is relying on the call to
+            // `wholeCacheModeSetBinFilePath` above.
+            try maybeGenerateAutodocs(comp, main_progress_node);
         } else {
             try comp.flush(main_progress_node);
             if (comp.totalErrorCount() != 0) return;
@@ -2177,6 +2170,10 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         comp.bin_file.lock = man.toOwnedLock();
     } else {
         try comp.flush(main_progress_node);
+
+        if (comp.totalErrorCount() == 0) {
+            try maybeGenerateAutodocs(comp, main_progress_node);
+        }
     }
 
     // Unload all source files to save memory.
@@ -2189,6 +2186,26 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 file.unloadTree(comp.gpa);
                 file.unloadSource(comp.gpa);
             }
+        }
+    }
+}
+
+fn maybeGenerateAutodocs(comp: *Compilation, prog_node: *std.Progress.Node) !void {
+    const mod = comp.bin_file.options.module orelse return;
+    // TODO: do this in a separate job during performAllTheWork(). The
+    // file copies at the end of generate() can also be extracted to
+    // separate jobs
+    if (!build_options.only_c and !build_options.only_core_functionality) {
+        if (comp.bin_file.options.docs_emit) |emit| {
+            var dir = try emit.directory.handle.makeOpenPath(emit.sub_path, .{});
+            defer dir.close();
+
+            var sub_prog_node = prog_node.start("Generating documentation", 0);
+            sub_prog_node.activate();
+            sub_prog_node.context.refresh();
+            defer sub_prog_node.end();
+
+            try Autodoc.generate(mod, dir);
         }
     }
 }
