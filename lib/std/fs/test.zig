@@ -1416,34 +1416,13 @@ test "File.PermissionsUnix" {
     try testing.expect(!permissions_unix.unixHas(.other, .execute));
 }
 
-test "delete a read-only file on windows with file pending semantics" {
-    if (builtin.os.tag != .windows or builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1))
+test "delete a read-only file on windows" {
+    if (builtin.os.tag != .windows)
         return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
+    var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    {
-        const file = try tmp.dir.createFile("test_file", .{ .read = true });
-        defer file.close();
-        // Create a file and make it read-only
-        const metadata = try file.metadata();
-        var permissions = metadata.permissions();
-        permissions.setReadOnly(true);
-        try file.setPermissions(permissions);
-        try testing.expectError(error.AccessDenied, tmp.dir.deleteFile("test_file"));
-        // Now make the file not read-only
-        permissions.setReadOnly(false);
-        try file.setPermissions(permissions);
-    }
-    try tmp.dir.deleteFile("test_file");
-}
 
-test "delete a read-only file on windows with posix semantis" {
-    if (builtin.os.tag != .windows or !builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1))
-        return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
     const file = try tmp.dir.createFile("test_file", .{ .read = true });
     defer file.close();
     // Create a file and make it read-only
@@ -1451,7 +1430,21 @@ test "delete a read-only file on windows with posix semantis" {
     var permissions = metadata.permissions();
     permissions.setReadOnly(true);
     try file.setPermissions(permissions);
-    try tmp.dir.deleteFile("test_file"); // file is unmapped and deleted once last handle closed
+
+    // If the OS and filesystem support it, POSIX_SEMANTICS and IGNORE_READONLY_ATTRIBUTE
+    // is used meaning that the deletion of a read-only file will succeed.
+    // Otherwise, this delete will fail and the read-only flag must be unset before it's
+    // able to be deleted.
+    const delete_result = tmp.dir.deleteFile("test_file");
+    if (delete_result) {
+        try testing.expectError(error.FileNotFound, tmp.dir.deleteFile("test_file"));
+    } else |err| {
+        try testing.expectEqual(@as(anyerror, error.AccessDenied), err);
+        // Now make the file not read-only
+        permissions.setReadOnly(false);
+        try file.setPermissions(permissions);
+        try tmp.dir.deleteFile("test_file");
+    }
 }
 
 test "delete a setAsCwd directory on Windows" {
