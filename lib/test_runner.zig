@@ -25,7 +25,8 @@ pub fn main() void {
         if (std.mem.eql(u8, arg, "--listen=-")) {
             listen = true;
         } else {
-            @panic("unrecognized command line argument");
+            //@panic("unrecognized command line argument");
+            listen = false;
         }
     }
 
