@@ -483,10 +483,10 @@ pub const Value = struct {
     }
 
     pub fn getFunction(val: Value, mod: *Module) ?InternPool.Key.Func {
-        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+        return if (val.ip_index != .none) switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .func => |x| x,
             else => null,
-        };
+        } else null;
     }
 
     pub fn getExternFunc(val: Value, mod: *Module) ?InternPool.Key.ExternFunc {
