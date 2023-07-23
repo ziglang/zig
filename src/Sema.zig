@@ -13587,7 +13587,14 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const elem_default_val = if (lhs_is_tuple) lhs_ty.structFieldDefaultValue(lhs_elem_i, mod) else Value.@"unreachable";
                 const elem_val = if (elem_default_val.toIntern() == .unreachable_value) try lhs_sub_val.elemValue(mod, lhs_elem_i) else elem_default_val;
                 const elem_val_inst = Air.internedToRef(elem_val.toIntern());
-                const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
+                const coerced_elem_val_inst = sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded) catch |err| switch (err) {
+                    error.NeededSourceLocation => {
+                        const elem_val_ty = sema.typeOf(elem_val_inst);
+                        assert(!elem_val_ty.eql(resolved_elem_ty, mod));
+                        return sema.fail(block, lhs_src, "expected array of element type '{}', found '{}'", .{ resolved_elem_ty.fmt(mod), lhs_ty.fmt(mod) });
+                    },
+                    else => |other| return other,
+                };
                 const coerced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
                 element_vals[elem_i] = try coerced_elem_val.intern(resolved_elem_ty, mod);
             }
@@ -13596,7 +13603,14 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const elem_default_val = if (rhs_is_tuple) rhs_ty.structFieldDefaultValue(rhs_elem_i, mod) else Value.@"unreachable";
                 const elem_val = if (elem_default_val.toIntern() == .unreachable_value) try rhs_sub_val.elemValue(mod, rhs_elem_i) else elem_default_val;
                 const elem_val_inst = Air.internedToRef(elem_val.toIntern());
-                const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
+                const coerced_elem_val_inst = sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded) catch |err| switch (err) {
+                    error.NeededSourceLocation => {
+                        const elem_val_ty = sema.typeOf(elem_val_inst);
+                        assert(!elem_val_ty.eql(resolved_elem_ty, mod));
+                        return sema.fail(block, rhs_src, "expected array of element type '{}', found '{}'", .{ resolved_elem_ty.fmt(mod), rhs_ty.fmt(mod) });
+                    },
+                    else => |other| return other,
+                };
                 const coerced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
                 element_vals[elem_i] = try coerced_elem_val.intern(resolved_elem_ty, mod);
             }
