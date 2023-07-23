@@ -71,6 +71,7 @@ pub fn build(b: *std.Build) !void {
 
     if (flat) {
         b.installFile("LICENSE", "LICENSE");
+        b.installFile("README.md", "README.md");
     }
 
     const langref_step = b.step("langref", "Build and install the language reference");
