@@ -228,6 +228,7 @@ pub fn fetchAndAddDependencies(
     name_prefix: []const u8,
     error_bundle: *std.zig.ErrorBundle.Wip,
     all_modules: *AllModules,
+    parent_node: *std.Progress.Node,
 ) !void {
     const max_bytes = 10 * 1024 * 1024;
     const gpa = thread_pool.allocator;
@@ -273,11 +274,19 @@ pub fn fetchAndAddDependencies(
     };
 
     const deps_list = manifest.dependencies.values();
+
+    const deps_count = deps_list.len;
+    parent_node.setEstimatedTotalItems(deps_count);
+
+
     for (manifest.dependencies.keys(), 0..) |name, i| {
         const dep = deps_list[i];
 
         const sub_prefix = try std.fmt.allocPrint(arena, "{s}{s}.", .{ name_prefix, name });
         const fqn = sub_prefix[0 .. sub_prefix.len - 1];
+
+        var child_node = parent_node.start(fqn, 0);
+        defer child_node.end();
 
         const sub = try fetchAndUnpack(
             thread_pool,
@@ -288,6 +297,7 @@ pub fn fetchAndAddDependencies(
             build_roots_source,
             fqn,
             all_modules,
+            &child_node,
         );
 
         if (!sub.found_existing) {
@@ -304,8 +314,10 @@ pub fn fetchAndAddDependencies(
                 sub_prefix,
                 error_bundle,
                 all_modules,
+                &child_node,
             );
         }
+
 
         try pkg.add(gpa, name, sub.mod);
         if (deps_pkg.table.get(dep.hash.?)) |other_sub| {
@@ -415,6 +427,7 @@ fn fetchAndUnpack(
     build_roots_source: *std.ArrayList(u8),
     fqn: []const u8,
     all_modules: *AllModules,
+    node: *std.Progress.Node,
 ) !struct { mod: *Package, found_existing: bool } {
     const gpa = http_client.allocator;
     const s = fs.path.sep_str;
@@ -500,6 +513,10 @@ fn fetchAndUnpack(
         try req.start();
         try req.wait();
 
+        const pkg_size = req.response.content_length orelse 0;
+        node.activate();
+        node.setEstimatedTotalItems(pkg_size);
+
         if (req.response.status != .ok) {
             return report.fail(dep.url_tok, "Expected response status '200 OK' got '{} {s}'", .{
                 @intFromEnum(req.response.status),
@@ -532,6 +549,10 @@ fn fetchAndUnpack(
         } else {
             return report.fail(dep.url_tok, "Unsupported 'Content-Type' header value: '{s}'", .{content_type});
         }
+
+
+
+
 
         // TODO: delete files not included in the package prior to computing the package hash.
         // for example, if the ini file has directives to include/not include certain files,
