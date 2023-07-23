@@ -30706,6 +30706,41 @@ fn analyzeIsNonErrComptimeOnly(
     const set_ty = ip.errorUnionSet(operand_ty.toIntern());
     switch (set_ty) {
         .anyerror_type => {},
+        .adhoc_inferred_error_set_type => if (sema.fn_ret_ty_ies) |ies| blk: {
+            // If the error set is empty, we must return a comptime true or false.
+            // However we want to avoid unnecessarily resolving an inferred error set
+            // in case it is already non-empty.
+            switch (ies.resolved) {
+                .anyerror_type => break :blk,
+                .none => {},
+                else => |i| if (ip.indexToKey(i).error_set_type.names.len != 0) break :blk,
+            }
+
+            if (maybe_operand_val != null) break :blk;
+
+            // Try to avoid resolving inferred error set if possible.
+            if (ies.errors.count() != 0) return .none;
+            switch (ies.resolved) {
+                .anyerror_type => return .none,
+                .none => {},
+                else => switch (ip.indexToKey(ies.resolved).error_set_type.names.len) {
+                    0 => return .bool_true,
+                    else => return .none,
+                },
+            }
+            for (ies.inferred_error_sets.keys()) |other_ies_index| {
+                if (set_ty == other_ies_index) continue;
+                const other_resolved =
+                    try sema.resolveInferredErrorSet(block, src, other_ies_index);
+                if (other_resolved == .anyerror_type) {
+                    ies.resolved = .anyerror_type;
+                    return .none;
+                }
+                if (ip.indexToKey(other_resolved).error_set_type.names.len != 0)
+                    return .none;
+            }
+            return .bool_true;
+        },
         else => switch (ip.indexToKey(set_ty)) {
             .error_set_type => |error_set_type| {
                 if (error_set_type.names.len == 0) return .bool_true;
@@ -30719,41 +30754,38 @@ fn analyzeIsNonErrComptimeOnly(
                     .none => {},
                     else => |i| if (ip.indexToKey(i).error_set_type.names.len != 0) break :blk,
                 }
-                if (maybe_operand_val == null) {
-                    if (sema.fn_ret_ty_ies) |ies| {
-                        if (set_ty == .adhoc_inferred_error_set_type or
-                            ies.func == func_index)
-                        {
-                            // Try to avoid resolving inferred error set if possible.
-                            if (ies.errors.count() != 0) return .none;
-                            switch (ies.resolved) {
-                                .anyerror_type => return .none,
-                                .none => {},
-                                else => switch (ip.indexToKey(ies.resolved).error_set_type.names.len) {
-                                    0 => return .bool_true,
-                                    else => return .none,
-                                },
-                            }
-                            for (ies.inferred_error_sets.keys()) |other_ies_index| {
-                                if (set_ty == other_ies_index) continue;
-                                const other_resolved =
-                                    try sema.resolveInferredErrorSet(block, src, other_ies_index);
-                                if (other_resolved == .anyerror_type) {
-                                    ies.resolved = .anyerror_type;
-                                    return .none;
-                                }
-                                if (ip.indexToKey(other_resolved).error_set_type.names.len != 0)
-                                    return .none;
-                            }
-                            return .bool_true;
+                if (maybe_operand_val != null) break :blk;
+                if (sema.fn_ret_ty_ies) |ies| {
+                    if (ies.func == func_index) {
+                        // Try to avoid resolving inferred error set if possible.
+                        if (ies.errors.count() != 0) return .none;
+                        switch (ies.resolved) {
+                            .anyerror_type => return .none,
+                            .none => {},
+                            else => switch (ip.indexToKey(ies.resolved).error_set_type.names.len) {
+                                0 => return .bool_true,
+                                else => return .none,
+                            },
                         }
-                    }
-                    const resolved_ty = try sema.resolveInferredErrorSet(block, src, set_ty);
-                    if (resolved_ty == .anyerror_type)
-                        break :blk;
-                    if (ip.indexToKey(resolved_ty).error_set_type.names.len == 0)
+                        for (ies.inferred_error_sets.keys()) |other_ies_index| {
+                            if (set_ty == other_ies_index) continue;
+                            const other_resolved =
+                                try sema.resolveInferredErrorSet(block, src, other_ies_index);
+                            if (other_resolved == .anyerror_type) {
+                                ies.resolved = .anyerror_type;
+                                return .none;
+                            }
+                            if (ip.indexToKey(other_resolved).error_set_type.names.len != 0)
+                                return .none;
+                        }
                         return .bool_true;
+                    }
                 }
+                const resolved_ty = try sema.resolveInferredErrorSet(block, src, set_ty);
+                if (resolved_ty == .anyerror_type)
+                    break :blk;
+                if (ip.indexToKey(resolved_ty).error_set_type.names.len == 0)
+                    return .bool_true;
             },
             else => unreachable,
         },
