@@ -65,6 +65,30 @@ pub fn addExecutable(self: *TranslateC, options: AddExecutableOptions) *Step.Com
     });
 }
 
+/// Creates a module from the translated source and adds it to the package's
+/// module set making it available to other packages which depend on this one.
+/// `createModule` can be used instead to create a private module.
+pub fn addModule(self: *TranslateC, name: []const u8) *std.Build.Module {
+    return self.step.owner.addModule(name, .{
+        .source_file = .{ .generated = &self.output_file },
+    });
+}
+
+/// Creates a private module from the translated source to be used by the
+/// current package, but not exposed to other packages depending on this one.
+/// `addModule` can be used instead to create a public module.
+pub fn createModule(self: *TranslateC) *std.Build.Module {
+    const b = self.step.owner;
+    const module = b.allocator.create(std.Build.Module) catch @panic("OOM");
+
+    module.* = .{
+        .builder = b,
+        .source_file = .{ .generated = &self.output_file },
+        .dependencies = std.StringArrayHashMap(*std.Build.Module).init(b.allocator),
+    };
+    return module;
+}
+
 pub fn addIncludeDir(self: *TranslateC, include_dir: []const u8) void {
     self.include_dirs.append(self.step.owner.dupePath(include_dir)) catch @panic("OOM");
 }

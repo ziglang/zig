@@ -467,8 +467,8 @@ pub fn MultiArrayList(comptime T: type) type {
 
         /// `ctx` has the following method:
         /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
-        pub fn sort(self: Self, ctx: anytype) void {
-            const SortContext = struct {
+        fn sortInternal(self: Self, a: usize, b: usize, ctx: anytype, comptime mode: enum { stable, unstable }) void {
+            const sort_context: struct {
                 sub_ctx: @TypeOf(ctx),
                 slice: Slice,
 
@@ -485,9 +485,53 @@ pub fn MultiArrayList(comptime T: type) type {
                 pub fn lessThan(sc: @This(), a_index: usize, b_index: usize) bool {
                     return sc.sub_ctx.lessThan(a_index, b_index);
                 }
+            } = .{
+                .sub_ctx = ctx,
+                .slice = self.slice(),
             };
 
-            mem.sortContext(0, self.len, SortContext{ .sub_ctx = ctx, .slice = self.slice() });
+            switch (mode) {
+                .stable => mem.sortContext(a, b, sort_context),
+                .unstable => mem.sortUnstableContext(a, b, sort_context),
+            }
+        }
+
+        /// This function guarantees a stable sort, i.e the relative order of equal elements is preserved during sorting.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
+        /// If this guarantee does not matter, `sortUnstable` might be a faster alternative.
+        /// `ctx` has the following method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub fn sort(self: Self, ctx: anytype) void {
+            self.sortInternal(0, self.len, ctx, .stable);
+        }
+
+        /// Sorts only the subsection of items between indices `a` and `b` (excluding `b`)
+        /// This function guarantees a stable sort, i.e the relative order of equal elements is preserved during sorting.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
+        /// If this guarantee does not matter, `sortSpanUnstable` might be a faster alternative.
+        /// `ctx` has the following method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub fn sortSpan(self: Self, a: usize, b: usize, ctx: anytype) void {
+            self.sortInternal(a, b, ctx, .stable);
+        }
+
+        /// This function does NOT guarantee a stable sort, i.e the relative order of equal elements may change during sorting.
+        /// Due to the weaker guarantees of this function, this may be faster than the stable `sort` method.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
+        /// `ctx` has the following method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub fn sortUnstable(self: Self, ctx: anytype) void {
+            self.sortInternal(0, self.len, ctx, .unstable);
+        }
+
+        /// Sorts only the subsection of items between indices `a` and `b` (excluding `b`)
+        /// This function does NOT guarantee a stable sort, i.e the relative order of equal elements may change during sorting.
+        /// Due to the weaker guarantees of this function, this may be faster than the stable `sortSpan` method.
+        /// Read more about stable sorting here: https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
+        /// `ctx` has the following method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        pub fn sortSpanUnstable(self: Self, a: usize, b: usize, ctx: anytype) void {
+            self.sortInternal(a, b, ctx, .unstable);
         }
 
         fn capacityInBytes(capacity: usize) usize {
@@ -816,4 +860,44 @@ test "union" {
     try testing.expectEqual(list.get(0), .{ .a = 1 });
     try testing.expectEqual(list.get(1), .{ .b = "zigzag" });
     try testing.expectEqual(list.get(2), .{ .b = "foobar" });
+}
+
+test "sorting a span" {
+    var list: MultiArrayList(struct { score: u32, chr: u8 }) = .{};
+    defer list.deinit(testing.allocator);
+
+    try list.ensureTotalCapacity(testing.allocator, 42);
+    for (
+        // zig fmt: off
+        [42]u8{ 'b', 'a', 'c', 'a', 'b', 'c', 'b', 'c', 'b', 'a', 'b', 'a', 'b', 'c', 'b', 'a', 'a', 'c', 'c', 'a', 'c', 'b', 'a', 'c', 'a', 'b', 'b', 'c', 'c', 'b', 'a', 'b', 'a', 'b', 'c', 'b', 'a', 'a', 'c', 'c', 'a', 'c' },
+        [42]u32{ 1,   1,   1,   2,   2,   2,   3,   3,   4,   3,   5,   4,   6,   4,   7,   5,   6,   5,   6,   7,   7,   8,   8,   8,   9,   9,  10,   9,  10,  11,  10,  12,  11,  13,  11,  14,  12,  13,  12,  13,  14,  14 },
+        // zig fmt: on
+    ) |chr, score| {
+        list.appendAssumeCapacity(.{ .chr = chr, .score = score });
+    }
+
+    const sliced = list.slice();
+    list.sortSpan(6, 21, struct {
+        chars: []const u8,
+
+        fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+            return ctx.chars[a] < ctx.chars[b];
+        }
+    }{ .chars = sliced.items(.chr) });
+
+    var i: u32 = undefined;
+    var j: u32 = 6;
+    var c: u8 = 'a';
+
+    while (j < 21) {
+        i = j;
+        j += 5;
+        var n: u32 = 3;
+        for (sliced.items(.chr)[i..j], sliced.items(.score)[i..j]) |chr, score| {
+            try testing.expectEqual(score, n);
+            try testing.expectEqual(chr, c);
+            n += 1;
+        }
+        c += 1;
+    }
 }

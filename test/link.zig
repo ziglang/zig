@@ -21,6 +21,10 @@ pub const cases = [_]Case{
         .import = @import("link/interdependent_static_c_libs/build.zig"),
     },
     .{
+        .build_root = "test/link/static_libs_from_object_files",
+        .import = @import("link/static_libs_from_object_files/build.zig"),
+    },
+    .{
         .build_root = "test/link/glibc_compat",
         .import = @import("link/glibc_compat/build.zig"),
     },

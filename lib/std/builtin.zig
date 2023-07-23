@@ -56,7 +56,6 @@ pub const StackTrace = struct {
         std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
         };
-        try writer.writeAll("\n");
     }
 };
 
@@ -191,10 +190,12 @@ pub const CallingConvention = enum(u8) {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const AddressSpace = enum(u5) {
+    // CPU address spaces.
     generic,
     gs,
     fs,
     ss,
+
     // GPU address spaces.
     global,
     constant,

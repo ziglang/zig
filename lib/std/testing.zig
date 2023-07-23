@@ -606,8 +606,8 @@ test "expectEqual nested array" {
 }
 
 test "expectEqual vector" {
-    var a = @splat(4, @as(u32, 4));
-    var b = @splat(4, @as(u32, 4));
+    var a: @Vector(4, u32) = @splat(4);
+    var b: @Vector(4, u32) = @splat(4);
 
     try expectEqual(a, b);
 }
@@ -903,7 +903,7 @@ test "expectEqualDeep composite type" {
     try expectEqualDeep([_][]const u8{ "a", "b", "c" }, [_][]const u8{ "a", "b", "c" });
 
     // vector
-    try expectEqualDeep(@splat(4, @as(u32, 4)), @splat(4, @as(u32, 4)));
+    try expectEqualDeep(@as(@Vector(4, u32), @splat(4)), @as(@Vector(4, u32), @splat(4)));
 
     // nested array
     {

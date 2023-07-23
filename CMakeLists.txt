@@ -81,6 +81,8 @@ message(STATUS "Configuring zig version ${RESOLVED_ZIG_VERSION}")
 set(ZIG_NO_LIB off CACHE BOOL
     "Disable copying lib/ files to install prefix during the build phase")
 
+# This used to do something and it may or may not do something in the future.
+# Right now it does nothing.
 set(ZIG_NO_LANGREF off CACHE BOOL
     "Disable copying of langref to the install prefix during the build phase")
 
@@ -205,6 +207,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/atomic/queue.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/atomic/stack.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/base64.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/BitStack.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/buf_map.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/Build.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/Build/Cache.zig"
@@ -260,7 +263,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/io/seekable_stream.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/writer.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/json.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/json/write_stream.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/json/stringify.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/leb128.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/linked_list.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/log.zig"
@@ -689,17 +692,28 @@ target_link_libraries(zigcpp LINK_PUBLIC
     ${CMAKE_THREAD_LIBS_INIT}
 )
 
-string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" HOST_TARGET_ARCH)
-if(HOST_TARGET_ARCH STREQUAL "amd64")
-  set(HOST_TARGET_ARCH "x86_64")
-elseif(HOST_TARGET_ARCH STREQUAL "arm64")
-  set(HOST_TARGET_ARCH "aarch64")
+string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" ZIG_HOST_TARGET_ARCH)
+if(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
+  set(ZIG_HOST_TARGET_ARCH "x86_64")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "arm64")
+  set(ZIG_HOST_TARGET_ARCH "aarch64")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7l")
+  set(ZIG_HOST_TARGET_ARCH "arm")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7b")
+  set(ZIG_HOST_TARGET_ARCH "armeb")
 endif()
-string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" HOST_TARGET_OS)
-if(HOST_TARGET_OS STREQUAL "darwin")
-  set(HOST_TARGET_OS "macos")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(eb)?$")
+  include(CheckSymbolExists)
+  check_symbol_exists(__thumb__ "" ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
+  if(ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
+    string(REGEX REPLACE "^arm" "thumb" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
+  endif()
 endif()
-set(HOST_TARGET_TRIPLE "${HOST_TARGET_ARCH}-${HOST_TARGET_OS}")
+string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
+if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
+  set(ZIG_HOST_TARGET_OS "macos")
+endif()
+set(ZIG_HOST_TARGET_TRIPLE "${ZIG_HOST_TARGET_ARCH}-${ZIG_HOST_TARGET_OS}" CACHE STRING "Host zig target triple.")
 
 if(MSVC)
   set(ZIG_WASM2C_COMPILE_FLAGS "")
@@ -749,7 +763,7 @@ set(BUILD_ZIG2_ARGS
   --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
   --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
   --deps build_options
-  -target "${HOST_TARGET_TRIPLE}"
+  -target "${ZIG_HOST_TARGET_TRIPLE}"
 )
 
 add_custom_command(
@@ -767,7 +781,7 @@ set(BUILD_COMPILER_RT_ARGS
   --name compiler_rt -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
   --deps build_options
-  -target "${HOST_TARGET_TRIPLE}"
+  -target "${ZIG_HOST_TARGET_TRIPLE}"
 )
 
 add_custom_command(
@@ -816,11 +830,6 @@ if(ZIG_NO_LIB)
 else()
   set(ZIG_NO_LIB_ARG "")
 endif()
-if(ZIG_NO_LANGREF)
-  set(ZIG_NO_LANGREF_ARG "-Dno-langref")
-else()
-  set(ZIG_NO_LANGREF_ARG "")
-endif()
 if(ZIG_SINGLE_THREADED)
   set(ZIG_SINGLE_THREADED_ARG "-Dsingle-threaded")
 else()
@@ -838,6 +847,10 @@ else()
   set(ZIG_PIE_ARG "")
 endif()
 
+# -Dno-langref is currently hardcoded because building the langref takes too damn long
+# -Dno-autodocs is currently hardcoded because the C backend generates a miscompilation
+#   that prevents it from working.
+# To obtain these two forms of documentation, run zig build against stage3 rather than stage2.
 set(ZIG_BUILD_ARGS
   --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
   "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
@@ -845,7 +858,8 @@ set(ZIG_BUILD_ARGS
   ${ZIG_RELEASE_ARG}
   ${ZIG_STATIC_ARG}
   ${ZIG_NO_LIB_ARG}
-  ${ZIG_NO_LANGREF_ARG}
+  "-Dno-langref"
+  "-Dno-autodocs"
   ${ZIG_SINGLE_THREADED_ARG}
   ${ZIG_PIE_ARG}
   "-Dtarget=${ZIG_TARGET_TRIPLE}"

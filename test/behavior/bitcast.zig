@@ -396,7 +396,7 @@ test "bitcast vector to integer and back" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const arr: [16]bool = [_]bool{ true, false } ++ [_]bool{true} ** 14;
-    var x = @splat(16, true);
+    var x: @Vector(16, bool) = @splat(true);
     x[1] = false;
     try expect(@as(u16, @bitCast(x)) == comptime @as(u16, @bitCast(@as(@Vector(16, bool), arr))));
 }
@@ -458,4 +458,48 @@ test "bitcast nan float does modify signaling bit" {
     var snan_f128_var = math.nan_f128;
     try expectEqual(math.nan_u128, @as(u128, @bitCast(snan_f128_var)));
     try expectEqual(math.nan_u128, bitCastWrapper128(snan_f128_var));
+}
+
+test "@bitCast of packed struct of bools all true" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const P = packed struct {
+        b0: bool,
+        b1: bool,
+        b2: bool,
+        b3: bool,
+    };
+    var p = std.mem.zeroes(P);
+    p.b0 = true;
+    p.b1 = true;
+    p.b2 = true;
+    p.b3 = true;
+    try expect(@as(u8, @as(u4, @bitCast(p))) == 15);
+}
+
+test "@bitCast of packed struct of bools all false" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const P = packed struct {
+        b0: bool,
+        b1: bool,
+        b2: bool,
+        b3: bool,
+    };
+    var p = std.mem.zeroes(P);
+    p.b0 = false;
+    p.b1 = false;
+    p.b2 = false;
+    p.b3 = false;
+    try expect(@as(u8, @as(u4, @bitCast(p))) == 0);
 }

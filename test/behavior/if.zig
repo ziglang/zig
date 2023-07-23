@@ -151,3 +151,15 @@ test "result location with inferred type ends up being pointer to comptime_int" 
     } else @as(u32, 0);
     try expect(c == 1);
 }
+
+test "if-@as-if chain" {
+    var fast = true;
+    var very_fast = false;
+
+    const num_frames = if (fast)
+        @as(u32, if (very_fast) 16 else 4)
+    else
+        1;
+
+    try expect(num_frames == 4);
+}

@@ -439,6 +439,8 @@ const usage_build_generic =
     \\  -fno-unwind-tables        Never produce unwind table entries
     \\  -fLLVM                    Force using LLVM as the codegen backend
     \\  -fno-LLVM                 Prevent using LLVM as the codegen backend
+    \\  -flibLLVM                 Force using the LLVM API in the codegen backend
+    \\  -fno-libLLVM              Prevent using the LLVM API in the codegen backend
     \\  -fClang                   Force using Clang as the C/C++ compilation backend
     \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
     \\  -freference-trace[=num]   How many lines of reference trace should be shown per compile error
@@ -620,7 +622,7 @@ const Emit = union(enum) {
         }
     };
 
-    fn resolve(emit: Emit, default_basename: []const u8) !Resolved {
+    fn resolve(emit: Emit, default_basename: []const u8, output_to_cache: bool) !Resolved {
         var resolved: Resolved = .{ .data = null, .dir = null };
         errdefer resolved.deinit();
 
@@ -628,7 +630,10 @@ const Emit = union(enum) {
             .no => {},
             .yes_default_path => {
                 resolved.data = Compilation.EmitLoc{
-                    .directory = .{ .path = null, .handle = fs.cwd() },
+                    .directory = if (output_to_cache) null else .{
+                        .path = null,
+                        .handle = fs.cwd(),
+                    },
                     .basename = default_basename,
                 };
             },
@@ -821,6 +826,7 @@ fn buildOutputType(
     var stack_size_override: ?u64 = null;
     var image_base_override: ?u64 = null;
     var use_llvm: ?bool = null;
+    var use_lib_llvm: ?bool = null;
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
     var link_eh_frame_hdr = false;
@@ -1261,6 +1267,10 @@ fn buildOutputType(
                         use_llvm = true;
                     } else if (mem.eql(u8, arg, "-fno-LLVM")) {
                         use_llvm = false;
+                    } else if (mem.eql(u8, arg, "-flibLLVM")) {
+                        use_lib_llvm = true;
+                    } else if (mem.eql(u8, arg, "-fno-libLLVM")) {
+                        use_lib_llvm = false;
                     } else if (mem.eql(u8, arg, "-fLLD")) {
                         use_lld = true;
                     } else if (mem.eql(u8, arg, "-fno-LLD")) {
@@ -2743,7 +2753,7 @@ fn buildOutputType(
     };
 
     const default_h_basename = try std.fmt.allocPrint(arena, "{s}.h", .{root_name});
-    var emit_h_resolved = emit_h.resolve(default_h_basename) catch |err| {
+    var emit_h_resolved = emit_h.resolve(default_h_basename, output_to_cache) catch |err| {
         switch (emit_h) {
             .yes => |p| {
                 fatal("unable to open directory from argument '-femit-h', '{s}': {s}", .{
@@ -2761,7 +2771,7 @@ fn buildOutputType(
     defer emit_h_resolved.deinit();
 
     const default_asm_basename = try std.fmt.allocPrint(arena, "{s}.s", .{root_name});
-    var emit_asm_resolved = emit_asm.resolve(default_asm_basename) catch |err| {
+    var emit_asm_resolved = emit_asm.resolve(default_asm_basename, output_to_cache) catch |err| {
         switch (emit_asm) {
             .yes => |p| {
                 fatal("unable to open directory from argument '-femit-asm', '{s}': {s}", .{
@@ -2779,7 +2789,7 @@ fn buildOutputType(
     defer emit_asm_resolved.deinit();
 
     const default_llvm_ir_basename = try std.fmt.allocPrint(arena, "{s}.ll", .{root_name});
-    var emit_llvm_ir_resolved = emit_llvm_ir.resolve(default_llvm_ir_basename) catch |err| {
+    var emit_llvm_ir_resolved = emit_llvm_ir.resolve(default_llvm_ir_basename, output_to_cache) catch |err| {
         switch (emit_llvm_ir) {
             .yes => |p| {
                 fatal("unable to open directory from argument '-femit-llvm-ir', '{s}': {s}", .{
@@ -2797,7 +2807,7 @@ fn buildOutputType(
     defer emit_llvm_ir_resolved.deinit();
 
     const default_llvm_bc_basename = try std.fmt.allocPrint(arena, "{s}.bc", .{root_name});
-    var emit_llvm_bc_resolved = emit_llvm_bc.resolve(default_llvm_bc_basename) catch |err| {
+    var emit_llvm_bc_resolved = emit_llvm_bc.resolve(default_llvm_bc_basename, output_to_cache) catch |err| {
         switch (emit_llvm_bc) {
             .yes => |p| {
                 fatal("unable to open directory from argument '-femit-llvm-bc', '{s}': {s}", .{
@@ -2815,7 +2825,7 @@ fn buildOutputType(
     defer emit_llvm_bc_resolved.deinit();
 
     const default_analysis_basename = try std.fmt.allocPrint(arena, "{s}-analysis.json", .{root_name});
-    var emit_analysis_resolved = emit_analysis.resolve(default_analysis_basename) catch |err| {
+    var emit_analysis_resolved = emit_analysis.resolve(default_analysis_basename, output_to_cache) catch |err| {
         switch (emit_analysis) {
             .yes => |p| {
                 fatal("unable to open directory from argument '-femit-analysis',  '{s}': {s}", .{
@@ -2832,7 +2842,7 @@ fn buildOutputType(
     };
     defer emit_analysis_resolved.deinit();
 
-    var emit_docs_resolved = emit_docs.resolve("docs") catch |err| {
+    var emit_docs_resolved = emit_docs.resolve("docs", output_to_cache) catch |err| {
         switch (emit_docs) {
             .yes => |p| {
                 fatal("unable to open directory from argument '-femit-docs', '{s}': {s}", .{
@@ -2866,7 +2876,7 @@ fn buildOutputType(
     const default_implib_basename = try std.fmt.allocPrint(arena, "{s}.lib", .{root_name});
     var emit_implib_resolved = switch (emit_implib) {
         .no => Emit.Resolved{ .data = null, .dir = null },
-        .yes => |p| emit_implib.resolve(default_implib_basename) catch |err| {
+        .yes => |p| emit_implib.resolve(default_implib_basename, output_to_cache) catch |err| {
             fatal("unable to open directory from argument '-femit-implib', '{s}': {s}", .{
                 p, @errorName(err),
             });
@@ -3119,6 +3129,7 @@ fn buildOutputType(
         .want_tsan = want_tsan,
         .want_compiler_rt = want_compiler_rt,
         .use_llvm = use_llvm,
+        .use_lib_llvm = use_lib_llvm,
         .use_lld = use_lld,
         .use_clang = use_clang,
         .hash_style = hash_style,
@@ -3558,7 +3569,21 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
     defer error_bundle.deinit(gpa);
     if (error_bundle.errorMessageCount() > 0) {
         try s.serveErrorBundle(error_bundle);
-    } else if (comp.bin_file.options.emit) |emit| {
+        return;
+    }
+    // This logic is a bit counter-intuitive because the protocol implies that
+    // each emitted artifact could possibly be in a different location, when in
+    // reality, there is only one artifact output directory, and the build
+    // system depends on that fact. So, until the protocol is changed to
+    // reflect this, this logic only needs to ensure that emit_bin_path is
+    // emitted for at least one thing, if there are any artifacts.
+    if (comp.bin_file.options.emit) |emit| {
+        const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
+        defer gpa.free(full_path);
+        try s.serveEmitBinPath(full_path, .{
+            .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
+        });
+    } else if (comp.bin_file.options.docs_emit) |emit| {
         const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
         defer gpa.free(full_path);
         try s.serveEmitBinPath(full_path, .{

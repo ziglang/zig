@@ -262,6 +262,11 @@ pub const Value = struct {
         return ip.getOrPutTrailingString(gpa, len);
     }
 
+    pub fn intern2(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
+        if (val.ip_index != .none) return val.ip_index;
+        return intern(val, ty, mod);
+    }
+
     pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
         if (val.ip_index != .none) return (try mod.getCoerced(val, ty)).toIntern();
         switch (val.tag()) {
@@ -473,12 +478,15 @@ pub const Value = struct {
         };
     }
 
-    pub fn getFunction(val: Value, mod: *Module) ?*Module.Fn {
-        return mod.funcPtrUnwrap(val.getFunctionIndex(mod));
+    pub fn isFuncBody(val: Value, mod: *Module) bool {
+        return mod.intern_pool.isFuncBody(val.toIntern());
     }
 
-    pub fn getFunctionIndex(val: Value, mod: *Module) Module.Fn.OptionalIndex {
-        return if (val.ip_index != .none) mod.intern_pool.indexToFunc(val.toIntern()) else .none;
+    pub fn getFunction(val: Value, mod: *Module) ?InternPool.Key.Func {
+        return if (val.ip_index != .none) switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .func => |x| x,
+            else => null,
+        } else null;
     }
 
     pub fn getExternFunc(val: Value, mod: *Module) ?InternPool.Key.ExternFunc {
@@ -616,7 +624,7 @@ pub const Value = struct {
             .Int, .Enum => {
                 const int_info = ty.intInfo(mod);
                 const bits = int_info.bits;
-                const byte_count = (bits + 7) / 8;
+                const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
 
                 var bigint_buffer: BigIntSpace = undefined;
                 const bigint = val.toBigInt(&bigint_buffer, mod);
@@ -859,7 +867,7 @@ pub const Value = struct {
                 };
                 const int_info = int_ty.intInfo(mod);
                 const bits = int_info.bits;
-                const byte_count = (bits + 7) / 8;
+                const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
                 if (bits == 0 or buffer.len == 0) return mod.getCoerced(try mod.intValue(int_ty, 0), ty);
 
                 if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
@@ -1462,7 +1470,7 @@ pub const Value = struct {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .variable => |variable| variable.decl,
             .extern_func => |extern_func| extern_func.decl,
-            .func => |func| mod.funcPtr(func.index).owner_decl,
+            .func => |func| func.owner_decl,
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl| decl,
                 .mut_decl => |mut_decl| mut_decl.decl,
@@ -1771,7 +1779,7 @@ pub const Value = struct {
                 .ptr => |ptr| switch (ptr.addr) {
                     .int => {
                         var buf: BigIntSpace = undefined;
-                        return val.toBigInt(&buf, mod).eqZero();
+                        return val.toBigInt(&buf, mod).eqlZero();
                     },
                     else => false,
                 },

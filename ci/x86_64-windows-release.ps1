@@ -45,7 +45,8 @@ Set-Location -Path 'build-release'
   -DCMAKE_CXX_COMPILER="$($ZIG -Replace "\\", "/");c++;-target;$TARGET;-mcpu=$MCPU" `
   -DZIG_TARGET_TRIPLE="$TARGET" `
   -DZIG_TARGET_MCPU="$MCPU" `
-  -DZIG_STATIC=ON
+  -DZIG_STATIC=ON `
+  -DZIG_NO_LIB=ON
 CheckLastExitCode
 
 ninja install
@@ -58,13 +59,6 @@ Write-Output "Main test suite..."
   -Dstatic-llvm `
   -Dskip-non-native `
   -Denable-symlinks-windows
-CheckLastExitCode
-
-Write-Output "Testing Autodocs..."
-& "stage3-release\bin\zig.exe" test "..\lib\std\std.zig" `
-  --zig-lib-dir "$ZIG_LIB_DIR" `
-  -femit-docs `
-  -fno-emit-bin
 CheckLastExitCode
 
 Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."

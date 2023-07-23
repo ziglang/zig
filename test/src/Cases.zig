@@ -467,6 +467,9 @@ pub fn lowerToBuildSteps(
     cases_dir_path: []const u8,
     incremental_exe: *std.Build.Step.Compile,
 ) void {
+    const host = std.zig.system.NativeTargetInfo.detect(.{}) catch |err|
+        std.debug.panic("unable to detect notive host: {s}\n", .{@errorName(err)});
+
     for (self.incremental_cases.items) |incr_case| {
         if (true) {
             // TODO: incremental tests are disabled for now, as incremental compilation bugs were
@@ -569,8 +572,34 @@ pub fn lowerToBuildSteps(
                 artifact.expect_errors = expected_msgs;
                 parent_step.dependOn(&artifact.step);
             },
-            .Execution => |expected_stdout| {
-                const run = b.addRunArtifact(artifact);
+            .Execution => |expected_stdout| no_exec: {
+                const run = if (case.target.ofmt == .c) run_step: {
+                    const target_info = std.zig.system.NativeTargetInfo.detect(case.target) catch |err|
+                        std.debug.panic("unable to detect notive host: {s}\n", .{@errorName(err)});
+                    if (host.getExternalExecutor(target_info, .{ .link_libc = true }) != .native) {
+                        // We wouldn't be able to run the compiled C code.
+                        break :no_exec;
+                    }
+                    const run_c = b.addSystemCommand(&.{
+                        b.zig_exe,
+                        "run",
+                        "-cflags",
+                        "-Ilib",
+                        "-std=c99",
+                        "-pedantic",
+                        "-Werror",
+                        "-Wno-dollar-in-identifier-extension",
+                        "-Wno-incompatible-library-redeclaration", // https://github.com/ziglang/zig/issues/875
+                        "-Wno-incompatible-pointer-types",
+                        "-Wno-overlength-strings",
+                        "--",
+                        "-lc",
+                        "-target",
+                        case.target.zigTriple(b.allocator) catch @panic("OOM"),
+                    });
+                    run_c.addArtifactArg(artifact);
+                    break :run_step run_c;
+                } else b.addRunArtifact(artifact);
                 run.skip_foreign_checks = true;
                 if (!case.is_test) {
                     run.expectStdOutEqual(expected_stdout);

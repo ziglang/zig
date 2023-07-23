@@ -946,6 +946,7 @@ pub const Inst = struct {
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
         optional_noreturn_type = @intFromEnum(InternPool.Index.optional_noreturn_type),
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
+        adhoc_inferred_error_set_type = @intFromEnum(InternPool.Index.adhoc_inferred_error_set_type),
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
         empty_struct_type = @intFromEnum(InternPool.Index.empty_struct_type),
         undef = @intFromEnum(InternPool.Index.undef),
@@ -1003,7 +1004,7 @@ pub const Inst = struct {
         },
         ty_fn: struct {
             ty: Ref,
-            func: Module.Fn.Index,
+            func: InternPool.Index,
         },
         br: struct {
             block_inst: Index,
@@ -1436,7 +1437,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand, ip);
-            return ip.funcReturnType(callee_ty.toIntern()).toType();
+            return ip.funcTypeReturnType(callee_ty.toIntern()).toType();
         },
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {

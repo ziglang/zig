@@ -61,6 +61,20 @@ pub fn SinglyLinkedList(comptime T: type) type {
                 }
                 return count;
             }
+
+            /// Reverse the list starting from this node in-place.
+            /// This operation is O(N).
+            pub fn reverse(indirect: *?*Node) void {
+                if (indirect.* == null) {
+                    return;
+                }
+                var current: *Node = indirect.*.?;
+                while (current.next) |next| {
+                    current.next = next.next;
+                    next.next = indirect.*;
+                    indirect.* = next;
+                }
+            }
         };
 
         first: ?*Node = null,
@@ -148,6 +162,12 @@ test "basic SinglyLinkedList test" {
 
     try testing.expect(list.first.?.data == 2);
     try testing.expect(list.first.?.next.?.data == 4);
+    try testing.expect(list.first.?.next.?.next == null);
+
+    L.Node.reverse(&list.first);
+
+    try testing.expect(list.first.?.data == 4);
+    try testing.expect(list.first.?.next.?.data == 2);
     try testing.expect(list.first.?.next.?.next == null);
 }
 

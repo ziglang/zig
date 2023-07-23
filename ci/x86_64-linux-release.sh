@@ -40,6 +40,7 @@ cmake .. \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
+  -DZIG_NO_LIB=ON \
   -GNinja
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
@@ -49,6 +50,7 @@ unset CXX
 
 ninja install
 
+# TODO: move this to a build.zig step (check-fmt)
 echo "Looking for non-conforming code formatting..."
 stage3-release/bin/zig fmt --check .. \
   --exclude ../test/cases/ \
@@ -56,7 +58,9 @@ stage3-release/bin/zig fmt --check .. \
   --exclude ../build-release
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
-stage3-release/bin/zig build -Dtarget=arm-linux-musleabihf
+stage3-release/bin/zig build \
+  -Dtarget=arm-linux-musleabihf \
+  -Dno-lib
 
 stage3-release/bin/zig build test docs \
   --maxrss 21000000000 \
@@ -68,10 +72,8 @@ stage3-release/bin/zig build test docs \
   --zig-lib-dir "$(pwd)/../lib"
 
 # Look for HTML errors.
-tidy --drop-empty-elements no -qe "stage3-release/doc/langref.html"
-
-# Produce the experimental std lib documentation.
-stage3-release/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib
+# TODO: move this to a build.zig flag (-Denable-tidy)
+tidy --drop-empty-elements no -qe "zig-out/doc/langref.html"
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \
@@ -107,6 +109,7 @@ cmake .. \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
+  -DZIG_NO_LIB=ON \
   -GNinja
 
 unset CC
@@ -118,6 +121,7 @@ stage3/bin/zig test ../test/behavior.zig -I../test
 stage3/bin/zig build -p stage4 \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
+  -Dno-lib \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$(pwd)/../lib"
 stage4/bin/zig test ../test/behavior.zig -I../test

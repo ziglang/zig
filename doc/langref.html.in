@@ -8041,7 +8041,7 @@ pub const CallModifier = enum {
       {#header_close#}
 
       {#header_open|@cDefine#}
-      <pre>{#syntax#}@cDefine(comptime name: []u8, value) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@cDefine(comptime name: []const u8, value) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8085,7 +8085,7 @@ pub const CallModifier = enum {
       {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cInclude#}
-      <pre>{#syntax#}@cInclude(comptime path: []u8) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@cInclude(comptime path: []const u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8176,7 +8176,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileError#}
-      <pre>{#syntax#}@compileError(comptime msg: []u8) noreturn{#endsyntax#}</pre>
+      <pre>{#syntax#}@compileError(comptime msg: []const u8) noreturn{#endsyntax#}</pre>
       <p>
       This function, when semantically analyzed, causes a compile error with the
       message {#syntax#}msg{#endsyntax#}.
@@ -8267,7 +8267,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@cUndef#}
-      <pre>{#syntax#}@cUndef(comptime name: []u8) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@cUndef(comptime name: []const u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8607,7 +8607,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@import#}
-      <pre>{#syntax#}@import(comptime path: []u8) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@import(comptime path: []const u8) type{#endsyntax#}</pre>
       <p>
       This function finds a zig file corresponding to {#syntax#}path{#endsyntax#} and adds it to the build,
       if it is not already added.
@@ -8772,6 +8772,8 @@ test "integer cast panic" {
       <p>{#syntax#}dest{#endsyntax#} must be a mutable slice or a mutable pointer to an array.
       It may have any alignment, and it may have any element type.</p>
       <p>{#syntax#}elem{#endsyntax#} is coerced to the element type of {#syntax#}dest{#endsyntax#}.</p>
+      <p>For securely zeroing out sensitive contents from memory, you should use
+      {#syntax#}std.crypto.utils.secureZero{#endsyntax#}</p>
       {#header_close#}
 
       {#header_open|@min#}
@@ -9239,10 +9241,10 @@ test "vector @shuffle" {
       {#header_close#}
 
       {#header_open|@splat#}
-      <pre>{#syntax#}@splat(comptime len: u32, scalar: anytype) @Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
+      <pre>{#syntax#}@splat(scalar: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
-      {#syntax#}scalar{#endsyntax#}:
+      Produces a vector where each element is the value {#syntax#}scalar{#endsyntax#}. 
+      The return type and thus the length of the vector is inferred.
       </p>
       {#code_begin|test|test_splat_builtin#}
 const std = @import("std");
@@ -9250,8 +9252,7 @@ const expect = std.testing.expect;
 
 test "vector @splat" {
     const scalar: u32 = 5;
-    const result = @splat(4, scalar);
-    try comptime expect(@TypeOf(result) == @Vector(4, u32));
+    const result: @Vector(4, u32) = @splat(scalar);
     try expect(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
@@ -9292,8 +9293,9 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "vector @reduce" {
-    const value = @Vector(4, i32){ 1, -1, 1, -1 };
-    const result = value > @splat(4, @as(i32, 0));
+    const V = @Vector(4, i32);
+    const value = V{ 1, -1, 1, -1 };
+    const result = value > @as(V, @splat(0));
     // result is { true, false, true, false };
     try comptime expect(@TypeOf(result) == @Vector(4, bool));
     const is_all_true = @reduce(.And, result);

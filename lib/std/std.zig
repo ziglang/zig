@@ -8,6 +8,7 @@ pub const AutoArrayHashMap = array_hash_map.AutoArrayHashMap;
 pub const AutoArrayHashMapUnmanaged = array_hash_map.AutoArrayHashMapUnmanaged;
 pub const AutoHashMap = hash_map.AutoHashMap;
 pub const AutoHashMapUnmanaged = hash_map.AutoHashMapUnmanaged;
+pub const BitStack = @import("BitStack.zig");
 pub const BoundedArray = @import("bounded_array.zig").BoundedArray;
 pub const BoundedArrayAligned = @import("bounded_array.zig").BoundedArrayAligned;
 pub const Build = @import("Build.zig");

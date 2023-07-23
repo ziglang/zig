@@ -24,12 +24,14 @@ pub fn build(b: *std.Build) !void {
 
     const optimize = b.standardOptimizeOption(.{});
 
+    const flat = b.option(bool, "flat", "Put files into the installation prefix in a manner suited for upstream distribution rather than a posix file system hierarchy standard") orelse false;
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     const test_step = b.step("test", "Run all the tests");
     const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
+    const skip_install_autodocs = b.option(bool, "no-autodocs", "skip copying of standard library autodocs to the installation prefix") orelse skip_install_lib_files;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
 
     const docgen_exe = b.addExecutable(.{
@@ -52,8 +54,34 @@ pub fn build(b: *std.Build) !void {
         b.getInstallStep().dependOn(&install_langref.step);
     }
 
-    const docs_step = b.step("docs", "Build documentation");
-    docs_step.dependOn(&docgen_cmd.step);
+    const autodoc_test = b.addTest(.{
+        .root_source_file = .{ .path = "lib/std/std.zig" },
+        .target = target,
+    });
+    autodoc_test.overrideZigLibDir("lib");
+    autodoc_test.emit_bin = .no_emit; // https://github.com/ziglang/zig/issues/16351
+    const install_std_docs = b.addInstallDirectory(.{
+        .source_dir = autodoc_test.getOutputDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "doc/std",
+    });
+    if (!skip_install_autodocs) {
+        b.getInstallStep().dependOn(&install_std_docs.step);
+    }
+
+    if (flat) {
+        b.installFile("LICENSE", "LICENSE");
+    }
+
+    const langref_step = b.step("langref", "Build and install the language reference");
+    langref_step.dependOn(&install_langref.step);
+
+    const std_docs_step = b.step("std-docs", "Build and install the standard library documentation");
+    std_docs_step.dependOn(&install_std_docs.step);
+
+    const docs_step = b.step("docs", "Build and install documentation");
+    docs_step.dependOn(langref_step);
+    docs_step.dependOn(std_docs_step);
 
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
@@ -104,10 +132,10 @@ pub fn build(b: *std.Build) !void {
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
     if (!skip_install_lib_files) {
-        b.installDirectory(InstallDirectoryOptions{
+        b.installDirectory(.{
             .source_dir = .{ .path = "lib" },
-            .install_dir = .lib,
-            .install_subdir = "zig",
+            .install_dir = if (flat) .prefix else .lib,
+            .install_subdir = if (flat) "lib" else "zig",
             .exclude_extensions = &[_][]const u8{
                 // exclude files from lib/std/compress/testdata
                 ".gz",
@@ -167,6 +195,9 @@ pub fn build(b: *std.Build) !void {
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
     exe.entitlements = entitlements;
+    // TODO -femit-bin/-fno-emit-bin should be inferred by the build system
+    // based on whether or not the exe is run or installed.
+    // https://github.com/ziglang/zig/issues/16351
     if (no_bin) exe.emit_bin = .no_emit;
 
     exe.build_id = b.option(
@@ -175,7 +206,13 @@ pub fn build(b: *std.Build) !void {
         "Request creation of '.note.gnu.build-id' section",
     );
 
-    b.installArtifact(exe);
+    if (!no_bin) {
+        const install_exe = b.addInstallArtifact(exe);
+        if (flat) {
+            install_exe.dest_dir = .prefix;
+        }
+        b.getInstallStep().dependOn(&install_exe.step);
+    }
 
     test_step.dependOn(&exe.step);
 

@@ -1398,6 +1398,7 @@ fn renderBuiltinCall(
         "@floatCast",
         "@intCast",
         "@ptrCast",
+
         "@intFromFloat",
         "@floatToInt",
         "@enumFromInt",
@@ -1406,7 +1407,9 @@ fn renderBuiltinCall(
         "@intToFloat",
         "@ptrFromInt",
         "@intToPtr",
+
         "@truncate",
+        "@byteSwap",
     }) |name| {
         if (mem.eql(u8, slice, name)) break true;
     } else false;

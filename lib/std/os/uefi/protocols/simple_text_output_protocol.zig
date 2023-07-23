@@ -2,18 +2,19 @@ const std = @import("std");
 const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
+const cc = uefi.cc;
 
 /// Character output devices
 pub const SimpleTextOutputProtocol = extern struct {
-    _reset: *const fn (*const SimpleTextOutputProtocol, bool) callconv(.C) Status,
-    _output_string: *const fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(.C) Status,
-    _test_string: *const fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(.C) Status,
-    _query_mode: *const fn (*const SimpleTextOutputProtocol, usize, *usize, *usize) callconv(.C) Status,
-    _set_mode: *const fn (*const SimpleTextOutputProtocol, usize) callconv(.C) Status,
-    _set_attribute: *const fn (*const SimpleTextOutputProtocol, usize) callconv(.C) Status,
-    _clear_screen: *const fn (*const SimpleTextOutputProtocol) callconv(.C) Status,
-    _set_cursor_position: *const fn (*const SimpleTextOutputProtocol, usize, usize) callconv(.C) Status,
-    _enable_cursor: *const fn (*const SimpleTextOutputProtocol, bool) callconv(.C) Status,
+    _reset: *const fn (*const SimpleTextOutputProtocol, bool) callconv(cc) Status,
+    _output_string: *const fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(cc) Status,
+    _test_string: *const fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(cc) Status,
+    _query_mode: *const fn (*const SimpleTextOutputProtocol, usize, *usize, *usize) callconv(cc) Status,
+    _set_mode: *const fn (*const SimpleTextOutputProtocol, usize) callconv(cc) Status,
+    _set_attribute: *const fn (*const SimpleTextOutputProtocol, usize) callconv(cc) Status,
+    _clear_screen: *const fn (*const SimpleTextOutputProtocol) callconv(cc) Status,
+    _set_cursor_position: *const fn (*const SimpleTextOutputProtocol, usize, usize) callconv(cc) Status,
+    _enable_cursor: *const fn (*const SimpleTextOutputProtocol, bool) callconv(cc) Status,
     mode: *SimpleTextOutputMode,
 
     /// Resets the text output device hardware.

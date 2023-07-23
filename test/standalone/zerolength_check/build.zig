@@ -1,6 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const CrossTarget = std.zig.CrossTarget;
 
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
@@ -13,12 +11,17 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const obj = b.addObject(.{
-        .name = "main",
-        .root_source_file = .{ .path = "main.zig" },
+    const unit_tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = .{
+            .os_tag = .wasi,
+            .cpu_arch = .wasm32,
+            .cpu_features_add = std.Target.wasm.featureSet(&.{.bulk_memory}),
+        },
         .optimize = optimize,
-        .target = .{},
     });
 
-    test_step.dependOn(&obj.step);
+    const run_unit_tests = b.addRunArtifact(unit_tests);
+    run_unit_tests.skip_foreign_checks = true;
+    test_step.dependOn(&run_unit_tests.step);
 }

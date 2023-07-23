@@ -21,26 +21,28 @@ pub fn build(b: *std.Build) void {
 
     const check_lib = lib.checkObject();
 
-    check_lib.checkStart("Section global");
-    check_lib.checkNext("entries 3");
-    check_lib.checkNext("type i32"); // stack pointer so skip other fields
-    check_lib.checkNext("type i32");
-    check_lib.checkNext("mutable false");
-    check_lib.checkNext("i32.const {foo_address}");
-    check_lib.checkNext("type i32");
-    check_lib.checkNext("mutable false");
-    check_lib.checkNext("i32.const {bar_address}");
+    check_lib.checkStart();
+    check_lib.checkExact("Section global");
+    check_lib.checkExact("entries 3");
+    check_lib.checkExact("type i32"); // stack pointer so skip other fields
+    check_lib.checkExact("type i32");
+    check_lib.checkExact("mutable false");
+    check_lib.checkExtract("i32.const {foo_address}");
+    check_lib.checkExact("type i32");
+    check_lib.checkExact("mutable false");
+    check_lib.checkExtract("i32.const {bar_address}");
     check_lib.checkComputeCompare("foo_address", .{ .op = .eq, .value = .{ .literal = 4 } });
     check_lib.checkComputeCompare("bar_address", .{ .op = .eq, .value = .{ .literal = 0 } });
 
-    check_lib.checkStart("Section export");
-    check_lib.checkNext("entries 3");
-    check_lib.checkNext("name foo");
-    check_lib.checkNext("kind global");
-    check_lib.checkNext("index 1");
-    check_lib.checkNext("name bar");
-    check_lib.checkNext("kind global");
-    check_lib.checkNext("index 2");
+    check_lib.checkStart();
+    check_lib.checkExact("Section export");
+    check_lib.checkExact("entries 3");
+    check_lib.checkExact("name foo");
+    check_lib.checkExact("kind global");
+    check_lib.checkExact("index 1");
+    check_lib.checkExact("name bar");
+    check_lib.checkExact("kind global");
+    check_lib.checkExact("index 2");
 
     test_step.dependOn(&check_lib.step);
 }

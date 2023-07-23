@@ -48,7 +48,7 @@ pub const DevicePathProtocol = extern struct {
         // DevicePathProtocol for the extra node before the end
         var buf = try allocator.alloc(u8, path_size + 2 * (path.len + 1) + @sizeOf(DevicePathProtocol));
 
-        @memcpy(buf[0..path_size.len], @as([*]const u8, @ptrCast(self))[0..path_size]);
+        @memcpy(buf[0..path_size], @as([*]const u8, @ptrCast(self))[0..path_size]);
 
         // Pointer to the copy of the end node of the current chain, which is - 4 from the buffer
         // as the end node itself is 4 bytes (type: u8 + subtype: u8 + length: u16).

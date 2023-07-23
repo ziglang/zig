@@ -136,7 +136,7 @@ fn mainTerminal() void {
     const have_tty = progress.terminal != null and
         (progress.supports_ansi_escape_codes or progress.is_windows_terminal);
 
-    var async_frame_buffer: []align(std.Target.stack_align) u8 = undefined;
+    var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
     // TODO this is on the next line (using `undefined` above) because otherwise zig incorrectly
     // ignores the alignment of the slice.
     async_frame_buffer = &[_]u8{};

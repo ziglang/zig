@@ -792,7 +792,7 @@ pub const list = list: {
             "@splat",
             .{
                 .tag = .splat,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{

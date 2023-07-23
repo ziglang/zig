@@ -213,10 +213,6 @@ pub const build_cases = [_]BuildCase{
     //    .build_root = "test/standalone/sigpipe",
     //    .import = @import("standalone/sigpipe/build.zig"),
     //},
-    .{
-        .build_root = "test/standalone/issue_13030",
-        .import = @import("standalone/issue_13030/build.zig"),
-    },
     // TODO restore this test
     //.{
     //    .build_root = "test/standalone/options",
@@ -229,6 +225,18 @@ pub const build_cases = [_]BuildCase{
     .{
         .build_root = "test/standalone/cmakedefine",
         .import = @import("standalone/cmakedefine/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/zerolength_check",
+        .import = @import("standalone/zerolength_check/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/stack_iterator",
+        .import = @import("standalone/stack_iterator/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/coff_dwarf",
+        .import = @import("standalone/coff_dwarf/build.zig"),
     },
 };
 

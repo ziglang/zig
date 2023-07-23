@@ -29,6 +29,7 @@ const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
 const Module = @import("Module.zig");
+const InternPool = @import("InternPool.zig");
 const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const translate_c = @import("translate_c.zig");
@@ -117,6 +118,7 @@ self_exe_path: ?[]const u8,
 whole_bin_sub_path: ?[]u8,
 /// Same as `whole_bin_sub_path` but for implibs.
 whole_implib_sub_path: ?[]u8,
+whole_docs_sub_path: ?[]u8,
 zig_lib_directory: Directory,
 local_cache_directory: Directory,
 global_cache_directory: Directory,
@@ -178,7 +180,6 @@ emit_asm: ?EmitLoc,
 emit_llvm_ir: ?EmitLoc,
 emit_llvm_bc: ?EmitLoc,
 emit_analysis: ?EmitLoc,
-emit_docs: ?EmitLoc,
 
 work_queue_wait_group: WaitGroup = .{},
 astgen_wait_group: WaitGroup = .{},
@@ -227,7 +228,8 @@ const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
     codegen_decl: Module.Decl.Index,
     /// Write the machine code for a function to the output file.
-    codegen_func: Module.Fn.Index,
+    /// This will either be a non-generic `func_decl` or a `func_instance`.
+    codegen_func: InternPool.Index,
     /// Render the .h file snippet for the Decl.
     emit_h_decl: Module.Decl.Index,
     /// The Decl needs to be analyzed and possibly export itself.
@@ -536,6 +538,7 @@ pub const InitOptions = struct {
     want_lto: ?bool = null,
     want_unwind_tables: ?bool = null,
     use_llvm: ?bool = null,
+    use_lib_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
     single_threaded: ?bool = null,
@@ -751,7 +754,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const root_name = try arena.dupeZ(u8, options.root_name);
 
         // Make a decision on whether to use LLVM or our own backend.
-        const use_llvm = build_options.have_llvm and blk: {
+        const use_lib_llvm = options.use_lib_llvm orelse build_options.have_llvm;
+        const use_llvm = blk: {
             if (options.use_llvm) |explicit|
                 break :blk explicit;
 
@@ -1034,15 +1038,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         if (must_single_thread and !single_threaded) {
             return error.TargetRequiresSingleThreaded;
         }
-        if (!single_threaded and options.link_libcpp) {
-            if (options.target.cpu.arch.isARM()) {
-                log.warn(
-                    \\libc++ does not work on multi-threaded ARM yet.
-                    \\For more details: https://github.com/ziglang/zig/issues/6573
-                , .{});
-                return error.TargetRequiresSingleThreaded;
-            }
-        }
 
         const llvm_cpu_features: ?[*:0]const u8 = if (build_options.have_llvm and use_llvm) blk: {
             var buf = std.ArrayList(u8).init(arena);
@@ -1124,6 +1119,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.addOptional(options.dwarf_format);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_bin);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_implib);
+        cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_docs);
         cache.hash.addBytes(options.root_name);
         if (options.target.os.tag == .wasi) cache.hash.add(wasi_exec_model);
         // TODO audit this and make sure everything is in it
@@ -1159,6 +1155,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             hash.add(valgrind);
             hash.add(single_threaded);
             hash.add(use_llvm);
+            hash.add(use_lib_llvm);
             hash.add(dll_export_fns);
             hash.add(options.is_test);
             hash.add(options.test_evented_io);
@@ -1175,8 +1172,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // For whole cache mode, it is still used for builtin.zig so that the file
             // path to builtin.zig can remain consistent during a debugging session at
             // runtime. However, we don't know where to put outputs from the linker
-            // or stage1 backend object files until the final cache hash, which is available
-            // after the compilation is complete.
+            // until the final cache hash, which is available after the
+            // compilation is complete.
             //
             // Therefore, in whole cache mode, we additionally create a temporary cache
             // directory for these two kinds of build artifacts, and then rename it
@@ -1350,6 +1347,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 };
             }
 
+            // In case of whole cache mode, `whole_bin_sub_path` is used to distinguish
+            // between -femit-bin and -fno-emit-bin.
             switch (cache_mode) {
                 .whole => break :blk null,
                 .incremental => {},
@@ -1412,6 +1411,34 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             };
         };
 
+        const docs_emit: ?link.Emit = blk: {
+            const emit_docs = options.emit_docs orelse break :blk null;
+
+            if (emit_docs.directory) |directory| {
+                break :blk .{
+                    .directory = directory,
+                    .sub_path = emit_docs.basename,
+                };
+            }
+
+            // This is here for the same reason as in `bin_file_emit` above.
+            switch (cache_mode) {
+                .whole => break :blk null,
+                .incremental => {},
+            }
+
+            // Use the same directory as the bin, if possible.
+            if (bin_file_emit) |x| break :blk .{
+                .directory = x.directory,
+                .sub_path = emit_docs.basename,
+            };
+
+            break :blk .{
+                .directory = module.?.zig_cache_artifact_directory,
+                .sub_path = emit_docs.basename,
+            };
+        };
+
         // This is so that when doing `CacheMode.whole`, the mechanism in update()
         // can use it for communicating the result directory via `bin_file.emit`.
         // This is used to distinguish between -fno-emit-bin and -femit-bin
@@ -1421,6 +1448,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const whole_bin_sub_path: ?[]u8 = try prepareWholeEmitSubPath(arena, options.emit_bin);
         // Same thing but for implibs.
         const whole_implib_sub_path: ?[]u8 = try prepareWholeEmitSubPath(arena, options.emit_implib);
+        const whole_docs_sub_path: ?[]u8 = try prepareWholeEmitSubPath(arena, options.emit_docs);
 
         var system_libs: std.StringArrayHashMapUnmanaged(SystemLib) = .{};
         errdefer system_libs.deinit(gpa);
@@ -1432,6 +1460,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const bin_file = try link.File.openPath(gpa, .{
             .emit = bin_file_emit,
             .implib_emit = implib_emit,
+            .docs_emit = docs_emit,
             .root_name = root_name,
             .module = module,
             .target = options.target,
@@ -1442,6 +1471,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .optimize_mode = options.optimize_mode,
             .use_lld = use_lld,
             .use_llvm = use_llvm,
+            .use_lib_llvm = use_lib_llvm,
             .link_libc = link_libc,
             .link_libcpp = link_libcpp,
             .link_libunwind = link_libunwind,
@@ -1555,11 +1585,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .bin_file = bin_file,
             .whole_bin_sub_path = whole_bin_sub_path,
             .whole_implib_sub_path = whole_implib_sub_path,
+            .whole_docs_sub_path = whole_docs_sub_path,
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
             .emit_analysis = options.emit_analysis,
-            .emit_docs = options.emit_docs,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .anon_work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
@@ -1943,7 +1973,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             };
         };
 
-        // This updates the output directory for stage1 backend and linker outputs.
+        // This updates the output directory for linker outputs.
         if (comp.bin_file.options.module) |module| {
             module.zig_cache_artifact_directory = tmp_artifact_directory.?;
         }
@@ -1959,6 +1989,12 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         }
         if (comp.whole_implib_sub_path) |sub_path| {
             options.implib_emit = .{
+                .directory = tmp_artifact_directory.?,
+                .sub_path = std.fs.path.basename(sub_path),
+            };
+        }
+        if (comp.whole_docs_sub_path) |sub_path| {
+            options.docs_emit = .{
                 .directory = tmp_artifact_directory.?,
                 .sub_path = std.fs.path.basename(sub_path),
             };
@@ -2053,15 +2089,9 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             const decl = module.declPtr(decl_index);
             assert(decl.deletion_flag);
             assert(decl.dependants.count() == 0);
-            const is_anon = if (decl.zir_decl_index == 0) blk: {
-                break :blk module.namespacePtr(decl.src_namespace).anon_decls.swapRemove(decl_index);
-            } else false;
+            assert(decl.zir_decl_index != 0);
 
             try module.clearDecl(decl_index, null);
-
-            if (is_anon) {
-                module.destroyDecl(decl_index);
-            }
         }
 
         try module.processExports();
@@ -2071,16 +2101,6 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         // Skip flushing and keep source files loaded for error reporting.
         comp.link_error_flags = .{};
         return;
-    }
-
-    if (!build_options.only_c and !build_options.only_core_functionality) {
-        if (comp.emit_docs) |doc_location| {
-            if (comp.bin_file.options.module) |module| {
-                var autodoc = Autodoc.init(module, doc_location);
-                defer autodoc.deinit();
-                try autodoc.generateZirData();
-            }
-        }
     }
 
     // Flush takes care of -femit-bin, but we still have -femit-llvm-ir, -femit-llvm-bc, and
@@ -2131,12 +2151,21 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             };
 
             try comp.flush(main_progress_node);
+            if (comp.totalErrorCount() != 0) return;
+
+            // TODO: do this in a separate job during performAllTheWork(). The
+            // file copies at the end of generate() can also be extracted to
+            // separate jobs
+            if (!build_options.only_c and !build_options.only_core_functionality) {
+                if (comp.bin_file.options.docs_emit) |emit| {
+                    var dir = try emit.directory.handle.makeOpenPath(emit.sub_path, .{});
+                    defer dir.close();
+                    try Autodoc.generate(module, dir);
+                }
+            }
         } else {
             try comp.flush(main_progress_node);
-        }
-
-        if (comp.totalErrorCount() != 0) {
-            return;
+            if (comp.totalErrorCount() != 0) return;
         }
 
         // Failure here only means an unnecessary cache miss.
@@ -2195,6 +2224,15 @@ fn wholeCacheModeSetBinFilePath(comp: *Compilation, digest: *const [Cache.hex_di
         @memcpy(sub_path[digest_start..][0..digest.len], digest);
 
         comp.bin_file.options.implib_emit = .{
+            .directory = comp.local_cache_directory,
+            .sub_path = sub_path,
+        };
+    }
+
+    if (comp.whole_docs_sub_path) |sub_path| {
+        @memcpy(sub_path[digest_start..][0..digest.len], digest);
+
+        comp.bin_file.options.docs_emit = .{
             .directory = comp.local_cache_directory,
             .sub_path = sub_path,
         };
@@ -2274,7 +2312,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_analysis);
-    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_docs);
 
     man.hash.addListOfBytes(comp.clang_argv);
 
@@ -3216,8 +3253,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                 // Tests are always emitted in test binaries. The decl_refs are created by
                 // Module.populateTestFunctions, but this will not queue body analysis, so do
                 // that now.
-                const func_index = module.intern_pool.indexToFunc(decl.val.ip_index).unwrap().?;
-                try module.ensureFuncBodyAnalysisQueued(func_index);
+                try module.ensureFuncBodyAnalysisQueued(decl.val.toIntern());
             }
         },
         .update_embed_file => |embed_file| {
@@ -4067,9 +4103,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
                 try child.spawn();
 
-                const stderr_reader = child.stderr.?.reader();
-
-                const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
+                const stderr = try child.stderr.?.reader().readAllAlloc(arena, std.math.maxInt(usize));
 
                 const term = child.wait() catch |err| {
                     return comp.failCObj(c_object, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
@@ -4441,6 +4475,12 @@ pub fn addCCArgs(
         },
         .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res => {},
         .assembly, .assembly_with_cpp => {
+            if (ext == .assembly_with_cpp) {
+                const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
+                try argv.append("-isystem");
+                try argv.append(c_headers_dir);
+            }
+
             // The Clang assembler does not accept the list of CPU features like the
             // compiler frontend does. Therefore we must hard-code the -m flags for
             // all CPU features here.
@@ -5294,6 +5334,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
         \\pub const code_model = std.builtin.CodeModel.{};
+        \\pub const omit_frame_pointer = {};
         \\
     , .{
         std.zig.fmtId(@tagName(target.ofmt)),
@@ -5307,6 +5348,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         comp.bin_file.options.pie,
         comp.bin_file.options.strip,
         std.zig.fmtId(@tagName(comp.bin_file.options.machine_code_model)),
+        comp.bin_file.options.omit_frame_pointer,
     });
 
     if (target.os.tag == .wasi) {

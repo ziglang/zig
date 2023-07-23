@@ -389,3 +389,86 @@ pub const SC = struct {
     pub const recvmmsg = 19;
     pub const sendmmsg = 20;
 };
+
+fn gpRegisterOffset(comptime reg_index: comptime_int) usize {
+    return @offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "gregs") + @sizeOf(usize) * reg_index;
+}
+
+noinline fn getContextReturnAddress() usize {
+    return @returnAddress();
+}
+
+pub fn getContextInternal() callconv(.Naked) void {
+    asm volatile (
+        \\ movl $0, (%[flags_offset])(%%edx)
+        \\ movl $0, (%[link_offset])(%%edx)
+        \\ movl %%edi, (%[edi_offset])(%%edx)
+        \\ movl %%esi, (%[esi_offset])(%%edx)
+        \\ movl %%ebp, (%[ebp_offset])(%%edx)
+        \\ movl %%ebx, (%[ebx_offset])(%%edx)
+        \\ movl %%edx, (%[edx_offset])(%%edx)
+        \\ movl %%ecx, (%[ecx_offset])(%%edx)
+        \\ movl %%eax, (%[eax_offset])(%%edx)
+        \\ movl (%%esp), %%ecx
+        \\ movl %%ecx, (%[eip_offset])(%%edx)
+        \\ leal 4(%%esp), %%ecx
+        \\ movl %%ecx, (%[esp_offset])(%%edx)
+        \\ xorl %%ecx, %%ecx
+        \\ movw %%fs, %%cx
+        \\ movl %%ecx, (%[fs_offset])(%%edx)
+        \\ leal (%[regspace_offset])(%%edx), %%ecx
+        \\ movl %%ecx, (%[fpregs_offset])(%%edx)
+        \\ fnstenv (%%ecx)
+        \\ fldenv (%%ecx)
+        \\ pushl %%ebx
+        \\ pushl %%esi
+        \\ xorl %%ebx, %%ebx
+        \\ movl %[sigaltstack], %%eax
+        \\ leal (%[stack_offset])(%%edx), %%ecx
+        \\ int $0x80
+        \\ cmpl $0, %%eax
+        \\ jne return
+        \\ movl %[sigprocmask], %%eax
+        \\ xorl %%ecx, %%ecx
+        \\ leal (%[sigmask_offset])(%%edx), %%edx
+        \\ movl %[sigset_size], %%esi
+        \\ int $0x80
+        \\ return:
+        \\ popl %%esi
+        \\ popl %%ebx
+        :
+        : [flags_offset] "p" (@offsetOf(ucontext_t, "flags")),
+          [link_offset] "p" (@offsetOf(ucontext_t, "link")),
+          [edi_offset] "p" (comptime gpRegisterOffset(REG.EDI)),
+          [esi_offset] "p" (comptime gpRegisterOffset(REG.ESI)),
+          [ebp_offset] "p" (comptime gpRegisterOffset(REG.EBP)),
+          [esp_offset] "p" (comptime gpRegisterOffset(REG.ESP)),
+          [ebx_offset] "p" (comptime gpRegisterOffset(REG.EBX)),
+          [edx_offset] "p" (comptime gpRegisterOffset(REG.EDX)),
+          [ecx_offset] "p" (comptime gpRegisterOffset(REG.ECX)),
+          [eax_offset] "p" (comptime gpRegisterOffset(REG.EAX)),
+          [eip_offset] "p" (comptime gpRegisterOffset(REG.EIP)),
+          [fs_offset] "p" (comptime gpRegisterOffset(REG.FS)),
+          [fpregs_offset] "p" (@offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "fpregs")),
+          [regspace_offset] "p" (@offsetOf(ucontext_t, "regspace")),
+          [sigaltstack] "i" (@intFromEnum(linux.SYS.sigaltstack)),
+          [stack_offset] "p" (@offsetOf(ucontext_t, "stack")),
+          [sigprocmask] "i" (@intFromEnum(linux.SYS.rt_sigprocmask)),
+          [sigmask_offset] "p" (@offsetOf(ucontext_t, "sigmask")),
+          [sigset_size] "i" (linux.NSIG / 8),
+        : "memory", "eax", "ecx", "edx"
+    );
+}
+
+pub inline fn getcontext(context: *ucontext_t) usize {
+    // This method is used so that getContextInternal can control
+    // its prologue in order to read ESP from a constant offset.
+    // The unused &getContextInternal input is required so the function is included in the binary.
+    return asm volatile (
+        \\ call os.linux.x86.getContextInternal
+        : [ret] "={eax}" (-> usize),
+        : [context] "{edx}" (context),
+          [getContextInternal] "X" (&getContextInternal),
+        : "memory", "ecx"
+    );
+}

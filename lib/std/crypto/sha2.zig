@@ -678,15 +678,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
 
             var i: usize = 0;
             while (i < 16) : (i += 1) {
-                s[i] = 0;
-                s[i] |= @as(u64, b[i * 8 + 0]) << 56;
-                s[i] |= @as(u64, b[i * 8 + 1]) << 48;
-                s[i] |= @as(u64, b[i * 8 + 2]) << 40;
-                s[i] |= @as(u64, b[i * 8 + 3]) << 32;
-                s[i] |= @as(u64, b[i * 8 + 4]) << 24;
-                s[i] |= @as(u64, b[i * 8 + 5]) << 16;
-                s[i] |= @as(u64, b[i * 8 + 6]) << 8;
-                s[i] |= @as(u64, b[i * 8 + 7]) << 0;
+                s[i] = mem.readIntBig(u64, b[i * 8 ..][0..8]);
             }
             while (i < 80) : (i += 1) {
                 s[i] = s[i - 16] +% s[i - 7] +%

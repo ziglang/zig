@@ -36,8 +36,10 @@ env_map: ?*EnvMap,
 /// be skipped if all output files are up-to-date and input files are
 /// unchanged.
 stdio: StdIo = .infer_from_args,
-/// This field must be `null` if stdio is `inherit`.
-stdin: ?[]const u8 = null,
+
+/// This field must be `.none` if stdio is `inherit`.
+/// It should be only set using `setStdIn`.
+stdin: StdIn = .none,
 
 /// Additional file paths relative to build.zig that, when modified, indicate
 /// that the Run step should be re-executed.
@@ -77,6 +79,12 @@ captured_stderr: ?*Output = null,
 
 has_side_effects: bool = false,
 
+pub const StdIn = union(enum) {
+    none,
+    bytes: []const u8,
+    file_source: std.Build.FileSource,
+};
+
 pub const StdIo = union(enum) {
     /// Whether the Run step has side-effects will be determined by whether or not one
     /// of the args is an output file (added with `addOutputFileArg`).
@@ -112,10 +120,15 @@ pub const StdIo = union(enum) {
 
 pub const Arg = union(enum) {
     artifact: *Step.Compile,
-    file_source: std.Build.FileSource,
-    directory_source: std.Build.FileSource,
+    file_source: PrefixedFileSource,
+    directory_source: PrefixedFileSource,
     bytes: []u8,
     output: *Output,
+};
+
+pub const PrefixedFileSource = struct {
+    prefix: []const u8,
+    file_source: std.Build.FileSource,
 };
 
 pub const Output = struct {
@@ -145,9 +158,9 @@ pub fn setName(self: *Run, name: []const u8) void {
     self.rename_step_with_output_arg = false;
 }
 
-pub fn enableTestRunnerMode(rs: *Run) void {
-    rs.stdio = .zig_test;
-    rs.addArgs(&.{"--listen=-"});
+pub fn enableTestRunnerMode(self: *Run) void {
+    self.stdio = .zig_test;
+    self.addArgs(&.{"--listen=-"});
 }
 
 pub fn addArtifactArg(self: *Run, artifact: *Step.Compile) void {
@@ -158,43 +171,59 @@ pub fn addArtifactArg(self: *Run, artifact: *Step.Compile) void {
 /// This provides file path as a command line argument to the command being
 /// run, and returns a FileSource which can be used as inputs to other APIs
 /// throughout the build system.
-pub fn addOutputFileArg(rs: *Run, basename: []const u8) std.Build.FileSource {
-    return addPrefixedOutputFileArg(rs, "", basename);
+pub fn addOutputFileArg(self: *Run, basename: []const u8) std.Build.FileSource {
+    return self.addPrefixedOutputFileArg("", basename);
 }
 
 pub fn addPrefixedOutputFileArg(
-    rs: *Run,
+    self: *Run,
     prefix: []const u8,
     basename: []const u8,
 ) std.Build.FileSource {
-    const b = rs.step.owner;
+    const b = self.step.owner;
 
     const output = b.allocator.create(Output) catch @panic("OOM");
     output.* = .{
         .prefix = prefix,
         .basename = basename,
-        .generated_file = .{ .step = &rs.step },
+        .generated_file = .{ .step = &self.step },
     };
-    rs.argv.append(.{ .output = output }) catch @panic("OOM");
+    self.argv.append(.{ .output = output }) catch @panic("OOM");
 
-    if (rs.rename_step_with_output_arg) {
-        rs.setName(b.fmt("{s} ({s})", .{ rs.step.name, basename }));
+    if (self.rename_step_with_output_arg) {
+        self.setName(b.fmt("{s} ({s})", .{ self.step.name, basename }));
     }
 
     return .{ .generated = &output.generated_file };
 }
 
 pub fn addFileSourceArg(self: *Run, file_source: std.Build.FileSource) void {
-    self.argv.append(.{
-        .file_source = file_source.dupe(self.step.owner),
-    }) catch @panic("OOM");
+    self.addPrefixedFileSourceArg("", file_source);
+}
+
+pub fn addPrefixedFileSourceArg(self: *Run, prefix: []const u8, file_source: std.Build.FileSource) void {
+    const b = self.step.owner;
+
+    const prefixed_file_source: PrefixedFileSource = .{
+        .prefix = b.dupe(prefix),
+        .file_source = file_source.dupe(b),
+    };
+    self.argv.append(.{ .file_source = prefixed_file_source }) catch @panic("OOM");
     file_source.addStepDependencies(&self.step);
 }
 
 pub fn addDirectorySourceArg(self: *Run, directory_source: std.Build.FileSource) void {
-    self.argv.append(.{
-        .directory_source = directory_source.dupe(self.step.owner),
-    }) catch @panic("OOM");
+    self.addPrefixedDirectorySourceArg("", directory_source);
+}
+
+pub fn addPrefixedDirectorySourceArg(self: *Run, prefix: []const u8, directory_source: std.Build.FileSource) void {
+    const b = self.step.owner;
+
+    const prefixed_directory_source: PrefixedFileSource = .{
+        .prefix = b.dupe(prefix),
+        .file_source = directory_source.dupe(b),
+    };
+    self.argv.append(.{ .directory_source = prefixed_directory_source }) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
@@ -206,6 +235,14 @@ pub fn addArgs(self: *Run, args: []const []const u8) void {
     for (args) |arg| {
         self.addArg(arg);
     }
+}
+
+pub fn setStdIn(self: *Run, stdin: StdIn) void {
+    switch (stdin) {
+        .file_source => |file_source| file_source.addStepDependencies(&self.step),
+        .bytes, .none => {},
+    }
+    self.stdin = stdin;
 }
 
 pub fn clearEnvironment(self: *Run) void {
@@ -395,13 +432,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 man.hash.addBytes(bytes);
             },
             .file_source => |file| {
-                const file_path = file.getPath(b);
-                try argv_list.append(file_path);
+                const file_path = file.file_source.getPath(b);
+                try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
+                man.hash.addBytes(file.prefix);
                 _ = try man.addFile(file_path, null);
             },
             .directory_source => |file| {
-                const file_path = file.getPath(b);
-                try argv_list.append(file_path);
+                const file_path = file.file_source.getPath(b);
+                try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
+                man.hash.addBytes(file.prefix);
                 man.hash.addBytes(file_path);
             },
             .artifact => |artifact| {
@@ -431,8 +470,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
-    if (self.stdin) |bytes| {
-        man.hash.addBytes(bytes);
+    switch (self.stdin) {
+        .bytes => |bytes| {
+            man.hash.addBytes(bytes);
+        },
+        .file_source => |file_source| {
+            const file_path = file_source.getPath(b);
+            _ = try man.addFile(file_path, null);
+        },
+        .none => {},
     }
 
     if (self.captured_stdout) |output| {
@@ -911,7 +957,7 @@ fn spawnChildAndCollect(
     };
     if (self.captured_stdout != null) child.stdout_behavior = .Pipe;
     if (self.captured_stderr != null) child.stderr_behavior = .Pipe;
-    if (self.stdin != null) {
+    if (self.stdin != .none) {
         assert(child.stdin_behavior != .Inherit);
         child.stdin_behavior = .Pipe;
     }
@@ -1135,12 +1181,27 @@ fn sendRunTestMessage(file: std.fs.File, index: u32) !void {
 fn evalGeneric(self: *Run, child: *std.process.Child) !StdIoResult {
     const arena = self.step.owner.allocator;
 
-    if (self.stdin) |stdin| {
-        child.stdin.?.writeAll(stdin) catch |err| {
-            return self.step.fail("unable to write stdin: {s}", .{@errorName(err)});
-        };
-        child.stdin.?.close();
-        child.stdin = null;
+    switch (self.stdin) {
+        .bytes => |bytes| {
+            child.stdin.?.writeAll(bytes) catch |err| {
+                return self.step.fail("unable to write stdin: {s}", .{@errorName(err)});
+            };
+            child.stdin.?.close();
+            child.stdin = null;
+        },
+        .file_source => |file_source| {
+            const path = file_source.getPath(self.step.owner);
+            const file = self.step.owner.build_root.handle.openFile(path, .{}) catch |err| {
+                return self.step.fail("unable to open stdin file: {s}", .{@errorName(err)});
+            };
+            defer file.close();
+            child.stdin.?.writeFileAll(file, .{}) catch |err| {
+                return self.step.fail("unable to write file to stdin: {s}", .{@errorName(err)});
+            };
+            child.stdin.?.close();
+            child.stdin = null;
+        },
+        .none => {},
     }
 
     // These are not optionals, as a workaround for

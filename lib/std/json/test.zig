@@ -4,6 +4,7 @@ const parseFromSlice = @import("./static.zig").parseFromSlice;
 const validate = @import("./scanner.zig").validate;
 const JsonScanner = @import("./scanner.zig").Scanner;
 const Value = @import("./dynamic.zig").Value;
+const stringifyAlloc = @import("./stringify.zig").stringifyAlloc;
 
 // Support for JSONTestSuite.zig
 pub fn ok(s: []const u8) !void {
@@ -49,11 +50,10 @@ fn roundTrip(s: []const u8) !void {
     var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
     defer parsed.deinit();
 
-    var buf: [256]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    try parsed.value.jsonStringify(.{}, fbs.writer());
+    const rendered = try stringifyAlloc(testing.allocator, parsed.value, .{});
+    defer testing.allocator.free(rendered);
 
-    try testing.expectEqualStrings(s, fbs.getWritten());
+    try testing.expectEqualStrings(s, rendered);
 }
 
 test "truncated UTF-8 sequence" {

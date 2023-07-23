@@ -16,53 +16,7 @@ test {
 
 pub const tagName = @compileError("deprecated; use @tagName or @errorName directly");
 
-/// Given an enum or tagged union, returns true if the comptime-supplied
-/// string matches the name of the tag value.  This match process should
-/// be, at runtime, O(1) in the number of tags available to the enum or
-/// union, and it should also be O(1) in the length of the comptime tag
-/// names.
-pub fn isTag(tagged_value: anytype, comptime tag_name: []const u8) bool {
-    const T = @TypeOf(tagged_value);
-    const type_info = @typeInfo(T);
-    const type_name = @typeName(T);
-
-    // select the Enum type out of the type (in the case of the tagged union, extract it)
-    const E = if (.Enum == type_info) T else if (.Union == type_info) (type_info.Union.tag_type orelse {
-        @compileError("attempted to use isTag on the untagged union " ++ type_name);
-    }) else {
-        @compileError("attempted to use isTag on a value of type (" ++ type_name ++ ") that isn't an enum or a union.");
-    };
-
-    return tagged_value == @field(E, tag_name);
-}
-
-test "std.meta.isTag for Enums" {
-    const EnumType = enum { a, b };
-    var a_type: EnumType = .a;
-    var b_type: EnumType = .b;
-
-    try testing.expect(isTag(a_type, "a"));
-    try testing.expect(!isTag(a_type, "b"));
-    try testing.expect(isTag(b_type, "b"));
-    try testing.expect(!isTag(b_type, "a"));
-}
-
-test "std.meta.isTag for Tagged Unions" {
-    const TaggedUnionEnum = enum { int, flt };
-
-    const TaggedUnionType = union(TaggedUnionEnum) {
-        int: i64,
-        flt: f64,
-    };
-
-    var int = TaggedUnionType{ .int = 1234 };
-    var flt = TaggedUnionType{ .flt = 12.34 };
-
-    try testing.expect(isTag(int, "int"));
-    try testing.expect(!isTag(int, "flt"));
-    try testing.expect(isTag(flt, "flt"));
-    try testing.expect(!isTag(flt, "int"));
-}
+pub const isTag = @compileError("deprecated; use 'tagged_value == @field(E, tag_name)' directly");
 
 /// Returns the variant of an enum type, `T`, which is named `str`, or `null` if no such variant exists.
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
@@ -906,9 +860,10 @@ test "std.meta.eql" {
     try testing.expect(eql(EU.tst(false), EU.tst(false)));
     try testing.expect(!eql(EU.tst(false), EU.tst(true)));
 
-    var v1 = @splat(4, @as(u32, 1));
-    var v2 = @splat(4, @as(u32, 1));
-    var v3 = @splat(4, @as(u32, 2));
+    const V = @Vector(4, u32);
+    var v1: V = @splat(1);
+    var v2: V = @splat(1);
+    var v3: V = @splat(2);
 
     try testing.expect(eql(v1, v2));
     try testing.expect(!eql(v1, v3));

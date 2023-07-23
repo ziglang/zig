@@ -507,8 +507,8 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
         if (@typeInfo(T) == .Vector) {
             const C = @typeInfo(T).Vector.child;
             const len = @typeInfo(T).Vector.len;
-            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(len, @as(C, 0));
-            break :blk @splat(len, @as(Log2Int(C), @intCast(abs_shift_amt)));
+            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(0);
+            break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
         } else {
             if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0;
             break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
@@ -551,8 +551,8 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
         if (@typeInfo(T) == .Vector) {
             const C = @typeInfo(T).Vector.child;
             const len = @typeInfo(T).Vector.len;
-            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(len, @as(C, 0));
-            break :blk @splat(len, @as(Log2Int(C), @intCast(abs_shift_amt)));
+            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(0);
+            break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
         } else {
             if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0;
             break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
@@ -597,7 +597,7 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
             @compileError("cannot rotate signed integers");
         }
         const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
-        return (x >> @splat(@typeInfo(T).Vector.len, ar)) | (x << @splat(@typeInfo(T).Vector.len, 1 + ~ar));
+        return (x >> @splat(ar)) | (x << @splat(1 + ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
@@ -641,7 +641,7 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
             @compileError("cannot rotate signed integers");
         }
         const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
-        return (x << @splat(@typeInfo(T).Vector.len, ar)) | (x >> @splat(@typeInfo(T).Vector.len, 1 +% ~ar));
+        return (x << @splat(ar)) | (x >> @splat(1 +% ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
@@ -794,10 +794,10 @@ pub fn absInt(x: anytype) !@TypeOf(x) {
             switch (@typeInfo(vinfo.child)) {
                 .Int => |info| {
                     comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
-                    if (@reduce(.Or, x == @splat(vinfo.len, @as(vinfo.child, minInt(vinfo.child))))) {
+                    if (@reduce(.Or, x == @as(T, @splat(minInt(vinfo.child))))) {
                         return error.Overflow;
                     }
-                    const zero = @splat(vinfo.len, @as(vinfo.child, 0));
+                    const zero: T = @splat(0);
                     break :blk @select(vinfo.child, x > zero, x, -x);
                 },
                 else => @compileError("Expected vector of ints, found " ++ @typeName(T)),
@@ -1368,9 +1368,9 @@ pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
 
     switch (@typeInfo(Type)) {
         .Float, .ComptimeFloat => assert(t >= 0 and t <= 1),
-        .Vector => |vector| {
-            const lower_bound = @reduce(.And, t >= @splat(vector.len, @as(vector.child, 0)));
-            const upper_bound = @reduce(.And, t <= @splat(vector.len, @as(vector.child, 1)));
+        .Vector => {
+            const lower_bound = @reduce(.And, t >= @as(Type, @splat(0)));
+            const upper_bound = @reduce(.And, t <= @as(Type, @splat(1)));
             assert(lower_bound and upper_bound);
         },
         else => comptime unreachable,
@@ -1392,14 +1392,24 @@ test "lerp" {
     try testing.expectEqual(@as(f32, 1.0), lerp(@as(f32, 1.0e7), 1.0, 1.0));
     try testing.expectEqual(@as(f64, 1.0), lerp(@as(f64, 1.0e15), 1.0, 1.0));
 
-    try testing.expectEqual(
-        lerp(@splat(3, @as(f32, 0)), @splat(3, @as(f32, 50)), @splat(3, @as(f32, 0.5))),
-        @Vector(3, f32){ 25, 25, 25 },
-    );
-    try testing.expectEqual(
-        lerp(@splat(3, @as(f64, 50)), @splat(3, @as(f64, 100)), @splat(3, @as(f64, 0.5))),
-        @Vector(3, f64){ 75, 75, 75 },
-    );
+    {
+        const a: @Vector(3, f32) = @splat(0);
+        const b: @Vector(3, f32) = @splat(50);
+        const t: @Vector(3, f32) = @splat(0.5);
+        try testing.expectEqual(
+            lerp(a, b, t),
+            @Vector(3, f32){ 25, 25, 25 },
+        );
+    }
+    {
+        const a: @Vector(3, f64) = @splat(50);
+        const b: @Vector(3, f64) = @splat(100);
+        const t: @Vector(3, f64) = @splat(0.5);
+        try testing.expectEqual(
+            lerp(a, b, t),
+            @Vector(3, f64){ 75, 75, 75 },
+        );
+    }
 }
 
 /// Returns the maximum value of integer type T.
@@ -1482,14 +1492,14 @@ test "mulWide" {
 
 /// See also `CompareOperator`.
 pub const Order = enum {
+    /// Greater than (`>`)
+    gt,
+
     /// Less than (`<`)
     lt,
 
     /// Equal (`==`)
     eq,
-
-    /// Greater than (`>`)
-    gt,
 
     pub fn invert(self: Order) Order {
         return switch (self) {
@@ -1719,8 +1729,8 @@ pub inline fn sign(i: anytype) @TypeOf(i) {
         .Vector => |vinfo| blk: {
             switch (@typeInfo(vinfo.child)) {
                 .Int, .Float => {
-                    const zero = @splat(vinfo.len, @as(vinfo.child, 0));
-                    const one = @splat(vinfo.len, @as(vinfo.child, 1));
+                    const zero: T = @splat(0);
+                    const one: T = @splat(1);
                     break :blk @select(vinfo.child, i > zero, one, zero) - @select(vinfo.child, i < zero, one, zero);
                 },
                 else => @compileError("Expected vector of ints or floats, found " ++ @typeName(T)),

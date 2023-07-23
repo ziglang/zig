@@ -461,8 +461,8 @@ test "big.int equality" {
     var b = try Managed.initSet(testing.allocator, -0xffffffff1);
     defer b.deinit();
 
-    try testing.expect(a.eqAbs(b));
-    try testing.expect(!a.eq(b));
+    try testing.expect(a.eqlAbs(b));
+    try testing.expect(!a.eql(b));
 }
 
 test "big.int abs" {
@@ -1006,7 +1006,7 @@ test "big.int mul large" {
     try b.mul(&a, &a);
     try c.sqr(&a);
 
-    try testing.expect(b.eq(c));
+    try testing.expect(b.eql(c));
 }
 
 test "big.int mulWrap single-single unsigned" {
@@ -1088,7 +1088,7 @@ test "big.int mulWrap large" {
     try c.sqr(&a);
     try c.truncate(&c, .signed, testbits);
 
-    try testing.expect(b.eq(c));
+    try testing.expect(b.eql(c));
 }
 
 test "big.int div single-half no rem" {
@@ -1716,8 +1716,8 @@ test "big.int div multi-single zero-limb trailing" {
 
     var expected = try Managed.initSet(testing.allocator, 0x6000000000000000000000000000000000000000000000000);
     defer expected.deinit();
-    try testing.expect(q.eq(expected));
-    try testing.expect(r.eqZero());
+    try testing.expect(q.eql(expected));
+    try testing.expect(r.eqlZero());
 }
 
 test "big.int div multi-multi zero-limb trailing (with rem)" {
@@ -1962,7 +1962,7 @@ test "big.int saturate multi unsigned zero" {
 
     try a.saturate(&a, .unsigned, @bitSizeOf(DoubleLimb));
 
-    try testing.expect(a.eqZero());
+    try testing.expect(a.eqlZero());
 }
 
 test "big.int saturate multi unsigned" {
@@ -1993,7 +1993,7 @@ test "big.int shift-right multi" {
     try a.shiftRight(&a, 63);
     try a.shiftRight(&a, 63);
     try a.shiftRight(&a, 2);
-    try testing.expect(a.eqZero());
+    try testing.expect(a.eqlZero());
 }
 
 test "big.int shift-left single" {
@@ -2224,7 +2224,7 @@ test "big.int bitwise and negative-positive multi-limb" {
 
     try a.bitAnd(&a, &b);
 
-    try testing.expect(a.eqZero());
+    try testing.expect(a.eqlZero());
 }
 
 test "big.int bitwise and positive-negative simple" {
@@ -2246,7 +2246,7 @@ test "big.int bitwise and positive-negative multi-limb" {
 
     try a.bitAnd(&a, &b);
 
-    try testing.expect(a.eqZero());
+    try testing.expect(a.eqlZero());
 }
 
 test "big.int bitwise and negative-negative simple" {
@@ -2325,7 +2325,7 @@ test "big.int bitwise xor single negative zero" {
 
     try a.bitXor(&a, &b);
 
-    try testing.expect(a.eqZero());
+    try testing.expect(a.eqlZero());
 }
 
 test "big.int bitwise xor single negative multi-limb" {
@@ -2554,7 +2554,7 @@ test "big.int mutable to managed" {
     var a = Mutable.init(limbs_buf, 0xdeadbeef);
     var a_managed = a.toManaged(allocator);
 
-    try testing.expect(a.toConst().eq(a_managed.toConst()));
+    try testing.expect(a.toConst().eql(a_managed.toConst()));
 }
 
 test "big.int const to managed" {
@@ -2564,7 +2564,7 @@ test "big.int const to managed" {
     var b = try a.toConst().toManaged(testing.allocator);
     defer b.deinit();
 
-    try testing.expect(a.toConst().eq(b.toConst()));
+    try testing.expect(a.toConst().eql(b.toConst()));
 }
 
 test "big.int pow" {
@@ -2590,7 +2590,7 @@ test "big.int pow" {
         // y and a are aliased
         try a.pow(&a, 123);
 
-        try testing.expect(a.eq(y));
+        try testing.expect(a.eql(y));
 
         const ys = try y.toString(testing.allocator, 16, .lower);
         defer testing.allocator.free(ys);
@@ -3096,7 +3096,7 @@ test "big.int mul multi-multi alias r with a and b" {
     var want = try Managed.initSet(testing.allocator, 4 * maxInt(Limb) * maxInt(Limb));
     defer want.deinit();
 
-    try testing.expect(a.eq(want));
+    try testing.expect(a.eql(want));
 
     if (@typeInfo(Limb).Int.bits == 64) {
         try testing.expectEqual(@as(usize, 5), a.limbs.len);
@@ -3112,7 +3112,7 @@ test "big.int sqr multi alias r with a" {
     var want = try Managed.initSet(testing.allocator, 4 * maxInt(Limb) * maxInt(Limb));
     defer want.deinit();
 
-    try testing.expect(a.eq(want));
+    try testing.expect(a.eql(want));
 
     if (@typeInfo(Limb).Int.bits == 64) {
         try testing.expectEqual(@as(usize, 5), a.limbs.len);

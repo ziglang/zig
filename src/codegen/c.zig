@@ -257,7 +257,8 @@ pub fn fmtIdent(ident: []const u8) std.fmt.Formatter(formatIdent) {
     return .{ .data = ident };
 }
 
-/// This data is available when outputting .c code for a `Module.Fn.Index`.
+/// This data is available when outputting .c code for a `InternPool.Index`
+/// that corresponds to `func`.
 /// It is not available when generating .h file.
 pub const Function = struct {
     air: Air,
@@ -268,7 +269,7 @@ pub const Function = struct {
     next_block_index: usize = 0,
     object: Object,
     lazy_fns: LazyFnMap,
-    func_index: Module.Fn.Index,
+    func_index: InternPool.Index,
     /// All the locals, to be emitted at the top of the function.
     locals: std.ArrayListUnmanaged(Local) = .{},
     /// Which locals are available for reuse, based on Type.
@@ -732,9 +733,7 @@ pub const DeclGen = struct {
                     // All unsigned ints matching float types are pre-allocated.
                     const repr_ty = mod.intType(.unsigned, bits) catch unreachable;
 
-                    try writer.writeAll("zig_cast_");
-                    try dg.renderTypeForBuiltinFnName(writer, ty);
-                    try writer.writeAll(" zig_make_");
+                    try writer.writeAll("zig_make_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
                     try writer.writeByte('(');
                     switch (bits) {
@@ -1049,9 +1048,6 @@ pub const DeclGen = struct {
 
                 const repr_val = try mod.intValue_big(repr_ty, repr_val_big.toConst());
 
-                try writer.writeAll("zig_cast_");
-                try dg.renderTypeForBuiltinFnName(writer, ty);
-                try writer.writeByte(' ');
                 var empty = true;
                 if (std.math.isFinite(f128_val)) {
                     try writer.writeAll("zig_make_");
@@ -1492,6 +1488,7 @@ pub const DeclGen = struct {
     ) !void {
         const store = &dg.ctypes.set;
         const mod = dg.module;
+        const ip = &mod.intern_pool;
 
         const fn_decl = mod.declPtr(fn_decl_index);
         const fn_cty_idx = try dg.typeToIndex(fn_decl.ty, kind);
@@ -1504,7 +1501,7 @@ pub const DeclGen = struct {
                 else => unreachable,
             }
         }
-        if (fn_decl.val.getFunction(mod)) |func| if (func.is_cold) try w.writeAll("zig_cold ");
+        if (fn_decl.val.getFunction(mod)) |func| if (func.analysis(ip).is_cold) try w.writeAll("zig_cold ");
         if (fn_info.return_type == .noreturn_type) try w.writeAll("zig_noreturn ");
 
         const trailing = try renderTypePrefix(
@@ -1749,7 +1746,7 @@ pub const DeclGen = struct {
         return switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
             .variable => |variable| mod.decl_exports.contains(variable.decl),
             .extern_func => true,
-            .func => |func| mod.decl_exports.contains(mod.funcPtr(func.index).owner_decl),
+            .func => |func| mod.decl_exports.contains(func.owner_decl),
             else => unreachable,
         };
     }
@@ -1805,7 +1802,12 @@ pub const DeclGen = struct {
         }
     }
 
-    fn writeCValueMember(dg: *DeclGen, writer: anytype, c_value: CValue, member: CValue) !void {
+    fn writeCValueMember(
+        dg: *DeclGen,
+        writer: anytype,
+        c_value: CValue,
+        member: CValue,
+    ) error{ OutOfMemory, AnalysisFail }!void {
         try dg.writeCValue(writer, c_value);
         try writer.writeByte('.');
         try dg.writeCValue(writer, member);
@@ -1851,8 +1853,8 @@ pub const DeclGen = struct {
 
         if (mod.decl_exports.get(decl_index)) |exports| {
             try writer.print("{}", .{exports.items[export_index].opts.name.fmt(&mod.intern_pool)});
-        } else if (decl.isExtern(mod)) {
-            try writer.print("{}", .{decl.name.fmt(&mod.intern_pool)});
+        } else if (decl.getExternDecl(mod).unwrap()) |extern_decl_index| {
+            try writer.print("{}", .{mod.declPtr(extern_decl_index).name.fmt(&mod.intern_pool)});
         } else {
             // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
             // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
@@ -2404,22 +2406,24 @@ pub fn genErrDecls(o: *Object) !void {
     const mod = o.dg.module;
     const writer = o.writer();
 
-    try writer.writeAll("enum {\n");
-    o.indent_writer.pushIndent();
     var max_name_len: usize = 0;
-    for (mod.global_error_set.keys()[1..], 1..) |name_nts, value| {
-        const name = mod.intern_pool.stringToSlice(name_nts);
-        max_name_len = @max(name.len, max_name_len);
-        const err_val = try mod.intern(.{ .err = .{
-            .ty = .anyerror_type,
-            .name = name_nts,
-        } });
-        try o.dg.renderValue(writer, Type.anyerror, err_val.toValue(), .Other);
-        try writer.print(" = {d}u,\n", .{value});
+    // do not generate an invalid empty enum when the global error set is empty
+    if (mod.global_error_set.keys().len > 1) {
+        try writer.writeAll("enum {\n");
+        o.indent_writer.pushIndent();
+        for (mod.global_error_set.keys()[1..], 1..) |name_nts, value| {
+            const name = mod.intern_pool.stringToSlice(name_nts);
+            max_name_len = @max(name.len, max_name_len);
+            const err_val = try mod.intern(.{ .err = .{
+                .ty = .anyerror_type,
+                .name = name_nts,
+            } });
+            try o.dg.renderValue(writer, Type.anyerror, err_val.toValue(), .Other);
+            try writer.print(" = {d}u,\n", .{value});
+        }
+        o.indent_writer.popIndent();
+        try writer.writeAll("};\n");
     }
-    o.indent_writer.popIndent();
-    try writer.writeAll("};\n");
-
     const array_identifier = "zig_errorName";
     const name_prefix = array_identifier ++ "_";
     const name_buf = try o.dg.gpa.alloc(u8, name_prefix.len + max_name_len);
@@ -4166,7 +4170,7 @@ fn airCall(
                 const callee_val = (try f.air.value(pl_op.operand, mod)) orelse break :known;
                 break :fn_decl switch (mod.intern_pool.indexToKey(callee_val.ip_index)) {
                     .extern_func => |extern_func| extern_func.decl,
-                    .func => |func| mod.funcPtr(func.index).owner_decl,
+                    .func => |func| func.owner_decl,
                     .ptr => |ptr| switch (ptr.addr) {
                         .decl => |decl| decl,
                         else => break :known,
@@ -4243,9 +4247,9 @@ fn airDbgInline(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_fn = f.air.instructions.items(.data)[inst].ty_fn;
     const mod = f.object.dg.module;
     const writer = f.object.writer();
-    const function = mod.funcPtr(ty_fn.func);
+    const owner_decl = mod.funcOwnerDeclPtr(ty_fn.func);
     try writer.print("/* dbg func:{s} */\n", .{
-        mod.intern_pool.stringToSlice(mod.declPtr(function.owner_decl).name),
+        mod.intern_pool.stringToSlice(owner_decl.name),
     });
     return .none;
 }
