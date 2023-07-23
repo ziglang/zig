@@ -252,6 +252,9 @@ pub fn dumpStackTraceFromBase(context: *const ThreadContext) void {
             // same behaviour for x86-windows-msvc
             const address = if (return_address == 0) return_address else return_address - 1;
             printSourceAtAddress(debug_info, stderr, address, tty_config) catch return;
+        } else {
+            if (it.getLastError()) |unwind_error|
+                printUnwindError(debug_info, stderr, unwind_error.address, unwind_error.err, tty_config) catch {};
         }
     }
 }
@@ -741,6 +744,9 @@ pub fn writeCurrentStackTrace(
         // same behaviour for x86-windows-msvc
         const address = if (return_address == 0) return_address else return_address - 1;
         try printSourceAtAddress(debug_info, out_stream, address, tty_config);
+    } else {
+        if (it.getLastError()) |unwind_error|
+            try printUnwindError(debug_info, out_stream, unwind_error.address, unwind_error.err, tty_config);
     }
 }
 
@@ -882,7 +888,11 @@ fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usiz
 pub fn printUnwindError(debug_info: *DebugInfo, out_stream: anytype, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
     try tty_config.setColor(out_stream, .dim);
-    try out_stream.print("Unwind information for `{s}:0x{x}` was not available ({}), trace may be incomplete\n\n", .{ module_name, address, err });
+    if (err == error.MissingDebugInfo) {
+        try out_stream.print("Unwind information for `{s}:0x{x}` was not available, trace may be incomplete\n\n", .{ module_name, address });
+    } else {
+        try out_stream.print("Unwind error at address `{s}:0x{x}` ({}), trace may be incomplete\n\n", .{ module_name, address, err });
+    }
     try tty_config.setColor(out_stream, .reset);
 }
 
