@@ -5,3 +5,6 @@
 
 # std.json
 /lib/std/json* @thejoshwolfe
+
+# std.Thread
+/lib/std/Thread* @kprotty
