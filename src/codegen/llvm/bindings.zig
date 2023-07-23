@@ -540,7 +540,7 @@ pub const Module = opaque {
     pub const createDIBuilder = ZigLLVMCreateDIBuilder;
     extern fn ZigLLVMCreateDIBuilder(module: *Module, allow_unresolved: bool) *DIBuilder;
 
-    pub const setModuleInlineAsm2 = LLVMSetModuleInlineAsm2;
+    pub const setModuleInlineAsm = LLVMSetModuleInlineAsm2;
     extern fn LLVMSetModuleInlineAsm2(M: *Module, Asm: [*]const u8, Len: usize) void;
 
     pub const printModuleToFile = LLVMPrintModuleToFile;

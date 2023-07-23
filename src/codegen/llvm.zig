@@ -1034,15 +1034,11 @@ pub const Object = struct {
 
     fn genModuleLevelAssembly(object: *Object) !void {
         const mod = object.module;
-        if (mod.global_assembly.count() == 0) return;
-        var buffer = std.ArrayList(u8).init(mod.gpa);
-        defer buffer.deinit();
-        var it = mod.global_assembly.iterator();
-        while (it.next()) |kv| {
-            try buffer.appendSlice(kv.value_ptr.*);
-            try buffer.append('\n');
-        }
-        object.llvm_module.setModuleInlineAsm2(buffer.items.ptr, buffer.items.len - 1);
+
+        const writer = object.builder.setModuleAsm();
+        var it = mod.global_assembly.valueIterator();
+        while (it.next()) |assembly| try writer.print("{s}\n", .{assembly.*});
+        try object.builder.finishModuleAsm();
     }
 
     fn resolveExportExternCollisions(object: *Object) !void {
