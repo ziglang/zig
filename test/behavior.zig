@@ -12,6 +12,8 @@ test {
     _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bitreverse.zig");
     _ = @import("behavior/bool.zig");
+
+    // NOTE: instead of adding new behavior/bugs/{gh-issue-number}.zig entries below, please categorize your test based on what you're fixing and put it elsewhere.
     _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/421.zig");
     _ = @import("behavior/bugs/529.zig");
