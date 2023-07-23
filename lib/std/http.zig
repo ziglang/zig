@@ -274,5 +274,6 @@ const std = @import("std.zig");
 test {
     _ = Client;
     _ = Method;
+    _ = Server;
     _ = Status;
 }
