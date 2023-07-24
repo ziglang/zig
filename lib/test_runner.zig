@@ -24,9 +24,6 @@ pub fn main() void {
     for (args[1..]) |arg| {
         if (std.mem.eql(u8, arg, "--listen=-")) {
             listen = true;
-        } else {
-            @panic("unrecognized command line argument");
-            //listen = false;
         }
     }
 
