@@ -160,13 +160,22 @@ pub const Node = struct {
 pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *Node {
     const stderr = std.io.getStdErr();
     self.terminal = null;
-    if (stderr.supportsAnsiEscapeCodes()) {
+    // On Windows, we always want to use the console APIs even if ENABLE_VIRTUAL_TERMINAL_PROCESSING is true:
+    // - The parsing of the escape codes used for clearing seems to be code page dependent (with code page 437,
+    //   it renders as e.g. ←[50D←[0K instead of being parsed; with code page 65001, it gets parsed)
+    // - The implementation of the escape codes is seemingly buggy and does not match how it works on
+    //   other terminals, so even if the escape codes are parsed, it still won't work right.
+    // See https://github.com/ziglang/zig/issues/16526
+    // TODO: Understand this more, and use escape codes on Windows if the above is inaccurate/changes
+    if (builtin.os.tag == .windows) {
+        if (stderr.isTty()) {
+            self.is_windows_terminal = true;
+            self.terminal = stderr;
+        }
+    } else if (stderr.supportsAnsiEscapeCodes()) {
         self.terminal = stderr;
         self.supports_ansi_escape_codes = true;
-    } else if (builtin.os.tag == .windows and stderr.isTty()) {
-        self.is_windows_terminal = true;
-        self.terminal = stderr;
-    } else if (builtin.os.tag != .windows) {
+    } else {
         // we are in a "dumb" terminal like in acme or writing to a file
         self.terminal = stderr;
     }
