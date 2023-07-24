@@ -61,7 +61,7 @@ pub fn build(b: *std.Build) !void {
     autodoc_test.overrideZigLibDir("lib");
     autodoc_test.emit_bin = .no_emit; // https://github.com/ziglang/zig/issues/16351
     const install_std_docs = b.addInstallDirectory(.{
-        .source_dir = autodoc_test.getOutputDocs(),
+        .source_dir = autodoc_test.getEmittedDocs(),
         .install_dir = .prefix,
         .install_subdir = "doc/std",
     });
