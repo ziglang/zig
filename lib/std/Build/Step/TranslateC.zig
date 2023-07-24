@@ -148,8 +148,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const output_path = try step.evalZigProcess(argv_list.items, prog_node);
 
-    self.out_basename = fs.path.basename(output_path);
-    const output_dir = fs.path.dirname(output_path).?;
+    self.out_basename = fs.path.basename(output_path.?);
+    const output_dir = fs.path.dirname(output_path.?).?;
 
     self.output_file.path = try fs.path.join(
         b.allocator,

@@ -453,6 +453,10 @@ LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMTypeRef Ty, LLVMValueRef Fn,
     return wrap(call_inst);
 }
 
+ZIG_EXTERN_C void ZigLLVMSetTailCallKind(LLVMValueRef Call, CallInst::TailCallKind TailCallKind) {
+    unwrap<CallInst>(Call)->setTailCallKind(TailCallKind);
+}
+
 void ZigLLVMAddAttributeAtIndex(LLVMValueRef Val, unsigned Idx, LLVMAttributeRef A) {
     if (isa<Function>(unwrap(Val))) {
         unwrap<Function>(Val)->addAttributeAtIndex(Idx, unwrap(A));
@@ -460,7 +464,6 @@ void ZigLLVMAddAttributeAtIndex(LLVMValueRef Val, unsigned Idx, LLVMAttributeRef
         unwrap<CallInst>(Val)->addAttributeAtIndex(Idx, unwrap(A));
     }
 }
-
 
 LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
         LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile)
@@ -1114,11 +1117,6 @@ void ZigLLVMAddFunctionElemTypeAttr(LLVMValueRef fn_ref, size_t arg_index, LLVMT
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn_ref, const char *attr_name, const char *attr_value) {
     Function *func = unwrap<Function>(fn_ref);
     func->addFnAttr(attr_name, attr_value);
-}
-
-void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn_ref) {
-    Function *func = unwrap<Function>(fn_ref);
-    func->addFnAttr(Attribute::Cold);
 }
 
 void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {

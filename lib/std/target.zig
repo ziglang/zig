@@ -1912,7 +1912,7 @@ pub const Target = struct {
         return switch (target.cpu.arch) {
             .amdgcn => 4,
             .x86 => switch (target.os.tag) {
-                .windows => 4,
+                .windows, .uefi => 4,
                 else => 16,
             },
             .arm,
@@ -1931,8 +1931,6 @@ pub const Target = struct {
             .bpfel,
             .mips64,
             .mips64el,
-            .powerpc64,
-            .powerpc64le,
             .riscv32,
             .riscv64,
             .sparc64,
@@ -1941,6 +1939,12 @@ pub const Target = struct {
             .wasm32,
             .wasm64,
             => 16,
+            .powerpc64,
+            .powerpc64le,
+            => switch (target.os.tag) {
+                else => 8,
+                .linux => 16,
+            },
             else => @divExact(target.ptrBitWidth(), 8),
         };
     }
