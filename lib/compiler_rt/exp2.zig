@@ -31,14 +31,14 @@ pub fn __exp2h(x: f16) callconv(.C) f16 {
 }
 
 pub fn exp2f(x: f32) callconv(.C) f32 {
-    const tblsiz = @as(u32, @intCast(exp2ft.len));
+    const tblsiz: u32 = @intCast(exp2ft.len);
     const redux: f32 = 0x1.8p23 / @as(f32, @floatFromInt(tblsiz));
     const P1: f32 = 0x1.62e430p-1;
     const P2: f32 = 0x1.ebfbe0p-3;
     const P3: f32 = 0x1.c6b348p-5;
     const P4: f32 = 0x1.3b2c9cp-7;
 
-    var u = @as(u32, @bitCast(x));
+    var u: u32 = @bitCast(x);
     const ix = u & 0x7FFFFFFF;
 
     // |x| > 126
@@ -72,11 +72,11 @@ pub fn exp2f(x: f32) callconv(.C) f32 {
     // intended result but should confirm how GCC/Clang handle this to ensure.
 
     var uf = x + redux;
-    var i_0 = @as(u32, @bitCast(uf));
+    var i_0: u32 = @bitCast(uf);
     i_0 +%= tblsiz / 2;
 
     const k = i_0 / tblsiz;
-    const uk = @as(f64, @bitCast(@as(u64, 0x3FF + k) << 52));
+    const uk: f64 = @bitCast(@as(u64, 0x3FF + k) << 52);
     i_0 &= tblsiz - 1;
     uf -= redux;
 
@@ -84,11 +84,11 @@ pub fn exp2f(x: f32) callconv(.C) f32 {
     var r: f64 = exp2ft[@as(usize, @intCast(i_0))];
     const t: f64 = r * z;
     r = r + t * (P1 + z * P2) + t * (z * z) * (P3 + z * P4);
-    return @as(f32, @floatCast(r * uk));
+    return @floatCast(r * uk);
 }
 
 pub fn exp2(x: f64) callconv(.C) f64 {
-    const tblsiz: u32 = @as(u32, @intCast(exp2dt.len / 2));
+    const tblsiz: u32 = @intCast(exp2dt.len / 2);
     const redux: f64 = 0x1.8p52 / @as(f64, @floatFromInt(tblsiz));
     const P1: f64 = 0x1.62e42fefa39efp-1;
     const P2: f64 = 0x1.ebfbdff82c575p-3;
@@ -96,7 +96,7 @@ pub fn exp2(x: f64) callconv(.C) f64 {
     const P4: f64 = 0x1.3b2ab88f70400p-7;
     const P5: f64 = 0x1.5d88003875c74p-10;
 
-    const ux = @as(u64, @bitCast(x));
+    const ux: u64 = @bitCast(x);
     const ix = @as(u32, @intCast(ux >> 32)) & 0x7FFFFFFF;
 
     // TODO: This should be handled beneath.
@@ -139,7 +139,7 @@ pub fn exp2(x: f64) callconv(.C) f64 {
     // reduce x
     var uf: f64 = x + redux;
     // NOTE: musl performs an implicit 64-bit to 32-bit u32 truncation here
-    var i_0: u32 = @as(u32, @truncate(@as(u64, @bitCast(uf))));
+    var i_0: u32 = @truncate(@as(u64, @bitCast(uf)));
     i_0 +%= tblsiz / 2;
 
     const k: u32 = i_0 / tblsiz * tblsiz;
@@ -158,12 +158,12 @@ pub fn exp2(x: f64) callconv(.C) f64 {
 
 pub fn __exp2x(x: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(exp2q(x)));
+    return @floatCast(exp2q(x));
 }
 
 pub fn exp2q(x: f128) callconv(.C) f128 {
     // TODO: more correct implementation
-    return exp2(@as(f64, @floatCast(x)));
+    return exp2(@floatCast(x));
 }
 
 pub fn exp2l(x: c_longdouble) callconv(.C) c_longdouble {

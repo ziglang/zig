@@ -57,17 +57,17 @@ fn medium(ix: u32, x: f64, y: *[2]f64) i32 {
         w = @"fn" * pio2_1t;
     }
     y[0] = r - w;
-    ui = @as(u64, @bitCast(y[0]));
-    ey = @as(i32, @intCast((ui >> 52) & 0x7ff));
-    ex = @as(i32, @intCast(ix >> 20));
+    ui = @bitCast(y[0]);
+    ey = @intCast((ui >> 52) & 0x7ff);
+    ex = @intCast(ix >> 20);
     if (ex - ey > 16) { // 2nd round, good to 118 bits
         t = r;
         w = @"fn" * pio2_2;
         r = t - w;
         w = @"fn" * pio2_2t - ((t - r) - w);
         y[0] = r - w;
-        ui = @as(u64, @bitCast(y[0]));
-        ey = @as(i32, @intCast((ui >> 52) & 0x7ff));
+        ui = @bitCast(y[0]);
+        ey = @intCast((ui >> 52) & 0x7ff);
         if (ex - ey > 49) { // 3rd round, good to 151 bits, covers all cases
             t = r;
             w = @"fn" * pio2_3;
@@ -95,9 +95,9 @@ pub fn rem_pio2(x: f64, y: *[2]f64) i32 {
     var i: i32 = undefined;
     var ui: u64 = undefined;
 
-    ui = @as(u64, @bitCast(x));
+    ui = @bitCast(x);
     sign = ui >> 63 != 0;
-    ix = @as(u32, @truncate((ui >> 32) & 0x7fffffff));
+    ix = @truncate((ui >> 32) & 0x7fffffff);
     if (ix <= 0x400f6a7a) { // |x| ~<= 5pi/4
         if ((ix & 0xfffff) == 0x921fb) { // |x| ~= pi/2 or 2pi/2
             return medium(ix, x, y);
@@ -171,7 +171,7 @@ pub fn rem_pio2(x: f64, y: *[2]f64) i32 {
         return 0;
     }
     // set z = scalbn(|x|,-ilogb(x)+23)
-    ui = @as(u64, @bitCast(x));
+    ui = @bitCast(x);
     ui &= std.math.maxInt(u64) >> 12;
     ui |= @as(u64, 0x3ff + 23) << 52;
     z = @as(f64, @bitCast(ui));

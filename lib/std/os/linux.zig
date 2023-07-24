@@ -176,21 +176,21 @@ const require_aligned_register_pair =
 // Split a 64bit value into a {LSB,MSB} pair.
 // The LE/BE variants specify the endianness to assume.
 fn splitValueLE64(val: i64) [2]u32 {
-    const u = @as(u64, @bitCast(val));
+    const u: u64 = @bitCast(val);
     return [2]u32{
         @as(u32, @truncate(u)),
         @as(u32, @truncate(u >> 32)),
     };
 }
 fn splitValueBE64(val: i64) [2]u32 {
-    const u = @as(u64, @bitCast(val));
+    const u: u64 = @bitCast(val);
     return [2]u32{
         @as(u32, @truncate(u >> 32)),
         @as(u32, @truncate(u)),
     };
 }
 fn splitValue64(val: i64) [2]u32 {
-    const u = @as(u64, @bitCast(val));
+    const u: u64 = @bitCast(val);
     switch (native_endian) {
         .Little => return [2]u32{
             @as(u32, @truncate(u)),
@@ -467,7 +467,7 @@ pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
 }
 
 pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: i64) usize {
-    const offset_u = @as(u64, @bitCast(offset));
+    const offset_u: u64 = @bitCast(offset);
     return syscall5(
         .preadv,
         @as(usize, @bitCast(@as(isize, fd))),
@@ -482,7 +482,7 @@ pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: i64) usize {
 }
 
 pub fn preadv2(fd: i32, iov: [*]const iovec, count: usize, offset: i64, flags: kernel_rwf) usize {
-    const offset_u = @as(u64, @bitCast(offset));
+    const offset_u: u64 = @bitCast(offset);
     return syscall6(
         .preadv2,
         @as(usize, @bitCast(@as(isize, fd))),
@@ -504,7 +504,7 @@ pub fn writev(fd: i32, iov: [*]const iovec_const, count: usize) usize {
 }
 
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: i64) usize {
-    const offset_u = @as(u64, @bitCast(offset));
+    const offset_u: u64 = @bitCast(offset);
     return syscall5(
         .pwritev,
         @as(usize, @bitCast(@as(isize, fd))),
@@ -517,7 +517,7 @@ pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: i64) us
 }
 
 pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: i64, flags: kernel_rwf) usize {
-    const offset_u = @as(u64, @bitCast(offset));
+    const offset_u: u64 = @bitCast(offset);
     return syscall6(
         .pwritev2,
         @as(usize, @bitCast(@as(isize, fd))),

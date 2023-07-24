@@ -4,8 +4,8 @@
 
 const std = @import("std");
 const math = std.math;
-const qnan128 = @as(f128, @bitCast(@as(u128, 0x7fff800000000000) << 64));
-const inf128 = @as(f128, @bitCast(@as(u128, 0x7fff000000000000) << 64));
+const qnan128: f128 = @bitCast(@as(u128, 0x7fff800000000000) << 64);
+const inf128: f128 = @bitCast(@as(u128, 0x7fff000000000000) << 64);
 
 const __multf3 = @import("multf3.zig").__multf3;
 const __mulxf3 = @import("mulxf3.zig").__mulxf3;
@@ -16,9 +16,9 @@ const __mulsf3 = @import("mulsf3.zig").__mulsf3;
 // use two 64-bit integers intead of one 128-bit integer
 // because 128-bit integer constant can't be assigned directly
 fn compareResultLD(result: f128, expectedHi: u64, expectedLo: u64) bool {
-    const rep = @as(u128, @bitCast(result));
-    const hi = @as(u64, @intCast(rep >> 64));
-    const lo = @as(u64, @truncate(rep));
+    const rep: u128 = @bitCast(result);
+    const hi: u64 = @intCast(rep >> 64);
+    const lo: u64 = @truncate(rep);
 
     if (hi == expectedHi and lo == expectedLo) {
         return true;
@@ -45,8 +45,7 @@ fn test__multf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) !void {
 
 fn makeNaN128(rand: u64) f128 {
     const int_result = @as(u128, 0x7fff000000000000 | (rand & 0xffffffffffff)) << 64;
-    const float_result = @as(f128, @bitCast(int_result));
-    return float_result;
+    return @bitCast(int_result);
 }
 test "multf3" {
     // qNaN * any = qNaN
@@ -108,11 +107,11 @@ test "multf3" {
     try test__multf3(2.0, math.floatTrueMin(f128), 0x0000_0000_0000_0000, 0x0000_0000_0000_0002);
 }
 
-const qnan80 = @as(f80, @bitCast(@as(u80, @bitCast(math.nan(f80))) | (1 << (math.floatFractionalBits(f80) - 1))));
+const qnan80: f80 = @bitCast(@as(u80, @bitCast(math.nan(f80))) | (1 << (math.floatFractionalBits(f80) - 1)));
 
 fn test__mulxf3(a: f80, b: f80, expected: u80) !void {
     const x = __mulxf3(a, b);
-    const rep = @as(u80, @bitCast(x));
+    const rep: u80 = @bitCast(x);
 
     if (rep == expected)
         return;

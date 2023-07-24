@@ -1918,7 +1918,7 @@ pub fn fileTimeToNanoSeconds(ft: FILETIME) i128 {
 
 /// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
 pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
-    const adjusted = @as(u64, @bitCast(toSysTime(ns)));
+    const adjusted: u64 = @bitCast(toSysTime(ns));
     return FILETIME{
         .dwHighDateTime = @as(u32, @truncate(adjusted >> 32)),
         .dwLowDateTime = @as(u32, @truncate(adjusted)),

@@ -89,14 +89,14 @@ fn sinh64(z: Complex(f64)) Complex(f64) {
     const x = z.re;
     const y = z.im;
 
-    const fx = @as(u64, @bitCast(x));
-    const hx = @as(u32, @intCast(fx >> 32));
-    const lx = @as(u32, @truncate(fx));
+    const fx: u64 = @bitCast(x);
+    const hx: u32 = @intCast(fx >> 32);
+    const lx: u32 = @truncate(fx);
     const ix = hx & 0x7fffffff;
 
-    const fy = @as(u64, @bitCast(y));
-    const hy = @as(u32, @intCast(fy >> 32));
-    const ly = @as(u32, @truncate(fy));
+    const fy: u64 = @bitCast(y);
+    const hy: u32 = @intCast(fy >> 32);
+    const ly: u32 = @truncate(fy);
     const iy = hy & 0x7fffffff;
 
     if (ix < 0x7ff00000 and iy < 0x7ff00000) {

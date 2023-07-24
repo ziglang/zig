@@ -10,7 +10,7 @@ const __trunctfdf2 = @import("trunctfdf2.zig").__trunctfdf2;
 const __trunctfxf2 = @import("trunctfxf2.zig").__trunctfxf2;
 
 fn test__truncsfhf2(a: u32, expected: u16) !void {
-    const actual = @as(u16, @bitCast(__truncsfhf2(@as(f32, @bitCast(a)))));
+    const actual: u16 = @bitCast(__truncsfhf2(@bitCast(a)));
 
     if (actual == expected) {
         return;
@@ -73,7 +73,7 @@ test "truncsfhf2" {
 }
 
 fn test__truncdfhf2(a: f64, expected: u16) void {
-    const rep = @as(u16, @bitCast(__truncdfhf2(a)));
+    const rep: u16 = @bitCast(__truncdfhf2(a));
 
     if (rep == expected) {
         return;
@@ -89,7 +89,7 @@ fn test__truncdfhf2(a: f64, expected: u16) void {
 }
 
 fn test__truncdfhf2_raw(a: u64, expected: u16) void {
-    const actual = @as(u16, @bitCast(__truncdfhf2(@as(f64, @bitCast(a)))));
+    const actual: u16 = @bitCast(__truncdfhf2(@bitCast(a)));
 
     if (actual == expected) {
         return;
@@ -141,7 +141,7 @@ test "truncdfhf2" {
 fn test__trunctfsf2(a: f128, expected: u32) void {
     const x = __trunctfsf2(a);
 
-    const rep = @as(u32, @bitCast(x));
+    const rep: u32 = @bitCast(x);
     if (rep == expected) {
         return;
     }
@@ -157,11 +157,11 @@ fn test__trunctfsf2(a: f128, expected: u32) void {
 
 test "trunctfsf2" {
     // qnan
-    test__trunctfsf2(@as(f128, @bitCast(@as(u128, 0x7fff800000000000 << 64))), 0x7fc00000);
+    test__trunctfsf2(@bitCast(@as(u128, 0x7fff800000000000 << 64)), 0x7fc00000);
     // nan
-    test__trunctfsf2(@as(f128, @bitCast(@as(u128, (0x7fff000000000000 | (0x810000000000 & 0xffffffffffff)) << 64))), 0x7fc08000);
+    test__trunctfsf2(@bitCast(@as(u128, (0x7fff000000000000 | (0x810000000000 & 0xffffffffffff)) << 64)), 0x7fc08000);
     // inf
-    test__trunctfsf2(@as(f128, @bitCast(@as(u128, 0x7fff000000000000 << 64))), 0x7f800000);
+    test__trunctfsf2(@bitCast(@as(u128, 0x7fff000000000000 << 64)), 0x7f800000);
     // zero
     test__trunctfsf2(0.0, 0x0);
 
@@ -174,7 +174,7 @@ test "trunctfsf2" {
 fn test__trunctfdf2(a: f128, expected: u64) void {
     const x = __trunctfdf2(a);
 
-    const rep = @as(u64, @bitCast(x));
+    const rep: u64 = @bitCast(x);
     if (rep == expected) {
         return;
     }
@@ -190,11 +190,11 @@ fn test__trunctfdf2(a: f128, expected: u64) void {
 
 test "trunctfdf2" {
     // qnan
-    test__trunctfdf2(@as(f128, @bitCast(@as(u128, 0x7fff800000000000 << 64))), 0x7ff8000000000000);
+    test__trunctfdf2(@bitCast(@as(u128, 0x7fff800000000000 << 64)), 0x7ff8000000000000);
     // nan
-    test__trunctfdf2(@as(f128, @bitCast(@as(u128, (0x7fff000000000000 | (0x810000000000 & 0xffffffffffff)) << 64))), 0x7ff8100000000000);
+    test__trunctfdf2(@bitCast(@as(u128, (0x7fff000000000000 | (0x810000000000 & 0xffffffffffff)) << 64)), 0x7ff8100000000000);
     // inf
-    test__trunctfdf2(@as(f128, @bitCast(@as(u128, 0x7fff000000000000 << 64))), 0x7ff0000000000000);
+    test__trunctfdf2(@bitCast(@as(u128, 0x7fff000000000000 << 64)), 0x7ff0000000000000);
     // zero
     test__trunctfdf2(0.0, 0x0);
 
@@ -207,7 +207,7 @@ test "trunctfdf2" {
 fn test__truncdfsf2(a: f64, expected: u32) void {
     const x = __truncdfsf2(a);
 
-    const rep = @as(u32, @bitCast(x));
+    const rep: u32 = @bitCast(x);
     if (rep == expected) {
         return;
     }
@@ -225,11 +225,11 @@ fn test__truncdfsf2(a: f64, expected: u32) void {
 
 test "truncdfsf2" {
     // nan & qnan
-    test__truncdfsf2(@as(f64, @bitCast(@as(u64, 0x7ff8000000000000))), 0x7fc00000);
-    test__truncdfsf2(@as(f64, @bitCast(@as(u64, 0x7ff0000000000001))), 0x7fc00000);
+    test__truncdfsf2(@bitCast(@as(u64, 0x7ff8000000000000)), 0x7fc00000);
+    test__truncdfsf2(@bitCast(@as(u64, 0x7ff0000000000001)), 0x7fc00000);
     // inf
-    test__truncdfsf2(@as(f64, @bitCast(@as(u64, 0x7ff0000000000000))), 0x7f800000);
-    test__truncdfsf2(@as(f64, @bitCast(@as(u64, 0xfff0000000000000))), 0xff800000);
+    test__truncdfsf2(@bitCast(@as(u64, 0x7ff0000000000000)), 0x7f800000);
+    test__truncdfsf2(@bitCast(@as(u64, 0xfff0000000000000)), 0xff800000);
 
     test__truncdfsf2(0.0, 0x0);
     test__truncdfsf2(1.0, 0x3f800000);
@@ -242,7 +242,7 @@ test "truncdfsf2" {
 fn test__trunctfhf2(a: f128, expected: u16) void {
     const x = __trunctfhf2(a);
 
-    const rep = @as(u16, @bitCast(x));
+    const rep: u16 = @bitCast(x);
     if (rep == expected) {
         return;
     }
@@ -254,11 +254,11 @@ fn test__trunctfhf2(a: f128, expected: u16) void {
 
 test "trunctfhf2" {
     // qNaN
-    test__trunctfhf2(@as(f128, @bitCast(@as(u128, 0x7fff8000000000000000000000000000))), 0x7e00);
+    test__trunctfhf2(@bitCast(@as(u128, 0x7fff8000000000000000000000000000)), 0x7e00);
     // NaN
-    test__trunctfhf2(@as(f128, @bitCast(@as(u128, 0x7fff0000000000000000000000000001))), 0x7e00);
+    test__trunctfhf2(@bitCast(@as(u128, 0x7fff0000000000000000000000000001)), 0x7e00);
     // inf
-    test__trunctfhf2(@as(f128, @bitCast(@as(u128, 0x7fff0000000000000000000000000000))), 0x7c00);
+    test__trunctfhf2(@bitCast(@as(u128, 0x7fff0000000000000000000000000000)), 0x7c00);
     test__trunctfhf2(-@as(f128, @bitCast(@as(u128, 0x7fff0000000000000000000000000000))), 0xfc00);
     // zero
     test__trunctfhf2(0.0, 0x0);

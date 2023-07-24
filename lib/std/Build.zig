@@ -1850,7 +1850,7 @@ pub fn hex64(x: u64) [16]u8 {
     var result: [16]u8 = undefined;
     var i: usize = 0;
     while (i < 8) : (i += 1) {
-        const byte = @as(u8, @truncate(x >> @as(u6, @intCast(8 * i))));
+        const byte: u8 = @truncate(x >> @as(u6, @intCast(8 * i)));
         result[i * 2 + 0] = hex_charset[byte >> 4];
         result[i * 2 + 1] = hex_charset[byte & 15];
     }

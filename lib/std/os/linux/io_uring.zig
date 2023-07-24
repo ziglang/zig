@@ -1507,7 +1507,7 @@ pub fn io_uring_prep_renameat(
         0,
         @intFromPtr(new_path),
     );
-    sqe.len = @as(u32, @bitCast(new_dir_fd));
+    sqe.len = @bitCast(new_dir_fd);
     sqe.rw_flags = flags;
 }
 
@@ -1562,7 +1562,7 @@ pub fn io_uring_prep_linkat(
         0,
         @intFromPtr(new_path),
     );
-    sqe.len = @as(u32, @bitCast(new_dir_fd));
+    sqe.len = @bitCast(new_dir_fd);
     sqe.rw_flags = flags;
 }
 
@@ -1576,7 +1576,7 @@ pub fn io_uring_prep_provide_buffers(
 ) void {
     const ptr = @intFromPtr(buffers);
     io_uring_prep_rw(.PROVIDE_BUFFERS, sqe, @as(i32, @intCast(num)), ptr, buffer_len, buffer_id);
-    sqe.buf_index = @as(u16, @intCast(group_id));
+    sqe.buf_index = @intCast(group_id);
 }
 
 pub fn io_uring_prep_remove_buffers(
@@ -1585,7 +1585,7 @@ pub fn io_uring_prep_remove_buffers(
     group_id: usize,
 ) void {
     io_uring_prep_rw(.REMOVE_BUFFERS, sqe, @as(i32, @intCast(num)), 0, 0, 0);
-    sqe.buf_index = @as(u16, @intCast(group_id));
+    sqe.buf_index = @intCast(group_id);
 }
 
 test "structs/offsets/entries" {

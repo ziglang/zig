@@ -183,7 +183,7 @@ pub const aarch64 = struct {
         blk: {
             if (info.implementer == 0x41) {
                 // ARM Ltd.
-                const special_bits = @as(u4, @truncate(info.part >> 8));
+                const special_bits: u4 = @truncate(info.part >> 8);
                 if (special_bits == 0x0 or special_bits == 0x7) {
                     // TODO Variant and arch encoded differently.
                     break :blk;

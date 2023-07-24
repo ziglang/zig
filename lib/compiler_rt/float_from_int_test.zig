@@ -520,9 +520,9 @@ test "floatsitf" {
 fn test__floatunsitf(a: u32, expected_hi: u64, expected_lo: u64) !void {
     const x = __floatunsitf(a);
 
-    const x_repr = @as(u128, @bitCast(x));
-    const x_hi = @as(u64, @intCast(x_repr >> 64));
-    const x_lo = @as(u64, @truncate(x_repr));
+    const x_repr: u128 = @bitCast(x);
+    const x_hi: u64 = @intCast(x_repr >> 64);
+    const x_lo: u64 = @truncate(x_repr);
 
     if (x_hi == expected_hi and x_lo == expected_lo) {
         return;
@@ -552,9 +552,9 @@ fn test__floatditf(a: i64, expected: f128) !void {
 fn test__floatunditf(a: u64, expected_hi: u64, expected_lo: u64) !void {
     const x = __floatunditf(a);
 
-    const x_repr = @as(u128, @bitCast(x));
-    const x_hi = @as(u64, @intCast(x_repr >> 64));
-    const x_lo = @as(u64, @truncate(x_repr));
+    const x_repr: u128 = @bitCast(x);
+    const x_hi: u64 = @intCast(x_repr >> 64);
+    const x_lo: u64 = @truncate(x_repr);
 
     if (x_hi == expected_hi and x_lo == expected_lo) {
         return;

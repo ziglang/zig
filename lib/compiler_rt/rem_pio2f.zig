@@ -30,14 +30,14 @@ pub fn rem_pio2f(x: f32, y: *f64) i32 {
     var e0: u32 = undefined;
     var ui: u32 = undefined;
 
-    ui = @as(u32, @bitCast(x));
+    ui = @bitCast(x);
     ix = ui & 0x7fffffff;
 
     // 25+53 bit pi is good enough for medium size
     if (ix < 0x4dc90fdb) { // |x| ~< 2^28*(pi/2), medium size
         // Use a specialized rint() to get fn.
         @"fn" = @as(f64, @floatCast(x)) * invpio2 + toint - toint;
-        n = @as(i32, @intFromFloat(@"fn"));
+        n = @intFromFloat(@"fn");
         y.* = x - @"fn" * pio2_1 - @"fn" * pio2_1t;
         // Matters with directed rounding.
         if (y.* < -pio4) {

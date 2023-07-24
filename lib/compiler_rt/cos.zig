@@ -35,7 +35,7 @@ pub fn cosf(x: f32) callconv(.C) f32 {
     const c3pio2: f64 = 3.0 * math.pi / 2.0; // 0x4012D97C, 0x7F3321D2
     const c4pio2: f64 = 4.0 * math.pi / 2.0; // 0x401921FB, 0x54442D18
 
-    var ix = @as(u32, @bitCast(x));
+    var ix: u32 = @bitCast(x);
     const sign = ix >> 31 != 0;
     ix &= 0x7fffffff;
 
@@ -116,12 +116,12 @@ pub fn cos(x: f64) callconv(.C) f64 {
 
 pub fn __cosx(a: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(cosq(a)));
+    return @floatCast(cosq(a));
 }
 
 pub fn cosq(a: f128) callconv(.C) f128 {
     // TODO: more correct implementation
-    return cos(@as(f64, @floatCast(a)));
+    return cos(@floatCast(a));
 }
 
 pub fn cosl(x: c_longdouble) callconv(.C) c_longdouble {

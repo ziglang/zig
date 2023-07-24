@@ -27,11 +27,11 @@ comptime {
 
 pub fn __ceilh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(ceilf(x)));
+    return @floatCast(ceilf(x));
 }
 
 pub fn ceilf(x: f32) callconv(.C) f32 {
-    var u = @as(u32, @bitCast(x));
+    var u: u32 = @bitCast(x);
     var e = @as(i32, @intCast((u >> 23) & 0xFF)) - 0x7F;
     var m: u32 = undefined;
 
@@ -52,7 +52,7 @@ pub fn ceilf(x: f32) callconv(.C) f32 {
             u += m;
         }
         u &= ~m;
-        return @as(f32, @bitCast(u));
+        return @bitCast(u);
     } else {
         math.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 31 != 0) {
@@ -66,7 +66,7 @@ pub fn ceilf(x: f32) callconv(.C) f32 {
 pub fn ceil(x: f64) callconv(.C) f64 {
     const f64_toint = 1.0 / math.floatEps(f64);
 
-    const u = @as(u64, @bitCast(x));
+    const u: u64 = @bitCast(x);
     const e = (u >> 52) & 0x7FF;
     var y: f64 = undefined;
 
@@ -96,13 +96,13 @@ pub fn ceil(x: f64) callconv(.C) f64 {
 
 pub fn __ceilx(x: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(ceilq(x)));
+    return @floatCast(ceilq(x));
 }
 
 pub fn ceilq(x: f128) callconv(.C) f128 {
     const f128_toint = 1.0 / math.floatEps(f128);
 
-    const u = @as(u128, @bitCast(x));
+    const u: u128 = @bitCast(x);
     const e = (u >> 112) & 0x7FFF;
     var y: f128 = undefined;
 
