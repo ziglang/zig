@@ -203,23 +203,40 @@ pub const Instruction = union(Opcode) {
         stream: *std.io.FixedBufferStream([]const u8),
         addr_size_bytes: u8,
         endian: std.builtin.Endian,
+
     ) !Instruction {
-        return switch (try stream.reader().readByte()) {
-            inline Opcode.lo_inline...Opcode.hi_inline => |opcode| blk: {
+        switch (try stream.reader().readByte()) {
+            Opcode.lo_inline...Opcode.hi_inline => |opcode| {
                 const e: Opcode = @enumFromInt(opcode & 0b11000000);
-                var result = @unionInit(Instruction, @tagName(e), undefined);
-                try result.readOperands(stream, @as(u6, @intCast(opcode & 0b111111)), addr_size_bytes, endian);
-                break :blk result;
+                switch (e) {
+                    inline .advance_loc,
+                    .offset,
+                    .restore,
+                    => |tag| {
+                        var result = @unionInit(Instruction, @tagName(tag), undefined);
+                        try result.readOperands(stream, @as(u6, @intCast(opcode & 0b111111)), addr_size_bytes, endian);
+                        return result;
+                    },
+                    else => unreachable,
+                }
             },
-            inline Opcode.lo_reserved...Opcode.hi_reserved => |opcode| blk: {
+            Opcode.lo_reserved...Opcode.hi_reserved => |opcode| {
                 const e: Opcode = @enumFromInt(opcode);
-                var result = @unionInit(Instruction, @tagName(e), undefined);
-                try result.readOperands(stream, null, addr_size_bytes, endian);
-                break :blk result;
+                switch (e) {
+                    .advance_loc,
+                    .offset,
+                    .restore,
+                    => unreachable,
+                    inline else => |tag| {
+                        var result = @unionInit(Instruction, @tagName(tag), undefined);
+                        try result.readOperands(stream, null, addr_size_bytes, endian);
+                        return result;
+                    },
+                }
             },
-            Opcode.lo_user...Opcode.hi_user => error.UnimplementedUserOpcode,
-            else => error.InvalidOpcode,
-        };
+            Opcode.lo_user...Opcode.hi_user => return error.UnimplementedUserOpcode,
+            else => return error.InvalidOpcode,
+        }
     }
 };
 
