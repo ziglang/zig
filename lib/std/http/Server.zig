@@ -735,9 +735,12 @@ test "HTTP server handles a chunked transfer coding request" {
 
     const server_thread = try std.Thread.spawn(.{}, (struct {
         fn apply(s: *std.http.Server) !void {
-            const res = try s.accept(.{ .dynamic = max_header_size });
+            var res = try s.accept(.{
+                .allocator = allocator,
+                .header_strategy = .{ .dynamic = max_header_size },
+            });
             defer res.deinit();
-            defer res.reset();
+            defer _ = res.reset();
             try res.wait();
 
             try expect(res.request.transfer_encoding.? == .chunked);
