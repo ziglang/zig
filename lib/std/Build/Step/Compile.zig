@@ -1004,8 +1004,8 @@ pub fn getOutputPdbSource(self: *Compile) FileSource {
     return .{ .generated = &self.output_pdb_path_source };
 }
 
-pub fn getOutputDocs(self: *Compile) FileSource {
-    assert(self.generated_docs == null); // This function may only be called once.
+pub fn getEmittedDocs(self: *Compile) FileSource {
+    if (self.generated_docs) |g| return .{ .generated = g };
     const arena = self.step.owner.allocator;
     const generated_file = arena.create(GeneratedFile) catch @panic("OOM");
     generated_file.* = .{ .step = &self.step };
