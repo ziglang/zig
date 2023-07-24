@@ -12,6 +12,8 @@ test {
     _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bitreverse.zig");
     _ = @import("behavior/bool.zig");
+    // Ideally, all tests would be categorized and independent from GitHub, but
+    // if that's too much trouble, having test coverage this way is better than nothing.
     _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/421.zig");
     _ = @import("behavior/bugs/529.zig");
