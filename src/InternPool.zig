@@ -594,6 +594,13 @@ pub const Key = union(enum) {
         /// In the case of a generic function, this type will potentially have fewer parameters
         /// than the generic owner's type, because the comptime parameters will be deleted.
         ty: Index,
+        /// If this is a function body that has been coerced to a different type, for example
+        /// ```
+        /// fn f2() !void {}
+        /// const f: fn()anyerror!void = f2;
+        /// ```
+        /// then it contains the original type of the function body.
+        uncoerced_ty: Index,
         /// Index into extra array of the `FuncAnalysis` corresponding to this function.
         /// Used for mutating that data.
         analysis_extra_index: u32,
@@ -990,11 +997,15 @@ pub const Key = union(enum) {
                 // otherwise we would get false negatives for interning generic
                 // function instances which have inferred error sets.
 
-                if (func.generic_owner == .none and func.resolved_error_set_extra_index == 0)
-                    return Hash.hash(seed, asBytes(&func.owner_decl) ++ asBytes(&func.ty));
+                if (func.generic_owner == .none and func.resolved_error_set_extra_index == 0) {
+                    const bytes = asBytes(&func.owner_decl) ++ asBytes(&func.ty) ++
+                        [1]u8{@intFromBool(func.uncoerced_ty == func.ty)};
+                    return Hash.hash(seed, bytes);
+                }
 
                 var hasher = Hash.init(seed);
                 std.hash.autoHash(&hasher, func.generic_owner);
+                std.hash.autoHash(&hasher, func.uncoerced_ty == func.ty);
                 for (func.comptime_args.get(ip)) |arg| std.hash.autoHash(&hasher, arg);
                 if (func.resolved_error_set_extra_index == 0) {
                     std.hash.autoHash(&hasher, func.ty);
@@ -1120,6 +1131,12 @@ pub const Key = union(enum) {
                         a_info.comptime_args.get(ip),
                         b_info.comptime_args.get(ip),
                     )) return false;
+                }
+
+                if ((a_info.ty == a_info.uncoerced_ty) !=
+                    (b_info.ty == b_info.uncoerced_ty))
+                {
+                    return false;
                 }
 
                 if (a_info.ty == b_info.ty)
@@ -3371,6 +3388,7 @@ fn extraFuncDecl(ip: *const InternPool, extra_index: u32) Key.Func {
     const func_decl = ip.extraDataTrail(P, extra_index);
     return .{
         .ty = func_decl.data.ty,
+        .uncoerced_ty = func_decl.data.ty,
         .analysis_extra_index = extra_index + std.meta.fieldIndex(P, "analysis").?,
         .zir_body_inst_extra_index = extra_index + std.meta.fieldIndex(P, "zir_body_inst").?,
         .resolved_error_set_extra_index = if (func_decl.data.analysis.inferred_error_set) func_decl.end else 0,
@@ -3392,6 +3410,7 @@ fn extraFuncInstance(ip: *const InternPool, extra_index: u32) Key.Func {
     const func_decl = ip.funcDeclInfo(fi.data.generic_owner);
     return .{
         .ty = fi.data.ty,
+        .uncoerced_ty = fi.data.ty,
         .analysis_extra_index = extra_index + std.meta.fieldIndex(P, "analysis").?,
         .zir_body_inst_extra_index = func_decl.zir_body_inst_extra_index,
         .resolved_error_set_extra_index = if (fi.data.analysis.inferred_error_set) fi.end else 0,
