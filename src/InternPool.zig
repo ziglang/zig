@@ -7069,6 +7069,17 @@ pub fn funcIesResolved(ip: *const InternPool, func_index: Index) *Index {
     const extra_index = switch (tags[@intFromEnum(func_index)]) {
         .func_decl => func_start + @typeInfo(Tag.FuncDecl).Struct.fields.len,
         .func_instance => func_start + @typeInfo(Tag.FuncInstance).Struct.fields.len,
+        .func_coerced => i: {
+            const uncoerced_func_index: Index = @enumFromInt(ip.extra.items[
+                func_start + std.meta.fieldIndex(Tag.FuncCoerced, "func").?
+            ]);
+            const uncoerced_func_start = datas[@intFromEnum(uncoerced_func_index)];
+            break :i switch (tags[@intFromEnum(uncoerced_func_index)]) {
+                .func_decl => uncoerced_func_start + @typeInfo(Tag.FuncDecl).Struct.fields.len,
+                .func_instance => uncoerced_func_start + @typeInfo(Tag.FuncInstance).Struct.fields.len,
+                else => unreachable,
+            };
+        },
         else => unreachable,
     };
     return @ptrCast(&ip.extra.items[extra_index]);
