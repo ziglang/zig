@@ -46,7 +46,6 @@ framework_dirs: ArrayList(FileSource),
 frameworks: StringHashMap(FrameworkLinkInfo),
 verbose_link: bool,
 verbose_cc: bool,
-emit_analysis: EmitOption = .default,
 emit_asm: EmitOption = .default,
 emit_bin: EmitOption = .default,
 emit_implib: EmitOption = .default,
@@ -1516,7 +1515,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (b.verbose_cc or self.verbose_cc) try zig_args.append("--verbose-cc");
     if (b.verbose_llvm_cpu_features) try zig_args.append("--verbose-llvm-cpu-features");
 
-    if (self.emit_analysis.getArg(b, "emit-analysis")) |arg| try zig_args.append(arg);
     if (self.emit_asm.getArg(b, "emit-asm")) |arg| try zig_args.append(arg);
     if (self.emit_bin.getArg(b, "emit-bin")) |arg| try zig_args.append(arg);
     if (self.generated_docs != null) try zig_args.append("-femit-docs");

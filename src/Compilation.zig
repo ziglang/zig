@@ -179,7 +179,6 @@ test_name_prefix: ?[]const u8,
 emit_asm: ?EmitLoc,
 emit_llvm_ir: ?EmitLoc,
 emit_llvm_bc: ?EmitLoc,
-emit_analysis: ?EmitLoc,
 
 work_queue_wait_group: WaitGroup = .{},
 astgen_wait_group: WaitGroup = .{},
@@ -482,8 +481,6 @@ pub const InitOptions = struct {
     emit_llvm_ir: ?EmitLoc = null,
     /// `null` means to not emit LLVM module bitcode.
     emit_llvm_bc: ?EmitLoc = null,
-    /// `null` means to not emit semantic analysis JSON.
-    emit_analysis: ?EmitLoc = null,
     /// `null` means to not emit docs.
     emit_docs: ?EmitLoc = null,
     /// `null` means to not emit an import lib.
@@ -1589,7 +1586,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
-            .emit_analysis = options.emit_analysis,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .anon_work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
@@ -2328,7 +2324,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
-    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_analysis);
 
     man.hash.addListOfBytes(comp.clang_argv);
 
