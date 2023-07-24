@@ -23,20 +23,12 @@ pub fn escapePath(allocator: std.mem.Allocator, input: []const u8) error{OutOfMe
     return escapeStringWithFn(allocator, input, isPathChar);
 }
 
-pub fn escapeQuery(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
-    return escapeStringWithFn(allocator, input, isQueryChar);
-}
-
 pub fn writeEscapedString(writer: anytype, input: []const u8) !void {
     return writeEscapedStringWithFn(writer, input, isUnreserved);
 }
 
 pub fn writeEscapedPath(writer: anytype, input: []const u8) !void {
     return writeEscapedStringWithFn(writer, input, isPathChar);
-}
-
-pub fn writeEscapedQuery(writer: anytype, input: []const u8) !void {
-    return writeEscapedStringWithFn(writer, input, isQueryChar);
 }
 
 pub fn escapeStringWithFn(allocator: std.mem.Allocator, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) std.mem.Allocator.Error![]u8 {
@@ -287,10 +279,13 @@ pub fn writeToStream(
 
         if (options.query) if (uri.query) |q| {
             try writer.writeAll("?");
-            if (options.raw) {
-                try writer.writeAll(q);
-            } else {
-                try writeEscapedQuery(writer, q);
+            try writer.writeAll(q);
+        }
+
+        if (needs_fragment) {
+            if (uri.fragment) |f| {
+                try writer.writeAll("#");
+                try Uri.writeEscapedQuery(writer, f);
             }
         };
 
@@ -791,4 +786,23 @@ test "URI malformed input" {
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://]["));
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://]@["));
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://lo]s\x85hc@[/8\x10?0Q"));
+    const query = "a%3D=b&c=d";
+    const u = Uri{
+        .scheme = "https",
+        .user = null,
+        .password = null,
+        .host = "host",
+        .port = null,
+        .path = "/path",
+        .query = query,
+        .fragment = null,
+    };
+    const expected = "https://host/path?a%3D=b&c=d";
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer buf.deinit();
+
+    try std.fmt.format(buf.writer(), "{+/}", .{u});
+    try std.testing.expectEqualSlices(u8, expected, buf.items);
+
+    try std.testing.expectEqualDeep(u, try parse(buf.items));
 }
