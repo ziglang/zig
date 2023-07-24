@@ -594,6 +594,13 @@ pub const Key = union(enum) {
         /// In the case of a generic function, this type will potentially have fewer parameters
         /// than the generic owner's type, because the comptime parameters will be deleted.
         ty: Index,
+        /// If this is a function body that has been coerced to a different type, for example
+        /// ```
+        /// fn f2() !void {}
+        /// const f: fn()anyerror!void = f2;
+        /// ```
+        /// then it contains the original type of the function body.
+        uncoerced_ty: Index,
         /// Index into extra array of the `FuncAnalysis` corresponding to this function.
         /// Used for mutating that data.
         analysis_extra_index: u32,
@@ -990,11 +997,15 @@ pub const Key = union(enum) {
                 // otherwise we would get false negatives for interning generic
                 // function instances which have inferred error sets.
 
-                if (func.generic_owner == .none and func.resolved_error_set_extra_index == 0)
-                    return Hash.hash(seed, asBytes(&func.owner_decl) ++ asBytes(&func.ty));
+                if (func.generic_owner == .none and func.resolved_error_set_extra_index == 0) {
+                    const bytes = asBytes(&func.owner_decl) ++ asBytes(&func.ty) ++
+                        [1]u8{@intFromBool(func.uncoerced_ty == func.ty)};
+                    return Hash.hash(seed, bytes);
+                }
 
                 var hasher = Hash.init(seed);
                 std.hash.autoHash(&hasher, func.generic_owner);
+                std.hash.autoHash(&hasher, func.uncoerced_ty == func.ty);
                 for (func.comptime_args.get(ip)) |arg| std.hash.autoHash(&hasher, arg);
                 if (func.resolved_error_set_extra_index == 0) {
                     std.hash.autoHash(&hasher, func.ty);
@@ -1120,6 +1131,12 @@ pub const Key = union(enum) {
                         a_info.comptime_args.get(ip),
                         b_info.comptime_args.get(ip),
                     )) return false;
+                }
+
+                if ((a_info.ty == a_info.uncoerced_ty) !=
+                    (b_info.ty == b_info.uncoerced_ty))
+                {
+                    return false;
                 }
 
                 if (a_info.ty == b_info.ty)
@@ -3371,6 +3388,7 @@ fn extraFuncDecl(ip: *const InternPool, extra_index: u32) Key.Func {
     const func_decl = ip.extraDataTrail(P, extra_index);
     return .{
         .ty = func_decl.data.ty,
+        .uncoerced_ty = func_decl.data.ty,
         .analysis_extra_index = extra_index + std.meta.fieldIndex(P, "analysis").?,
         .zir_body_inst_extra_index = extra_index + std.meta.fieldIndex(P, "zir_body_inst").?,
         .resolved_error_set_extra_index = if (func_decl.data.analysis.inferred_error_set) func_decl.end else 0,
@@ -3392,6 +3410,7 @@ fn extraFuncInstance(ip: *const InternPool, extra_index: u32) Key.Func {
     const func_decl = ip.funcDeclInfo(fi.data.generic_owner);
     return .{
         .ty = fi.data.ty,
+        .uncoerced_ty = fi.data.ty,
         .analysis_extra_index = extra_index + std.meta.fieldIndex(P, "analysis").?,
         .zir_body_inst_extra_index = func_decl.zir_body_inst_extra_index,
         .resolved_error_set_extra_index = if (fi.data.analysis.inferred_error_set) fi.end else 0,
@@ -4800,6 +4819,8 @@ pub fn getFuncInstanceIes(
     assert(arg.bare_return_type != .none);
     for (arg.param_types) |param_type| assert(param_type != .none);
 
+    const generic_owner = unwrapCoercedFunc(ip, arg.generic_owner);
+
     // The strategy here is to add the function decl unconditionally, then to
     // ask if it already exists, and if so, revert the lengths of the mutated
     // arrays. This is similar to what `getOrPutTrailingString` does.
@@ -4835,7 +4856,7 @@ pub fn getFuncInstanceIes(
         .owner_decl = undefined,
         .ty = func_ty,
         .branch_quota = 0,
-        .generic_owner = arg.generic_owner,
+        .generic_owner = generic_owner,
     });
     ip.extra.appendAssumeCapacity(@intFromEnum(Index.none)); // resolved error set
     ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.comptime_args));
@@ -4908,7 +4929,7 @@ pub fn getFuncInstanceIes(
     return finishFuncInstance(
         ip,
         gpa,
-        arg.generic_owner,
+        generic_owner,
         func_index,
         func_extra_index,
         arg.generation,
@@ -7050,6 +7071,17 @@ pub fn funcIesResolved(ip: *const InternPool, func_index: Index) *Index {
     const extra_index = switch (tags[@intFromEnum(func_index)]) {
         .func_decl => func_start + @typeInfo(Tag.FuncDecl).Struct.fields.len,
         .func_instance => func_start + @typeInfo(Tag.FuncInstance).Struct.fields.len,
+        .func_coerced => i: {
+            const uncoerced_func_index: Index = @enumFromInt(ip.extra.items[
+                func_start + std.meta.fieldIndex(Tag.FuncCoerced, "func").?
+            ]);
+            const uncoerced_func_start = datas[@intFromEnum(uncoerced_func_index)];
+            break :i switch (tags[@intFromEnum(uncoerced_func_index)]) {
+                .func_decl => uncoerced_func_start + @typeInfo(Tag.FuncDecl).Struct.fields.len,
+                .func_instance => uncoerced_func_start + @typeInfo(Tag.FuncInstance).Struct.fields.len,
+                else => unreachable,
+            };
+        },
         else => unreachable,
     };
     return @ptrCast(&ip.extra.items[extra_index]);
