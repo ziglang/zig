@@ -340,7 +340,6 @@ const DataLayoutBuilder = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        const is_aarch64_windows = self.target.cpu.arch == .aarch64 and self.target.os.tag == .windows;
         try writer.writeByte(switch (self.target.cpu.arch.endian()) {
             .Little => 'e',
             .Big => 'E',
@@ -407,7 +406,8 @@ const DataLayoutBuilder = struct {
             };
             if (self.target.cpu.arch == .aarch64_32) continue;
             if (!info.force_in_data_layout and matches_default and
-                self.target.cpu.arch != .riscv64 and !is_aarch64_windows and
+                self.target.cpu.arch != .riscv64 and !(self.target.cpu.arch == .aarch64 and
+                (self.target.os.tag == .uefi or self.target.os.tag == .windows)) and
                 self.target.cpu.arch != .bpfeb and self.target.cpu.arch != .bpfel) continue;
             try writer.writeAll("-p");
             if (info.llvm != .default) try writer.print("{d}", .{@intFromEnum(info.llvm)});
@@ -423,7 +423,7 @@ const DataLayoutBuilder = struct {
             if (self.target.cpu.arch == .s390x) try self.typeAlignment(.integer, 1, 8, 8, false, writer);
             try self.typeAlignment(.integer, 8, 8, 8, false, writer);
             try self.typeAlignment(.integer, 16, 16, 16, false, writer);
-            try self.typeAlignment(.integer, 32, if (is_aarch64_windows) 0 else 32, 32, false, writer);
+            try self.typeAlignment(.integer, 32, 32, 32, false, writer);
             try self.typeAlignment(.integer, 64, 32, 64, false, writer);
             try self.typeAlignment(.integer, 128, 32, 64, false, writer);
             if (backendSupportsF16(self.target)) try self.typeAlignment(.float, 16, 16, 16, false, writer);
@@ -453,8 +453,15 @@ const DataLayoutBuilder = struct {
                 try self.typeAlignment(.vector, 128, 128, 128, true, writer);
             },
         }
-        if (self.target.os.tag != .windows and self.target.cpu.arch != .avr)
-            try self.typeAlignment(.aggregate, 0, 0, 64, false, writer);
+        const swap_agg_nat = switch (self.target.cpu.arch) {
+            .x86, .x86_64 => switch (self.target.os.tag) {
+                .uefi, .windows => true,
+                else => false,
+            },
+            .avr => true,
+            else => false,
+        };
+        if (!swap_agg_nat) try self.typeAlignment(.aggregate, 0, 0, 64, false, writer);
         for (@as([]const u24, switch (self.target.cpu.arch) {
             .avr => &.{8},
             .msp430 => &.{ 8, 16 },
@@ -498,6 +505,7 @@ const DataLayoutBuilder = struct {
             0 => try writer.print("-n{d}", .{natural}),
             else => try writer.print(":{d}", .{natural}),
         };
+        if (swap_agg_nat) try self.typeAlignment(.aggregate, 0, 0, 64, false, writer);
         if (self.target.cpu.arch == .hexagon) {
             try self.typeAlignment(.integer, 64, 64, 64, true, writer);
             try self.typeAlignment(.integer, 32, 32, 32, true, writer);
@@ -506,11 +514,9 @@ const DataLayoutBuilder = struct {
             try self.typeAlignment(.float, 32, 32, 32, true, writer);
             try self.typeAlignment(.float, 64, 64, 64, true, writer);
         }
-        if (self.target.os.tag == .windows or self.target.cpu.arch == .avr)
-            try self.typeAlignment(.aggregate, 0, 0, 64, false, writer);
         const stack_abi = self.target.stackAlignment() * 8;
-        if (self.target.os.tag == .windows or self.target.cpu.arch == .msp430 or
-            stack_abi != ptr_bit_width)
+        if (self.target.os.tag == .uefi or self.target.os.tag == .windows or
+            self.target.cpu.arch == .msp430 or stack_abi != ptr_bit_width)
             try writer.print("-S{d}", .{stack_abi});
         switch (self.target.cpu.arch) {
             .hexagon, .ve => {
@@ -571,22 +577,21 @@ const DataLayoutBuilder = struct {
             .integer => {
                 if (self.target.ptrBitWidth() <= 16 and size >= 128) return;
                 abi = @min(abi, self.target.maxIntAlignment() * 8);
-                switch (self.target.os.tag) {
-                    .linux => switch (self.target.cpu.arch) {
-                        .aarch64,
-                        .aarch64_be,
-                        .aarch64_32,
-                        .mips,
-                        .mipsel,
-                        => pref = @max(pref, 32),
-                        else => {},
-                    },
-                    else => {},
-                }
                 switch (self.target.cpu.arch) {
                     .aarch64,
                     .aarch64_be,
                     .aarch64_32,
+                    => if (size == 128) {
+                        abi = size;
+                        pref = size;
+                    } else switch (self.target.os.tag) {
+                        .macos => {},
+                        .uefi, .windows => {
+                            pref = size;
+                            force_abi = size >= 32;
+                        },
+                        else => pref = @max(pref, 32),
+                    },
                     .bpfeb,
                     .bpfel,
                     .nvptx,
@@ -597,6 +602,9 @@ const DataLayoutBuilder = struct {
                         pref = size;
                     },
                     .hexagon => force_abi = true,
+                    .mips,
+                    .mipsel,
+                    => pref = @max(pref, 32),
                     .mips64,
                     .mips64el,
                     => if (size <= 32) {
@@ -617,7 +625,8 @@ const DataLayoutBuilder = struct {
                     128 => abi = 64,
                     else => {},
                 }
-            } else if ((self.target.cpu.arch.isPPC64() and (size == 256 or size == 512)) or
+            } else if ((self.target.cpu.arch.isPPC64() and self.target.os.tag == .linux and
+                (size == 256 or size == 512)) or
                 (self.target.cpu.arch.isNvptx() and (size == 16 or size == 32)))
             {
                 force_abi = true;
@@ -646,9 +655,13 @@ const DataLayoutBuilder = struct {
                 .hexagon => if (size == 32 or size == 64) {
                     force_abi = true;
                 },
-                .aarch64_32 => if (size == 128) {
+                .aarch64_32, .amdgcn => if (size == 128) {
                     abi = size;
                     pref = size;
+                },
+                .wasm32, .wasm64 => if (self.target.os.tag == .emscripten and size == 128) {
+                    abi = 64;
+                    pref = 64;
                 },
                 .ve => if (size == 64) {
                     abi = size;
@@ -656,7 +669,7 @@ const DataLayoutBuilder = struct {
                 },
                 else => {},
             },
-            .aggregate => if (self.target.os.tag == .windows or
+            .aggregate => if (self.target.os.tag == .uefi or self.target.os.tag == .windows or
                 self.target.cpu.arch.isARM() or self.target.cpu.arch.isThumb())
             {
                 pref = @min(pref, self.target.ptrBitWidth());
