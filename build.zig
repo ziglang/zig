@@ -927,8 +927,6 @@ const zig_cpp_sources = [_][]const u8{
     "src/zig_clang_driver.cpp",
     "src/zig_clang_cc1_main.cpp",
     "src/zig_clang_cc1as_main.cpp",
-    // https://github.com/ziglang/zig/issues/6363
-    "src/windows_sdk.cpp",
 };
 
 const clang_libs = [_][]const u8{

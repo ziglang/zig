@@ -193,8 +193,6 @@ set(ZIG_CPP_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_clang_driver.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_clang_cc1_main.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_clang_cc1as_main.cpp"
-    # https://github.com/ziglang/zig/issues/6363
-    "${CMAKE_SOURCE_DIR}/src/windows_sdk.cpp"
 )
 # Needed because we use cmake, not the zig build system, to build zig2.o.
 set(ZIG_STAGE2_SOURCES

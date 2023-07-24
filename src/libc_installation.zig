@@ -186,21 +186,19 @@ pub const LibCInstallation = struct {
         } else if (is_windows) {
             if (!build_options.have_llvm)
                 return error.WindowsSdkNotFound;
-            var sdk: *ZigWindowsSDK = undefined;
-            switch (ZigWindowsSDK.find(&sdk)) {
-                .None => {
-                    defer sdk.free();
 
-                    try self.findNativeMsvcIncludeDir(args, sdk);
-                    try self.findNativeMsvcLibDir(args, sdk);
-                    try self.findNativeKernel32LibDir(args, sdk);
-                    try self.findNativeIncludeDirWindows(args, sdk);
-                    try self.findNativeCrtDirWindows(args, sdk);
-                },
-                .OutOfMemory => return error.OutOfMemory,
-                .NotFound => return error.WindowsSdkNotFound,
-                .PathTooLong => return error.WindowsSdkNotFound,
-            }
+            var sdk: ZigWindowsSDK = ZigWindowsSDK.find(args.allocator) catch |err| switch (err) {
+                error.NotFound => return error.WindowsSdkNotFound,
+                error.PathTooLong => return error.WindowsSdkNotFound,
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+            defer sdk.free(args.allocator);
+
+            try self.findNativeMsvcIncludeDir(args, &sdk);
+            try self.findNativeMsvcLibDir(args, &sdk);
+            try self.findNativeKernel32LibDir(args, &sdk);
+            try self.findNativeIncludeDirWindows(args, &sdk);
+            try self.findNativeCrtDirWindows(args, &sdk);
         } else if (is_haiku) {
             try self.findNativeIncludeDirPosix(args);
             try self.findNativeCrtBeginDirHaiku(args);
@@ -512,8 +510,7 @@ pub const LibCInstallation = struct {
     ) FindError!void {
         const allocator = args.allocator;
 
-        const msvc_lib_dir_ptr = sdk.msvc_lib_dir_ptr orelse return error.LibCStdLibHeaderNotFound;
-        const msvc_lib_dir = msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len];
+        const msvc_lib_dir = sdk.msvc_lib_dir orelse return error.LibCStdLibHeaderNotFound;
         const up1 = fs.path.dirname(msvc_lib_dir) orelse return error.LibCStdLibHeaderNotFound;
         const up2 = fs.path.dirname(up1) orelse return error.LibCStdLibHeaderNotFound;
 
@@ -544,8 +541,8 @@ pub const LibCInstallation = struct {
         sdk: *ZigWindowsSDK,
     ) FindError!void {
         const allocator = args.allocator;
-        const msvc_lib_dir_ptr = sdk.msvc_lib_dir_ptr orelse return error.LibCRuntimeNotFound;
-        self.msvc_lib_dir = try allocator.dupeZ(u8, msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
+        const msvc_lib_dir = sdk.msvc_lib_dir orelse return error.LibCRuntimeNotFound;
+        self.msvc_lib_dir = try allocator.dupe(u8, msvc_lib_dir);
     }
 };
 
@@ -657,23 +654,19 @@ const Search = struct {
 
 fn fillSearch(search_buf: *[2]Search, sdk: *ZigWindowsSDK) []Search {
     var search_end: usize = 0;
-    if (sdk.path10_ptr) |path10_ptr| {
-        if (sdk.version10_ptr) |version10_ptr| {
-            search_buf[search_end] = Search{
-                .path = path10_ptr[0..sdk.path10_len],
-                .version = version10_ptr[0..sdk.version10_len],
-            };
-            search_end += 1;
-        }
+    if (sdk.windows10sdk) |windows10sdk| {
+        search_buf[search_end] = .{
+            .path = windows10sdk.path,
+            .version = windows10sdk.version,
+        };
+        search_end += 1;
     }
-    if (sdk.path81_ptr) |path81_ptr| {
-        if (sdk.version81_ptr) |version81_ptr| {
-            search_buf[search_end] = Search{
-                .path = path81_ptr[0..sdk.path81_len],
-                .version = version81_ptr[0..sdk.version81_len],
-            };
-            search_end += 1;
-        }
+    if (sdk.windows81sdk) |windows81sdk| {
+        search_buf[search_end] = .{
+            .path = windows81sdk.path,
+            .version = windows81sdk.version,
+        };
+        search_end += 1;
     }
     return search_buf[0..search_end];
 }
