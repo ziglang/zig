@@ -4819,6 +4819,8 @@ pub fn getFuncInstanceIes(
     assert(arg.bare_return_type != .none);
     for (arg.param_types) |param_type| assert(param_type != .none);
 
+    const generic_owner = unwrapCoercedFunc(ip, arg.generic_owner);
+
     // The strategy here is to add the function decl unconditionally, then to
     // ask if it already exists, and if so, revert the lengths of the mutated
     // arrays. This is similar to what `getOrPutTrailingString` does.
@@ -4854,7 +4856,7 @@ pub fn getFuncInstanceIes(
         .owner_decl = undefined,
         .ty = func_ty,
         .branch_quota = 0,
-        .generic_owner = arg.generic_owner,
+        .generic_owner = generic_owner,
     });
     ip.extra.appendAssumeCapacity(@intFromEnum(Index.none)); // resolved error set
     ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.comptime_args));
@@ -4927,7 +4929,7 @@ pub fn getFuncInstanceIes(
     return finishFuncInstance(
         ip,
         gpa,
-        arg.generic_owner,
+        generic_owner,
         func_index,
         func_extra_index,
         arg.generation,
