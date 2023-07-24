@@ -93,6 +93,9 @@ pub fn Atomic(comptime T: type) type {
             return self.rmw(.Xchg, value, ordering);
         }
 
+        /// This function performs a strong atomic compare exchange operation.
+        /// 
+        /// If you are using compareAndSwap in a loop, and sporadic failure is not a problem, tryCompareAndSwap is the better choice as it can be implemented more efficiently in machine instructions.
         pub inline fn compareAndSwap(
             self: *Self,
             compare: T,
@@ -100,9 +103,13 @@ pub fn Atomic(comptime T: type) type {
             comptime success: Ordering,
             comptime failure: Ordering,
         ) ?T {
-            return self.cmpxchg(true, compare, exchange, success, failure);
+            validateCompareAndSwapOrdering(success, failure);
+            return @cmpxchgStrong(T, &self.value, compare, exchange, success, failure);
         }
-
+        
+        /// This function performs a weak atomic compare exchange operation.
+        /// 
+        /// tryCompareAndSwap is allowed to sporadically fail even when the exchange would be successful to allow for more efficient machine instructions. If you need a stronger guarantee, use compareAndSwap.
         pub inline fn tryCompareAndSwap(
             self: *Self,
             compare: T,
@@ -110,17 +117,14 @@ pub fn Atomic(comptime T: type) type {
             comptime success: Ordering,
             comptime failure: Ordering,
         ) ?T {
-            return self.cmpxchg(false, compare, exchange, success, failure);
+            validateCompareAndSwapOrdering(success, failure);
+            return @cmpxchgWeak(T, &self.value, compare, exchange, success, failure);
         }
-
-        inline fn cmpxchg(
-            self: *Self,
-            comptime is_strong: bool,
-            compare: T,
-            exchange: T,
+        
+        inline fn validateCompareAndSwapOrdering(
             comptime success: Ordering,
             comptime failure: Ordering,
-        ) ?T {
+        ) void {
             if (success == .Unordered or failure == .Unordered) {
                 @compileError(@tagName(Ordering.Unordered) ++ " is only allowed on atomic loads and stores");
             }
@@ -137,11 +141,6 @@ pub fn Atomic(comptime T: type) type {
             if (!success_is_stronger) {
                 @compileError(@tagName(success) ++ " must be stronger than " ++ @tagName(failure));
             }
-
-            return switch (is_strong) {
-                true => @cmpxchgStrong(T, &self.value, compare, exchange, success, failure),
-                false => @cmpxchgWeak(T, &self.value, compare, exchange, success, failure),
-            };
         }
 
         inline fn rmw(
