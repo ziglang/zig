@@ -62,11 +62,11 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
     const x = z.re;
     const y = z.im;
 
-    const fx = @as(u64, @bitCast(x));
+    const fx: u64 = @bitCast(x);
     // TODO: zig should allow this conversion implicitly because it can notice that the value necessarily
     // fits in range.
-    const hx = @as(u32, @intCast(fx >> 32));
-    const lx = @as(u32, @truncate(fx));
+    const hx: u32 = @intCast(fx >> 32);
+    const lx: u32 = @truncate(fx);
     const ix = hx & 0x7fffffff;
 
     if (ix >= 0x7ff00000) {
@@ -75,7 +75,7 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
             return Complex(f64).init(x, r);
         }
 
-        const xx = @as(f64, @bitCast((@as(u64, hx - 0x40000000) << 32) | lx));
+        const xx: f64 = @bitCast((@as(u64, hx - 0x40000000) << 32) | lx);
         const r = if (math.isInf(y)) y else @sin(y) * @cos(y);
         return Complex(f64).init(xx, math.copysign(@as(f64, 0.0), r));
     }

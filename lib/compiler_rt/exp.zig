@@ -39,8 +39,8 @@ pub fn expf(x_: f32) callconv(.C) f32 {
     const P2 = -2.7667332906e-3;
 
     var x = x_;
-    var hx = @as(u32, @bitCast(x));
-    const sign = @as(i32, @intCast(hx >> 31));
+    var hx: u32 = @bitCast(x);
+    const sign: i32 = @intCast(hx >> 31);
     hx &= 0x7FFFFFFF;
 
     if (math.isNan(x)) {
@@ -74,12 +74,12 @@ pub fn expf(x_: f32) callconv(.C) f32 {
     if (hx > 0x3EB17218) {
         // |x| > 1.5 * ln2
         if (hx > 0x3F851592) {
-            k = @as(i32, @intFromFloat(invln2 * x + half[@as(usize, @intCast(sign))]));
+            k = @intFromFloat(invln2 * x + half[@as(usize, @intCast(sign))]);
         } else {
             k = 1 - sign - sign;
         }
 
-        const fk = @as(f32, @floatFromInt(k));
+        const fk: f32 = @floatFromInt(k);
         hi = x - fk * ln2hi;
         lo = fk * ln2lo;
         x = hi - lo;
@@ -117,9 +117,9 @@ pub fn exp(x_: f64) callconv(.C) f64 {
     const P5: f64 = 4.13813679705723846039e-08;
 
     var x = x_;
-    var ux = @as(u64, @bitCast(x));
+    var ux: u64 = @bitCast(x);
     var hx = ux >> 32;
-    const sign = @as(i32, @intCast(hx >> 31));
+    const sign: i32 = @intCast(hx >> 31);
     hx &= 0x7FFFFFFF;
 
     if (math.isNan(x)) {
@@ -157,12 +157,12 @@ pub fn exp(x_: f64) callconv(.C) f64 {
     if (hx > 0x3FD62E42) {
         // |x| >= 1.5 * ln2
         if (hx > 0x3FF0A2B2) {
-            k = @as(i32, @intFromFloat(invln2 * x + half[@as(usize, @intCast(sign))]));
+            k = @intFromFloat(invln2 * x + half[@as(usize, @intCast(sign))]);
         } else {
             k = 1 - sign - sign;
         }
 
-        const dk = @as(f64, @floatFromInt(k));
+        const dk: f64 = @floatFromInt(k);
         hi = x - dk * ln2hi;
         lo = dk * ln2lo;
         x = hi - lo;
@@ -191,12 +191,12 @@ pub fn exp(x_: f64) callconv(.C) f64 {
 
 pub fn __expx(a: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(expq(a)));
+    return @floatCast(expq(a));
 }
 
 pub fn expq(a: f128) callconv(.C) f128 {
     // TODO: more correct implementation
-    return exp(@as(f64, @floatCast(a)));
+    return exp(@floatCast(a));
 }
 
 pub fn expl(x: c_longdouble) callconv(.C) c_longdouble {

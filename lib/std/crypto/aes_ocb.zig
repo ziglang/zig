@@ -90,7 +90,7 @@ fn AesOcb(comptime Aes: anytype) type {
             nx[16 - nonce_length - 1] = 1;
             nx[nx.len - nonce_length ..].* = npub;
 
-            const bottom = @as(u6, @truncate(nx[15]));
+            const bottom: u6 = @truncate(nx[15]);
             nx[15] &= 0xc0;
             var ktop_: Block = undefined;
             aes_enc_ctx.encrypt(&ktop_, &nx);

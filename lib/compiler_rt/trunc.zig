@@ -27,11 +27,11 @@ comptime {
 
 pub fn __trunch(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(truncf(x)));
+    return @floatCast(truncf(x));
 }
 
 pub fn truncf(x: f32) callconv(.C) f32 {
-    const u = @as(u32, @bitCast(x));
+    const u: u32 = @bitCast(x);
     var e = @as(i32, @intCast(((u >> 23) & 0xFF))) - 0x7F + 9;
     var m: u32 = undefined;
 
@@ -47,12 +47,12 @@ pub fn truncf(x: f32) callconv(.C) f32 {
         return x;
     } else {
         math.doNotOptimizeAway(x + 0x1p120);
-        return @as(f32, @bitCast(u & ~m));
+        return @bitCast(u & ~m);
     }
 }
 
 pub fn trunc(x: f64) callconv(.C) f64 {
-    const u = @as(u64, @bitCast(x));
+    const u: u64 = @bitCast(x);
     var e = @as(i32, @intCast(((u >> 52) & 0x7FF))) - 0x3FF + 12;
     var m: u64 = undefined;
 
@@ -68,7 +68,7 @@ pub fn trunc(x: f64) callconv(.C) f64 {
         return x;
     } else {
         math.doNotOptimizeAway(x + 0x1p120);
-        return @as(f64, @bitCast(u & ~m));
+        return @bitCast(u & ~m);
     }
 }
 

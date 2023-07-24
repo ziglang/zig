@@ -27,14 +27,14 @@ comptime {
 
 pub fn __roundh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(roundf(x)));
+    return @floatCast(roundf(x));
 }
 
 pub fn roundf(x_: f32) callconv(.C) f32 {
     const f32_toint = 1.0 / math.floatEps(f32);
 
     var x = x_;
-    const u = @as(u32, @bitCast(x));
+    const u: u32 = @bitCast(x);
     const e = (u >> 23) & 0xFF;
     var y: f32 = undefined;
 
@@ -69,7 +69,7 @@ pub fn round(x_: f64) callconv(.C) f64 {
     const f64_toint = 1.0 / math.floatEps(f64);
 
     var x = x_;
-    const u = @as(u64, @bitCast(x));
+    const u: u64 = @bitCast(x);
     const e = (u >> 52) & 0x7FF;
     var y: f64 = undefined;
 
@@ -102,14 +102,14 @@ pub fn round(x_: f64) callconv(.C) f64 {
 
 pub fn __roundx(x: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(roundq(x)));
+    return @floatCast(roundq(x));
 }
 
 pub fn roundq(x_: f128) callconv(.C) f128 {
     const f128_toint = 1.0 / math.floatEps(f128);
 
     var x = x_;
-    const u = @as(u128, @bitCast(x));
+    const u: u128 = @bitCast(x);
     const e = (u >> 112) & 0x7FFF;
     var y: f128 = undefined;
 

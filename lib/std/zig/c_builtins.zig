@@ -206,8 +206,8 @@ pub inline fn __builtin_expect(expr: c_long, c: c_long) c_long {
 /// If tagp is empty, the function returns a NaN whose significand is zero.
 pub inline fn __builtin_nanf(tagp: []const u8) f32 {
     const parsed = std.fmt.parseUnsigned(c_ulong, tagp, 0) catch 0;
-    const bits = @as(u23, @truncate(parsed)); // single-precision float trailing significand is 23 bits
-    return @as(f32, @bitCast(@as(u32, bits) | std.math.qnan_u32));
+    const bits: u23 = @truncate(parsed); // single-precision float trailing significand is 23 bits
+    return @bitCast(@as(u32, bits) | std.math.qnan_u32);
 }
 
 pub inline fn __builtin_huge_valf() f32 {

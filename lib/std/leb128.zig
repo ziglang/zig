@@ -10,8 +10,8 @@ pub fn readULEB128(comptime T: type, reader: anytype) !T {
 
     const max_group = (@typeInfo(U).Int.bits + 6) / 7;
 
-    var value = @as(U, 0);
-    var group = @as(ShiftT, 0);
+    var value: U = 0;
+    var group: ShiftT = 0;
 
     while (group < max_group) : (group += 1) {
         const byte = try reader.readByte();
@@ -37,10 +37,10 @@ pub fn readULEB128(comptime T: type, reader: anytype) !T {
 pub fn writeULEB128(writer: anytype, uint_value: anytype) !void {
     const T = @TypeOf(uint_value);
     const U = if (@typeInfo(T).Int.bits < 8) u8 else T;
-    var value = @as(U, @intCast(uint_value));
+    var value: U = @intCast(uint_value);
 
     while (true) {
-        const byte = @as(u8, @truncate(value & 0x7f));
+        const byte: u8 = @truncate(value & 0x7f);
         value >>= 7;
         if (value == 0) {
             try writer.writeByte(byte);
@@ -115,11 +115,11 @@ pub fn writeILEB128(writer: anytype, int_value: anytype) !void {
     const S = if (@typeInfo(T).Int.bits < 8) i8 else T;
     const U = std.meta.Int(.unsigned, @typeInfo(S).Int.bits);
 
-    var value = @as(S, @intCast(int_value));
+    var value: S = @intCast(int_value);
 
     while (true) {
-        const uvalue = @as(U, @bitCast(value));
-        const byte = @as(u8, @truncate(uvalue));
+        const uvalue: U = @bitCast(value);
+        const byte: u8 = @truncate(uvalue);
         value >>= 6;
         if (value == -1 or value == 0) {
             try writer.writeByte(byte & 0x7F);
@@ -141,7 +141,7 @@ pub fn writeILEB128(writer: anytype, int_value: anytype) !void {
 pub fn writeUnsignedFixed(comptime l: usize, ptr: *[l]u8, int: std.meta.Int(.unsigned, l * 7)) void {
     const T = @TypeOf(int);
     const U = if (@typeInfo(T).Int.bits < 8) u8 else T;
-    var value = @as(U, @intCast(int));
+    var value: U = @intCast(int);
 
     comptime var i = 0;
     inline while (i < (l - 1)) : (i += 1) {

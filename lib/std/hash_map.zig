@@ -899,7 +899,7 @@ pub fn HashMapUnmanaged(
         }
 
         fn capacityForSize(size: Size) Size {
-            var new_cap = @as(u32, @truncate((@as(u64, size) * 100) / max_load_percentage + 1));
+            var new_cap: u32 = @truncate((@as(u64, size) * 100) / max_load_percentage + 1);
             new_cap = math.ceilPowerOfTwo(u32, new_cap) catch unreachable;
             return new_cap;
         }
@@ -1480,7 +1480,7 @@ pub fn HashMapUnmanaged(
             const new_cap = capacityForSize(self.size);
             try other.allocate(allocator, new_cap);
             other.initMetadatas();
-            other.available = @as(u32, @truncate((new_cap * max_load_percentage) / 100));
+            other.available = @truncate((new_cap * max_load_percentage) / 100);
 
             var i: Size = 0;
             var metadata = self.metadata.?;
@@ -1515,7 +1515,7 @@ pub fn HashMapUnmanaged(
             defer map.deinit(allocator);
             try map.allocate(allocator, new_cap);
             map.initMetadatas();
-            map.available = @as(u32, @truncate((new_cap * max_load_percentage) / 100));
+            map.available = @truncate((new_cap * max_load_percentage) / 100);
 
             if (self.size != 0) {
                 const old_capacity = self.capacity();

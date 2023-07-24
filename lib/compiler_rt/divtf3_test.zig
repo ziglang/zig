@@ -5,9 +5,9 @@ const testing = std.testing;
 const __divtf3 = @import("divtf3.zig").__divtf3;
 
 fn compareResultLD(result: f128, expectedHi: u64, expectedLo: u64) bool {
-    const rep = @as(u128, @bitCast(result));
-    const hi = @as(u64, @truncate(rep >> 64));
-    const lo = @as(u64, @truncate(rep));
+    const rep: u128 = @bitCast(result);
+    const hi: u64 = @truncate(rep >> 64);
+    const lo: u64 = @truncate(rep);
 
     if (hi == expectedHi and lo == expectedLo) {
         return true;

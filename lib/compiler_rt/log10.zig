@@ -82,11 +82,11 @@ pub fn log10f(x_: f32) callconv(.C) f32 {
     const hfsq = 0.5 * f * f;
 
     var hi = f - hfsq;
-    u = @as(u32, @bitCast(hi));
+    u = @bitCast(hi);
     u &= 0xFFFFF000;
-    hi = @as(f32, @bitCast(u));
+    hi = @bitCast(u);
     const lo = f - hi - hfsq + s * (hfsq + R);
-    const dk = @as(f32, @floatFromInt(k));
+    const dk: f32 = @floatFromInt(k);
 
     return dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi + hi * ivln10hi + dk * log10_2hi;
 }
@@ -105,8 +105,8 @@ pub fn log10(x_: f64) callconv(.C) f64 {
     const Lg7: f64 = 1.479819860511658591e-01;
 
     var x = x_;
-    var ix = @as(u64, @bitCast(x));
-    var hx = @as(u32, @intCast(ix >> 32));
+    var ix: u64 = @bitCast(x);
+    var hx: u32 = @intCast(ix >> 32);
     var k: i32 = 0;
 
     if (hx < 0x00100000 or hx >> 31 != 0) {
@@ -122,7 +122,7 @@ pub fn log10(x_: f64) callconv(.C) f64 {
         // subnormal, scale x
         k -= 54;
         x *= 0x1.0p54;
-        hx = @as(u32, @intCast(@as(u64, @bitCast(x)) >> 32));
+        hx = @intCast(@as(u64, @bitCast(x)) >> 32);
     } else if (hx >= 0x7FF00000) {
         return x;
     } else if (hx == 0x3FF00000 and ix << 32 == 0) {
@@ -134,7 +134,7 @@ pub fn log10(x_: f64) callconv(.C) f64 {
     k += @as(i32, @intCast(hx >> 20)) - 0x3FF;
     hx = (hx & 0x000FFFFF) + 0x3FE6A09E;
     ix = (@as(u64, hx) << 32) | (ix & 0xFFFFFFFF);
-    x = @as(f64, @bitCast(ix));
+    x = @bitCast(ix);
 
     const f = x - 1.0;
     const hfsq = 0.5 * f * f;
@@ -147,14 +147,14 @@ pub fn log10(x_: f64) callconv(.C) f64 {
 
     // hi + lo = f - hfsq + s * (hfsq + R) ~ log(1 + f)
     var hi = f - hfsq;
-    var hii = @as(u64, @bitCast(hi));
+    var hii: u64 = @bitCast(hi);
     hii &= @as(u64, maxInt(u64)) << 32;
-    hi = @as(f64, @bitCast(hii));
+    hi = @bitCast(hii);
     const lo = f - hi - hfsq + s * (hfsq + R);
 
     // val_hi + val_lo ~ log10(1 + f) + k * log10(2)
     var val_hi = hi * ivln10hi;
-    const dk = @as(f64, @floatFromInt(k));
+    const dk: f64 = @floatFromInt(k);
     const y = dk * log10_2hi;
     var val_lo = dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi;
 

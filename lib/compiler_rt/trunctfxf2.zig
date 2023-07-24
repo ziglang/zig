@@ -44,7 +44,7 @@ pub fn __trunctfxf2(a: f128) callconv(.C) f80 {
         // destination format.  We can convert by simply right-shifting with
         // rounding, adding the explicit integer bit, and adjusting the exponent
         res.fraction = @as(u64, @truncate(a_abs >> (src_sig_bits - dst_sig_bits))) | integer_bit;
-        res.exp = @as(u16, @truncate(a_abs >> src_sig_bits));
+        res.exp = @truncate(a_abs >> src_sig_bits);
 
         const round_bits = a_abs & round_mask;
         if (round_bits > halfway) {

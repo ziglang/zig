@@ -21,8 +21,8 @@ comptime {
 }
 
 pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {
-    var ua = @as(u32, @bitCast(a));
-    var ub = @as(u32, @bitCast(b));
+    var ua: u32 = @bitCast(a);
+    var ub: u32 = @bitCast(b);
     var r: u32 = 0;
 
     while (ua > 0) {
@@ -31,7 +31,7 @@ pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {
         ub <<= 1;
     }
 
-    return @as(i32, @bitCast(r));
+    return @bitCast(r);
 }
 
 pub fn __muldi3(a: i64, b: i64) callconv(.C) i64 {
@@ -93,7 +93,7 @@ pub fn __multi3(a: i128, b: i128) callconv(.C) i128 {
 const v2u64 = @Vector(2, u64);
 
 fn __multi3_windows_x86_64(a: v2u64, b: v2u64) callconv(.C) v2u64 {
-    return @as(v2u64, @bitCast(mulX(i128, @as(i128, @bitCast(a)), @as(i128, @bitCast(b)))));
+    return @bitCast(mulX(i128, @as(i128, @bitCast(a)), @as(i128, @bitCast(b))));
 }
 
 test {

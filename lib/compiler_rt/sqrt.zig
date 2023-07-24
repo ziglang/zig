@@ -125,7 +125,7 @@ pub fn sqrt(x: f64) callconv(.C) f64 {
     }
 
     // normalize x
-    var m = @as(i32, @intCast(ix0 >> 20));
+    var m: i32 = @intCast(ix0 >> 20);
     if (m == 0) {
         // subnormal
         while (ix0 == 0) {
