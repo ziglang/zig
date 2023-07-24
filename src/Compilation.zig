@@ -1053,6 +1053,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                     buf.appendSliceAssumeCapacity(",");
                 }
             }
+            if (buf.items.len == 0) break :blk "";
             assert(mem.endsWith(u8, buf.items, ","));
             buf.items[buf.items.len - 1] = 0;
             buf.shrinkAndFree(buf.items.len);

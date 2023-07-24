@@ -76,6 +76,7 @@ pub const Case = struct {
     output_mode: std.builtin.OutputMode,
     optimize_mode: std.builtin.Mode = .Debug,
     updates: std.ArrayList(Update),
+    emit_bin: bool = true,
     emit_h: bool = false,
     is_test: bool = false,
     expect_exact: bool = false,
@@ -172,6 +173,19 @@ pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target: CrossTarget) *Cas
         .output_mode = .Exe,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
         .link_libc = true,
+    }) catch @panic("out of memory");
+    return &ctx.cases.items[ctx.cases.items.len - 1];
+}
+
+pub fn noEmitUsingLlvmBackend(ctx: *Cases, name: []const u8, target: CrossTarget) *Case {
+    ctx.cases.append(Case{
+        .name = name,
+        .target = target,
+        .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+        .output_mode = .Obj,
+        .emit_bin = false,
+        .deps = std.ArrayList(DepModule).init(ctx.arena),
+        .backend = .llvm,
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
@@ -536,6 +550,8 @@ pub fn lowerToBuildSteps(
                 .optimize = case.optimize_mode,
             }),
         };
+
+        artifact.emit_bin = if (case.emit_bin) .default else .no_emit;
 
         if (case.link_libc) artifact.linkLibC();
 

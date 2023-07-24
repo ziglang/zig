@@ -1997,7 +1997,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(resolved_args_file);
     }
 
-    const output_bin_path = step.evalZigProcess(zig_args.items, prog_node) catch |err| switch (err) {
+    const maybe_output_bin_path = step.evalZigProcess(zig_args.items, prog_node) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(self.expect_errors.len != 0);
             try checkCompileErrors(self);
@@ -2005,10 +2005,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         },
         else => |e| return e,
     };
-    const output_dir = fs.path.dirname(output_bin_path).?;
 
     // Update generated files
-    {
+    if (maybe_output_bin_path) |output_bin_path| {
+        const output_dir = fs.path.dirname(output_bin_path).?;
+
         self.output_dirname_source.path = output_dir;
 
         self.output_path_source.path = b.pathJoin(
