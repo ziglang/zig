@@ -384,8 +384,6 @@ const usage_build_generic =
     \\  -fno-emit-h               (default) Do not generate a C header file (.h)
     \\  -femit-docs[=path]        Create a docs/ dir with html documentation
     \\  -fno-emit-docs            (default) Do not produce docs/ dir with html documentation
-    \\  -femit-analysis[=path]    Write analysis JSON file with type information
-    \\  -fno-emit-analysis        (default) Do not write analysis JSON file with type information
     \\  -femit-implib[=path]      (default) Produce an import .lib when building a Windows DLL
     \\  -fno-emit-implib          Do not produce an import .lib when building a Windows DLL
     \\  --show-builtin            Output the source of @import("builtin") then exit
@@ -755,7 +753,6 @@ fn buildOutputType(
     var emit_llvm_ir: Emit = .no;
     var emit_llvm_bc: Emit = .no;
     var emit_docs: Emit = .no;
-    var emit_analysis: Emit = .no;
     var emit_implib: Emit = .yes_default_path;
     var emit_implib_arg_provided = false;
     var target_arch_os_abi: []const u8 = "native";
@@ -1336,12 +1333,6 @@ fn buildOutputType(
                         emit_docs = .{ .yes = arg["-femit-docs=".len..] };
                     } else if (mem.eql(u8, arg, "-fno-emit-docs")) {
                         emit_docs = .no;
-                    } else if (mem.eql(u8, arg, "-femit-analysis")) {
-                        emit_analysis = .yes_default_path;
-                    } else if (mem.startsWith(u8, arg, "-femit-analysis=")) {
-                        emit_analysis = .{ .yes = arg["-femit-analysis=".len..] };
-                    } else if (mem.eql(u8, arg, "-fno-emit-analysis")) {
-                        emit_analysis = .no;
                     } else if (mem.eql(u8, arg, "-femit-implib")) {
                         emit_implib = .yes_default_path;
                         emit_implib_arg_provided = true;
@@ -2824,24 +2815,6 @@ fn buildOutputType(
     };
     defer emit_llvm_bc_resolved.deinit();
 
-    const default_analysis_basename = try std.fmt.allocPrint(arena, "{s}-analysis.json", .{root_name});
-    var emit_analysis_resolved = emit_analysis.resolve(default_analysis_basename, output_to_cache) catch |err| {
-        switch (emit_analysis) {
-            .yes => |p| {
-                fatal("unable to open directory from argument '-femit-analysis',  '{s}': {s}", .{
-                    p, @errorName(err),
-                });
-            },
-            .yes_default_path => {
-                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{
-                    default_analysis_basename, @errorName(err),
-                });
-            },
-            .no => unreachable,
-        }
-    };
-    defer emit_analysis_resolved.deinit();
-
     var emit_docs_resolved = emit_docs.resolve("docs", output_to_cache) catch |err| {
         switch (emit_docs) {
             .yes => |p| {
@@ -3096,7 +3069,6 @@ fn buildOutputType(
         .emit_llvm_ir = emit_llvm_ir_resolved.data,
         .emit_llvm_bc = emit_llvm_bc_resolved.data,
         .emit_docs = emit_docs_resolved.data,
-        .emit_analysis = emit_analysis_resolved.data,
         .emit_implib = emit_implib_resolved.data,
         .link_mode = link_mode,
         .dll_export_fns = dll_export_fns,
