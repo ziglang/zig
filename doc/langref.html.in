@@ -10387,7 +10387,26 @@ fn bar(f: *Foo) void {
       {#header_close#}
 
       {#header_open|Out of Bounds Float to Integer Cast#}
-      <p>TODO</p>
+      <p>
+      This happens when casting a float to an integer where the float has a value outside the
+      integer type's range.
+      </p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|test_comptime_out_of_bounds_float_to_integer_cast|float value '4294967296' cannot be stored in integer type 'i32'#}
+comptime {
+	const float: f32 = 4294967296;
+	const int: i32 = @intFromFloat(float);
+	_ = int;
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err|runtime_out_of_bounds_float_to_integer_cast#}
+pub fn main() void {
+	var float: f32 = 4294967296;
+	var int: i32 = @intFromFloat(float);
+	_ = int;
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Pointer Cast Invalid Null#}
