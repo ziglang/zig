@@ -430,7 +430,7 @@ pub const File = struct {
 
     pub fn makeExecutable(base: *File) !void {
         switch (base.options.output_mode) {
-            .Obj => return,
+            .Obj, .Mod => return,
             .Lib => switch (base.options.link_mode) {
                 .Static => return,
                 .Dynamic => {},
@@ -1150,6 +1150,6 @@ pub fn determineMode(options: Options) fs.File.Mode {
             .Static => fs.File.default_mode,
         },
         .Exe => return executable_mode,
-        .Obj => return fs.File.default_mode,
+        .Obj, .Mod => return fs.File.default_mode,
     }
 }

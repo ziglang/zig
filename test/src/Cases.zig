@@ -543,6 +543,12 @@ pub fn lowerToBuildSteps(
                 .target = case.target,
                 .optimize = case.optimize_mode,
             }),
+            .Mod => b.addStaticLibrary(.{
+                .root_source_file = root_source_file,
+                .name = case.name,
+                .target = case.target,
+                .optimize = case.optimize_mode,
+            }),
             .Exe => b.addExecutable(.{
                 .root_source_file = root_source_file,
                 .name = case.name,

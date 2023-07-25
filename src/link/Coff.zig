@@ -1593,7 +1593,7 @@ pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) lin
         return lld.linkWithLLD(self, comp, prog_node);
     }
     switch (self.base.options.output_mode) {
-        .Exe, .Obj => return self.flushModule(comp, prog_node),
+        .Exe, .Mod, .Obj => return self.flushModule(comp, prog_node),
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 }
@@ -2317,6 +2317,7 @@ pub fn getImageBase(self: Coff) u64 {
         },
         .Lib => 0x10000000,
         .Obj => 0,
+        .Mod => 0,
     };
     return image_base;
 }

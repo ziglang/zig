@@ -1017,7 +1017,7 @@ pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link
         return self.linkWithLLD(comp, prog_node);
     }
     switch (self.base.options.output_mode) {
-        .Exe, .Obj => return self.flushModule(comp, prog_node),
+        .Exe, .Mod, .Obj => return self.flushModule(comp, prog_node),
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 }
@@ -2043,6 +2043,7 @@ fn writeElfHeader(self: *Elf) !void {
     const elf_type = switch (self.base.options.effectiveOutputMode()) {
         .Exe => elf.ET.EXEC,
         .Obj => elf.ET.REL,
+        .Mod => unreachable,
         .Lib => switch (self.base.options.link_mode) {
             .Static => elf.ET.REL,
             .Dynamic => elf.ET.DYN,
@@ -3303,6 +3304,7 @@ const CsuObjects = struct {
             static_pie,
         } = switch (link_options.output_mode) {
             .Obj => return CsuObjects{},
+            .Mod => return CsuObjects{},
             .Lib => switch (link_options.link_mode) {
                 .Dynamic => .dynamic_lib,
                 .Static => return CsuObjects{},

@@ -710,11 +710,12 @@ fn addPackageTableToCacheHash(
 
 pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     const is_dyn_lib = switch (options.output_mode) {
-        .Obj, .Exe => false,
+        .Obj, .Mod, .Exe => false,
         .Lib => (options.link_mode orelse .Static) == .Dynamic,
     };
     const is_exe_or_dyn_lib = switch (options.output_mode) {
         .Obj => false,
+        .Mod => false,
         .Lib => is_dyn_lib,
         .Exe => true,
     };
@@ -881,7 +882,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 // See https://reviews.llvm.org/D102582
                 break :blk false;
             } else switch (options.output_mode) {
-                .Lib, .Obj => break :blk false,
+                .Lib, .Mod, .Obj => break :blk false,
                 .Exe => switch (options.optimize_mode) {
                     .Debug => break :blk false,
                     .ReleaseSafe, .ReleaseFast, .ReleaseSmall => break :blk true,
@@ -5046,6 +5047,7 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const
 fn wantBuildLibCFromSource(comp: Compilation) bool {
     const is_exe_or_dyn_lib = switch (comp.bin_file.options.output_mode) {
         .Obj => false,
+        .Mod => false,
         .Lib => comp.bin_file.options.link_mode == .Dynamic,
         .Exe => true,
     };
@@ -5075,6 +5077,7 @@ fn wantBuildMinGWFromSource(comp: Compilation) bool {
 fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
     const is_exe_or_dyn_lib = switch (comp.bin_file.options.output_mode) {
         .Obj => false,
+        .Mod => false,
         .Lib => comp.bin_file.options.link_mode == .Dynamic,
         .Exe => true,
     };
@@ -5558,7 +5561,7 @@ pub fn build_crt_file(
         .want_pie = comp.bin_file.options.pie,
         .want_lto = switch (output_mode) {
             .Lib => comp.bin_file.options.lto,
-            .Obj, .Exe => false,
+            .Obj, .Mod, .Exe => false,
         },
         .emit_h = null,
         .strip = comp.compilerRtStrip(),

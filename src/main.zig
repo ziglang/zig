@@ -312,7 +312,7 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     } else if (mem.eql(u8, cmd, "init-lib")) {
         return cmdInit(gpa, arena, cmd_args, .Lib);
     } else if (mem.eql(u8, cmd, "init-mod")) {
-        return cmdInit(gpa, arena, cmd_args, .Lib);
+        return cmdInit(gpa, arena, cmd_args, .Mod);
     } else if (mem.eql(u8, cmd, "targets")) {
         const info = try detectNativeTargetInfo(.{});
         const stdout = io.getStdOut().writer();
@@ -2836,6 +2836,7 @@ fn buildOutputType(
     const is_exe_or_dyn_lib = switch (output_mode) {
         .Obj => false,
         .Lib => (link_mode orelse .Static) == .Dynamic,
+        .Mod => false,
         .Exe => true,
     };
     // Note that cmake when targeting Windows will try to execute
@@ -4179,6 +4180,7 @@ pub fn cmdInit(
     switch (output_mode) {
         .Lib => std.log.info("Next, try `zig build --help` or `zig build test`", .{}),
         .Exe => std.log.info("Next, try `zig build --help` or `zig build run`", .{}),
+        .Mod => std.log.info("Next, try `zig build --help` or `zig build test`", .{}),
         .Obj => unreachable,
     }
 }

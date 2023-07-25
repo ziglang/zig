@@ -554,6 +554,7 @@ pub fn flush(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) li
 
     switch (self.base.options.effectiveOutputMode()) {
         .Exe => {},
+        .Mod => {},
         // plan9 object files are totally different
         .Obj => return error.TODOImplementPlan9Objs,
         .Lib => return error.TODOImplementWritingLibFiles,

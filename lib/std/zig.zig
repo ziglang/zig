@@ -125,6 +125,7 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
                 };
                 return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, suffix });
             },
+            .Mod => return allocator.dupe(u8, root_name),
             .Obj => return std.fmt.allocPrint(allocator, "{s}.obj", .{root_name}),
         },
         .elf => switch (options.output_mode) {
@@ -147,6 +148,7 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
                     },
                 }
             },
+            .Mod => return allocator.dupe(u8, root_name),
             .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
         },
         .macho => switch (options.output_mode) {
@@ -169,6 +171,7 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
                     },
                 }
             },
+            .Mod => return allocator.dupe(u8, root_name),
             .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
         },
         .wasm => switch (options.output_mode) {
@@ -181,6 +184,7 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
                     .Dynamic => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
                 }
             },
+            .Mod => return allocator.dupe(u8, root_name),
             .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
         },
         .c => return std.fmt.allocPrint(allocator, "{s}.c", .{root_name}),
@@ -195,6 +199,7 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
             .Lib => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
                 target.libPrefix(), root_name,
             }),
+            .Mod => return allocator.dupe(u8, root_name),
         },
         .nvptx => return std.fmt.allocPrint(allocator, "{s}.ptx", .{root_name}),
         .dxcontainer => return std.fmt.allocPrint(allocator, "{s}.dxil", .{root_name}),
