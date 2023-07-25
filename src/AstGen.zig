@@ -4682,13 +4682,11 @@ fn structDeclInner(
     // No defer needed here because it is handled by `wip_members.deinit()` above.
     const bodies_start = astgen.scratch.items.len;
 
-    var is_tuple = false;
     const node_tags = tree.nodes.items(.tag);
-    for (container_decl.ast.members) |member_node| {
+    const is_tuple = for (container_decl.ast.members) |member_node| {
         const container_field = tree.fullContainerField(member_node) orelse continue;
-        is_tuple = container_field.ast.tuple_like;
-        if (is_tuple) break;
-    }
+        if (container_field.ast.tuple_like) break true;
+    } else false;
     if (is_tuple) for (container_decl.ast.members) |member_node| {
         switch (node_tags[member_node]) {
             .container_field_init,
