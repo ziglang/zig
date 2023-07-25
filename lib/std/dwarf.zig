@@ -1638,7 +1638,7 @@ pub const DwarfInfo = struct {
                     }
                 }
 
-                std.mem.sort(FrameDescriptionEntry, di.fde_list.items, {}, struct {
+                std.mem.sortUnstable(FrameDescriptionEntry, di.fde_list.items, {}, struct {
                     fn lessThan(ctx: void, a: FrameDescriptionEntry, b: FrameDescriptionEntry) bool {
                         _ = ctx;
                         return a.pc_begin < b.pc_begin;
