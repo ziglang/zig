@@ -963,7 +963,7 @@
                   case-sensitive.</li>
                 <li>Given <code>ArrayListUnmanaged</code>:
                   <ul>
-                    <li>the following words will match:
+                    <li>the following words (and their prefixes) will match:
                       <ul>
                         <li><code>array</code></li>
                         <li><code>list</code></li>
@@ -979,7 +979,7 @@
                     </li>
                   </ul>
                 </li>
-                <li>More precisely the search system is based on a Radix Tree. The Radix Tree contains full decl names plus some suffixes, split by following the official style guide (e.g. <code>HashMapUnmanaged</code> also produces <code>MapUnmanaged</code> and <code>Unmanaged</code>, same with snake_case and camelCase names). </li>
+                <li>More precisely, the search system is based on a Radix Tree. The Radix Tree contains full decl names plus some suffixes, split by following the official style guide (e.g. <code>HashMapUnmanaged</code> also produces <code>MapUnmanaged</code> and <code>Unmanaged</code>, same with snake_case and camelCase names). </li>
               </ul> 
 
               <h3>Multiple terms</h3>
