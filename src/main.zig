@@ -4433,6 +4433,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             try wip_errors.init(gpa);
             defer wip_errors.deinit();
 
+            var progress: std.Progress = .{};
+            const root_prog_node = progress.start("Fetch Packages", 0);
+            defer root_prog_node.end();
+
             // Here we borrow main package's table and will replace it with a fresh
             // one after this process completes.
             const fetch_result = build_pkg.fetchAndAddDependencies(
@@ -4448,6 +4452,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 "",
                 &wip_errors,
                 &all_modules,
+                root_prog_node,
             );
             if (wip_errors.root_list.items.len > 0) {
                 var errors = try wip_errors.toOwnedBundle("");
