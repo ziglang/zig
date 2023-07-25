@@ -402,7 +402,7 @@ test "comptime stringify" {
     }, .{}, 8) catch unreachable;
 }
 
-test "writePreformatted" {
+test "print" {
     var out_buf: [1024]u8 = undefined;
     var slice_stream = std.io.fixedBufferStream(&out_buf);
     const out = slice_stream.writer();
@@ -412,11 +412,11 @@ test "writePreformatted" {
 
     try w.beginObject();
     try w.objectField("a");
-    try w.writePreformatted("[  ]");
+    try w.print("[  ]", .{});
     try w.objectField("b");
     try w.beginArray();
-    try w.writePreformatted("[[]] ");
-    try w.writePreformatted("  {}");
+    try w.print("[{s}] ", .{"[]"});
+    try w.print("  {}", .{12345});
     try w.endArray();
     try w.endObject();
 
@@ -426,7 +426,7 @@ test "writePreformatted" {
         \\  "a": [  ],
         \\  "b": [
         \\    [[]] ,
-        \\      {}
+        \\      12345
         \\  ]
         \\}
     ;

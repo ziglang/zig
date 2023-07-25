@@ -152,7 +152,7 @@ pub fn writeStreamArbitraryDepth(
 ///    | <object>
 ///    | <array>
 ///    | write
-///    | writePreformatted
+///    | print
 ///  <object> = beginObject ( objectField <value> )* endObject
 ///  <array> = beginArray ( <value> )* endArray
 /// ```
@@ -378,13 +378,14 @@ pub fn WriteStream(
             return self.indent_level == 0 and self.next_punctuation == .comma;
         }
 
-        /// An alternative to calling `write` that outputs the given bytes verbatim.
+        /// An alternative to calling `write` that formats a value with `std.fmt`.
         /// This function does the usual punctuation and indentation formatting
-        /// assuming the given slice represents a single complete value;
+        /// assuming the resulting formatted string represents a single complete value;
         /// e.g. `"1"`, `"[]"`, `"[1,2]"`, not `"1,2"`.
-        pub fn writePreformatted(self: *Self, value_slice: []const u8) Error!void {
+        /// This function may be useful for doing your own number formatting.
+        pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) Error!void {
             try self.valueStart();
-            try self.stream.writeAll(value_slice);
+            try self.stream.print(fmt, args);
             self.valueDone();
         }
 
@@ -584,6 +585,7 @@ pub fn WriteStream(
         pub const emitNumber = @compileError("Deprecated; Use .write() instead.");
         pub const emitString = @compileError("Deprecated; Use .write() instead.");
         pub const emitJson = @compileError("Deprecated; Use .write() instead.");
+        pub const writePreformatted = @compileError("Deprecated; Use .print(\"{s}\", .{s}) instead.");
     };
 }
 
