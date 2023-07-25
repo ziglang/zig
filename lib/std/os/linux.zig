@@ -1268,7 +1268,7 @@ pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
 }
 
 pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
-    if (@typeInfo(usize).Int.bits > @typeInfo(@TypeOf(mmsghdr(undefined).msg_len)).Int.bits) {
+    if (@typeInfo(usize).Int.bits > @typeInfo(@typeInfo(mmsghdr).Struct.fields[1].type).Int.bits) {
         // workaround kernel brokenness:
         // if adding up all iov_len overflows a i32 then split into multiple calls
         // see https://www.openwall.com/lists/musl/2014/06/07/5

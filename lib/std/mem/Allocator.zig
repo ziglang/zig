@@ -110,6 +110,7 @@ pub fn create(self: Allocator, comptime T: type) Error!*T {
 /// have the same address and alignment property.
 pub fn destroy(self: Allocator, ptr: anytype) void {
     const info = @typeInfo(@TypeOf(ptr)).Pointer;
+    if (info.size != .One) @compileError("ptr must be a single item pointer");
     const T = info.child;
     if (@sizeOf(T) == 0) return;
     const non_const_ptr = @as([*]u8, @ptrCast(@constCast(ptr)));
