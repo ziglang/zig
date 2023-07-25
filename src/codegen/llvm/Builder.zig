@@ -1159,7 +1159,6 @@ pub const Attribute = union(Kind) {
                     var any = false;
                     var remaining: Int = @bitCast(fpclass);
                     inline for (@typeInfo(FpClass).Struct.decls) |decl| {
-                        if (!decl.is_pub) continue;
                         const pattern: Int = @bitCast(@field(FpClass, decl.name));
                         if (remaining & pattern == pattern) {
                             if (!any) {

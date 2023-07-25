@@ -959,7 +959,7 @@ test "debug variable type resolved through indirect zero-bit types" {
 test "const local with comptime init through array init" {
     const E1 = enum {
         A,
-        fn a() void {}
+        pub fn a() void {}
     };
 
     const S = struct {
