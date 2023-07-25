@@ -17526,7 +17526,7 @@ fn typeInfoNamespaceDecls(
             try sema.typeInfoNamespaceDecls(block, new_ns, declaration_ty, decl_vals, seen_namespaces);
             continue;
         }
-        if (decl.kind != .named) continue;
+        if (decl.kind != .named or !decl.is_pub) continue;
         const name_val = v: {
             var anon_decl = try block.startAnonDecl();
             defer anon_decl.deinit();
@@ -17554,8 +17554,6 @@ fn typeInfoNamespaceDecls(
         const fields = .{
             //name: []const u8,
             name_val,
-            //is_pub: bool,
-            Value.makeBool(decl.is_pub).toIntern(),
         };
         try decl_vals.append(try mod.intern(.{ .aggregate = .{
             .ty = declaration_ty.toIntern(),

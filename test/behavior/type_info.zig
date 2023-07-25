@@ -321,8 +321,7 @@ fn testPackedStruct() !void {
     try expect(struct_info.Struct.fields[2].default_value == null);
     try expect(@as(*align(1) const u32, @ptrCast(struct_info.Struct.fields[3].default_value.?)).* == 4);
     try expect(struct_info.Struct.fields[3].alignment == 0);
-    try expect(struct_info.Struct.decls.len == 2);
-    try expect(struct_info.Struct.decls[0].is_pub);
+    try expect(struct_info.Struct.decls.len == 1);
 }
 
 const TestPackedStruct = packed struct {
@@ -344,8 +343,8 @@ test "type info: opaque info" {
 
 fn testOpaque() !void {
     const Foo = opaque {
-        const A = 1;
-        fn b() void {}
+        pub const A = 1;
+        pub fn b() void {}
     };
 
     const foo_info = @typeInfo(Foo);
@@ -514,11 +513,11 @@ test "Declarations are returned in declaration order" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
-        const a = 1;
-        const b = 2;
-        const c = 3;
-        const d = 4;
-        const e = 5;
+        pub const a = 1;
+        pub const b = 2;
+        pub const c = 3;
+        pub const d = 4;
+        pub const e = 5;
     };
     const d = @typeInfo(S).Struct.decls;
     try expect(std.mem.eql(u8, d[0].name, "a"));
@@ -553,7 +552,7 @@ test "typeInfo resolves usingnamespace declarations" {
     };
 
     const B = struct {
-        const f0 = 42;
+        pub const f0 = 42;
         usingnamespace A;
     };
 
@@ -574,14 +573,14 @@ test "@typeInfo decls and usingnamespace" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = struct {
-        const x = 5;
-        const y = 34;
+        pub const x = 5;
+        pub const y = 34;
 
         comptime {}
     };
     const B = struct {
         usingnamespace A;
-        const z = 56;
+        pub const z = 56;
 
         test {}
     };
@@ -594,7 +593,7 @@ test "@typeInfo decls and usingnamespace" {
 
 test "@typeInfo decls ignore dependency loops" {
     const S = struct {
-        fn Def(comptime T: type) type {
+        pub fn Def(comptime T: type) type {
             std.debug.assert(@typeInfo(T).Struct.decls.len == 1);
             return struct {
                 const foo = u32;

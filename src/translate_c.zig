@@ -408,13 +408,11 @@ pub fn translate(
     }
 
     inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
-        if (decl.is_pub) {
-            const builtin = try Tag.pub_var_simple.create(arena, .{
-                .name = decl.name,
-                .init = try Tag.import_c_builtin.create(arena, decl.name),
-            });
-            try addTopLevelDecl(&context, decl.name, builtin);
-        }
+        const builtin = try Tag.pub_var_simple.create(arena, .{
+            .name = decl.name,
+            .init = try Tag.import_c_builtin.create(arena, decl.name),
+        });
+        try addTopLevelDecl(&context, decl.name, builtin);
     }
 
     try prepopulateGlobalNameTable(ast_unit, &context);
@@ -2120,7 +2118,6 @@ fn transImplicitCastExpr(
 
 fn isBuiltinDefined(name: []const u8) bool {
     inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
-        if (!decl.is_pub) continue;
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
