@@ -1940,7 +1940,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             addr_table: std.StringHashMap(u64),
         };
 
-        fn deinit(self: *@This(), allocator: mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             var it = self.ofiles.iterator();
             while (it.next()) |entry| {
                 const ofile = entry.value_ptr;
@@ -2139,7 +2139,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         /// Only used if debug_data is .pdb
         coff_section_headers: []coff.SectionHeader,
 
-        fn deinit(self: *@This(), allocator: mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             self.debug_data.deinit(allocator);
             if (self.debug_data == .pdb) {
                 allocator.free(self.coff_section_headers);
@@ -2212,7 +2212,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         mapped_memory: []align(mem.page_size) const u8,
         external_mapped_memory: ?[]align(mem.page_size) const u8,
 
-        fn deinit(self: *@This(), allocator: mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             self.dwarf.deinit(allocator);
             os.munmap(self.mapped_memory);
             if (self.external_mapped_memory) |m| os.munmap(m);
@@ -2231,7 +2231,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         }
     },
     .wasi => struct {
-        fn deinit(self: *@This(), allocator: mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = self;
             _ = allocator;
         }
