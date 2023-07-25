@@ -467,6 +467,7 @@ pub const Signedness = enum {
 pub const OutputMode = enum {
     Exe,
     Lib,
+    Mod,
     Obj,
 };
 

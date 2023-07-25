@@ -87,6 +87,7 @@ const normal_usage =
     \\  build            Build project from build.zig
     \\  init-exe         Initialize a `zig build` application in the cwd
     \\  init-lib         Initialize a `zig build` library in the cwd
+    \\  init-mod         Initialize a `zig build` module in the cwd
     \\
     \\  ast-check        Look for simple compile errors in any set of files
     \\  build-exe        Create executable from source or object files
@@ -309,6 +310,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     } else if (mem.eql(u8, cmd, "init-exe")) {
         return cmdInit(gpa, arena, cmd_args, .Exe);
     } else if (mem.eql(u8, cmd, "init-lib")) {
+        return cmdInit(gpa, arena, cmd_args, .Lib);
+    } else if (mem.eql(u8, cmd, "init-mod")) {
         return cmdInit(gpa, arena, cmd_args, .Lib);
     } else if (mem.eql(u8, cmd, "targets")) {
         const info = try detectNativeTargetInfo(.{});
@@ -4126,6 +4129,7 @@ pub fn cmdInit(
         .Obj => unreachable,
         .Lib => "init-lib",
         .Exe => "init-exe",
+        .Mod => "init-mod",
     };
     var template_dir = zig_lib_directory.handle.openDir(template_sub_path, .{}) catch |err| {
         const path = zig_lib_directory.path orelse ".";
