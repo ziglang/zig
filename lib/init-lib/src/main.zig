@@ -1,7 +1,10 @@
 const std = @import("std");
 const testing = std.testing;
 
-export fn add(a: i32, b: i32) i32 {
+// The pub keyword signals that this function is exported for use in zig files.
+// The export keyword signals that this function can be used by C. (Here, as a
+// static library)
+pub export fn add(a: i32, b: i32) i32 {
     return a + b;
 }
 
