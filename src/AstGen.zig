@@ -4687,6 +4687,13 @@ fn structDeclInner(
         const container_field = tree.fullContainerField(member_node) orelse continue;
         if (container_field.ast.tuple_like) break true;
     } else false;
+
+    if (is_tuple) switch (layout) {
+        .Auto => {},
+        .Extern => return astgen.failNode(node, "extern tuples are not supported", .{}),
+        .Packed => return astgen.failNode(node, "packed tuples are not supported", .{}),
+    };
+
     if (is_tuple) for (container_decl.ast.members) |member_node| {
         switch (node_tags[member_node]) {
             .container_field_init,

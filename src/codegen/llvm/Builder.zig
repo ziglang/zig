@@ -4165,8 +4165,8 @@ pub const WipFunction = struct {
             @memcpy(extra.trail.nextMut(incoming_len, Block.Index, wip), blocks);
             if (wip.builder.useLibLlvm()) {
                 const ExpectedContents = extern struct {
-                    [expected_incoming_len]*llvm.Value,
-                    [expected_incoming_len]*llvm.BasicBlock,
+                    values: [expected_incoming_len]*llvm.Value,
+                    blocks: [expected_incoming_len]*llvm.BasicBlock,
                 };
                 var stack align(@alignOf(ExpectedContents)) =
                     std.heap.stackFallback(@sizeOf(ExpectedContents), wip.builder.gpa);

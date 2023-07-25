@@ -20393,6 +20393,12 @@ fn reifyStruct(
     const gpa = sema.gpa;
     const ip = &mod.intern_pool;
 
+    if (is_tuple) switch (layout) {
+        .Extern => return sema.fail(block, src, "extern tuples are not supported", .{}),
+        .Packed => return sema.fail(block, src, "packed tuples are not supported", .{}),
+        .Auto => {},
+    };
+
     // Because these three things each reference each other, `undefined`
     // placeholders are used before being set after the struct type gains an
     // InternPool index.
