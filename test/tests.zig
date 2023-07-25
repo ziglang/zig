@@ -692,6 +692,30 @@ pub fn addCliTests(b: *std.Build) *Step {
     }
 
     {
+
+        // Test `zig init-mod`.
+        const tmp_path = b.makeTempPath();
+        const init_mod = b.addSystemCommand(&.{ b.zig_exe, "init-mod" });
+        init_mod.cwd = tmp_path;
+        init_mod.setName("zig init-mod");
+        init_mod.expectStdOutEqual("");
+        init_mod.expectStdErrEqual("info: Created build.zig\n" ++
+            "info: Created src" ++ s ++ "main.zig\n" ++
+            "info: Next, try `zig build --help` or `zig build test`\n");
+
+        const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
+        run_test.cwd = tmp_path;
+        run_test.setName("zig build test");
+        run_test.expectStdOutEqual("");
+        run_test.step.dependOn(&init_mod.step);
+
+        const cleanup = b.addRemoveDirTree(tmp_path);
+        cleanup.step.dependOn(&run_test.step);
+
+        step.dependOn(&cleanup.step);
+    }
+
+    {
         // Test `zig init-exe`.
         const tmp_path = b.makeTempPath();
         const init_exe = b.addSystemCommand(&.{ b.zig_exe, "init-exe" });
