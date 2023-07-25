@@ -6487,8 +6487,7 @@ fn forExpr(
 
     {
         var capture_token = for_full.payload_token;
-        for (for_full.ast.inputs, 0..) |input, i_usize| {
-            const i = @as(u32, @intCast(i_usize));
+        for (for_full.ast.inputs, indexables, lens) |input, *indexable_ref, *len_ref| {
             const capture_is_ref = token_tags[capture_token] == .asterisk;
             const ident_tok = capture_token + @intFromBool(capture_is_ref);
             const is_discard = mem.eql(u8, tree.tokenSlice(ident_tok), "_");
@@ -6527,14 +6526,14 @@ fn forExpr(
                     });
 
                 any_len_checks = any_len_checks or range_len != .none;
-                indexables[i] = if (start_is_zero) .none else start_val;
-                lens[i] = range_len;
+                indexable_ref.* = if (start_is_zero) .none else start_val;
+                len_ref.* = range_len;
             } else {
                 const indexable = try expr(parent_gz, scope, .{ .rl = .none }, input);
 
                 any_len_checks = true;
-                indexables[i] = indexable;
-                lens[i] = indexable;
+                indexable_ref.* = indexable;
+                len_ref.* = indexable;
             }
         }
     }
@@ -6546,7 +6545,7 @@ fn forExpr(
     // We use a dedicated ZIR instruction to assert the lengths to assist with
     // nicer error reporting as well as fewer ZIR bytes emitted.
     const len: Zir.Inst.Ref = len: {
-        const lens_len = @as(u32, @intCast(lens.len));
+        const lens_len: u32 = @intCast(lens.len);
         try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.MultiOp).Struct.fields.len + lens_len);
         const len = try parent_gz.addPlNode(.for_len, node, Zir.Inst.MultiOp{
             .operands_len = lens_len,
@@ -6565,7 +6564,10 @@ fn forExpr(
     defer loop_scope.unstack();
     defer loop_scope.labeled_breaks.deinit(gpa);
 
+    // We need to finish loop_scope later once we have the deferred refs from then_scope. However, the
+    // load must be removed from instructions in the meantime or it appears to be part of parent_gz.
     const index = try loop_scope.addUnNode(.load, index_ptr, node);
+    _ = loop_scope.instructions.pop();
 
     var cond_scope = parent_gz.makeSubBlock(&loop_scope.base);
     defer cond_scope.unstack();
@@ -6581,26 +6583,14 @@ fn forExpr(
     const block_tag: Zir.Inst.Tag = if (is_inline) .block_inline else .block;
     const cond_block = try loop_scope.makeBlockInst(block_tag, node);
     try cond_scope.setBlockBody(cond_block);
-    // cond_block unstacked now, can add new instructions to loop_scope
-    try loop_scope.instructions.append(gpa, cond_block);
 
-    // Increment the index variable.
-    const index_plus_one = try loop_scope.addPlNode(.add_unsafe, node, Zir.Inst.Bin{
-        .lhs = index,
-        .rhs = .one_usize,
-    });
-    _ = try loop_scope.addBin(.store, index_ptr, index_plus_one);
-    const repeat_tag: Zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
-    _ = try loop_scope.addNode(repeat_tag, node);
-
-    try loop_scope.setBlockBody(loop_block);
     loop_scope.break_block = loop_block;
     loop_scope.continue_block = cond_block;
     if (for_full.label_token) |label_token| {
-        loop_scope.label = @as(?GenZir.Label, GenZir.Label{
+        loop_scope.label = .{
             .token = label_token,
             .block_inst = loop_block,
-        });
+        };
     }
 
     var then_node = for_full.ast.then_expr;
@@ -6615,8 +6605,7 @@ fn forExpr(
     const then_sub_scope = blk: {
         var capture_token = for_full.payload_token;
         var capture_sub_scope: *Scope = &then_scope.base;
-        for (for_full.ast.inputs, 0..) |input, i_usize| {
-            const i = @as(u32, @intCast(i_usize));
+        for (for_full.ast.inputs, indexables, capture_scopes) |input, indexable_ref, *capture_scope| {
             const capture_is_ref = token_tags[capture_token] == .asterisk;
             const ident_tok = capture_token + @intFromBool(capture_is_ref);
             const capture_name = tree.tokenSlice(ident_tok);
@@ -6631,7 +6620,7 @@ fn forExpr(
             const capture_inst = inst: {
                 const is_counter = node_tags[input] == .for_range;
 
-                if (indexables[i] == .none) {
+                if (indexable_ref == .none) {
                     // Special case: the main index can be used directly.
                     assert(is_counter);
                     assert(!capture_is_ref);
@@ -6650,12 +6639,12 @@ fn forExpr(
                     0b11 => unreachable, // compile error emitted already
                 };
                 break :inst try then_scope.addPlNode(tag, input, Zir.Inst.Bin{
-                    .lhs = indexables[i],
+                    .lhs = indexable_ref,
                     .rhs = index,
                 });
             };
 
-            capture_scopes[i] = .{
+            capture_scope.* = .{
                 .parent = capture_sub_scope,
                 .gen_zir = &then_scope,
                 .name = name_str_index,
@@ -6665,7 +6654,7 @@ fn forExpr(
             };
 
             try then_scope.addDbgVar(.dbg_var_val, name_str_index, capture_inst);
-            capture_sub_scope = &capture_scopes[i].base;
+            capture_sub_scope = &capture_scope.base;
         }
 
         break :blk capture_sub_scope;
@@ -6730,6 +6719,24 @@ fn forExpr(
         cond_block,
         break_tag,
     );
+
+    // then_block and else_block unstacked now, can resurrect loop_scope to finally finish it
+    {
+        loop_scope.instructions_top = loop_scope.instructions.items.len;
+        try loop_scope.instructions.appendSlice(gpa, &.{ Zir.refToIndex(index).?, cond_block });
+
+        // Increment the index variable.
+        const index_plus_one = try loop_scope.addPlNode(.add_unsafe, node, Zir.Inst.Bin{
+            .lhs = index,
+            .rhs = .one_usize,
+        });
+        _ = try loop_scope.addBin(.store, index_ptr, index_plus_one);
+        const repeat_tag: Zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
+        _ = try loop_scope.addNode(repeat_tag, node);
+
+        try loop_scope.setBlockBody(loop_block);
+    }
+
     if (ri.rl.strategy(&loop_scope).tag == .break_void and loop_scope.break_count == 0) {
         _ = try rvalue(parent_gz, ri, .void_value, node);
     }
