@@ -23,6 +23,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     });
     dylib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     dylib.linkLibC();
+    _ = dylib.getEmittedBin(); // enforce emission
 
     // -dead_strip_dylibs
     // -needed-la

@@ -13,6 +13,7 @@ pub fn build(b: *std.Build) void {
             ) catch unreachable,
         });
         exe.linkLibC();
+        _ = exe.getEmittedBin(); // force emission
         test_step.dependOn(&exe.step);
     }
 }

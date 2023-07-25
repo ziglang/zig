@@ -37,11 +37,12 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile) *InstallArtifact {
                 break :blk InstallDir{ .lib = {} };
             }
         } else null,
-        .h_dir = if (artifact.kind == .lib and artifact.emit_h) .header else null,
+        .h_dir = if (artifact.kind == .lib and artifact.generated_h != null) .header else null,
         .dest_sub_path = null,
     };
     self.step.dependOn(&artifact.step);
 
+    _ = artifact.getEmittedBin(); // force creation
     owner.pushInstalledFile(self.dest_dir, artifact.out_filename);
     if (self.artifact.isDynamicLibrary()) {
         if (artifact.major_only_filename) |name| {
@@ -55,9 +56,11 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile) *InstallArtifact {
         }
     }
     if (self.pdb_dir) |pdb_dir| {
+        _ = artifact.getEmittedPdb(); // force creation
         owner.pushInstalledFile(pdb_dir, artifact.out_pdb_filename);
     }
     if (self.h_dir) |h_dir| {
+        _ = artifact.getEmittedH(); // force creation
         owner.pushInstalledFile(h_dir, artifact.out_h_filename);
     }
     return self;
@@ -66,7 +69,6 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile) *InstallArtifact {
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const self = @fieldParentPtr(InstallArtifact, "step", step);
-    const src_builder = self.artifact.step.owner;
     const dest_builder = step.owner;
 
     const dest_sub_path = if (self.dest_sub_path) |sub_path| sub_path else self.artifact.out_filename;
@@ -76,7 +78,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var all_cached = true;
 
     {
-        const full_src_path = self.artifact.getEmittedBin().getPath(src_builder);
+        const full_src_path = self.artifact.generated_bin.?.path.?;
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_dest_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
                 full_src_path, full_dest_path, @errorName(err),
@@ -93,9 +95,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.artifact.isDynamicLibrary() and
         self.artifact.target.isWindows() and
-        self.artifact.emit_implib != .no_emit)
+        self.artifact.generated_implib != null)
     {
-        const full_src_path = self.artifact.getEmittedImplib().getPath(src_builder);
+        const full_src_path = self.artifact.generated_implib.?.path.?;
         const full_implib_path = dest_builder.getInstallPath(self.dest_dir, self.artifact.out_lib_filename);
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_implib_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
@@ -105,7 +107,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         all_cached = all_cached and p == .fresh;
     }
     if (self.pdb_dir) |pdb_dir| {
-        const full_src_path = self.artifact.getEmittedPdb().getPath(src_builder);
+        const full_src_path = self.artifact.generated_pdb.?.path.?;
         const full_pdb_path = dest_builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_pdb_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
@@ -115,7 +117,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         all_cached = all_cached and p == .fresh;
     }
     if (self.h_dir) |h_dir| {
-        const full_src_path = self.artifact.getEmittedH().getPath(src_builder);
+        const full_src_path = self.artifact.generated_h.?.path.?;
         const full_h_path = dest_builder.getInstallPath(h_dir, self.artifact.out_h_filename);
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_h_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{

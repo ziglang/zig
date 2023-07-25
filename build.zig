@@ -59,7 +59,6 @@ pub fn build(b: *std.Build) !void {
         .target = target,
     });
     autodoc_test.overrideZigLibDir(.{ .path = "lib" });
-    autodoc_test.emit_bin = .no_emit; // https://github.com/ziglang/zig/issues/16351
     const install_std_docs = b.addInstallDirectory(.{
         .source_dir = autodoc_test.getEmittedDocs(),
         .install_dir = .prefix,
@@ -196,10 +195,6 @@ pub fn build(b: *std.Build) !void {
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
     exe.entitlements = entitlements;
-    // TODO -femit-bin/-fno-emit-bin should be inferred by the build system
-    // based on whether or not the exe is run or installed.
-    // https://github.com/ziglang/zig/issues/16351
-    if (no_bin) exe.emit_bin = .no_emit;
 
     exe.build_id = b.option(
         std.Build.Step.Compile.BuildId,

@@ -551,7 +551,10 @@ pub fn lowerToBuildSteps(
             }),
         };
 
-        artifact.emit_bin = if (case.emit_bin) .default else .no_emit;
+        if (case.emit_bin)
+            _ = artifact.getEmittedBin();
+
+        _ = artifact.getEmittedBin(); // TODO(xq): The test cases break if we set all to -fno-emit-X
 
         if (case.link_libc) artifact.linkLibC();
 

@@ -8,6 +8,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "main.zig" },
     });
     test_artifact.addIncludePath(.{ .path = "a_directory" });
+    _ = test_artifact.getEmittedBin(); // enforce emission
 
     test_step.dependOn(&test_artifact.step);
 }

@@ -423,7 +423,10 @@ pub fn evalZigProcess(
         });
     }
 
-    if (s.cast(Compile)) |compile| if (compile.emit_bin == .no_emit) return result;
+    if (s.cast(Compile)) |compile| {
+        if (compile.generated_bin == null) // TODO(xq): How to handle this properly?!
+            return result;
+    }
 
     return result orelse return s.fail(
         "the following command failed to communicate the compilation result:\n{s}",

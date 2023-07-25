@@ -14,5 +14,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    _ = obj.getEmittedBin(); // enforce emission
+
     test_step.dependOn(&obj.step);
 }

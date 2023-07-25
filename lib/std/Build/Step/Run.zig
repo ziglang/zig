@@ -164,6 +164,10 @@ pub fn enableTestRunnerMode(self: *Run) void {
 }
 
 pub fn addArtifactArg(self: *Run, artifact: *Step.Compile) void {
+    // enforce creation of the binary file by invoking getEmittedBin
+    const bin_file = artifact.getEmittedBin();
+    bin_file.addStepDependencies(&self.step);
+
     self.argv.append(Arg{ .artifact = artifact }) catch @panic("OOM");
     self.step.dependOn(&artifact.step);
 }
@@ -456,8 +460,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     self.addPathForDynLibs(artifact);
                 }
-                const file_path = artifact.installed_path orelse
-                    artifact.getEmittedBin().getPath(b);
+                const file_path = artifact.installed_path orelse artifact.generated_bin.?.path.?; // the path is guaranteed to be set
 
                 try argv_list.append(file_path);
 

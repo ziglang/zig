@@ -22,5 +22,7 @@ pub fn build(b: *std.Build) void {
         .source_file = bootloader.getEmittedBin(),
     });
 
+    _ = exe.getEmittedBin(); // enforce emission
+
     test_step.dependOn(&exe.step);
 }

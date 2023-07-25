@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     const test_exe = b.addTest(.{
         .root_source_file = .{ .path = "a/test.zig" },
     });
-    test_exe.setMainPkgPath(.{.path="."});
+    test_exe.setMainPkgPath(.{ .path = "." });
 
     test_step.dependOn(&b.addRunArtifact(test_exe).step);
 }

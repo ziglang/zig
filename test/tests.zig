@@ -588,6 +588,8 @@ pub fn addStandaloneTests(
                 });
                 if (case.link_libc) exe.linkLibC();
 
+                _ = exe.getEmittedBin(); // Force emission
+
                 step.dependOn(&exe.step);
             }
 
