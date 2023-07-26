@@ -1438,6 +1438,7 @@ test {
     _ = Mutex;
     _ = Semaphore;
     _ = Condition;
+    _ = RwLock;
 }
 
 fn testIncrementNotify(value: *usize, event: *ResetEvent) void {
