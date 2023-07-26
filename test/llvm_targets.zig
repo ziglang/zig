@@ -3,6 +3,8 @@ const Cases = @import("src/Cases.zig");
 
 const targets = [_]std.zig.CrossTarget{
     .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .aarch64, .os_tag = .ios, .abi = .none },
+    .{ .cpu_arch = .aarch64, .os_tag = .ios, .abi = .simulator },
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .macos, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .uefi, .abi = .none },
@@ -102,6 +104,14 @@ const targets = [_]std.zig.CrossTarget{
     .{ .cpu_arch = .x86, .os_tag = .windows, .abi = .msvc },
     .{ .cpu_arch = .x86_64, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .x86_64, .os_tag = .freestanding, .abi = .none },
+    .{
+        .cpu_arch = .x86_64,
+        .os_tag = .freestanding,
+        .abi = .none,
+        .cpu_features_add = std.Target.x86.featureSet(&.{.soft_float}),
+        .cpu_features_sub = std.Target.x86.featureSet(&.{ .mmx, .sse, .sse2, .avx, .avx2 }),
+    },
+    .{ .cpu_arch = .x86_64, .os_tag = .ios, .abi = .simulator },
     .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .x86_64, .os_tag = .macos, .abi = .none },
     .{ .cpu_arch = .x86_64, .os_tag = .uefi, .abi = .none },
