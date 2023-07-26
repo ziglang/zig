@@ -417,7 +417,7 @@ pub const FixedBufferAllocator = struct {
     fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
         const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
         _ = ra;
-        const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
+        const ptr_align = if (@inComptime()) 1 else @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
         const adjust_off = mem.alignPointerOffset(self.buffer.ptr + self.end_index, ptr_align) orelse return null;
         const adjusted_index = self.end_index + adjust_off;
         const new_end_index = adjusted_index + n;
@@ -717,6 +717,54 @@ test "Thread safe FixedBufferAllocator" {
     try testAllocatorAligned(fixed_buffer_allocator.threadSafeAllocator());
     try testAllocatorLargeAlignment(fixed_buffer_allocator.threadSafeAllocator());
     try testAllocatorAlignedShrink(fixed_buffer_allocator.threadSafeAllocator());
+}
+
+test "FixedBufferAllocator at comptime" {
+    comptime {
+        var buf: [16]u8 = undefined;
+        var fba = FixedBufferAllocator.init(&buf);
+
+        {
+            var slice = fba.allocator().alloc(u8, 8) catch unreachable;
+            slice[3] = 2;
+            assert(slice[3] == 2);
+            assert(fba.allocator().resize(slice, 16));
+            slice.len = 16;
+            slice[15] = 5;
+            assert(slice[15] == 5);
+            assert(fba.allocator().resize(slice, 4));
+            slice.len = 4;
+            assert(slice[3] == 2);
+            fba.allocator().free(slice);
+        }
+        assert(fba.end_index == 0);
+
+        {
+            var slice = fba.allocator().alloc(u32, 4) catch unreachable;
+            slice[0] = 20;
+            slice[3] = 2;
+            assert(slice[3] == 2);
+            assert(fba.allocator().resize(slice, 1));
+            slice.len = 1;
+            assert(slice[0] == 20);
+            assert(fba.allocator().resize(slice, 0));
+            slice.len = 0;
+            fba.allocator().free(slice);
+        }
+        assert(fba.end_index == 0);
+
+        {
+            const T = extern struct {
+                a: u16,
+                b: u16,
+            };
+            const slice = fba.allocator().alloc(T, 4) catch unreachable;
+            slice[3] = .{ .a = 1, .b = 2 };
+            assert(slice[3].b == 2);
+            fba.allocator().free(slice);
+        }
+        assert(fba.end_index == 0);
+    }
 }
 
 /// This one should not try alignments that exceed what C malloc can handle.
