@@ -309,7 +309,6 @@ pub const ExportSymbol = struct {
 /// This operation may change the layout of the trie by splicing edges in
 /// certain circumstances.
 pub fn put(self: *Trie, allocator: Allocator, symbol: ExportSymbol) !void {
-    try self.createRoot(allocator);
     const node = try self.root.?.put(allocator, symbol.name);
     node.terminal_info = .{
         .vmaddr_offset = symbol.vmaddr_offset,
@@ -362,7 +361,6 @@ const ReadError = error{
 
 /// Parse the trie from a byte stream.
 pub fn read(self: *Trie, allocator: Allocator, reader: anytype) ReadError!usize {
-    try self.createRoot(allocator);
     return self.root.?.read(allocator, reader);
 }
 
@@ -377,6 +375,14 @@ pub fn write(self: Trie, writer: anytype) !u64 {
     return counting_writer.bytes_written;
 }
 
+pub fn init(self: *Trie, allocator: Allocator) !void {
+    assert(self.root == null);
+    const root = try allocator.create(Node);
+    root.* = .{ .base = self };
+    self.root = root;
+    self.node_count += 1;
+}
+
 pub fn deinit(self: *Trie, allocator: Allocator) void {
     if (self.root) |root| {
         root.deinit(allocator);
@@ -385,19 +391,11 @@ pub fn deinit(self: *Trie, allocator: Allocator) void {
     self.ordered_nodes.deinit(allocator);
 }
 
-fn createRoot(self: *Trie, allocator: Allocator) !void {
-    if (self.root == null) {
-        const root = try allocator.create(Node);
-        root.* = .{ .base = self };
-        self.root = root;
-        self.node_count += 1;
-    }
-}
-
 test "Trie node count" {
     var gpa = testing.allocator;
     var trie: Trie = .{};
     defer trie.deinit(gpa);
+    try trie.init(gpa);
 
     try testing.expectEqual(trie.node_count, 0);
     try testing.expect(trie.root == null);
@@ -443,6 +441,7 @@ test "Trie basic" {
     var gpa = testing.allocator;
     var trie: Trie = .{};
     defer trie.deinit(gpa);
+    try trie.init(gpa);
 
     // root --- _st ---> node
     try trie.put(gpa, .{
@@ -508,6 +507,7 @@ test "write Trie to a byte stream" {
     var gpa = testing.allocator;
     var trie: Trie = .{};
     defer trie.deinit(gpa);
+    try trie.init(gpa);
 
     try trie.put(gpa, .{
         .name = "__mh_execute_header",
@@ -566,6 +566,7 @@ test "parse Trie from byte stream" {
     var in_stream = std.io.fixedBufferStream(&in_buffer);
     var trie: Trie = .{};
     defer trie.deinit(gpa);
+    try trie.init(gpa);
     const nread = try trie.read(gpa, in_stream.reader());
 
     try testing.expect(nread == in_buffer.len);
@@ -583,6 +584,7 @@ test "ordering bug" {
     var gpa = testing.allocator;
     var trie: Trie = .{};
     defer trie.deinit(gpa);
+    try trie.init(gpa);
 
     try trie.put(gpa, .{
         .name = "_asStr",

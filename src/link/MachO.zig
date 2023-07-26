@@ -3227,6 +3227,7 @@ fn writeDyldInfoData(self: *MachO) !void {
 
     var trie: Trie = .{};
     defer trie.deinit(gpa);
+    try trie.init(gpa);
     try self.collectExportData(&trie);
 
     const link_seg = self.getLinkeditSegmentPtr();
