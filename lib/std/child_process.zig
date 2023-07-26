@@ -508,6 +508,7 @@ pub const ChildProcess = struct {
                 error.BadPathName => unreachable, // Windows-only
                 error.InvalidHandle => unreachable, // WASI-only
                 error.WouldBlock => unreachable,
+                error.NetworkNotFound => unreachable, // Windows-only
                 else => |e| return e,
             }
         else
@@ -659,6 +660,7 @@ pub const ChildProcess = struct {
                 error.AccessDenied => unreachable, // not possible for "NUL"
                 error.NameTooLong => unreachable, // not possible for "NUL"
                 error.WouldBlock => unreachable, // not possible for "NUL"
+                error.NetworkNotFound => unreachable, // not possible for "NUL"
                 else => |e| return e,
             }
         else
