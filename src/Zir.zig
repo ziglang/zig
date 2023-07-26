@@ -248,6 +248,12 @@ pub const Inst = struct {
         /// Given a pointer type, returns its element type.
         /// Uses the `un_node` field.
         elem_type,
+        /// Given a vector type, returns its element type.
+        /// Resolves the type as a destination type from RLS, i.e. emitting an
+        /// error if it is unknown due to a generic parameter.
+        /// Emits a compile error if the type is not vector.
+        /// Uses the `un_node` field.
+        vector_elem_type,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -1023,6 +1029,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1327,6 +1334,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1557,6 +1565,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type_index = .bin,
                 .elem_type = .un_node,
+                .vector_elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as = .bin,

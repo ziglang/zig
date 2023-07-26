@@ -2565,6 +2565,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .array_type_sentinel,
             .elem_type_index,
             .elem_type,
+            .vector_elem_type,
             .vector_type,
             .indexable_ptr_len,
             .anyframe_type,
@@ -8604,13 +8605,7 @@ fn builtinCall(
 
         .splat => {
             const result_type = try ri.rl.resultType(gz, node, "@splat");
-            const elem_type = try gz.add(.{
-                .tag = .elem_type_index,
-                .data = .{ .bin = .{
-                    .lhs = result_type,
-                    .rhs = @as(Zir.Inst.Ref, @enumFromInt(0)),
-                } },
-            });
+            const elem_type = try gz.addUnNode(.vector_elem_type, result_type, node);
             const scalar = try expr(gz, scope, .{ .rl = .{ .ty = elem_type } }, params[0]);
             const result = try gz.addPlNode(.splat, node, Zir.Inst.Bin{
                 .lhs = result_type,

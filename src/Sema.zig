@@ -1019,6 +1019,7 @@ fn analyzeBodyInner(
             .elem_val_node                => try sema.zirElemValNode(block, inst),
             .elem_type_index              => try sema.zirElemTypeIndex(block, inst),
             .elem_type                    => try sema.zirElemType(block, inst),
+            .vector_elem_type             => try sema.zirVectorElemType(block, inst),
             .enum_literal                 => try sema.zirEnumLiteral(block, inst),
             .int_from_enum                => try sema.zirIntFromEnum(block, inst),
             .enum_from_int                => try sema.zirEnumFromInt(block, inst),
@@ -7726,6 +7727,19 @@ fn zirElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const ptr_ty = try sema.resolveType(block, .unneeded, un_node.operand);
     assert(ptr_ty.zigTypeTag(mod) == .Pointer); // validated by a previous instruction
     return sema.addType(ptr_ty.childType(mod));
+}
+
+fn zirVectorElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const un_node = sema.code.instructions.items(.data)[inst].un_node;
+    const src = un_node.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_un_op = un_node.src_node };
+    const vector_ty = try sema.resolveDestType(block, src, un_node.operand, .remove_eu_opt, "@splat");
+    if (vector_ty.zigTypeTag(mod) != .Vector) {
+        return sema.fail(block, operand_src, "expected vector type, found '{}'", .{vector_ty.fmt(mod)});
+    }
+    const elem_type = vector_ty.elemType2(mod);
+    return sema.addType(elem_type);
 }
 
 fn zirVectorType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -22302,7 +22316,7 @@ fn zirSplat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     const scalar_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@splat");
 
-    if (!dest_ty.isVector(mod)) return sema.fail(block, src, "expected vector type, found '{}'", .{dest_ty.fmt(mod)});
+    assert(dest_ty.isVector(mod));
 
     const operand = try sema.resolveInst(extra.rhs);
     const scalar_ty = dest_ty.childType(mod);
