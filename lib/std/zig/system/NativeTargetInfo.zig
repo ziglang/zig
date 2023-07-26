@@ -338,6 +338,7 @@ fn detectAbiAndDynamicLinker(
                 error.AccessDenied,
                 error.NoDevice,
                 error.FileNotFound,
+                error.NetworkNotFound,
                 error.FileTooBig,
                 error.Unexpected,
                 => |e| {
@@ -401,6 +402,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.InvalidUtf8 => unreachable,
         error.BadPathName => unreachable,
         error.DeviceBusy => unreachable,
+        error.NetworkNotFound => unreachable, // Windows-only
 
         error.FileNotFound,
         error.NotDir,
@@ -432,6 +434,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.BadPathName => unreachable, // Windows only
         error.PipeBusy => unreachable, // Windows-only
         error.SharingViolation => unreachable, // Windows-only
+        error.NetworkNotFound => unreachable, // Windows-only
         error.FileLocksNotSupported => unreachable, // No lock requested.
         error.NoSpaceLeft => unreachable, // read-only
         error.PathAlreadyExists => unreachable, // read-only

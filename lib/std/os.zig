@@ -1463,6 +1463,9 @@ pub const OpenError = error{
     BadPathName,
     InvalidUtf8,
 
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
+
     /// One of these three things:
     /// * pathname  refers to an executable image which is currently being
     ///   executed and write access was requested.
@@ -2307,6 +2310,9 @@ pub const UnlinkError = error{
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
+
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 } || UnexpectedError;
 
 /// Delete a name and possibly the file it refers to.
@@ -2472,6 +2478,8 @@ pub const RenameError = error{
     NoDevice,
     SharingViolation,
     PipeBusy,
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 } || UnexpectedError;
 
 /// Change the name or location of a file.
@@ -2777,6 +2785,8 @@ pub const MakeDirError = error{
     InvalidUtf8,
     BadPathName,
     NoDevice,
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 } || UnexpectedError;
 
 /// Create a directory.
@@ -2850,6 +2860,8 @@ pub const DeleteDirError = error{
     ReadOnlyFileSystem,
     InvalidUtf8,
     BadPathName,
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 } || UnexpectedError;
 
 /// Deletes an empty directory.
@@ -5066,6 +5078,9 @@ pub const RealPathError = error{
 
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
+
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 
     PathAlreadyExists,
 } || UnexpectedError;
