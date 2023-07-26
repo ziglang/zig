@@ -4171,11 +4171,26 @@ pub fn cmdInit(
     var src_dir = try fs.cwd().makeOpenPath("src", .{});
     defer src_dir.close();
 
+    if (output_mode == .Lib) {
+        const lib_zig_contents = template_dir.readFileAlloc(arena, "src" ++ s ++ "lib.zig", max_bytes) catch |err| {
+            fatal("unable to read template file 'lib.zig': {s}", .{@errorName(err)});
+        };
+
+        if (fs.cwd().access("src" ++ s ++ "lib.zig", .{})) |_| {
+            fatal("existing src" ++ s ++ "lib.zig file would be overwritten", .{});
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => fatal("unable to test existence of src" ++ s ++ "lib.zig: {s}\n", .{@errorName(err)}),
+        }
+        try src_dir.writeFile("lib.zig", lib_zig_contents);
+    }
+
     try src_dir.writeFile("main.zig", main_zig_contents);
     try fs.cwd().writeFile("build.zig", modified_build_zig_contents.items);
 
     std.log.info("Created build.zig", .{});
     std.log.info("Created src" ++ s ++ "main.zig", .{});
+    if (output_mode == .Lib) std.log.info("Created src" ++ s ++ "lib.zig", .{});
 
     switch (output_mode) {
         .Lib => std.log.info("Next, try `zig build --help` or `zig build test`", .{}),
