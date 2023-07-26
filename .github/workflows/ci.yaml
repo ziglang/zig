@@ -5,6 +5,13 @@ on:
     branches:
       - master
       - llvm16
+    paths-ignore:
+      - '.github/**'
+      - '.gitattributes'
+      - '.gitignore'
+      - '.mailmap'
+      - 'LICENSE'
+      - 'README.md'
 concurrency:
   # Cancels pending runs when a PR gets updated.
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
