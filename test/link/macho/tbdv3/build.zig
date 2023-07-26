@@ -23,8 +23,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    lib.addCSourceFile("a.c", &.{});
+    lib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     lib.linkLibC();
+    lib.forceEmit(.bin); // will be referenced by the tbd file
 
     const tbd_file = b.addWriteFile("liba.tbd",
         \\--- !tapi-tbd-v3
@@ -43,10 +44,10 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkSystemLibrary("a");
-    exe.addLibraryPathDirectorySource(tbd_file.getDirectorySource());
-    exe.addRPathDirectorySource(lib.getOutputDirectorySource());
+    exe.addLibraryPath(tbd_file.getDirectory());
+    exe.addRPath(lib.getEmitDirectory());
     exe.linkLibC();
 
     const run = b.addRunArtifact(exe);
