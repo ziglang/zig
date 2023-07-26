@@ -429,7 +429,7 @@ const DataLayoutBuilder = struct {
             if (backendSupportsF16(self.target)) try self.typeAlignment(.float, 16, 16, 16, false, writer);
             try self.typeAlignment(.float, 32, 32, 32, false, writer);
             try self.typeAlignment(.float, 64, 64, 64, false, writer);
-            if (backendSupportsF80(self.target)) try self.typeAlignment(.float, 80, 0, 0, false, writer);
+            if (self.target.cpu.arch.isX86()) try self.typeAlignment(.float, 80, 0, 0, false, writer);
             try self.typeAlignment(.float, 128, 128, 128, false, writer);
         }
         switch (self.target.cpu.arch) {
@@ -585,7 +585,7 @@ const DataLayoutBuilder = struct {
                         abi = size;
                         pref = size;
                     } else switch (self.target.os.tag) {
-                        .macos => {},
+                        .macos, .ios => {},
                         .uefi, .windows => {
                             pref = size;
                             force_abi = size >= 32;
