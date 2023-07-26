@@ -741,7 +741,7 @@ pub const DwarfInfo = struct {
     fn scanAllFunctions(di: *DwarfInfo, allocator: mem.Allocator) !void {
         var stream = io.fixedBufferStream(di.section(.debug_info).?);
         const in = stream.reader();
-        const seekable = &stream.seekableStream();
+        const seekable = stream.seekableStream();
         var this_unit_offset: u64 = 0;
 
         var tmp_arena = std.heap.ArenaAllocator.init(allocator);
@@ -909,8 +909,8 @@ pub const DwarfInfo = struct {
 
     fn scanAllCompileUnits(di: *DwarfInfo, allocator: mem.Allocator) !void {
         var stream = io.fixedBufferStream(di.section(.debug_info).?);
-        const in = &stream.reader();
-        const seekable = &stream.seekableStream();
+        const in = stream.reader();
+        const seekable = stream.seekableStream();
         var this_unit_offset: u64 = 0;
 
         while (this_unit_offset < try seekable.getEndPos()) {
@@ -1175,8 +1175,8 @@ pub const DwarfInfo = struct {
 
     fn parseAbbrevTable(di: *DwarfInfo, allocator: mem.Allocator, offset: u64) !AbbrevTable {
         var stream = io.fixedBufferStream(di.section(.debug_abbrev).?);
-        const in = &stream.reader();
-        const seekable = &stream.seekableStream();
+        const in = stream.reader();
+        const seekable = stream.seekableStream();
 
         try seekable.seekTo(offset);
         var result = AbbrevTable.init(allocator);
@@ -1256,8 +1256,8 @@ pub const DwarfInfo = struct {
         target_address: u64,
     ) !debug.LineInfo {
         var stream = io.fixedBufferStream(di.section(.debug_line).?);
-        const in = &stream.reader();
-        const seekable = &stream.seekableStream();
+        const in = stream.reader();
+        const seekable = stream.seekableStream();
 
         const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, di.section(.debug_line_str), compile_unit);
         const line_info_offset = try compile_unit.die.getAttrSecOffset(AT.stmt_list);
@@ -1638,7 +1638,7 @@ pub const DwarfInfo = struct {
                     }
                 }
 
-                std.mem.sort(FrameDescriptionEntry, di.fde_list.items, {}, struct {
+                std.mem.sortUnstable(FrameDescriptionEntry, di.fde_list.items, {}, struct {
                     fn lessThan(ctx: void, a: FrameDescriptionEntry, b: FrameDescriptionEntry) bool {
                         _ = ctx;
                         return a.pc_begin < b.pc_begin;
