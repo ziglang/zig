@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // This creates a module that can be imported into a zig project by its given name.
-    // The returned *Module can be imported by using std.Build.LibExeObjStep.addModule.
+    // The returned *Module can be imported by using std.Build.Step.Compile.addModule.
     _ = b.addModule("$", .{
         .source_file = .{ .path = "src/main.zig" },
     });
