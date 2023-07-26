@@ -60,7 +60,7 @@ fn createScenario(
     static.override_dest_dir = std.Build.InstallDir{
         .custom = "static",
     };
-    _ = static.getEmittedBin(); // enforce emission
+    static.forceEmit(.bin);
 
     const dylib = b.addSharedLibrary(.{
         .name = name,
@@ -73,7 +73,7 @@ fn createScenario(
     dylib.override_dest_dir = std.Build.InstallDir{
         .custom = "dynamic",
     };
-    _ = dylib.getEmittedBin(); // enforce emission
+    dylib.forceEmit(.bin); // we want the binary to be built as we use it further below
 
     const exe = b.addExecutable(.{
         .name = name,

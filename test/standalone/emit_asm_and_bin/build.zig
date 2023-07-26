@@ -8,8 +8,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "main.zig" },
         .optimize = b.standardOptimizeOption(.{}),
     });
-    _ = main.getEmittedBin(); //  main.emit_asm = .{ .emit_to = b.pathFromRoot("main.s") };
-    _ = main.getEmittedAsm(); //  main.emit_bin = .{ .emit_to = b.pathFromRoot("main") };
+    main.forceEmit(.bin);
+    main.forceEmit(.@"asm");
 
     test_step.dependOn(&b.addRunArtifact(main).step);
 }

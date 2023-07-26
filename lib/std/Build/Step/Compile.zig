@@ -207,6 +207,8 @@ use_lld: ?bool,
 /// otherwise.
 expect_errors: []const []const u8 = &.{},
 
+force_build: bool,
+
 emit_directory: GeneratedFile,
 
 generated_docs: ?*GeneratedFile,
@@ -374,6 +376,17 @@ pub const Kind = enum {
 
 pub const Linkage = enum { dynamic, static };
 
+pub const EmitOption = enum {
+    docs,
+    @"asm",
+    bin,
+    pdb,
+    implib,
+    llvm_bc,
+    llvm_ir,
+    h,
+};
+
 pub fn create(owner: *std.Build, options: Options) *Compile {
     const name = owner.dupe(options.name);
     const root_src: ?LazyPath = if (options.root_source_file) |rsrc| rsrc.dupe(owner) else null;
@@ -467,6 +480,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .override_dest_dir = null,
         .installed_path = null,
         .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
+
+        .force_build = false,
 
         .emit_directory = GeneratedFile{ .step = &self.step },
 
@@ -972,6 +987,26 @@ fn getEmittedFileGeneric(self: *Compile, output_file: *?*GeneratedFile) LazyPath
     return .{ .generated = generated_file };
 }
 
+/// Disables the panic in the build evaluation if nothing is emitted.
+///
+/// Unless for compilation tests this is a code smell.
+pub fn forceBuild(self: *Compile) void {
+    self.force_build = true;
+}
+
+pub fn forceEmit(self: *Compile, emit: EmitOption) void {
+    switch (emit) {
+        .docs => _ = self.getEmittedDocs(),
+        .@"asm" => _ = self.getEmittedAsm(),
+        .bin => _ = self.getEmittedBin(),
+        .pdb => _ = self.getEmittedPdb(),
+        .implib => _ = self.getEmittedImplib(),
+        .llvm_bc => _ = self.getEmittedLlvmBc(),
+        .llvm_ir => _ = self.getEmittedLlvmIr(),
+        .h => _ = self.getEmittedH(),
+    }
+}
+
 pub const getOutputDirectorySource = getEmitDirectory; // DEPRECATED, use getEmitDirectory
 
 /// Returns the path to the output directory.
@@ -1163,7 +1198,7 @@ pub fn setExecCmd(self: *Compile, args: []const ?[]const u8) void {
 }
 
 fn linkLibraryOrObject(self: *Compile, other: *Compile) void {
-    _ = other.getEmittedBin(); // Force emission of the binary
+    other.forceEmit(.bin);
 
     if (other.kind == .lib and other.target.isWindows()) { // TODO(xq): Is this the correct logic here?
         _ = other.getEmittedImplib(); // Force emission of the binary
@@ -1568,11 +1603,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         if (file.ptr != null) any_emitted_file = true;
     }
 
-    if (!any_emitted_file) {
+    if (!any_emitted_file and !self.force_build) {
         std.debug.getStderrMutex().lock();
         const stderr = std.io.getStdErr();
         build_util.dumpBadGetPathHelp(&self.step, stderr, self.step.owner, null) catch {};
-        std.debug.panic("Artifact '{s}' has no emit options set, but it is made. Did you forget to call `getEmitted*()`?.", .{self.name});
+        std.debug.panic("Artifact '{s}' has no emit options set, but it is made. Did you forget to call `.getEmitted*()`? If not, use `.forceBuild()` or `.forceEmit(…)` to make sure it builds anyways.", .{self.name});
     }
 
     try addFlag(&zig_args, "strip", self.strip);

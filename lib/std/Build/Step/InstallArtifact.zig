@@ -42,7 +42,8 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile) *InstallArtifact {
     };
     self.step.dependOn(&artifact.step);
 
-    _ = artifact.getEmittedBin(); // force creation
+    artifact.forceEmit(.bin);
+
     owner.pushInstalledFile(self.dest_dir, artifact.out_filename);
     if (self.artifact.isDynamicLibrary()) {
         if (artifact.major_only_filename) |name| {
