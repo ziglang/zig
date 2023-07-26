@@ -1181,11 +1181,11 @@ pub const SIG = struct {
     pub const HOLD = @as(?Sigaction.handler_fn, @ptrFromInt(5));
 
     /// block specified signal set
-    pub const _BLOCK = 1;
+    pub const BLOCK = 1;
     /// unblock specified signal set
-    pub const _UNBLOCK = 2;
+    pub const UNBLOCK = 2;
     /// set specified signal set
-    pub const _SETMASK = 3;
+    pub const SETMASK = 3;
     /// hangup
     pub const HUP = 1;
     /// interrupt

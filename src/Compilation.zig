@@ -89,6 +89,7 @@ clang_preprocessor_mode: ClangPreprocessorMode,
 verbose_cc: bool,
 verbose_air: bool,
 verbose_intern_pool: bool,
+verbose_generic_instances: bool,
 verbose_llvm_ir: ?[]const u8,
 verbose_llvm_bc: ?[]const u8,
 verbose_cimport: bool,
@@ -596,6 +597,7 @@ pub const InitOptions = struct {
     verbose_link: bool = false,
     verbose_air: bool = false,
     verbose_intern_pool: bool = false,
+    verbose_generic_instances: bool = false,
     verbose_llvm_ir: ?[]const u8 = null,
     verbose_llvm_bc: ?[]const u8 = null,
     verbose_cimport: bool = false,
@@ -1606,6 +1608,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .verbose_cc = options.verbose_cc,
             .verbose_air = options.verbose_air,
             .verbose_intern_pool = options.verbose_intern_pool,
+            .verbose_generic_instances = options.verbose_generic_instances,
             .verbose_llvm_ir = options.verbose_llvm_ir,
             .verbose_llvm_bc = options.verbose_llvm_bc,
             .verbose_cimport = options.verbose_cimport,
@@ -2069,6 +2072,14 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 comp.bin_file.options.root_name,
             });
             module.intern_pool.dump();
+        }
+
+        if (builtin.mode == .Debug and comp.verbose_generic_instances) {
+            std.debug.print("generic instances for '{s}:0x{x}':\n", .{
+                comp.bin_file.options.root_name,
+                @as(usize, @intFromPtr(module)),
+            });
+            module.intern_pool.dumpGenericInstances(comp.gpa);
         }
 
         if (comp.bin_file.options.is_test and comp.totalErrorCount() == 0) {
@@ -5491,6 +5502,7 @@ fn buildOutputFromZig(
         .verbose_link = comp.bin_file.options.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_intern_pool = comp.verbose_intern_pool,
+        .verbose_generic_instances = comp.verbose_intern_pool,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,
@@ -5570,6 +5582,7 @@ pub fn build_crt_file(
         .verbose_link = comp.bin_file.options.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_intern_pool = comp.verbose_intern_pool,
+        .verbose_generic_instances = comp.verbose_generic_instances,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,

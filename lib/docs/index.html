@@ -27,6 +27,7 @@
         --search-other-results-color: rgb(100, 100, 100);
         --modal-sh-color: rgba(0, 0, 0, 0.75);
         --modal-bg-color: #aaa;
+        --warning-popover-bg-color: #ff4747;
       }
 
       html, body { margin: 0; padding: 0; height: 100%; }
@@ -248,6 +249,57 @@
         pointer-events: none;
         top: 5px;
         left: 5px;
+      }
+
+      #dotsPopover:before {
+        position: absolute;
+        content: "";
+        left: 20px;
+        top: -8px;
+        border-style: solid;
+        border-width: 0 10px 10px 10px;
+        border-color: transparent transparent var(--warning-popover-bg-color) transparent;
+        transition-duration: 0.3s;
+        transition-property: transform;
+        z-index: 10;
+      }      
+      
+      #dotsPopover {
+        position: absolute;
+        opacity: 0;
+        visibility: hidden;
+        background-color: var(--warning-popover-bg-color);
+        border-radius: 10px;
+        left: 10px;
+        transform: translate(0, -20px);
+        padding: 0.5rem 1rem;
+        box-shadow: 0 2px 5px 0 rgba(0, 0, 0, 0.26);
+        transition: all 0.5s cubic-bezier(0.75, -0.02, 0.2, 0.97);
+        z-index: 20;
+      }
+
+      #dotsPopover.active {
+        opacity: 1;
+        visibility: visible;
+        transform: translate(0, 0);
+      }
+
+      #searchHelp {
+      }
+
+      #searchHelp summary {
+        color: red;
+        list-style-position: outside;
+      }
+
+      #searchHelp summary.normal {
+        color: var(--search-other-results-color);
+        transition: all 0.5s cubic-bezier(0.75, -0.02, 0.2, 0.97);
+      }
+
+      #searchHelp div {
+        background-color: var(--modal-bg-color);
+        padding: 0.5rem 1rem;
       }
       
       .other-results {
@@ -555,6 +607,7 @@
           --search-other-results-color: rgba(255, 255, 255, 0.28);
           --modal-sh-color: rgba(142, 142, 142, 0.5);
           --modal-bg-color: #333;
+        --warning-popover-bg-color: #600000;
         }
 
         .docs pre {
@@ -892,10 +945,60 @@
           <div style="position: relative">
             <span id="searchPlaceholder"><!-- populated by setPrefSlashSearch --></span>
             <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
+            <div id="dotsPopover">
+              Use spaces instead of dots. See $resource for more info.
+            </div>
           </div>
           </section>
         </div>
         <div id="sectSearchResults" class="docs hidden">
+          <details id="searchHelp">
+            <summary id="searchHelpSummary" class="normal">How to search effectively</summary>
+            <div>
+              <h2>How To Search Effectively</h2>
+              <h3>Matching</h3>
+              <ul>
+                <li>Search is case-insensitive by default.</li>
+                <li>Using uppercase letters in your query will make the search
+                  case-sensitive.</li>
+                <li>Given <code>ArrayListUnmanaged</code>:
+                  <ul>
+                    <li>the following words (and their prefixes) will match:
+                      <ul>
+                        <li><code>array</code></li>
+                        <li><code>list</code></li>
+                        <li><code>unmanaged</code></li>
+                      </ul>
+                    </li>
+                    <li>the following words will <b>NOT</b> match:
+                      <ul>
+                        <li><code>stun</code></li>
+                        <li><code>ray</code></li>
+                        <li><code>managed</code></li>
+                      </ul>
+                    </li>
+                  </ul>
+                </li>
+                <li>More precisely, the search system is based on a Radix Tree. The Radix Tree contains full decl names plus some suffixes, split by following the official style guide (e.g. <code>HashMapUnmanaged</code> also produces <code>MapUnmanaged</code> and <code>Unmanaged</code>, same with snake_case and camelCase names). </li>
+              </ul> 
+
+              <h3>Multiple terms</h3>
+              
+              <ul>
+                <li>When a search query contains multiple terms, order doesn't matter when 
+                    all terms match within a single decl name (e.g. "map auto" will match <code>AutoHashMap</code>).</li>
+                <li>Query term order does matter when matching different decls alognside
+                    a path (e.g. "js parse" matching <code>std.json.parse</code>), in which
+                    case the order of the terms will determine whether the match goes above or 
+                    below the "other results" line.</li>
+                <li>As an example, "fs create" will put above the line all things related to the creation of files and directories inside of `std.fs`, while still showing (but below the line) matches from `std.Bulild`.</li>
+                <li>As another example, "fs windows" will prioritize windows-related results in `std.fs`, while "windows fs" will prioritize "fs"-related results in `std.windows`.</li>
+                <li>This means that if you're searching inside a target namespace, you never have to read below the "other results" line.</li>
+                <li>Since matching doesn't have to be perfect, you can also target a group of namespaces to search into. For example "array orderedremove" will show you all "Array-" namespaces that support <code>orderedRemove</code>.</li>
+                <li>Periods are replaced by spaces because the Radix Tree doesn't index full paths, and in practice you should expect the match scoring system to consistently give you what you're looking for even when your query path is split into multiple terms.</li>
+              </ul>
+            </div>
+          </details>
           <h2>Search Results</h2>
           <ul id="listSearchResults"></ul>
           <p id="sectSearchAllResultsLink" class="hidden"><a href="">show all results</a></p>

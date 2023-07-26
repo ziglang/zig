@@ -437,7 +437,6 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Declaration = struct {
         name: []const u8,
-        is_pub: bool,
     };
 };
 

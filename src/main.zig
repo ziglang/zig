@@ -571,6 +571,7 @@ const usage_build_generic =
     \\  --verbose-cc                 Display C compiler invocations
     \\  --verbose-air                Enable compiler debug output for Zig AIR
     \\  --verbose-intern-pool        Enable compiler debug output for InternPool
+    \\  --verbose-generic-instances  Enable compiler debug output for generic instance generation
     \\  --verbose-llvm-ir[=path]     Enable compiler debug output for unoptimized LLVM IR
     \\  --verbose-llvm-bc=[path]     Enable compiler debug output for unoptimized LLVM BC
     \\  --verbose-cimport            Enable compiler debug output for C imports
@@ -741,6 +742,7 @@ fn buildOutputType(
     var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
     var verbose_air = false;
     var verbose_intern_pool = false;
+    var verbose_generic_instances = false;
     var verbose_llvm_ir: ?[]const u8 = null;
     var verbose_llvm_bc: ?[]const u8 = null;
     var verbose_cimport = false;
@@ -1469,6 +1471,8 @@ fn buildOutputType(
                         verbose_air = true;
                     } else if (mem.eql(u8, arg, "--verbose-intern-pool")) {
                         verbose_intern_pool = true;
+                    } else if (mem.eql(u8, arg, "--verbose-generic-instances")) {
+                        verbose_generic_instances = true;
                     } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
                         verbose_llvm_ir = "-";
                     } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
@@ -3166,6 +3170,7 @@ fn buildOutputType(
         .verbose_link = verbose_link,
         .verbose_air = verbose_air,
         .verbose_intern_pool = verbose_intern_pool,
+        .verbose_generic_instances = verbose_generic_instances,
         .verbose_llvm_ir = verbose_llvm_ir,
         .verbose_llvm_bc = verbose_llvm_bc,
         .verbose_cimport = verbose_cimport,
@@ -4433,6 +4438,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             try wip_errors.init(gpa);
             defer wip_errors.deinit();
 
+            var progress: std.Progress = .{};
+            const root_prog_node = progress.start("Fetch Packages", 0);
+            defer root_prog_node.end();
+
             // Here we borrow main package's table and will replace it with a fresh
             // one after this process completes.
             const fetch_result = build_pkg.fetchAndAddDependencies(
@@ -4448,6 +4457,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 "",
                 &wip_errors,
                 &all_modules,
+                root_prog_node,
             );
             if (wip_errors.root_list.items.len > 0) {
                 var errors = try wip_errors.toOwnedBundle("");
@@ -4752,13 +4762,16 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
     // Mark any excluded files/directories as already seen,
     // so that they are skipped later during actual processing
     for (excluded_files.items) |file_path| {
-        var dir = fs.cwd().openDir(file_path, .{}) catch |err| switch (err) {
+        const stat = fs.cwd().statFile(file_path) catch |err| switch (err) {
             error.FileNotFound => continue,
+            // On Windows, statFile does not work for directories
+            error.IsDir => dir: {
+                var dir = try fs.cwd().openDir(file_path, .{});
+                defer dir.close();
+                break :dir try dir.stat();
+            },
             else => |e| return e,
         };
-        defer dir.close();
-
-        const stat = try dir.stat();
         try fmt.seen.put(stat.inode, {});
     }
 

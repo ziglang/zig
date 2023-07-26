@@ -93,6 +93,10 @@ pub const cases = [_]Case{
         .import = @import("link/macho/bugs/13457/build.zig"),
     },
     .{
+        .build_root = "test/link/macho/bugs/16308",
+        .import = @import("link/macho/bugs/16308/build.zig"),
+    },
+    .{
         .build_root = "test/link/macho/dead_strip",
         .import = @import("link/macho/dead_strip/build.zig"),
     },
@@ -159,6 +163,10 @@ pub const cases = [_]Case{
     .{
         .build_root = "test/link/macho/strict_validation",
         .import = @import("link/macho/strict_validation/build.zig"),
+    },
+    .{
+        .build_root = "test/link/macho/tbdv3",
+        .import = @import("link/macho/tbdv3/build.zig"),
     },
     .{
         .build_root = "test/link/macho/tls",

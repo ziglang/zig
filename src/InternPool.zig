@@ -6266,6 +6266,59 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
     try bw.flush();
 }
 
+pub fn dumpGenericInstances(ip: *const InternPool, allocator: Allocator) void {
+    ip.dumpGenericInstancesFallible(allocator) catch return;
+}
+
+pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator) anyerror!void {
+    var arena_allocator = std.heap.ArenaAllocator.init(allocator);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
+    const w = bw.writer();
+
+    var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayListUnmanaged(Index)) = .{};
+    const datas = ip.items.items(.data);
+    for (ip.items.items(.tag), 0..) |tag, i| {
+        if (tag != .func_instance) continue;
+        const info = ip.extraData(Tag.FuncInstance, datas[i]);
+
+        const gop = try instances.getOrPut(arena, info.generic_owner);
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+
+        try gop.value_ptr.append(arena, @enumFromInt(i));
+    }
+
+    const SortContext = struct {
+        values: []std.ArrayListUnmanaged(Index),
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            return ctx.values[a_index].items.len > ctx.values[b_index].items.len;
+        }
+    };
+
+    instances.sort(SortContext{ .values = instances.values() });
+    var it = instances.iterator();
+    while (it.next()) |entry| {
+        const generic_fn_owner_decl = ip.declPtrConst(ip.funcDeclOwner(entry.key_ptr.*));
+        try w.print("{} ({}): \n", .{ generic_fn_owner_decl.name.fmt(ip), entry.value_ptr.items.len });
+        for (entry.value_ptr.items) |index| {
+            const func = ip.extraFuncInstance(datas[@intFromEnum(index)]);
+            const owner_decl = ip.declPtrConst(func.owner_decl);
+            try w.print("  {}: (", .{owner_decl.name.fmt(ip)});
+            for (func.comptime_args.get(ip)) |arg| {
+                if (arg != .none) {
+                    const key = ip.indexToKey(arg);
+                    try w.print(" {} ", .{key});
+                }
+            }
+            try w.writeAll(")\n");
+        }
+    }
+
+    try bw.flush();
+}
+
 pub fn structPtr(ip: *InternPool, index: Module.Struct.Index) *Module.Struct {
     return ip.allocated_structs.at(@intFromEnum(index));
 }
@@ -6287,6 +6340,10 @@ pub fn unionPtrConst(ip: *const InternPool, index: Module.Union.Index) *const Mo
 }
 
 pub fn declPtr(ip: *InternPool, index: Module.Decl.Index) *Module.Decl {
+    return ip.allocated_decls.at(@intFromEnum(index));
+}
+
+pub fn declPtrConst(ip: *const InternPool, index: Module.Decl.Index) *const Module.Decl {
     return ip.allocated_decls.at(@intFromEnum(index));
 }
 

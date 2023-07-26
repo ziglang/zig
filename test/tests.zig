@@ -790,6 +790,10 @@ pub fn addCliTests(b: *std.Build) *Step {
         defer dir.close();
         dir.writeFile("fmt1.zig", unformatted_code) catch @panic("unhandled");
         dir.writeFile("fmt2.zig", unformatted_code) catch @panic("unhandled");
+        dir.makeDir("subdir") catch @panic("unhandled");
+        var subdir = dir.openDir("subdir", .{}) catch @panic("unhandled");
+        defer subdir.close();
+        subdir.writeFile("fmt3.zig", unformatted_code) catch @panic("unhandled");
 
         // Test zig fmt affecting only the appropriate files.
         const run1 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "fmt1.zig" });
@@ -799,46 +803,62 @@ pub fn addCliTests(b: *std.Build) *Step {
         // stdout should be file path + \n
         run1.expectStdOutEqual("fmt1.zig\n");
 
-        // running it on the dir, only the new file should be changed
-        const run2 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
-        run2.setName("run zig fmt the directory");
+        // Test excluding files and directories from a run
+        const run2 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "--exclude", "fmt2.zig", "--exclude", "subdir", "." });
+        run2.setName("run zig fmt on directory with exclusions");
         run2.cwd = tmp_path;
         run2.has_side_effects = true;
-        run2.expectStdOutEqual("." ++ s ++ "fmt2.zig\n");
+        run2.expectStdOutEqual("");
         run2.step.dependOn(&run1.step);
 
-        // both files have been formatted, nothing should change now
-        const run3 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
-        run3.setName("run zig fmt with nothing to do");
+        // Test excluding non-existent file
+        const run3 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "--exclude", "fmt2.zig", "--exclude", "nonexistent.zig", "." });
+        run3.setName("run zig fmt on directory with non-existent exclusion");
         run3.cwd = tmp_path;
         run3.has_side_effects = true;
-        run3.expectStdOutEqual("");
+        run3.expectStdOutEqual("." ++ s ++ "subdir" ++ s ++ "fmt3.zig\n");
         run3.step.dependOn(&run2.step);
 
-        const unformatted_code_utf16 = "\xff\xfe \x00 \x00 \x00 \x00/\x00/\x00 \x00n\x00o\x00 \x00r\x00e\x00a\x00s\x00o\x00n\x00";
-        const fmt4_path = std.fs.path.join(b.allocator, &.{ tmp_path, "fmt4.zig" }) catch @panic("OOM");
-        const write4 = b.addWriteFiles();
-        write4.addBytesToSource(unformatted_code_utf16, fmt4_path);
-        write4.step.dependOn(&run3.step);
-
-        // Test `zig fmt` handling UTF-16 decoding.
+        // running it on the dir, only the new file should be changed
         const run4 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
-        run4.setName("run zig fmt convert UTF-16 to UTF-8");
+        run4.setName("run zig fmt the directory");
         run4.cwd = tmp_path;
         run4.has_side_effects = true;
-        run4.expectStdOutEqual("." ++ s ++ "fmt4.zig\n");
-        run4.step.dependOn(&write4.step);
+        run4.expectStdOutEqual("." ++ s ++ "fmt2.zig\n");
+        run4.step.dependOn(&run3.step);
+
+        // both files have been formatted, nothing should change now
+        const run5 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
+        run5.setName("run zig fmt with nothing to do");
+        run5.cwd = tmp_path;
+        run5.has_side_effects = true;
+        run5.expectStdOutEqual("");
+        run5.step.dependOn(&run4.step);
+
+        const unformatted_code_utf16 = "\xff\xfe \x00 \x00 \x00 \x00/\x00/\x00 \x00n\x00o\x00 \x00r\x00e\x00a\x00s\x00o\x00n\x00";
+        const fmt6_path = std.fs.path.join(b.allocator, &.{ tmp_path, "fmt6.zig" }) catch @panic("OOM");
+        const write6 = b.addWriteFiles();
+        write6.addBytesToSource(unformatted_code_utf16, fmt6_path);
+        write6.step.dependOn(&run5.step);
+
+        // Test `zig fmt` handling UTF-16 decoding.
+        const run6 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
+        run6.setName("run zig fmt convert UTF-16 to UTF-8");
+        run6.cwd = tmp_path;
+        run6.has_side_effects = true;
+        run6.expectStdOutEqual("." ++ s ++ "fmt6.zig\n");
+        run6.step.dependOn(&write6.step);
 
         // TODO change this to an exact match
-        const check4 = b.addCheckFile(.{ .path = fmt4_path }, .{
+        const check6 = b.addCheckFile(.{ .path = fmt6_path }, .{
             .expected_matches = &.{
                 "// no reason",
             },
         });
-        check4.step.dependOn(&run4.step);
+        check6.step.dependOn(&run6.step);
 
         const cleanup = b.addRemoveDirTree(tmp_path);
-        cleanup.step.dependOn(&check4.step);
+        cleanup.step.dependOn(&check6.step);
 
         step.dependOn(&cleanup.step);
     }
@@ -1113,12 +1133,9 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
             test_step.linkLibC();
             test_step.addCSourceFile("test/c_abi/cfuncs.c", &.{"-std=c99"});
 
-            // test-c-abi should test both with LTO on and with LTO off. Only
-            // some combinations are passing currently:
-            // https://github.com/ziglang/zig/issues/14908
-            if (c_abi_target.isWindows()) {
-                test_step.want_lto = false;
-            }
+            // This test is intentionally trying to check if the external ABI is
+            // done properly. LTO would be a hindrance to this.
+            test_step.want_lto = false;
 
             const run = b.addRunArtifact(test_step);
             run.skip_foreign_checks = true;

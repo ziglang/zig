@@ -257,17 +257,23 @@ pub fn Reader(
             return bytes;
         }
 
-        /// Reads bytes into the bounded array, until
-        /// the bounded array is full, or the stream ends.
+        /// Reads bytes until `bounded.len` is equal to `num_bytes`,
+        /// or the stream ends.
+        ///
+        /// * it is assumed that `num_bytes` will not exceed `bounded.capacity()`
         pub fn readIntoBoundedBytes(
             self: Self,
             comptime num_bytes: usize,
             bounded: *std.BoundedArray(u8, num_bytes),
         ) Error!void {
             while (bounded.len < num_bytes) {
+                // get at most the number of bytes free in the bounded array
                 const bytes_read = try self.read(bounded.unusedCapacitySlice());
                 if (bytes_read == 0) return;
-                bounded.len += bytes_read;
+
+                // bytes_read will never be larger than @TypeOf(bounded.len)
+                // due to `self.read` being bounded by `bounded.unusedCapacitySlice()`
+                bounded.len += @as(@TypeOf(bounded.len), @intCast(bytes_read));
             }
         }
 
@@ -727,4 +733,25 @@ test "Reader.streamUntilDelimiter writes all bytes without delimiter to the outp
     output_fbs.reset();
 
     try std.testing.expectError(error.StreamTooLong, reader.streamUntilDelimiter(writer, '!', 5));
+}
+
+test "Reader.readBoundedBytes correctly reads into a new bounded array" {
+    const test_string = "abcdefg";
+    var fis = std.io.fixedBufferStream(test_string);
+    const reader = fis.reader();
+
+    var array = try reader.readBoundedBytes(10000);
+    try testing.expectEqualStrings(array.slice(), test_string);
+}
+
+test "Reader.readIntoBoundedBytes correctly reads into a provided bounded array" {
+    const test_string = "abcdefg";
+    var fis = std.io.fixedBufferStream(test_string);
+    const reader = fis.reader();
+
+    var bounded_array = std.BoundedArray(u8, 10000){};
+
+    // compile time error if the size is not the same at the provided `bounded.capacity()`
+    try reader.readIntoBoundedBytes(10000, &bounded_array);
+    try testing.expectEqualStrings(bounded_array.slice(), test_string);
 }

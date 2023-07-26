@@ -1,3 +1,4 @@
+//! Default test runner for unit tests.
 const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");

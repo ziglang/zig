@@ -228,6 +228,7 @@ pub fn fetchAndAddDependencies(
     name_prefix: []const u8,
     error_bundle: *std.zig.ErrorBundle.Wip,
     all_modules: *AllModules,
+    root_prog_node: *std.Progress.Node,
 ) !void {
     const max_bytes = 10 * 1024 * 1024;
     const gpa = thread_pool.allocator;
@@ -272,6 +273,17 @@ pub fn fetchAndAddDependencies(
         .error_bundle = error_bundle,
     };
 
+    for (manifest.dependencies.values()) |dep| {
+        // If the hash is invalid, let errors happen later
+        // We only want to add these for progress reporting
+        const hash = dep.hash orelse continue;
+        if (hash.len != hex_multihash_len) continue;
+        const gop = try all_modules.getOrPut(gpa, hash[0..hex_multihash_len].*);
+        if (!gop.found_existing) gop.value_ptr.* = null;
+    }
+
+    root_prog_node.setEstimatedTotalItems(all_modules.count());
+
     const deps_list = manifest.dependencies.values();
     for (manifest.dependencies.keys(), 0..) |name, i| {
         const dep = deps_list[i];
@@ -288,6 +300,7 @@ pub fn fetchAndAddDependencies(
             build_roots_source,
             fqn,
             all_modules,
+            root_prog_node,
         );
 
         if (!sub.found_existing) {
@@ -304,6 +317,7 @@ pub fn fetchAndAddDependencies(
                 sub_prefix,
                 error_bundle,
                 all_modules,
+                root_prog_node,
             );
         }
 
@@ -404,7 +418,51 @@ const Report = struct {
 const hex_multihash_len = 2 * Manifest.multihash_len;
 const MultiHashHexDigest = [hex_multihash_len]u8;
 /// This is to avoid creating multiple modules for the same build.zig file.
-pub const AllModules = std.AutoHashMapUnmanaged(MultiHashHexDigest, *Package);
+/// If the value is `null`, the package is a known dependency, but has not yet
+/// been fetched.
+pub const AllModules = std.AutoHashMapUnmanaged(MultiHashHexDigest, ?*Package);
+
+fn ProgressReader(comptime ReaderType: type) type {
+    return struct {
+        child_reader: ReaderType,
+        bytes_read: u64 = 0,
+        prog_node: *std.Progress.Node,
+        unit: enum {
+            kib,
+            mib,
+            any,
+        },
+
+        pub const Error = ReaderType.Error;
+        pub const Reader = std.io.Reader(*@This(), Error, read);
+
+        pub fn read(self: *@This(), buf: []u8) Error!usize {
+            const amt = try self.child_reader.read(buf);
+            self.bytes_read += amt;
+            const kib = self.bytes_read / 1024;
+            const mib = kib / 1024;
+            switch (self.unit) {
+                .kib => self.prog_node.setCompletedItems(@intCast(kib)),
+                .mib => self.prog_node.setCompletedItems(@intCast(mib)),
+                .any => {
+                    if (mib > 0) {
+                        self.prog_node.setUnit("MiB");
+                        self.prog_node.setCompletedItems(@intCast(mib));
+                    } else {
+                        self.prog_node.setUnit("KiB");
+                        self.prog_node.setCompletedItems(@intCast(kib));
+                    }
+                },
+            }
+            self.prog_node.context.maybeRefresh();
+            return amt;
+        }
+
+        pub fn reader(self: *@This()) Reader {
+            return .{ .context = self };
+        }
+    };
+}
 
 fn fetchAndUnpack(
     thread_pool: *ThreadPool,
@@ -415,6 +473,7 @@ fn fetchAndUnpack(
     build_roots_source: *std.ArrayList(u8),
     fqn: []const u8,
     all_modules: *AllModules,
+    root_prog_node: *std.Progress.Node,
 ) !struct { mod: *Package, found_existing: bool } {
     const gpa = http_client.allocator;
     const s = fs.path.sep_str;
@@ -442,12 +501,16 @@ fn fetchAndUnpack(
         // so we must detect if a module has been created for this package and reuse it.
         const gop = try all_modules.getOrPut(gpa, hex_digest.*);
         if (gop.found_existing) {
-            gpa.free(build_root);
-            return .{
-                .mod = gop.value_ptr.*,
-                .found_existing = true,
-            };
+            if (gop.value_ptr.*) |mod| {
+                gpa.free(build_root);
+                return .{
+                    .mod = mod,
+                    .found_existing = true,
+                };
+            }
         }
+
+        root_prog_node.completeOne();
 
         const ptr = try gpa.create(Package);
         errdefer gpa.destroy(ptr);
@@ -470,6 +533,11 @@ fn fetchAndUnpack(
             .found_existing = false,
         };
     }
+
+    var pkg_prog_node = root_prog_node.start(fqn, 0);
+    defer pkg_prog_node.end();
+    pkg_prog_node.activate();
+    pkg_prog_node.context.refresh();
 
     const uri = try std.Uri.parse(dep.url);
 
@@ -510,28 +578,52 @@ fn fetchAndUnpack(
         const content_type = req.response.headers.getFirstValue("Content-Type") orelse
             return report.fail(dep.url_tok, "Missing 'Content-Type' header", .{});
 
+        var prog_reader: ProgressReader(std.http.Client.Request.Reader) = .{
+            .child_reader = req.reader(),
+            .prog_node = &pkg_prog_node,
+            .unit = if (req.response.content_length) |content_length| unit: {
+                const kib = content_length / 1024;
+                const mib = kib / 1024;
+                if (mib > 0) {
+                    pkg_prog_node.setEstimatedTotalItems(@intCast(mib));
+                    pkg_prog_node.setUnit("MiB");
+                    break :unit .mib;
+                } else {
+                    pkg_prog_node.setEstimatedTotalItems(@intCast(@max(1, kib)));
+                    pkg_prog_node.setUnit("KiB");
+                    break :unit .kib;
+                }
+            } else .any,
+        };
+        pkg_prog_node.context.refresh();
+
         if (ascii.eqlIgnoreCase(content_type, "application/gzip") or
             ascii.eqlIgnoreCase(content_type, "application/x-gzip") or
             ascii.eqlIgnoreCase(content_type, "application/tar+gzip"))
         {
             // I observed the gzip stream to read 1 byte at a time, so I am using a
             // buffered reader on the front of it.
-            try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.gzip);
+            try unpackTarball(gpa, prog_reader.reader(), tmp_directory.handle, std.compress.gzip);
         } else if (ascii.eqlIgnoreCase(content_type, "application/x-xz")) {
             // I have not checked what buffer sizes the xz decompression implementation uses
             // by default, so the same logic applies for buffering the reader as for gzip.
-            try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.xz);
+            try unpackTarball(gpa, prog_reader.reader(), tmp_directory.handle, std.compress.xz);
         } else if (ascii.eqlIgnoreCase(content_type, "application/octet-stream")) {
             // support gitlab tarball urls such as https://gitlab.com/<namespace>/<project>/-/archive/<sha>/<project>-<sha>.tar.gz
             // whose content-disposition header is: 'attachment; filename="<project>-<sha>.tar.gz"'
             const content_disposition = req.response.headers.getFirstValue("Content-Disposition") orelse
                 return report.fail(dep.url_tok, "Missing 'Content-Disposition' header for Content-Type=application/octet-stream", .{});
             if (isTarAttachment(content_disposition)) {
-                try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.gzip);
+                try unpackTarball(gpa, prog_reader.reader(), tmp_directory.handle, std.compress.gzip);
             } else return report.fail(dep.url_tok, "Unsupported 'Content-Disposition' header value: '{s}' for Content-Type=application/octet-stream", .{content_disposition});
         } else {
             return report.fail(dep.url_tok, "Unsupported 'Content-Type' header value: '{s}'", .{content_type});
         }
+
+        // Download completed - stop showing downloaded amount as progress
+        pkg_prog_node.setEstimatedTotalItems(0);
+        pkg_prog_node.setCompletedItems(0);
+        pkg_prog_node.context.refresh();
 
         // TODO: delete files not included in the package prior to computing the package hash.
         // for example, if the ini file has directives to include/not include certain files,
@@ -591,11 +683,11 @@ fn fetchAndUnpack(
 
 fn unpackTarball(
     gpa: Allocator,
-    req: *std.http.Client.Request,
+    req_reader: anytype,
     out_dir: fs.Dir,
     comptime compression: type,
 ) !void {
-    var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, req.reader());
+    var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, req_reader);
 
     var decompress = try compression.decompress(gpa, br.reader());
     defer decompress.deinit();

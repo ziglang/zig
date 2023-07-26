@@ -1159,7 +1159,6 @@ pub const Attribute = union(Kind) {
                     var any = false;
                     var remaining: Int = @bitCast(fpclass);
                     inline for (@typeInfo(FpClass).Struct.decls) |decl| {
-                        if (!decl.is_pub) continue;
                         const pattern: Int = @bitCast(@field(FpClass, decl.name));
                         if (remaining & pattern == pattern) {
                             if (!any) {
@@ -4165,8 +4164,8 @@ pub const WipFunction = struct {
             @memcpy(extra.trail.nextMut(incoming_len, Block.Index, wip), blocks);
             if (wip.builder.useLibLlvm()) {
                 const ExpectedContents = extern struct {
-                    [expected_incoming_len]*llvm.Value,
-                    [expected_incoming_len]*llvm.BasicBlock,
+                    values: [expected_incoming_len]*llvm.Value,
+                    blocks: [expected_incoming_len]*llvm.BasicBlock,
                 };
                 var stack align(@alignOf(ExpectedContents)) =
                     std.heap.stackFallback(@sizeOf(ExpectedContents), wip.builder.gpa);
