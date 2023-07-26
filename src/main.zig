@@ -571,6 +571,7 @@ const usage_build_generic =
     \\  --verbose-cc                 Display C compiler invocations
     \\  --verbose-air                Enable compiler debug output for Zig AIR
     \\  --verbose-intern-pool        Enable compiler debug output for InternPool
+    \\  --verbose-generic-instances  Enable compiler debug output for generic instance generation
     \\  --verbose-llvm-ir[=path]     Enable compiler debug output for unoptimized LLVM IR
     \\  --verbose-llvm-bc=[path]     Enable compiler debug output for unoptimized LLVM BC
     \\  --verbose-cimport            Enable compiler debug output for C imports
@@ -741,6 +742,7 @@ fn buildOutputType(
     var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
     var verbose_air = false;
     var verbose_intern_pool = false;
+    var verbose_generic_instances = false;
     var verbose_llvm_ir: ?[]const u8 = null;
     var verbose_llvm_bc: ?[]const u8 = null;
     var verbose_cimport = false;
@@ -1469,6 +1471,8 @@ fn buildOutputType(
                         verbose_air = true;
                     } else if (mem.eql(u8, arg, "--verbose-intern-pool")) {
                         verbose_intern_pool = true;
+                    } else if (mem.eql(u8, arg, "--verbose-generic-instances")) {
+                        verbose_generic_instances = true;
                     } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
                         verbose_llvm_ir = "-";
                     } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
@@ -3166,6 +3170,7 @@ fn buildOutputType(
         .verbose_link = verbose_link,
         .verbose_air = verbose_air,
         .verbose_intern_pool = verbose_intern_pool,
+        .verbose_generic_instances = verbose_generic_instances,
         .verbose_llvm_ir = verbose_llvm_ir,
         .verbose_llvm_bc = verbose_llvm_bc,
         .verbose_cimport = verbose_cimport,
