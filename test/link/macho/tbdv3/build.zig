@@ -39,11 +39,11 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     );
 
     const exe = b.addExecutable(.{
-        .name = "main",
-        .root_source_file = .{ .path = "main.c" },
+        .name = "test",
         .optimize = optimize,
         .target = target,
     });
+    exe.addCSourceFile("main.c", &[0][]const u8{});
     exe.linkSystemLibrary("a");
     exe.addLibraryPathDirectorySource(tbd_file.getDirectorySource());
     exe.addRPathDirectorySource(lib.getOutputDirectorySource());
@@ -51,6 +51,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const run = b.addRunArtifact(exe);
     run.skip_foreign_checks = true;
+    run.expectExitCode(0);
 
     test_step.dependOn(&run.step);
 }
