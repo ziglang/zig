@@ -41,6 +41,21 @@ pub fn isSep(byte: u8) bool {
     };
 }
 
+pub const PathType = enum {
+    windows,
+    uefi,
+    posix,
+
+    /// Returns true if `c` is a valid path separator for the `path_type`.
+    pub inline fn isSep(comptime path_type: PathType, comptime T: type, c: T) bool {
+        return switch (path_type) {
+            .windows => c == '/' or c == '\\',
+            .posix => c == '/',
+            .uefi => c == '\\',
+        };
+    }
+};
+
 /// This is different from mem.join in that the separator will not be repeated if
 /// it is found at the end or beginning of a pair of consecutive paths.
 fn joinSepMaybeZ(allocator: Allocator, separator: u8, comptime sepPredicate: fn (u8) bool, paths: []const []const u8, zero: bool) ![]u8 {
@@ -1317,4 +1332,582 @@ test "stem" {
     try testStem(".", ".");
     try testStem(" ", " ");
     try testStem("", "");
+}
+
+/// A path component iterator that can move forwards and backwards.
+/// The 'root' of the path (`/` for POSIX, things like `C:\`, `\\server\share\`, etc
+/// for Windows) is treated specially and will never be returned by any of the
+/// `first`, `last`, `next`, or `previous` functions.
+/// Multiple consecutive path separators are skipped (treated as a single separator)
+/// when iterating.
+/// All returned component names/paths are slices of the original path.
+/// There is no normalization of paths performed while iterating.
+pub fn ComponentIterator(comptime path_type: PathType, comptime T: type) type {
+    return struct {
+        path: []const T,
+        root_end_index: usize = 0,
+        start_index: usize = 0,
+        end_index: usize = 0,
+
+        const Self = @This();
+
+        pub const Component = struct {
+            /// The current component's path name, e.g. 'b'.
+            /// This will never contain path separators.
+            name: []const T,
+            /// The full path up to and including the current component, e.g. '/a/b'
+            /// This will never contain trailing path separators.
+            path: []const T,
+        };
+
+        const InitError = switch (path_type) {
+            .windows => error{BadPathName},
+            else => error{},
+        };
+
+        /// After `init`, `next` will return the first component after the root
+        /// (there is no need to call `first` after `init`).
+        /// To iterate backwards (from the end of the path to the beginning), call `last`
+        /// after `init` and then iterate via `previous` calls.
+        /// For Windows paths, `error.BadPathName` is returned if the `path` has an explicit
+        /// namespace prefix (`\\.\`, `\\?\`, or `\??\`) or if it is a UNC path with more
+        /// than two path separators at the beginning.
+        pub fn init(path: []const T) InitError!Self {
+            const root_end_index: usize = switch (path_type) {
+                .posix, .uefi => posix: {
+                    // Root on UEFI and POSIX only differs by the path separator
+                    var root_end_index: usize = 0;
+                    while (true) : (root_end_index += 1) {
+                        if (root_end_index >= path.len or !path_type.isSep(T, path[root_end_index])) {
+                            break;
+                        }
+                    }
+                    break :posix root_end_index;
+                },
+                .windows => windows: {
+                    // Namespaces other than the Win32 file namespace are tricky
+                    // and basically impossible to determine a 'root' for, since it's
+                    // possible to construct an effectively arbitrarily long 'root',
+                    // e.g. `\\.\GLOBALROOT\??\UNC\localhost\C$\foo` is a
+                    // possible path that would be effectively equivalent to
+                    // `C:\foo`, and the `GLOBALROOT\??\` part can also be recursive,
+                    // so `GLOBALROOT\??\GLOBALROOT\??\...` would work for any number
+                    // of repetitions. Therefore, paths with an explicit namespace prefix
+                    // (\\.\, \??\, \\?\) are not allowed here.
+                    if (std.os.windows.getNamespacePrefix(T, path) != .none) {
+                        return error.BadPathName;
+                    }
+                    const windows_path_type = std.os.windows.getUnprefixedPathType(T, path);
+                    break :windows switch (windows_path_type) {
+                        .relative => 0,
+                        .root_local_device => path.len,
+                        .rooted => 1,
+                        .unc_absolute => unc: {
+                            var end_index: usize = 2;
+                            // Any extra separators between the first two and the server name are not allowed
+                            // and will always lead to STATUS_OBJECT_PATH_INVALID if it is attempted
+                            // to be used.
+                            if (end_index < path.len and path_type.isSep(T, path[end_index])) {
+                                return error.BadPathName;
+                            }
+                            // Server
+                            while (end_index < path.len and !path_type.isSep(T, path[end_index])) {
+                                end_index += 1;
+                            }
+                            // Slash(es) after server
+                            while (end_index < path.len and path_type.isSep(T, path[end_index])) {
+                                end_index += 1;
+                            }
+                            // Share
+                            while (end_index < path.len and !path_type.isSep(T, path[end_index])) {
+                                end_index += 1;
+                            }
+                            // Slash(es) after share
+                            while (end_index < path.len and path_type.isSep(T, path[end_index])) {
+                                end_index += 1;
+                            }
+                            break :unc end_index;
+                        },
+                        .drive_absolute => drive: {
+                            var end_index: usize = 3;
+                            while (end_index < path.len and path_type.isSep(T, path[end_index])) {
+                                end_index += 1;
+                            }
+                            break :drive end_index;
+                        },
+                        .drive_relative => 2,
+                    };
+                },
+            };
+            return .{
+                .path = path,
+                .root_end_index = root_end_index,
+                .start_index = root_end_index,
+                .end_index = root_end_index,
+            };
+        }
+
+        /// Returns the root of the path if it is an absolute path, or null otherwise.
+        /// For POSIX paths, this will be `/`.
+        /// For Windows paths, this will be something like `C:\`, `\\server\share\`, etc.
+        /// For UEFI paths, this will be `\`.
+        pub fn root(self: Self) ?[]const T {
+            if (self.root_end_index == 0) return null;
+            return self.path[0..self.root_end_index];
+        }
+
+        /// Returns the first component (from the beginning of the path).
+        /// For example, if the path is `/a/b/c` then this will return the `a` component.
+        /// After calling `first`, `previous` will always return `null`, and `next` will return
+        /// the component to the right of the one returned by `first`, if any exist.
+        pub fn first(self: *Self) ?Component {
+            self.start_index = self.root_end_index;
+            self.end_index = self.start_index;
+            while (self.end_index < self.path.len and !path_type.isSep(T, self.path[self.end_index])) {
+                self.end_index += 1;
+            }
+            if (self.end_index == self.start_index) return null;
+            return .{
+                .name = self.path[self.start_index..self.end_index],
+                .path = self.path[0..self.end_index],
+            };
+        }
+
+        /// Returns the last component (from the end of the path).
+        /// For example, if the path is `/a/b/c` then this will return the `c` component.
+        /// After calling `last`, `next` will always return `null`, and `previous` will return
+        /// the component to the left of the one returned by `last`, if any exist.
+        pub fn last(self: *Self) ?Component {
+            self.end_index = self.path.len;
+            while (true) {
+                if (self.end_index == self.root_end_index) {
+                    self.start_index = self.end_index;
+                    return null;
+                }
+                if (!path_type.isSep(T, self.path[self.end_index - 1])) break;
+                self.end_index -= 1;
+            }
+            self.start_index = self.end_index;
+            while (true) {
+                if (self.start_index == self.root_end_index) break;
+                if (path_type.isSep(T, self.path[self.start_index - 1])) break;
+                self.start_index -= 1;
+            }
+            if (self.start_index == self.end_index) return null;
+            return .{
+                .name = self.path[self.start_index..self.end_index],
+                .path = self.path[0..self.end_index],
+            };
+        }
+
+        /// Returns the next component (the component to the right of the most recently
+        /// returned component), or null if no such component exists.
+        /// For example, if the path is `/a/b/c` and the most recently returned component
+        /// is `b`, then this will return the `c` component.
+        pub fn next(self: *Self) ?Component {
+            var start_index = self.end_index;
+            while (start_index < self.path.len and path_type.isSep(T, self.path[start_index])) {
+                start_index += 1;
+            }
+            var end_index = start_index;
+            while (end_index < self.path.len and !path_type.isSep(T, self.path[end_index])) {
+                end_index += 1;
+            }
+            if (start_index == end_index) return null;
+            self.start_index = start_index;
+            self.end_index = end_index;
+            return .{
+                .name = self.path[self.start_index..self.end_index],
+                .path = self.path[0..self.end_index],
+            };
+        }
+
+        /// Returns the previous component (the component to the left of the most recently
+        /// returned component), or null if no such component exists.
+        /// For example, if the path is `/a/b/c` and the most recently returned component
+        /// is `b`, then this will return the `a` component.
+        pub fn previous(self: *Self) ?Component {
+            var end_index = self.start_index;
+            while (true) {
+                if (end_index == self.root_end_index) return null;
+                if (!path_type.isSep(T, self.path[end_index - 1])) break;
+                end_index -= 1;
+            }
+            var start_index = end_index;
+            while (true) {
+                if (start_index == self.root_end_index) break;
+                if (path_type.isSep(T, self.path[start_index - 1])) break;
+                start_index -= 1;
+            }
+            if (start_index == end_index) return null;
+            self.start_index = start_index;
+            self.end_index = end_index;
+            return .{
+                .name = self.path[self.start_index..self.end_index],
+                .path = self.path[0..self.end_index],
+            };
+        }
+    };
+}
+
+pub const NativeUtf8ComponentIterator = ComponentIterator(switch (native_os) {
+    .windows => .windows,
+    .uefi => .uefi,
+    else => .posix,
+}, u8);
+
+pub fn componentIterator(path: []const u8) !NativeUtf8ComponentIterator {
+    return NativeUtf8ComponentIterator.init(path);
+}
+
+test "ComponentIterator posix" {
+    const PosixComponentIterator = ComponentIterator(.posix, u8);
+    {
+        const path = "a/b/c/";
+        var it = try PosixComponentIterator.init(path);
+        try std.testing.expectEqual(@as(usize, 0), it.root_end_index);
+        try std.testing.expect(null == it.root());
+        {
+            try std.testing.expect(null == it.previous());
+
+            const first_via_next = it.next().?;
+            try std.testing.expectEqualStrings("a", first_via_next.name);
+            try std.testing.expectEqualStrings("a", first_via_next.path);
+
+            const first = it.first().?;
+            try std.testing.expectEqualStrings("a", first.name);
+            try std.testing.expectEqualStrings("a", first.path);
+
+            try std.testing.expect(null == it.previous());
+
+            const second = it.next().?;
+            try std.testing.expectEqualStrings("b", second.name);
+            try std.testing.expectEqualStrings("a/b", second.path);
+
+            const third = it.next().?;
+            try std.testing.expectEqualStrings("c", third.name);
+            try std.testing.expectEqualStrings("a/b/c", third.path);
+
+            try std.testing.expect(null == it.next());
+        }
+        {
+            const last = it.last().?;
+            try std.testing.expectEqualStrings("c", last.name);
+            try std.testing.expectEqualStrings("a/b/c", last.path);
+
+            try std.testing.expect(null == it.next());
+
+            const second_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("b", second_to_last.name);
+            try std.testing.expectEqualStrings("a/b", second_to_last.path);
+
+            const third_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("a", third_to_last.name);
+            try std.testing.expectEqualStrings("a", third_to_last.path);
+
+            try std.testing.expect(null == it.previous());
+        }
+    }
+
+    {
+        const path = "/a/b/c/";
+        var it = try PosixComponentIterator.init(path);
+        try std.testing.expectEqual(@as(usize, 1), it.root_end_index);
+        try std.testing.expectEqualStrings("/", it.root().?);
+        {
+            try std.testing.expect(null == it.previous());
+
+            const first_via_next = it.next().?;
+            try std.testing.expectEqualStrings("a", first_via_next.name);
+            try std.testing.expectEqualStrings("/a", first_via_next.path);
+
+            const first = it.first().?;
+            try std.testing.expectEqualStrings("a", first.name);
+            try std.testing.expectEqualStrings("/a", first.path);
+
+            try std.testing.expect(null == it.previous());
+
+            const second = it.next().?;
+            try std.testing.expectEqualStrings("b", second.name);
+            try std.testing.expectEqualStrings("/a/b", second.path);
+
+            const third = it.next().?;
+            try std.testing.expectEqualStrings("c", third.name);
+            try std.testing.expectEqualStrings("/a/b/c", third.path);
+
+            try std.testing.expect(null == it.next());
+        }
+        {
+            const last = it.last().?;
+            try std.testing.expectEqualStrings("c", last.name);
+            try std.testing.expectEqualStrings("/a/b/c", last.path);
+
+            try std.testing.expect(null == it.next());
+
+            const second_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("b", second_to_last.name);
+            try std.testing.expectEqualStrings("/a/b", second_to_last.path);
+
+            const third_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("a", third_to_last.name);
+            try std.testing.expectEqualStrings("/a", third_to_last.path);
+
+            try std.testing.expect(null == it.previous());
+        }
+    }
+
+    {
+        const path = "/";
+        var it = try PosixComponentIterator.init(path);
+        try std.testing.expectEqual(@as(usize, 1), it.root_end_index);
+        try std.testing.expectEqualStrings("/", it.root().?);
+
+        try std.testing.expect(null == it.first());
+        try std.testing.expect(null == it.previous());
+        try std.testing.expect(null == it.first());
+        try std.testing.expect(null == it.next());
+
+        try std.testing.expect(null == it.last());
+        try std.testing.expect(null == it.previous());
+        try std.testing.expect(null == it.last());
+        try std.testing.expect(null == it.next());
+    }
+
+    {
+        const path = "";
+        var it = try PosixComponentIterator.init(path);
+        try std.testing.expectEqual(@as(usize, 0), it.root_end_index);
+        try std.testing.expect(null == it.root());
+
+        try std.testing.expect(null == it.first());
+        try std.testing.expect(null == it.previous());
+        try std.testing.expect(null == it.first());
+        try std.testing.expect(null == it.next());
+
+        try std.testing.expect(null == it.last());
+        try std.testing.expect(null == it.previous());
+        try std.testing.expect(null == it.last());
+        try std.testing.expect(null == it.next());
+    }
+}
+
+test "ComponentIterator windows" {
+    const WindowsComponentIterator = ComponentIterator(.windows, u8);
+    {
+        const path = "a/b\\c//";
+        var it = try WindowsComponentIterator.init(path);
+        try std.testing.expectEqual(@as(usize, 0), it.root_end_index);
+        try std.testing.expect(null == it.root());
+        {
+            try std.testing.expect(null == it.previous());
+
+            const first_via_next = it.next().?;
+            try std.testing.expectEqualStrings("a", first_via_next.name);
+            try std.testing.expectEqualStrings("a", first_via_next.path);
+
+            const first = it.first().?;
+            try std.testing.expectEqualStrings("a", first.name);
+            try std.testing.expectEqualStrings("a", first.path);
+
+            try std.testing.expect(null == it.previous());
+
+            const second = it.next().?;
+            try std.testing.expectEqualStrings("b", second.name);
+            try std.testing.expectEqualStrings("a/b", second.path);
+
+            const third = it.next().?;
+            try std.testing.expectEqualStrings("c", third.name);
+            try std.testing.expectEqualStrings("a/b\\c", third.path);
+
+            try std.testing.expect(null == it.next());
+        }
+        {
+            const last = it.last().?;
+            try std.testing.expectEqualStrings("c", last.name);
+            try std.testing.expectEqualStrings("a/b\\c", last.path);
+
+            try std.testing.expect(null == it.next());
+
+            const second_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("b", second_to_last.name);
+            try std.testing.expectEqualStrings("a/b", second_to_last.path);
+
+            const third_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("a", third_to_last.name);
+            try std.testing.expectEqualStrings("a", third_to_last.path);
+
+            try std.testing.expect(null == it.previous());
+        }
+    }
+
+    {
+        const path = "C:\\a/b/c/";
+        var it = try WindowsComponentIterator.init(path);
+        try std.testing.expectEqual(@as(usize, 3), it.root_end_index);
+        try std.testing.expectEqualStrings("C:\\", it.root().?);
+        {
+            const first = it.first().?;
+            try std.testing.expectEqualStrings("a", first.name);
+            try std.testing.expectEqualStrings("C:\\a", first.path);
+
+            const second = it.next().?;
+            try std.testing.expectEqualStrings("b", second.name);
+            try std.testing.expectEqualStrings("C:\\a/b", second.path);
+
+            const third = it.next().?;
+            try std.testing.expectEqualStrings("c", third.name);
+            try std.testing.expectEqualStrings("C:\\a/b/c", third.path);
+
+            try std.testing.expect(null == it.next());
+        }
+        {
+            const last = it.last().?;
+            try std.testing.expectEqualStrings("c", last.name);
+            try std.testing.expectEqualStrings("C:\\a/b/c", last.path);
+
+            const second_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("b", second_to_last.name);
+            try std.testing.expectEqualStrings("C:\\a/b", second_to_last.path);
+
+            const third_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("a", third_to_last.name);
+            try std.testing.expectEqualStrings("C:\\a", third_to_last.path);
+
+            try std.testing.expect(null == it.previous());
+        }
+    }
+
+    {
+        const path = "/";
+        var it = try WindowsComponentIterator.init(path);
+        try std.testing.expectEqual(@as(usize, 1), it.root_end_index);
+        try std.testing.expectEqualStrings("/", it.root().?);
+
+        try std.testing.expect(null == it.first());
+        try std.testing.expect(null == it.previous());
+        try std.testing.expect(null == it.first());
+        try std.testing.expect(null == it.next());
+
+        try std.testing.expect(null == it.last());
+        try std.testing.expect(null == it.previous());
+        try std.testing.expect(null == it.last());
+        try std.testing.expect(null == it.next());
+    }
+
+    {
+        const path = "";
+        var it = try WindowsComponentIterator.init(path);
+        try std.testing.expectEqual(@as(usize, 0), it.root_end_index);
+        try std.testing.expect(null == it.root());
+
+        try std.testing.expect(null == it.first());
+        try std.testing.expect(null == it.previous());
+        try std.testing.expect(null == it.first());
+        try std.testing.expect(null == it.next());
+
+        try std.testing.expect(null == it.last());
+        try std.testing.expect(null == it.previous());
+        try std.testing.expect(null == it.last());
+        try std.testing.expect(null == it.next());
+    }
+}
+
+test "ComponentIterator windows UTF-16" {
+    // TODO: Fix on big endian architectures
+    if (builtin.cpu.arch.endian() != .Little) {
+        return error.SkipZigTest;
+    }
+
+    const WindowsComponentIterator = ComponentIterator(.windows, u16);
+    const L = std.unicode.utf8ToUtf16LeStringLiteral;
+
+    const path = L("C:\\a/b/c/");
+    var it = try WindowsComponentIterator.init(path);
+    try std.testing.expectEqual(@as(usize, 3), it.root_end_index);
+    try std.testing.expectEqualSlices(u16, L("C:\\"), it.root().?);
+    {
+        const first = it.first().?;
+        try std.testing.expectEqualSlices(u16, L("a"), first.name);
+        try std.testing.expectEqualSlices(u16, L("C:\\a"), first.path);
+
+        const second = it.next().?;
+        try std.testing.expectEqualSlices(u16, L("b"), second.name);
+        try std.testing.expectEqualSlices(u16, L("C:\\a/b"), second.path);
+
+        const third = it.next().?;
+        try std.testing.expectEqualSlices(u16, L("c"), third.name);
+        try std.testing.expectEqualSlices(u16, L("C:\\a/b/c"), third.path);
+
+        try std.testing.expect(null == it.next());
+    }
+    {
+        const last = it.last().?;
+        try std.testing.expectEqualSlices(u16, L("c"), last.name);
+        try std.testing.expectEqualSlices(u16, L("C:\\a/b/c"), last.path);
+
+        const second_to_last = it.previous().?;
+        try std.testing.expectEqualSlices(u16, L("b"), second_to_last.name);
+        try std.testing.expectEqualSlices(u16, L("C:\\a/b"), second_to_last.path);
+
+        const third_to_last = it.previous().?;
+        try std.testing.expectEqualSlices(u16, L("a"), third_to_last.name);
+        try std.testing.expectEqualSlices(u16, L("C:\\a"), third_to_last.path);
+
+        try std.testing.expect(null == it.previous());
+    }
+}
+
+test "ComponentIterator roots" {
+    // UEFI
+    {
+        var it = try ComponentIterator(.uefi, u8).init("\\\\a");
+        try std.testing.expectEqualStrings("\\\\", it.root().?);
+
+        it = try ComponentIterator(.uefi, u8).init("//a");
+        try std.testing.expect(null == it.root());
+    }
+    // POSIX
+    {
+        var it = try ComponentIterator(.posix, u8).init("//a");
+        try std.testing.expectEqualStrings("//", it.root().?);
+
+        it = try ComponentIterator(.posix, u8).init("\\\\a");
+        try std.testing.expect(null == it.root());
+    }
+    // Windows
+    {
+        // Drive relative
+        var it = try ComponentIterator(.windows, u8).init("C:a");
+        try std.testing.expectEqualStrings("C:", it.root().?);
+
+        // Drive absolute
+        it = try ComponentIterator(.windows, u8).init("C://a");
+        try std.testing.expectEqualStrings("C://", it.root().?);
+        it = try ComponentIterator(.windows, u8).init("C:\\a");
+        try std.testing.expectEqualStrings("C:\\", it.root().?);
+
+        // Rooted
+        it = try ComponentIterator(.windows, u8).init("\\a");
+        try std.testing.expectEqualStrings("\\", it.root().?);
+        it = try ComponentIterator(.windows, u8).init("/a");
+        try std.testing.expectEqualStrings("/", it.root().?);
+
+        // Root local device
+        it = try ComponentIterator(.windows, u8).init("\\\\.");
+        try std.testing.expectEqualStrings("\\\\.", it.root().?);
+        it = try ComponentIterator(.windows, u8).init("//?");
+        try std.testing.expectEqualStrings("//?", it.root().?);
+
+        // UNC absolute
+        it = try ComponentIterator(.windows, u8).init("//");
+        try std.testing.expectEqualStrings("//", it.root().?);
+        it = try ComponentIterator(.windows, u8).init("\\\\a");
+        try std.testing.expectEqualStrings("\\\\a", it.root().?);
+        it = try ComponentIterator(.windows, u8).init("\\\\a\\b\\\\c");
+        try std.testing.expectEqualStrings("\\\\a\\b\\\\", it.root().?);
+        it = try ComponentIterator(.windows, u8).init("//a");
+        try std.testing.expectEqualStrings("//a", it.root().?);
+        it = try ComponentIterator(.windows, u8).init("//a/b//c");
+        try std.testing.expectEqualStrings("//a/b//", it.root().?);
+    }
 }
