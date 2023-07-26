@@ -1133,12 +1133,9 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
             test_step.linkLibC();
             test_step.addCSourceFile("test/c_abi/cfuncs.c", &.{"-std=c99"});
 
-            // test-c-abi should test both with LTO on and with LTO off. Only
-            // some combinations are passing currently:
-            // https://github.com/ziglang/zig/issues/14908
-            if (c_abi_target.isWindows()) {
-                test_step.want_lto = false;
-            }
+            // This test is intentionally trying to check if the external ABI is
+            // done properly. LTO would be a hindrance to this.
+            test_step.want_lto = false;
 
             const run = b.addRunArtifact(test_step);
             run.skip_foreign_checks = true;
