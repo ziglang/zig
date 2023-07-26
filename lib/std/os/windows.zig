@@ -2319,10 +2319,6 @@ pub const UnprefixedPathType = enum {
     root_local_device,
 };
 
-inline fn isSepW(c: u16) bool {
-    return c == '/' or c == '\\';
-}
-
 /// Get the path type of a path that is known to not have any namespace prefixes
 /// (`\\?\`, `\\.\`, `\??\`).
 pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathType {
@@ -2332,9 +2328,10 @@ pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathTy
         std.debug.assert(getNamespacePrefix(T, path) == .none);
     }
 
-    if (isSepW(path[0])) {
+    const windows_path = std.fs.path.PathType.windows;
+    if (windows_path.isSep(T, path[0])) {
         // \x
-        if (path.len < 2 or !isSepW(path[1])) return .rooted;
+        if (path.len < 2 or !windows_path.isSep(T, path[1])) return .rooted;
         // exactly \\. or \\? with nothing trailing
         if (path.len == 3 and (path[2] == '.' or path[2] == '?')) return .root_local_device;
         // \\x
@@ -2343,7 +2340,7 @@ pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathTy
         // x
         if (path.len < 2 or path[1] != ':') return .relative;
         // x:\
-        if (path.len > 2 and isSepW(path[2])) return .drive_absolute;
+        if (path.len > 2 and windows_path.isSep(T, path[2])) return .drive_absolute;
         // x:
         return .drive_relative;
     }
