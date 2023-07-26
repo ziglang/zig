@@ -20,6 +20,11 @@ static void assert_or_panic(bool ok) {
 #  define ZIG_RISCV32
 #endif
 
+#if defined(__aarch64__) && defined(__linux__)
+// TODO: https://github.com/ziglang/zig/issues/14908
+#define ZIG_BUG_14908
+#endif
+
 #ifdef __i386__
 #  define ZIG_NO_I128
 #endif
@@ -263,8 +268,10 @@ void run_c_tests(void) {
     }
 #endif
 
+#ifndef ZIG_BUG_14908
     zig_i8(-1);
     zig_i16(-2);
+#endif
     zig_i32(-3);
     zig_i64(-4);
 

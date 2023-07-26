@@ -813,6 +813,11 @@ extern fn c_ret_medium_vec() MediumVec;
 test "medium simd vector" {
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux) {
+        // TODO: https://github.com/ziglang/zig/issues/14908
+        return error.SkipZigTest;
+    }
+
     c_medium_vec(.{ 1, 2, 3, 4 });
 
     var x = c_ret_medium_vec();
@@ -831,6 +836,11 @@ test "big simd vector" {
     if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .macos and builtin.mode != .Debug) return error.SkipZigTest;
+
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux) {
+        // TODO: https://github.com/ziglang/zig/issues/14908
+        return error.SkipZigTest;
+    }
 
     c_big_vec(.{ 1, 2, 3, 4, 5, 6, 7, 8 });
 
