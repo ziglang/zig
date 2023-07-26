@@ -28,13 +28,13 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const tbd_file = b.addWriteFile("liba.tbd",
         \\--- !tapi-tbd-v3
-        \\archs:           [ arm64 ]
-        \\uuids:           [ 'arm64: DEADBEEF' ]
+        \\archs:           [ arm64, x86_64 ]
+        \\uuids:           [ 'arm64: DEADBEEF', 'x86_64: BEEFDEAD' ]
         \\platform:        macos
         \\install-name:    @rpath/liba.dylib
         \\current-version: 0
         \\exports:         
-        \\  - archs:           [ arm64 ]
+        \\  - archs:           [ arm64, x86_64 ]
         \\    symbols:         [ _getFoo ]
     );
 
