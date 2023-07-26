@@ -1656,7 +1656,7 @@ pub const DwarfInfo = struct {
     /// `explicit_fde_offset` is for cases where the FDE offset is known, such as when __unwind_info
     /// defers unwinding to DWARF. This is an offset into the `.eh_frame` section.
     pub fn unwindFrame(di: *const DwarfInfo, context: *UnwindContext, explicit_fde_offset: ?usize) !usize {
-        if (!comptime abi.isSupportedArch(builtin.target.cpu.arch)) return error.UnsupportedCpuArchitecture;
+        if (!comptime abi.supportsUnwinding(builtin.target)) return error.UnsupportedCpuArchitecture;
         if (context.pc == 0) return 0;
 
         // Find the FDE and CIE
