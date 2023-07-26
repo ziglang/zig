@@ -62,7 +62,6 @@ pub const simple_cases = [_]SimpleCase{
 
     // Ensure the development tools are buildable. Alphabetically sorted.
     // No need to build `tools/spirv/grammar.zig`.
-    .{ .src_path = "tools/extract-grammar.zig" },
     .{ .src_path = "tools/gen_outline_atomics.zig" },
     .{ .src_path = "tools/gen_spirv_spec.zig" },
     .{ .src_path = "tools/gen_stubs.zig" },
