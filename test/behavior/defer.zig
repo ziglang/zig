@@ -189,3 +189,15 @@ test "errdefer used in function that doesn't return an error" {
     };
     try expect(S.foo() == 5);
 }
+
+// Originally reported at https://github.com/ziglang/zig/issues/10591
+const defer_assign = switch (block: {
+    var x = 0;
+    defer x = 1;
+    break :block x;
+}) {
+    else => |i| i,
+};
+comptime {
+    if (defer_assign != 0) @compileError("defer_assign failed!");
+}

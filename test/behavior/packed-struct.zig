@@ -640,3 +640,13 @@ test "store undefined to packed result location" {
     var s = packed struct { x: u4, y: u4 }{ .x = x, .y = if (x > 0) x else undefined };
     try expectEqual(x, s.x);
 }
+
+test "bitcast back and forth" {
+    // Originally reported at https://github.com/ziglang/zig/issues/9914
+    const S = packed struct { one: u6, two: u1 };
+    const s = S{ .one = 0b110101, .two = 0b1 };
+    const u: u7 = @bitCast(s);
+    const s2: S = @bitCast(u);
+    try expect(s.one == s2.one);
+    try expect(s.two == s2.two);
+}
