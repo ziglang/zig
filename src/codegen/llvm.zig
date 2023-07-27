@@ -5324,8 +5324,8 @@ pub const FuncGen = struct {
             },
         };
 
-        if (callee_ty.zigTypeTag(mod) == .Pointer) {
-            // Add argument attributes for function pointer calls.
+        {
+            // Add argument attributes.
             it = iterateParamTypes(o, fn_info);
             it.llvm_index += @intFromBool(sret);
             it.llvm_index += @intFromBool(err_return_tracing);

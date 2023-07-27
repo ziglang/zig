@@ -1034,3 +1034,20 @@ struct ByRef __attribute__((sysv_abi)) c_explict_sys_v(struct ByRef in) {
     return in;
 }
 #endif
+
+
+struct byval_tail_callsite_attr_Point {
+    double x;
+    double y;
+} Point;
+struct byval_tail_callsite_attr_Size {
+    double width;
+    double height;
+} Size;
+struct byval_tail_callsite_attr_Rect {
+    struct byval_tail_callsite_attr_Point origin;
+    struct byval_tail_callsite_attr_Size size;
+};
+double c_byval_tail_callsite_attr(struct byval_tail_callsite_attr_Rect in) {
+    return in.size.width;
+}

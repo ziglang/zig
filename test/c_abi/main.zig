@@ -1216,3 +1216,58 @@ test "explicit Win64 calling convention" {
     const res = c_explict_sys_v(.{ .val = 1, .arr = undefined });
     try expect(res.val == 42);
 }
+
+const byval_tail_callsite_attr = struct {
+    const struct_Point = extern struct {
+        x: f64,
+        y: f64,
+    };
+    const struct_Size = extern struct {
+        width: f64,
+        height: f64,
+    };
+    const struct_Rect = extern struct {
+        origin: struct_Point,
+        size: struct_Size,
+    };
+
+    const Point = extern struct {
+        x: f64,
+        y: f64,
+    };
+
+    const Size = extern struct {
+        width: f64,
+        height: f64,
+    };
+
+    const MyRect = extern struct {
+        origin: Point,
+        size: Size,
+
+        fn run(self: MyRect) f64 {
+            return c_byval_tail_callsite_attr(cast(self));
+        }
+
+        fn cast(self: MyRect) struct_Rect {
+            return @bitCast(self);
+        }
+
+        extern fn c_byval_tail_callsite_attr(struct_Rect) f64;
+    };
+};
+
+test "byval tail callsite attribute" {
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+
+    // Originally reported at https://github.com/ziglang/zig/issues/16290
+    // the bug was that the extern function had the byval attribute, but
+    // zig did not put the byval attribute at the callsite. Some LLVM optimization
+    // passes would then pass undefined for that parameter.
+    var v: byval_tail_callsite_attr.MyRect = .{
+        .origin = .{ .x = 1, .y = 2 },
+        .size = .{ .width = 3, .height = 4 },
+    };
+    try expect(v.run() == 3.0);
+}
