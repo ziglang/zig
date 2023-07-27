@@ -272,6 +272,17 @@ test "zig fmt: top-level enum missing 'const name ='" {
     , &[_]Error{.expected_token});
 }
 
+test "zig fmt: top-level for/while loop" {
+    try testCanonical(
+        \\for (foo) |_| foo
+        \\
+    );
+    try testCanonical(
+        \\while (foo) |_| foo
+        \\
+    );
+}
+
 test "zig fmt: top-level bare asterisk+identifier" {
     try testCanonical(
         \\*x
