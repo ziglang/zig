@@ -9536,15 +9536,18 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index, have_
             .@"for", // This variant always has an else expression.
             .@"switch",
             .switch_comma,
-            .call_one,
-            .call_one_comma,
             .async_call_one,
             .async_call_one_comma,
-            .call,
-            .call_comma,
             .async_call,
             .async_call_comma,
             => return true,
+
+            // https://github.com/ziglang/zig/issues/2765 would change this.
+            .call_one,
+            .call_one_comma,
+            .call,
+            .call_comma,
+            => return false,
 
             .block_two,
             .block_two_semicolon,
