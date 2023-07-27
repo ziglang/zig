@@ -483,6 +483,7 @@ pub const File = struct {
         BrokenPipe,
         ConnectionResetByPeer,
         ConnectionTimedOut,
+        SocketNotConnected,
         NotOpenForReading,
         WouldBlock,
         AccessDenied,
