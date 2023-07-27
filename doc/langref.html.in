@@ -3018,7 +3018,7 @@ test "basic slices" {
     slice[10] += 1;
 
     // Note that `slice.ptr` does not invoke safety checking, while `&slice[0]`
-    // asserts that the slice has len >= 1.
+    // asserts that the slice has len > 0.
 }
       {#code_end#}
       <p>This is one reason we prefer slices to pointers.</p>
