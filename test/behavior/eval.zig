@@ -1703,3 +1703,13 @@ test "@inComptime" {
     try expectEqual(false, S.inComptime());
     try expectEqual(true, comptime S.inComptime());
 }
+
+// comptime partial array assign
+comptime {
+    var foo = [3]u8{ 0x55, 0x55, 0x55 };
+    var bar = [2]u8{ 1, 2 };
+    foo[0..2].* = bar;
+    assert(foo[0] == 1);
+    assert(foo[1] == 2);
+    assert(foo[2] == 0x55);
+}
