@@ -5682,6 +5682,7 @@ const FmtError = error{
     NotOpenForWriting,
     UnsupportedEncoding,
     ConnectionResetByPeer,
+    SocketNotConnected,
     LockViolation,
     NetNameDeleted,
     InvalidArgument,
