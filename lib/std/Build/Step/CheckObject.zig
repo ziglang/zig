@@ -478,8 +478,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 },
                 .not_present => {
                     while (it.next()) |line| {
-                        if (act.notPresent(b, step, line)) break;
-                    } else {
+                        if (act.notPresent(b, step, line)) continue;
                         return step.fail(
                             \\
                             \\========= expected not to find: ===================

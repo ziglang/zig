@@ -241,6 +241,10 @@ pub const build_cases = [_]BuildCase{
         .build_root = "test/standalone/coff_dwarf",
         .import = @import("standalone/coff_dwarf/build.zig"),
     },
+    .{
+        .build_root = "test/standalone/compiler_rt_panic",
+        .import = @import("standalone/compiler_rt_panic/build.zig"),
+    },
 };
 
 const std = @import("std");
