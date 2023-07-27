@@ -1459,8 +1459,9 @@ pub const Dir = struct {
         try os.mkdiratW(self.fd, sub_path, default_new_dir_mode);
     }
 
-    /// Calls makeDir recursively to make an entire path. Returns success if the path
-    /// already exists and is a directory.
+    /// Calls makeDir iteratively to make an entire path
+    /// (i.e. creating any parent directories that do not exist).
+    /// Returns success if the path already exists and is a directory.
     /// This function is not atomic, and if it returns an error, the file system may
     /// have been modified regardless.
     pub fn makePath(self: Dir, sub_path: []const u8) !void {
@@ -1483,9 +1484,9 @@ pub const Dir = struct {
         }
     }
 
-    /// Calls makeOpenDirAccessMaskW recursively to make an entire path
-    /// (i.e. falling back if the parent directory does not exist). Opens the dir if the path
-    /// already exists and is a directory.
+    /// Calls makeOpenDirAccessMaskW iteratively to make an entire path
+    /// (i.e. creating any parent directories that do not exist).
+    /// Opens the dir if the path already exists and is a directory.
     /// This function is not atomic, and if it returns an error, the file system may
     /// have been modified regardless.
     fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no_follow: bool) OpenError!Dir {
