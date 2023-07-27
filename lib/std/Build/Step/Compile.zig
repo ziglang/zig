@@ -1200,8 +1200,8 @@ pub fn setExecCmd(self: *Compile, args: []const ?[]const u8) void {
 fn linkLibraryOrObject(self: *Compile, other: *Compile) void {
     other.forceEmit(.bin);
 
-    if (other.kind == .lib and other.target.isWindows()) { // TODO(xq): Is this the correct logic here?
-        _ = other.getEmittedImplib(); // Force emission of the binary
+    if (other.target.isWindows() and other.isDynamicLibrary()) { // TODO(xq): Is this the correct logic here?
+        other.forceEmit(.implib);
     }
 
     self.step.dependOn(&other.step);
@@ -1434,9 +1434,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
                     // TODO(xq): Is that the right way?
                     const full_path_lib = if (other.isDynamicLibrary() and other.target.isWindows())
-                        other.getGeneratedFilePath("generated_implib", &self.step)
+                        other.getGeneratedFilePath("generated_implib", &self.step) // For DLLs, we gotta link against the implib,
                     else
-                        other.getGeneratedFilePath("generated_bin", &self.step);
+                        other.getGeneratedFilePath("generated_bin", &self.step); // for everything else, we directly link against the library file
                     try zig_args.append(full_path_lib);
 
                     if (other.linkage == Linkage.dynamic and !self.target.isWindows()) {
