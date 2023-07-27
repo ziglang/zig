@@ -3,13 +3,24 @@ const std = @import("../std.zig");
 const os = std.os;
 const mem = std.mem;
 
-pub fn isSupportedArch(arch: std.Target.Cpu.Arch) bool {
-    return switch (arch) {
-        .x86,
-        .x86_64,
-        .arm,
-        .aarch64,
-        => true,
+pub fn supportsUnwinding(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .x86 => switch (target.os.tag) {
+            .linux, .netbsd, .solaris => true,
+            else => false,
+        },
+        .x86_64 => switch (target.os.tag) {
+            .linux, .netbsd, .freebsd, .openbsd, .macos, .solaris => true,
+            else => false,
+        },
+        .arm => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .aarch64 => switch (target.os.tag) {
+            .linux, .netbsd, .freebsd, .macos => true,
+            else => false,
+        },
         else => false,
     };
 }

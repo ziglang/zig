@@ -242,8 +242,7 @@ pub fn dumpStackTraceFromBase(context: *const ThreadContext) void {
         printSourceAtAddress(debug_info, stderr, it.unwind_state.?.dwarf_context.pc, tty_config) catch return;
 
         while (it.next()) |return_address| {
-            if (it.getLastError()) |unwind_error|
-                printUnwindError(debug_info, stderr, unwind_error.address, unwind_error.err, tty_config) catch {};
+            printLastUnwindError(&it, debug_info, stderr, tty_config);
 
             // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
             // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
@@ -252,7 +251,7 @@ pub fn dumpStackTraceFromBase(context: *const ThreadContext) void {
             // same behaviour for x86-windows-msvc
             const address = if (return_address == 0) return_address else return_address - 1;
             printSourceAtAddress(debug_info, stderr, address, tty_config) catch return;
-        }
+        } else printLastUnwindError(&it, debug_info, stderr, tty_config);
     }
 }
 
@@ -731,8 +730,7 @@ pub fn writeCurrentStackTrace(
     defer it.deinit();
 
     while (it.next()) |return_address| {
-        if (it.getLastError()) |unwind_error|
-            try printUnwindError(debug_info, out_stream, unwind_error.address, unwind_error.err, tty_config);
+        printLastUnwindError(&it, debug_info, out_stream, tty_config);
 
         // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
         // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
@@ -741,7 +739,7 @@ pub fn writeCurrentStackTrace(
         // same behaviour for x86-windows-msvc
         const address = if (return_address == 0) return_address else return_address - 1;
         try printSourceAtAddress(debug_info, out_stream, address, tty_config);
-    }
+    } else printLastUnwindError(&it, debug_info, out_stream, tty_config);
 }
 
 pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const windows.CONTEXT) usize {
@@ -879,10 +877,21 @@ fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usiz
     );
 }
 
-pub fn printUnwindError(debug_info: *DebugInfo, out_stream: anytype, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
+fn printLastUnwindError(it: *StackIterator, debug_info: *DebugInfo, out_stream: anytype, tty_config: io.tty.Config) void {
+    if (!have_ucontext) return;
+    if (it.getLastError()) |unwind_error| {
+        printUnwindError(debug_info, out_stream, unwind_error.address, unwind_error.err, tty_config) catch {};
+    }
+}
+
+fn printUnwindError(debug_info: *DebugInfo, out_stream: anytype, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
     try tty_config.setColor(out_stream, .dim);
-    try out_stream.print("Unwind information for `{s}:0x{x}` was not available ({}), trace may be incomplete\n\n", .{ module_name, address, err });
+    if (err == error.MissingDebugInfo) {
+        try out_stream.print("Unwind information for `{s}:0x{x}` was not available, trace may be incomplete\n\n", .{ module_name, address });
+    } else {
+        try out_stream.print("Unwind error at address `{s}:0x{x}` ({}), trace may be incomplete\n\n", .{ module_name, address, err });
+    }
     try tty_config.setColor(out_stream, .reset);
 }
 
