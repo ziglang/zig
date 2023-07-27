@@ -1490,33 +1490,31 @@ pub const Dir = struct {
     /// have been modified regardless.
     fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no_follow: bool) OpenError!Dir {
         const w = os.windows;
-        var end_index: usize = sub_path.len;
+        var it = try path.componentIterator(sub_path);
+        // If there are no components in the path, then create a dummy component with the full path.
+        var component = it.last() orelse path.NativeUtf8ComponentIterator.Component{
+            .name = "",
+            .path = sub_path,
+        };
 
-        return while (true) {
-            const sub_path_w = try w.sliceToPrefixedFileW(sub_path[0..end_index]);
-            const result = self.makeOpenDirAccessMaskW(sub_path_w.span().ptr, access_mask, .{
+        while (true) {
+            const sub_path_w = try w.sliceToPrefixedFileW(self.fd, component.path);
+            const is_last = it.peekNext() == null;
+            var result = self.makeOpenDirAccessMaskW(sub_path_w.span().ptr, access_mask, .{
                 .no_follow = no_follow,
-                .create_disposition = if (end_index == sub_path.len) w.FILE_OPEN_IF else w.FILE_CREATE,
+                .create_disposition = if (is_last) w.FILE_OPEN_IF else w.FILE_CREATE,
             }) catch |err| switch (err) {
-                error.FileNotFound => {
-                    // march end_index backward until next path component
-                    while (true) {
-                        if (end_index == 0) return err;
-                        end_index -= 1;
-                        if (path.isSep(sub_path[end_index])) break;
-                    }
+                error.FileNotFound => |e| {
+                    component = it.previous() orelse return e;
                     continue;
                 },
-                else => return err,
+                else => |e| return e,
             };
 
-            if (end_index == sub_path.len) return result;
-            // march end_index forward until next path component
-            while (true) {
-                end_index += 1;
-                if (end_index == sub_path.len or path.isSep(sub_path[end_index])) break;
-            }
-        };
+            component = it.next() orelse return result;
+            // Don't leak the intermediate file handles
+            result.close();
+        }
     }
 
     /// This function performs `makePath`, followed by `openDir`.
