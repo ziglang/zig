@@ -30732,18 +30732,10 @@ fn analyzeIsNonErrComptimeOnly(
                     else => return .none,
                 },
             }
-            for (ies.inferred_error_sets.keys()) |other_ies_index| {
-                if (set_ty == other_ies_index) continue;
-                const other_resolved =
-                    try sema.resolveInferredErrorSet(block, src, other_ies_index);
-                if (other_resolved == .anyerror_type) {
-                    ies.resolved = .anyerror_type;
-                    return .none;
-                }
-                if (ip.indexToKey(other_resolved).error_set_type.names.len != 0)
-                    return .none;
-            }
-            return .bool_true;
+            // We do not have a comptime answer because this inferred error
+            // set is not resolved, and an instruction later in this function
+            // body may or may not cause an error to be added to this set.
+            return .none;
         },
         else => switch (ip.indexToKey(set_ty)) {
             .error_set_type => |error_set_type| {
@@ -30771,18 +30763,10 @@ fn analyzeIsNonErrComptimeOnly(
                                 else => return .none,
                             },
                         }
-                        for (ies.inferred_error_sets.keys()) |other_ies_index| {
-                            if (set_ty == other_ies_index) continue;
-                            const other_resolved =
-                                try sema.resolveInferredErrorSet(block, src, other_ies_index);
-                            if (other_resolved == .anyerror_type) {
-                                ies.resolved = .anyerror_type;
-                                return .none;
-                            }
-                            if (ip.indexToKey(other_resolved).error_set_type.names.len != 0)
-                                return .none;
-                        }
-                        return .bool_true;
+                        // We do not have a comptime answer because this inferred error
+                        // set is not resolved, and an instruction later in this function
+                        // body may or may not cause an error to be added to this set.
+                        return .none;
                     }
                 }
                 const resolved_ty = try sema.resolveInferredErrorSet(block, src, set_ty);

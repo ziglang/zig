@@ -938,3 +938,28 @@ test "returning an error union containing a type with no runtime bits" {
     var zero_byte: ZeroByteType = undefined;
     (&zero_byte).* = try ZeroByteType.init();
 }
+
+test "try used in recursive function with inferred error set" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const Value = union(enum) {
+        values: []const @This(),
+        b,
+
+        fn x(value: @This()) !void {
+            switch (value.values[0]) {
+                .values => return try x(value.values[0]),
+                .b => return error.a,
+            }
+        }
+    };
+    const a = Value{
+        .values = &[1]Value{
+            .{
+                .values = &[1]Value{.{ .b = {} }},
+            },
+        },
+    };
+    try expectError(error.a, Value.x(a));
+}
