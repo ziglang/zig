@@ -917,6 +917,7 @@ fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
             error.Unseekable => return error.UnableToReadElfFile,
             error.ConnectionResetByPeer => return error.UnableToReadElfFile,
             error.ConnectionTimedOut => return error.UnableToReadElfFile,
+            error.SocketNotConnected => return error.UnableToReadElfFile,
             error.NetNameDeleted => return error.UnableToReadElfFile,
             error.Unexpected => return error.Unexpected,
             error.InputOutput => return error.FileSystem,
