@@ -498,7 +498,15 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
+    const options = &self.base.options;
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+
+    var input_rpath_list = std.ArrayList([]const u8).init(arena);
+
+    if (options.want_native_paths) {
+        const paths = try std.zig.system.NativePaths.detect(arena, options.target);
+        try input_rpath_list.appendSlice(paths.rpaths.items);
+    }
 
     if (self.lazy_syms.getPtr(.none)) |metadata| {
         // Most lazy symbols can be updated on first use, but
@@ -751,7 +759,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         else => {},
     }
 
-    try load_commands.writeRpathLCs(self.base.allocator, &self.base.options, lc_writer);
+    try load_commands.writeRpathLCs(self.base.allocator, input_rpath_list.items, lc_writer);
     try lc_writer.writeStruct(macho.source_version_command{
         .version = 0,
     });

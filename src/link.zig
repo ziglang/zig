@@ -247,6 +247,8 @@ pub const Options = struct {
     /// (Windows) .def file to specify when linking
     module_definition_file: ?[]const u8 = null,
 
+    want_native_paths: bool = false,
+
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }

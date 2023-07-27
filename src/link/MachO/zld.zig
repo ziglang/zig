@@ -1,5 +1,6 @@
 const std = @import("std");
 const build_options = @import("build_options");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const dwarf = std.dwarf;
 const fs = std.fs;
@@ -3348,6 +3349,21 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
 
     const id_symlink_basename = "zld.id";
 
+    var input_lib_dirs = std.ArrayList([]const u8).init(arena);
+    var input_framework_dirs = std.ArrayList([]const u8).init(arena);
+    var input_rpath_list = std.ArrayList([]const u8).init(arena);
+
+    try input_lib_dirs.appendSlice(options.lib_dirs);
+    try input_framework_dirs.appendSlice(options.framework_dirs);
+    try input_rpath_list.appendSlice(options.rpath_list);
+
+    if (options.want_native_paths) {
+        const paths = try std.zig.system.NativePaths.detect(arena, target);
+        try input_lib_dirs.appendSlice(paths.lib_dirs.items);
+        try input_framework_dirs.appendSlice(paths.framework_dirs.items);
+        try input_rpath_list.appendSlice(paths.rpaths.items);
+    }
+
     var man: Cache.Manifest = undefined;
     defer if (!options.disable_lld_caching) man.deinit();
 
@@ -3379,10 +3395,10 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         man.hash.add(gc_sections);
         man.hash.add(options.dead_strip_dylibs);
         man.hash.add(options.strip);
-        man.hash.addListOfBytes(options.lib_dirs);
-        man.hash.addListOfBytes(options.framework_dirs);
+        man.hash.addListOfBytes(input_lib_dirs.items);
+        man.hash.addListOfBytes(input_framework_dirs.items);
         link.hashAddSystemLibs(&man.hash, options.frameworks);
-        man.hash.addListOfBytes(options.rpath_list);
+        man.hash.addListOfBytes(input_rpath_list.items);
         if (is_dyn_lib) {
             man.hash.addOptionalBytes(options.install_name);
             man.hash.addOptional(options.version);
@@ -3534,7 +3550,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
 
         var lib_dirs = std.ArrayList([]const u8).init(arena);
-        for (options.lib_dirs) |dir| {
+        for (input_lib_dirs.items) |dir| {
             if (try MachO.resolveSearchDir(arena, dir, options.sysroot)) |search_dir| {
                 try lib_dirs.append(search_dir);
             } else {
@@ -3594,7 +3610,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
 
         // frameworks
         var framework_dirs = std.ArrayList([]const u8).init(arena);
-        for (options.framework_dirs) |dir| {
+        for (input_framework_dirs.items) |dir| {
             if (try MachO.resolveSearchDir(arena, dir, options.sysroot)) |search_dir| {
                 try framework_dirs.append(search_dir);
             } else {
@@ -3651,7 +3667,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 try argv.append(syslibroot);
             }
 
-            for (options.rpath_list) |rpath| {
+            for (input_rpath_list.items) |rpath| {
                 try argv.append("-rpath");
                 try argv.append(rpath);
             }
@@ -3726,7 +3742,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 try argv.append(arg);
             }
 
-            for (options.lib_dirs) |lib_dir| {
+            for (input_lib_dirs.items) |lib_dir| {
                 try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
             }
 
@@ -3741,7 +3757,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 try argv.append(arg);
             }
 
-            for (options.framework_dirs) |framework_dir| {
+            for (input_framework_dirs.items) |framework_dir| {
                 try argv.append(try std.fmt.allocPrint(arena, "-F{s}", .{framework_dir}));
             }
 
@@ -3937,7 +3953,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             try load_commands.writeDylibIdLC(zld.gpa, zld.options, lc_writer);
         }
 
-        try load_commands.writeRpathLCs(zld.gpa, zld.options, lc_writer);
+        try load_commands.writeRpathLCs(zld.gpa, input_rpath_list.items, lc_writer);
         try lc_writer.writeStruct(macho.source_version_command{
             .version = 0,
         });

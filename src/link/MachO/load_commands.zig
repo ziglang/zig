@@ -247,8 +247,8 @@ const RpathIterator = struct {
     }
 };
 
-pub fn writeRpathLCs(gpa: Allocator, options: *const link.Options, lc_writer: anytype) !void {
-    var it = RpathIterator.init(gpa, options.rpath_list);
+pub fn writeRpathLCs(gpa: Allocator, rpaths: []const []const u8, lc_writer: anytype) !void {
+    var it = RpathIterator.init(gpa, rpaths);
     defer it.deinit();
 
     while (try it.next()) |rpath| {
