@@ -28101,6 +28101,50 @@ fn coerceInMemoryAllowed(
         return .ok;
     }
 
+    // Arrays <-> Vectors
+    if ((dest_tag == .Vector and src_tag == .Array) or
+        (dest_tag == .Array and src_tag == .Vector))
+    {
+        const dest_len = dest_ty.arrayLen(mod);
+        const src_len = src_ty.arrayLen(mod);
+        if (dest_len != src_len) {
+            return InMemoryCoercionResult{ .array_len = .{
+                .actual = src_len,
+                .wanted = dest_len,
+            } };
+        }
+
+        const dest_elem_ty = dest_ty.childType(mod);
+        const src_elem_ty = src_ty.childType(mod);
+        const child = try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, dest_is_mut, target, dest_src, src_src);
+        if (child != .ok) {
+            return InMemoryCoercionResult{ .array_elem = .{
+                .child = try child.dupe(sema.arena),
+                .actual = src_elem_ty,
+                .wanted = dest_elem_ty,
+            } };
+        }
+
+        if (dest_tag == .Array) {
+            const dest_info = dest_ty.arrayInfo(mod);
+            if (dest_info.sentinel != null) {
+                return InMemoryCoercionResult{ .array_sentinel = .{
+                    .actual = Value.@"unreachable",
+                    .wanted = dest_info.sentinel.?,
+                    .ty = dest_info.elem_type,
+                } };
+            }
+        }
+
+        // The memory layout of @Vector(N, iM) is the same as the integer type i(N*M),
+        // that is to say, the padding bits are not in the same place as the array [N]iM.
+        // If there's no padding, the bitcast is possible.
+        const elem_bit_size = dest_elem_ty.bitSize(mod);
+        const elem_abi_byte_size = dest_elem_ty.abiSize(mod);
+        if (elem_abi_byte_size * 8 == elem_bit_size)
+            return .ok;
+    }
+
     // Optionals
     if (dest_tag == .Optional and src_tag == .Optional) {
         if ((maybe_dest_ptr_ty != null) != (maybe_src_ptr_ty != null)) {
@@ -29991,10 +30035,22 @@ fn coerceArrayLike(
 ) !Air.Inst.Ref {
     const mod = sema.mod;
     const inst_ty = sema.typeOf(inst);
-    const inst_len = inst_ty.arrayLen(mod);
-    const dest_len = try sema.usizeCast(block, dest_ty_src, dest_ty.arrayLen(mod));
     const target = mod.getTarget();
 
+    // try coercion of the whole array
+    const in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
+    if (in_memory_result == .ok) {
+        if (try sema.resolveMaybeUndefVal(inst)) |inst_val| {
+            // These types share the same comptime value representation.
+            return sema.coerceInMemory(inst_val, dest_ty);
+        }
+        try sema.requireRuntimeBlock(block, inst_src, null);
+        return block.addBitCast(dest_ty, inst);
+    }
+
+    // otherwise, try element by element
+    const inst_len = inst_ty.arrayLen(mod);
+    const dest_len = try sema.usizeCast(block, dest_ty_src, dest_ty.arrayLen(mod));
     if (dest_len != inst_len) {
         const msg = msg: {
             const msg = try sema.errMsg(block, inst_src, "expected type '{}', found '{}'", .{
@@ -30009,17 +30065,6 @@ fn coerceArrayLike(
     }
 
     const dest_elem_ty = dest_ty.childType(mod);
-    const inst_elem_ty = inst_ty.childType(mod);
-    const in_memory_result = try sema.coerceInMemoryAllowed(block, dest_elem_ty, inst_elem_ty, false, target, dest_ty_src, inst_src);
-    if (in_memory_result == .ok) {
-        if (try sema.resolveMaybeUndefVal(inst)) |inst_val| {
-            // These types share the same comptime value representation.
-            return sema.coerceInMemory(inst_val, dest_ty);
-        }
-        try sema.requireRuntimeBlock(block, inst_src, null);
-        return block.addBitCast(dest_ty, inst);
-    }
-
     const element_vals = try sema.arena.alloc(InternPool.Index, dest_len);
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, dest_len);
     var runtime_src: ?LazySrcLoc = null;
