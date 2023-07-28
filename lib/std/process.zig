@@ -398,9 +398,10 @@ pub const HasEnvVarError = error{
 
 pub fn hasEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
     if (builtin.os.tag == .windows) {
-        var stack_alloc = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
-        const key_w = try std.unicode.utf8ToUtf16LeWithNull(stack_alloc.get(), key);
-        defer stack_alloc.allocator.free(key_w);
+        var stack_allocator = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
+        const stack_alloc = stack_allocator.get();
+        const key_w = try std.unicode.utf8ToUtf16LeWithNull(stack_alloc, key);
+        defer stack_alloc.free(key_w);
         return std.os.getenvW(key_w) != null;
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var envmap = getEnvMap(allocator) catch return error.OutOfMemory;
