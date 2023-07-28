@@ -176,6 +176,43 @@ test "array to vector" {
     try comptime S.doTheTest();
 }
 
+test "array vector coercion - odd sizes" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() !void {
+            var foo1: i48 = 124578;
+            var vec1: @Vector(2, i48) = [2]i48{ foo1, 1 };
+            var arr1: [2]i48 = vec1;
+            try expect(vec1[0] == foo1 and vec1[1] == 1);
+            try expect(arr1[0] == foo1 and arr1[1] == 1);
+
+            var foo2: u4 = 5;
+            var vec2: @Vector(2, u4) = [2]u4{ foo2, 1 };
+            var arr2: [2]u4 = vec2;
+            try expect(vec2[0] == foo2 and vec2[1] == 1);
+            try expect(arr2[0] == foo2 and arr2[1] == 1);
+
+            var foo3: u13 = 13;
+            var vec3: @Vector(3, u13) = [3]u13{ foo3, 0, 1 };
+            var arr3: [3]u13 = vec3;
+            try expect(vec3[0] == foo3 and vec3[1] == 0 and vec3[2] == 1);
+            try expect(arr3[0] == foo3 and arr3[1] == 0 and arr3[2] == 1);
+
+            var arr4 = [4:0]u24{ foo3, foo2, 0, 1 };
+            var vec4: @Vector(4, u24) = arr4;
+            try expect(vec4[0] == foo3 and vec4[1] == foo2 and vec4[2] == 0 and vec4[3] == 1);
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
 test "array to vector with element type coercion" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and
