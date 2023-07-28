@@ -284,7 +284,9 @@
         transform: translate(0, 0);
       }
 
-      #searchHelp {
+      #sectSearchResults {
+        box-sizing: border-box;
+        max-width: 960px;
       }
 
       #searchHelp summary {
@@ -963,14 +965,14 @@
                   case-sensitive.</li>
                 <li>Given <code>ArrayListUnmanaged</code>:
                   <ul>
-                    <li>the following words (and their prefixes) will match:
+                    <li>the following search terms (and their prefixes) will match:
                       <ul>
                         <li><code>array</code></li>
                         <li><code>list</code></li>
                         <li><code>unmanaged</code></li>
                       </ul>
                     </li>
-                    <li>the following words will <b>NOT</b> match:
+                    <li>the following search terms will <b>NOT</b> match:
                       <ul>
                         <li><code>stun</code></li>
                         <li><code>ray</code></li>
