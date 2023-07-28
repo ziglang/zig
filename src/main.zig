@@ -4018,7 +4018,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
         }
 
         var darwin_sdk: ?std.zig.system.darwin.DarwinSDK = if ((comptime builtin.target.isDarwin()) and
-            !std.zig.system.NativePaths.isNix() and
+            !std.zig.system.NativePaths.isNix(gpa) and
             std.zig.system.darwin.isDarwinSDKInstalled(gpa))
             std.zig.system.darwin.getDarwinSDK(gpa, builtin.target)
         else

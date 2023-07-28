@@ -13,11 +13,10 @@ framework_dirs: ArrayList([:0]u8),
 rpaths: ArrayList([:0]u8),
 warnings: ArrayList([:0]u8),
 
-pub fn isNix() bool {
-    if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        @compileError("isNix check is not supported for WASI without libc");
-    }
-    return process.hasEnvVarConstant("NIX_CFLAGS_COMPILE") and process.hasEnvVarConstant("NIX_LDFLAGS");
+pub fn isNix(allocator: Allocator) bool {
+    const cflags = process.hasEnvVar(allocator, "NIX_CFLAGS_COMPILE") catch return false;
+    const ldflags = process.hasEnvVar(allocator, "NIX_LDFLAGS") catch return false;
+    return cflags and ldflags;
 }
 
 pub fn detect(allocator: Allocator, native_target: std.Target) !NativePaths {

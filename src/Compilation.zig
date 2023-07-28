@@ -857,7 +857,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const darwin_native = options.is_native_os and options.target.isDarwin() and options.sysroot == null;
         const darwin_sdk: ?std.zig.system.darwin.DarwinSDK = if (darwin_native and
-            !std.zig.system.NativePaths.isNix() and
+            !std.zig.system.NativePaths.isNix(arena) and
             std.zig.system.darwin.isDarwinSDKInstalled(arena))
             std.zig.system.darwin.getDarwinSDK(arena, options.target)
         else
