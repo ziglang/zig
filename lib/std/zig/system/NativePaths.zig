@@ -192,6 +192,22 @@ fn deinitArray(array: *ArrayList([:0]u8)) void {
     array.deinit();
 }
 
+pub inline fn getIncludeDirs(self: *const NativePaths) []const [:0]const u8 {
+    return self.include_dirs.items;
+}
+
+pub inline fn getLibDirs(self: *const NativePaths) []const [:0]const u8 {
+    return self.lib_dirs.items;
+}
+
+pub inline fn getFrameworkDirs(self: *const NativePaths) []const [:0]const u8 {
+    return self.framework_dirs.items;
+}
+
+pub inline fn getRpaths(self: *const NativePaths) []const [:0]const u8 {
+    return self.rpaths.items;
+}
+
 pub fn addIncludeDir(self: *NativePaths, s: []const u8) !void {
     return self.appendArray(&self.include_dirs, s);
 }

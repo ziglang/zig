@@ -54,6 +54,12 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     // See link/Elf.zig for comments on how this mechanism works.
     const id_symlink_basename = "lld.id";
 
+    var input_lib_dirs = std.ArrayList([]const u8).init(arena);
+    try input_lib_dirs.appendSlice(self.base.options.lib_dirs);
+    if (self.base.options.native_paths) |paths| {
+        try input_lib_dirs.appendSlice(paths.getLibDirs());
+    }
+
     var man: Cache.Manifest = undefined;
     defer if (!self.base.options.disable_lld_caching) man.deinit();
 
@@ -76,7 +82,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.addOptional(self.base.options.stack_size_override);
         man.hash.addOptional(self.base.options.image_base_override);
-        man.hash.addListOfBytes(self.base.options.lib_dirs);
+        man.hash.addListOfBytes(input_lib_dirs.items);
         man.hash.add(self.base.options.skip_linker_dependencies);
         if (self.base.options.link_libc) {
             man.hash.add(self.base.options.libc_installation != null);
@@ -251,7 +257,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             }
         }
 
-        for (self.base.options.lib_dirs) |lib_dir| {
+        for (input_lib_dirs.items) |lib_dir| {
             try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{lib_dir}));
         }
 
@@ -491,13 +497,13 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 argv.appendAssumeCapacity(crt_file.full_object_path);
                 continue;
             }
-            if (try findLib(arena, lib_basename, self.base.options.lib_dirs)) |full_path| {
+            if (try findLib(arena, lib_basename, input_lib_dirs.items)) |full_path| {
                 argv.appendAssumeCapacity(full_path);
                 continue;
             }
             if (target.abi.isGnu()) {
                 const fallback_name = try allocPrint(arena, "lib{s}.dll.a", .{key});
-                if (try findLib(arena, fallback_name, self.base.options.lib_dirs)) |full_path| {
+                if (try findLib(arena, fallback_name, input_lib_dirs.items)) |full_path| {
                     argv.appendAssumeCapacity(full_path);
                     continue;
                 }

@@ -3357,11 +3357,10 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
     try input_framework_dirs.appendSlice(options.framework_dirs);
     try input_rpath_list.appendSlice(options.rpath_list);
 
-    if (options.want_native_paths) {
-        const paths = try std.zig.system.NativePaths.detect(arena, target);
-        try input_lib_dirs.appendSlice(paths.lib_dirs.items);
-        try input_framework_dirs.appendSlice(paths.framework_dirs.items);
-        try input_rpath_list.appendSlice(paths.rpaths.items);
+    if (options.native_paths) |paths| {
+        try input_lib_dirs.appendSlice(paths.getLibDirs());
+        try input_framework_dirs.appendSlice(paths.getFrameworkDirs());
+        try input_rpath_list.appendSlice(paths.getRpaths());
     }
 
     var man: Cache.Manifest = undefined;

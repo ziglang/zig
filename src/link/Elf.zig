@@ -1362,6 +1362,17 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     // our digest. If so, we can skip linking. Otherwise, we proceed with invoking LLD.
     const id_symlink_basename = "lld.id";
 
+    var input_lib_dirs = std.ArrayList([]const u8).init(arena);
+    var input_rpath_list = std.ArrayList([]const u8).init(arena);
+
+    try input_lib_dirs.appendSlice(self.base.options.lib_dirs);
+    try input_rpath_list.appendSlice(self.base.options.rpath_list);
+
+    if (self.base.options.native_paths) |paths| {
+        try input_lib_dirs.appendSlice(paths.getLibDirs());
+        try input_rpath_list.appendSlice(paths.getRpaths());
+    }
+
     var man: Cache.Manifest = undefined;
     defer if (!self.base.options.disable_lld_caching) man.deinit();
 
@@ -1397,8 +1408,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.base.options.eh_frame_hdr);
         man.hash.add(self.base.options.emit_relocs);
         man.hash.add(self.base.options.rdynamic);
-        man.hash.addListOfBytes(self.base.options.lib_dirs);
-        man.hash.addListOfBytes(self.base.options.rpath_list);
+        man.hash.addListOfBytes(input_lib_dirs.items);
+        man.hash.addListOfBytes(input_rpath_list.items);
         man.hash.add(self.base.options.each_lib_rpath);
         if (self.base.options.output_mode == .Exe) {
             man.hash.add(stack_size);
@@ -1688,7 +1699,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // rpaths
         var rpath_table = std.StringHashMap(void).init(self.base.allocator);
         defer rpath_table.deinit();
-        for (self.base.options.rpath_list) |rpath| {
+        for (input_rpath_list.items) |rpath| {
             if ((try rpath_table.fetchPut(rpath, {})) == null) {
                 try argv.append("-rpath");
                 try argv.append(rpath);
@@ -1702,7 +1713,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (self.base.options.each_lib_rpath) {
             var test_path = std.ArrayList(u8).init(self.base.allocator);
             defer test_path.deinit();
-            for (self.base.options.lib_dirs) |lib_dir_path| {
+            for (input_lib_dirs.items) |lib_dir_path| {
                 for (self.base.options.system_libs.keys()) |link_lib| {
                     test_path.clearRetainingCapacity();
                     const sep = fs.path.sep_str;
@@ -1732,7 +1743,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
         }
 
-        for (self.base.options.lib_dirs) |lib_dir| {
+        for (input_lib_dirs.items) |lib_dir| {
             try argv.append("-L");
             try argv.append(lib_dir);
         }

@@ -16,6 +16,7 @@ const Compilation = @import("Compilation.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const Liveness = @import("Liveness.zig");
 const Module = @import("Module.zig");
+const NativePaths = std.zig.system.NativePaths;
 const InternPool = @import("InternPool.zig");
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
@@ -204,6 +205,8 @@ pub const Options = struct {
     version: ?std.SemanticVersion,
     compatibility_version: ?std.SemanticVersion,
     libc_installation: ?*const LibCInstallation,
+    // TODO figure out if we can make it part of LibCInstallation
+    native_paths: ?NativePaths = null,
 
     dwarf_format: ?std.dwarf.Format,
 
@@ -246,8 +249,6 @@ pub const Options = struct {
 
     /// (Windows) .def file to specify when linking
     module_definition_file: ?[]const u8 = null,
-
-    want_native_paths: bool = false,
 
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;

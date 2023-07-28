@@ -866,6 +866,15 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const want_native_paths = (options.sysroot == null and options.is_native_os and
             (options.system_lib_names.len > 0 or options.want_native_include_dirs orelse false)) or
             darwin_native;
+        const native_paths = if (want_native_paths) blk: {
+            const paths = std.zig.system.NativePaths.detect(arena, options.target) catch |err| {
+                fatal("unable to detect native system paths: {s}", .{@errorName(err)});
+            };
+            for (paths.warnings.items) |warning| {
+                log.warn("{s}", .{warning});
+            }
+            break :blk paths;
+        } else null;
 
         const sysroot = blk: {
             if (options.sysroot) |sysroot| break :blk sysroot;
@@ -1582,7 +1591,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .force_undefined_symbols = options.force_undefined_symbols,
             .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
-            .want_native_paths = want_native_paths,
+            .native_paths = native_paths,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -2357,6 +2366,10 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.rdynamic);
     man.hash.addListOfBytes(comp.bin_file.options.lib_dirs);
     man.hash.addListOfBytes(comp.bin_file.options.rpath_list);
+    if (comp.bin_file.options.native_paths) |paths| {
+        man.hash.addListOfBytes(paths.getLibDirs());
+        man.hash.addListOfBytes(paths.getRpaths());
+    }
     man.hash.addListOfBytes(comp.bin_file.options.symbol_wrap_set.keys());
     man.hash.add(comp.bin_file.options.each_lib_rpath);
     man.hash.add(comp.bin_file.options.build_id);
@@ -2406,6 +2419,8 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     // Mach-O specific stuff
     man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
+    if (comp.bin_file.options.native_paths) |paths|
+        man.hash.addListOfBytes(paths.getFrameworkDirs());
     link.hashAddSystemLibs(&man.hash, comp.bin_file.options.frameworks);
     try man.addOptionalFile(comp.bin_file.options.entitlements);
     man.hash.addOptional(comp.bin_file.options.pagezero_size);
@@ -4372,19 +4387,15 @@ pub fn addCCArgs(
                 argv.appendAssumeCapacity(framework_dir);
             }
 
-            if (comp.bin_file.options.want_native_paths) {
-                const paths = std.zig.system.NativePaths.detect(arena, target) catch |err| {
-                    fatal("unable to detect native system paths: {s}", .{@errorName(err)});
-                };
-
-                try argv.ensureUnusedCapacity(paths.include_dirs.items.len * 2);
-                for (paths.include_dirs.items) |include_dir| {
+            if (comp.bin_file.options.native_paths) |paths| {
+                try argv.ensureUnusedCapacity(paths.getIncludeDirs().len * 2);
+                for (paths.getIncludeDirs()) |include_dir| {
                     argv.appendAssumeCapacity("-isystem");
                     argv.appendAssumeCapacity(include_dir);
                 }
 
-                try argv.ensureUnusedCapacity(paths.framework_dirs.items.len * 2);
-                for (paths.framework_dirs.items) |framework_dir| {
+                try argv.ensureUnusedCapacity(paths.getFrameworkDirs().len * 2);
+                for (paths.getFrameworkDirs()) |framework_dir| {
                     argv.appendAssumeCapacity("-iframework");
                     argv.appendAssumeCapacity(framework_dir);
                 }

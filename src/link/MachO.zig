@@ -503,9 +503,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     var input_rpath_list = std.ArrayList([]const u8).init(arena);
 
-    if (options.want_native_paths) {
-        const paths = try std.zig.system.NativePaths.detect(arena, options.target);
-        try input_rpath_list.appendSlice(paths.rpaths.items);
+    if (options.native_paths) |paths| {
+        try input_rpath_list.appendSlice(paths.getRpaths());
     }
 
     if (self.lazy_syms.getPtr(.none)) |metadata| {
