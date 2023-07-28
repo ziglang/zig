@@ -351,13 +351,7 @@ test "getEnvMap" {
     defer env.deinit();
 }
 
-pub const GetEnvVarOwnedError = error{
-    OutOfMemory,
-    EnvironmentVariableNotFound,
-
-    /// See https://github.com/ziglang/zig/issues/1774
-    InvalidUtf8,
-};
+pub const GetEnvVarOwnedError = error{EnvironmentVariableNotFound} || HasEnvVarError;
 
 /// Caller must free returned memory.
 pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
@@ -396,7 +390,13 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     }
 }
 
-pub fn hasEnvVar(allocator: Allocator, key: []const u8) error{OutOfMemory}!bool {
+pub const HasEnvVarError = error{
+    OutOfMemory,
+    /// See https://github.com/ziglang/zig/issues/1774
+    InvalidUtf8,
+};
+
+pub fn hasEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
     if (builtin.os.tag == .windows) {
         var stack_alloc = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
         const key_w = try std.unicode.utf8ToUtf16LeWithNull(stack_alloc.get(), key);
