@@ -2496,6 +2496,8 @@ pub const LPCWSTR = [*:0]const WCHAR;
 pub const PVOID = *anyopaque;
 pub const PWSTR = [*:0]WCHAR;
 pub const PCWSTR = [*:0]const WCHAR;
+/// Allocated by SysAllocString, freed by SysFreeString
+pub const BSTR = [*:0]WCHAR;
 pub const SIZE_T = usize;
 pub const UINT = c_uint;
 pub const ULONG_PTR = usize;
@@ -3253,6 +3255,7 @@ pub const KF_FLAG_SIMPLE_IDLIST = 256;
 pub const KF_FLAG_ALIAS_ONLY = -2147483648;
 
 pub const S_OK = 0;
+pub const S_FALSE = 0x00000001;
 pub const E_NOTIMPL = @as(c_long, @bitCast(@as(c_ulong, 0x80004001)));
 pub const E_NOINTERFACE = @as(c_long, @bitCast(@as(c_ulong, 0x80004002)));
 pub const E_POINTER = @as(c_long, @bitCast(@as(c_ulong, 0x80004003)));
@@ -3563,15 +3566,11 @@ pub const RTL_RUN_ONCE = extern struct {
 
 pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE{ .Ptr = null };
 
-pub const COINIT_APARTMENTTHREADED = COINIT.COINIT_APARTMENTTHREADED;
-pub const COINIT_MULTITHREADED = COINIT.COINIT_MULTITHREADED;
-pub const COINIT_DISABLE_OLE1DDE = COINIT.COINIT_DISABLE_OLE1DDE;
-pub const COINIT_SPEED_OVER_MEMORY = COINIT.COINIT_SPEED_OVER_MEMORY;
-pub const COINIT = enum(c_int) {
-    COINIT_APARTMENTTHREADED = 2,
-    COINIT_MULTITHREADED = 0,
-    COINIT_DISABLE_OLE1DDE = 4,
-    COINIT_SPEED_OVER_MEMORY = 8,
+pub const COINIT = struct {
+    pub const APARTMENTTHREADED = 2;
+    pub const MULTITHREADED = 0;
+    pub const DISABLE_OLE1DDE = 4;
+    pub const SPEED_OVER_MEMORY = 8;
 };
 
 pub const MEMORY_BASIC_INFORMATION = extern struct {
