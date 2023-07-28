@@ -3,9 +3,6 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const Version = std.SemanticVersion;
 
-/// TODO Nearly all the functions in this namespace would be
-/// better off if https://github.com/ziglang/zig/issues/425
-/// was solved.
 pub const Target = struct {
     cpu: Cpu,
     os: Os,
