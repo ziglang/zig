@@ -66,7 +66,7 @@ pub fn getDarwinSDK(allocator: Allocator, target: Target) ?DarwinSDK {
             return null;
         }
         const raw_version = mem.trimRight(u8, result.stdout, "\r\n");
-        const version = Version.parse(raw_version) catch Version{
+        const version = parseSdkVersion(raw_version) orelse Version{
             .major = 0,
             .minor = 0,
             .patch = 0,
@@ -77,6 +77,23 @@ pub fn getDarwinSDK(allocator: Allocator, target: Target) ?DarwinSDK {
         .path = path,
         .version = version,
     };
+}
+
+// Versions reported by Apple aren't exactly semantically valid as they usually omit
+// the patch component. Hence, we do a simple check for the number of components and
+// add the missing patch value if needed.
+fn parseSdkVersion(raw: []const u8) ?Version {
+    var buffer: [128]u8 = undefined;
+    if (raw.len > buffer.len) return null;
+    @memcpy(buffer[0..raw.len], raw);
+    const dots_count = mem.count(u8, raw, ".");
+    if (dots_count < 1) return null;
+    const len = if (dots_count < 2) blk: {
+        const patch_suffix = ".0";
+        buffer[raw.len..][0..patch_suffix.len].* = patch_suffix.*;
+        break :blk raw.len + patch_suffix.len;
+    } else raw.len;
+    return Version.parse(buffer[0..len]) catch null;
 }
 
 pub const DarwinSDK = struct {
@@ -90,4 +107,24 @@ pub const DarwinSDK = struct {
 
 test {
     _ = macos;
+}
+
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
+
+fn testParseSdkVersionSuccess(exp: Version, raw: []const u8) !void {
+    const maybe_ver = parseSdkVersion(raw);
+    try expect(maybe_ver != null);
+    const ver = maybe_ver.?;
+    try expectEqual(exp.major, ver.major);
+    try expectEqual(exp.minor, ver.minor);
+    try expectEqual(exp.patch, ver.patch);
+}
+
+test "parseSdkVersion" {
+    try testParseSdkVersionSuccess(.{ .major = 13, .minor = 4, .patch = 0 }, "13.4");
+    try testParseSdkVersionSuccess(.{ .major = 13, .minor = 4, .patch = 1 }, "13.4.1");
+    try testParseSdkVersionSuccess(.{ .major = 11, .minor = 15, .patch = 0 }, "11.15");
+
+    try expect(parseSdkVersion("11") == null);
 }
