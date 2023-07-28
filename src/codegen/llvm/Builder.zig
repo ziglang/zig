@@ -572,7 +572,9 @@ pub const Type = enum(u32) {
 
     pub fn isSized(self: Type, builder: *const Builder) Allocator.Error!bool {
         var visited: IsSizedVisited = .{};
-        return self.isSizedVisited(&visited, builder);
+        const result = try self.isSizedVisited(&visited, builder);
+        if (builder.useLibLlvm()) assert(result == self.toLlvm(builder).isSized().toBool());
+        return result;
     }
 
     const FormatData = struct {

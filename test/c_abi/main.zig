@@ -393,6 +393,38 @@ export fn zig_small_struct_ints(x: SmallStructInts) void {
     expect(x.d == 4) catch @panic("test failure");
 }
 
+const MedStructInts = extern struct {
+    x: i32,
+    y: i32,
+    z: i32,
+};
+extern fn c_med_struct_ints(MedStructInts) void;
+extern fn c_ret_med_struct_ints() MedStructInts;
+
+test "C ABI medium struct of ints" {
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+
+    var s = MedStructInts{
+        .x = 1,
+        .y = 2,
+        .z = 3,
+    };
+    c_med_struct_ints(s);
+    var s2 = c_ret_med_struct_ints();
+    try expect(s2.x == 1);
+    try expect(s2.y == 2);
+    try expect(s2.z == 3);
+}
+
+export fn zig_med_struct_ints(s: MedStructInts) void {
+    expect(s.x == 1) catch @panic("test failure");
+    expect(s.y == 2) catch @panic("test failure");
+    expect(s.z == 3) catch @panic("test failure");
+}
+
 const SmallPackedStruct = packed struct {
     a: u2,
     b: u2,
@@ -688,6 +720,14 @@ export fn zig_ret_small_struct_ints() SmallStructInts {
         .b = 2,
         .c = 3,
         .d = 4,
+    };
+}
+
+export fn zig_ret_med_struct_ints() MedStructInts {
+    return .{
+        .x = 1,
+        .y = 2,
+        .z = 3,
     };
 }
 

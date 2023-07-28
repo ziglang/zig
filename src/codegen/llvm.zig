@@ -5421,10 +5421,13 @@ pub const FuncGen = struct {
             // In this case the function return type is honoring the calling convention by having
             // a different LLVM type than the usual one. We solve this here at the callsite
             // by using our canonical type, then loading it if necessary.
-            const alignment = Builder.Alignment.fromByteUnits(
+            const alignment = Builder.Alignment.fromByteUnits(@max(
                 o.target_data.abiAlignmentOfType(abi_ret_ty.toLlvm(&o.builder)),
-            );
-            const rp = try self.buildAlloca(llvm_ret_ty, alignment);
+                return_type.abiAlignment(mod),
+            ));
+            assert(o.target_data.abiSizeOfType(abi_ret_ty.toLlvm(&o.builder)) >=
+                o.target_data.abiSizeOfType(llvm_ret_ty.toLlvm(&o.builder)));
+            const rp = try self.buildAlloca(abi_ret_ty, alignment);
             _ = try self.wip.store(.normal, call, rp, alignment);
             return if (isByRef(return_type, mod))
                 rp
@@ -11555,8 +11558,17 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
             .none => break,
         }
     }
-    if (classes[0] == .integer and classes[1] == .none) {
-        return o.builder.intType(@intCast(return_type.abiSize(mod) * 8));
+    const first_non_integer = std.mem.indexOfNone(x86_64_abi.Class, &classes, &.{.integer});
+    if (first_non_integer == null or classes[first_non_integer.?] == .none) {
+        assert(first_non_integer orelse classes.len == types_index);
+        if (mod.intern_pool.indexToKey(return_type.toIntern()) == .struct_type) {
+            var struct_it = return_type.iterateStructOffsets(mod);
+            while (struct_it.next()) |_| {}
+            assert((std.math.divCeil(u64, struct_it.offset, 8) catch unreachable) == types_index);
+            if (struct_it.offset % 8 > 0) types_buffer[types_index - 1] =
+                try o.builder.intType(@intCast(struct_it.offset % 8 * 8));
+        }
+        if (types_index == 1) return types_buffer[0];
     }
     return o.builder.structType(.normal, types_buffer[0..types_index]);
 }
@@ -11807,10 +11819,21 @@ const ParamTypeIterator = struct {
                 .none => break,
             }
         }
-        if (classes[0] == .integer and classes[1] == .none) {
-            it.zig_index += 1;
-            it.llvm_index += 1;
-            return .abi_sized_int;
+        const first_non_integer = std.mem.indexOfNone(x86_64_abi.Class, &classes, &.{.integer});
+        if (first_non_integer == null or classes[first_non_integer.?] == .none) {
+            assert(first_non_integer orelse classes.len == types_index);
+            if (types_index == 1) {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                return .abi_sized_int;
+            }
+            if (mod.intern_pool.indexToKey(ty.toIntern()) == .struct_type) {
+                var struct_it = ty.iterateStructOffsets(mod);
+                while (struct_it.next()) |_| {}
+                assert((std.math.divCeil(u64, struct_it.offset, 8) catch unreachable) == types_index);
+                if (struct_it.offset % 8 > 0) types_buffer[types_index - 1] =
+                    try it.object.builder.intType(@intCast(struct_it.offset % 8 * 8));
+            }
         }
         it.types_len = types_index;
         it.types_buffer = types_buffer;
