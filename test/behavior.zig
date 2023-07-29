@@ -193,6 +193,7 @@ test {
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/packed-struct.zig");
     _ = @import("behavior/packed_struct_explicit_backing_int.zig");
+    _ = @import("behavior/packed-union.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/popcount.zig");
     _ = @import("behavior/prefetch.zig");
