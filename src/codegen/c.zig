@@ -661,7 +661,7 @@ pub const DeclGen = struct {
                     try dg.renderCType(writer, ptr_cty);
                     try writer.writeByte(')');
                 }
-                switch (fieldLocation(base_ty, ptr_ty, @as(u32, @intCast(field.index)), mod)) {
+                switch (fieldLocation(ptr_base_ty, ptr_ty, @as(u32, @intCast(field.index)), mod)) {
                     .begin => try dg.renderParentPtr(writer, field.base, location),
                     .field => |name| {
                         try writer.writeAll("&(");
@@ -5187,7 +5187,7 @@ fn airOptionalPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn fieldLocation(
-    container_ty: Type,
+    container_ptr_ty: Type,
     field_ptr_ty: Type,
     field_index: u32,
     mod: *Module,
@@ -5198,6 +5198,7 @@ fn fieldLocation(
     end: void,
 } {
     const ip = &mod.intern_pool;
+    const container_ty = container_ptr_ty.childType(mod);
     return switch (container_ty.zigTypeTag(mod)) {
         .Struct => switch (container_ty.containerLayout(mod)) {
             .Auto, .Extern => for (field_index..container_ty.structFieldCount(mod)) |next_field_index| {
@@ -5211,7 +5212,7 @@ fn fieldLocation(
                     .{ .identifier = ip.stringToSlice(container_ty.structFieldName(next_field_index, mod)) } };
             } else if (container_ty.hasRuntimeBitsIgnoreComptime(mod)) .end else .begin,
             .Packed => if (field_ptr_ty.ptrInfo(mod).packed_offset.host_size == 0)
-                .{ .byte_offset = container_ty.packedStructFieldByteOffset(field_index, mod) }
+                .{ .byte_offset = container_ty.packedStructFieldByteOffset(field_index, mod) + @divExact(container_ptr_ty.ptrInfo(mod).packed_offset.bit_offset, 8) }
             else
                 .begin,
         },
@@ -5282,7 +5283,7 @@ fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.renderType(writer, container_ptr_ty);
     try writer.writeByte(')');
 
-    switch (fieldLocation(container_ty, field_ptr_ty, extra.field_index, mod)) {
+    switch (fieldLocation(container_ptr_ty, field_ptr_ty, extra.field_index, mod)) {
         .begin => try f.writeCValue(writer, field_ptr_val, .Initializer),
         .field => |field| {
             const u8_ptr_ty = try mod.adjustPtrTypeChild(field_ptr_ty, Type.u8);
@@ -5339,7 +5340,7 @@ fn fieldPtr(
     try f.renderType(writer, field_ptr_ty);
     try writer.writeByte(')');
 
-    switch (fieldLocation(container_ty, field_ptr_ty, field_index, mod)) {
+    switch (fieldLocation(container_ptr_ty, field_ptr_ty, field_index, mod)) {
         .begin => try f.writeCValue(writer, container_ptr_val, .Initializer),
         .field => |field| {
             try writer.writeByte('&');

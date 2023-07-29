@@ -10611,6 +10611,7 @@ pub const FuncGen = struct {
                 .Packed => {
                     const result_ty = self.typeOfIndex(inst);
                     const result_ty_info = result_ty.ptrInfo(mod);
+                    const struct_ptr_ty_info = struct_ptr_ty.ptrInfo(mod);
 
                     if (result_ty_info.packed_offset.host_size != 0) {
                         // From LLVM's perspective, a pointer to a packed struct and a pointer
@@ -10622,7 +10623,7 @@ pub const FuncGen = struct {
 
                     // We have a pointer to a packed struct field that happens to be byte-aligned.
                     // Offset our operand pointer by the correct number of bytes.
-                    const byte_offset = struct_ty.packedStructFieldByteOffset(field_index, mod);
+                    const byte_offset = struct_ty.packedStructFieldByteOffset(field_index, mod) + @divExact(struct_ptr_ty_info.packed_offset.bit_offset, 8);
                     if (byte_offset == 0) return struct_ptr;
                     const usize_ty = try o.lowerType(Type.usize);
                     const llvm_index = try o.builder.intValue(usize_ty, byte_offset);

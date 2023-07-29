@@ -528,6 +528,100 @@ test "nested packed struct field access test" {
     try std.testing.expect(arg.g.i == 8);
 }
 
+test "nested packed struct at non-zero offset" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Pair = packed struct(u24) {
+        a: u16 = 0,
+        b: u8 = 0,
+    };
+    const A = packed struct {
+        p1: Pair,
+        p2: Pair,
+    };
+
+    var k: u8 = 123;
+    var v: A = .{
+        .p1 = .{ .a = k + 1, .b = k },
+        .p2 = .{ .a = k + 1, .b = k },
+    };
+
+    try expect(v.p1.a == k + 1 and v.p1.b == k);
+    try expect(v.p2.a == k + 1 and v.p2.b == k);
+
+    v.p2.a -= v.p1.a;
+    v.p2.b -= v.p1.b;
+    try expect(v.p2.a == 0 and v.p2.b == 0);
+    try expect(v.p1.a == k + 1 and v.p1.b == k);
+}
+
+test "nested packed struct at non-zero offset 2" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    const S = struct {
+        const Pair = packed struct(u40) {
+            a: u32 = 0,
+            b: u8 = 0,
+        };
+        const A = packed struct {
+            p1: Pair,
+            p2: Pair,
+            c: C,
+        };
+        const C = packed struct {
+            p1: Pair,
+            pad1: u5,
+            p2: Pair,
+            pad2: u3,
+            last: i16,
+        };
+
+        fn doTheTest() !void {
+            var k: u8 = 123;
+            var v: A = .{
+                .p1 = .{ .a = k + 1, .b = k },
+                .p2 = .{ .a = k + 1, .b = k },
+                .c = .{
+                    .pad1 = 11,
+                    .pad2 = 2,
+                    .p1 = .{ .a = k + 1, .b = k },
+                    .p2 = .{ .a = k + 1, .b = k },
+                    .last = -12345,
+                },
+            };
+
+            try expect(v.p1.a == k + 1 and v.p1.b == k);
+            try expect(v.p2.a == k + 1 and v.p2.b == k);
+            try expect(v.c.p2.a == k + 1 and v.c.p2.b == k);
+            try expect(v.c.p2.a == k + 1 and v.c.p2.b == k);
+            try expect(v.c.last == -12345);
+            try expect(v.c.pad1 == 11 and v.c.pad2 == 2);
+
+            v.p2.a -= v.p1.a;
+            v.p2.b -= v.p1.b;
+            v.c.p2.a -= v.c.p1.a;
+            v.c.p2.b -= v.c.p1.b;
+            v.c.last -|= 32000;
+            try expect(v.p2.a == 0 and v.p2.b == 0);
+            try expect(v.p1.a == k + 1 and v.p1.b == k);
+            try expect(v.c.p2.a == 0 and v.c.p2.b == 0);
+            try expect(v.c.p1.a == k + 1 and v.c.p1.b == k);
+            try expect(v.c.last == -32768);
+            try expect(v.c.pad1 == 11 and v.c.pad2 == 2);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
 test "runtime init of unnamed packed struct type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
