@@ -279,14 +279,14 @@ fn createChild(
     parent: *Build,
     dep_name: []const u8,
     build_root: Cache.Directory,
-    args: anytype,
+    user_input_options: UserInputOptionsMap,
 ) !*Build {
-    const child = try createChildOnly(parent, dep_name, build_root);
-    try applyArgs(child, args);
+    const child = try createChildOnly(parent, dep_name, build_root, user_input_options);
+    try determineAndApplyInstallPrefix(child);
     return child;
 }
 
-fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Directory) !*Build {
+fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Directory, user_input_options: UserInputOptionsMap) !*Build {
     const allocator = parent.allocator;
     const child = try allocator.create(Build);
     child.* = .{
@@ -308,7 +308,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
             }),
             .description = "Remove build artifacts from prefix path",
         },
-        .user_input_options = UserInputOptionsMap.init(allocator),
+        .user_input_options = user_input_options,
         .available_options_map = AvailableOptionsMap.init(allocator),
         .available_options_list = ArrayList(AvailableOption).init(allocator),
         .verbose = parent.verbose,
@@ -360,57 +360,152 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
     return child;
 }
 
-fn applyArgs(b: *Build, args: anytype) !void {
+fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOptionsMap {
+    var user_input_options = UserInputOptionsMap.init(allocator);
     inline for (@typeInfo(@TypeOf(args)).Struct.fields) |field| {
         const v = @field(args, field.name);
         const T = @TypeOf(v);
         switch (T) {
             CrossTarget => {
-                try b.user_input_options.put(field.name, .{
+                user_input_options.put(field.name, .{
                     .name = field.name,
-                    .value = .{ .scalar = try v.zigTriple(b.allocator) },
+                    .value = .{ .scalar = v.zigTriple(allocator) catch @panic("OOM") },
                     .used = false,
-                });
-                try b.user_input_options.put("cpu", .{
+                }) catch @panic("OOM");
+                user_input_options.put("cpu", .{
                     .name = "cpu",
-                    .value = .{ .scalar = try serializeCpu(b.allocator, v.getCpu()) },
+                    .value = .{ .scalar = serializeCpu(allocator, v.getCpu()) catch unreachable },
                     .used = false,
-                });
+                }) catch @panic("OOM");
             },
             []const u8 => {
-                try b.user_input_options.put(field.name, .{
+                user_input_options.put(field.name, .{
                     .name = field.name,
                     .value = .{ .scalar = v },
                     .used = false,
-                });
+                }) catch @panic("OOM");
             },
             else => switch (@typeInfo(T)) {
                 .Bool => {
-                    try b.user_input_options.put(field.name, .{
+                    user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = if (v) "true" else "false" },
                         .used = false,
-                    });
+                    }) catch @panic("OOM");
                 },
                 .Enum, .EnumLiteral => {
-                    try b.user_input_options.put(field.name, .{
+                    user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = @tagName(v) },
                         .used = false,
-                    });
+                    }) catch @panic("OOM");
                 },
                 .Int => {
-                    try b.user_input_options.put(field.name, .{
+                    user_input_options.put(field.name, .{
                         .name = field.name,
-                        .value = .{ .scalar = try std.fmt.allocPrint(b.allocator, "{d}", .{v}) },
+                        .value = .{ .scalar = std.fmt.allocPrint(allocator, "{d}", .{v}) catch @panic("OOM") },
                         .used = false,
-                    });
+                    }) catch @panic("OOM");
                 },
                 else => @compileError("option '" ++ field.name ++ "' has unsupported type: " ++ @typeName(T)),
             },
         }
     }
 
+    return user_input_options;
+}
+
+const OrderedUserValue = union(enum) {
+    flag: void,
+    scalar: []const u8,
+    list: ArrayList([]const u8),
+    map: ArrayList(Pair),
+
+    const Pair = struct {
+        name: []const u8,
+        value: OrderedUserValue,
+        fn lessThan(_: void, lhs: Pair, rhs: Pair) bool {
+            return std.ascii.lessThanIgnoreCase(lhs.name, rhs.name);
+        }
+    };
+
+    fn hash(self: OrderedUserValue, hasher: *Cache.HashHelper) void {
+        switch (self) {
+            .flag => {},
+            .scalar => |scalar| hasher.addBytes(scalar),
+            // lists are already ordered
+            .list => |list| for (list.items) |list_entry|
+                hasher.addBytes(list_entry),
+            .map => |map| for (map.items) |map_entry| {
+                hasher.addBytes(map_entry.name);
+                map_entry.value.hash(hasher);
+            },
+        }
+    }
+
+    fn mapFromUnordered(allocator: Allocator, unordered: std.StringHashMap(*const UserValue)) ArrayList(Pair) {
+        var ordered = ArrayList(Pair).init(allocator);
+        var it = unordered.iterator();
+        while (it.next()) |entry| {
+            ordered.append(.{
+                .name = entry.key_ptr.*,
+                .value = OrderedUserValue.fromUnordered(allocator, entry.value_ptr.*.*),
+            }) catch @panic("OOM");
+        }
+
+        std.sort.insertion(Pair, ordered.items, {}, Pair.lessThan);
+        return ordered;
+    }
+
+    fn fromUnordered(allocator: Allocator, unordered: UserValue) OrderedUserValue {
+        return switch (unordered) {
+            .flag => .{ .flag = {} },
+            .scalar => |scalar| .{ .scalar = scalar },
+            .list => |list| .{ .list = list },
+            .map => |map| .{ .map = OrderedUserValue.mapFromUnordered(allocator, map) },
+        };
+    }
+};
+
+const OrderedUserInputOption = struct {
+    name: []const u8,
+    value: OrderedUserValue,
+    used: bool,
+
+    fn hash(self: OrderedUserInputOption, hasher: *Cache.HashHelper) void {
+        hasher.addBytes(self.name);
+        self.value.hash(hasher);
+    }
+
+    fn fromUnordered(allocator: Allocator, user_input_option: UserInputOption) OrderedUserInputOption {
+        return OrderedUserInputOption{
+            .name = user_input_option.name,
+            .used = user_input_option.used,
+            .value = OrderedUserValue.fromUnordered(allocator, user_input_option.value),
+        };
+    }
+
+    fn lessThan(_: void, lhs: OrderedUserInputOption, rhs: OrderedUserInputOption) bool {
+        return std.ascii.lessThanIgnoreCase(lhs.name, rhs.name);
+    }
+};
+
+// The hash should be consistent with the same values given a different order.
+// This function takes a user input map, orders it, then hashes the contents.
+fn hashUserInputOptionsMap(allocator: Allocator, user_input_options: UserInputOptionsMap, hasher: *Cache.HashHelper) void {
+    var ordered = ArrayList(OrderedUserInputOption).init(allocator);
+    var it = user_input_options.iterator();
+    while (it.next()) |entry|
+        ordered.append(OrderedUserInputOption.fromUnordered(allocator, entry.value_ptr.*)) catch @panic("OOM");
+
+    std.sort.insertion(OrderedUserInputOption, ordered.items, {}, OrderedUserInputOption.lessThan);
+
+    // juice it
+    for (ordered.items) |user_option|
+        user_option.hash(hasher);
+}
+
+fn determineAndApplyInstallPrefix(b: *Build) !void {
     // Create an installation directory local to this package. This will be used when
     // dependant packages require a standard prefix, such as include directories for C headers.
     var hash = b.cache.hash;
@@ -418,6 +513,9 @@ fn applyArgs(b: *Build, args: anytype) !void {
     // implementation is modified in a non-backwards-compatible way.
     hash.add(@as(u32, 0xd8cb0055));
     hash.addBytes(b.dep_prefix);
+
+    hashUserInputOptionsMap(b.allocator, b.user_input_options, &hash);
+
     // TODO additionally update the hash with `args`.
     const digest = hash.final();
     const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &digest });
@@ -1559,6 +1657,67 @@ pub fn anonymousDependency(
     return dependencyInner(b, name, build_root, build_zig, args);
 }
 
+fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
+    switch (lhs) {
+        .flag => {},
+        .scalar => |lhs_scalar| {
+            const rhs_scalar = switch (rhs) {
+                .scalar => |scalar| scalar,
+                else => return false,
+            };
+
+            if (!std.mem.eql(u8, lhs_scalar, rhs_scalar))
+                return false;
+        },
+        .list => |lhs_list| {
+            const rhs_list = switch (rhs) {
+                .list => |list| list,
+                else => return false,
+            };
+
+            if (lhs_list.items.len != rhs_list.items.len)
+                return false;
+
+            for (lhs_list.items, rhs_list.items) |lhs_list_entry, rhs_list_entry| {
+                if (!std.mem.eql(u8, lhs_list_entry, rhs_list_entry))
+                    return false;
+            }
+        },
+        .map => |lhs_map| {
+            const rhs_map = switch (rhs) {
+                .map => |map| map,
+                else => return false,
+            };
+
+            if (lhs_map.count() != rhs_map.count())
+                return false;
+
+            var lhs_it = lhs_map.iterator();
+            while (lhs_it.next()) |lhs_entry| {
+                const rhs_value = rhs_map.get(lhs_entry.key_ptr.*) orelse return false;
+                if (!userValuesAreSame(lhs_entry.value_ptr.*.*, rhs_value.*))
+                    return false;
+            }
+        },
+    }
+
+    return true;
+}
+
+fn userInputOptionsMapsAreSame(lhs: UserInputOptionsMap, rhs: UserInputOptionsMap) bool {
+    if (lhs.count() != rhs.count())
+        return false;
+
+    var it = lhs.iterator();
+    while (it.next()) |lhs_entry| {
+        const rhs_value = rhs.get(lhs_entry.key_ptr.*) orelse return false;
+        if (!userValuesAreSame(lhs_entry.value_ptr.*.value, rhs_value.value))
+            return false;
+    }
+
+    return true;
+}
+
 pub fn dependencyInner(
     b: *Build,
     name: []const u8,
@@ -1566,9 +1725,11 @@ pub fn dependencyInner(
     comptime build_zig: type,
     args: anytype,
 ) *Dependency {
+    const user_input_options = userInputOptionsFromArgs(b.allocator, args);
     if (b.initialized_deps.get(build_root_string)) |dep| {
-        // TODO: check args are the same
-        return dep;
+        if (userInputOptionsMapsAreSame(user_input_options, dep.builder.user_input_options)) {
+            return dep;
+        }
     }
 
     const build_root: std.Build.Cache.Directory = .{
@@ -1580,7 +1741,7 @@ pub fn dependencyInner(
             process.exit(1);
         },
     };
-    const sub_builder = b.createChild(name, build_root, args) catch @panic("unhandled error");
+    const sub_builder = b.createChild(name, build_root, user_input_options) catch @panic("unhandled error");
     sub_builder.runBuild(build_zig) catch @panic("unhandled error");
 
     if (sub_builder.validateUserInputDidItFail()) {
