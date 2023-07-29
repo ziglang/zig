@@ -10791,6 +10791,13 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 "'_' prong here",
                 .{},
             );
+            try sema.errNote(
+                block,
+                src,
+                msg,
+                "consider using 'else'",
+                .{},
+            );
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
