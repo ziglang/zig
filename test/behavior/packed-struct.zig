@@ -650,3 +650,18 @@ test "bitcast back and forth" {
     try expect(s.one == s2.one);
     try expect(s.two == s2.two);
 }
+
+test "field access of packed struct smaller than its abi size inside struct initialized with rls" {
+    const S = struct {
+        ps: packed struct { x: i2, y: i2 },
+
+        fn init(cond: bool) @This() {
+            return .{ .ps = .{ .x = 0, .y = if (cond) 1 else 0 } };
+        }
+    };
+
+    var s = S.init(true);
+    // note: this bug is triggered by the == operator, expectEqual will hide it
+    try expect(@as(i2, 0) == s.ps.x);
+    try expect(@as(i2, 1) == s.ps.y);
+}
