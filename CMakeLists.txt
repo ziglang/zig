@@ -273,7 +273,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/math/frexp.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/isinf.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/isnan.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/math/ln.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log10.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log2.zig"
