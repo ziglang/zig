@@ -761,3 +761,17 @@ test "slicing array of zero-sized values" {
     for (arr[0..]) |zero|
         try expect(zero == 0);
 }
+
+test "array init with no result pointer sets field result types" {
+    const S = struct {
+        // A function parameter has a result type, but no result pointer.
+        fn f(arr: [1]u32) u32 {
+            return arr[0];
+        }
+    };
+
+    const x: u64 = 123;
+    const y = S.f(.{@intCast(x)});
+
+    try expect(y == x);
+}

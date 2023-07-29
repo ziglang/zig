@@ -1125,6 +1125,7 @@ fn analyzeBodyInner(
             .array_base_ptr               => try sema.zirArrayBasePtr(block, inst),
             .field_base_ptr               => try sema.zirFieldBasePtr(block, inst),
             .for_len                      => try sema.zirForLen(block, inst),
+            .opt_eu_base_ty               => try sema.zirOptEuBaseTy(block, inst),
 
             .clz       => try sema.zirBitCount(block, inst, .clz,      Value.clz),
             .ctz       => try sema.zirBitCount(block, inst, .ctz,      Value.ctz),
@@ -1359,12 +1360,12 @@ fn analyzeBodyInner(
                 continue;
             },
             .validate_array_init_ty => {
-                try sema.validateArrayInitTy(block, inst);
+                try sema.zirValidateArrayInitTy(block, inst);
                 i += 1;
                 continue;
             },
             .validate_struct_init_ty => {
-                try sema.validateStructInitTy(block, inst);
+                try sema.zirValidateStructInitTy(block, inst);
                 i += 1;
                 continue;
             },
@@ -4312,7 +4313,31 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     return len;
 }
 
-fn validateArrayInitTy(
+fn zirOptEuBaseTy(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    var ty = sema.resolveType(block, .unneeded, inst_data.operand) catch |err| switch (err) {
+        // Since this is a ZIR instruction that returns a type, encountering
+        // generic poison should not result in a failed compilation, but the
+        // generic poison type. This prevents unnecessary failures when
+        // constructing types at compile-time.
+        error.GenericPoison => return .generic_poison_type,
+        else => |e| return e,
+    };
+    while (true) {
+        switch (ty.zigTypeTag(mod)) {
+            .Optional => ty = ty.optionalChild(mod),
+            .ErrorUnion => ty = ty.errorUnionPayload(mod),
+            else => return sema.addType(ty),
+        }
+    }
+}
+
+fn zirValidateArrayInitTy(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
@@ -4322,7 +4347,11 @@ fn validateArrayInitTy(
     const src = inst_data.src();
     const ty_src: LazySrcLoc = .{ .node_offset_init_ty = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.ArrayInit, inst_data.payload_index).data;
-    const ty = try sema.resolveType(block, ty_src, extra.ty);
+    const ty = sema.resolveType(block, ty_src, extra.ty) catch |err| switch (err) {
+        // It's okay for the type to be unknown: this will result in an anonymous array init.
+        error.GenericPoison => return,
+        else => |e| return e,
+    };
 
     switch (ty.zigTypeTag(mod)) {
         .Array => {
@@ -4358,7 +4387,7 @@ fn validateArrayInitTy(
     return sema.failWithArrayInitNotSupported(block, ty_src, ty);
 }
 
-fn validateStructInitTy(
+fn zirValidateStructInitTy(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
@@ -4366,7 +4395,11 @@ fn validateStructInitTy(
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const ty = try sema.resolveType(block, src, inst_data.operand);
+    const ty = sema.resolveType(block, src, inst_data.operand) catch |err| switch (err) {
+        // It's okay for the type to be unknown: this will result in an anonymous struct init.
+        error.GenericPoison => return,
+        else => |e| return e,
+    };
 
     switch (ty.zigTypeTag(mod)) {
         .Struct, .Union => return,
@@ -7744,7 +7777,15 @@ fn zirOptionalType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
 fn zirElemTypeIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const bin = sema.code.instructions.items(.data)[inst].bin;
-    const indexable_ty = try sema.resolveType(block, .unneeded, bin.lhs);
+    const operand = sema.resolveType(block, .unneeded, bin.lhs) catch |err| switch (err) {
+        // Since this is a ZIR instruction that returns a type, encountering
+        // generic poison should not result in a failed compilation, but the
+        // generic poison type. This prevents unnecessary failures when
+        // constructing types at compile-time.
+        error.GenericPoison => return .generic_poison_type,
+        else => |e| return e,
+    };
+    const indexable_ty = try sema.resolveTypeFields(operand);
     assert(indexable_ty.isIndexable(mod)); // validated by a previous instruction
     if (indexable_ty.zigTypeTag(mod) == .Struct) {
         const elem_type = indexable_ty.structFieldType(@intFromEnum(bin.rhs), mod);
@@ -18794,7 +18835,13 @@ fn zirStructInit(
     const first_item = sema.code.extraData(Zir.Inst.StructInit.Item, extra.end).data;
     const first_field_type_data = zir_datas[first_item.field_type].pl_node;
     const first_field_type_extra = sema.code.extraData(Zir.Inst.FieldType, first_field_type_data.payload_index).data;
-    const resolved_ty = try sema.resolveType(block, src, first_field_type_extra.container_type);
+    const resolved_ty = sema.resolveType(block, src, first_field_type_extra.container_type) catch |err| switch (err) {
+        error.GenericPoison => {
+            // The type wasn't actually known, so treat this as an anon struct init.
+            return sema.structInitAnon(block, src, .typed_init, extra.data, extra.end, is_ref);
+        },
+        else => |e| return e,
+    };
     try sema.resolveTypeLayout(resolved_ty);
 
     if (resolved_ty.zigTypeTag(mod) == .Struct) {
@@ -19037,26 +19084,57 @@ fn zirStructInitAnon(
     inst: Zir.Inst.Index,
     is_ref: bool,
 ) CompileError!Air.Inst.Ref {
-    const mod = sema.mod;
-    const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.StructInitAnon, inst_data.payload_index);
-    const types = try sema.arena.alloc(InternPool.Index, extra.data.fields_len);
+    return sema.structInitAnon(block, src, .anon_init, extra.data, extra.end, is_ref);
+}
+
+fn structInitAnon(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    /// It is possible for a typed struct_init to be downgraded to an anonymous init due to a
+    /// generic poison type. In this case, we need to know to interpret the extra data differently.
+    comptime kind: enum { anon_init, typed_init },
+    extra_data: switch (kind) {
+        .anon_init => Zir.Inst.StructInitAnon,
+        .typed_init => Zir.Inst.StructInit,
+    },
+    extra_end: usize,
+    is_ref: bool,
+) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const gpa = sema.gpa;
+    const zir_datas = sema.code.instructions.items(.data);
+
+    const types = try sema.arena.alloc(InternPool.Index, extra_data.fields_len);
     const values = try sema.arena.alloc(InternPool.Index, types.len);
+
     var fields = std.AutoArrayHashMap(InternPool.NullTerminatedString, u32).init(sema.arena);
     try fields.ensureUnusedCapacity(types.len);
 
     // Find which field forces the expression to be runtime, if any.
     const opt_runtime_index = rs: {
         var runtime_index: ?usize = null;
-        var extra_index = extra.end;
+        var extra_index = extra_end;
         for (types, 0..) |*field_ty, i_usize| {
-            const i = @as(u32, @intCast(i_usize));
-            const item = sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index);
+            const i: u32 = @intCast(i_usize);
+            const item = switch (kind) {
+                .anon_init => sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index),
+                .typed_init => sema.code.extraData(Zir.Inst.StructInit.Item, extra_index),
+            };
             extra_index = item.end;
 
-            const name = sema.code.nullTerminatedString(item.data.field_name);
+            const name = switch (kind) {
+                .anon_init => sema.code.nullTerminatedString(item.data.field_name),
+                .typed_init => name: {
+                    // `item.data.field_type` references a `field_type` instruction
+                    const field_type_data = zir_datas[item.data.field_type].pl_node;
+                    const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index);
+                    break :name sema.code.nullTerminatedString(field_type_extra.data.name_start);
+                },
+            };
             const name_ip = try mod.intern_pool.getOrPutString(gpa, name);
             const gop = fields.getOrPutAssumeCapacity(name_ip);
             if (gop.found_existing) {
@@ -19129,10 +19207,13 @@ fn zirStructInitAnon(
             .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
-        var extra_index = extra.end;
+        var extra_index = extra_end;
         for (types, 0..) |field_ty, i_usize| {
             const i = @as(u32, @intCast(i_usize));
-            const item = sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index);
+            const item = switch (kind) {
+                .anon_init => sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index),
+                .typed_init => sema.code.extraData(Zir.Inst.StructInit.Item, extra_index),
+            };
             extra_index = item.end;
 
             const field_ptr_ty = try mod.ptrType(.{
@@ -19150,9 +19231,12 @@ fn zirStructInitAnon(
     }
 
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, types.len);
-    var extra_index = extra.end;
+    var extra_index = extra_end;
     for (types, 0..) |_, i| {
-        const item = sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index);
+        const item = switch (kind) {
+            .anon_init => sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index),
+            .typed_init => sema.code.extraData(Zir.Inst.StructInit.Item, extra_index),
+        };
         extra_index = item.end;
         element_refs[i] = try sema.resolveInst(item.data.init);
     }
@@ -19175,7 +19259,13 @@ fn zirArrayInit(
     const args = sema.code.refSlice(extra.end, extra.data.operands_len);
     assert(args.len >= 2); // array_ty + at least one element
 
-    const array_ty = try sema.resolveType(block, src, args[0]);
+    const array_ty = sema.resolveType(block, src, args[0]) catch |err| switch (err) {
+        error.GenericPoison => {
+            // The type wasn't actually known, so treat this as an anon array init.
+            return sema.arrayInitAnon(block, src, args[1..], is_ref);
+        },
+        else => |e| return e,
+    };
     const sentinel_val = array_ty.sentinel(mod);
 
     const resolved_args = try gpa.alloc(Air.Inst.Ref, args.len - 1 + @intFromBool(sentinel_val != null));
@@ -19283,6 +19373,16 @@ fn zirArrayInitAnon(
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
     const operands = sema.code.refSlice(extra.end, extra.data.operands_len);
+    return sema.arrayInitAnon(block, src, operands, is_ref);
+}
+
+fn arrayInitAnon(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    operands: []const Zir.Inst.Ref,
+    is_ref: bool,
+) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
 
     const types = try sema.arena.alloc(InternPool.Index, operands.len);

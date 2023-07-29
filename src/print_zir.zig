@@ -229,6 +229,7 @@ const Writer = struct {
             .make_ptr_const,
             .validate_deref,
             .check_comptime_control_flow,
+            .opt_eu_base_ty,
             => try self.writeUnNode(stream, inst),
 
             .ref,
