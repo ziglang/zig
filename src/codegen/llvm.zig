@@ -10378,7 +10378,21 @@ pub const FuncGen = struct {
             if (isByRef(elem_ty, mod)) {
                 return self.loadByRef(ptr, elem_ty, ptr_alignment, access_kind);
             }
-            return self.wip.load(access_kind, try o.lowerType(elem_ty), ptr, ptr_alignment, "");
+            const llvm_elem_ty = try o.lowerType(elem_ty);
+            const llvm_load_ty = if (elem_ty.isAbiInt(mod))
+                try o.builder.intType(@intCast(elem_ty.abiSize(mod) * 8))
+            else
+                llvm_elem_ty;
+            const loaded = try self.wip.load(access_kind, llvm_load_ty, ptr, ptr_alignment, "");
+            const shifted = if (llvm_elem_ty != llvm_load_ty and o.target.cpu.arch.endian() == .Big)
+                try self.wip.bin(.lshr, loaded, try o.builder.intValue(
+                    llvm_load_ty,
+                    (elem_ty.abiSize(mod) - (std.math.divCeil(u64, elem_ty.bitSize(mod), 8) catch
+                        unreachable)) * 8,
+                ), "")
+            else
+                loaded;
+            return self.wip.conv(.unneeded, shifted, llvm_elem_ty, "");
         }
 
         const containing_int_ty = try o.builder.intType(@intCast(info.packed_offset.host_size * 8));
