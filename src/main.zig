@@ -4438,7 +4438,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             try wip_errors.init(gpa);
             defer wip_errors.deinit();
 
-            var progress: std.Progress = .{};
+            var progress: std.Progress = .{ .dont_print_on_dumb = true };
             const root_prog_node = progress.start("Fetch Packages", 0);
             defer root_prog_node.end();
 
