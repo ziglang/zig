@@ -1022,6 +1022,7 @@ fn analyzeBodyInner(
             .elem_val_node                => try sema.zirElemValNode(block, inst),
             .elem_type_index              => try sema.zirElemTypeIndex(block, inst),
             .elem_type                    => try sema.zirElemType(block, inst),
+            .vector_elem_type             => try sema.zirVectorElemType(block, inst),
             .enum_literal                 => try sema.zirEnumLiteral(block, inst),
             .int_from_enum                => try sema.zirIntFromEnum(block, inst),
             .enum_from_int                => try sema.zirEnumFromInt(block, inst),
@@ -7802,6 +7803,23 @@ fn zirElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const ptr_ty = try sema.resolveType(block, .unneeded, un_node.operand);
     assert(ptr_ty.zigTypeTag(mod) == .Pointer); // validated by a previous instruction
     return sema.addType(ptr_ty.childType(mod));
+}
+
+fn zirVectorElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const un_node = sema.code.instructions.items(.data)[inst].un_node;
+    const vec_ty = sema.resolveType(block, .unneeded, un_node.operand) catch |err| switch (err) {
+        // Since this is a ZIR instruction that returns a type, encountering
+        // generic poison should not result in a failed compilation, but the
+        // generic poison type. This prevents unnecessary failures when
+        // constructing types at compile-time.
+        error.GenericPoison => return .generic_poison_type,
+        else => |e| return e,
+    };
+    if (!vec_ty.isVector(mod)) {
+        return sema.fail(block, un_node.src(), "expected vector type, found '{}'", .{vec_ty.fmt(mod)});
+    }
+    return sema.addType(vec_ty.childType(mod));
 }
 
 fn zirVectorType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
