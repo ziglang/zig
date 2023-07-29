@@ -33491,7 +33491,9 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
             return sema.failWithOwnedErrorMsg(msg);
         }
 
-        if (struct_obj.layout == .Auto and mod.backendSupportsFeature(.field_reordering)) {
+        if (struct_obj.layout == .Auto and !struct_obj.is_tuple and
+            mod.backendSupportsFeature(.field_reordering))
+        {
             const optimized_order = try mod.tmp_hack_arena.allocator().alloc(u32, struct_obj.fields.count());
 
             for (struct_obj.fields.values(), 0..) |field, i| {

@@ -453,3 +453,18 @@ test "tuple pointer is indexable" {
     try expectEqual(@as(u32, 100), (&y)[0]);
     try expectEqual(false, (&y)[1]);
 }
+
+test "coerce anon tuple to tuple" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    var x: u8 = 1;
+    var y: u16 = 2;
+    var t = .{ x, y };
+    var s: struct { u8, u16 } = t;
+    try expectEqual(x, s[0]);
+    try expectEqual(y, s[1]);
+}

@@ -434,6 +434,9 @@ pub const Type = opaque {
         Packed: Bool,
     ) void;
 
+    pub const isSized = LLVMTypeIsSized;
+    extern fn LLVMTypeIsSized(Ty: *Type) Bool;
+
     pub const constGEP = LLVMConstGEP2;
     extern fn LLVMConstGEP2(
         Ty: *Type,

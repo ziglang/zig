@@ -393,6 +393,38 @@ export fn zig_small_struct_ints(x: SmallStructInts) void {
     expect(x.d == 4) catch @panic("test failure");
 }
 
+const MedStructInts = extern struct {
+    x: i32,
+    y: i32,
+    z: i32,
+};
+extern fn c_med_struct_ints(MedStructInts) void;
+extern fn c_ret_med_struct_ints() MedStructInts;
+
+test "C ABI medium struct of ints" {
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
+
+    var s = MedStructInts{
+        .x = 1,
+        .y = 2,
+        .z = 3,
+    };
+    c_med_struct_ints(s);
+    var s2 = c_ret_med_struct_ints();
+    try expect(s2.x == 1);
+    try expect(s2.y == 2);
+    try expect(s2.z == 3);
+}
+
+export fn zig_med_struct_ints(s: MedStructInts) void {
+    expect(s.x == 1) catch @panic("test failure");
+    expect(s.y == 2) catch @panic("test failure");
+    expect(s.z == 3) catch @panic("test failure");
+}
+
 const SmallPackedStruct = packed struct {
     a: u2,
     b: u2,
@@ -691,6 +723,14 @@ export fn zig_ret_small_struct_ints() SmallStructInts {
     };
 }
 
+export fn zig_ret_med_struct_ints() MedStructInts {
+    return .{
+        .x = 1,
+        .y = 2,
+        .z = 3,
+    };
+}
+
 export fn zig_ret_med_struct_mixed() MedStructMixed {
     return .{
         .a = 1234,
@@ -813,11 +853,6 @@ extern fn c_ret_medium_vec() MediumVec;
 test "medium simd vector" {
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux) {
-        // TODO: https://github.com/ziglang/zig/issues/14908
-        return error.SkipZigTest;
-    }
-
     c_medium_vec(.{ 1, 2, 3, 4 });
 
     var x = c_ret_medium_vec();
@@ -836,11 +871,6 @@ test "big simd vector" {
     if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
     if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .macos and builtin.mode != .Debug) return error.SkipZigTest;
-
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux) {
-        // TODO: https://github.com/ziglang/zig/issues/14908
-        return error.SkipZigTest;
-    }
 
     c_big_vec(.{ 1, 2, 3, 4, 5, 6, 7, 8 });
 

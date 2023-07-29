@@ -1102,7 +1102,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *Step {
     const step = b.step("test-c-abi", "Run the C ABI tests");
 
-    const optimize_modes: [2]OptimizeMode = .{ .Debug, .ReleaseFast };
+    const optimize_modes: [3]OptimizeMode = .{ .Debug, .ReleaseSafe, .ReleaseFast };
 
     for (optimize_modes) |optimize_mode| {
         if (optimize_mode != .Debug and skip_release) continue;
