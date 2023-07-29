@@ -1440,3 +1440,28 @@ test "boolean vector with 2 or more booleans" {
     const vec2 = @Vector(3, bool){ true, true, true };
     _ = vec2;
 }
+
+test "bitcast to vector with different child type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            const VecA = @Vector(8, u16);
+            const VecB = @Vector(4, u32);
+
+            var vec_a = VecA{ 1, 1, 1, 1, 1, 1, 1, 1 };
+            var vec_b: VecB = @bitCast(vec_a);
+            var vec_c: VecA = @bitCast(vec_b);
+            try expectEqual(vec_a, vec_c);
+        }
+    };
+
+    // Originally reported at https://github.com/ziglang/zig/issues/8184
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
