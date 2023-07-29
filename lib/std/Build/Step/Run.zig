@@ -755,24 +755,19 @@ fn runCommand(
     // Capture stdout and stderr to GeneratedFile objects.
     const Stream = struct {
         captured: ?*Output,
-        is_null: bool,
-        bytes: []const u8,
+        bytes: ?[]const u8,
     };
     for ([_]Stream{
         .{
             .captured = self.captured_stdout,
-            .is_null = result.stdio.stdout_null,
             .bytes = result.stdio.stdout,
         },
         .{
             .captured = self.captured_stderr,
-            .is_null = result.stdio.stderr_null,
             .bytes = result.stdio.stderr,
         },
     }) |stream| {
         if (stream.captured) |output| {
-            assert(!stream.is_null);
-
             const output_components = .{ "o", digest.?, output.basename };
             const output_path = try b.cache_root.join(arena, &output_components);
             output.generated_file.path = output_path;
@@ -784,7 +779,7 @@ fn runCommand(
                     b.cache_root, sub_path_dirname, @errorName(err),
                 });
             };
-            b.cache_root.handle.writeFile(sub_path, stream.bytes) catch |err| {
+            b.cache_root.handle.writeFile(sub_path, stream.bytes.?) catch |err| {
                 return step.fail("unable to write file '{}{s}': {s}", .{
                     b.cache_root, sub_path, @errorName(err),
                 });
@@ -797,8 +792,7 @@ fn runCommand(
     switch (self.stdio) {
         .check => |checks| for (checks.items) |check| switch (check) {
             .expect_stderr_exact => |expected_bytes| {
-                assert(!result.stdio.stderr_null);
-                if (!mem.eql(u8, expected_bytes, result.stdio.stderr)) {
+                if (!mem.eql(u8, expected_bytes, result.stdio.stderr.?)) {
                     return step.fail(
                         \\
                         \\========= expected this stderr: =========
@@ -809,14 +803,13 @@ fn runCommand(
                         \\{s}
                     , .{
                         expected_bytes,
-                        result.stdio.stderr,
+                        result.stdio.stderr.?,
                         try Step.allocPrintCmd(arena, self.cwd, final_argv),
                     });
                 }
             },
             .expect_stderr_match => |match| {
-                assert(!result.stdio.stderr_null);
-                if (mem.indexOf(u8, result.stdio.stderr, match) == null) {
+                if (mem.indexOf(u8, result.stdio.stderr.?, match) == null) {
                     return step.fail(
                         \\
                         \\========= expected to find in stderr: =========
@@ -827,14 +820,13 @@ fn runCommand(
                         \\{s}
                     , .{
                         match,
-                        result.stdio.stderr,
+                        result.stdio.stderr.?,
                         try Step.allocPrintCmd(arena, self.cwd, final_argv),
                     });
                 }
             },
             .expect_stdout_exact => |expected_bytes| {
-                assert(!result.stdio.stdout_null);
-                if (!mem.eql(u8, expected_bytes, result.stdio.stdout)) {
+                if (!mem.eql(u8, expected_bytes, result.stdio.stdout.?)) {
                     return step.fail(
                         \\
                         \\========= expected this stdout: =========
@@ -845,14 +837,13 @@ fn runCommand(
                         \\{s}
                     , .{
                         expected_bytes,
-                        result.stdio.stdout,
+                        result.stdio.stdout.?,
                         try Step.allocPrintCmd(arena, self.cwd, final_argv),
                     });
                 }
             },
             .expect_stdout_match => |match| {
-                assert(!result.stdio.stdout_null);
-                if (mem.indexOf(u8, result.stdio.stdout, match) == null) {
+                if (mem.indexOf(u8, result.stdio.stdout.?, match) == null) {
                     return step.fail(
                         \\
                         \\========= expected to find in stdout: =========
@@ -863,7 +854,7 @@ fn runCommand(
                         \\{s}
                     , .{
                         match,
-                        result.stdio.stdout,
+                        result.stdio.stdout.?,
                         try Step.allocPrintCmd(arena, self.cwd, final_argv),
                     });
                 }
@@ -982,12 +973,8 @@ fn spawnChildAndCollect(
 }
 
 const StdIoResult = struct {
-    // These use boolean flags instead of optionals as a workaround for
-    // https://github.com/ziglang/zig/issues/14783
-    stdout: []const u8,
-    stderr: []const u8,
-    stdout_null: bool,
-    stderr_null: bool,
+    stdout: ?[]const u8,
+    stderr: ?[]const u8,
     test_results: Step.TestResults,
     test_metadata: ?TestMetadata,
 };
@@ -1115,10 +1102,8 @@ fn evalZigTest(
     child.stdin = null;
 
     return .{
-        .stdout = &.{},
-        .stderr = &.{},
-        .stdout_null = true,
-        .stderr_null = true,
+        .stdout = null,
+        .stderr = null,
         .test_results = .{
             .test_count = test_count,
             .fail_count = fail_count,
@@ -1204,12 +1189,8 @@ fn evalGeneric(self: *Run, child: *std.process.Child) !StdIoResult {
         .none => {},
     }
 
-    // These are not optionals, as a workaround for
-    // https://github.com/ziglang/zig/issues/14783
-    var stdout_bytes: []const u8 = undefined;
-    var stderr_bytes: []const u8 = undefined;
-    var stdout_null = true;
-    var stderr_null = true;
+    var stdout_bytes: ?[]const u8 = null;
+    var stderr_bytes: ?[]const u8 = null;
 
     if (child.stdout) |stdout| {
         if (child.stderr) |stderr| {
@@ -1228,33 +1209,27 @@ fn evalGeneric(self: *Run, child: *std.process.Child) !StdIoResult {
 
             stdout_bytes = try poller.fifo(.stdout).toOwnedSlice();
             stderr_bytes = try poller.fifo(.stderr).toOwnedSlice();
-            stdout_null = false;
-            stderr_null = false;
         } else {
             stdout_bytes = try stdout.reader().readAllAlloc(arena, self.max_stdio_size);
-            stdout_null = false;
         }
     } else if (child.stderr) |stderr| {
         stderr_bytes = try stderr.reader().readAllAlloc(arena, self.max_stdio_size);
-        stderr_null = false;
     }
 
-    if (!stderr_null and stderr_bytes.len > 0) {
+    if (stderr_bytes) |bytes| if (bytes.len > 0) {
         // Treat stderr as an error message.
         const stderr_is_diagnostic = self.captured_stderr == null and switch (self.stdio) {
             .check => |checks| !checksContainStderr(checks.items),
             else => true,
         };
         if (stderr_is_diagnostic) {
-            try self.step.result_error_msgs.append(arena, stderr_bytes);
+            try self.step.result_error_msgs.append(arena, bytes);
         }
-    }
+    };
 
     return .{
         .stdout = stdout_bytes,
         .stderr = stderr_bytes,
-        .stdout_null = stdout_null,
-        .stderr_null = stderr_null,
         .test_results = .{},
         .test_metadata = null,
     };
