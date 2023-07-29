@@ -602,6 +602,16 @@ const MsvcLibDir = struct {
         }
         defer _ = setup_config.vtable.unknown.Release(setup_config);
 
+        var setup_helper: *ISetupHelper = undefined;
+        switch (setup_config.vtable.unknown.QueryInterface(
+            setup_config,
+            ISetupHelper.IID,
+            @ptrCast(&setup_helper),
+        )) {
+            windows.S_OK => {},
+            else => return error.PathNotFound,
+        }
+
         var all_instances: *IEnumSetupInstances = undefined;
         switch (setup_config.vtable.setup_configuration.EnumInstances(setup_config, &all_instances)) {
             windows.S_OK => {},
@@ -610,6 +620,8 @@ const MsvcLibDir = struct {
         }
         defer _ = all_instances.vtable.unknown.Release(all_instances);
 
+        var latest_version: windows.ULONGLONG = 0;
+        var latest_version_lib_dir: ?[]const u8 = null;
         while (true) {
             var cur: *ISetupInstance = undefined;
             switch (all_instances.vtable.enum_setup_instances.Next(all_instances, 1, &cur, null)) {
@@ -619,6 +631,23 @@ const MsvcLibDir = struct {
                 else => return error.PathNotFound,
             }
             defer _ = cur.vtable.unknown.Release(cur);
+
+            var installation_version_bstr: windows.BSTR = undefined;
+            switch (cur.vtable.setup_instance.GetInstallationVersion(cur, &installation_version_bstr)) {
+                windows.S_OK => {},
+                windows.E_OUTOFMEMORY => return error.OutOfMemory,
+                else => continue,
+            }
+            defer SysFreeString(installation_version_bstr);
+
+            var parsed_version: windows.ULONGLONG = undefined;
+            switch (setup_helper.vtable.setup_helper.ParseVersion(setup_helper, installation_version_bstr, &parsed_version)) {
+                windows.S_OK => {},
+                else => continue,
+            }
+
+            // We want to end up with the most recent version installed
+            if (parsed_version <= latest_version) continue;
 
             var installation_path_bstr: windows.BSTR = undefined;
             switch (cur.vtable.setup_instance.GetInstallationPath(cur, &installation_path_bstr)) {
@@ -635,9 +664,14 @@ const MsvcLibDir = struct {
             };
             errdefer allocator.free(lib_dir_path);
 
-            return lib_dir_path;
+            if (latest_version_lib_dir) |prev_lib_dir| {
+                allocator.free(prev_lib_dir);
+            }
+            latest_version_lib_dir = lib_dir_path;
+            latest_version = parsed_version;
         }
-        return error.PathNotFound;
+
+        return latest_version_lib_dir orelse error.PathNotFound;
     }
 
     fn libDirFromInstallationPath(allocator: std.mem.Allocator, installation_path_w: []const u16) error{ OutOfMemory, PathNotFound }![]const u8 {
@@ -995,6 +1029,27 @@ const ISetupInstance = extern struct {
             GetDisplayName: *anyopaque,
             GetDescription: *anyopaque,
             ResolvePath: *anyopaque,
+        };
+    }
+};
+
+const ISetupHelper = extern struct {
+    vtable: *extern struct {
+        unknown: IUnknown.VTable(ISetupHelper),
+        setup_helper: VTable(ISetupHelper),
+    },
+
+    const IID_Value = windows.GUID.parse("{42b21b78-6192-463e-87bf-d577838f1d5c}");
+    pub const IID = &IID_Value;
+
+    pub fn VTable(comptime T: type) type {
+        return extern struct {
+            ParseVersion: *const fn (
+                self: *T,
+                pwszVersion: windows.BSTR, // [in]
+                pullVersion: *windows.ULONGLONG, // [out]
+            ) callconv(windows.WINAPI) windows.HRESULT,
+            ParseVersionRange: *anyopaque,
         };
     }
 };
