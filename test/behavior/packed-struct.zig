@@ -354,6 +354,44 @@ test "byte-aligned field pointer offsets" {
     try comptime S.doTheTest();
 }
 
+test "nested packed struct field pointers" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // ubsan unaligned pointer access
+    if (native_endian != .Little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
+
+    const S2 = packed struct {
+        base: u8,
+        p0: packed struct {
+            a: u4,
+            b: u4,
+            c: u8,
+        },
+        bit: u1,
+        p1: packed struct {
+            a: u7,
+            b: u8,
+        },
+
+        var s: @This() = .{ .base = 1, .p0 = .{ .a = 2, .b = 3, .c = 4 }, .bit = 0, .p1 = .{ .a = 5, .b = 6 } };
+    };
+
+    const ptr_base = &S2.s.base;
+    const ptr_p0_a = &S2.s.p0.a;
+    const ptr_p0_b = &S2.s.p0.b;
+    const ptr_p0_c = &S2.s.p0.c;
+    const ptr_p1_a = &S2.s.p1.a;
+    //const ptr_p1_b = &S2.s.p1.b;
+    try expectEqual(@as(u8, 1), ptr_base.*);
+    try expectEqual(@as(u4, 2), ptr_p0_a.*);
+    try expectEqual(@as(u4, 3), ptr_p0_b.*);
+    try expectEqual(@as(u8, 4), ptr_p0_c.*);
+    try expectEqual(@as(u7, 5), ptr_p1_a.*);
+    // try expectEqual(@as(u8,6), ptr_p1_b.*);    https://github.com/ziglang/zig/issues/16748
+}
+
 test "load pointer from packed struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -382,11 +420,8 @@ test "@intFromPtr on a packed struct field" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
-        const P = packed struct {
-            x: u8,
-            y: u8,
-            z: u32,
-        };
+        const P = packed struct { x: u8, y: u8, z: u32 };
+
         var p0: P = P{
             .x = 1,
             .y = 2,
@@ -394,6 +429,50 @@ test "@intFromPtr on a packed struct field" {
         };
     };
     try expect(@intFromPtr(&S.p0.z) - @intFromPtr(&S.p0.x) == 2);
+
+    const S2 = packed struct {
+        base: u8,
+        p0: packed struct {
+            a: u4,
+            b: u4,
+            c: u8,
+        },
+        bit: u1,
+        p1: packed struct {
+            a: u7,
+            b: u8,
+        },
+
+        var s: @This() = .{ .base = 1, .p0 = .{ .a = 2, .b = 3, .c = 4 }, .bit = 0, .p1 = .{ .a = 5, .b = 6 } };
+    };
+    try expect(@intFromPtr(&S2.s.base) - @intFromPtr(&S2.s) == 0);
+    try expect(@intFromPtr(&S2.s.p0.a) - @intFromPtr(&S2.s) == 1);
+    try expect(@intFromPtr(&S2.s.p0.b) - @intFromPtr(&S2.s) == 1);
+    try expect(@intFromPtr(&S2.s.p0.c) - @intFromPtr(&S2.s) == 2);
+    try expect(@intFromPtr(&S2.s.bit) - @intFromPtr(&S2.s) == 0);
+    try expect(@intFromPtr(&S2.s.p1.a) - @intFromPtr(&S2.s) == 0);
+    // try expect(@intFromPtr(&S2.s.p1.b) - @intFromPtr(&S2.s) == 4);  https://github.com/ziglang/zig/issues/16748
+}
+
+test "packed struct fields modification" {
+    const Small = packed struct {
+        val: u8 = 0,
+        lo: u4 = 0,
+        hi: u4 = 0,
+
+        var p: @This() = undefined;
+    };
+    Small.p = .{
+        .val = 0x12,
+        .lo = 3,
+        .hi = 4,
+    };
+    try expect(@as(u16, @bitCast(Small.p)) == 0x4312);
+
+    Small.p.val -= Small.p.lo;
+    Small.p.val += Small.p.hi;
+    Small.p.hi -= Small.p.lo;
+    try expect(@as(u16, @bitCast(Small.p)) == 0x1313);
 }
 
 test "optional pointer in packed struct" {
