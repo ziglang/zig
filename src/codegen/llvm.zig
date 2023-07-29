@@ -6776,8 +6776,9 @@ pub const FuncGen = struct {
         const max_return_count = outputs.len;
         const llvm_ret_types = try arena.alloc(Builder.Type, max_return_count);
         const llvm_ret_indirect = try arena.alloc(bool, max_return_count);
+        const llvm_rw_vals = try arena.alloc(Builder.Value, max_return_count);
 
-        const max_param_count = inputs.len + outputs.len;
+        const max_param_count = max_return_count + inputs.len + outputs.len;
         const llvm_param_types = try arena.alloc(Builder.Type, max_param_count);
         const llvm_param_values = try arena.alloc(Builder.Value, max_param_count);
         // This stores whether we need to add an elementtype attribute and
@@ -6793,7 +6794,8 @@ pub const FuncGen = struct {
         var name_map: std.StringArrayHashMapUnmanaged(u16) = .{};
         try name_map.ensureUnusedCapacity(arena, max_param_count);
 
-        for (outputs, 0..) |output, i| {
+        var rw_extra_i = extra_i;
+        for (outputs, llvm_ret_indirect, llvm_rw_vals) |output, *is_indirect, *llvm_rw_val| {
             const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
             const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -6808,14 +6810,22 @@ pub const FuncGen = struct {
             llvm_constraints.appendAssumeCapacity('=');
 
             // Pass any non-return outputs indirectly, if the constraint accepts a memory location
-            llvm_ret_indirect[i] = (output != .none) and constraintAllowsMemory(constraint);
+            is_indirect.* = (output != .none) and constraintAllowsMemory(constraint);
             if (output != .none) {
                 const output_inst = try self.resolveInst(output);
                 const output_ty = self.typeOf(output);
                 assert(output_ty.zigTypeTag(mod) == .Pointer);
                 const elem_llvm_ty = try o.lowerPtrElemTy(output_ty.childType(mod));
 
-                if (llvm_ret_indirect[i]) {
+                switch (constraint[0]) {
+                    '=' => {},
+                    '+' => llvm_rw_val.* = output_inst,
+                    else => return self.todo("unsupported output constraint on output type '{c}'", .{
+                        constraint[0],
+                    }),
+                }
+
+                if (is_indirect.*) {
                     // Pass the result by reference as an indirect output (e.g. "=*m")
                     llvm_constraints.appendAssumeCapacity('*');
 
@@ -6829,6 +6839,13 @@ pub const FuncGen = struct {
                     llvm_ret_i += 1;
                 }
             } else {
+                switch (constraint[0]) {
+                    '=' => {},
+                    else => return self.todo("unsupported output constraint on result type '{c}'", .{
+                        constraint[0],
+                    }),
+                }
+
                 const ret_ty = self.typeOfIndex(inst);
                 llvm_ret_types[llvm_ret_i] = try o.lowerType(ret_ty);
                 llvm_ret_i += 1;
@@ -6865,9 +6882,8 @@ pub const FuncGen = struct {
 
             const arg_llvm_value = try self.resolveInst(input);
             const arg_ty = self.typeOf(input);
-            var llvm_elem_ty: Builder.Type = .none;
-            if (isByRef(arg_ty, mod)) {
-                llvm_elem_ty = try o.lowerPtrElemTy(arg_ty);
+            const is_by_ref = isByRef(arg_ty, mod);
+            if (is_by_ref) {
                 if (constraintAllowsMemory(constraint)) {
                     llvm_param_values[llvm_param_i] = arg_llvm_value;
                     llvm_param_types[llvm_param_i] = arg_llvm_value.typeOfWip(&self.wip);
@@ -6911,14 +6927,42 @@ pub const FuncGen = struct {
 
             // In the case of indirect inputs, LLVM requires the callsite to have
             // an elementtype(<ty>) attribute.
-            if (constraint[0] == '*') {
-                llvm_param_attrs[llvm_param_i] = if (llvm_elem_ty != .none)
-                    llvm_elem_ty
-                else
-                    try o.lowerPtrElemTy(arg_ty.childType(mod));
+            llvm_param_attrs[llvm_param_i] = if (constraint[0] == '*')
+                try o.lowerPtrElemTy(if (is_by_ref) arg_ty else arg_ty.childType(mod))
+            else
+                .none;
+
+            llvm_param_i += 1;
+            total_i += 1;
+        }
+
+        for (outputs, llvm_ret_indirect, llvm_rw_vals, 0..) |output, is_indirect, llvm_rw_val, output_index| {
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[rw_extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[rw_extra_i..]), 0);
+            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            rw_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+            if (constraint[0] != '+') continue;
+
+            const rw_ty = self.typeOf(output);
+            const llvm_elem_ty = try o.lowerPtrElemTy(rw_ty.childType(mod));
+            if (is_indirect) {
+                llvm_param_values[llvm_param_i] = llvm_rw_val;
+                llvm_param_types[llvm_param_i] = llvm_rw_val.typeOfWip(&self.wip);
             } else {
-                llvm_param_attrs[llvm_param_i] = .none;
+                const alignment = Builder.Alignment.fromByteUnits(rw_ty.abiAlignment(mod));
+                const loaded = try self.wip.load(.normal, llvm_elem_ty, llvm_rw_val, alignment, "");
+                llvm_param_values[llvm_param_i] = loaded;
+                llvm_param_types[llvm_param_i] = llvm_elem_ty;
             }
+
+            try llvm_constraints.writer(self.gpa).print(",{d}", .{output_index});
+
+            // In the case of indirect inputs, LLVM requires the callsite to have
+            // an elementtype(<ty>) attribute.
+            llvm_param_attrs[llvm_param_i] = if (is_indirect) llvm_elem_ty else .none;
 
             llvm_param_i += 1;
             total_i += 1;
