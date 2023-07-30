@@ -104,7 +104,19 @@ const CloneFn = *const fn (arg: usize) callconv(.C) u8;
 pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
 pub fn restore() callconv(.Naked) void {
-    return asm volatile ("svc #0"
+    if (@import("builtin").zig_backend == .stage2_c) {
+        asm volatile (
+            \\ mov r7, %[number]
+            \\ svc #0
+            \\ bx lr
+            :
+            : [number] "i" (@intFromEnum(SYS.sigreturn)),
+            : "memory"
+        );
+        unreachable;
+    }
+
+    asm volatile ("svc #0"
         :
         : [number] "{r7}" (@intFromEnum(SYS.sigreturn)),
         : "memory"
@@ -112,7 +124,19 @@ pub fn restore() callconv(.Naked) void {
 }
 
 pub fn restore_rt() callconv(.Naked) void {
-    return asm volatile ("svc #0"
+    if (@import("builtin").zig_backend == .stage2_c) {
+        asm volatile (
+            \\ mov r7, %[number]
+            \\ svc #0
+            \\ bx lr
+            :
+            : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
+            : "memory"
+        );
+        unreachable;
+    }
+
+    asm volatile ("svc #0"
         :
         : [number] "{r7}" (@intFromEnum(SYS.rt_sigreturn)),
         : "memory"

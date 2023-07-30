@@ -124,45 +124,45 @@ const CloneFn = *const fn (arg: usize) callconv(.C) u8;
 pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
 pub fn restore() callconv(.Naked) void {
-    switch (@import("builtin").zig_backend) {
-        .stage2_c => asm volatile (
+    if (@import("builtin").zig_backend == .stage2_c) {
+        asm volatile (
             \\ movl %[number], %%eax
             \\ int $0x80
-            \\ ret
+            \\ retl
             :
             : [number] "i" (@intFromEnum(SYS.sigreturn)),
             : "memory"
-        ),
-        else => asm volatile (
-            \\ int $0x80
-            \\ ret
-            :
-            : [number] "{eax}" (@intFromEnum(SYS.sigreturn)),
-            : "memory"
-        ),
+        );
+        unreachable;
     }
-    unreachable;
+
+    asm volatile (
+        \\ int $0x80
+        :
+        : [number] "{eax}" (@intFromEnum(SYS.sigreturn)),
+        : "memory"
+    );
 }
 
 pub fn restore_rt() callconv(.Naked) void {
-    switch (@import("builtin").zig_backend) {
-        .stage2_c => asm volatile (
+    if (@import("builtin").zig_backend == .stage2_c) {
+        asm volatile (
             \\ movl %[number], %%eax
             \\ int $0x80
-            \\ ret
+            \\ retl
             :
             : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
             : "memory"
-        ),
-        else => asm volatile (
-            \\ int $0x80
-            \\ ret
-            :
-            : [number] "{eax}" (@intFromEnum(SYS.rt_sigreturn)),
-            : "memory"
-        ),
+        );
+        unreachable;
     }
-    unreachable;
+
+    asm volatile (
+        \\ int $0x80
+        :
+        : [number] "{eax}" (@intFromEnum(SYS.rt_sigreturn)),
+        : "memory"
+    );
 }
 
 pub const O = struct {
@@ -354,16 +354,19 @@ pub const ucontext_t = extern struct {
 
 pub const Elf_Symndx = u32;
 
-pub const user_desc = packed struct {
+pub const user_desc = extern struct {
     entry_number: u32,
     base_addr: u32,
     limit: u32,
-    seg_32bit: u1,
-    contents: u2,
-    read_exec_only: u1,
-    limit_in_pages: u1,
-    seg_not_present: u1,
-    useable: u1,
+    flags: packed struct(u32) {
+        seg_32bit: u1,
+        contents: u2,
+        read_exec_only: u1,
+        limit_in_pages: u1,
+        seg_not_present: u1,
+        useable: u1,
+        _: u25 = undefined,
+    },
 };
 
 /// socketcall() call numbers
@@ -400,63 +403,63 @@ noinline fn getContextReturnAddress() usize {
 
 pub fn getContextInternal() callconv(.Naked) void {
     asm volatile (
-        \\ movl $0, (%[flags_offset])(%%edx)
-        \\ movl $0, (%[link_offset])(%%edx)
-        \\ movl %%edi, (%[edi_offset])(%%edx)
-        \\ movl %%esi, (%[esi_offset])(%%edx)
-        \\ movl %%ebp, (%[ebp_offset])(%%edx)
-        \\ movl %%ebx, (%[ebx_offset])(%%edx)
-        \\ movl %%edx, (%[edx_offset])(%%edx)
-        \\ movl %%ecx, (%[ecx_offset])(%%edx)
-        \\ movl %%eax, (%[eax_offset])(%%edx)
+        \\ movl $0, %[flags_offset:c](%%edx)
+        \\ movl $0, %[link_offset:c](%%edx)
+        \\ movl %%edi, %[edi_offset:c](%%edx)
+        \\ movl %%esi, %[esi_offset:c](%%edx)
+        \\ movl %%ebp, %[ebp_offset:c](%%edx)
+        \\ movl %%ebx, %[ebx_offset:c](%%edx)
+        \\ movl %%edx, %[edx_offset:c](%%edx)
+        \\ movl %%ecx, %[ecx_offset:c](%%edx)
+        \\ movl %%eax, %[eax_offset:c](%%edx)
         \\ movl (%%esp), %%ecx
-        \\ movl %%ecx, (%[eip_offset])(%%edx)
+        \\ movl %%ecx, %[eip_offset:c](%%edx)
         \\ leal 4(%%esp), %%ecx
-        \\ movl %%ecx, (%[esp_offset])(%%edx)
+        \\ movl %%ecx, %[esp_offset:c](%%edx)
         \\ xorl %%ecx, %%ecx
         \\ movw %%fs, %%cx
-        \\ movl %%ecx, (%[fs_offset])(%%edx)
-        \\ leal (%[regspace_offset])(%%edx), %%ecx
-        \\ movl %%ecx, (%[fpregs_offset])(%%edx)
+        \\ movl %%ecx, %[fs_offset:c](%%edx)
+        \\ leal %[regspace_offset:c](%%edx), %%ecx
+        \\ movl %%ecx, %[fpregs_offset:c](%%edx)
         \\ fnstenv (%%ecx)
         \\ fldenv (%%ecx)
         \\ pushl %%ebx
         \\ pushl %%esi
         \\ xorl %%ebx, %%ebx
         \\ movl %[sigaltstack], %%eax
-        \\ leal (%[stack_offset])(%%edx), %%ecx
+        \\ leal %[stack_offset:c](%%edx), %%ecx
         \\ int $0x80
-        \\ cmpl $0, %%eax
-        \\ jne return
+        \\ testl %%eax, %%eax
+        \\ jnz 0f
         \\ movl %[sigprocmask], %%eax
         \\ xorl %%ecx, %%ecx
-        \\ leal (%[sigmask_offset])(%%edx), %%edx
+        \\ leal %[sigmask_offset:c](%%edx), %%edx
         \\ movl %[sigset_size], %%esi
         \\ int $0x80
-        \\ return:
+        \\0:
         \\ popl %%esi
         \\ popl %%ebx
         :
-        : [flags_offset] "p" (@offsetOf(ucontext_t, "flags")),
-          [link_offset] "p" (@offsetOf(ucontext_t, "link")),
-          [edi_offset] "p" (comptime gpRegisterOffset(REG.EDI)),
-          [esi_offset] "p" (comptime gpRegisterOffset(REG.ESI)),
-          [ebp_offset] "p" (comptime gpRegisterOffset(REG.EBP)),
-          [esp_offset] "p" (comptime gpRegisterOffset(REG.ESP)),
-          [ebx_offset] "p" (comptime gpRegisterOffset(REG.EBX)),
-          [edx_offset] "p" (comptime gpRegisterOffset(REG.EDX)),
-          [ecx_offset] "p" (comptime gpRegisterOffset(REG.ECX)),
-          [eax_offset] "p" (comptime gpRegisterOffset(REG.EAX)),
-          [eip_offset] "p" (comptime gpRegisterOffset(REG.EIP)),
-          [fs_offset] "p" (comptime gpRegisterOffset(REG.FS)),
-          [fpregs_offset] "p" (@offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "fpregs")),
-          [regspace_offset] "p" (@offsetOf(ucontext_t, "regspace")),
+        : [flags_offset] "i" (@offsetOf(ucontext_t, "flags")),
+          [link_offset] "i" (@offsetOf(ucontext_t, "link")),
+          [edi_offset] "i" (comptime gpRegisterOffset(REG.EDI)),
+          [esi_offset] "i" (comptime gpRegisterOffset(REG.ESI)),
+          [ebp_offset] "i" (comptime gpRegisterOffset(REG.EBP)),
+          [esp_offset] "i" (comptime gpRegisterOffset(REG.ESP)),
+          [ebx_offset] "i" (comptime gpRegisterOffset(REG.EBX)),
+          [edx_offset] "i" (comptime gpRegisterOffset(REG.EDX)),
+          [ecx_offset] "i" (comptime gpRegisterOffset(REG.ECX)),
+          [eax_offset] "i" (comptime gpRegisterOffset(REG.EAX)),
+          [eip_offset] "i" (comptime gpRegisterOffset(REG.EIP)),
+          [fs_offset] "i" (comptime gpRegisterOffset(REG.FS)),
+          [fpregs_offset] "i" (@offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "fpregs")),
+          [regspace_offset] "i" (@offsetOf(ucontext_t, "regspace")),
           [sigaltstack] "i" (@intFromEnum(linux.SYS.sigaltstack)),
-          [stack_offset] "p" (@offsetOf(ucontext_t, "stack")),
+          [stack_offset] "i" (@offsetOf(ucontext_t, "stack")),
           [sigprocmask] "i" (@intFromEnum(linux.SYS.rt_sigprocmask)),
-          [sigmask_offset] "p" (@offsetOf(ucontext_t, "sigmask")),
+          [sigmask_offset] "i" (@offsetOf(ucontext_t, "sigmask")),
           [sigset_size] "i" (linux.NSIG / 8),
-        : "memory", "eax", "ecx", "edx"
+        : "cc", "memory", "eax", "ecx", "edx"
     );
 }
 
@@ -464,11 +467,13 @@ pub inline fn getcontext(context: *ucontext_t) usize {
     // This method is used so that getContextInternal can control
     // its prologue in order to read ESP from a constant offset.
     // The unused &getContextInternal input is required so the function is included in the binary.
+    var clobber_edx: usize = undefined;
     return asm volatile (
-        \\ call os.linux.x86.getContextInternal
-        : [ret] "={eax}" (-> usize),
-        : [context] "{edx}" (context),
+        \\ calll %[getContextInternal:P]
+        : [_] "={eax}" (-> usize),
+          [_] "={edx}" (clobber_edx),
+        : [_] "{edx}" (context),
           [getContextInternal] "X" (&getContextInternal),
-        : "memory", "ecx"
+        : "cc", "memory", "ecx"
     );
 }

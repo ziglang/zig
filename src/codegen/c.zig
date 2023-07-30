@@ -30,7 +30,7 @@ pub const CValue = union(enum) {
     /// Address of a local.
     local_ref: LocalIndex,
     /// A constant instruction, to be rendered inline.
-    constant: Air.Inst.Ref,
+    constant: InternPool.Index,
     /// Index into the parameters
     arg: usize,
     /// The array field of a parameter
@@ -302,7 +302,7 @@ pub const Function = struct {
             try f.object.dg.renderValue(writer, ty, val, .StaticInitializer);
             try writer.writeAll(";\n ");
             break :result decl_c_value;
-        } else .{ .constant = ref };
+        } else .{ .constant = val.toIntern() };
 
         gop.value_ptr.* = result;
         return result;
@@ -352,57 +352,63 @@ pub const Function = struct {
 
     fn writeCValue(f: *Function, w: anytype, c_value: CValue, location: ValueRenderLocation) !void {
         switch (c_value) {
-            .constant => |inst| {
-                const mod = f.object.dg.module;
-                const ty = f.typeOf(inst);
-                const val = (try f.air.value(inst, mod)).?;
-                return f.object.dg.renderValue(w, ty, val, location);
-            },
-            .undef => |ty| return f.object.dg.renderValue(w, ty, Value.undef, location),
-            else => return f.object.dg.writeCValue(w, c_value),
+            .constant => |val| try f.object.dg.renderValue(
+                w,
+                f.object.dg.module.intern_pool.typeOf(val).toType(),
+                val.toValue(),
+                location,
+            ),
+            .undef => |ty| try f.object.dg.renderValue(w, ty, Value.undef, location),
+            else => try f.object.dg.writeCValue(w, c_value),
         }
     }
 
     fn writeCValueDeref(f: *Function, w: anytype, c_value: CValue) !void {
         switch (c_value) {
-            .constant => |inst| {
-                const mod = f.object.dg.module;
-                const ty = f.typeOf(inst);
-                const val = (try f.air.value(inst, mod)).?;
+            .constant => |val| {
                 try w.writeAll("(*");
-                try f.object.dg.renderValue(w, ty, val, .Other);
-                return w.writeByte(')');
+                try f.object.dg.renderValue(
+                    w,
+                    f.object.dg.module.intern_pool.typeOf(val).toType(),
+                    val.toValue(),
+                    .Other,
+                );
+                try w.writeByte(')');
             },
-            else => return f.object.dg.writeCValueDeref(w, c_value),
+            else => try f.object.dg.writeCValueDeref(w, c_value),
         }
     }
 
     fn writeCValueMember(f: *Function, w: anytype, c_value: CValue, member: CValue) !void {
         switch (c_value) {
-            .constant => |inst| {
-                const mod = f.object.dg.module;
-                const ty = f.typeOf(inst);
-                const val = (try f.air.value(inst, mod)).?;
-                try f.object.dg.renderValue(w, ty, val, .Other);
+            .constant => |val| {
+                try f.object.dg.renderValue(
+                    w,
+                    f.object.dg.module.intern_pool.typeOf(val).toType(),
+                    val.toValue(),
+                    .Other,
+                );
                 try w.writeByte('.');
-                return f.writeCValue(w, member, .Other);
+                try f.writeCValue(w, member, .Other);
             },
-            else => return f.object.dg.writeCValueMember(w, c_value, member),
+            else => try f.object.dg.writeCValueMember(w, c_value, member),
         }
     }
 
     fn writeCValueDerefMember(f: *Function, w: anytype, c_value: CValue, member: CValue) !void {
         switch (c_value) {
-            .constant => |inst| {
-                const mod = f.object.dg.module;
-                const ty = f.typeOf(inst);
-                const val = (try f.air.value(inst, mod)).?;
+            .constant => |val| {
                 try w.writeByte('(');
-                try f.object.dg.renderValue(w, ty, val, .Other);
+                try f.object.dg.renderValue(
+                    w,
+                    f.object.dg.module.intern_pool.typeOf(val).toType(),
+                    val.toValue(),
+                    .Other,
+                );
                 try w.writeAll(")->");
-                return f.writeCValue(w, member, .Other);
+                try f.writeCValue(w, member, .Other);
             },
-            else => return f.object.dg.writeCValueDerefMember(w, c_value, member),
+            else => try f.object.dg.writeCValueDerefMember(w, c_value, member),
         }
     }
 
@@ -4763,11 +4769,20 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     return .none;
 }
 
-fn asmInputNeedsLocal(constraint: []const u8, value: CValue) bool {
+fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool {
     return switch (constraint[0]) {
         '{' => true,
         'i', 'r' => false,
-        else => value == .constant,
+        else => switch (value) {
+            .constant => |val| switch (f.object.dg.module.intern_pool.indexToKey(val)) {
+                .ptr => |ptr| switch (ptr.addr) {
+                    .decl => false,
+                    else => true,
+                },
+                else => true,
+            },
+            else => false,
+        },
     };
 }
 
@@ -4848,7 +4863,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
             const is_reg = constraint[0] == '{';
             const input_val = try f.resolveInst(input);
-            if (asmInputNeedsLocal(constraint, input_val)) {
+            if (asmInputNeedsLocal(f, constraint, input_val)) {
                 const input_ty = f.typeOf(input);
                 if (is_reg) try writer.writeAll("register ");
                 const alignment = 0;
@@ -4969,7 +4984,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             const is_reg = constraint[0] == '{';
             const input_val = try f.resolveInst(input);
             try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "r" else constraint, null)});
-            try f.writeCValue(writer, if (asmInputNeedsLocal(constraint, input_val)) local: {
+            try f.writeCValue(writer, if (asmInputNeedsLocal(f, constraint, input_val)) local: {
                 const input_local = .{ .local = locals_index };
                 locals_index += 1;
                 break :local input_local;

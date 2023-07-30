@@ -256,38 +256,38 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
 fn _start() callconv(.Naked) noreturn {
     switch (builtin.zig_backend) {
         .stage2_c => {
-            @export(argc_argv_ptr, .{ .name = "argc_argv_ptr" });
-            @export(posixCallMainAndExit, .{ .name = "_posixCallMainAndExit" });
-            switch (native_arch) {
-                .x86_64 => asm volatile (
+            asm volatile (switch (native_arch) {
+                    .x86_64 =>
                     \\ xorl %%ebp, %%ebp
-                    \\ movq %%rsp, argc_argv_ptr
+                    \\ movq %%rsp, %[argc_argv_ptr]
                     \\ andq $-16, %%rsp
-                    \\ call _posixCallMainAndExit
-                ),
-                .x86 => asm volatile (
+                    \\ callq %[posixCallMainAndExit:P]
+                    ,
+                    .x86 =>
                     \\ xorl %%ebp, %%ebp
-                    \\ movl %%esp, argc_argv_ptr
+                    \\ movl %%esp, %[argc_argv_ptr]
                     \\ andl $-16, %%esp
-                    \\ jmp _posixCallMainAndExit
-                ),
-                .aarch64, .aarch64_be => asm volatile (
+                    \\ calll %[posixCallMainAndExit:P]
+                    ,
+                    .aarch64, .aarch64_be =>
                     \\ mov fp, #0
                     \\ mov lr, #0
                     \\ mov x0, sp
-                    \\ adrp x1, argc_argv_ptr
-                    \\ str x0, [x1, :lo12:argc_argv_ptr]
-                    \\ b _posixCallMainAndExit
-                ),
-                .arm, .armeb, .thumb => asm volatile (
+                    \\ str x0, %[argc_argv_ptr]
+                    \\ b %[posixCallMainAndExit]
+                    ,
+                    .arm, .armeb, .thumb =>
                     \\ mov fp, #0
                     \\ mov lr, #0
-                    \\ str sp, argc_argv_ptr
+                    \\ str sp, %[argc_argv_ptr]
                     \\ and sp, #-16
-                    \\ b _posixCallMainAndExit
-                ),
-                else => @compileError("unsupported arch"),
-            }
+                    \\ b %[posixCallMainAndExit]
+                    ,
+                    else => @compileError("unsupported arch"),
+                }
+                : [argc_argv_ptr] "=m" (argc_argv_ptr),
+                : [posixCallMainAndExit] "X" (&posixCallMainAndExit),
+            );
             unreachable;
         },
         else => switch (native_arch) {

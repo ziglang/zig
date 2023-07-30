@@ -1053,6 +1053,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     // TODO stop violating these pedantic errors. spotted on linux
                     "-Wno-address-of-packed-member",
                     "-Wno-gnu-folding-constant",
+                    "-Wno-incompatible-function-pointer-types",
                     "-Wno-incompatible-pointer-types",
                     "-Wno-overlength-strings",
                     // TODO stop violating these pedantic errors. spotted on darwin

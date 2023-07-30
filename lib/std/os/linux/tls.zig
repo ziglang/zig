@@ -115,12 +115,14 @@ pub fn setThreadPointer(addr: usize) void {
                 .entry_number = tls_image.gdt_entry_number,
                 .base_addr = addr,
                 .limit = 0xfffff,
-                .seg_32bit = 1,
-                .contents = 0, // Data
-                .read_exec_only = 0,
-                .limit_in_pages = 1,
-                .seg_not_present = 0,
-                .useable = 1,
+                .flags = .{
+                    .seg_32bit = 1,
+                    .contents = 0, // Data
+                    .read_exec_only = 0,
+                    .limit_in_pages = 1,
+                    .seg_not_present = 0,
+                    .useable = 1,
+                },
             };
             const rc = std.os.linux.syscall1(.set_thread_area, @intFromPtr(&user_desc));
             assert(rc == 0);
