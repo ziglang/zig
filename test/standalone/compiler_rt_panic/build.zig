@@ -7,13 +7,15 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    if (target.getObjectFormat() != .elf) return;
+    const abi = target.getAbi();
+    if (target.getObjectFormat() != .elf or !(abi.isMusl() or abi.isGnu())) return;
 
     const exe = b.addExecutable(.{
         .name = "main",
         .optimize = optimize,
         .target = target,
     });
+    exe.linkLibC();
     exe.addCSourceFile("main.c", &.{});
     exe.link_gc_sections = false;
     exe.bundle_compiler_rt = true;
