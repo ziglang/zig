@@ -966,6 +966,8 @@ pub const File = struct {
     }
 
     pub fn linkAsArchive(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
+        const emit = base.options.emit orelse return;
+
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -973,8 +975,8 @@ pub const File = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const directory = base.options.emit.?.directory; // Just an alias to make it shorter to type.
-        const full_out_path = try directory.join(arena, &[_][]const u8{base.options.emit.?.sub_path});
+        const directory = emit.directory; // Just an alias to make it shorter to type.
+        const full_out_path = try directory.join(arena, &[_][]const u8{emit.sub_path});
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
 
         // If there is no Zig code to compile, then we should skip flushing the output file
