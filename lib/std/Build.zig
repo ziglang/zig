@@ -19,8 +19,6 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Build = @This();
 
-const build_util = @import("Build/util.zig");
-
 pub const Cache = @import("Build/Cache.zig");
 
 /// deprecated: use `Step.Compile`.
@@ -59,6 +57,8 @@ pub const RunStep = @import("Build/Step/Run.zig");
 pub const TranslateCStep = @import("Build/Step/TranslateC.zig");
 /// deprecated: use `Step.WriteFile`.
 pub const WriteFileStep = @import("Build/Step/WriteFile.zig");
+/// deprecated: use `LazyPath`.
+pub const FileSource = LazyPath;
 
 install_tls: TopLevelStep,
 uninstall_tls: TopLevelStep,
@@ -95,8 +95,7 @@ build_root: Cache.Directory,
 cache_root: Cache.Directory,
 global_cache_root: Cache.Directory,
 cache: *Cache,
-/// If non-null, overrides the default zig lib dir.
-zig_lib_dir: ?[]const u8,
+zig_lib_dir: ?LazyPath,
 vcpkg_root: VcpkgRoot = .unattempted,
 pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 args: ?[][]const u8 = null,
@@ -483,6 +482,8 @@ pub const ExecutableOptions = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
@@ -499,6 +500,8 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
         .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .main_pkg_path = options.main_pkg_path,
     });
 }
 
@@ -512,6 +515,8 @@ pub const ObjectOptions = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
@@ -526,6 +531,8 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
         .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .main_pkg_path = options.main_pkg_path,
     });
 }
 
@@ -540,6 +547,8 @@ pub const SharedLibraryOptions = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
@@ -556,6 +565,8 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
         .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .main_pkg_path = options.main_pkg_path,
     });
 }
 
@@ -570,6 +581,8 @@ pub const StaticLibraryOptions = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
@@ -586,6 +599,8 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
         .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .main_pkg_path = options.main_pkg_path,
     });
 }
 
@@ -602,6 +617,8 @@ pub const TestOptions = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
@@ -618,6 +635,8 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
         .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .main_pkg_path = options.main_pkg_path,
     });
 }
 
@@ -627,6 +646,7 @@ pub const AssemblyOptions = struct {
     target: CrossTarget,
     optimize: std.builtin.Mode,
     max_rss: usize = 0,
+    zig_lib_dir: ?LazyPath = null,
 };
 
 pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
@@ -637,6 +657,7 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
         .target = options.target,
         .optimize = options.optimize,
         .max_rss = options.max_rss,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
     });
     obj_step.addAssemblyLazyPath(options.source_file.dupe(b));
     return obj_step;
@@ -1259,12 +1280,21 @@ fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
     std.debug.print("{s}\n", .{text});
 }
 
+/// This creates the install step and adds it to the dependencies of the
+/// top-level install step, using all the default options.
+/// See `addInstallArtifact` for a more flexible function.
 pub fn installArtifact(self: *Build, artifact: *Step.Compile) void {
-    self.getInstallStep().dependOn(&self.addInstallArtifact(artifact).step);
+    self.getInstallStep().dependOn(&self.addInstallArtifact(artifact, .{}).step);
 }
 
-pub fn addInstallArtifact(self: *Build, artifact: *Step.Compile) *Step.InstallArtifact {
-    return Step.InstallArtifact.create(self, artifact);
+/// This merely creates the step; it does not add it to the dependencies of the
+/// top-level install step.
+pub fn addInstallArtifact(
+    self: *Build,
+    artifact: *Step.Compile,
+    options: Step.InstallArtifact.Options,
+) *Step.InstallArtifact {
+    return Step.InstallArtifact.create(self, artifact, options);
 }
 
 ///`dest_rel_path` is relative to prefix path
@@ -1330,6 +1360,7 @@ pub fn addCheckFile(
     return Step.CheckFile.create(b, file_source, options);
 }
 
+/// deprecated: https://github.com/ziglang/zig/issues/14943
 pub fn pushInstalledFile(self: *Build, dir: InstallDir, dest_rel_path: []const u8) void {
     const file = InstalledFile{
         .dir = dir,
@@ -1632,19 +1663,27 @@ pub const GeneratedFile = struct {
     }
 };
 
-pub const FileSource = LazyPath; // DEPRECATED, use LazyPath now
-
 /// A reference to an existing or future path.
 pub const LazyPath = union(enum) {
-    /// A plain file path, relative to build root or absolute.
+    /// A source file path relative to build root.
+    /// This should not be an absolute path, but in an older iteration of the zig build
+    /// system API, it was allowed to be absolute. Absolute paths should use `cwd_relative`.
     path: []const u8,
 
     /// A file that is generated by an interface. Those files usually are
     /// not available until built by a build step.
     generated: *const GeneratedFile,
 
+    /// An absolute path or a path relative to the current working directory of
+    /// the build runner process.
+    /// This is uncommon but used for system environment paths such as `--zig-lib-dir` which
+    /// ignore the file system path of build.zig and instead are relative to the directory from
+    /// which `zig build` was invoked.
+    /// Use of this tag indicates a dependency on the host system.
+    cwd_relative: []const u8,
+
     /// Returns a new file source that will have a relative path to the build root guaranteed.
-    /// This should be preferred over setting `.path` directly as it documents that the files are in the project directory.
+    /// Asserts the parameter is not an absolute path.
     pub fn relative(path: []const u8) LazyPath {
         std.debug.assert(!std.fs.path.isAbsolute(path));
         return LazyPath{ .path = path };
@@ -1654,7 +1693,7 @@ pub const LazyPath = union(enum) {
     /// Either returns the path or `"generated"`.
     pub fn getDisplayName(self: LazyPath) []const u8 {
         return switch (self) {
-            .path => self.path,
+            .path, .cwd_relative => self.path,
             .generated => "generated",
         };
     }
@@ -1662,26 +1701,34 @@ pub const LazyPath = union(enum) {
     /// Adds dependencies this file source implies to the given step.
     pub fn addStepDependencies(self: LazyPath, other_step: *Step) void {
         switch (self) {
-            .path => {},
+            .path, .cwd_relative => {},
             .generated => |gen| other_step.dependOn(gen.step),
         }
     }
 
-    /// Should only be called during make(), returns a path relative to the build root or absolute.
+    /// Returns a path relative to the current process's current working directory, suitable
+    /// for direct file system operations.
+    ///
+    /// Intended to be used during the make phase only.
     pub fn getPath(self: LazyPath, src_builder: *Build) []const u8 {
         return getPath2(self, src_builder, null);
     }
 
-    /// Should only be called during make(), returns a path relative to the build root or absolute.
-    /// asking_step is only used for debugging purposes; it's the step being run that is asking for
-    /// the path.
+    /// Returns a path relative to the current process's current working directory, suitable
+    /// for direct file system operations.
+    ///
+    /// Intended to be used during the make phase only.
+    ///
+    /// `asking_step` is only used for debugging purposes; it's the step being
+    /// run that is asking for the path.
     pub fn getPath2(self: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
         switch (self) {
             .path => |p| return src_builder.pathFromRoot(p),
+            .cwd_relative => |p| return p,
             .generated => |gen| return gen.path orelse {
                 std.debug.getStderrMutex().lock();
                 const stderr = std.io.getStdErr();
-                build_util.dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
+                dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
                 @panic("misconfigured build script");
             },
         }
@@ -1691,10 +1738,59 @@ pub const LazyPath = union(enum) {
     pub fn dupe(self: LazyPath, b: *Build) LazyPath {
         return switch (self) {
             .path => |p| .{ .path = b.dupePath(p) },
+            .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
             .generated => |gen| .{ .generated = gen },
         };
     }
 };
+
+/// In this function the stderr mutex has already been locked.
+pub fn dumpBadGetPathHelp(
+    s: *Step,
+    stderr: fs.File,
+    src_builder: *Build,
+    asking_step: ?*Step,
+) anyerror!void {
+    const w = stderr.writer();
+    try w.print(
+        \\getPath() was called on a GeneratedFile that wasn't built yet.
+        \\  source package path: {s}
+        \\  Is there a missing Step dependency on step '{s}'?
+        \\
+    , .{
+        src_builder.build_root.path orelse ".",
+        s.name,
+    });
+
+    const tty_config = std.io.tty.detectConfig(stderr);
+    tty_config.setColor(w, .red) catch {};
+    try stderr.writeAll("    The step was created by this stack trace:\n");
+    tty_config.setColor(w, .reset) catch {};
+
+    const debug_info = std.debug.getSelfDebugInfo() catch |err| {
+        try w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
+        return;
+    };
+    const ally = debug_info.allocator;
+    std.debug.writeStackTrace(s.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
+        try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
+        return;
+    };
+    if (asking_step) |as| {
+        tty_config.setColor(w, .red) catch {};
+        try stderr.writeAll("    The step that is missing a dependency on the above step was created by this stack trace:\n");
+        tty_config.setColor(w, .reset) catch {};
+
+        std.debug.writeStackTrace(as.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
+            try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
+            return;
+        };
+    }
+
+    tty_config.setColor(w, .red) catch {};
+    try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
+    tty_config.setColor(w, .reset) catch {};
+}
 
 /// Allocates a new string for assigning a value to a named macro.
 /// If the value is omitted, it is set to 1.

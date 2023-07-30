@@ -15,7 +15,8 @@ pub fn build(b: *std.Build) void {
     });
     main.strip = true;
 
-    main.forceBuild();
+    // TODO: actually check the output
+    _ = main.getEmittedBin();
 
     test_step.dependOn(&main.step);
 }

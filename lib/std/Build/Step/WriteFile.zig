@@ -28,7 +28,8 @@ pub const File = struct {
     sub_path: []const u8,
     contents: Contents,
 
-    pub const getFileSource = getPath; // DEPRECATED, use getPath
+    /// deprecated: use `getPath`
+    pub const getFileSource = getPath;
 
     pub fn getPath(self: *File) std.Build.LazyPath {
         return .{ .generated = &self.generated_file };

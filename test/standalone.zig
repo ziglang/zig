@@ -141,15 +141,15 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/install_raw_hex/build.zig"),
     },
     // TODO take away EmitOption.emit_to option and make it give a FileSource
-    // .{
-    //     .build_root = "test/standalone/emit_asm_and_bin",
-    //     .import = @import("standalone/emit_asm_and_bin/build.zig"),
-    // },
+    //.{
+    //    .build_root = "test/standalone/emit_asm_and_bin",
+    //    .import = @import("standalone/emit_asm_and_bin/build.zig"),
+    //},
     // TODO take away EmitOption.emit_to option and make it give a FileSource
-    // .{
-    //     .build_root = "test/standalone/issue_12588",
-    //     .import = @import("standalone/issue_12588/build.zig"),
-    // },
+    //.{
+    //    .build_root = "test/standalone/issue_12588",
+    //    .import = @import("standalone/issue_12588/build.zig"),
+    //},
     .{
         .build_root = "test/standalone/child_process",
         .import = @import("standalone/child_process/build.zig"),

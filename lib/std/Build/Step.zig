@@ -423,15 +423,7 @@ pub fn evalZigProcess(
         });
     }
 
-    if (s.cast(Compile)) |compile| {
-        if (compile.generated_bin == null) // TODO(xq): How to handle this properly?!
-            return result;
-    }
-
-    return result orelse return s.fail(
-        "the following command failed to communicate the compilation result:\n{s}",
-        .{try allocPrintCmd(arena, null, argv)},
-    );
+    return result;
 }
 
 fn sendMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag) !void {

@@ -57,10 +57,6 @@ fn createScenario(
     });
     static.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     static.linkLibC();
-    static.override_dest_dir = std.Build.InstallDir{
-        .custom = "static",
-    };
-    static.forceEmit(.bin);
 
     const dylib = b.addSharedLibrary(.{
         .name = name,
@@ -70,10 +66,6 @@ fn createScenario(
     });
     dylib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     dylib.linkLibC();
-    dylib.override_dest_dir = std.Build.InstallDir{
-        .custom = "dynamic",
-    };
-    dylib.forceEmit(.bin); // we want the binary to be built as we use it further below
 
     const exe = b.addExecutable(.{
         .name = name,
@@ -83,8 +75,8 @@ fn createScenario(
     exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkSystemLibraryName(name);
     exe.linkLibC();
-    exe.addLibraryPath(static.getEmitDirectory());
-    exe.addLibraryPath(dylib.getEmitDirectory());
-    exe.addRPath(dylib.getEmitDirectory());
+    exe.addLibraryPath(static.getEmittedBinDirectory());
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
     return exe;
 }

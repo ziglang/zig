@@ -588,7 +588,7 @@ pub fn addStandaloneTests(
                 });
                 if (case.link_libc) exe.linkLibC();
 
-                exe.forceBuild();
+                _ = exe.getEmittedBin();
 
                 step.dependOn(&exe.step);
             }
@@ -1008,6 +1008,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .single_threaded = test_target.single_threaded,
             .use_llvm = test_target.use_llvm,
             .use_lld = test_target.use_lld,
+            .zig_lib_dir = .{ .path = "lib" },
         });
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
@@ -1019,7 +1020,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         else
             "";
 
-        these_tests.overrideZigLibDir(.{ .path = "lib" });
         these_tests.addIncludePath(.{ .path = "test" });
 
         const qualified_name = b.fmt("{s}-{s}-{s}{s}{s}{s}", .{
@@ -1039,8 +1039,8 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 .name = qualified_name,
                 .link_libc = test_target.link_libc,
                 .target = altered_target,
+                .zig_lib_dir = .{ .path = "lib" },
             });
-            compile_c.overrideZigLibDir(.{ .path = "lib" });
             compile_c.addCSourceFile(.{
                 .file = these_tests.getEmittedBin(),
                 .flags = &.{

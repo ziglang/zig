@@ -9,7 +9,8 @@ pub fn build(b: *std.Build) void {
     });
     test_artifact.addIncludePath(.{ .path = "a_directory" });
 
-    test_artifact.forceBuild();
+    // TODO: actually check the output
+    _ = test_artifact.getEmittedBin();
 
     test_step.dependOn(&test_artifact.step);
 }

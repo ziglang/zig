@@ -23,7 +23,6 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     });
     dylib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     dylib.linkLibC();
-    dylib.forceEmit(.bin); // enforce library creation, we import it below
 
     // -dead_strip_dylibs
     // -needed-la
@@ -35,8 +34,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkLibC();
     exe.linkSystemLibraryNeeded("a");
-    exe.addLibraryPath(dylib.getEmitDirectory());
-    exe.addRPath(dylib.getEmitDirectory());
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
     exe.dead_strip_dylibs = true;
 
     const check = exe.checkObject();

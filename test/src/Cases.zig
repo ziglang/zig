@@ -551,12 +551,6 @@ pub fn lowerToBuildSteps(
             }),
         };
 
-        if (case.emit_bin) {
-            artifact.forceEmit(.bin);
-        } else {
-            artifact.forceBuild();
-        }
-
         if (case.link_libc) artifact.linkLibC();
 
         switch (case.backend) {

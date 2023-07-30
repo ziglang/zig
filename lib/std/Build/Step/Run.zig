@@ -164,12 +164,9 @@ pub fn enableTestRunnerMode(self: *Run) void {
 }
 
 pub fn addArtifactArg(self: *Run, artifact: *Step.Compile) void {
-    // enforce creation of the binary file by invoking getEmittedBin
     const bin_file = artifact.getEmittedBin();
     bin_file.addStepDependencies(&self.step);
-
     self.argv.append(Arg{ .artifact = artifact }) catch @panic("OOM");
-    self.step.dependOn(&artifact.step);
 }
 
 /// This provides file path as a command line argument to the command being
@@ -201,32 +198,36 @@ pub fn addPrefixedOutputFileArg(
     return .{ .generated = &output.generated_file };
 }
 
-pub const addFileSourceArg = addFileArg; // DEPRECATED, use addFileArg
+/// deprecated: use `addFileArg`
+pub const addFileSourceArg = addFileArg;
 
-pub fn addFileArg(self: *Run, file_source: std.Build.LazyPath) void {
-    self.addPrefixedFileArg("", file_source);
+pub fn addFileArg(self: *Run, lp: std.Build.LazyPath) void {
+    self.addPrefixedFileArg("", lp);
 }
 
-pub const addPrefixedFileSourceArg = addPrefixedFileArg; // DEPRECATED, use addPrefixedFileArg
+// deprecated: use `addPrefixedFileArg`
+pub const addPrefixedFileSourceArg = addPrefixedFileArg;
 
-pub fn addPrefixedFileArg(self: *Run, prefix: []const u8, file_source: std.Build.LazyPath) void {
+pub fn addPrefixedFileArg(self: *Run, prefix: []const u8, lp: std.Build.LazyPath) void {
     const b = self.step.owner;
 
     const prefixed_file_source: PrefixedLazyPath = .{
         .prefix = b.dupe(prefix),
-        .file_source = file_source.dupe(b),
+        .file_source = lp.dupe(b),
     };
     self.argv.append(.{ .file_source = prefixed_file_source }) catch @panic("OOM");
-    file_source.addStepDependencies(&self.step);
+    lp.addStepDependencies(&self.step);
 }
 
-pub const addDirectorySourceArg = addDirectoryArg; // DEPRECATED, use addDirectoryArg
+/// deprecated: use `addDirectoryArg`
+pub const addDirectorySourceArg = addDirectoryArg;
 
 pub fn addDirectoryArg(self: *Run, directory_source: std.Build.LazyPath) void {
     self.addPrefixedDirectoryArg("", directory_source);
 }
 
-pub const addPrefixedDirectorySourceArg = addPrefixedDirectoryArg; // DEPRECATED, use addPrefixedDirectoryArg
+// deprecated: use `addPrefixedDirectoryArg`
+pub const addPrefixedDirectorySourceArg = addPrefixedDirectoryArg;
 
 pub fn addPrefixedDirectoryArg(self: *Run, prefix: []const u8, directory_source: std.Build.LazyPath) void {
     const b = self.step.owner;

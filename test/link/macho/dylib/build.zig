@@ -41,8 +41,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     });
     exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkSystemLibrary("a");
-    exe.addLibraryPath(dylib.getEmitDirectory());
-    exe.addRPath(dylib.getEmitDirectory());
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
     exe.linkLibC();
 
     const check_exe = exe.checkObject();

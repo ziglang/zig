@@ -60,7 +60,8 @@ pub fn create(
     return self;
 }
 
-pub const getOutputSource = getOutput; // DEPRECATED, use getOutput
+/// deprecated: use getOutput
+pub const getOutputSource = getOutput;
 
 pub fn getOutput(self: *const ObjCopy) std.Build.LazyPath {
     return .{ .generated = &self.output_file };

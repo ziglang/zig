@@ -13,7 +13,7 @@ step: Step,
 generated_file: GeneratedFile,
 
 contents: std.ArrayList(u8),
-args: std.ArrayList(OptionLazyPathArg),
+args: std.ArrayList(Arg),
 
 pub fn create(owner: *std.Build) *Options {
     const self = owner.allocator.create(Options) catch @panic("OOM");
@@ -26,7 +26,7 @@ pub fn create(owner: *std.Build) *Options {
         }),
         .generated_file = undefined,
         .contents = std.ArrayList(u8).init(owner.allocator),
-        .args = std.ArrayList(OptionLazyPathArg).init(owner.allocator),
+        .args = std.ArrayList(Arg).init(owner.allocator),
     };
     self.generated_file = .{ .step = &self.step };
 
@@ -166,7 +166,8 @@ fn printLiteral(out: anytype, val: anytype, indent: u8) !void {
     }
 }
 
-pub const addOptionFileSource = addOptionPath; // DEPRECATED, use addPathOption
+/// deprecated: use `addOptionPath`
+pub const addOptionFileSource = addOptionPath;
 
 /// The value is the path in the cache dir.
 /// Adds a dependency automatically.
@@ -182,14 +183,9 @@ pub fn addOptionPath(
     path.addStepDependencies(&self.step);
 }
 
-/// The value is the path in the cache dir.
-/// Adds a dependency automatically.
+/// Deprecated: use `addOptionPath(options, name, artifact.getEmittedBin())` instead.
 pub fn addOptionArtifact(self: *Options, name: []const u8, artifact: *Step.Compile) void {
-    self.args.append(.{
-        .name = self.step.owner.dupe(name),
-        .artifact = artifact.getEmittedBin,
-    }) catch @panic("OOM");
-    self.step.dependOn(&artifact.step);
+    return addOptionPath(self, name, artifact.getEmittedBin());
 }
 
 pub fn createModule(self: *Options) *std.Build.Module {
@@ -199,7 +195,8 @@ pub fn createModule(self: *Options) *std.Build.Module {
     });
 }
 
-pub const getSource = getOutput; // DEPRECATED, use getOutput
+/// deprecated: use `getOutput`
+pub const getSource = getOutput;
 
 pub fn getOutput(self: *Options) LazyPath {
     return .{ .generated = &self.generated_file };
@@ -226,7 +223,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var hash = b.cache.hash;
     // Random bytes to make unique. Refresh this with new random bytes when
     // implementation is modified in a non-backwards-compatible way.
-    hash.add(@as(u32, 0x38845ef8));
+    hash.add(@as(u32, 0xad95e922));
     hash.addBytes(self.contents.items);
     const sub_path = "c" ++ fs.path.sep_str ++ hash.final() ++ fs.path.sep_str ++ basename;
 
@@ -291,7 +288,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 }
 
-const OptionLazyPathArg = struct {
+const Arg = struct {
     name: []const u8,
     path: LazyPath,
 };

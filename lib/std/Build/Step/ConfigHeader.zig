@@ -15,7 +15,8 @@ pub const Style = union(enum) {
     /// Start with nothing, like blank, and output a nasm .asm file.
     nasm,
 
-    pub const getFileSource = getPath; // DEPRECATED, use getPath
+    /// deprecated: use `getPath`
+    pub const getFileSource = getPath;
 
     pub fn getPath(style: Style) ?std.Build.LazyPath {
         switch (style) {
@@ -100,9 +101,10 @@ pub fn addValues(self: *ConfigHeader, values: anytype) void {
     return addValuesInner(self, values) catch @panic("OOM");
 }
 
-pub const getFileSource = getTemplate; // DEPRECATED, use getOutput
+/// deprecated: use `getOutput`
+pub const getFileSource = getOutput;
 
-pub fn getTemplate(self: *ConfigHeader) std.Build.LazyPath {
+pub fn getOutput(self: *ConfigHeader) std.Build.LazyPath {
     return .{ .generated = &self.output_file };
 }
 
