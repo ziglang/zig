@@ -494,7 +494,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// return `null` if list is empty.
         /// Invalidates pointers to the removed element, if any.
         pub fn popOrNull(self: *Self) ?T {
-            if (self.items.len == 0) return null;
+            if (self.isEmpty()) return null;
             return self.pop();
         }
 
@@ -523,8 +523,13 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Return the last element from the list, or
         /// return `null` if list is empty.
         pub fn getLastOrNull(self: Self) ?T {
-            if (self.items.len == 0) return null;
+            if (self.isEmpty()) return null;
             return self.getLast();
+        }
+
+        /// Returns whether or not the list is empty.
+        pub fn isEmpty(self: Self) bool {
+            return self.items.len == 0;
         }
     };
 }
@@ -1005,7 +1010,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// If the list is empty, returns `null`.
         /// Invalidates pointers to last element.
         pub fn popOrNull(self: *Self) ?T {
-            if (self.items.len == 0) return null;
+            if (self.isEmpty()) return null;
             return self.pop();
         }
 
@@ -1033,8 +1038,13 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Return the last element from the list, or
         /// return `null` if list is empty.
         pub fn getLastOrNull(self: Self) ?T {
-            if (self.items.len == 0) return null;
+            if (self.isEmpty()) return null;
             return self.getLast();
+        }
+
+        /// Return whether or not the list is empty.
+        pub fn isEmpty(self: Self) bool {
+            return self.items.len == 0;
         }
     };
 }
