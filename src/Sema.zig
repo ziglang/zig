@@ -27888,6 +27888,9 @@ fn fieldCallBind(
             const decl = mod.declPtr(decl_idx);
             try mod.errNoteNonLazy(decl.srcLoc(mod), msg, "'{}' is not a member function", .{field_name.fmt(ip)});
         }
+        if (concrete_ty.zigTypeTag(mod) == .ErrorUnion) {
+            try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
+        }
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(block, msg);
