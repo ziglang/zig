@@ -1654,7 +1654,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
 
         if (self.base.options.link_mode == .Static) {
-            if (target.cpu.arch.isARM() or target.cpu.arch.isThumb()) {
+            if (target.cpu.arch.isArmOrThumb()) {
                 try argv.append("-Bstatic");
             } else {
                 try argv.append("-static");

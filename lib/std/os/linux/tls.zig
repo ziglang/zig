@@ -48,7 +48,7 @@ const TLSVariant = enum {
 };
 
 const tls_variant = switch (native_arch) {
-    .arm, .armeb, .thumb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => TLSVariant.VariantI,
+    .arm, .armeb, .thumb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le => TLSVariant.VariantI,
     .x86_64, .x86, .sparc64 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
@@ -115,12 +115,14 @@ pub fn setThreadPointer(addr: usize) void {
                 .entry_number = tls_image.gdt_entry_number,
                 .base_addr = addr,
                 .limit = 0xfffff,
-                .seg_32bit = 1,
-                .contents = 0, // Data
-                .read_exec_only = 0,
-                .limit_in_pages = 1,
-                .seg_not_present = 0,
-                .useable = 1,
+                .flags = .{
+                    .seg_32bit = 1,
+                    .contents = 0, // Data
+                    .read_exec_only = 0,
+                    .limit_in_pages = 1,
+                    .seg_not_present = 0,
+                    .useable = 1,
+                },
             };
             const rc = std.os.linux.syscall1(.set_thread_area, @intFromPtr(&user_desc));
             assert(rc == 0);
@@ -138,7 +140,7 @@ pub fn setThreadPointer(addr: usize) void {
             const rc = std.os.linux.syscall2(.arch_prctl, std.os.linux.ARCH.SET_FS, addr);
             assert(rc == 0);
         },
-        .aarch64 => {
+        .aarch64, .aarch64_be => {
             asm volatile (
                 \\ msr tpidr_el0, %[addr]
                 :
@@ -160,7 +162,7 @@ pub fn setThreadPointer(addr: usize) void {
             const rc = std.os.linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
         },
-        .powerpc => {
+        .powerpc, .powerpcle => {
             asm volatile (
                 \\ mr 2, %[addr]
                 :

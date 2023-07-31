@@ -568,7 +568,7 @@ pub const VaListX86_64 = extern struct {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const VaList = switch (builtin.cpu.arch) {
-    .aarch64 => switch (builtin.os.tag) {
+    .aarch64, .aarch64_be => switch (builtin.os.tag) {
         .windows => *u8,
         .ios, .macos, .tvos, .watchos => *u8,
         else => @compileError("disabled due to miscompilations"), // VaListAarch64,

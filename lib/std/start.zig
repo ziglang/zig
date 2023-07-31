@@ -101,7 +101,7 @@ fn main2() callconv(.C) c_int {
     return 0;
 }
 
-fn _start2() callconv(.Naked) noreturn {
+fn _start2() noreturn {
     callMain2();
 }
 
@@ -254,116 +254,92 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
 }
 
 fn _start() callconv(.Naked) noreturn {
-    switch (builtin.zig_backend) {
-        .stage2_c => {
-            @export(argc_argv_ptr, .{ .name = "argc_argv_ptr" });
-            @export(posixCallMainAndExit, .{ .name = "_posixCallMainAndExit" });
-            switch (native_arch) {
-                .x86_64 => asm volatile (
-                    \\ xorl %%ebp, %%ebp
-                    \\ movq %%rsp, argc_argv_ptr
-                    \\ andq $-16, %%rsp
-                    \\ call _posixCallMainAndExit
-                ),
-                .x86 => asm volatile (
-                    \\ xorl %%ebp, %%ebp
-                    \\ movl %%esp, argc_argv_ptr
-                    \\ andl $-16, %%esp
-                    \\ jmp _posixCallMainAndExit
-                ),
-                .aarch64, .aarch64_be => asm volatile (
-                    \\ mov fp, #0
-                    \\ mov lr, #0
-                    \\ mov x0, sp
-                    \\ adrp x1, argc_argv_ptr
-                    \\ str x0, [x1, :lo12:argc_argv_ptr]
-                    \\ b _posixCallMainAndExit
-                ),
-                .arm, .armeb, .thumb => asm volatile (
-                    \\ mov fp, #0
-                    \\ mov lr, #0
-                    \\ str sp, argc_argv_ptr
-                    \\ and sp, #-16
-                    \\ b _posixCallMainAndExit
-                ),
-                else => @compileError("unsupported arch"),
-            }
-            unreachable;
-        },
-        else => switch (native_arch) {
-            .x86_64 => {
-                argc_argv_ptr = asm volatile (
-                    \\ xor %%ebp, %%ebp
-                    : [argc] "={rsp}" (-> [*]usize),
-                );
-            },
-            .x86 => {
-                argc_argv_ptr = asm volatile (
-                    \\ xor %%ebp, %%ebp
-                    : [argc] "={esp}" (-> [*]usize),
-                );
-            },
-            .aarch64, .aarch64_be, .arm, .armeb, .thumb => {
-                argc_argv_ptr = asm volatile (
-                    \\ mov fp, #0
-                    \\ mov lr, #0
-                    : [argc] "={sp}" (-> [*]usize),
-                );
-            },
-            .riscv64 => {
-                argc_argv_ptr = asm volatile (
-                    \\ li s0, 0
-                    \\ li ra, 0
-                    : [argc] "={sp}" (-> [*]usize),
-                );
-            },
-            .mips, .mipsel, .mips64, .mips64el => {
-                // The lr is already zeroed on entry, as specified by the ABI.
-                argc_argv_ptr = asm volatile (
-                    \\ move $fp, $0
-                    : [argc] "={sp}" (-> [*]usize),
-                );
-            },
-            .powerpc => {
-                // Setup the initial stack frame and clear the back chain pointer.
-                argc_argv_ptr = asm volatile (
-                    \\ mr 4, 1
-                    \\ li 0, 0
-                    \\ stwu 1,-16(1)
-                    \\ stw 0, 0(1)
-                    \\ mtlr 0
-                    : [argc] "={r4}" (-> [*]usize),
-                    :
-                    : "r0"
-                );
-            },
-            .powerpc64le => {
-                // Setup the initial stack frame and clear the back chain pointer.
-                // TODO: Support powerpc64 (big endian) on ELFv2.
-                argc_argv_ptr = asm volatile (
-                    \\ mr 4, 1
-                    \\ li 0, 0
-                    \\ stdu 0, -32(1)
-                    \\ mtlr 0
-                    : [argc] "={r4}" (-> [*]usize),
-                    :
-                    : "r0"
-                );
-            },
-            .sparc64 => {
-                // argc is stored after a register window (16 registers) plus stack bias
-                argc_argv_ptr = asm (
-                    \\ mov %%g0, %%i6
-                    \\ add %%o6, 2175, %[argc]
-                    : [argc] "=r" (-> [*]usize),
-                );
-            },
+    asm volatile (switch (native_arch) {
+            .x86_64 =>
+            \\ xorl %%ebp, %%ebp
+            \\ movq %%rsp, %[argc_argv_ptr]
+            \\ andq $-16, %%rsp
+            \\ callq %[posixCallMainAndExit:P]
+            ,
+            .x86 =>
+            \\ xorl %%ebp, %%ebp
+            \\ movl %%esp, %[argc_argv_ptr]
+            \\ andl $-16, %%esp
+            \\ calll %[posixCallMainAndExit:P]
+            ,
+            .aarch64, .aarch64_be =>
+            \\ mov fp, #0
+            \\ mov lr, #0
+            \\ mov x0, sp
+            \\ str x0, %[argc_argv_ptr]
+            \\ b %[posixCallMainAndExit]
+            ,
+            .arm, .armeb, .thumb, .thumbeb =>
+            \\ mov fp, #0
+            \\ mov lr, #0
+            \\ str sp, %[argc_argv_ptr]
+            \\ and sp, #-16
+            \\ b %[posixCallMainAndExit]
+            ,
+            .riscv64 =>
+            \\ li s0, 0
+            \\ li ra, 0
+            \\ sd sp, %[argc_argv_ptr]
+            \\ andi sp, sp, -16
+            \\ tail %[posixCallMainAndExit]@plt
+            ,
+            .mips, .mipsel =>
+            // The lr is already zeroed on entry, as specified by the ABI.
+            \\ addiu $fp, $zero, 0
+            \\ sw $sp, %[argc_argv_ptr]
+            \\ .set push
+            \\ .set noat
+            \\ addiu $1, $zero, -16
+            \\ and $sp, $sp, $1
+            \\ .set pop
+            \\ j %[posixCallMainAndExit]
+            ,
+            .mips64, .mips64el =>
+            // The lr is already zeroed on entry, as specified by the ABI.
+            \\ addiu $fp, $zero, 0
+            \\ sd $sp, %[argc_argv_ptr]
+            \\ .set push
+            \\ .set noat
+            \\ daddiu $1, $zero, -16
+            \\ and $sp, $sp, $1
+            \\ .set pop
+            \\ j %[posixCallMainAndExit]
+            ,
+            .powerpc, .powerpcle =>
+            // Setup the initial stack frame and clear the back chain pointer.
+            \\ stw 1, %[argc_argv_ptr]
+            \\ li 0, 0
+            \\ stwu 1, -16(1)
+            \\ stw 0, 0(1)
+            \\ mtlr 0
+            \\ b %[posixCallMainAndExit]
+            ,
+            .powerpc64, .powerpc64le =>
+            // Setup the initial stack frame and clear the back chain pointer.
+            // TODO: Support powerpc64 (big endian) on ELFv2.
+            \\ std 1, %[argc_argv_ptr]
+            \\ li 0, 0
+            \\ stdu 0, -32(1)
+            \\ mtlr 0
+            \\ b %[posixCallMainAndExit]
+            ,
+            .sparc64 =>
+            // argc is stored after a register window (16 registers) plus stack bias
+            \\ mov %%g0, %%i6
+            \\ add %%o6, 2175, %%l0
+            \\ stx %%l0, %[argc_argv_ptr]
+            \\ ba %[posixCallMainAndExit]
+            ,
             else => @compileError("unsupported arch"),
-        },
-    }
-    // If LLVM inlines stack variables into _start, they will overwrite
-    // the command line argument data.
-    @call(.never_inline, posixCallMainAndExit, .{});
+        }
+        : [argc_argv_ptr] "=m" (argc_argv_ptr),
+        : [posixCallMainAndExit] "X" (&posixCallMainAndExit),
+    );
 }
 
 fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
@@ -390,8 +366,6 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
 }
 
 fn posixCallMainAndExit() callconv(.C) noreturn {
-    @setAlignStack(16);
-
     const argc = argc_argv_ptr[0];
     const argv = @as([*][*:0]u8, @ptrCast(argc_argv_ptr + 1));
 

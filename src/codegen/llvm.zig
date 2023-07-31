@@ -417,7 +417,7 @@ const DataLayoutBuilder = struct {
                 if (idx != size) try writer.print(":{d}", .{idx});
             }
         }
-        if (self.target.cpu.arch.isARM() or self.target.cpu.arch.isThumb())
+        if (self.target.cpu.arch.isArmOrThumb())
             try writer.writeAll("-Fi8"); // for thumb interwork
         if (self.target.cpu.arch != .hexagon) {
             if (self.target.cpu.arch == .s390x) try self.typeAlignment(.integer, 1, 8, 8, false, writer);
@@ -620,7 +620,7 @@ const DataLayoutBuilder = struct {
                     else => {},
                 }
             },
-            .vector => if (self.target.cpu.arch.isARM() or self.target.cpu.arch.isThumb()) {
+            .vector => if (self.target.cpu.arch.isArmOrThumb()) {
                 switch (size) {
                     128 => abi = 64,
                     else => {},
@@ -670,7 +670,7 @@ const DataLayoutBuilder = struct {
                 else => {},
             },
             .aggregate => if (self.target.os.tag == .uefi or self.target.os.tag == .windows or
-                self.target.cpu.arch.isARM() or self.target.cpu.arch.isThumb())
+                self.target.cpu.arch.isArmOrThumb())
             {
                 pref = @min(pref, self.target.ptrBitWidth());
             } else if (self.target.cpu.arch == .hexagon) {
@@ -6809,8 +6809,6 @@ pub const FuncGen = struct {
             }
             llvm_constraints.appendAssumeCapacity('=');
 
-            // Pass any non-return outputs indirectly, if the constraint accepts a memory location
-            is_indirect.* = (output != .none) and constraintAllowsMemory(constraint);
             if (output != .none) {
                 const output_inst = try self.resolveInst(output);
                 const output_ty = self.typeOf(output);
@@ -6825,6 +6823,8 @@ pub const FuncGen = struct {
                     }),
                 }
 
+                // Pass any non-return outputs indirectly, if the constraint accepts a memory location
+                is_indirect.* = constraintAllowsMemory(constraint);
                 if (is_indirect.*) {
                     // Pass the result by reference as an indirect output (e.g. "=*m")
                     llvm_constraints.appendAssumeCapacity('*');
@@ -6841,10 +6841,12 @@ pub const FuncGen = struct {
             } else {
                 switch (constraint[0]) {
                     '=' => {},
-                    else => return self.todo("unsupported output constraint on result type '{c}'", .{
-                        constraint[0],
+                    else => return self.todo("unsupported output constraint on result type '{s}'", .{
+                        constraint,
                     }),
                 }
+
+                is_indirect.* = false;
 
                 const ret_ty = self.typeOfIndex(inst);
                 llvm_ret_types[llvm_ret_i] = try o.lowerType(ret_ty);

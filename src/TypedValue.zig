@@ -196,6 +196,7 @@ pub fn print(
             .undef => return writer.writeAll("undefined"),
             .runtime_value => return writer.writeAll("(runtime value)"),
             .simple_value => |simple_value| switch (simple_value) {
+                .void => return writer.writeAll("{}"),
                 .empty_struct => return printAggregate(ty, val, writer, level, mod),
                 .generic_poison => return writer.writeAll("(generic poison)"),
                 else => return writer.writeAll(@tagName(simple_value)),

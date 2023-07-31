@@ -30,6 +30,8 @@ owner_func_index: InternPool.Index,
 /// an inline or comptime function call.
 /// This could be `none`, a `func_decl`, or a `func_instance`.
 func_index: InternPool.Index,
+/// Whether the type of func_index has a calling convention of `.Naked`.
+func_is_naked: bool,
 /// Used to restore the error return trace when returning a non-error from a function.
 error_return_trace_index_on_fn_entry: Air.Inst.Ref = .none,
 /// When semantic analysis needs to know the return type of the function whose body
@@ -6827,6 +6829,10 @@ fn analyzeCall(
     var is_inline_call = is_comptime_call or modifier == .always_inline or
         func_ty_info.cc == .Inline;
 
+    if (sema.func_is_naked and !is_inline_call and !is_comptime_call) {
+        return sema.fail(block, call_src, "runtime call not allowed in naked function", .{});
+    }
+
     if (!is_inline_call and is_generic_call) {
         if (sema.instantiateGenericCall(
             block,
@@ -7509,6 +7515,9 @@ fn instantiateGenericCall(
         .owner_decl = sema.owner_decl,
         .owner_decl_index = sema.owner_decl_index,
         .func_index = sema.owner_func_index,
+        // This may not be known yet, since the calling convention could be generic, but there
+        // should be no illegal instructions encountered while creating the function anyway.
+        .func_is_naked = false,
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
@@ -18193,10 +18202,20 @@ fn zirRetImplicit(
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (block.inlining == null and sema.func_is_naked) {
+        assert(!block.is_comptime);
+        if (block.wantSafety()) {
+            // Calling a safety function from a naked function would not be legal.
+            _ = try block.addNoOp(.trap);
+        } else {
+            try block.addUnreachable(false);
+        }
+        return always_noreturn;
+    }
+
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
     const operand = try sema.resolveInst(inst_data.operand);
-
     const r_brace_src = inst_data.src();
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
     const base_tag = sema.fn_ret_ty.baseZigTypeTag(mod);
@@ -18222,7 +18241,7 @@ fn zirRetImplicit(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    return sema.analyzeRet(block, operand, .unneeded);
+    return sema.analyzeRet(block, operand, r_brace_src);
 }
 
 fn zirRetNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
@@ -18244,7 +18263,7 @@ fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir
     const src = inst_data.src();
     const ret_ptr = try sema.resolveInst(inst_data.operand);
 
-    if (block.is_comptime or block.inlining != null) {
+    if (block.is_comptime or block.inlining != null or sema.func_is_naked) {
         const operand = try sema.analyzeLoad(block, src, ret_ptr, src);
         return sema.analyzeRet(block, operand, src);
     }
@@ -18450,6 +18469,8 @@ fn analyzeRet(
         return always_noreturn;
     } else if (block.is_comptime) {
         return sema.fail(block, src, "function called at runtime cannot return value at comptime", .{});
+    } else if (sema.func_is_naked) {
+        return sema.fail(block, src, "cannot return from naked function", .{});
     }
 
     try sema.resolveTypeLayout(sema.fn_ret_ty);
@@ -33571,6 +33592,7 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
             .owner_decl = decl,
             .owner_decl_index = decl_index,
             .func_index = .none,
+            .func_is_naked = false,
             .fn_ret_ty = Type.void,
             .fn_ret_ty_ies = null,
             .owner_func_index = .none,
@@ -33622,6 +33644,7 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
                 .owner_decl = decl,
                 .owner_decl_index = decl_index,
                 .func_index = .none,
+                .func_is_naked = false,
                 .fn_ret_ty = Type.void,
                 .fn_ret_ty_ies = null,
                 .owner_func_index = .none,
@@ -34405,6 +34428,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         .owner_decl = decl,
         .owner_decl_index = decl_index,
         .func_index = .none,
+        .func_is_naked = false,
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
@@ -34748,6 +34772,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         .owner_decl = decl,
         .owner_decl_index = decl_index,
         .func_index = .none,
+        .func_is_naked = false,
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,

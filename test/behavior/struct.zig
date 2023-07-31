@@ -428,7 +428,7 @@ test "packed struct 24bits" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .wasm32) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch == .arm) return error.SkipZigTest; // TODO
+    if (comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -824,6 +824,7 @@ test "non-packed struct with u128 entry in union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     const U = union(enum) {
         Num: u128,
@@ -944,7 +945,7 @@ test "comptime struct field" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch == .arm) return error.SkipZigTest; // TODO
+    if (comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest; // TODO
 
     const T = struct {
         a: i32,

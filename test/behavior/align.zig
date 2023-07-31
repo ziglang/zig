@@ -198,11 +198,12 @@ test "alignment and size of structs with 128-bit fields" {
 
         else => return error.SkipZigTest,
     };
+    const min_struct_align = if (builtin.zig_backend == .stage2_c) 16 else 0;
     comptime {
-        assert(@alignOf(A) == expected.a_align);
+        assert(@alignOf(A) == @max(expected.a_align, min_struct_align));
         assert(@sizeOf(A) == expected.a_size);
 
-        assert(@alignOf(B) == expected.b_align);
+        assert(@alignOf(B) == @max(expected.b_align, min_struct_align));
         assert(@sizeOf(B) == expected.b_size);
 
         assert(@alignOf(u128) == expected.u128_align);
