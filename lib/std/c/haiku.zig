@@ -5,15 +5,11 @@ const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
 
-const status_t = i32;
-
 extern "c" fn _errnop() *c_int;
 
 pub const _errno = _errnop;
 
-pub extern "c" fn find_directory(which: c_int, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) status_t;
-
-pub extern "c" fn find_path(codePointer: *const u8, baseDirectory: c_int, subPath: [*:0]const u8, pathBuffer: [*:0]u8, bufferSize: usize) status_t;
+pub extern "c" fn find_directory(which: c_int, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) u64;
 
 pub extern "c" fn find_thread(thread_name: ?*anyopaque) i32;
 
