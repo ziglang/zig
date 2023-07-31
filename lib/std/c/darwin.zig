@@ -895,35 +895,7 @@ pub extern "c" fn pthread_attr_get_qos_class_np(attr: *pthread_attr_t, qos_class
 pub extern "c" fn pthread_set_qos_class_self_np(qos_class: qos_class_t, relative_priority: c_int) c_int;
 pub extern "c" fn pthread_get_qos_class_np(pthread: std.c.pthread_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
 
-pub const CCryptorStatus = enum(i32) {
-    /// Operation completed
-    kCCSuccess = 0,
-    /// Illegal parameter
-    kCCParamError = -4300,
-    /// Provided buffer too small
-    kCCBufferTooSmall = -4301,
-    /// Failed memory allocation
-    kCCMemoryFailure = -4302,
-    /// Size alignment issue
-    kCCAlignmentError = -4303,
-    /// Decoding issue
-    kCCDecodeError = -4304,
-    /// Call not implemented
-    kCCUnimplemented = -4305,
-    kCCOverflow = -4306,
-    kCCRNGFailure = -4307,
-    /// Unspecified error
-    kCCUnspecifiedError = -4308,
-    kCCCallSequenceError = -4309,
-    kCCKeySizeError = -4310,
-    /// Invalid key
-    kCCInvalidKey = -4311,
-};
-
-pub const CCRNGStatus = CCryptorStatus;
-
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
-pub extern "c" fn CCRandomGenerateBytes(bytes: ?*anyopaque, count: usize) CCRNGStatus;
 
 // Grand Central Dispatch is exposed by libSystem.
 pub extern "c" fn dispatch_release(object: *anyopaque) void;
