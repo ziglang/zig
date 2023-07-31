@@ -6366,7 +6366,7 @@ pub fn initializeLLVMTarget(self: *const Builder, arch: std.Target.Cpu.Arch) voi
                 llvm.LLVMInitializeXtensaTarget();
                 llvm.LLVMInitializeXtensaTargetInfo();
                 llvm.LLVMInitializeXtensaTargetMC();
-                llvm.LLVMInitializeXtensaAsmPrinter();
+                // There is no LLVMInitializeXtensaAsmPrinter function.
                 llvm.LLVMInitializeXtensaAsmParser();
             }
         },

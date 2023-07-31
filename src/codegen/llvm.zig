@@ -374,6 +374,8 @@ const DataLayoutBuilder = struct {
                 },
             })}),
         }
+        const stack_abi = self.target.stackAlignment() * 8;
+        if (self.target.cpu.arch == .csky) try writer.print("-S{d}", .{stack_abi});
         var any_non_integral = false;
         const ptr_bit_width = self.target.ptrBitWidth();
         var default_info = struct { size: u16, abi: u16, pref: u16, idx: u16 }{
@@ -420,14 +422,19 @@ const DataLayoutBuilder = struct {
         if (self.target.cpu.arch.isARM() or self.target.cpu.arch.isThumb())
             try writer.writeAll("-Fi8"); // for thumb interwork
         if (self.target.cpu.arch != .hexagon) {
-            if (self.target.cpu.arch == .s390x) try self.typeAlignment(.integer, 1, 8, 8, false, writer);
+            if (self.target.cpu.arch == .arc or self.target.cpu.arch == .s390x)
+                try self.typeAlignment(.integer, 1, 8, 8, false, writer);
             try self.typeAlignment(.integer, 8, 8, 8, false, writer);
             try self.typeAlignment(.integer, 16, 16, 16, false, writer);
             try self.typeAlignment(.integer, 32, 32, 32, false, writer);
+            if (self.target.cpu.arch == .arc)
+                try self.typeAlignment(.float, 32, 32, 32, false, writer);
             try self.typeAlignment(.integer, 64, 32, 64, false, writer);
             try self.typeAlignment(.integer, 128, 32, 64, false, writer);
-            if (backendSupportsF16(self.target)) try self.typeAlignment(.float, 16, 16, 16, false, writer);
-            try self.typeAlignment(.float, 32, 32, 32, false, writer);
+            if (backendSupportsF16(self.target))
+                try self.typeAlignment(.float, 16, 16, 16, false, writer);
+            if (self.target.cpu.arch != .arc)
+                try self.typeAlignment(.float, 32, 32, 32, false, writer);
             try self.typeAlignment(.float, 64, 64, 64, false, writer);
             if (self.target.cpu.arch.isX86()) try self.typeAlignment(.float, 80, 0, 0, false, writer);
             try self.typeAlignment(.float, 128, 128, 128, false, writer);
@@ -458,15 +465,18 @@ const DataLayoutBuilder = struct {
                 .uefi, .windows => true,
                 else => false,
             },
-            .avr => true,
+            .avr, .m68k => true,
             else => false,
         };
         if (!swap_agg_nat) try self.typeAlignment(.aggregate, 0, 0, 64, false, writer);
+        if (self.target.cpu.arch == .csky) try writer.writeAll("-Fi32");
         for (@as([]const u24, switch (self.target.cpu.arch) {
             .avr => &.{8},
             .msp430 => &.{ 8, 16 },
+            .arc,
             .arm,
             .armeb,
+            .csky,
             .mips,
             .mipsel,
             .powerpc,
@@ -476,6 +486,7 @@ const DataLayoutBuilder = struct {
             .sparcel,
             .thumb,
             .thumbeb,
+            .xtensa,
             => &.{32},
             .aarch64,
             .aarch64_be,
@@ -495,7 +506,9 @@ const DataLayoutBuilder = struct {
             .wasm64,
             => &.{ 32, 64 },
             .hexagon => &.{ 16, 32 },
-            .x86 => &.{ 8, 16, 32 },
+            .m68k,
+            .x86,
+            => &.{ 8, 16, 32 },
             .nvptx,
             .nvptx64,
             => &.{ 16, 32, 64 },
@@ -514,9 +527,8 @@ const DataLayoutBuilder = struct {
             try self.typeAlignment(.float, 32, 32, 32, true, writer);
             try self.typeAlignment(.float, 64, 64, 64, true, writer);
         }
-        const stack_abi = self.target.stackAlignment() * 8;
-        if (self.target.os.tag == .uefi or self.target.os.tag == .windows or
-            self.target.cpu.arch == .msp430 or stack_abi != ptr_bit_width)
+        if (stack_abi != ptr_bit_width or self.target.cpu.arch == .msp430 or
+            self.target.os.tag == .uefi or self.target.os.tag == .windows)
             try writer.print("-S{d}", .{stack_abi});
         switch (self.target.cpu.arch) {
             .hexagon, .ve => {
@@ -592,6 +604,12 @@ const DataLayoutBuilder = struct {
                         },
                         else => pref = @max(pref, 32),
                     },
+                    .arc => if (size <= 64) {
+                        abi = @min((std.math.divCeil(u24, size, 8) catch unreachable) * 8, 32);
+                        pref = 32;
+                        force_abi = true;
+                        force_pref = size <= 32;
+                    },
                     .bpfeb,
                     .bpfel,
                     .nvptx,
@@ -601,21 +619,36 @@ const DataLayoutBuilder = struct {
                         abi = size;
                         pref = size;
                     },
+                    .csky => if (size == 32 or size == 64) {
+                        abi = 32;
+                        pref = 32;
+                        force_abi = true;
+                        force_pref = true;
+                    },
                     .hexagon => force_abi = true,
+                    .m68k => if (size <= 32) {
+                        abi = @min(size, 16);
+                        pref = size;
+                        force_abi = true;
+                        force_pref = true;
+                    } else if (size == 64) {
+                        abi = 32;
+                        pref = size;
+                    },
                     .mips,
                     .mipsel,
-                    => pref = @max(pref, 32),
                     .mips64,
                     .mips64el,
-                    => if (size <= 32) {
-                        pref = 32;
-                    },
-                    .s390x => if (size <= 16) {
-                        pref = 16;
-                    },
+                    => pref = @max(pref, 32),
+                    .s390x => pref = @max(pref, 16),
                     .ve => if (size == 64) {
                         abi = size;
                         pref = size;
+                    },
+                    .xtensa => if (size <= 64) {
+                        pref = @max(size, 32);
+                        abi = size;
+                        force_abi = size == 64;
                     },
                     else => {},
                 }
@@ -634,6 +667,10 @@ const DataLayoutBuilder = struct {
                 pref = size;
             } else if (self.target.cpu.arch == .amdgcn and size <= 2048) {
                 force_abi = true;
+            } else if (self.target.cpu.arch == .csky and (size == 64 or size == 128)) {
+                abi = 32;
+                pref = 32;
+                force_pref = true;
             } else if (self.target.cpu.arch == .hexagon and
                 ((size >= 32 and size <= 64) or (size >= 512 and size <= 2048)))
             {
@@ -651,11 +688,27 @@ const DataLayoutBuilder = struct {
                 force_pref = true;
             },
             .float => switch (self.target.cpu.arch) {
+                .aarch64_32, .amdgcn => if (size == 128) {
+                    abi = size;
+                    pref = size;
+                },
+                .arc => if (size == 32 or size == 64) {
+                    abi = 32;
+                    pref = 32;
+                    force_abi = true;
+                    force_pref = size == 32;
+                },
                 .avr, .msp430, .sparc64 => if (size != 32 and size != 64) return,
+                .csky => if (size == 32 or size == 64) {
+                    abi = 32;
+                    pref = 32;
+                    force_abi = true;
+                    force_pref = true;
+                },
                 .hexagon => if (size == 32 or size == 64) {
                     force_abi = true;
                 },
-                .aarch64_32, .amdgcn => if (size == 128) {
+                .ve, .xtensa => if (size == 64) {
                     abi = size;
                     pref = size;
                 },
@@ -663,25 +716,34 @@ const DataLayoutBuilder = struct {
                     abi = 64;
                     pref = 64;
                 },
-                .ve => if (size == 64) {
-                    abi = size;
-                    pref = size;
-                },
                 else => {},
             },
             .aggregate => if (self.target.os.tag == .uefi or self.target.os.tag == .windows or
                 self.target.cpu.arch.isARM() or self.target.cpu.arch.isThumb())
             {
                 pref = @min(pref, self.target.ptrBitWidth());
-            } else if (self.target.cpu.arch == .hexagon) {
-                abi = 0;
-                pref = 0;
-            } else if (self.target.cpu.arch == .s390x) {
-                abi = 8;
-                pref = 16;
-            } else if (self.target.cpu.arch == .msp430) {
-                abi = 8;
-                pref = 8;
+            } else switch (self.target.cpu.arch) {
+                .arc, .csky => {
+                    abi = 0;
+                    pref = 32;
+                },
+                .hexagon => {
+                    abi = 0;
+                    pref = 0;
+                },
+                .m68k => {
+                    abi = 0;
+                    pref = 16;
+                },
+                .msp430 => {
+                    abi = 8;
+                    pref = 8;
+                },
+                .s390x => {
+                    abi = 8;
+                    pref = 16;
+                },
+                else => {},
             },
         }
         if (kind != .vector and self.target.cpu.arch == .avr) {
@@ -11003,198 +11065,6 @@ pub const FuncGen = struct {
     }
 };
 
-fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
-    switch (arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => {
-            llvm.LLVMInitializeAArch64Target();
-            llvm.LLVMInitializeAArch64TargetInfo();
-            llvm.LLVMInitializeAArch64TargetMC();
-            llvm.LLVMInitializeAArch64AsmPrinter();
-            llvm.LLVMInitializeAArch64AsmParser();
-        },
-        .amdgcn => {
-            llvm.LLVMInitializeAMDGPUTarget();
-            llvm.LLVMInitializeAMDGPUTargetInfo();
-            llvm.LLVMInitializeAMDGPUTargetMC();
-            llvm.LLVMInitializeAMDGPUAsmPrinter();
-            llvm.LLVMInitializeAMDGPUAsmParser();
-        },
-        .thumb, .thumbeb, .arm, .armeb => {
-            llvm.LLVMInitializeARMTarget();
-            llvm.LLVMInitializeARMTargetInfo();
-            llvm.LLVMInitializeARMTargetMC();
-            llvm.LLVMInitializeARMAsmPrinter();
-            llvm.LLVMInitializeARMAsmParser();
-        },
-        .avr => {
-            llvm.LLVMInitializeAVRTarget();
-            llvm.LLVMInitializeAVRTargetInfo();
-            llvm.LLVMInitializeAVRTargetMC();
-            llvm.LLVMInitializeAVRAsmPrinter();
-            llvm.LLVMInitializeAVRAsmParser();
-        },
-        .bpfel, .bpfeb => {
-            llvm.LLVMInitializeBPFTarget();
-            llvm.LLVMInitializeBPFTargetInfo();
-            llvm.LLVMInitializeBPFTargetMC();
-            llvm.LLVMInitializeBPFAsmPrinter();
-            llvm.LLVMInitializeBPFAsmParser();
-        },
-        .hexagon => {
-            llvm.LLVMInitializeHexagonTarget();
-            llvm.LLVMInitializeHexagonTargetInfo();
-            llvm.LLVMInitializeHexagonTargetMC();
-            llvm.LLVMInitializeHexagonAsmPrinter();
-            llvm.LLVMInitializeHexagonAsmParser();
-        },
-        .lanai => {
-            llvm.LLVMInitializeLanaiTarget();
-            llvm.LLVMInitializeLanaiTargetInfo();
-            llvm.LLVMInitializeLanaiTargetMC();
-            llvm.LLVMInitializeLanaiAsmPrinter();
-            llvm.LLVMInitializeLanaiAsmParser();
-        },
-        .mips, .mipsel, .mips64, .mips64el => {
-            llvm.LLVMInitializeMipsTarget();
-            llvm.LLVMInitializeMipsTargetInfo();
-            llvm.LLVMInitializeMipsTargetMC();
-            llvm.LLVMInitializeMipsAsmPrinter();
-            llvm.LLVMInitializeMipsAsmParser();
-        },
-        .msp430 => {
-            llvm.LLVMInitializeMSP430Target();
-            llvm.LLVMInitializeMSP430TargetInfo();
-            llvm.LLVMInitializeMSP430TargetMC();
-            llvm.LLVMInitializeMSP430AsmPrinter();
-            llvm.LLVMInitializeMSP430AsmParser();
-        },
-        .nvptx, .nvptx64 => {
-            llvm.LLVMInitializeNVPTXTarget();
-            llvm.LLVMInitializeNVPTXTargetInfo();
-            llvm.LLVMInitializeNVPTXTargetMC();
-            llvm.LLVMInitializeNVPTXAsmPrinter();
-            // There is no LLVMInitializeNVPTXAsmParser function available.
-        },
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
-            llvm.LLVMInitializePowerPCTarget();
-            llvm.LLVMInitializePowerPCTargetInfo();
-            llvm.LLVMInitializePowerPCTargetMC();
-            llvm.LLVMInitializePowerPCAsmPrinter();
-            llvm.LLVMInitializePowerPCAsmParser();
-        },
-        .riscv32, .riscv64 => {
-            llvm.LLVMInitializeRISCVTarget();
-            llvm.LLVMInitializeRISCVTargetInfo();
-            llvm.LLVMInitializeRISCVTargetMC();
-            llvm.LLVMInitializeRISCVAsmPrinter();
-            llvm.LLVMInitializeRISCVAsmParser();
-        },
-        .sparc, .sparc64, .sparcel => {
-            llvm.LLVMInitializeSparcTarget();
-            llvm.LLVMInitializeSparcTargetInfo();
-            llvm.LLVMInitializeSparcTargetMC();
-            llvm.LLVMInitializeSparcAsmPrinter();
-            llvm.LLVMInitializeSparcAsmParser();
-        },
-        .s390x => {
-            llvm.LLVMInitializeSystemZTarget();
-            llvm.LLVMInitializeSystemZTargetInfo();
-            llvm.LLVMInitializeSystemZTargetMC();
-            llvm.LLVMInitializeSystemZAsmPrinter();
-            llvm.LLVMInitializeSystemZAsmParser();
-        },
-        .wasm32, .wasm64 => {
-            llvm.LLVMInitializeWebAssemblyTarget();
-            llvm.LLVMInitializeWebAssemblyTargetInfo();
-            llvm.LLVMInitializeWebAssemblyTargetMC();
-            llvm.LLVMInitializeWebAssemblyAsmPrinter();
-            llvm.LLVMInitializeWebAssemblyAsmParser();
-        },
-        .x86, .x86_64 => {
-            llvm.LLVMInitializeX86Target();
-            llvm.LLVMInitializeX86TargetInfo();
-            llvm.LLVMInitializeX86TargetMC();
-            llvm.LLVMInitializeX86AsmPrinter();
-            llvm.LLVMInitializeX86AsmParser();
-        },
-        .xtensa => {
-            if (build_options.llvm_has_xtensa) {
-                llvm.LLVMInitializeXtensaTarget();
-                llvm.LLVMInitializeXtensaTargetInfo();
-                llvm.LLVMInitializeXtensaTargetMC();
-                llvm.LLVMInitializeXtensaAsmPrinter();
-                llvm.LLVMInitializeXtensaAsmParser();
-            }
-        },
-        .xcore => {
-            llvm.LLVMInitializeXCoreTarget();
-            llvm.LLVMInitializeXCoreTargetInfo();
-            llvm.LLVMInitializeXCoreTargetMC();
-            llvm.LLVMInitializeXCoreAsmPrinter();
-            // There is no LLVMInitializeXCoreAsmParser function.
-        },
-        .m68k => {
-            if (build_options.llvm_has_m68k) {
-                llvm.LLVMInitializeM68kTarget();
-                llvm.LLVMInitializeM68kTargetInfo();
-                llvm.LLVMInitializeM68kTargetMC();
-                llvm.LLVMInitializeM68kAsmPrinter();
-                llvm.LLVMInitializeM68kAsmParser();
-            }
-        },
-        .csky => {
-            if (build_options.llvm_has_csky) {
-                llvm.LLVMInitializeCSKYTarget();
-                llvm.LLVMInitializeCSKYTargetInfo();
-                llvm.LLVMInitializeCSKYTargetMC();
-                // There is no LLVMInitializeCSKYAsmPrinter function.
-                llvm.LLVMInitializeCSKYAsmParser();
-            }
-        },
-        .ve => {
-            llvm.LLVMInitializeVETarget();
-            llvm.LLVMInitializeVETargetInfo();
-            llvm.LLVMInitializeVETargetMC();
-            llvm.LLVMInitializeVEAsmPrinter();
-            llvm.LLVMInitializeVEAsmParser();
-        },
-        .arc => {
-            if (build_options.llvm_has_arc) {
-                llvm.LLVMInitializeARCTarget();
-                llvm.LLVMInitializeARCTargetInfo();
-                llvm.LLVMInitializeARCTargetMC();
-                llvm.LLVMInitializeARCAsmPrinter();
-                // There is no LLVMInitializeARCAsmParser function.
-            }
-        },
-
-        // LLVM backends that have no initialization functions.
-        .tce,
-        .tcele,
-        .r600,
-        .le32,
-        .le64,
-        .amdil,
-        .amdil64,
-        .hsail,
-        .hsail64,
-        .shave,
-        .spir,
-        .spir64,
-        .kalimba,
-        .renderscript32,
-        .renderscript64,
-        .dxil,
-        .loongarch32,
-        .loongarch64,
-        => {},
-
-        .spu_2 => unreachable, // LLVM does not support this backend
-        .spirv32 => unreachable, // LLVM does not support this backend
-        .spirv64 => unreachable, // LLVM does not support this backend
-    }
-}
-
 fn toLlvmAtomicOrdering(atomic_order: std.builtin.AtomicOrder) Builder.AtomicOrdering {
     return switch (atomic_order) {
         .Unordered => .unordered,
@@ -11315,6 +11185,9 @@ fn llvmAddrSpaceInfo(target: std.Target) []const AddrSpaceInfo {
             .{ .zig = null, .llvm = Builder.AddrSpace.wasm.variable, .non_integral = true },
             .{ .zig = null, .llvm = Builder.AddrSpace.wasm.externref, .non_integral = true, .size = 8, .abi = 8 },
             .{ .zig = null, .llvm = Builder.AddrSpace.wasm.funcref, .non_integral = true, .size = 8, .abi = 8 },
+        },
+        .m68k => &.{
+            .{ .zig = .generic, .llvm = .default, .abi = 16, .pref = 32 },
         },
         else => &.{
             .{ .zig = .generic, .llvm = .default },

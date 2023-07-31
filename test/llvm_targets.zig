@@ -18,6 +18,8 @@ const targets = [_]std.zig.CrossTarget{
     .{ .cpu_arch = .amdgcn, .os_tag = .amdpal, .abi = .none },
     .{ .cpu_arch = .amdgcn, .os_tag = .linux, .abi = .none },
     //.{ .cpu_arch = .amdgcn, .os_tag = .mesa3d, .abi = .none },
+    .{ .cpu_arch = .arc, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .arm, .os_tag = .uefi, .abi = .none },
@@ -30,7 +32,11 @@ const targets = [_]std.zig.CrossTarget{
     .{ .cpu_arch = .bpfel, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .bpfeb, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .bpfeb, .os_tag = .linux, .abi = .none },
+    .{ .cpu_arch = .csky, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .csky, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .hexagon, .os_tag = .linux, .abi = .none },
+    .{ .cpu_arch = .m68k, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .m68k, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .mips, .os_tag = .linux, .abi = .gnueabihf },
     .{ .cpu_arch = .mips, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .mips, .os_tag = .linux, .abi = .none },
@@ -117,10 +123,20 @@ const targets = [_]std.zig.CrossTarget{
     .{ .cpu_arch = .x86_64, .os_tag = .uefi, .abi = .none },
     .{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu },
     .{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .msvc },
+    .{ .cpu_arch = .xtensa, .os_tag = .freestanding, .abi = .none },
+    .{ .cpu_arch = .xtensa, .os_tag = .linux, .abi = .none },
 };
 
-pub fn addCases(ctx: *Cases) !void {
+pub fn addCases(ctx: *Cases, build_options: @import("cases.zig").BuildOptions) !void {
+    if (!build_options.enable_llvm) return;
     for (targets) |target| {
+        if (target.cpu_arch) |arch| switch (arch) {
+            .m68k => if (!build_options.llvm_has_m68k) continue,
+            .csky => if (!build_options.llvm_has_csky) continue,
+            .arc => if (!build_options.llvm_has_arc) continue,
+            .xtensa => if (!build_options.llvm_has_xtensa) continue,
+            else => {},
+        };
         var case = ctx.noEmitUsingLlvmBackend("llvm_targets", target);
         case.addCompile("");
     }

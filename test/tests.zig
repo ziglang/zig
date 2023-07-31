@@ -1155,6 +1155,7 @@ pub fn addCases(
     parent_step: *Step,
     opt_test_filter: ?[]const u8,
     check_case_exe: *std.Build.Step.Compile,
+    build_options: @import("cases.zig").BuildOptions,
 ) !void {
     const arena = b.allocator;
     const gpa = b.allocator;
@@ -1165,7 +1166,7 @@ pub fn addCases(
     defer dir.close();
 
     cases.addFromDir(dir);
-    try @import("cases.zig").addCases(&cases);
+    try @import("cases.zig").addCases(&cases, build_options);
 
     const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
     cases.lowerToBuildSteps(
