@@ -1,6 +1,10 @@
 const std = @import("std");
 const maxInt = std.math.maxInt;
 
+// pub const _SC = struct {
+//     pub const PAGESIZE = TODO;
+// };
+
 pub const pthread_mutex_t = extern struct {
     inner: usize = ~@as(usize, 0),
 };

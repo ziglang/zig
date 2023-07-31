@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const os = std.os;
 const testing = std.testing;
 const expect = testing.expect;
@@ -1218,4 +1218,15 @@ test "fchmodat smoke test" {
     try os.fchmodat(tmp.dir.fd, "foo.txt", 0o755, 0);
     const st = try os.fstatat(tmp.dir.fd, "foo.txt", 0);
     try expectEqual(@as(os.mode_t, 0o755), st.mode & 0b111_111_111);
+}
+
+test "getDefaultPageSize smoke test" {
+    const page_size = try os.getDefaultPageSize();
+    switch (page_size) {
+        // zig fmt: off
+        1024, 2048, 4096, 8192, 16384, 32768, // 1, 2, 4, 8, 16, 32KB
+        2097152, 4194304 => {}, // 2, 4MB
+        // zig fmt: on
+        else => return error.InvalidDefaultPageSize,
+    }
 }

@@ -9,6 +9,10 @@ pub fn _errno() *c_int {
     return &errno;
 }
 
+pub const _SC = struct {
+    pub const PAGESIZE = 47;
+};
+
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;

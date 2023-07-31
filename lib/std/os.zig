@@ -4337,6 +4337,47 @@ pub fn fork() ForkError!pid_t {
     }
 }
 
+/// Returns page size assigned by the Kernel to the process. This size is
+/// constant during process lifetime, but other page sizes might be usable.
+pub fn getDefaultPageSize() error{UnknownPageSize}!usize {
+    switch (builtin.cpu.arch) { // archs with fixed size page size
+        .wasm32, .wasm64 => return 64 * 1024,
+        else => {},
+    }
+
+    switch (builtin.os.tag) { // kernel chooses the page size
+        .linux => {
+            if (builtin.link_libc) {
+                return sysconf(std.c._SC.PAGESIZE) catch return error.UnknownPageSize;
+            } else {
+                return linux.getauxval(std.elf.AT_PAGESZ);
+            }
+        },
+        .windows => {
+            var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;
+            const rc = std.os.windows.ntdll.NtQuerySystemInformation(
+                .SystemBasicInformation,
+                &sbi,
+                @sizeOf(std.os.windows.SYSTEM_BASIC_INFORMATION),
+                null,
+            );
+            if (rc != .SUCCESS) {
+                return error.UnknownPageSize;
+            }
+            return sbi.PageSize;
+        },
+        // zig fmt: off
+        .dragonfly, .freebsd, .fuchsia, .haiku,
+        .macos, .ios, .watchos, .tvos,
+        .minix, .netbsd, .openbsd, .solaris, => {
+            return sysconf(std.c._SC.PAGESIZE) catch return error.UnknownPageSize;
+        },
+        // zig fmt: on
+        // TODO .hermit (no reliable page size and api yet)
+        else => unreachable,
+    }
+}
+
 pub const MMapError = error{
     /// The underlying filesystem of the specified file does not support memory mapping.
     MemoryMappingNotSupported,
@@ -4680,6 +4721,32 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
     }
 
     return fds;
+}
+
+pub const SysConfError = error{
+    NoLimit,
+    InvalidName, // To probe compiletime or runtime support
+} || UnexpectedError;
+
+pub fn sysconf(sc: c_int) SysConfError!usize {
+    const limit: isize = std.c.sysconf(sc);
+    const is_minus_one = @clz(limit) == 0; // -1 only possible negative value <=> clz(-1) == 0
+    const is_inval = isinval: {
+        switch (errno(limit)) {
+            .SUCCESS => break :isinval false,
+            .INVAL => break :isinval true,
+            else => |err| return unexpectedErrno(err),
+        }
+    };
+    const choice: u8 = 0;
+    choice += @intFromBool(is_minus_one);
+    choice += @intFromBool(is_inval);
+    switch (choice) {
+        0 => return @bitCast(limit),
+        1 => return error.NoLimit, // sysconf -1, errno not set
+        2 => return error.InvalidName, // sysconf -1, errno EINVAL
+        else => unreachable,
+    }
 }
 
 pub const SysCtlError = error{

@@ -78,6 +78,7 @@ pub usingnamespace switch (builtin.os.tag) {
 
         pub extern "c" fn getrusage(who: c_int, usage: *c.rusage) c_int;
 
+        pub extern "c" fn sysconf(sc: c_int) c_long;
         pub extern "c" fn sched_yield() c_int;
 
         pub extern "c" fn sigaction(sig: c_int, noalias act: ?*const c.Sigaction, noalias oact: ?*c.Sigaction) c_int;

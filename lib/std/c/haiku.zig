@@ -9,6 +9,10 @@ extern "c" fn _errnop() *c_int;
 
 pub const _errno = _errnop;
 
+pub const _SC = struct {
+    pub const PAGESIZE = 27;
+};
+
 pub extern "c" fn find_directory(which: c_int, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) u64;
 
 pub extern "c" fn find_thread(thread_name: ?*anyopaque) i32;
