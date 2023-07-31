@@ -1520,22 +1520,6 @@ pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
     return 0;
 }
 
-pub fn getcpu(cpu: *u32, node: *u32) usize {
-    return syscall3(.getcpu, @intFromPtr(cpu), @intFromPtr(node), 0);
-}
-
-pub fn sched_getcpu() usize {
-    var cpu: u32 = undefined;
-    const rc = syscall3(.getcpu, @intFromPtr(&cpu), 0, 0);
-    if (@as(isize, @bitCast(rc)) < 0) return rc;
-    return @as(usize, @intCast(cpu));
-}
-
-/// libc has no wrapper for this syscall
-pub fn mbind(addr: ?*anyopaque, len: u32, mode: i32, nodemask: *const u32, maxnode: u32, flags: u32) usize {
-    return syscall6(.mbind, @intFromPtr(addr), len, @as(usize, @bitCast(@as(isize, mode))), @intFromPtr(nodemask), maxnode, flags);
-}
-
 pub fn epoll_create() usize {
     return epoll_create1(0);
 }
