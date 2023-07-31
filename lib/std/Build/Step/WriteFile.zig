@@ -96,7 +96,7 @@ pub fn addCopyFile(wf: *WriteFile, source: std.Build.LazyPath, sub_path: []const
 
     wf.maybeUpdateName();
     source.addStepDependencies(&wf.step);
-    return file.getLazyPath();
+    return file.getPath();
 }
 
 /// A path relative to the package root.
