@@ -3920,7 +3920,6 @@ pub const cpu_subtype_t = integer_t;
 pub const cpu_threadtype_t = integer_t;
 pub const host_flavor_t = integer_t;
 pub const host_info_t = *integer_t;
-pub const host_info64_t = *integer_t;
 pub const host_can_has_debugger_info = extern struct {
     can_has_debugger: boolean_t,
 };
@@ -3984,10 +3983,6 @@ pub const host_preferred_user_arch = extern struct {
 pub const host_preferred_user_arch_data_t = host_preferred_user_arch;
 pub const host_preferred_user_arch_t = *host_preferred_user_arch;
 
-fn HostCount(comptime HT: type) mach_msg_type_number_t {
-    return @as(mach_msg_type_number_t, @intCast(@sizeOf(HT) / @sizeOf(integer_t)));
-}
-
 pub const HOST = struct {
     pub const BASIC_INFO = 1;
     pub const SCHED_INFO = 3;
@@ -4002,19 +3997,14 @@ pub const HOST = struct {
     pub const LOAD_INFO = 1;
     pub const VM_INFO = 2;
     pub const CPU_LOAD_INFO = 3;
-    pub const VM_INFO64 = 4;
-    pub const EXTMOD_INFO64 = 5;
-    pub const EXPIRED_TASK_INFO = 6;
-    pub const CAN_HAS_DEBUGGER_COUNT = HostCount(host_can_has_debugger_info_data_t);
-    pub const SCHED_INFO_COUNT = HostCount(host_sched_info_data_t);
-    pub const RESOURCES_SIZES_COUNT = HostCount(kernel_resource_sizes_data_t);
-    pub const PRIORITY_INFO_COUNT = HostCount(host_priority_info_data_t);
-    pub const CPU_LOAD_INFO_COUNT = HostCount(host_cpu_load_info_data_t);
-    pub const LOAD_INFO_COUNT = HostCount(host_load_info_data_t);
-    pub const PREFERRED_USER_ARCH_COUNT = HostCount(host_preferred_user_arch_data_t);
-    pub const VM_INFO_COUNT = HostCount(vm_statistics_data_t);
-    pub const VM_INFO64_COUNT = HostCount(vm_statistics64_data_t);
-    pub const EXTMOD_INFO64_COUNT = HostCount(vm_extmod_statistics_data_t);
+    pub const CAN_HAS_DEBUGGER_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_can_has_debugger_info_data_t) / @sizeOf(integer_t));
+    pub const SCHED_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_sched_info_data_t) / @sizeOf(integer_t));
+    pub const RESOURCES_SIZES_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(kernel_resource_sizes_data_t) / @sizeOf(integer_t));
+    pub const PRIORITY_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_priority_info_data_t) / @sizeOf(integer_t));
+    pub const CPU_LOAD_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_cpu_load_info_data_t) / @sizeOf(integer_t));
+    pub const LOAD_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_load_info_data_t) / @sizeOf(integer_t));
+    pub const PREFERRED_USER_ARCH_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_preferred_user_arch_data_t) / @sizeOf(integer_t));
+    pub const VM_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(vm_statistics_data_t) / @sizeOf(integer_t));
 };
 
 pub const host_basic_info = packed struct(u32) {
@@ -4033,7 +4023,6 @@ pub const host_basic_info = packed struct(u32) {
 
 pub extern "c" fn host_info(host: host_t, flavor: host_flavor_t, info_out: host_info_t, info_outCnt: [*]mach_msg_type_number_t) kern_return_t;
 pub extern "c" fn host_statistics(priv: host_t, flavor: host_flavor_t, info_out: host_info_t, info_outCnt: [*]mach_msg_type_number_t) kern_return_t;
-pub extern "c" fn host_statistics64(priv: host_t, flavor: host_flavor_t, info_out: host_info64_t, info64_outCnt: [*]mach_msg_type_number_t) kern_return_t;
 
 pub const vm_statistics = extern struct {
     free_count: natural_t,
@@ -4085,17 +4074,3 @@ pub const vm_statistics64 align(8) = extern struct {
 
 pub const vm_statistics64_t = *vm_statistics64;
 pub const vm_statistics64_data_t = vm_statistics64;
-
-pub const vm_extmod_statistics align(8) = extern struct {
-    task_for_pid_count: i64,
-    task_for_pid_caller_count: i64,
-    thread_creation_count: i64,
-    thread_creation_caller_count: i64,
-    thread_set_state_count: i64,
-    thread_set_state_caller_count: i64,
-};
-
-pub const vm_extmod_statistics_t = *vm_extmod_statistics;
-pub const vm_extmod_statistics_data_t = vm_extmod_statistics;
-
-pub extern "c" fn vm_stats(info: ?*anyopaque, count: *c_uint) kern_return_t;
