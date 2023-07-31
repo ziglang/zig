@@ -16,7 +16,6 @@ pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
-pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 pub extern "c" fn sysconf(sc: c_int) i64;
 pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) c_int;
@@ -183,36 +182,36 @@ pub const EAI_MAX = 14;
 
 pub const msghdr = extern struct {
     /// optional address
-    name: ?*sockaddr,
+    msg_name: ?*sockaddr,
     /// size of address
-    namelen: socklen_t,
+    msg_namelen: socklen_t,
     /// scatter/gather array
-    iov: [*]iovec,
+    msg_iov: [*]iovec,
     /// # elements in msg_iov
-    iovlen: i32,
+    msg_iovlen: i32,
     /// ancillary data
-    control: ?*anyopaque,
+    msg_control: ?*anyopaque,
     /// ancillary data buffer len
-    controllen: socklen_t,
+    msg_controllen: socklen_t,
     /// flags on received message
-    flags: i32,
+    msg_flags: i32,
 };
 
 pub const msghdr_const = extern struct {
     /// optional address
-    name: ?*const sockaddr,
+    msg_name: ?*const sockaddr,
     /// size of address
-    namelen: socklen_t,
+    msg_namelen: socklen_t,
     /// scatter/gather array
-    iov: [*]const iovec_const,
+    msg_iov: [*]const iovec_const,
     /// # elements in msg_iov
-    iovlen: i32,
+    msg_iovlen: i32,
     /// ancillary data
-    control: ?*const anyopaque,
+    msg_control: ?*const anyopaque,
     /// ancillary data buffer len
-    controllen: socklen_t,
+    msg_controllen: socklen_t,
     /// flags on received message
-    flags: i32,
+    msg_flags: i32,
 };
 
 pub const cmsghdr = extern struct {
@@ -1927,26 +1926,3 @@ pub fn IOW(io_type: u8, nr: u8, comptime IOT: type) i32 {
 pub fn IOWR(io_type: u8, nr: u8, comptime IOT: type) i32 {
     return ioImpl(.read_write, io_type, nr, IOT);
 }
-
-pub const SIGEV = struct {
-    pub const NONE = 0;
-    pub const SIGNAL = 1;
-    pub const THREAD = 2;
-};
-
-pub const sigval = extern union {
-    int: c_int,
-    ptr: ?*anyopaque,
-};
-
-pub const sigevent = extern struct {
-    sigev_notify: c_int,
-    sigev_signo: c_int,
-    sigev_value: sigval,
-    sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
-    sigev_notify_attributes: ?*pthread_attr_t,
-};
-
-pub const PTHREAD_STACK_MIN = if (@sizeOf(usize) == 8) 8 * 1024 else 4 * 1024;
-
-pub const timer_t = *opaque {};

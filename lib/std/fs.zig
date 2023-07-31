@@ -2934,7 +2934,6 @@ pub const OpenSelfExeError = error{
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
-    Overflow,
     Unexpected,
 } || os.OpenError || SelfExePathError || os.FlockError;
 
@@ -3014,14 +3013,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // TODO could this slice from 0 to out_len instead?
             return mem.sliceTo(out_buffer, 0);
         },
-        .haiku => {
-            // The only possible issue when looking for the self image path is
-            // when the buffer is too short.
-            if (os.find_path(os.B_APP_IMAGE_SYMBOL, os.path_base_directory.B_FIND_IMAGE_PATH, null, out_buffer.ptr, out_buffer.len) != 0)
-                return error.Overflow;
-            return mem.sliceTo(out_buffer, 0);
-        },
-        .openbsd => {
+        .openbsd, .haiku => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
             if (os.argv.len == 0)
                 return error.FileNotFound;
@@ -3120,7 +3112,7 @@ const CopyFileRawError = error{SystemResources} || os.CopyFileRangeError || os.S
 // No metadata is transferred over.
 fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t, maybe_size: ?u64) CopyFileRawError!void {
     if (comptime builtin.target.isDarwin()) {
-        const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE.DATA);
+        const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
         switch (os.errno(rc)) {
             .SUCCESS => return,
             .INVAL => unreachable,

@@ -21,7 +21,6 @@ pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*an
 pub extern "c" fn lwp_gettid() c_int;
 
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
-pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
 
 pub const pthread_mutex_t = extern struct {
     inner: ?*anyopaque = null,
@@ -889,13 +888,13 @@ pub const cmsghdr = extern struct {
     cmsg_type: c_int,
 };
 pub const msghdr = extern struct {
-    name: ?*anyopaque,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: c_int,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    flags: c_int,
+    msg_name: ?*anyopaque,
+    msg_namelen: socklen_t,
+    msg_iov: [*]iovec,
+    msg_iovlen: c_int,
+    msg_control: ?*anyopaque,
+    msg_controllen: socklen_t,
+    msg_flags: c_int,
 };
 pub const cmsgcred = extern struct {
     cmcred_pid: pid_t,
@@ -1144,24 +1143,3 @@ pub const POLL = struct {
     pub const HUP = 0x0010;
     pub const NVAL = 0x0020;
 };
-
-pub const SIGEV = struct {
-    pub const NONE = 0;
-    pub const SIGNAL = 1;
-    pub const THREAD = 2;
-};
-
-pub const sigevent = extern struct {
-    sigev_notify: c_int,
-    __sigev_u: extern union {
-        __sigev_signo: c_int,
-        __sigev_notify_kqueue: c_int,
-        __sigev_notify_attributes: ?*pthread_attr_t,
-    },
-    sigev_value: sigval,
-    sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
-};
-
-pub const PTHREAD_STACK_MIN = 16 * 1024;
-
-pub const timer_t = *opaque {};
