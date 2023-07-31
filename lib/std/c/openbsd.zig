@@ -466,16 +466,6 @@ pub const MAP = struct {
     pub const CONCEAL = 0x8000;
 };
 
-pub const MADV = struct {
-    pub const NORMAL = 0;
-    pub const RANDOM = 1;
-    pub const SEQUENTIAL = 2;
-    pub const WILLNEED = 3;
-    pub const DONTNEED = 4;
-    pub const SPACEAVAIL = 5;
-    pub const FREE = 6;
-};
-
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;
