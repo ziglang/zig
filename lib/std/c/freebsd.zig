@@ -2248,28 +2248,3 @@ pub const shm_largeconf = extern struct {
 pub extern "c" fn shm_create_largepage(path: [*:0]const u8, flags: c_int, psind: c_int, alloc_policy: c_int, mode: mode_t) c_int;
 
 pub extern "c" fn elf_aux_info(aux: c_int, buf: ?*anyopaque, buflen: c_int) c_int;
-
-pub const lwpid = i32;
-
-pub const SIGEV = struct {
-    pub const NONE = 0;
-    pub const SIGNAL = 1;
-    pub const THREAD = 2;
-    pub const KEVENT = 3;
-    pub const THREAD_ID = 4;
-};
-
-pub const sigevent = extern struct {
-    sigev_notify: c_int,
-    sigev_signo: c_int,
-    sigev_value: sigval,
-    _sigev_un: extern union {
-        _threadid: lwpid,
-        _sigev_thread: extern struct {
-            _function: ?*const fn (sigval) callconv(.C) void,
-            _attribute: ?**pthread_attr_t,
-        },
-        _kevent_flags: c_ushort,
-        __spare__: [8]c_long,
-    },
-};
