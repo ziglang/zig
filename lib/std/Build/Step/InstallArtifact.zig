@@ -77,10 +77,12 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
         },
         .h_dir = switch (options.h_dir) {
             .disabled => null,
-            .default => switch (artifact.kind) {
-                .lib => .header,
-                else => null,
-            },
+            // https://github.com/ziglang/zig/issues/9698
+            .default => null,
+            //.default => switch (artifact.kind) {
+            //    .lib => .header,
+            //    else => null,
+            //},
             .override => |o| o,
         },
         .implib_dir = switch (options.implib_dir) {
