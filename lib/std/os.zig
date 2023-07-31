@@ -146,12 +146,7 @@ pub const addrinfo = system.addrinfo;
 pub const blkcnt_t = system.blkcnt_t;
 pub const blksize_t = system.blksize_t;
 pub const clock_t = system.clock_t;
-pub const cpu_set_t = if (builtin.os.tag == .linux)
-    system.cpu_set_t
-else if (builtin.os.tag == .freebsd)
-    freebsd.cpuset_t
-else
-    u32;
+pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
 pub const dl_phdr_info = system.dl_phdr_info;
 pub const empty_sigset = system.empty_sigset;
@@ -5492,27 +5487,13 @@ pub const SchedGetAffinityError = error{PermissionDenied} || UnexpectedError;
 
 pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
     var set: cpu_set_t = undefined;
-    if (builtin.os.tag == .linux) {
-        switch (errno(system.sched_getaffinity(pid, @sizeOf(cpu_set_t), &set))) {
-            .SUCCESS => return set,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            .SRCH => unreachable,
-            .PERM => return error.PermissionDenied,
-            else => |err| return unexpectedErrno(err),
-        }
-    } else if (builtin.os.tag == .freebsd) {
-        switch (errno(freebsd.cpuset_getaffinity(freebsd.CPU_LEVEL_WHICH, freebsd.CPU_WHICH_PID, pid, @sizeOf(cpu_set_t), &set))) {
-            .SUCCESS => return set,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            .SRCH => unreachable,
-            .EDEADLK => unreachable,
-            .PERM => return error.PermissionDenied,
-            else => |err| return unexpectedErrno(err),
-        }
-    } else {
-        @compileError("unsupported platform");
+    switch (errno(system.sched_getaffinity(pid, @sizeOf(cpu_set_t), &set))) {
+        .SUCCESS => return set,
+        .FAULT => unreachable,
+        .INVAL => unreachable,
+        .SRCH => unreachable,
+        .PERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
     }
 }
 
