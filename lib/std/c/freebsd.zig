@@ -355,36 +355,36 @@ pub const Flock = extern struct {
 
 pub const msghdr = extern struct {
     /// Optional address.
-    name: ?*sockaddr,
+    msg_name: ?*sockaddr,
     /// Size of address.
-    namelen: socklen_t,
+    msg_namelen: socklen_t,
     /// Scatter/gather array.
-    iov: [*]iovec,
+    msg_iov: [*]iovec,
     /// Number of elements in msg_iov.
-    iovlen: i32,
+    msg_iovlen: i32,
     /// Ancillary data.
-    control: ?*anyopaque,
+    msg_control: ?*anyopaque,
     /// Ancillary data buffer length.
-    controllen: socklen_t,
+    msg_controllen: socklen_t,
     /// Flags on received message.
-    flags: i32,
+    msg_flags: i32,
 };
 
 pub const msghdr_const = extern struct {
     /// Optional address.
-    name: ?*const sockaddr,
+    msg_name: ?*const sockaddr,
     /// Size of address.
-    namelen: socklen_t,
+    msg_namelen: socklen_t,
     /// Scatter/gather array.
-    iov: [*]iovec_const,
+    msg_iov: [*]iovec_const,
     /// Number of elements in msg_iov.
-    iovlen: i32,
+    msg_iovlen: i32,
     /// Ancillary data.
-    control: ?*anyopaque,
+    msg_control: ?*anyopaque,
     /// Ancillary data buffer length.
-    controllen: socklen_t,
+    msg_controllen: socklen_t,
     /// Flags on received message.
-    flags: i32,
+    msg_flags: i32,
 };
 
 pub const Stat = extern struct {
