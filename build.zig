@@ -36,7 +36,7 @@ pub fn build(b: *std.Build) !void {
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
-        .root_source_file = .{ .path = "doc/docgen.zig" },
+        .root_source_file = .{ .path = "tools/docgen.zig" },
         .target = .{},
         .optimize = .Debug,
     });
