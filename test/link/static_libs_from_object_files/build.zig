@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const Build = std.Build;
-const FileSource = Build.FileSource;
+const LazyPath = Build.LazyPath;
 const Step = Build.Step;
 const Run = Step.Run;
 const WriteFile = Step.WriteFile;
@@ -14,7 +14,7 @@ pub fn build(b: *Build) void {
     b.default_step = test_step;
 
     // generate c files
-    const files = b.allocator.alloc(std.Build.FileSource, nb_files) catch unreachable;
+    const files = b.allocator.alloc(LazyPath, nb_files) catch unreachable;
     defer b.allocator.free(files);
     {
         for (files[0 .. nb_files - 1], 1..nb_files) |*file, i| {
@@ -47,7 +47,7 @@ pub fn build(b: *Build) void {
     add(b, test_step, files, .ReleaseFast);
 }
 
-fn add(b: *Build, test_step: *Step, files: []const std.Build.FileSource, optimize: std.builtin.OptimizeMode) void {
+fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.builtin.OptimizeMode) void {
     const flags = [_][]const u8{
         "-Wall",
         "-std=c11",
@@ -63,7 +63,7 @@ fn add(b: *Build, test_step: *Step, files: []const std.Build.FileSource, optimiz
         });
 
         for (files) |file| {
-            exe.addCSourceFileSource(.{ .source = file, .args = &flags });
+            exe.addCSourceFile(.{ .file = file, .flags = &flags });
         }
 
         const run_cmd = b.addRunArtifact(exe);
@@ -88,7 +88,7 @@ fn add(b: *Build, test_step: *Step, files: []const std.Build.FileSource, optimiz
 
         for (files, 1..) |file, i| {
             const lib = if (i & 1 == 0) lib_a else lib_b;
-            lib.addCSourceFileSource(.{ .source = file, .args = &flags });
+            lib.addCSourceFile(.{ .file = file, .flags = &flags });
         }
 
         const exe = b.addExecutable(.{
@@ -125,7 +125,7 @@ fn add(b: *Build, test_step: *Step, files: []const std.Build.FileSource, optimiz
                 .target = .{},
                 .optimize = optimize,
             });
-            obj.addCSourceFileSource(.{ .source = file, .args = &flags });
+            obj.addCSourceFile(.{ .file = file, .flags = &flags });
 
             const lib = if (i & 1 == 0) lib_a else lib_b;
             lib.addObject(obj);

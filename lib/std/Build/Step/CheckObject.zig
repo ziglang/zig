@@ -15,14 +15,14 @@ const Step = std.Build.Step;
 pub const base_id = .check_object;
 
 step: Step,
-source: std.Build.FileSource,
+source: std.Build.LazyPath,
 max_bytes: usize = 20 * 1024 * 1024,
 checks: std.ArrayList(Check),
 obj_format: std.Target.ObjectFormat,
 
 pub fn create(
     owner: *std.Build,
-    source: std.Build.FileSource,
+    source: std.Build.LazyPath,
     obj_format: std.Target.ObjectFormat,
 ) *CheckObject {
     const gpa = owner.allocator;
@@ -44,7 +44,7 @@ pub fn create(
 
 const SearchPhrase = struct {
     string: []const u8,
-    file_source: ?std.Build.FileSource = null,
+    file_source: ?std.Build.LazyPath = null,
 
     fn resolve(phrase: SearchPhrase, b: *std.Build, step: *Step) []const u8 {
         const file_source = phrase.file_source orelse return phrase.string;
@@ -302,13 +302,13 @@ pub fn checkExact(self: *CheckObject, phrase: []const u8) void {
     self.checkExactInner(phrase, null);
 }
 
-/// Like `checkExact()` but takes an additional argument `FileSource` which will be
+/// Like `checkExact()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkExactFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
+pub fn checkExactPath(self: *CheckObject, phrase: []const u8, file_source: std.Build.LazyPath) void {
     self.checkExactInner(phrase, file_source);
 }
 
-fn checkExactInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
+fn checkExactInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.LazyPath) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
     last.exact(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
@@ -321,7 +321,7 @@ pub fn checkContains(self: *CheckObject, phrase: []const u8) void {
 
 /// Like `checkContains()` but takes an additional argument `FileSource` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkContainsFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
+pub fn checkContainsPath(self: *CheckObject, phrase: []const u8, file_source: std.Build.LazyPath) void {
     self.checkContainsInner(phrase, file_source);
 }
 

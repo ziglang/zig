@@ -1712,6 +1712,8 @@ pub fn updateDeclExports(
         if (wasm.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
     }
 
+    if (wasm.base.options.emit == null) return;
+
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const atom = wasm.getAtom(atom_index);

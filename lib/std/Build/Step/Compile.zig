@@ -11,7 +11,7 @@ const Allocator = mem.Allocator;
 const Step = std.Build.Step;
 const CrossTarget = std.zig.CrossTarget;
 const NativeTargetInfo = std.zig.system.NativeTargetInfo;
-const FileSource = std.Build.FileSource;
+const LazyPath = std.Build.LazyPath;
 const PkgConfigPkg = std.Build.PkgConfigPkg;
 const PkgConfigError = std.Build.PkgConfigError;
 const ExecError = std.Build.ExecError;
@@ -28,7 +28,7 @@ name: []const u8,
 target: CrossTarget,
 target_info: NativeTargetInfo,
 optimize: std.builtin.Mode,
-linker_script: ?FileSource = null,
+linker_script: ?LazyPath = null,
 version_script: ?[]const u8 = null,
 out_filename: []const u8,
 linkage: ?Linkage = null,
@@ -40,20 +40,12 @@ strip: ?bool,
 unwind_tables: ?bool,
 // keep in sync with src/link.zig:CompressDebugSections
 compress_debug_sections: enum { none, zlib } = .none,
-lib_paths: ArrayList(FileSource),
-rpaths: ArrayList(FileSource),
-framework_dirs: ArrayList(FileSource),
+lib_paths: ArrayList(LazyPath),
+rpaths: ArrayList(LazyPath),
+framework_dirs: ArrayList(LazyPath),
 frameworks: StringHashMap(FrameworkLinkInfo),
 verbose_link: bool,
 verbose_cc: bool,
-emit_asm: EmitOption = .default,
-emit_bin: EmitOption = .default,
-emit_implib: EmitOption = .default,
-emit_llvm_bc: EmitOption = .default,
-emit_llvm_ir: EmitOption = .default,
-// Lots of things depend on emit_h having a consistent path,
-// so it is not an EmitOption for now.
-emit_h: bool = false,
 bundle_compiler_rt: ?bool = null,
 single_threaded: ?bool,
 stack_protector: ?bool = null,
@@ -74,8 +66,10 @@ max_memory: ?u64 = null,
 shared_memory: bool = false,
 global_base: ?u64 = null,
 c_std: std.Build.CStd,
-zig_lib_dir: ?[]const u8,
-main_pkg_path: ?[]const u8,
+/// Set via options; intended to be read-only after that.
+zig_lib_dir: ?LazyPath,
+/// Set via options; intended to be read-only after that.
+main_pkg_path: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
 filter: ?[]const u8,
 test_evented_io: bool = false,
@@ -85,10 +79,8 @@ wasi_exec_model: ?std.builtin.WasiExecModel = null,
 /// Symbols to be exported when compiling to wasm
 export_symbol_names: []const []const u8 = &.{},
 
-root_src: ?FileSource,
-out_h_filename: []const u8,
+root_src: ?LazyPath,
 out_lib_filename: []const u8,
-out_pdb_filename: []const u8,
 modules: std.StringArrayHashMap(*Module),
 
 link_objects: ArrayList(LinkObject),
@@ -99,14 +91,12 @@ is_linking_libc: bool,
 is_linking_libcpp: bool,
 vcpkg_bin_path: ?[]const u8 = null,
 
-/// This may be set in order to override the default install directory
-override_dest_dir: ?InstallDir,
 installed_path: ?[]const u8,
 
 /// Base address for an executable image.
 image_base: ?u64 = null,
 
-libc_file: ?FileSource = null,
+libc_file: ?LazyPath = null,
 
 valgrind_support: ?bool = null,
 each_lib_rpath: ?bool = null,
@@ -210,35 +200,40 @@ use_lld: ?bool,
 /// otherwise.
 expect_errors: []const []const u8 = &.{},
 
-output_path_source: GeneratedFile,
-output_lib_path_source: GeneratedFile,
-output_h_path_source: GeneratedFile,
-output_pdb_path_source: GeneratedFile,
-output_dirname_source: GeneratedFile,
+emit_directory: ?*GeneratedFile,
+
 generated_docs: ?*GeneratedFile,
+generated_asm: ?*GeneratedFile,
+generated_bin: ?*GeneratedFile,
+generated_pdb: ?*GeneratedFile,
+generated_implib: ?*GeneratedFile,
+generated_llvm_bc: ?*GeneratedFile,
+generated_llvm_ir: ?*GeneratedFile,
+generated_h: ?*GeneratedFile,
 
 pub const CSourceFiles = struct {
+    /// Relative to the build root.
     files: []const []const u8,
     flags: []const []const u8,
 };
 
 pub const CSourceFile = struct {
-    source: FileSource,
-    args: []const []const u8,
+    file: LazyPath,
+    flags: []const []const u8,
 
     pub fn dupe(self: CSourceFile, b: *std.Build) CSourceFile {
         return .{
-            .source = self.source.dupe(b),
-            .args = b.dupeStrings(self.args),
+            .file = self.file.dupe(b),
+            .flags = b.dupeStrings(self.flags),
         };
     }
 };
 
 pub const LinkObject = union(enum) {
-    static_path: FileSource,
+    static_path: LazyPath,
     other_step: *Compile,
     system_lib: SystemLib,
-    assembly_file: FileSource,
+    assembly_file: LazyPath,
     c_source_file: *CSourceFile,
     c_source_files: *CSourceFiles,
 };
@@ -265,15 +260,15 @@ const FrameworkLinkInfo = struct {
 };
 
 pub const IncludeDir = union(enum) {
-    raw_path: []const u8,
-    raw_path_system: []const u8,
+    path: LazyPath,
+    path_system: LazyPath,
     other_step: *Compile,
     config_header_step: *Step.ConfigHeader,
 };
 
 pub const Options = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    root_source_file: ?LazyPath = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     kind: Kind,
@@ -286,6 +281,8 @@ pub const Options = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    main_pkg_path: ?LazyPath = null,
 };
 
 pub const BuildId = union(enum) {
@@ -373,25 +370,9 @@ pub const Kind = enum {
 
 pub const Linkage = enum { dynamic, static };
 
-pub const EmitOption = union(enum) {
-    default: void,
-    no_emit: void,
-    emit: void,
-    emit_to: []const u8,
-
-    fn getArg(self: @This(), b: *std.Build, arg_name: []const u8) ?[]const u8 {
-        return switch (self) {
-            .no_emit => b.fmt("-fno-{s}", .{arg_name}),
-            .default => null,
-            .emit => b.fmt("-f{s}", .{arg_name}),
-            .emit_to => |path| b.fmt("-f{s}={s}", .{ arg_name, path }),
-        };
-    }
-};
-
 pub fn create(owner: *std.Build, options: Options) *Compile {
     const name = owner.dupe(options.name);
-    const root_src: ?FileSource = if (options.root_source_file) |rsrc| rsrc.dupe(owner) else null;
+    const root_src: ?LazyPath = if (options.root_source_file) |rsrc| rsrc.dupe(owner) else null;
     if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
         panic("invalid name: '{s}'. It looks like a file path, but it is supposed to be the library or application name.", .{name});
     }
@@ -453,18 +434,16 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         }),
         .version = options.version,
         .out_filename = out_filename,
-        .out_h_filename = owner.fmt("{s}.h", .{name}),
         .out_lib_filename = undefined,
-        .out_pdb_filename = owner.fmt("{s}.pdb", .{name}),
         .major_only_filename = null,
         .name_only_filename = null,
         .modules = std.StringArrayHashMap(*Module).init(owner.allocator),
         .include_dirs = ArrayList(IncludeDir).init(owner.allocator),
         .link_objects = ArrayList(LinkObject).init(owner.allocator),
         .c_macros = ArrayList([]const u8).init(owner.allocator),
-        .lib_paths = ArrayList(FileSource).init(owner.allocator),
-        .rpaths = ArrayList(FileSource).init(owner.allocator),
-        .framework_dirs = ArrayList(FileSource).init(owner.allocator),
+        .lib_paths = ArrayList(LazyPath).init(owner.allocator),
+        .rpaths = ArrayList(LazyPath).init(owner.allocator),
+        .framework_dirs = ArrayList(LazyPath).init(owner.allocator),
         .installed_headers = ArrayList(*Step).init(owner.allocator),
         .c_std = std.Build.CStd.C99,
         .zig_lib_dir = null,
@@ -476,16 +455,18 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .disable_sanitize_c = false,
         .sanitize_thread = false,
         .rdynamic = false,
-        .override_dest_dir = null,
         .installed_path = null,
         .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
 
-        .output_path_source = GeneratedFile{ .step = &self.step },
-        .output_lib_path_source = GeneratedFile{ .step = &self.step },
-        .output_h_path_source = GeneratedFile{ .step = &self.step },
-        .output_pdb_path_source = GeneratedFile{ .step = &self.step },
-        .output_dirname_source = GeneratedFile{ .step = &self.step },
+        .emit_directory = null,
         .generated_docs = null,
+        .generated_asm = null,
+        .generated_bin = null,
+        .generated_pdb = null,
+        .generated_implib = null,
+        .generated_llvm_bc = null,
+        .generated_llvm_ir = null,
+        .generated_h = null,
 
         .target_info = target_info,
 
@@ -495,6 +476,16 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
     };
+
+    if (options.zig_lib_dir) |lp| {
+        self.zig_lib_dir = lp.dupe(self.step.owner);
+        lp.addStepDependencies(&self.step);
+    }
+
+    if (options.main_pkg_path) |lp| {
+        self.main_pkg_path = lp.dupe(self.step.owner);
+        lp.addStepDependencies(&self.step);
+    }
 
     if (self.kind == .lib) {
         if (self.linkage != null and self.linkage.? == .static) {
@@ -614,7 +605,7 @@ pub fn addObjCopy(cs: *Compile, options: Step.ObjCopy.Options) *Step.ObjCopy {
             copy.basename = cs.name;
         }
     }
-    return b.addObjCopy(cs.getOutputSource(), copy);
+    return b.addObjCopy(cs.getEmittedBin(), copy);
 }
 
 /// This function would run in the context of the package that created the executable,
@@ -626,10 +617,13 @@ pub const run = @compileError("deprecated; use std.Build.addRunArtifact");
 pub const install = @compileError("deprecated; use std.Build.installArtifact");
 
 pub fn checkObject(self: *Compile) *Step.CheckObject {
-    return Step.CheckObject.create(self.step.owner, self.getOutputSource(), self.target_info.target.ofmt);
+    return Step.CheckObject.create(self.step.owner, self.getEmittedBin(), self.target_info.target.ofmt);
 }
 
-pub fn setLinkerScriptPath(self: *Compile, source: FileSource) void {
+/// deprecated: use `setLinkerScript`
+pub const setLinkerScriptPath = setLinkerScript;
+
+pub fn setLinkerScript(self: *Compile, source: LazyPath) void {
     const b = self.step.owner;
     self.linker_script = source.dupe(b);
     source.addStepDependencies(&self.step);
@@ -690,10 +684,16 @@ pub fn isStaticLibrary(self: *Compile) bool {
 }
 
 pub fn producesPdbFile(self: *Compile) bool {
+    // TODO: Is this right? Isn't PDB for *any* PE/COFF file?
+    // TODO: just share this logic with the compiler, silly!
     if (!self.target.isWindows() and !self.target.isUefi()) return false;
     if (self.target.getObjectFormat() == .c) return false;
     if (self.strip == true or (self.strip == null and self.optimize == .ReleaseSmall)) return false;
     return self.isDynamicLibrary() or self.kind == .exe or self.kind == .@"test";
+}
+
+pub fn producesImplib(self: *Compile) bool {
+    return self.isDynamicLibrary() and self.target.isWindows();
 }
 
 pub fn linkLibC(self: *Compile) void {
@@ -935,19 +935,12 @@ pub fn addCSourceFiles(self: *Compile, files: []const []const u8, flags: []const
     self.link_objects.append(.{ .c_source_files = c_source_files }) catch @panic("OOM");
 }
 
-pub fn addCSourceFile(self: *Compile, file: []const u8, flags: []const []const u8) void {
-    self.addCSourceFileSource(.{
-        .args = flags,
-        .source = .{ .path = file },
-    });
-}
-
-pub fn addCSourceFileSource(self: *Compile, source: CSourceFile) void {
+pub fn addCSourceFile(self: *Compile, source: CSourceFile) void {
     const b = self.step.owner;
     const c_source_file = b.allocator.create(CSourceFile) catch @panic("OOM");
     c_source_file.* = source.dupe(b);
     self.link_objects.append(.{ .c_source_file = c_source_file }) catch @panic("OOM");
-    source.source.addStepDependencies(&self.step);
+    source.file.addStepDependencies(&self.step);
 }
 
 pub fn setVerboseLink(self: *Compile, value: bool) void {
@@ -958,80 +951,99 @@ pub fn setVerboseCC(self: *Compile, value: bool) void {
     self.verbose_cc = value;
 }
 
-pub fn overrideZigLibDir(self: *Compile, dir_path: []const u8) void {
-    const b = self.step.owner;
-    self.zig_lib_dir = b.dupePath(dir_path);
-}
-
-pub fn setMainPkgPath(self: *Compile, dir_path: []const u8) void {
-    const b = self.step.owner;
-    self.main_pkg_path = b.dupePath(dir_path);
-}
-
-pub fn setLibCFile(self: *Compile, libc_file: ?FileSource) void {
+pub fn setLibCFile(self: *Compile, libc_file: ?LazyPath) void {
     const b = self.step.owner;
     self.libc_file = if (libc_file) |f| f.dupe(b) else null;
 }
 
-/// Returns the generated executable, library or object file.
-/// To run an executable built with zig build, use `run`, or create an install step and invoke it.
-pub fn getOutputSource(self: *Compile) FileSource {
-    return .{ .generated = &self.output_path_source };
-}
-
-pub fn getOutputDirectorySource(self: *Compile) FileSource {
-    return .{ .generated = &self.output_dirname_source };
-}
-
-/// Returns the generated import library. This function can only be called for libraries.
-pub fn getOutputLibSource(self: *Compile) FileSource {
-    assert(self.kind == .lib);
-    return .{ .generated = &self.output_lib_path_source };
-}
-
-/// Returns the generated header file.
-/// This function can only be called for libraries or object files which have `emit_h` set.
-pub fn getOutputHSource(self: *Compile) FileSource {
-    assert(self.kind != .exe and self.kind != .@"test");
-    assert(self.emit_h);
-    return .{ .generated = &self.output_h_path_source };
-}
-
-/// Returns the generated PDB file. This function can only be called for Windows and UEFI.
-pub fn getOutputPdbSource(self: *Compile) FileSource {
-    // TODO: Is this right? Isn't PDB for *any* PE/COFF file?
-    assert(self.target.isWindows() or self.target.isUefi());
-    return .{ .generated = &self.output_pdb_path_source };
-}
-
-pub fn getEmittedDocs(self: *Compile) FileSource {
-    if (self.generated_docs) |g| return .{ .generated = g };
+fn getEmittedFileGeneric(self: *Compile, output_file: *?*GeneratedFile) LazyPath {
+    if (output_file.*) |g| {
+        return .{ .generated = g };
+    }
     const arena = self.step.owner.allocator;
     const generated_file = arena.create(GeneratedFile) catch @panic("OOM");
     generated_file.* = .{ .step = &self.step };
-    self.generated_docs = generated_file;
+    output_file.* = generated_file;
     return .{ .generated = generated_file };
 }
 
-pub fn addAssemblyFile(self: *Compile, path: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .assembly_file = .{ .path = b.dupe(path) },
-    }) catch @panic("OOM");
+/// deprecated: use `getEmittedBinDirectory`
+pub const getOutputDirectorySource = getEmittedBinDirectory;
+
+/// Returns the path to the directory that contains the emitted binary file.
+pub fn getEmittedBinDirectory(self: *Compile) LazyPath {
+    _ = self.getEmittedBin();
+    return self.getEmittedFileGeneric(&self.emit_directory);
 }
 
-pub fn addAssemblyFileSource(self: *Compile, source: FileSource) void {
+/// deprecated: use `getEmittedBin`
+pub const getOutputSource = getEmittedBin;
+
+/// Returns the path to the generated executable, library or object file.
+/// To run an executable built with zig build, use `run`, or create an install step and invoke it.
+pub fn getEmittedBin(self: *Compile) LazyPath {
+    return self.getEmittedFileGeneric(&self.generated_bin);
+}
+
+/// deprecated: use `getEmittedImplib`
+pub const getOutputLibSource = getEmittedImplib;
+
+/// Returns the path to the generated import library.
+/// This function can only be called for libraries.
+pub fn getEmittedImplib(self: *Compile) LazyPath {
+    assert(self.kind == .lib);
+    return self.getEmittedFileGeneric(&self.generated_implib);
+}
+
+/// deprecated: use `getEmittedH`
+pub const getOutputHSource = getEmittedH;
+
+/// Returns the path to the generated header file.
+/// This function can only be called for libraries or objects.
+pub fn getEmittedH(self: *Compile) LazyPath {
+    assert(self.kind != .exe and self.kind != .@"test");
+    return self.getEmittedFileGeneric(&self.generated_h);
+}
+
+/// deprecated: use `getEmittedPdb`.
+pub const getOutputPdbSource = getEmittedPdb;
+
+/// Returns the generated PDB file.
+/// If the compilation does not produce a PDB file, this causes a FileNotFound error
+/// at build time.
+pub fn getEmittedPdb(self: *Compile) LazyPath {
+    _ = self.getEmittedBin();
+    return self.getEmittedFileGeneric(&self.generated_pdb);
+}
+
+/// Returns the path to the generated documentation directory.
+pub fn getEmittedDocs(self: *Compile) LazyPath {
+    return self.getEmittedFileGeneric(&self.generated_docs);
+}
+
+/// Returns the path to the generated assembly code.
+pub fn getEmittedAsm(self: *Compile) LazyPath {
+    return self.getEmittedFileGeneric(&self.generated_asm);
+}
+
+/// Returns the path to the generated LLVM IR.
+pub fn getEmittedLlvmIr(self: *Compile) LazyPath {
+    return self.getEmittedFileGeneric(&self.generated_llvm_ir);
+}
+
+/// Returns the path to the generated LLVM BC.
+pub fn getEmittedLlvmBc(self: *Compile) LazyPath {
+    return self.getEmittedFileGeneric(&self.generated_llvm_bc);
+}
+
+pub fn addAssemblyFile(self: *Compile, source: LazyPath) void {
     const b = self.step.owner;
     const source_duped = source.dupe(b);
     self.link_objects.append(.{ .assembly_file = source_duped }) catch @panic("OOM");
     source_duped.addStepDependencies(&self.step);
 }
 
-pub fn addObjectFile(self: *Compile, source_file: []const u8) void {
-    self.addObjectFileSource(.{ .path = source_file });
-}
-
-pub fn addObjectFileSource(self: *Compile, source: FileSource) void {
+pub fn addObjectFile(self: *Compile, source: LazyPath) void {
     const b = self.step.owner;
     self.link_objects.append(.{ .static_path = source.dupe(b) }) catch @panic("OOM");
     source.addStepDependencies(&self.step);
@@ -1042,14 +1054,16 @@ pub fn addObject(self: *Compile, obj: *Compile) void {
     self.linkLibraryOrObject(obj);
 }
 
-pub fn addSystemIncludePath(self: *Compile, path: []const u8) void {
+pub fn addSystemIncludePath(self: *Compile, path: LazyPath) void {
     const b = self.step.owner;
-    self.include_dirs.append(IncludeDir{ .raw_path_system = b.dupe(path) }) catch @panic("OOM");
+    self.include_dirs.append(IncludeDir{ .path_system = path.dupe(b) }) catch @panic("OOM");
+    path.addStepDependencies(&self.step);
 }
 
-pub fn addIncludePath(self: *Compile, path: []const u8) void {
+pub fn addIncludePath(self: *Compile, path: LazyPath) void {
     const b = self.step.owner;
-    self.include_dirs.append(IncludeDir{ .raw_path = b.dupe(path) }) catch @panic("OOM");
+    self.include_dirs.append(IncludeDir{ .path = path.dupe(b) }) catch @panic("OOM");
+    path.addStepDependencies(&self.step);
 }
 
 pub fn addConfigHeader(self: *Compile, config_header: *Step.ConfigHeader) void {
@@ -1057,32 +1071,17 @@ pub fn addConfigHeader(self: *Compile, config_header: *Step.ConfigHeader) void {
     self.include_dirs.append(.{ .config_header_step = config_header }) catch @panic("OOM");
 }
 
-pub fn addLibraryPath(self: *Compile, path: []const u8) void {
-    const b = self.step.owner;
-    self.lib_paths.append(.{ .path = b.dupe(path) }) catch @panic("OOM");
-}
-
-pub fn addLibraryPathDirectorySource(self: *Compile, directory_source: FileSource) void {
+pub fn addLibraryPath(self: *Compile, directory_source: LazyPath) void {
     self.lib_paths.append(directory_source) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
-pub fn addRPath(self: *Compile, path: []const u8) void {
-    const b = self.step.owner;
-    self.rpaths.append(.{ .path = b.dupe(path) }) catch @panic("OOM");
-}
-
-pub fn addRPathDirectorySource(self: *Compile, directory_source: FileSource) void {
+pub fn addRPath(self: *Compile, directory_source: LazyPath) void {
     self.rpaths.append(directory_source) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
-pub fn addFrameworkPath(self: *Compile, dir_path: []const u8) void {
-    const b = self.step.owner;
-    self.framework_dirs.append(.{ .path = b.dupe(dir_path) }) catch @panic("OOM");
-}
-
-pub fn addFrameworkPathDirectorySource(self: *Compile, directory_source: FileSource) void {
+pub fn addFrameworkPath(self: *Compile, directory_source: LazyPath) void {
     self.framework_dirs.append(directory_source) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
@@ -1168,7 +1167,11 @@ pub fn setExecCmd(self: *Compile, args: []const ?[]const u8) void {
 }
 
 fn linkLibraryOrObject(self: *Compile, other: *Compile) void {
-    self.step.dependOn(&other.step);
+    other.getEmittedBin().addStepDependencies(&self.step);
+    if (other.target.isWindows() and other.isDynamicLibrary()) {
+        other.getEmittedImplib().addStepDependencies(&self.step);
+    }
+
     self.link_objects.append(.{ .other_step = other }) catch @panic("OOM");
     self.include_dirs.append(.{ .other_step = other }) catch @panic("OOM");
 
@@ -1287,6 +1290,30 @@ fn constructDepString(
     }
 }
 
+fn getGeneratedFilePath(self: *Compile, comptime tag_name: []const u8, asking_step: ?*Step) []const u8 {
+    const maybe_path: ?*GeneratedFile = @field(self, tag_name);
+
+    const generated_file = maybe_path orelse {
+        std.debug.getStderrMutex().lock();
+        const stderr = std.io.getStdErr();
+
+        std.Build.dumpBadGetPathHelp(&self.step, stderr, self.step.owner, asking_step) catch {};
+
+        @panic("missing emit option for " ++ tag_name);
+    };
+
+    const path = generated_file.path orelse {
+        std.debug.getStderrMutex().lock();
+        const stderr = std.io.getStdErr();
+
+        std.Build.dumpBadGetPathHelp(&self.step, stderr, self.step.owner, asking_step) catch {};
+
+        @panic(tag_name ++ " is null. Is there a missing step dependency?");
+    };
+
+    return path;
+}
+
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const self = @fieldParentPtr(Compile, "step", step);
@@ -1364,7 +1391,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 .exe => @panic("Cannot link with an executable build artifact"),
                 .@"test" => @panic("Cannot link with a test"),
                 .obj => {
-                    try zig_args.append(other.getOutputSource().getPath(b));
+                    try zig_args.append(other.getEmittedBin().getPath(b));
                 },
                 .lib => l: {
                     if (self.isStaticLibrary() and other.isStaticLibrary()) {
@@ -1372,7 +1399,12 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         break :l;
                     }
 
-                    const full_path_lib = other.getOutputLibSource().getPath(b);
+                    // For DLLs, we gotta link against the implib. For
+                    // everything else, we directly link against the library file.
+                    const full_path_lib = if (other.producesImplib())
+                        other.getGeneratedFilePath("generated_implib", &self.step)
+                    else
+                        other.getGeneratedFilePath("generated_bin", &self.step);
                     try zig_args.append(full_path_lib);
 
                     if (other.linkage == Linkage.dynamic and !self.target.isWindows()) {
@@ -1432,7 +1464,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             },
 
             .c_source_file => |c_source_file| {
-                if (c_source_file.args.len == 0) {
+                if (c_source_file.flags.len == 0) {
                     if (prev_has_cflags) {
                         try zig_args.append("-cflags");
                         try zig_args.append("--");
@@ -1440,13 +1472,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     }
                 } else {
                     try zig_args.append("-cflags");
-                    for (c_source_file.args) |arg| {
+                    for (c_source_file.flags) |arg| {
                         try zig_args.append(arg);
                     }
                     try zig_args.append("--");
                     prev_has_cflags = true;
                 }
-                try zig_args.append(c_source_file.source.getPath(b));
+                try zig_args.append(c_source_file.file.getPath(b));
             },
 
             .c_source_files => |c_source_files| {
@@ -1515,14 +1547,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (b.verbose_cc or self.verbose_cc) try zig_args.append("--verbose-cc");
     if (b.verbose_llvm_cpu_features) try zig_args.append("--verbose-llvm-cpu-features");
 
-    if (self.emit_asm.getArg(b, "emit-asm")) |arg| try zig_args.append(arg);
-    if (self.emit_bin.getArg(b, "emit-bin")) |arg| try zig_args.append(arg);
+    if (self.generated_asm != null) try zig_args.append("-femit-asm");
+    if (self.generated_bin == null) try zig_args.append("-fno-emit-bin");
     if (self.generated_docs != null) try zig_args.append("-femit-docs");
-    if (self.emit_implib.getArg(b, "emit-implib")) |arg| try zig_args.append(arg);
-    if (self.emit_llvm_bc.getArg(b, "emit-llvm-bc")) |arg| try zig_args.append(arg);
-    if (self.emit_llvm_ir.getArg(b, "emit-llvm-ir")) |arg| try zig_args.append(arg);
-
-    if (self.emit_h) try zig_args.append("-femit-h");
+    if (self.generated_implib != null) try zig_args.append("-femit-implib");
+    if (self.generated_llvm_bc != null) try zig_args.append("-femit-llvm-bc");
+    if (self.generated_llvm_ir != null) try zig_args.append("-femit-llvm-ir");
+    if (self.generated_h != null) try zig_args.append("-femit-h");
 
     try addFlag(&zig_args, "strip", self.strip);
     try addFlag(&zig_args, "unwind-tables", self.unwind_tables);
@@ -1746,18 +1777,18 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     for (self.include_dirs.items) |include_dir| {
         switch (include_dir) {
-            .raw_path => |include_path| {
+            .path => |include_path| {
                 try zig_args.append("-I");
-                try zig_args.append(b.pathFromRoot(include_path));
+                try zig_args.append(include_path.getPath(b));
             },
-            .raw_path_system => |include_path| {
+            .path_system => |include_path| {
                 if (b.sysroot != null) {
                     try zig_args.append("-iwithsysroot");
                 } else {
                     try zig_args.append("-isystem");
                 }
 
-                const resolved_include_path = b.pathFromRoot(include_path);
+                const resolved_include_path = include_path.getPath(b);
 
                 const common_include_path = if (builtin.os.tag == .windows and b.sysroot != null and fs.path.isAbsolute(resolved_include_path)) blk: {
                     // We need to check for disk designator and strip it out from dir path so
@@ -1774,10 +1805,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 try zig_args.append(common_include_path);
             },
             .other_step => |other| {
-                if (other.emit_h) {
-                    const h_path = other.getOutputHSource().getPath(b);
+                if (other.generated_h) |header| {
                     try zig_args.append("-isystem");
-                    try zig_args.append(fs.path.dirname(h_path).?);
+                    try zig_args.append(fs.path.dirname(header.path.?).?);
                 }
                 if (other.installed_headers.items.len > 0) {
                     try zig_args.append("-I");
@@ -1810,7 +1840,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         zig_args.appendAssumeCapacity("-rpath");
 
         if (self.target_info.target.isDarwin()) switch (rpath) {
-            .path => |path| {
+            .path, .cwd_relative => |path| {
                 // On Darwin, we should not try to expand special runtime paths such as
                 // * @executable_path
                 // * @loader_path
@@ -1907,15 +1937,12 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (self.zig_lib_dir) |dir| {
         try zig_args.append("--zig-lib-dir");
-        try zig_args.append(b.pathFromRoot(dir));
-    } else if (b.zig_lib_dir) |dir| {
-        try zig_args.append("--zig-lib-dir");
-        try zig_args.append(dir);
+        try zig_args.append(dir.getPath(b));
     }
 
     if (self.main_pkg_path) |dir| {
         try zig_args.append("--main-pkg-path");
-        try zig_args.append(b.pathFromRoot(dir));
+        try zig_args.append(dir.getPath(b));
     }
 
     try addFlag(&zig_args, "PIC", self.force_pic);
@@ -2008,32 +2035,50 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (maybe_output_bin_path) |output_bin_path| {
         const output_dir = fs.path.dirname(output_bin_path).?;
 
-        self.output_dirname_source.path = output_dir;
-
-        self.output_path_source.path = b.pathJoin(
-            &.{ output_dir, self.out_filename },
-        );
-
-        if (self.kind == .lib) {
-            self.output_lib_path_source.path = b.pathJoin(
-                &.{ output_dir, self.out_lib_filename },
-            );
+        if (self.emit_directory) |lp| {
+            lp.path = output_dir;
         }
 
-        if (self.emit_h) {
-            self.output_h_path_source.path = b.pathJoin(
-                &.{ output_dir, self.out_h_filename },
-            );
+        // -femit-bin[=path]         (default) Output machine code
+        if (self.generated_bin) |bin| {
+            bin.path = b.pathJoin(&.{ output_dir, self.out_filename });
         }
 
-        if (self.target.isWindows() or self.target.isUefi()) {
-            self.output_pdb_path_source.path = b.pathJoin(
-                &.{ output_dir, self.out_pdb_filename },
-            );
+        const sep = std.fs.path.sep;
+
+        // output PDB if someone requested it
+        if (self.generated_pdb) |pdb| {
+            pdb.path = b.fmt("{s}{c}{s}.pdb", .{ output_dir, sep, self.name });
         }
 
+        // -femit-implib[=path]      (default) Produce an import .lib when building a Windows DLL
+        if (self.generated_implib) |implib| {
+            implib.path = b.fmt("{s}{c}{s}.lib", .{ output_dir, sep, self.name });
+        }
+
+        // -femit-h[=path]           Generate a C header file (.h)
+        if (self.generated_h) |lp| {
+            lp.path = b.fmt("{s}{c}{s}.h", .{ output_dir, sep, self.name });
+        }
+
+        // -femit-docs[=path]        Create a docs/ dir with html documentation
         if (self.generated_docs) |generated_docs| {
             generated_docs.path = b.pathJoin(&.{ output_dir, "docs" });
+        }
+
+        // -femit-asm[=path]         Output .s (assembly code)
+        if (self.generated_asm) |lp| {
+            lp.path = b.fmt("{s}{c}{s}.s", .{ output_dir, sep, self.name });
+        }
+
+        // -femit-llvm-ir[=path]     Produce a .ll file with optimized LLVM IR (requires LLVM extensions)
+        if (self.generated_llvm_ir) |lp| {
+            lp.path = b.fmt("{s}{c}{s}.ll", .{ output_dir, sep, self.name });
+        }
+
+        // -femit-llvm-bc[=path]     Produce an optimized LLVM module as a .bc file (requires LLVM extensions)
+        if (self.generated_llvm_bc) |lp| {
+            lp.path = b.fmt("{s}{c}{s}.bc", .{ output_dir, sep, self.name });
         }
     }
 
@@ -2042,7 +2087,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     {
         try doAtomicSymLinks(
             step,
-            self.getOutputSource().getPath(b),
+            self.getEmittedBin().getPath(b),
             self.major_only_filename.?,
             self.name_only_filename.?,
         );

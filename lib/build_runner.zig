@@ -188,10 +188,10 @@ pub fn main() !void {
                     usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
-                builder.zig_lib_dir = nextArg(args, &arg_idx) orelse {
+                builder.zig_lib_dir = .{ .cwd_relative = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
-                };
+                } };
             } else if (mem.eql(u8, arg, "--debug-log")) {
                 const next_arg = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});

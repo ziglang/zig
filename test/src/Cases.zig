@@ -518,12 +518,12 @@ pub fn lowerToBuildSteps(
         }
 
         const writefiles = b.addWriteFiles();
-        var file_sources = std.StringHashMap(std.Build.FileSource).init(b.allocator);
+        var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
         defer file_sources.deinit();
         for (update.files.items) |file| {
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
-        const root_source_file = writefiles.files.items[0].getFileSource();
+        const root_source_file = writefiles.files.items[0].getPath();
 
         const artifact = if (case.is_test) b.addTest(.{
             .root_source_file = root_source_file,
@@ -551,8 +551,6 @@ pub fn lowerToBuildSteps(
             }),
         };
 
-        artifact.emit_bin = if (case.emit_bin) .default else .no_emit;
-
         if (case.link_libc) artifact.linkLibC();
 
         switch (case.backend) {
@@ -577,7 +575,7 @@ pub fn lowerToBuildSteps(
                 parent_step.dependOn(&artifact.step);
             },
             .CompareObjectFile => |expected_output| {
-                const check = b.addCheckFile(artifact.getOutputSource(), .{
+                const check = b.addCheckFile(artifact.getEmittedBin(), .{
                     .expected_exact = expected_output,
                 });
 

@@ -1452,6 +1452,8 @@ pub fn updateDeclExports(
         if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
     }
 
+    if (self.base.options.emit == null) return;
+
     const gpa = self.base.allocator;
 
     const decl = mod.declPtr(decl_index);

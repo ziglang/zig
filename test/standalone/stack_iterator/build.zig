@@ -74,7 +74,10 @@ pub fn build(b: *std.Build) void {
         if (target.isWindows()) c_shared_lib.defineCMacro("LIB_API", "__declspec(dllexport)");
 
         c_shared_lib.strip = false;
-        c_shared_lib.addCSourceFile("shared_lib.c", &.{"-fomit-frame-pointer"});
+        c_shared_lib.addCSourceFile(.{
+            .file = .{ .path = "shared_lib.c" },
+            .flags = &.{"-fomit-frame-pointer"},
+        });
         c_shared_lib.linkLibC();
 
         const exe = b.addExecutable(.{

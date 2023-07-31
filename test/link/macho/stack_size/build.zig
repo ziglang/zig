@@ -20,7 +20,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &.{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkLibC();
     exe.stack_size = 0x100000000;
 

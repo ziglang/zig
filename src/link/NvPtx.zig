@@ -106,10 +106,11 @@ pub fn flushModule(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.No
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
+    const outfile = comp.bin_file.options.emit orelse return;
+
     const tracy = trace(@src());
     defer tracy.end();
 
-    const outfile = comp.bin_file.options.emit.?;
     // We modify 'comp' before passing it to LLVM, but restore value afterwards.
     // We tell LLVM to not try to build a .o, only an "assembly" file.
     // This is required by the LLVM PTX backend.

@@ -19,7 +19,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    exe_c.addCSourceFile("test.c", &[0][]const u8{});
+    exe_c.addCSourceFile(.{ .file = .{ .path = "test.c" }, .flags = &[0][]const u8{} });
     exe_c.linkLibC();
 
     const exe_cpp = b.addExecutable(.{
@@ -28,7 +28,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .target = target,
     });
     b.default_step.dependOn(&exe_cpp.step);
-    exe_cpp.addCSourceFile("test.cpp", &[0][]const u8{});
+    exe_cpp.addCSourceFile(.{ .file = .{ .path = "test.cpp" }, .flags = &[0][]const u8{} });
     exe_cpp.linkLibCpp();
 
     switch (target.getOsTag()) {

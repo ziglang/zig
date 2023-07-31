@@ -2386,6 +2386,8 @@ pub fn updateDeclExports(
             return llvm_object.updateDeclExports(mod, decl_index, exports);
     }
 
+    if (self.base.options.emit == null) return;
+
     const tracy = trace(@src());
     defer tracy.end();
 

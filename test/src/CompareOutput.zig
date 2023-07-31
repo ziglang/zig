@@ -99,7 +99,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
                 .target = .{},
                 .optimize = .Debug,
             });
-            exe.addAssemblyFileSource(write_src.files.items[0].getFileSource());
+            exe.addAssemblyFile(write_src.files.items[0].getPath());
 
             const run = b.addRunArtifact(exe);
             run.setName(annotated_case_name);
@@ -119,7 +119,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 
                 const exe = b.addExecutable(.{
                     .name = "test",
-                    .root_source_file = write_src.files.items[0].getFileSource(),
+                    .root_source_file = write_src.files.items[0].getPath(),
                     .optimize = optimize,
                     .target = .{},
                 });
@@ -145,7 +145,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 
             const exe = b.addExecutable(.{
                 .name = "test",
-                .root_source_file = write_src.files.items[0].getFileSource(),
+                .root_source_file = write_src.files.items[0].getPath(),
                 .target = .{},
                 .optimize = .Debug,
             });

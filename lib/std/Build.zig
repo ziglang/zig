@@ -57,6 +57,8 @@ pub const RunStep = @import("Build/Step/Run.zig");
 pub const TranslateCStep = @import("Build/Step/TranslateC.zig");
 /// deprecated: use `Step.WriteFile`.
 pub const WriteFileStep = @import("Build/Step/WriteFile.zig");
+/// deprecated: use `LazyPath`.
+pub const FileSource = LazyPath;
 
 install_tls: TopLevelStep,
 uninstall_tls: TopLevelStep,
@@ -93,8 +95,7 @@ build_root: Cache.Directory,
 cache_root: Cache.Directory,
 global_cache_root: Cache.Directory,
 cache: *Cache,
-/// If non-null, overrides the default zig lib dir.
-zig_lib_dir: ?[]const u8,
+zig_lib_dir: ?LazyPath,
 vcpkg_root: VcpkgRoot = .unattempted,
 pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 args: ?[][]const u8 = null,
@@ -471,7 +472,7 @@ pub fn addOptions(self: *Build) *Step.Options {
 
 pub const ExecutableOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
@@ -481,6 +482,8 @@ pub const ExecutableOptions = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
@@ -497,12 +500,14 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
         .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .main_pkg_path = options.main_pkg_path,
     });
 }
 
 pub const ObjectOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    root_source_file: ?LazyPath = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     max_rss: usize = 0,
@@ -510,6 +515,8 @@ pub const ObjectOptions = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
@@ -524,12 +531,14 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
         .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .main_pkg_path = options.main_pkg_path,
     });
 }
 
 pub const SharedLibraryOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
@@ -538,6 +547,8 @@ pub const SharedLibraryOptions = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
@@ -554,12 +565,14 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
         .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .main_pkg_path = options.main_pkg_path,
     });
 }
 
 pub const StaticLibraryOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    root_source_file: ?LazyPath = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     version: ?std.SemanticVersion = null,
@@ -568,6 +581,8 @@ pub const StaticLibraryOptions = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
@@ -584,12 +599,14 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
         .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .main_pkg_path = options.main_pkg_path,
     });
 }
 
 pub const TestOptions = struct {
     name: []const u8 = "test",
-    root_source_file: FileSource,
+    root_source_file: LazyPath,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
     version: ?std.SemanticVersion = null,
@@ -600,6 +617,8 @@ pub const TestOptions = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
@@ -616,15 +635,18 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
         .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .main_pkg_path = options.main_pkg_path,
     });
 }
 
 pub const AssemblyOptions = struct {
     name: []const u8,
-    source_file: FileSource,
+    source_file: LazyPath,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     max_rss: usize = 0,
+    zig_lib_dir: ?LazyPath = null,
 };
 
 pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
@@ -635,8 +657,9 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
         .target = options.target,
         .optimize = options.optimize,
         .max_rss = options.max_rss,
+        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
     });
-    obj_step.addAssemblyFileSource(options.source_file.dupe(b));
+    obj_step.addAssemblyLazyPath(options.source_file.dupe(b));
     return obj_step;
 }
 
@@ -655,7 +678,7 @@ pub const ModuleDependency = struct {
 };
 
 pub const CreateModuleOptions = struct {
-    source_file: FileSource,
+    source_file: LazyPath,
     dependencies: []const ModuleDependency = &.{},
 };
 
@@ -1257,12 +1280,21 @@ fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
     std.debug.print("{s}\n", .{text});
 }
 
+/// This creates the install step and adds it to the dependencies of the
+/// top-level install step, using all the default options.
+/// See `addInstallArtifact` for a more flexible function.
 pub fn installArtifact(self: *Build, artifact: *Step.Compile) void {
-    self.getInstallStep().dependOn(&self.addInstallArtifact(artifact).step);
+    self.getInstallStep().dependOn(&self.addInstallArtifact(artifact, .{}).step);
 }
 
-pub fn addInstallArtifact(self: *Build, artifact: *Step.Compile) *Step.InstallArtifact {
-    return Step.InstallArtifact.create(self, artifact);
+/// This merely creates the step; it does not add it to the dependencies of the
+/// top-level install step.
+pub fn addInstallArtifact(
+    self: *Build,
+    artifact: *Step.Compile,
+    options: Step.InstallArtifact.Options,
+) *Step.InstallArtifact {
+    return Step.InstallArtifact.create(self, artifact, options);
 }
 
 ///`dest_rel_path` is relative to prefix path
@@ -1284,22 +1316,22 @@ pub fn installLibFile(self: *Build, src_path: []const u8, dest_rel_path: []const
     self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .lib, dest_rel_path).step);
 }
 
-pub fn addObjCopy(b: *Build, source: FileSource, options: Step.ObjCopy.Options) *Step.ObjCopy {
+pub fn addObjCopy(b: *Build, source: LazyPath, options: Step.ObjCopy.Options) *Step.ObjCopy {
     return Step.ObjCopy.create(b, source, options);
 }
 
 ///`dest_rel_path` is relative to install prefix path
-pub fn addInstallFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *Step.InstallFile {
+pub fn addInstallFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return self.addInstallFileWithDir(source.dupe(self), .prefix, dest_rel_path);
 }
 
 ///`dest_rel_path` is relative to bin path
-pub fn addInstallBinFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *Step.InstallFile {
+pub fn addInstallBinFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return self.addInstallFileWithDir(source.dupe(self), .bin, dest_rel_path);
 }
 
 ///`dest_rel_path` is relative to lib path
-pub fn addInstallLibFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *Step.InstallFile {
+pub fn addInstallLibFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return self.addInstallFileWithDir(source.dupe(self), .lib, dest_rel_path);
 }
 
@@ -1309,7 +1341,7 @@ pub fn addInstallHeaderFile(b: *Build, src_path: []const u8, dest_rel_path: []co
 
 pub fn addInstallFileWithDir(
     self: *Build,
-    source: FileSource,
+    source: LazyPath,
     install_dir: InstallDir,
     dest_rel_path: []const u8,
 ) *Step.InstallFile {
@@ -1322,12 +1354,13 @@ pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *Step
 
 pub fn addCheckFile(
     b: *Build,
-    file_source: FileSource,
+    file_source: LazyPath,
     options: Step.CheckFile.Options,
 ) *Step.CheckFile {
     return Step.CheckFile.create(b, file_source, options);
 }
 
+/// deprecated: https://github.com/ziglang/zig/issues/14943
 pub fn pushInstalledFile(self: *Build, dir: InstallDir, dest_rel_path: []const u8) void {
     const file = InstalledFile{
         .dir = dir,
@@ -1355,6 +1388,11 @@ pub fn truncateFile(self: *Build, dest_path: []const u8) !void {
 
 pub fn pathFromRoot(b: *Build, p: []const u8) []u8 {
     return fs.path.resolve(b.allocator, &.{ b.build_root.path orelse ".", p }) catch @panic("OOM");
+}
+
+fn pathFromCwd(b: *Build, p: []const u8) []u8 {
+    const cwd = process.getCwdAlloc(b.allocator) catch @panic("OOM");
+    return fs.path.resolve(b.allocator, &.{ cwd, p }) catch @panic("OOM");
 }
 
 pub fn pathJoin(self: *Build, paths: []const []const u8) []u8 {
@@ -1608,7 +1646,7 @@ pub const Module = struct {
     /// This could either be a generated file, in which case the module
     /// contains exactly one file, or it could be a path to the root source
     /// file of directory of files which constitute the module.
-    source_file: FileSource,
+    source_file: LazyPath,
     dependencies: std.StringArrayHashMap(*Module),
 };
 
@@ -1630,50 +1668,64 @@ pub const GeneratedFile = struct {
     }
 };
 
-/// A file source is a reference to an existing or future file.
-pub const FileSource = union(enum) {
-    /// A plain file path, relative to build root or absolute.
+/// A reference to an existing or future path.
+pub const LazyPath = union(enum) {
+    /// A source file path relative to build root.
+    /// This should not be an absolute path, but in an older iteration of the zig build
+    /// system API, it was allowed to be absolute. Absolute paths should use `cwd_relative`.
     path: []const u8,
 
     /// A file that is generated by an interface. Those files usually are
     /// not available until built by a build step.
     generated: *const GeneratedFile,
 
+    /// An absolute path or a path relative to the current working directory of
+    /// the build runner process.
+    /// This is uncommon but used for system environment paths such as `--zig-lib-dir` which
+    /// ignore the file system path of build.zig and instead are relative to the directory from
+    /// which `zig build` was invoked.
+    /// Use of this tag indicates a dependency on the host system.
+    cwd_relative: []const u8,
+
     /// Returns a new file source that will have a relative path to the build root guaranteed.
-    /// This should be preferred over setting `.path` directly as it documents that the files are in the project directory.
-    pub fn relative(path: []const u8) FileSource {
+    /// Asserts the parameter is not an absolute path.
+    pub fn relative(path: []const u8) LazyPath {
         std.debug.assert(!std.fs.path.isAbsolute(path));
-        return FileSource{ .path = path };
+        return LazyPath{ .path = path };
     }
 
     /// Returns a string that can be shown to represent the file source.
     /// Either returns the path or `"generated"`.
-    pub fn getDisplayName(self: FileSource) []const u8 {
+    pub fn getDisplayName(self: LazyPath) []const u8 {
         return switch (self) {
-            .path => self.path,
+            .path, .cwd_relative => self.path,
             .generated => "generated",
         };
     }
 
     /// Adds dependencies this file source implies to the given step.
-    pub fn addStepDependencies(self: FileSource, other_step: *Step) void {
+    pub fn addStepDependencies(self: LazyPath, other_step: *Step) void {
         switch (self) {
-            .path => {},
+            .path, .cwd_relative => {},
             .generated => |gen| other_step.dependOn(gen.step),
         }
     }
 
-    /// Should only be called during make(), returns a path relative to the build root or absolute.
-    pub fn getPath(self: FileSource, src_builder: *Build) []const u8 {
+    /// Returns an absolute path.
+    /// Intended to be used during the make phase only.
+    pub fn getPath(self: LazyPath, src_builder: *Build) []const u8 {
         return getPath2(self, src_builder, null);
     }
 
-    /// Should only be called during make(), returns a path relative to the build root or absolute.
-    /// asking_step is only used for debugging purposes; it's the step being run that is asking for
-    /// the path.
-    pub fn getPath2(self: FileSource, src_builder: *Build, asking_step: ?*Step) []const u8 {
+    /// Returns an absolute path.
+    /// Intended to be used during the make phase only.
+    ///
+    /// `asking_step` is only used for debugging purposes; it's the step being
+    /// run that is asking for the path.
+    pub fn getPath2(self: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
         switch (self) {
             .path => |p| return src_builder.pathFromRoot(p),
+            .cwd_relative => |p| return src_builder.pathFromCwd(p),
             .generated => |gen| return gen.path orelse {
                 std.debug.getStderrMutex().lock();
                 const stderr = std.io.getStdErr();
@@ -1684,16 +1736,17 @@ pub const FileSource = union(enum) {
     }
 
     /// Duplicates the file source for a given builder.
-    pub fn dupe(self: FileSource, b: *Build) FileSource {
+    pub fn dupe(self: LazyPath, b: *Build) LazyPath {
         return switch (self) {
             .path => |p| .{ .path = b.dupePath(p) },
+            .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
             .generated => |gen| .{ .generated = gen },
         };
     }
 };
 
 /// In this function the stderr mutex has already been locked.
-fn dumpBadGetPathHelp(
+pub fn dumpBadGetPathHelp(
     s: *Step,
     stderr: fs.File,
     src_builder: *Build,

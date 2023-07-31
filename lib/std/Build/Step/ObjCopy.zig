@@ -20,7 +20,7 @@ pub const RawFormat = enum {
 };
 
 step: Step,
-file_source: std.Build.FileSource,
+input_file: std.Build.LazyPath,
 basename: []const u8,
 output_file: std.Build.GeneratedFile,
 
@@ -37,30 +37,33 @@ pub const Options = struct {
 
 pub fn create(
     owner: *std.Build,
-    file_source: std.Build.FileSource,
+    input_file: std.Build.LazyPath,
     options: Options,
 ) *ObjCopy {
     const self = owner.allocator.create(ObjCopy) catch @panic("OOM");
     self.* = ObjCopy{
         .step = Step.init(.{
             .id = base_id,
-            .name = owner.fmt("objcopy {s}", .{file_source.getDisplayName()}),
+            .name = owner.fmt("objcopy {s}", .{input_file.getDisplayName()}),
             .owner = owner,
             .makeFn = make,
         }),
-        .file_source = file_source,
-        .basename = options.basename orelse file_source.getDisplayName(),
+        .input_file = input_file,
+        .basename = options.basename orelse input_file.getDisplayName(),
         .output_file = std.Build.GeneratedFile{ .step = &self.step },
 
         .format = options.format,
         .only_section = options.only_section,
         .pad_to = options.pad_to,
     };
-    file_source.addStepDependencies(&self.step);
+    input_file.addStepDependencies(&self.step);
     return self;
 }
 
-pub fn getOutputSource(self: *const ObjCopy) std.Build.FileSource {
+/// deprecated: use getOutput
+pub const getOutputSource = getOutput;
+
+pub fn getOutput(self: *const ObjCopy) std.Build.LazyPath {
     return .{ .generated = &self.output_file };
 }
 
@@ -75,7 +78,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // bytes when ObjCopy implementation is modified incompatibly.
     man.hash.add(@as(u32, 0xe18b7baf));
 
-    const full_src_path = self.file_source.getPath(b);
+    const full_src_path = self.input_file.getPath(b);
     _ = try man.addFile(full_src_path, null);
     man.hash.addOptionalBytes(self.only_section);
     man.hash.addOptional(self.pad_to);

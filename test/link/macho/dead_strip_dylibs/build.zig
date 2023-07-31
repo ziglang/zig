@@ -53,7 +53,7 @@ fn createScenario(
         .name = name,
         .optimize = optimize,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkLibC();
     exe.linkFramework("Cocoa");
     return exe;

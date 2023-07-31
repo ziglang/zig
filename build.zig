@@ -36,7 +36,7 @@ pub fn build(b: *std.Build) !void {
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
-        .root_source_file = .{ .path = "doc/docgen.zig" },
+        .root_source_file = .{ .path = "tools/docgen.zig" },
         .target = .{},
         .optimize = .Debug,
     });
@@ -45,9 +45,10 @@ pub fn build(b: *std.Build) !void {
     const docgen_cmd = b.addRunArtifact(docgen_exe);
     docgen_cmd.addArgs(&.{ "--zig", b.zig_exe });
     if (b.zig_lib_dir) |p| {
-        docgen_cmd.addArgs(&.{ "--zig-lib-dir", p });
+        docgen_cmd.addArg("--zig-lib-dir");
+        docgen_cmd.addDirectoryArg(p);
     }
-    docgen_cmd.addFileSourceArg(.{ .path = "doc/langref.html.in" });
+    docgen_cmd.addFileArg(.{ .path = "doc/langref.html.in" });
     const langref_file = docgen_cmd.addOutputFileArg("langref.html");
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
     if (!skip_install_langref) {
@@ -57,9 +58,8 @@ pub fn build(b: *std.Build) !void {
     const autodoc_test = b.addTest(.{
         .root_source_file = .{ .path = "lib/std/std.zig" },
         .target = target,
+        .zig_lib_dir = .{ .path = "lib" },
     });
-    autodoc_test.overrideZigLibDir("lib");
-    autodoc_test.emit_bin = .no_emit; // https://github.com/ziglang/zig/issues/16351
     const install_std_docs = b.addInstallDirectory(.{
         .source_dir = autodoc_test.getEmittedDocs(),
         .install_dir = .prefix,
@@ -88,8 +88,8 @@ pub fn build(b: *std.Build) !void {
         .name = "check-case",
         .root_source_file = .{ .path = "test/src/Cases.zig" },
         .optimize = optimize,
+        .main_pkg_path = .{ .path = "." },
     });
-    check_case_exe.main_pkg_path = ".";
     check_case_exe.stack_size = stack_size;
     check_case_exe.single_threaded = single_threaded;
 
@@ -196,10 +196,6 @@ pub fn build(b: *std.Build) !void {
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
     exe.entitlements = entitlements;
-    // TODO -femit-bin/-fno-emit-bin should be inferred by the build system
-    // based on whether or not the exe is run or installed.
-    // https://github.com/ziglang/zig/issues/16351
-    if (no_bin) exe.emit_bin = .no_emit;
 
     exe.build_id = b.option(
         std.Build.Step.Compile.BuildId,
@@ -208,7 +204,7 @@ pub fn build(b: *std.Build) !void {
     );
 
     if (!no_bin) {
-        const install_exe = b.addInstallArtifact(exe);
+        const install_exe = b.addInstallArtifact(exe, .{});
         if (flat) {
             install_exe.dest_dir = .prefix;
         }
@@ -352,10 +348,9 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
     exe_options.addOption(bool, "value_tracing", value_tracing);
     if (tracy) |tracy_path| {
-        const client_cpp = fs.path.join(
-            b.allocator,
+        const client_cpp = b.pathJoin(
             &[_][]const u8{ tracy_path, "public", "TracyClient.cpp" },
-        ) catch unreachable;
+        );
 
         // On mingw, we need to opt into windows 7+ to get some features required by tracy.
         const tracy_c_flags: []const []const u8 = if (target.isWindows() and target.getAbi() == .gnu)
@@ -363,8 +358,8 @@ pub fn build(b: *std.Build) !void {
         else
             &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
 
-        exe.addIncludePath(tracy_path);
-        exe.addCSourceFile(client_cpp, tracy_c_flags);
+        exe.addIncludePath(.{ .cwd_relative = tracy_path });
+        exe.addCSourceFile(.{ .file = .{ .cwd_relative = client_cpp }, .flags = tracy_c_flags });
         if (!enable_llvm) {
             exe.linkSystemLibraryName("c++");
         }
@@ -554,7 +549,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     });
     run_opt.addArtifactArg(exe);
     run_opt.addArg("-o");
-    run_opt.addFileSourceArg(.{ .path = "stage1/zig1.wasm" });
+    run_opt.addFileArg(.{ .path = "stage1/zig1.wasm" });
 
     const copy_zig_h = b.addWriteFiles();
     copy_zig_h.addCopyFileToSource(.{ .path = "lib/zig.h" }, "stage1/zig.h");
@@ -603,7 +598,7 @@ fn addCmakeCfgOptionsToExe(
         // useful for package maintainers
         exe.headerpad_max_install_names = true;
     }
-    exe.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
+    exe.addObjectFile(.{ .cwd_relative = b.pathJoin(&[_][]const u8{
         cfg.cmake_binary_dir,
         "zigcpp",
         b.fmt("{s}{s}{s}", .{
@@ -611,11 +606,11 @@ fn addCmakeCfgOptionsToExe(
             "zigcpp",
             cfg.cmake_static_library_suffix,
         }),
-    }) catch unreachable);
+    }) });
     assert(cfg.lld_include_dir.len != 0);
-    exe.addIncludePath(cfg.lld_include_dir);
-    exe.addIncludePath(cfg.llvm_include_dir);
-    exe.addLibraryPath(cfg.llvm_lib_dir);
+    exe.addIncludePath(.{ .cwd_relative = cfg.lld_include_dir });
+    exe.addIncludePath(.{ .cwd_relative = cfg.llvm_include_dir });
+    exe.addLibraryPath(.{ .cwd_relative = cfg.llvm_lib_dir });
     addCMakeLibraryList(exe, cfg.clang_libraries);
     addCMakeLibraryList(exe, cfg.lld_libraries);
     addCMakeLibraryList(exe, cfg.llvm_libraries);
@@ -671,7 +666,7 @@ fn addCmakeCfgOptionsToExe(
     }
 
     if (cfg.dia_guids_lib.len != 0) {
-        exe.addObjectFile(cfg.dia_guids_lib);
+        exe.addObjectFile(.{ .cwd_relative = cfg.dia_guids_lib });
     }
 }
 
@@ -732,7 +727,7 @@ fn addCxxKnownPath(
         }
         return error.RequiredLibraryNotFound;
     }
-    exe.addObjectFile(path_unpadded);
+    exe.addObjectFile(.{ .cwd_relative = path_unpadded });
 
     // TODO a way to integrate with system c++ include files here
     // c++ -E -Wp,-v -xc++ /dev/null
@@ -752,7 +747,7 @@ fn addCMakeLibraryList(exe: *std.Build.Step.Compile, list: []const u8) void {
         } else if (exe.target.isWindows() and mem.endsWith(u8, lib, ".lib") and !fs.path.isAbsolute(lib)) {
             exe.linkSystemLibrary(lib[0 .. lib.len - ".lib".len]);
         } else {
-            exe.addObjectFile(lib);
+            exe.addObjectFile(.{ .cwd_relative = lib });
         }
     }
 }
