@@ -1634,10 +1634,3 @@ pub const HW = struct {
     pub const NCPUONLINE = 25;
     pub const POWER = 26;
 };
-
-/// TODO refines if necessary
-pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
-    .sparc64 => 1 << 13,
-    .mips64 => 1 << 14,
-    else => 1 << 12,
-};

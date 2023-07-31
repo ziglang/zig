@@ -1160,5 +1160,3 @@ pub const sigevent = extern struct {
     sigev_value: sigval,
     sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
 };
-
-pub const PTHREAD_STACK_MIN = 16 * 1024;

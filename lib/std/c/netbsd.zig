@@ -1720,6 +1720,3 @@ pub const PIOD = struct {
 };
 
 pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: ?*anyopaque, data: c_int) c_int;
-
-/// TODO refines if necessary
-pub const PTHREAD_STACK_MIN = 16 * 1024;

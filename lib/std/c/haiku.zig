@@ -1068,6 +1068,3 @@ pub const sigevent = extern struct {
     sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
     sigev_notify_attributes: ?*pthread_attr_t,
 };
-
-/// TODO refines if necessary
-pub const PTHREAD_STACK_MIN = 2 * 4096;
