@@ -2934,7 +2934,6 @@ pub const OpenSelfExeError = error{
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
-    Overflow,
     Unexpected,
 } || os.OpenError || SelfExePathError || os.FlockError;
 
@@ -3014,15 +3013,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // TODO could this slice from 0 to out_len instead?
             return mem.sliceTo(out_buffer, 0);
         },
-        .haiku => {
-            // The only possible issue when looking for the self image path is
-            // when the buffer is too short.
-            // TODO replace with proper constants
-            if (os.find_path(null, 1000, null, out_buffer.ptr, out_buffer.len) != 0)
-                return error.Overflow;
-            return mem.sliceTo(out_buffer, 0);
-        },
-        .openbsd => {
+        .openbsd, .haiku => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
             if (os.argv.len == 0)
                 return error.FileNotFound;
