@@ -1154,9 +1154,9 @@ pub const Target = struct {
                     .dxil,
                     .loongarch32,
                     .loongarch64,
+                    .arc,
                     => .Little,
 
-                    .arc,
                     .armeb,
                     .aarch64_be,
                     .bpfeb,
@@ -1911,6 +1911,7 @@ pub const Target = struct {
 
     pub fn stackAlignment(target: Target) u16 {
         return switch (target.cpu.arch) {
+            .m68k => 2,
             .amdgcn => 4,
             .x86 => switch (target.os.tag) {
                 .windows, .uefi => 4,
