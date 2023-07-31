@@ -64,8 +64,6 @@ pub extern "c" fn getpid() pid_t;
 pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;
 pub extern "c" fn kinfo_getvmmap(pid: pid_t, cntp: *c_int) ?[*]kinfo_vmentry;
 pub extern "c" fn kinfo_getproc(pid: pid_t) ?[*]kinfo_proc;
-pub extern "c" fn kinfo_getvmobject(cntp: *c_int) ?[*]kinfo_vmobject;
-pub extern "c" fn kinfo_getswapvmobject(cntp: *c_int) ?[*]kinfo_vmobject;
 
 pub extern "c" fn cpuset_getaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *cpuset_t) c_int;
 pub extern "c" fn cpuset_setaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *const cpuset_t) c_int;
@@ -862,29 +860,6 @@ pub const KINFO_PROC_SIZE = switch (builtin.cpu.arch) {
 comptime {
     assert(@sizeOf(kinfo_proc) == KINFO_PROC_SIZE);
 }
-
-pub const kinfo_vmobject = extern struct {
-    structsize: c_int,
-    tpe: c_int,
-    size: u64,
-    vn_fileid: u64,
-    vn_fsid_freebsd11: u32,
-    ref_count: c_int,
-    shadow_count: c_int,
-    memattr: c_int,
-    resident: u64,
-    active: u64,
-    inactive: u64,
-    type_spec: extern union {
-        _vn_fsid: u64,
-        _backing_obj: u64,
-    },
-    me: u64,
-    _qspare: [6]u64,
-    swapped: u32,
-    _ispare: [7]u32,
-    path: [PATH_MAX]u8,
-};
 
 pub const CTL = struct {
     pub const KERN = 1;
