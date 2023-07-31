@@ -3994,9 +3994,6 @@ pub const HOST = struct {
     pub const DEBUG_INFO_INTERNAL = 10;
     pub const CAN_HAS_DEBUGGER = 11;
     pub const PREFERRED_USER_ARCH = 12;
-    pub const LOAD_INFO = 1;
-    pub const VM_INFO = 2;
-    pub const CPU_LOAD_INFO = 3;
     pub const CAN_HAS_DEBUGGER_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_can_has_debugger_info_data_t) / @sizeOf(integer_t));
     pub const SCHED_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_sched_info_data_t) / @sizeOf(integer_t));
     pub const RESOURCES_SIZES_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(kernel_resource_sizes_data_t) / @sizeOf(integer_t));
@@ -4004,7 +4001,6 @@ pub const HOST = struct {
     pub const CPU_LOAD_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_cpu_load_info_data_t) / @sizeOf(integer_t));
     pub const LOAD_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_load_info_data_t) / @sizeOf(integer_t));
     pub const PREFERRED_USER_ARCH_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_preferred_user_arch_data_t) / @sizeOf(integer_t));
-    pub const VM_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(vm_statistics_data_t) / @sizeOf(integer_t));
 };
 
 pub const host_basic_info = packed struct(u32) {
@@ -4022,55 +4018,3 @@ pub const host_basic_info = packed struct(u32) {
 };
 
 pub extern "c" fn host_info(host: host_t, flavor: host_flavor_t, info_out: host_info_t, info_outCnt: [*]mach_msg_type_number_t) kern_return_t;
-pub extern "c" fn host_statistics(priv: host_t, flavor: host_flavor_t, info_out: host_info_t, info_outCnt: [*]mach_msg_type_number_t) kern_return_t;
-
-pub const vm_statistics = extern struct {
-    free_count: natural_t,
-    active_count: natural_t,
-    inactive_count: natural_t,
-    wire_count: natural_t,
-    zero_fill_count: natural_t,
-    reactivations: natural_t,
-    pageins: natural_t,
-    pageouts: natural_t,
-    faults: natural_t,
-    cow_faults: natural_t,
-    lookups: natural_t,
-    hits: natural_t,
-    purgeable_count: natural_t,
-    purges: natural_t,
-    speculative_count: natural_t,
-};
-
-pub const vm_statistics_t = *vm_statistics;
-pub const vm_statistics_data_t = vm_statistics;
-
-pub const vm_statistics64 align(8) = extern struct {
-    free_count: natural_t,
-    active_count: natural_t,
-    inactive_count: natural_t,
-    wire_count: natural_t,
-    zero_fill_count: u64,
-    reactivations: u64,
-    pageins: u64,
-    pageouts: u64,
-    faults: u64,
-    cow_faults: u64,
-    lookups: u64,
-    hits: u64,
-    purges: u64,
-    purgeable_count: natural_t,
-    speculative_count: natural_t,
-    decompressions: u64,
-    compressions: u64,
-    swapins: u64,
-    swapouts: u64,
-    compressor_page_count: natural_t,
-    throttled_count: natural_t,
-    external_page_count: natural_t,
-    internal_page_count: natural_t,
-    total_uncompressed_pages_in_compressor: u64,
-};
-
-pub const vm_statistics64_t = *vm_statistics64;
-pub const vm_statistics64_data_t = vm_statistics64;
