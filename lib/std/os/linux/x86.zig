@@ -123,46 +123,40 @@ const CloneFn = *const fn (arg: usize) callconv(.C) u8;
 /// This matches the libc clone function.
 pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
-pub fn restore() callconv(.Naked) void {
-    if (@import("builtin").zig_backend == .stage2_c) {
-        asm volatile (
+pub fn restore() callconv(.Naked) noreturn {
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ int $0x80
-            \\ retl
             :
             : [number] "i" (@intFromEnum(SYS.sigreturn)),
             : "memory"
-        );
-        unreachable;
+        ),
+        else => asm volatile (
+            \\ int $0x80
+            :
+            : [number] "{eax}" (@intFromEnum(SYS.sigreturn)),
+            : "memory"
+        ),
     }
-
-    asm volatile (
-        \\ int $0x80
-        :
-        : [number] "{eax}" (@intFromEnum(SYS.sigreturn)),
-        : "memory"
-    );
 }
 
-pub fn restore_rt() callconv(.Naked) void {
-    if (@import("builtin").zig_backend == .stage2_c) {
-        asm volatile (
+pub fn restore_rt() callconv(.Naked) noreturn {
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ int $0x80
-            \\ retl
             :
             : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
             : "memory"
-        );
-        unreachable;
+        ),
+        else => asm volatile (
+            \\ int $0x80
+            :
+            : [number] "{eax}" (@intFromEnum(SYS.rt_sigreturn)),
+            : "memory"
+        ),
     }
-
-    asm volatile (
-        \\ int $0x80
-        :
-        : [number] "{eax}" (@intFromEnum(SYS.rt_sigreturn)),
-        : "memory"
-    );
 }
 
 pub const O = struct {
@@ -401,7 +395,7 @@ noinline fn getContextReturnAddress() usize {
     return @returnAddress();
 }
 
-pub fn getContextInternal() callconv(.Naked) void {
+pub fn getContextInternal() callconv(.Naked) usize {
     asm volatile (
         \\ movl $0, %[flags_offset:c](%%edx)
         \\ movl $0, %[link_offset:c](%%edx)
@@ -439,6 +433,7 @@ pub fn getContextInternal() callconv(.Naked) void {
         \\0:
         \\ popl %%esi
         \\ popl %%ebx
+        \\ retl
         :
         : [flags_offset] "i" (@offsetOf(ucontext_t, "flags")),
           [link_offset] "i" (@offsetOf(ucontext_t, "link")),
@@ -466,7 +461,7 @@ pub fn getContextInternal() callconv(.Naked) void {
 pub inline fn getcontext(context: *ucontext_t) usize {
     // This method is used so that getContextInternal can control
     // its prologue in order to read ESP from a constant offset.
-    // The unused &getContextInternal input is required so the function is included in the binary.
+    // An aligned stack is not needed for getContextInternal.
     var clobber_edx: usize = undefined;
     return asm volatile (
         \\ calll %[getContextInternal:P]

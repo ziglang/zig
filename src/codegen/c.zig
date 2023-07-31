@@ -4770,9 +4770,11 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool {
+    const target = f.object.dg.module.getTarget();
     return switch (constraint[0]) {
         '{' => true,
         'i', 'r' => false,
+        'I' => !target.cpu.arch.isArmOrThumb(),
         else => switch (value) {
             .constant => |val| switch (f.object.dg.module.intern_pool.indexToKey(val)) {
                 .ptr => |ptr| switch (ptr.addr) {

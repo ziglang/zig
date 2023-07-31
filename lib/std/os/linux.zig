@@ -35,13 +35,13 @@ const syscall_bits = switch (native_arch) {
 const arch_bits = switch (native_arch) {
     .x86 => @import("linux/x86.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
-    .aarch64 => @import("linux/arm64.zig"),
+    .aarch64, .aarch64_be => @import("linux/arm64.zig"),
     .arm, .thumb => @import("linux/arm-eabi.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
     .mips64, .mips64el => @import("linux/mips64.zig"),
-    .powerpc => @import("linux/powerpc.zig"),
+    .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
     else => struct {},
 };
@@ -98,13 +98,13 @@ pub const syscalls = @import("linux/syscalls.zig");
 pub const SYS = switch (@import("builtin").cpu.arch) {
     .x86 => syscalls.X86,
     .x86_64 => syscalls.X64,
-    .aarch64 => syscalls.Arm64,
+    .aarch64, .aarch64_be => syscalls.Arm64,
     .arm, .thumb => syscalls.Arm,
     .riscv64 => syscalls.RiscV64,
     .sparc64 => syscalls.Sparc64,
     .mips, .mipsel => syscalls.Mips,
     .mips64, .mips64el => syscalls.Mips64,
-    .powerpc => syscalls.PowerPC,
+    .powerpc, .powerpcle => syscalls.PowerPC,
     .powerpc64, .powerpc64le => syscalls.PowerPC64,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
@@ -1176,14 +1176,12 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        const restore_rt_ptr = &restore_rt;
-        const restore_ptr = &restore;
-        const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) restore_rt_ptr else restore_ptr;
+        const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
         ksa = k_sigaction{
             .handler = new.handler.handler,
             .flags = new.flags | SA.RESTORER,
             .mask = undefined,
-            .restorer = @as(k_sigaction_funcs.restorer, @ptrCast(restorer_fn)),
+            .restorer = @ptrCast(restorer_fn),
         };
         @memcpy(@as([*]u8, @ptrCast(&ksa.mask))[0..mask_size], @as([*]const u8, @ptrCast(&new.mask)));
     }

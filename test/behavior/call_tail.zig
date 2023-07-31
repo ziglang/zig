@@ -32,7 +32,16 @@ noinline fn insertionSort(data: []u64) void {
 
 test "arguments pointed to on stack into tailcall" {
     switch (builtin.cpu.arch) {
-        .wasm32, .mips, .mipsel, .powerpc, .powerpcle, .powerpc64le => return error.SkipZigTest,
+        .wasm32,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        => return error.SkipZigTest,
         else => {},
     }
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;

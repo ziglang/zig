@@ -1524,7 +1524,7 @@ fn runOneCase(
                         }
                     } else switch (host.getExternalExecutor(target_info, .{ .link_libc = case.link_libc })) {
                         .native => {
-                            if (case.backend == .stage2 and case.target.getCpuArch() == .arm) {
+                            if (case.backend == .stage2 and case.target.getCpuArch().isArmOrThumb()) {
                                 // https://github.com/ziglang/zig/issues/13623
                                 continue :update; // Pass test.
                             }

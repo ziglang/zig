@@ -107,25 +107,22 @@ pub extern fn clone(func: CloneFn, stack: usize, flags: usize, arg: usize, ptid:
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) void {
-    if (@import("builtin").zig_backend == .stage2_c) {
-        asm volatile (
+pub fn restore_rt() callconv(.Naked) noreturn {
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ syscall
-            \\ retq
             :
             : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
             : "rcx", "r11", "memory"
-        );
-        unreachable;
+        ),
+        else => asm volatile (
+            \\ syscall
+            :
+            : [number] "{rax}" (@intFromEnum(SYS.rt_sigreturn)),
+            : "rcx", "r11", "memory"
+        ),
     }
-
-    asm volatile (
-        \\ syscall
-        :
-        : [number] "{rax}" (@intFromEnum(SYS.rt_sigreturn)),
-        : "rcx", "r11", "memory"
-    );
 }
 
 pub const mode_t = usize;
@@ -400,7 +397,7 @@ fn gpRegisterOffset(comptime reg_index: comptime_int) usize {
     return @offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "gregs") + @sizeOf(usize) * reg_index;
 }
 
-fn getContextInternal() callconv(.Naked) void {
+fn getContextInternal() callconv(.Naked) usize {
     // TODO: Read GS/FS registers?
     asm volatile (
         \\ movq $0, %[flags_offset:c](%%rdi)
@@ -444,6 +441,7 @@ fn getContextInternal() callconv(.Naked) void {
         \\ movl %[sigset_size], %%r10d
         \\ syscall
         \\0:
+        \\ retq
         :
         : [flags_offset] "i" (@offsetOf(ucontext_t, "flags")),
           [link_offset] "i" (@offsetOf(ucontext_t, "link")),
@@ -480,7 +478,7 @@ fn getContextInternal() callconv(.Naked) void {
 pub inline fn getcontext(context: *ucontext_t) usize {
     // This method is used so that getContextInternal can control
     // its prologue in order to read RSP from a constant offset
-    // The unused &getContextInternal input is required so the function is included in the binary.
+    // An aligned stack is not needed for getContextInternal.
     var clobber_rdi: usize = undefined;
     return asm volatile (
         \\ callq %[getContextInternal:P]

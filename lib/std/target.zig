@@ -899,6 +899,10 @@ pub const Target = struct {
                 };
             }
 
+            pub fn isArmOrThumb(arch: Arch) bool {
+                return arch.isARM() or arch.isThumb();
+            }
+
             pub fn isWasm(arch: Arch) bool {
                 return switch (arch) {
                     .wasm32, .wasm64 => true,
@@ -1960,6 +1964,7 @@ pub const Target = struct {
             .thumbeb,
             => return if (target.os.tag.isDarwin() or target.os.tag == .windows) .signed else .unsigned,
             .powerpc, .powerpc64 => return if (target.os.tag.isDarwin()) .signed else .unsigned,
+            .powerpcle,
             .powerpc64le,
             .s390x,
             .xcore,

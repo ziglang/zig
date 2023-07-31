@@ -177,7 +177,7 @@ pub const MCValue = union(enum) {
     /// The value is a tuple { wrapped, overflow } where wrapped value is stored in the GP register.
     register_overflow: struct { reg: Register, eflags: Condition },
     /// The value is in memory at a hard-coded address.
-    /// If the type is a pointer, it means the pointer address is at this memory location.
+    /// If the type is a pointer, it means the pointer address is stored at this memory location.
     memory: u64,
     /// The value is in memory at a constant offset from the address in a register.
     indirect: RegisterOffset,
@@ -300,7 +300,7 @@ pub const MCValue = union(enum) {
             .load_tlv,
             .load_frame,
             .reserved_frame,
-            => unreachable, // not a dereferenceable
+            => unreachable, // not dereferenceable
             .immediate => |addr| .{ .memory = addr },
             .register => |reg| .{ .indirect = .{ .reg = reg } },
             .register_offset => |reg_off| .{ .indirect = reg_off },
@@ -3468,14 +3468,14 @@ fn genInlineIntDivFloor(self: *Self, ty: Type, lhs: MCValue, rhs: MCValue) !MCVa
     const mod = self.bin_file.options.module.?;
     const abi_size: u32 = @intCast(ty.abiSize(mod));
     const int_info = ty.intInfo(mod);
-    const dividend: Register = switch (lhs) {
+    const dividend = switch (lhs) {
         .register => |reg| reg,
         else => try self.copyToTmpRegister(ty, lhs),
     };
     const dividend_lock = self.register_manager.lockReg(dividend);
     defer if (dividend_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const divisor: Register = switch (rhs) {
+    const divisor = switch (rhs) {
         .register => |reg| reg,
         else => try self.copyToTmpRegister(ty, rhs),
     };
@@ -9184,6 +9184,7 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Asm, ty_pl.payload);
     const clobbers_len: u31 = @truncate(extra.data.flags);
@@ -9196,23 +9197,15 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
 
     var result: MCValue = .none;
     var args = std.StringArrayHashMap(MCValue).init(self.gpa);
-    try args.ensureTotalCapacity(outputs.len + inputs.len + clobbers_len);
+    try args.ensureTotalCapacity(outputs.len + inputs.len);
     defer {
-        for (args.values()) |arg| switch (arg) {
-            .register => |reg| self.register_manager.unlockReg(.{ .register = reg }),
-            else => {},
-        };
+        for (args.values()) |arg| if (arg.getReg()) |reg|
+            self.register_manager.unlockReg(.{ .register = reg });
         args.deinit();
     }
 
-    if (outputs.len > 1) {
-        return self.fail("TODO implement codegen for asm with more than 1 output", .{});
-    }
-
+    var outputs_extra_i = extra_i;
     for (outputs) |output| {
-        if (output != .none) {
-            return self.fail("TODO implement codegen for non-expr asm", .{});
-        }
         const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
         const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
         const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -9220,21 +9213,48 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         // for the string, we still use the next u32 for the null terminator.
         extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-        const mcv: MCValue = if (mem.eql(u8, constraint, "=r"))
-            .{ .register = self.register_manager.tryAllocReg(inst, gp) orelse
-                return self.fail("ran out of registers lowering inline asm", .{}) }
+        const maybe_inst = switch (output) {
+            .none => inst,
+            else => null,
+        };
+        const ty = switch (output) {
+            .none => self.typeOfIndex(inst),
+            else => self.typeOf(output).childType(mod),
+        };
+        const arg_maybe_reg: ?Register = if (mem.eql(u8, constraint, "=r"))
+            self.register_manager.tryAllocReg(maybe_inst, regClassForType(ty, mod)) orelse
+                return self.fail("ran out of registers lowering inline asm", .{})
+        else if (mem.eql(u8, constraint, "=m"))
+            if (output != .none) null else return self.fail(
+                "memory constraint unsupported for asm result",
+                .{},
+            )
+        else if (mem.eql(u8, constraint, "=g"))
+            self.register_manager.tryAllocReg(maybe_inst, regClassForType(ty, mod)) orelse
+                if (output != .none) null else return self.fail(
+                "ran out of register lowering inline asm",
+                .{},
+            )
         else if (mem.startsWith(u8, constraint, "={") and mem.endsWith(u8, constraint, "}"))
-            .{ .register = parseRegName(constraint["={".len .. constraint.len - "}".len]) orelse
-                return self.fail("unrecognized register constraint: '{s}'", .{constraint}) }
+            parseRegName(constraint["={".len .. constraint.len - "}".len]) orelse
+                return self.fail("invalid register constraint: '{s}'", .{constraint})
         else
-            return self.fail("unrecognized constraint: '{s}'", .{constraint});
-        args.putAssumeCapacity(name, mcv);
-        switch (mcv) {
-            .register => |reg| _ = if (RegisterManager.indexOfRegIntoTracked(reg)) |_|
-                self.register_manager.lockRegAssumeUnused(reg),
-            else => {},
-        }
-        if (output == .none) result = mcv;
+            return self.fail("invalid constraint: '{s}'", .{constraint});
+        const arg_mcv: MCValue = if (arg_maybe_reg) |reg| .{ .register = reg } else arg: {
+            const ptr_mcv = try self.resolveInst(output);
+            switch (ptr_mcv) {
+                .immediate => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |_|
+                    break :arg ptr_mcv.deref(),
+                .register, .register_offset, .lea_frame => break :arg ptr_mcv.deref(),
+                else => {},
+            }
+            break :arg .{ .indirect = .{ .reg = try self.copyToTmpRegister(Type.usize, ptr_mcv) } };
+        };
+        if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
+            _ = self.register_manager.lockRegAssumeUnused(reg);
+        };
+        args.putAssumeCapacity(name, arg_mcv);
+        if (output == .none) result = arg_mcv;
     }
 
     for (inputs) |input| {
@@ -9245,16 +9265,53 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         // for the string, we still use the next u32 for the null terminator.
         extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-        if (constraint.len < 3 or constraint[0] != '{' or constraint[constraint.len - 1] != '}') {
-            return self.fail("unrecognized asm input constraint: '{s}'", .{constraint});
-        }
-        const reg_name = constraint[1 .. constraint.len - 1];
-        const reg = parseRegName(reg_name) orelse
-            return self.fail("unrecognized register: '{s}'", .{reg_name});
-
-        const arg_mcv = try self.resolveInst(input);
-        try self.register_manager.getReg(reg, null);
-        try self.genSetReg(reg, self.typeOf(input), arg_mcv);
+        const ty = self.typeOf(input);
+        const input_mcv = try self.resolveInst(input);
+        const arg_mcv: MCValue = if (mem.eql(u8, constraint, "r")) switch (input_mcv) {
+            .register => input_mcv,
+            else => .{ .register = try self.copyToTmpRegister(ty, input_mcv) },
+        } else if (mem.eql(u8, constraint, "m")) arg: {
+            switch (input_mcv) {
+                .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |_|
+                    break :arg input_mcv,
+                .indirect, .load_frame => break :arg input_mcv,
+                .load_direct, .load_got, .load_tlv => {},
+                else => {
+                    const temp_mcv = try self.allocTempRegOrMem(ty, false);
+                    try self.genCopy(ty, temp_mcv, input_mcv);
+                    break :arg temp_mcv;
+                },
+            }
+            const addr_reg = self.register_manager.tryAllocReg(null, gp) orelse {
+                const temp_mcv = try self.allocTempRegOrMem(ty, false);
+                try self.genCopy(ty, temp_mcv, input_mcv);
+                break :arg temp_mcv;
+            };
+            try self.genSetReg(addr_reg, Type.usize, input_mcv.address());
+            break :arg .{ .indirect = .{ .reg = addr_reg } };
+        } else if (mem.eql(u8, constraint, "g")) arg: {
+            switch (input_mcv) {
+                .register, .indirect, .load_frame => break :arg input_mcv,
+                .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |_|
+                    break :arg input_mcv,
+                else => {},
+            }
+            const temp_mcv = try self.allocTempRegOrMem(ty, true);
+            try self.genCopy(ty, temp_mcv, input_mcv);
+            break :arg temp_mcv;
+        } else if (mem.eql(u8, constraint, "X"))
+            input_mcv
+        else if (mem.startsWith(u8, constraint, "{") and mem.endsWith(u8, constraint, "}")) arg: {
+            const reg = parseRegName(constraint["{".len .. constraint.len - "}".len]) orelse
+                return self.fail("invalid register constraint: '{s}'", .{constraint});
+            try self.register_manager.getReg(reg, null);
+            try self.genSetReg(reg, ty, input_mcv);
+            break :arg .{ .register = reg };
+        } else return self.fail("invalid constraint: '{s}'", .{constraint});
+        if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
+            _ = self.register_manager.lockReg(reg);
+        };
+        args.putAssumeCapacity(name, arg_mcv);
     }
 
     {
@@ -9293,7 +9350,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                 }
             }
             break :mnem std.meta.stringToEnum(Mir.Inst.Tag, mnem_str) orelse
-                return self.fail("Invalid mnemonic: '{s}'", .{mnem_str});
+                return self.fail("invalid mnemonic: '{s}'", .{mnem_str});
         } };
 
         var op_it = mem.tokenizeScalar(u8, mnem_it.rest(), ',');
@@ -9304,43 +9361,73 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             if (mem.startsWith(u8, op_str, "%%")) {
                 const colon = mem.indexOfScalarPos(u8, op_str, "%%".len + 2, ':');
                 const reg = parseRegName(op_str["%%".len .. colon orelse op_str.len]) orelse
-                    return self.fail("Invalid register: '{s}'", .{op_str});
+                    return self.fail("invalid register: '{s}'", .{op_str});
                 if (colon) |colon_pos| {
                     const disp = std.fmt.parseInt(i32, op_str[colon_pos + 1 ..], 0) catch
-                        return self.fail("Invalid displacement: '{s}'", .{op_str});
+                        return self.fail("invalid displacement: '{s}'", .{op_str});
                     op.* = .{ .mem = Memory.sib(
-                        mnem_size orelse return self.fail("Unknown size: '{s}'", .{op_str}),
+                        mnem_size orelse return self.fail("unknown size: '{s}'", .{op_str}),
                         .{ .base = .{ .reg = reg }, .disp = disp },
                     ) };
                 } else {
                     if (mnem_size) |size| if (reg.bitSize() != size.bitSize())
-                        return self.fail("Invalid register size: '{s}'", .{op_str});
+                        return self.fail("invalid register size: '{s}'", .{op_str});
                     op.* = .{ .reg = reg };
                 }
             } else if (mem.startsWith(u8, op_str, "%[") and mem.endsWith(u8, op_str, "]")) {
-                switch (args.get(op_str["%[".len .. op_str.len - "]".len]) orelse
-                    return self.fail("No matching constraint: '{s}'", .{op_str})) {
-                    .register => |reg| op.* = .{ .reg = reg },
-                    else => return self.fail("Invalid constraint: '{s}'", .{op_str}),
-                }
+                const colon = mem.indexOfScalarPos(u8, op_str, "%[".len, ':');
+                const modifier = if (colon) |colon_pos|
+                    op_str[colon_pos + 1 .. op_str.len - "]".len]
+                else
+                    "";
+                op.* = switch (args.get(op_str["%[".len .. colon orelse op_str.len - "]".len]) orelse
+                    return self.fail("no matching constraint: '{s}'", .{op_str})) {
+                    .register => |reg| if (std.mem.eql(u8, modifier, ""))
+                        .{ .reg = reg }
+                    else
+                        return self.fail("invalid modifier: '{s}'", .{modifier}),
+                    .memory => |addr| if (std.mem.eql(u8, modifier, "") or
+                        std.mem.eql(u8, modifier, "P"))
+                        .{ .mem = Memory.sib(
+                            mnem_size orelse return self.fail("unknown size: '{s}'", .{op_str}),
+                            .{ .base = .{ .reg = .ds }, .disp = @intCast(@as(i64, @bitCast(addr))) },
+                        ) }
+                    else
+                        return self.fail("invalid modifier: '{s}'", .{modifier}),
+                    .indirect => |reg_off| if (std.mem.eql(u8, modifier, ""))
+                        .{ .mem = Memory.sib(
+                            mnem_size orelse return self.fail("unknown size: '{s}'", .{op_str}),
+                            .{ .base = .{ .reg = reg_off.reg }, .disp = reg_off.off },
+                        ) }
+                    else
+                        return self.fail("invalid modifier: '{s}'", .{modifier}),
+                    .load_frame => |frame_addr| if (std.mem.eql(u8, modifier, ""))
+                        .{ .mem = Memory.sib(
+                            mnem_size orelse return self.fail("unknown size: '{s}'", .{op_str}),
+                            .{ .base = .{ .frame = frame_addr.index }, .disp = frame_addr.off },
+                        ) }
+                    else
+                        return self.fail("invalid modifier: '{s}'", .{modifier}),
+                    else => return self.fail("invalid constraint: '{s}'", .{op_str}),
+                };
             } else if (mem.startsWith(u8, op_str, "$")) {
                 if (std.fmt.parseInt(i32, op_str["$".len..], 0)) |s| {
                     if (mnem_size) |size| {
                         const max = @as(u64, math.maxInt(u64)) >> @intCast(64 - (size.bitSize() - 1));
                         if ((if (s < 0) ~s else s) > max)
-                            return self.fail("Invalid immediate size: '{s}'", .{op_str});
+                            return self.fail("invalid immediate size: '{s}'", .{op_str});
                     }
                     op.* = .{ .imm = Immediate.s(s) };
                 } else |_| if (std.fmt.parseInt(u64, op_str["$".len..], 0)) |u| {
                     if (mnem_size) |size| {
                         const max = @as(u64, math.maxInt(u64)) >> @intCast(64 - size.bitSize());
                         if (u > max)
-                            return self.fail("Invalid immediate size: '{s}'", .{op_str});
+                            return self.fail("invalid immediate size: '{s}'", .{op_str});
                     }
                     op.* = .{ .imm = Immediate.u(u) };
-                } else |_| return self.fail("Invalid immediate: '{s}'", .{op_str});
-            } else return self.fail("Invalid operand: '{s}'", .{op_str});
-        } else if (op_it.next()) |op_str| return self.fail("Extra operand: '{s}'", .{op_str});
+                } else |_| return self.fail("invalid immediate: '{s}'", .{op_str});
+            } else return self.fail("invalid operand: '{s}'", .{op_str});
+        } else if (op_it.next()) |op_str| return self.fail("extra operand: '{s}'", .{op_str});
 
         (switch (ops[0]) {
             .none => self.asmOpOnly(mnem_tag),
@@ -9405,6 +9492,20 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             ),
             else => |e| return e,
         };
+    }
+
+    for (outputs, args.values()[0..outputs.len]) |output, mcv| {
+        const extra_bytes = std.mem.sliceAsBytes(self.air.extra[outputs_extra_i..]);
+        const constraint =
+            std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[outputs_extra_i..]), 0);
+        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        outputs_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+        if (output == .none) continue;
+        if (mcv != .register) continue;
+        try self.store(self.typeOf(output), try self.resolveInst(output), mcv);
     }
 
     simple: {

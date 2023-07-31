@@ -141,8 +141,8 @@ pub fn syscall6(
     );
 }
 
-pub fn restore() callconv(.Naked) void {
-    return asm volatile (
+pub fn restore() callconv(.Naked) noreturn {
+    asm volatile (
         \\ mov r7, %[number]
         \\ svc #0
         :
@@ -150,8 +150,8 @@ pub fn restore() callconv(.Naked) void {
     );
 }
 
-pub fn restore_rt() callconv(.Naked) void {
-    return asm volatile (
+pub fn restore_rt() callconv(.Naked) noreturn {
+    asm volatile (
         \\ mov r7, %[number]
         \\ svc #0
         :
