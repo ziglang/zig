@@ -2172,30 +2172,6 @@ pub const PROC = struct {
     pub const WX_MAPPINGS_PERMIT = 0x0001;
     pub const WX_MAPPINGS_DISALLOW_EXEC = 0x0002;
     pub const WX_MAPPINGS_ENFORCE = 0x80000000;
-    pub const PROCCTL_MD_MIN = 0x10000000;
-    // x86_64-only constants
-    pub const KPTI = switch (builtin.cpu.arch) {
-        .x86_64 => struct {
-            pub const CTL = PROC.PROCCTL_MD_MIND;
-            pub const STATUS = PROC.PROCCTL_MD_MIND + 1;
-            pub const CTL_ENABLE_ON_EXEC = 1;
-            pub const CTL_DISABLE_ON_EXEC = 2;
-            pub const STATUS_ACTIVE = 0x80000000;
-        },
-        else => void,
-    };
-    pub const LA = switch (builtin.cpu.arch) {
-        .x86_64 => struct {
-            pub const CTL = PROC.PROCCTL_MD_MIND + 2;
-            pub const STATUS = PROC.PROCCTL_MD_MIND + 3;
-            pub const CTL_LA48_ON_EXEC = 1;
-            pub const CTL_LA57_ON_EXEC = 2;
-            pub const CTL_DEFAULT_ON_EXEC = 3;
-            pub const STATUS_LA48 = 0x01000000;
-            pub const STATUS_LA57 = 0x02000000;
-        },
-        else => void,
-    };
 };
 
 pub const PPROT = struct {
