@@ -18,39 +18,8 @@ fn __BIT_COUNT(bits: []const c_long) c_long {
     return count;
 }
 
-fn __BIT_MASK(s: usize) c_long {
-    var x = s % CPU_SETSIZE;
-    return @as(c_long, @bitCast(@as(c_ulong, @intCast(1)) << @as(u6, @intCast(x))));
-}
-
 pub fn CPU_COUNT(set: cpuset_t) c_int {
     return @as(c_int, @intCast(__BIT_COUNT(set.__bits[0..])));
-}
-
-pub fn CPU_ZERO(set: *cpuset_t) void {
-    @memset((set.*).__bits[0..], 0);
-}
-
-pub fn CPU_SET(cpu: usize, set: *cpuset_t) void {
-    const x = cpu / @sizeOf(c_long);
-    if (x < @sizeOf(cpuset_t)) {
-        (set.*).__bits[x] |= __BIT_MASK(x);
-    }
-}
-
-pub fn CPU_ISSET(cpu: usize, set: cpuset_t) void {
-    const x = cpu / @sizeOf(c_long);
-    if (x < @sizeOf(cpuset_t)) {
-        return set.__bits[x] & __BIT_MASK(x);
-    }
-    return false;
-}
-
-pub fn CPU_CLR(cpu: usize, set: *cpuset_t) void {
-    const x = cpu / @sizeOf(c_long);
-    if (x < @sizeOf(cpuset_t)) {
-        (set.*).__bits[x] &= !__BIT_MASK(x);
-    }
 }
 
 pub const cpulevel_t = c_int;
