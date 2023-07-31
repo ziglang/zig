@@ -1390,6 +1390,11 @@ pub fn pathFromRoot(b: *Build, p: []const u8) []u8 {
     return fs.path.resolve(b.allocator, &.{ b.build_root.path orelse ".", p }) catch @panic("OOM");
 }
 
+fn pathFromCwd(b: *Build, p: []const u8) []u8 {
+    const cwd = process.getCwdAlloc(b.allocator) catch @panic("OOM");
+    return fs.path.resolve(b.allocator, &.{ cwd, p }) catch @panic("OOM");
+}
+
 pub fn pathJoin(self: *Build, paths: []const []const u8) []u8 {
     return fs.path.join(self.allocator, paths) catch @panic("OOM");
 }
@@ -1706,17 +1711,13 @@ pub const LazyPath = union(enum) {
         }
     }
 
-    /// Returns a path relative to the current process's current working directory, suitable
-    /// for direct file system operations.
-    ///
+    /// Returns an absolute path.
     /// Intended to be used during the make phase only.
     pub fn getPath(self: LazyPath, src_builder: *Build) []const u8 {
         return getPath2(self, src_builder, null);
     }
 
-    /// Returns a path relative to the current process's current working directory, suitable
-    /// for direct file system operations.
-    ///
+    /// Returns an absolute path.
     /// Intended to be used during the make phase only.
     ///
     /// `asking_step` is only used for debugging purposes; it's the step being
@@ -1724,7 +1725,7 @@ pub const LazyPath = union(enum) {
     pub fn getPath2(self: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
         switch (self) {
             .path => |p| return src_builder.pathFromRoot(p),
-            .cwd_relative => |p| return p,
+            .cwd_relative => |p| return src_builder.pathFromCwd(p),
             .generated => |gen| return gen.path orelse {
                 std.debug.getStderrMutex().lock();
                 const stderr = std.io.getStdErr();

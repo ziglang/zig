@@ -64,7 +64,9 @@ pub fn main() !void {
                 }
             } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
                 if (args_it.next()) |param| {
-                    opt_zig_lib_dir = param;
+                    // Convert relative to absolute because this will be passed
+                    // to a child process with a different cwd.
+                    opt_zig_lib_dir = try fs.realpathAlloc(allocator, param);
                 } else {
                     fatal("expected parameter after --zig-lib-dir", .{});
                 }

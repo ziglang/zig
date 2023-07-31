@@ -46,7 +46,7 @@ pub fn build(b: *std.Build) !void {
     docgen_cmd.addArgs(&.{ "--zig", b.zig_exe });
     if (b.zig_lib_dir) |p| {
         docgen_cmd.addArg("--zig-lib-dir");
-        docgen_cmd.addFileArg(p);
+        docgen_cmd.addDirectoryArg(p);
     }
     docgen_cmd.addFileArg(.{ .path = "doc/langref.html.in" });
     const langref_file = docgen_cmd.addOutputFileArg("langref.html");

@@ -82,7 +82,7 @@ has_side_effects: bool = false,
 pub const StdIn = union(enum) {
     none,
     bytes: []const u8,
-    file_source: std.Build.LazyPath,
+    lazy_path: std.Build.LazyPath,
 };
 
 pub const StdIo = union(enum) {
@@ -120,7 +120,7 @@ pub const StdIo = union(enum) {
 
 pub const Arg = union(enum) {
     artifact: *Step.Compile,
-    file_source: PrefixedLazyPath,
+    lazy_path: PrefixedLazyPath,
     directory_source: PrefixedLazyPath,
     bytes: []u8,
     output: *Output,
@@ -128,7 +128,7 @@ pub const Arg = union(enum) {
 
 pub const PrefixedLazyPath = struct {
     prefix: []const u8,
-    file_source: std.Build.LazyPath,
+    lazy_path: std.Build.LazyPath,
 };
 
 pub const Output = struct {
@@ -213,9 +213,9 @@ pub fn addPrefixedFileArg(self: *Run, prefix: []const u8, lp: std.Build.LazyPath
 
     const prefixed_file_source: PrefixedLazyPath = .{
         .prefix = b.dupe(prefix),
-        .file_source = lp.dupe(b),
+        .lazy_path = lp.dupe(b),
     };
-    self.argv.append(.{ .file_source = prefixed_file_source }) catch @panic("OOM");
+    self.argv.append(.{ .lazy_path = prefixed_file_source }) catch @panic("OOM");
     lp.addStepDependencies(&self.step);
 }
 
@@ -234,7 +234,7 @@ pub fn addPrefixedDirectoryArg(self: *Run, prefix: []const u8, directory_source:
 
     const prefixed_directory_source: PrefixedLazyPath = .{
         .prefix = b.dupe(prefix),
-        .file_source = directory_source.dupe(b),
+        .lazy_path = directory_source.dupe(b),
     };
     self.argv.append(.{ .directory_source = prefixed_directory_source }) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
@@ -252,7 +252,7 @@ pub fn addArgs(self: *Run, args: []const []const u8) void {
 
 pub fn setStdIn(self: *Run, stdin: StdIn) void {
     switch (stdin) {
-        .file_source => |file_source| file_source.addStepDependencies(&self.step),
+        .lazy_path => |lazy_path| lazy_path.addStepDependencies(&self.step),
         .bytes, .none => {},
     }
     self.stdin = stdin;
@@ -444,14 +444,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 try argv_list.append(bytes);
                 man.hash.addBytes(bytes);
             },
-            .file_source => |file| {
-                const file_path = file.file_source.getPath(b);
+            .lazy_path => |file| {
+                const file_path = file.lazy_path.getPath(b);
                 try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
                 man.hash.addBytes(file.prefix);
                 _ = try man.addFile(file_path, null);
             },
             .directory_source => |file| {
-                const file_path = file.file_source.getPath(b);
+                const file_path = file.lazy_path.getPath(b);
                 try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
                 man.hash.addBytes(file.prefix);
                 man.hash.addBytes(file_path);
@@ -486,8 +486,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .bytes => |bytes| {
             man.hash.addBytes(bytes);
         },
-        .file_source => |file_source| {
-            const file_path = file_source.getPath(b);
+        .lazy_path => |lazy_path| {
+            const file_path = lazy_path.getPath(b);
             _ = try man.addFile(file_path, null);
         },
         .none => {},
@@ -1186,8 +1186,8 @@ fn evalGeneric(self: *Run, child: *std.process.Child) !StdIoResult {
             child.stdin.?.close();
             child.stdin = null;
         },
-        .file_source => |file_source| {
-            const path = file_source.getPath(self.step.owner);
+        .lazy_path => |lazy_path| {
+            const path = lazy_path.getPath(self.step.owner);
             const file = self.step.owner.build_root.handle.openFile(path, .{}) catch |err| {
                 return self.step.fail("unable to open stdin file: {s}", .{@errorName(err)});
             };
