@@ -5,21 +5,12 @@ const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
 
-pub const CPU_SETSIZE = 256;
-pub const cpuset_t = extern struct {
-    __bits: [(CPU_SETSIZE + (@bitSizeOf(c_long) - 1)) / @bitSizeOf(c_long)]c_long,
-};
-pub const cpulevel_t = c_int;
-pub const cpuwhich_t = c_int;
-pub const id_t = i64;
-
 extern "c" fn __error() *c_int;
 pub const _errno = __error;
 
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) isize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
-pub extern "c" fn getentropy(buf_ptr: [*]u8, buf_len: usize) c_int;
 
 pub extern "c" fn pthread_getthreadid_np() c_int;
 pub extern "c" fn pthread_set_name_np(thread: std.c.pthread_t, name: [*:0]const u8) void;
@@ -34,9 +25,6 @@ pub extern "c" fn getpid() pid_t;
 
 pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;
 pub extern "c" fn kinfo_getvmmap(pid: pid_t, cntp: *c_int) ?[*]kinfo_vmentry;
-
-pub extern "c" fn cpuset_getaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *cpuset_t) c_int;
-pub extern "c" fn cpuset_setaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *const cpuset_t) c_int;
 
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
@@ -214,6 +202,8 @@ pub const clock_t = isize;
 
 pub const socklen_t = u32;
 pub const suseconds_t = c_long;
+
+pub const id_t = i64;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
