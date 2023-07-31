@@ -3017,7 +3017,8 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         .haiku => {
             // The only possible issue when looking for the self image path is
             // when the buffer is too short.
-            if (os.find_path(os.B_APP_IMAGE_SYMBOL, os.path_base_directory.B_FIND_IMAGE_PATH, null, out_buffer.ptr, out_buffer.len) != 0)
+            // TODO replace with proper constants
+            if (os.find_path(null, 1000, null, out_buffer.ptr, out_buffer.len) != 0)
                 return error.Overflow;
             return mem.sliceTo(out_buffer, 0);
         },
