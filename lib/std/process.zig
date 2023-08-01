@@ -1168,7 +1168,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
             var len: usize = @sizeOf(c_ulong);
             os.sysctlbynameZ("hw.physmem", &physmem, &len, null, 0) catch |err| switch (err) {
                 error.NameTooLong, error.UnknownName => unreachable,
-                else => |e| return e,
+                else => return error.UnknownTotalSystemMemory,
             };
             return @as(usize, @intCast(physmem));
         },
