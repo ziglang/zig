@@ -1528,11 +1528,13 @@ pub fn refToInterned(ref: Inst.Ref) ?InternPool.Index {
 }
 
 pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
-    assert(@intFromEnum(ip_index) >> 31 == 0);
     return switch (ip_index) {
         .var_args_param_type => .var_args_param_type,
         .none => .none,
-        else => @enumFromInt(@as(u31, @intCast(@intFromEnum(ip_index)))),
+        else => {
+            assert(@intFromEnum(ip_index) >> 31 == 0);
+            return @enumFromInt(@as(u31, @intCast(@intFromEnum(ip_index))));
+        },
     };
 }
 
