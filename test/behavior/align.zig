@@ -593,3 +593,25 @@ test "alignment of slice element" {
     const a: []align(1024) const u8 = undefined;
     try expect(@TypeOf(&a[0]) == *align(1024) const u8);
 }
+
+test "sub-aligned pointer field access" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    // Originally reported at https://github.com/ziglang/zig/issues/14904
+
+    const Header = extern struct {
+        tag: u32,
+        bytes_len: u32,
+    };
+    var buf: [9]u8 align(4) = .{ 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+    const ptr: *align(1) Header = @ptrCast(buf[1..][0..8]);
+    const x = ptr.bytes_len;
+    switch (builtin.cpu.arch.endian()) {
+        .Big => try expect(x == 0x06070809),
+        .Little => try expect(x == 0x09080706),
+    }
+}
