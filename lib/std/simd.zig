@@ -294,40 +294,110 @@ test "vector shifting" {
     try std.testing.expectEqual([4]u32{ 40, 30, 20, 10 }, reverseOrder(base));
 }
 
+/// Return the index of the last true bool in `vec` or null if there
+/// is none.
 pub fn firstTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
     const len = vectorLength(@TypeOf(vec));
-    const IndexInt = VectorIndex(@TypeOf(vec));
 
-    if (!@reduce(.Or, vec)) {
-        return null;
+    if (comptime builtin.cpu.arch.isX86()) {
+        // NOTE: if the semantics of bit casting bool vector to int
+        // ever change or are formally specified, update this code
+
+        const bits_from_lsb_to_msb: std.meta.Int(.unsigned, len) = @bitCast(vec);
+
+        const first_true_or_len = @ctz(bits_from_lsb_to_msb);
+
+        return if (first_true_or_len == len) null else @intCast(first_true_or_len);
+    } else {
+        const IndexInt = VectorIndex(@TypeOf(vec));
+
+        if (!@reduce(.Or, vec)) {
+            return null;
+        }
+        const all_max: @Vector(len, IndexInt) = @splat(~@as(IndexInt, 0));
+        const indices = @select(IndexInt, vec, iota(IndexInt, len), all_max);
+        return @reduce(.Min, indices);
     }
-    const all_max: @Vector(len, IndexInt) = @splat(~@as(IndexInt, 0));
-    const indices = @select(IndexInt, vec, iota(IndexInt, len), all_max);
-    return @reduce(.Min, indices);
 }
 
+test "firstTrue" {
+    try std.testing.expectEqual(@as(?u2, null), firstTrue(@as(@Vector(4, bool), .{ false, false, false, false })));
+    try std.testing.expectEqual(@as(?u2, 0), firstTrue(@as(@Vector(4, bool), .{ true, false, false, false })));
+    try std.testing.expectEqual(@as(?u2, 1), firstTrue(@as(@Vector(4, bool), .{ false, true, false, false })));
+    try std.testing.expectEqual(@as(?u2, 2), firstTrue(@as(@Vector(4, bool), .{ false, false, true, false })));
+    try std.testing.expectEqual(@as(?u2, 3), firstTrue(@as(@Vector(4, bool), .{ false, false, false, true })));
+    try std.testing.expectEqual(@as(?u2, 2), firstTrue(@as(@Vector(4, bool), .{ false, false, true, true })));
+    try std.testing.expectEqual(@as(?u2, 1), firstTrue(@as(@Vector(4, bool), .{ false, true, false, true })));
+}
+
+/// Return the index of the last true bool in `vec` or null if there
+/// is none.
 pub fn lastTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
     const len = vectorLength(@TypeOf(vec));
     const IndexInt = VectorIndex(@TypeOf(vec));
 
-    if (!@reduce(.Or, vec)) {
-        return null;
-    }
+    if (comptime builtin.cpu.arch.isX86()) {
+        // NOTE: if the semantics of bit casting bool vector to int
+        // ever change or are formally specified, update this code
 
-    const all_zeroes: @Vector(len, IndexInt) = @splat(0);
-    const indices = @select(IndexInt, vec, iota(IndexInt, len), all_zeroes);
-    return @reduce(.Max, indices);
+        const bits_from_lsb_to_msb: std.meta.Int(.unsigned, len) = @bitCast(vec);
+
+        const last_true_or_len = @clz(bits_from_lsb_to_msb);
+
+        return if (last_true_or_len == len) null else @intCast((len - 1) - last_true_or_len);
+    } else {
+        if (!@reduce(.Or, vec)) {
+            return null;
+        }
+
+        const all_zeroes: @Vector(len, IndexInt) = @splat(0);
+        const indices = @select(IndexInt, vec, iota(IndexInt, len), all_zeroes);
+        return @reduce(.Max, indices);
+    }
 }
 
+test "lastTrue" {
+    try std.testing.expectEqual(@as(?u2, null), lastTrue(@as(@Vector(4, bool), .{ false, false, false, false })));
+    try std.testing.expectEqual(@as(?u2, 0), lastTrue(@as(@Vector(4, bool), .{ true, false, false, false })));
+    try std.testing.expectEqual(@as(?u2, 1), lastTrue(@as(@Vector(4, bool), .{ false, true, false, false })));
+    try std.testing.expectEqual(@as(?u2, 2), lastTrue(@as(@Vector(4, bool), .{ false, false, true, false })));
+    try std.testing.expectEqual(@as(?u2, 3), lastTrue(@as(@Vector(4, bool), .{ false, false, false, true })));
+    try std.testing.expectEqual(@as(?u2, 3), lastTrue(@as(@Vector(4, bool), .{ false, false, true, true })));
+    try std.testing.expectEqual(@as(?u2, 3), lastTrue(@as(@Vector(4, bool), .{ false, true, false, true })));
+}
+
+/// Return the number of true bools in `vec`.
 pub fn countTrues(vec: anytype) VectorCount(@TypeOf(vec)) {
     const len = vectorLength(@TypeOf(vec));
-    const CountIntType = VectorCount(@TypeOf(vec));
 
-    const all_ones: @Vector(len, CountIntType) = @splat(1);
-    const all_zeroes: @Vector(len, CountIntType) = @splat(0);
+    if (comptime builtin.cpu.arch.isX86()) {
+        // NOTE: if the semantics of bit casting bool vector to int
+        // ever change or are formally specified, update this code
 
-    const one_if_true = @select(CountIntType, vec, all_ones, all_zeroes);
-    return @reduce(.Add, one_if_true);
+        const bits_from_lsb_to_msb: std.meta.Int(.unsigned, len) = @bitCast(vec);
+
+        return @popCount(bits_from_lsb_to_msb);
+    } else {
+        const CountIntType = VectorCount(@TypeOf(vec));
+
+        const all_ones: @Vector(len, CountIntType) = @splat(1);
+        const all_zeroes: @Vector(len, CountIntType) = @splat(0);
+
+        const one_if_true = @select(CountIntType, vec, all_ones, all_zeroes);
+        return @reduce(.Add, one_if_true);
+    }
+}
+
+test "countTrues" {
+    try std.testing.expectEqual(@as(u3, 0), countTrues(@as(@Vector(4, bool), .{ false, false, false, false })));
+    try std.testing.expectEqual(@as(u3, 1), countTrues(@as(@Vector(4, bool), .{ true, false, false, false })));
+    try std.testing.expectEqual(@as(u3, 1), countTrues(@as(@Vector(4, bool), .{ false, true, false, false })));
+    try std.testing.expectEqual(@as(u3, 1), countTrues(@as(@Vector(4, bool), .{ false, false, true, false })));
+    try std.testing.expectEqual(@as(u3, 1), countTrues(@as(@Vector(4, bool), .{ false, false, false, true })));
+    try std.testing.expectEqual(@as(u3, 2), countTrues(@as(@Vector(4, bool), .{ false, false, true, true })));
+    try std.testing.expectEqual(@as(u3, 2), countTrues(@as(@Vector(4, bool), .{ false, true, false, true })));
+    try std.testing.expectEqual(@as(u3, 3), countTrues(@as(@Vector(4, bool), .{ false, true, true, true })));
+    try std.testing.expectEqual(@as(u3, 4), countTrues(@as(@Vector(4, bool), .{ true, true, true, true })));
 }
 
 pub fn firstIndexOfValue(vec: anytype, value: std.meta.Child(@TypeOf(vec))) ?VectorIndex(@TypeOf(vec)) {
