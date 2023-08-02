@@ -73,7 +73,7 @@ stage3-release/bin/zig build test docs \
 
 # Look for HTML errors.
 # TODO: move this to a build.zig flag (-Denable-tidy)
-tidy --drop-empty-elements no -qe "zig-out/doc/langref.html"
+tidy --drop-empty-elements no -qe "../zig-out/doc/langref.html"
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \
