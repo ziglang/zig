@@ -52,8 +52,6 @@ if(ZIG_USE_LLVM_CONFIG)
         set(STATIC_OR_SHARED_LINK "--link-shared")
       elseif (ZIG_STATIC_LLVM)
         set(STATIC_OR_SHARED_LINK "--link-static")
-      else()
-        set(STATIC_OR_SHARED_LINK "")
       endif()
 
       execute_process(
@@ -105,31 +103,69 @@ if(ZIG_USE_LLVM_CONFIG)
     break()
   endwhile()
 
+  if(ZIG_SHARED_LLVM OR ZIG_STATIC_LLVM)
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libfiles ${STATIC_OR_SHARED_LINK}
+        OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
 
-  execute_process(
-    COMMAND ${LLVM_CONFIG_EXE} --shared-mode ${STATIC_OR_SHARED_LINK}
-    OUTPUT_VARIABLE LLVM_LINK_MODE
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libdir ${STATIC_OR_SHARED_LINK}
+        OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
 
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --libfiles ${STATIC_OR_SHARED_LINK}
-      OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --system-libs ${STATIC_OR_SHARED_LINK}
+        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
+
+    execute_process(
+      COMMAND ${LLVM_CONFIG_EXE} --shared-mode ${STATIC_OR_SHARED_LINK}
+      OUTPUT_VARIABLE LLVM_LINK_MODE
       OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
+  else()
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libs
+        OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
 
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --libdir ${STATIC_OR_SHARED_LINK}
-      OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libdir
+        OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
+
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --system-libs
+        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
+
+    execute_process(
+      COMMAND ${LLVM_CONFIG_EXE} --shared-mode
+      OUTPUT_VARIABLE LLVM_LINK_MODE
       OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
+  endif()
 
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --system-libs ${STATIC_OR_SHARED_LINK}
-      OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
+  if (${LLVM_LINK_MODE} STREQUAL "shared")
+    # We always ask for the system libs corresponding to static linking,
+    # since on some distros LLD is only available as a static library
+    # and we need these libraries to link it successfully
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --system-libs --link-static
+        OUTPUT_VARIABLE LLVM_STATIC_SYSTEM_LIBS_SPACES
+        ERROR_QUIET # Some installations have no static libs, we just ignore the failure
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_STATIC_SYSTEM_LIBS "${LLVM_STATIC_SYSTEM_LIBS_SPACES}")
 
-  set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
+    set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS} ${LLVM_STATIC_SYSTEM_LIBS})
+  else()
+    set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
+  endif()
 
   execute_process(
       COMMAND ${LLVM_CONFIG_EXE} --includedir
@@ -337,4 +373,4 @@ endif()
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(llvm DEFAULT_MSG LLVM_LIBRARIES LLVM_INCLUDE_DIRS)
 
-mark_as_advanced(LLVM_INCLUDE_DIRS LLVM_LIBRARIES LLVM_LIBDIRS LLVM_LINK_MODE)
+mark_as_advanced(LLVM_INCLUDE_DIRS LLVM_LIBRARIES LLVM_LIBDIRS)

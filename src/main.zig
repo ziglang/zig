@@ -482,6 +482,10 @@ const usage_build_generic =
     \\                                 lib then static lib before proceeding to next path.
     \\  -search_dylibs_first           Search for dynamic libs in all library search
     \\                                 paths, then static libs.
+    \\  -search_static_first           Search for static libs in all library search
+    \\                                 paths, then dynamic libs.
+    \\  -search_dylibs_only            Only search for dynamic libs.
+    \\  -search_static_only            Only search for static libs.
     \\  -T[script], --script [script]  Use a custom linker script
     \\  --version-script [path]        Provide a version .map file
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
@@ -878,8 +882,8 @@ fn buildOutputType(
     var hash_style: link.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
     var pagezero_size: ?u64 = null;
-    var lib_search_strategy: ?SystemLib.SearchStrategy = null;
-    var lib_preferred_mode: ?std.builtin.LinkMode = null;
+    var lib_search_strategy: SystemLib.SearchStrategy = .paths_first;
+    var lib_preferred_mode: std.builtin.LinkMode = .Dynamic;
     var headerpad_size: ?u32 = null;
     var headerpad_max_install_names: bool = false;
     var dead_strip_dylibs: bool = false;
@@ -1111,6 +1115,15 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-search_dylibs_first")) {
                         lib_search_strategy = .mode_first;
                         lib_preferred_mode = .Dynamic;
+                    } else if (mem.eql(u8, arg, "-search_static_first")) {
+                        lib_search_strategy = .mode_first;
+                        lib_preferred_mode = .Static;
+                    } else if (mem.eql(u8, arg, "-search_dylibs_only")) {
+                        lib_search_strategy = .no_fallback;
+                        lib_preferred_mode = .Dynamic;
+                    } else if (mem.eql(u8, arg, "-search_static_only")) {
+                        lib_search_strategy = .no_fallback;
+                        lib_preferred_mode = .Static;
                     } else if (mem.eql(u8, arg, "-headerpad")) {
                         const next_arg = args_iter.nextOrFatal();
                         headerpad_size = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
@@ -1136,8 +1149,8 @@ fn buildOutputType(
                             // -l always dynamic links. For static libraries,
                             // users are expected to use positional arguments
                             // which are always unambiguous.
-                            .preferred_mode = lib_preferred_mode orelse .Dynamic,
-                            .search_strategy = lib_search_strategy orelse .no_fallback,
+                            .preferred_mode = lib_preferred_mode,
+                            .search_strategy = lib_search_strategy,
                         });
                     } else if (mem.eql(u8, arg, "--needed-library") or
                         mem.eql(u8, arg, "-needed-l") or
@@ -1147,15 +1160,15 @@ fn buildOutputType(
                         try system_libs.put(next_arg, .{
                             .needed = true,
                             .weak = false,
-                            .preferred_mode = lib_preferred_mode orelse .Dynamic,
-                            .search_strategy = lib_search_strategy orelse .no_fallback,
+                            .preferred_mode = lib_preferred_mode,
+                            .search_strategy = lib_search_strategy,
                         });
                     } else if (mem.eql(u8, arg, "-weak_library") or mem.eql(u8, arg, "-weak-l")) {
                         try system_libs.put(args_iter.nextOrFatal(), .{
                             .needed = false,
                             .weak = true,
-                            .preferred_mode = lib_preferred_mode orelse .Dynamic,
-                            .search_strategy = lib_search_strategy orelse .no_fallback,
+                            .preferred_mode = lib_preferred_mode,
+                            .search_strategy = lib_search_strategy,
                         });
                     } else if (mem.eql(u8, arg, "-D")) {
                         try clang_argv.append(arg);
@@ -1388,8 +1401,12 @@ fn buildOutputType(
                         emit_implib_arg_provided = true;
                     } else if (mem.eql(u8, arg, "-dynamic")) {
                         link_mode = .Dynamic;
+                        lib_preferred_mode = .Dynamic;
+                        lib_search_strategy = .mode_first;
                     } else if (mem.eql(u8, arg, "-static")) {
                         link_mode = .Static;
+                        lib_preferred_mode = .Static;
+                        lib_search_strategy = .no_fallback;
                     } else if (mem.eql(u8, arg, "-fdll-export-fns")) {
                         dll_export_fns = true;
                     } else if (mem.eql(u8, arg, "-fno-dll-export-fns")) {
@@ -1541,22 +1558,22 @@ fn buildOutputType(
                             // -l always dynamic links. For static libraries,
                             // users are expected to use positional arguments
                             // which are always unambiguous.
-                            .preferred_mode = lib_preferred_mode orelse .Dynamic,
-                            .search_strategy = lib_search_strategy orelse .no_fallback,
+                            .preferred_mode = lib_preferred_mode,
+                            .search_strategy = lib_search_strategy,
                         });
                     } else if (mem.startsWith(u8, arg, "-needed-l")) {
                         try system_libs.put(arg["-needed-l".len..], .{
                             .needed = true,
                             .weak = false,
-                            .preferred_mode = lib_preferred_mode orelse .Dynamic,
-                            .search_strategy = lib_search_strategy orelse .no_fallback,
+                            .preferred_mode = lib_preferred_mode,
+                            .search_strategy = lib_search_strategy,
                         });
                     } else if (mem.startsWith(u8, arg, "-weak-l")) {
                         try system_libs.put(arg["-weak-l".len..], .{
                             .needed = false,
                             .weak = true,
-                            .preferred_mode = lib_preferred_mode orelse .Dynamic,
-                            .search_strategy = lib_search_strategy orelse .no_fallback,
+                            .preferred_mode = lib_preferred_mode,
+                            .search_strategy = lib_search_strategy,
                         });
                     } else if (mem.startsWith(u8, arg, "-D")) {
                         try clang_argv.append(arg);
@@ -1632,7 +1649,6 @@ fn buildOutputType(
             var emit_llvm = false;
             var needed = false;
             var must_link = false;
-            var force_static_libs = false;
             var file_ext: ?Compilation.FileExt = null;
             while (it.has_next) {
                 it.next() catch |err| {
@@ -1702,22 +1718,12 @@ fn buildOutputType(
                                 .must_link = must_link,
                                 .loption = true,
                             });
-                        } else if (force_static_libs) {
-                            try system_libs.put(it.only_arg, .{
-                                .needed = false,
-                                .weak = false,
-                                .preferred_mode = .Static,
-                                .search_strategy = .no_fallback,
-                            });
                         } else {
-                            // C compilers are traditionally expected to look
-                            // first for dynamic libraries and then fall back
-                            // to static libraries.
                             try system_libs.put(it.only_arg, .{
                                 .needed = needed,
                                 .weak = false,
-                                .preferred_mode = lib_preferred_mode orelse .Dynamic,
-                                .search_strategy = lib_search_strategy orelse .paths_first,
+                                .preferred_mode = lib_preferred_mode,
+                                .search_strategy = lib_search_strategy,
                             });
                         }
                     },
@@ -1814,13 +1820,15 @@ fn buildOutputType(
                                 mem.eql(u8, linker_arg, "-dy") or
                                 mem.eql(u8, linker_arg, "-call_shared"))
                             {
-                                force_static_libs = false;
+                                lib_search_strategy = .no_fallback;
+                                lib_preferred_mode = .Dynamic;
                             } else if (mem.eql(u8, linker_arg, "-Bstatic") or
                                 mem.eql(u8, linker_arg, "-dn") or
                                 mem.eql(u8, linker_arg, "-non_shared") or
                                 mem.eql(u8, linker_arg, "-static"))
                             {
-                                force_static_libs = true;
+                                lib_search_strategy = .no_fallback;
+                                lib_preferred_mode = .Static;
                             } else if (mem.eql(u8, linker_arg, "-search_paths_first")) {
                                 lib_search_strategy = .paths_first;
                                 lib_preferred_mode = .Dynamic;
@@ -1939,8 +1947,8 @@ fn buildOutputType(
                     .weak_library => try system_libs.put(it.only_arg, .{
                         .needed = false,
                         .weak = true,
-                        .preferred_mode = lib_preferred_mode orelse .Dynamic,
-                        .search_strategy = lib_search_strategy orelse .paths_first,
+                        .preferred_mode = lib_preferred_mode,
+                        .search_strategy = lib_search_strategy,
                     }),
                     .weak_framework => try frameworks.put(gpa, it.only_arg, .{ .weak = true }),
                     .headerpad_max_install_names => headerpad_max_install_names = true,
@@ -2240,22 +2248,22 @@ fn buildOutputType(
                     try system_libs.put(linker_args_it.nextOrFatal(), .{
                         .weak = false,
                         .needed = true,
-                        .preferred_mode = lib_preferred_mode orelse .Dynamic,
-                        .search_strategy = lib_search_strategy orelse .paths_first,
+                        .preferred_mode = lib_preferred_mode,
+                        .search_strategy = lib_search_strategy,
                     });
                 } else if (mem.startsWith(u8, arg, "-weak-l")) {
                     try system_libs.put(arg["-weak-l".len..], .{
                         .weak = true,
                         .needed = false,
-                        .preferred_mode = lib_preferred_mode orelse .Dynamic,
-                        .search_strategy = lib_search_strategy orelse .paths_first,
+                        .preferred_mode = lib_preferred_mode,
+                        .search_strategy = lib_search_strategy,
                     });
                 } else if (mem.eql(u8, arg, "-weak_library")) {
                     try system_libs.put(linker_args_it.nextOrFatal(), .{
                         .weak = true,
                         .needed = false,
-                        .preferred_mode = lib_preferred_mode orelse .Dynamic,
-                        .search_strategy = lib_search_strategy orelse .paths_first,
+                        .preferred_mode = lib_preferred_mode,
+                        .search_strategy = lib_search_strategy,
                     });
                 } else if (mem.eql(u8, arg, "-compatibility_version")) {
                     const compat_version = linker_args_it.nextOrFatal();
