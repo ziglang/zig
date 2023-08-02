@@ -1151,9 +1151,6 @@ fn buildOutputType(
                         try system_libs.put(args_iter.nextOrFatal(), .{
                             .needed = false,
                             .weak = false,
-                            // -l always dynamic links. For static libraries,
-                            // users are expected to use positional arguments
-                            // which are always unambiguous.
                             .preferred_mode = lib_preferred_mode,
                             .search_strategy = lib_search_strategy,
                         });
@@ -1560,9 +1557,6 @@ fn buildOutputType(
                         try system_libs.put(arg["-l".len..], .{
                             .needed = false,
                             .weak = false,
-                            // -l always dynamic links. For static libraries,
-                            // users are expected to use positional arguments
-                            // which are always unambiguous.
                             .preferred_mode = lib_preferred_mode,
                             .search_strategy = lib_search_strategy,
                         });
@@ -2675,7 +2669,7 @@ fn buildOutputType(
                     .lib = .{
                         .needed = true,
                         .weak = false,
-                        .path = undefined,
+                        .path = null,
                     },
                 });
                 continue;
@@ -2699,11 +2693,6 @@ fn buildOutputType(
         });
     }
     // After this point, external_system_libs is used instead of system_libs.
-
-    // libc++ depends on libc
-    if (link_libcpp) {
-        link_libc = true;
-    }
 
     // Trigger native system library path detection if necessary.
     if (sysroot == null and cross_target.isNativeOs() and
@@ -6343,13 +6332,12 @@ fn accessLibPath(
     // In the case of Darwin, the main check will be .dylib, so here we
     // additionally check for .so files.
     if (target.isDarwin() and link_mode == .Dynamic) so: {
-        // Prefer .tbd over .dylib.
         test_path.clearRetainingCapacity();
         try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, lib_name });
         try checked_paths.writer().print("\n  {s}", .{test_path.items});
         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
             error.FileNotFound => break :so,
-            else => |e| fatal("unable to search for tbd library '{s}': {s}", .{
+            else => |e| fatal("unable to search for so library '{s}': {s}", .{
                 test_path.items, @errorName(e),
             }),
         };
