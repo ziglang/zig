@@ -435,12 +435,12 @@ const usage_build_generic =
     \\  -fno-dll-export-fns       Force-disable marking exported functions as DLL exports
     \\  -funwind-tables           Always produce unwind table entries for all functions
     \\  -fno-unwind-tables        Never produce unwind table entries
-    \\  -fLLVM                    Force using LLVM as the codegen backend
-    \\  -fno-LLVM                 Prevent using LLVM as the codegen backend
-    \\  -flibLLVM                 Force using the LLVM API in the codegen backend
-    \\  -fno-libLLVM              Prevent using the LLVM API in the codegen backend
-    \\  -fClang                   Force using Clang as the C/C++ compilation backend
-    \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
+    \\  -fllvm                    Force using LLVM as the codegen backend
+    \\  -fno-llvm                 Prevent using LLVM as the codegen backend
+    \\  -flibllvm                 Force using the LLVM API in the codegen backend
+    \\  -fno-libllvm              Prevent using the LLVM API in the codegen backend
+    \\  -fclang                   Force using Clang as the C/C++ compilation backend
+    \\  -fno-clang                Prevent using Clang as the C/C++ compilation backend
     \\  -freference-trace[=num]   How many lines of reference trace should be shown per compile error
     \\  -fno-reference-trace      Disable reference trace
     \\  -ferror-tracing           Enable error tracing in ReleaseFast mode
@@ -486,8 +486,8 @@ const usage_build_generic =
     \\  --force_undefined [name]       Specify the symbol must be defined for the link to succeed
     \\  -fsoname[=name]                Override the default SONAME value
     \\  -fno-soname                    Disable emitting a SONAME
-    \\  -fLLD                          Force using LLD as the linker
-    \\  -fno-LLD                       Prevent using LLD as the linker
+    \\  -flld                          Force using LLD as the linker
+    \\  -fno-lld                       Prevent using LLD as the linker
     \\  -fcompiler-rt                  Always include compiler-rt symbols in output
     \\  -fno-compiler-rt               Prevent including compiler-rt symbols in output
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
@@ -1262,21 +1262,21 @@ fn buildOutputType(
                         want_tsan = true;
                     } else if (mem.eql(u8, arg, "-fno-sanitize-thread")) {
                         want_tsan = false;
-                    } else if (mem.eql(u8, arg, "-fLLVM")) {
+                    } else if (mem.eql(u8, arg, "-fllvm")) {
                         use_llvm = true;
-                    } else if (mem.eql(u8, arg, "-fno-LLVM")) {
+                    } else if (mem.eql(u8, arg, "-fno-llvm")) {
                         use_llvm = false;
-                    } else if (mem.eql(u8, arg, "-flibLLVM")) {
+                    } else if (mem.eql(u8, arg, "-flibllvm")) {
                         use_lib_llvm = true;
-                    } else if (mem.eql(u8, arg, "-fno-libLLVM")) {
+                    } else if (mem.eql(u8, arg, "-fno-libllvm")) {
                         use_lib_llvm = false;
-                    } else if (mem.eql(u8, arg, "-fLLD")) {
+                    } else if (mem.eql(u8, arg, "-flld")) {
                         use_lld = true;
-                    } else if (mem.eql(u8, arg, "-fno-LLD")) {
+                    } else if (mem.eql(u8, arg, "-fno-lld")) {
                         use_lld = false;
-                    } else if (mem.eql(u8, arg, "-fClang")) {
+                    } else if (mem.eql(u8, arg, "-fclang")) {
                         use_clang = true;
-                    } else if (mem.eql(u8, arg, "-fno-Clang")) {
+                    } else if (mem.eql(u8, arg, "-fno-clang")) {
                         use_clang = false;
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
                         reference_trace = 256;
