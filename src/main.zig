@@ -28,6 +28,7 @@ const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
 const Module = @import("Module.zig");
 const AstGen = @import("AstGen.zig");
+const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
 
 pub const std_options = struct {
@@ -477,6 +478,8 @@ const usage_build_generic =
     \\  -needed-l[lib],                Link against system library (even if unused)
     \\    --needed-library [lib]
     \\  -L[d], --library-directory [d] Add a directory to the library search path
+    \\  -search_paths_first            Search each library search path for dynamic libs then static libs
+    \\  -search_dylibs_first           Search for dynamic libs in each library search path, then static libs.
     \\  -T[script], --script [script]  Use a custom linker script
     \\  --version-script [path]        Provide a version .map file
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
@@ -537,8 +540,6 @@ const usage_build_generic =
     \\  -install_name=[value]          (Darwin) add dylib's install name
     \\  --entitlements [path]          (Darwin) add path to entitlements file for embedding in code signature
     \\  -pagezero_size [value]         (Darwin) size of the __PAGEZERO segment in hexadecimal notation
-    \\  -search_paths_first            (Darwin) search each dir in library search paths for `libx.dylib` then `libx.a`
-    \\  -search_dylibs_first           (Darwin) search `libx.dylib` in each dir in library search paths, then `libx.a`
     \\  -headerpad [value]             (Darwin) set minimum space for future expansion of the load commands in hexadecimal notation
     \\  -headerpad_max_install_names   (Darwin) set enough space as if all paths were MAXPATHLEN
     \\  -dead_strip                    (Darwin) remove functions and data that are unreachable by the entry point or exported symbols
@@ -2567,6 +2568,34 @@ fn buildOutputType(
     }
     lib_dir_args = undefined; // From here we use lib_dirs instead.
 
+    const self_exe_path: ?[]const u8 = if (!process.can_spawn)
+        null
+    else
+        introspect.findZigExePath(arena) catch |err| {
+            fatal("unable to find zig self exe path: {s}", .{@errorName(err)});
+        };
+
+    var zig_lib_directory: Compilation.Directory = d: {
+        if (override_lib_dir) |unresolved_lib_dir| {
+            const lib_dir = try introspect.resolvePath(arena, unresolved_lib_dir);
+            break :d .{
+                .path = lib_dir,
+                .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+                    fatal("unable to open zig lib directory '{s}': {s}", .{ lib_dir, @errorName(err) });
+                },
+            };
+        } else if (builtin.os.tag == .wasi) {
+            break :d getWasiPreopen("/lib");
+        } else if (self_exe_path) |p| {
+            break :d introspect.findZigLibDirFromSelfExe(arena, p) catch |err| {
+                fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
+            };
+        } else {
+            unreachable;
+        }
+    };
+    defer zig_lib_directory.handle.close();
+
     // Now that we have target info, we can find out if any of the system libraries
     // are part of libc or libc++. We remove them from the list and communicate their
     // existence via flags instead.
@@ -2610,6 +2639,25 @@ fn buildOutputType(
                     std.log.warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
                     continue;
                 },
+            }
+
+            if (target_info.target.os.tag == .windows) {
+                const exists = mingw.libExists(arena, target_info.target, zig_lib_directory, lib_name) catch |err| {
+                    fatal("failed to check zig installation for DLL import libs: {s}", .{
+                        @errorName(err),
+                    });
+                };
+                if (exists) {
+                    try resolved_system_libs.append(arena, .{
+                        .name = lib_name,
+                        .lib = .{
+                            .needed = true,
+                            .weak = false,
+                            .path = undefined,
+                        },
+                    });
+                    continue;
+                }
             }
 
             if (fs.path.isAbsolute(lib_name)) {
@@ -2758,9 +2806,13 @@ fn buildOutputType(
 
         if (failed_libs.items.len > 0) {
             for (failed_libs.items) |f| {
+                const searched_paths = if (f.checked_paths.len == 0) " none" else f.checked_paths;
                 std.log.err("unable to find {s} system library '{s}' using strategy '{s}'. searched paths:{s}", .{
-                    @tagName(f.preferred_mode), f.name, @tagName(f.strategy), f.checked_paths,
+                    @tagName(f.preferred_mode), f.name, @tagName(f.strategy), searched_paths,
                 });
+                if (f.preferred_mode == .Dynamic and f.strategy == .no_fallback) {
+                    std.log.info("to link statically, pass the library as a positional argument", .{});
+                }
             }
             process.exit(1);
         }
@@ -3078,35 +3130,6 @@ fn buildOutputType(
             try mod.add(gpa, dep.expose, dep_mod.mod);
         }
     }
-
-    const self_exe_path: ?[]const u8 = if (!process.can_spawn)
-        null
-    else
-        introspect.findZigExePath(arena) catch |err| {
-            fatal("unable to find zig self exe path: {s}", .{@errorName(err)});
-        };
-
-    var zig_lib_directory: Compilation.Directory = d: {
-        if (override_lib_dir) |unresolved_lib_dir| {
-            const lib_dir = try introspect.resolvePath(arena, unresolved_lib_dir);
-            break :d .{
-                .path = lib_dir,
-                .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-                    fatal("unable to open zig lib directory '{s}': {s}", .{ lib_dir, @errorName(err) });
-                },
-            };
-        } else if (builtin.os.tag == .wasi) {
-            break :d getWasiPreopen("/lib");
-        } else if (self_exe_path) |p| {
-            break :d introspect.findZigLibDirFromSelfExe(arena, p) catch |err| {
-                fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
-            };
-        } else {
-            unreachable;
-        }
-    };
-
-    defer zig_lib_directory.handle.close();
 
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{ .allocator = gpa });

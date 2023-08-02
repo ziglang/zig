@@ -5618,6 +5618,11 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // to queue up a work item to produce the DLL import library for this.
     const gop = try comp.bin_file.options.system_libs.getOrPut(comp.gpa, lib_name);
     if (!gop.found_existing and comp.getTarget().os.tag == .windows) {
+        gop.value_ptr.* = .{
+            .needed = true,
+            .weak = false,
+            .path = undefined,
+        };
         try comp.work_queue.writeItem(.{
             .windows_import_lib = comp.bin_file.options.system_libs.count() - 1,
         });
