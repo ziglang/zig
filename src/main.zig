@@ -746,6 +746,18 @@ const SystemLib = struct {
     }
 };
 
+const CliModule = struct {
+    mod: *Package,
+    /// still in CLI arg format
+    deps_str: []const u8,
+};
+
+fn cleanupModules(modules: *std.StringArrayHashMap(CliModule)) void {
+    var it = modules.iterator();
+    while (it.next()) |kv| kv.value_ptr.mod.destroy(modules.allocator);
+    modules.deinit();
+}
+
 fn buildOutputType(
     gpa: Allocator,
     arena: Allocator,
@@ -893,62 +905,30 @@ fn buildOutputType(
     var error_tracing: ?bool = null;
     var pdb_out_path: ?[]const u8 = null;
     var dwarf_format: ?std.dwarf.Format = null;
-
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
     // CPU features.
-    var llvm_m_args = std.ArrayList([]const u8).init(gpa);
-    defer llvm_m_args.deinit();
-
+    var llvm_m_args = std.ArrayList([]const u8).init(arena);
     var system_libs = std.StringArrayHashMap(SystemLib).init(arena);
-
-    var wasi_emulated_libs = std.ArrayList(wasi_libc.CRTFile).init(gpa);
-    defer wasi_emulated_libs.deinit();
-
-    var clang_argv = std.ArrayList([]const u8).init(gpa);
-    defer clang_argv.deinit();
-
-    var extra_cflags = std.ArrayList([]const u8).init(gpa);
-    defer extra_cflags.deinit();
-
+    var wasi_emulated_libs = std.ArrayList(wasi_libc.CRTFile).init(arena);
+    var clang_argv = std.ArrayList([]const u8).init(arena);
+    var extra_cflags = std.ArrayList([]const u8).init(arena);
     // These are before resolving sysroot.
     var lib_dir_args = std.ArrayList([]const u8).init(arena);
-
-    var rpath_list = std.ArrayList([]const u8).init(gpa);
-    defer rpath_list.deinit();
-
+    var rpath_list = std.ArrayList([]const u8).init(arena);
     var symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{};
-
-    var c_source_files = std.ArrayList(Compilation.CSourceFile).init(gpa);
-    defer c_source_files.deinit();
-
-    var link_objects = std.ArrayList(Compilation.LinkObject).init(gpa);
-    defer link_objects.deinit();
-
-    var framework_dirs = std.ArrayList([]const u8).init(gpa);
-    defer framework_dirs.deinit();
-
+    var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
+    var link_objects = std.ArrayList(Compilation.LinkObject).init(arena);
+    var framework_dirs = std.ArrayList([]const u8).init(arena);
     var frameworks: std.StringArrayHashMapUnmanaged(Compilation.Framework) = .{};
-
     // null means replace with the test executable binary
-    var test_exec_args = std.ArrayList(?[]const u8).init(gpa);
-    defer test_exec_args.deinit();
-
-    var linker_export_symbol_names = std.ArrayList([]const u8).init(gpa);
-    defer linker_export_symbol_names.deinit();
-
+    var test_exec_args = std.ArrayList(?[]const u8).init(arena);
+    var linker_export_symbol_names = std.ArrayList([]const u8).init(arena);
     // Contains every module specified via --mod. The dependencies are added
     // after argument parsing is completed. We use a StringArrayHashMap to make
     // error output consistent.
-    var modules = std.StringArrayHashMap(struct {
-        mod: *Package,
-        deps_str: []const u8, // still in CLI arg format
-    }).init(gpa);
-    defer {
-        var it = modules.iterator();
-        while (it.next()) |kv| kv.value_ptr.mod.destroy(gpa);
-        modules.deinit();
-    }
+    var modules = std.StringArrayHashMap(CliModule).init(gpa);
+    defer cleanupModules(&modules);
 
     // The dependency string for the root package
     var root_deps_str: ?[]const u8 = null;
