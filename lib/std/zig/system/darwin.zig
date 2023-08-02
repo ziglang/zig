@@ -11,7 +11,7 @@ pub const macos = @import("darwin/macos.zig");
 /// Therefore, we resort to the same tool used by Homebrew, namely, invoking `xcode-select --print-path`
 /// and checking if the status is nonzero or the returned string in nonempty.
 /// https://github.com/Homebrew/brew/blob/e119bdc571dcb000305411bc1e26678b132afb98/Library/Homebrew/brew.sh#L630
-pub fn isDarwinSDKInstalled(allocator: Allocator) bool {
+pub fn isSdkInstalled(allocator: Allocator) bool {
     const argv = &[_][]const u8{ "/usr/bin/xcode-select", "--print-path" };
     const result = std.ChildProcess.exec(.{ .allocator = allocator, .argv = argv }) catch return false;
     defer {
@@ -29,7 +29,7 @@ pub fn isDarwinSDKInstalled(allocator: Allocator) bool {
 /// Calls `xcrun --sdk <target_sdk> --show-sdk-path` which fetches the path to the SDK sysroot (if any).
 /// Subsequently calls `xcrun --sdk <target_sdk> --show-sdk-version` which fetches version of the SDK.
 /// The caller needs to deinit the resulting struct.
-pub fn getDarwinSDK(allocator: Allocator, target: Target) ?DarwinSDK {
+pub fn getSdk(allocator: Allocator, target: Target) ?Sdk {
     const is_simulator_abi = target.abi == .simulator;
     const sdk = switch (target.os.tag) {
         .macos => "macosx",
@@ -73,7 +73,7 @@ pub fn getDarwinSDK(allocator: Allocator, target: Target) ?DarwinSDK {
         };
         break :version version;
     };
-    return DarwinSDK{
+    return Sdk{
         .path = path,
         .version = version,
     };
@@ -96,11 +96,11 @@ fn parseSdkVersion(raw: []const u8) ?Version {
     return Version.parse(buffer[0..len]) catch null;
 }
 
-pub const DarwinSDK = struct {
+pub const Sdk = struct {
     path: []const u8,
     version: Version,
 
-    pub fn deinit(self: DarwinSDK, allocator: Allocator) void {
+    pub fn deinit(self: Sdk, allocator: Allocator) void {
         allocator.free(self.path);
     }
 };

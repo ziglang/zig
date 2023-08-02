@@ -2857,9 +2857,6 @@ fn buildOutputType(
                 std.log.err("unable to find {s} system library '{s}' using strategy '{s}'. searched paths:{s}", .{
                     @tagName(f.preferred_mode), f.name, @tagName(f.strategy), searched_paths,
                 });
-                if (f.preferred_mode == .Dynamic and f.strategy == .no_fallback) {
-                    std.log.info("to link statically, pass the library as a positional argument", .{});
-                }
             }
             process.exit(1);
         }

@@ -183,9 +183,9 @@ pub const LibCInstallation = struct {
         var self: LibCInstallation = .{};
 
         if (is_darwin) {
-            if (!std.zig.system.darwin.isDarwinSDKInstalled(args.allocator))
+            if (!std.zig.system.darwin.isSdkInstalled(args.allocator))
                 return error.DarwinSdkNotFound;
-            const sdk = std.zig.system.darwin.getDarwinSDK(args.allocator, args.target) orelse
+            const sdk = std.zig.system.darwin.getSdk(args.allocator, args.target) orelse
                 return error.DarwinSdkNotFound;
             defer args.allocator.free(sdk.path);
 
