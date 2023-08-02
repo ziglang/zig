@@ -204,10 +204,9 @@ pub fn build(b: *std.Build) !void {
     );
 
     if (!no_bin) {
-        const install_exe = b.addInstallArtifact(exe, .{});
-        if (flat) {
-            install_exe.dest_dir = .prefix;
-        }
+        const install_exe = b.addInstallArtifact(exe, .{
+            .dest_dir = if (flat) .{ .override = .prefix } else .default,
+        });
         b.getInstallStep().dependOn(&install_exe.step);
     }
 
