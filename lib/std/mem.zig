@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
+const simd = std.simd;
 const mem = @This();
 const meta = std.meta;
 const trait = meta.trait;
@@ -959,12 +960,63 @@ test "len" {
     try testing.expect(len(c_ptr) == 2);
 }
 
-pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
+pub fn indexOfSentinelNaive(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
     var i: usize = 0;
     while (ptr[i] != sentinel) {
         i += 1;
     }
     return i;
+}
+
+/// Return the index of `ptr` containing `sentinel`.
+pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
+    // This vectorized implementation relies on the fact that
+    // operating systems apply memory protection on the page level,
+    // and when there is no operating system, there is no memory
+    // protection. It is therefore correct and entirely equivalent to
+    // indexOfSentinelNaive to read past the sentinel.
+    const maybe_v_len = comptime simd.suggestVectorSize(Elem);
+
+    if (maybe_v_len == null or builtin.zig_backend != .stage2_llvm or maybe_v_len.? * @sizeOf(Elem) > mem.page_size) {
+        // The optimization is inapplicable because the system is not
+        // capable of SIMD, or the vector length would exceed the page
+        // size, or the LLVM backend is not used.
+        //
+        // FIXME: Allow the native x86_64 backend once it supports vectors.
+        // NOTE: Ideally, one should fall back to a "SIMD" version
+        // using words if the system is not capable of SIMD, however,
+        // this is rare enough to ignore for now.
+        return indexOfSentinelNaive(Elem, sentinel, ptr);
+    }
+
+    const v_len = maybe_v_len.?;
+
+    const V = @Vector(v_len, Elem);
+
+    var i: usize = 0;
+
+    while (ptr[i] != sentinel) {
+        if (mem.isAligned(@intFromPtr(ptr + i), @alignOf(V))) break;
+        i += 1;
+    } else return i;
+
+    while (true) : (i += v_len) {
+        const v: V = ptr[i..][0..v_len].*;
+        if (simd.firstIndexOfValue(v, sentinel)) |index| {
+            return i + index;
+        }
+    }
+}
+
+test "indexOfSentinel" {
+    const v_len = comptime simd.suggestVectorSize(u8) orelse 16;
+    var test_data: [(1 + v_len) * 2]u8 = undefined;
+    for (0..v_len * 2) |length| {
+        @memset(test_data[0..length], 'A');
+        test_data[length] = 'B';
+        test_data[length + 1] = 'B';
+        try testing.expectEqual(length, indexOfSentinel(u8, 'B', @as([*:'B']const u8, @ptrCast(&test_data))));
+    }
 }
 
 /// Returns true if all elements in a slice are equal to the scalar value provided
