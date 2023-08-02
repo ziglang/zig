@@ -2623,6 +2623,12 @@ fn buildOutputType(
         name: []const u8,
         info: SystemLib,
     }) = .{};
+
+    var resolved_system_libs: std.MultiArrayList(struct {
+        name: []const u8,
+        lib: Compilation.SystemLib,
+    }) = .{};
+
     for (system_libs.keys(), system_libs.values()) |lib_name, info| {
         if (target_util.is_libc_lib_name(target_info.target, lib_name)) {
             link_libc = true;
@@ -2642,6 +2648,25 @@ fn buildOutputType(
                 std.log.warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
                 continue;
             },
+        }
+
+        if (target_info.target.os.tag == .windows) {
+            const exists = mingw.libExists(arena, target_info.target, zig_lib_directory, lib_name) catch |err| {
+                fatal("failed to check zig installation for DLL import libs: {s}", .{
+                    @errorName(err),
+                });
+            };
+            if (exists) {
+                try resolved_system_libs.append(arena, .{
+                    .name = lib_name,
+                    .lib = .{
+                        .needed = true,
+                        .weak = false,
+                        .path = undefined,
+                    },
+                });
+                continue;
+            }
         }
 
         if (fs.path.isAbsolute(lib_name)) {
@@ -2715,11 +2740,6 @@ fn buildOutputType(
     // existence via flags instead.
     // Similarly, if any libs in this list are statically provided, we omit
     // them from the resolved list and populate the link_objects array instead.
-    var resolved_system_libs: std.MultiArrayList(struct {
-        name: []const u8,
-        lib: Compilation.SystemLib,
-    }) = .{};
-
     {
         var test_path = std.ArrayList(u8).init(gpa);
         defer test_path.deinit();
@@ -2735,25 +2755,6 @@ fn buildOutputType(
         }).init(arena);
 
         syslib: for (external_system_libs.items(.name), external_system_libs.items(.info)) |lib_name, info| {
-            if (target_info.target.os.tag == .windows) {
-                const exists = mingw.libExists(arena, target_info.target, zig_lib_directory, lib_name) catch |err| {
-                    fatal("failed to check zig installation for DLL import libs: {s}", .{
-                        @errorName(err),
-                    });
-                };
-                if (exists) {
-                    try resolved_system_libs.append(arena, .{
-                        .name = lib_name,
-                        .lib = .{
-                            .needed = true,
-                            .weak = false,
-                            .path = undefined,
-                        },
-                    });
-                    continue;
-                }
-            }
-
             // Checked in the first pass above while looking for libc libraries.
             assert(!fs.path.isAbsolute(lib_name));
 
