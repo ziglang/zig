@@ -477,9 +477,13 @@ const usage_build_generic =
     \\  -l[lib], --library [lib]       Link against system library (only if actually used)
     \\  -needed-l[lib],                Link against system library (even if unused)
     \\    --needed-library [lib]
+    \\  -weak-l[lib]                   link against system library marking it and all
+    \\    -weak_library [lib]          referenced symbols as weak
     \\  -L[d], --library-directory [d] Add a directory to the library search path
     \\  -search_paths_first            For each library search path, check for dynamic
     \\                                 lib then static lib before proceeding to next path.
+    \\  -search_paths_first_static     For each library search path, check for static
+    \\                                 lib then dynamic lib before proceeding to next path.
     \\  -search_dylibs_first           Search for dynamic libs in all library search
     \\                                 paths, then static libs.
     \\  -search_static_first           Search for static libs in all library search
@@ -536,8 +540,6 @@ const usage_build_generic =
     \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
-    \\  -weak-l[lib]                   link against system library and mark it and all referenced symbols as weak
-    \\    -weak_library [lib]
     \\  -framework [name]              (Darwin) link against framework
     \\  -needed_framework [name]       (Darwin) link against framework (even if unused)
     \\  -needed_library [lib]          link against system library (even if unused)
@@ -1112,6 +1114,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-search_paths_first")) {
                         lib_search_strategy = .paths_first;
                         lib_preferred_mode = .Dynamic;
+                    } else if (mem.eql(u8, arg, "-search_paths_first_static")) {
+                        lib_search_strategy = .paths_first;
+                        lib_preferred_mode = .Static;
                     } else if (mem.eql(u8, arg, "-search_dylibs_first")) {
                         lib_search_strategy = .mode_first;
                         lib_preferred_mode = .Dynamic;
