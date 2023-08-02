@@ -1842,7 +1842,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                 // libraries and not static libraries (the check for that needs to be earlier),
                 // but they could be full paths to .so files, in which case we
                 // want to avoid prepending "-l".
-                argv.appendAssumeCapacity(lib_info.path);
+                argv.appendAssumeCapacity(lib_info.path.?);
             }
 
             if (!as_needed) {

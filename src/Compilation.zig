@@ -1728,7 +1728,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 try comp.bin_file.options.system_libs.put(comp.gpa, name, .{
                     .needed = false,
                     .weak = false,
-                    .path = name,
+                    .path = null,
                 });
             }
         }
@@ -5621,7 +5621,7 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
         gop.value_ptr.* = .{
             .needed = true,
             .weak = false,
-            .path = undefined,
+            .path = null,
         };
         try comp.work_queue.writeItem(.{
             .windows_import_lib = comp.bin_file.options.system_libs.count() - 1,

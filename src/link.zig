@@ -26,7 +26,11 @@ const TypedValue = @import("TypedValue.zig");
 pub const SystemLib = struct {
     needed: bool,
     weak: bool,
-    path: []const u8,
+    /// This can be null in two cases right now:
+    /// 1. Windows DLLs that zig ships such as advapi32.
+    /// 2. extern "foo" fn declarations where we find out about libraries too late
+    /// TODO: make this non-optional and resolve those two cases somehow.
+    path: ?[]const u8,
 };
 
 /// When adding a new field, remember to update `hashAddFrameworks`.
@@ -48,7 +52,7 @@ pub fn hashAddSystemLibs(
     for (hm.values()) |value| {
         man.hash.add(value.needed);
         man.hash.add(value.weak);
-        _ = try man.addFile(value.path, null);
+        if (value.path) |p| _ = try man.addFile(p, null);
     }
 }
 

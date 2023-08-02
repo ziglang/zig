@@ -3554,7 +3554,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         {
             const vals = options.system_libs.values();
             try libs.ensureUnusedCapacity(vals.len);
-            for (vals) |v| libs.putAssumeCapacity(v.path, v);
+            for (vals) |v| libs.putAssumeCapacity(v.path.?, v);
         }
 
         try MachO.resolveLibSystem(arena, comp, options.sysroot, target, options.lib_dirs, &libs);
