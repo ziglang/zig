@@ -2554,6 +2554,24 @@ fn buildOutputType(
         }
     }
 
+    if (use_lld) |opt| {
+        if (opt and cross_target.isDarwin()) {
+            fatal("LLD requested with Mach-O object format. Only the self-hosted linker is supported for this target.", .{});
+        }
+    }
+
+    if (want_lto) |opt| {
+        if (opt and cross_target.isDarwin()) {
+            fatal("LTO is not yet supported with the Mach-O object format. More details: https://github.com/ziglang/zig/issues/8680", .{});
+        }
+    }
+
+    if (comptime builtin.target.isDarwin()) {
+        // If we want to link against frameworks, we need system headers.
+        if (framework_dirs.items.len > 0 or frameworks.count() > 0)
+            want_native_include_dirs = true;
+    }
+
     // Resolve the library path arguments with respect to sysroot.
     var lib_dirs = std.ArrayList([]const u8).init(arena);
     if (sysroot) |root| {
@@ -2598,6 +2616,100 @@ fn buildOutputType(
     };
     defer zig_lib_directory.handle.close();
 
+    // First, remove libc, libc++, and compiler_rt libraries from the system libraries list.
+    // We need to know whether the set of system libraries contains anything besides these
+    // to decide whether to trigger native path detection logic.
+    var external_system_libs: std.MultiArrayList(struct {
+        name: []const u8,
+        info: SystemLib,
+    }) = .{};
+    for (system_libs.keys(), system_libs.values()) |lib_name, info| {
+        if (target_util.is_libc_lib_name(target_info.target, lib_name)) {
+            link_libc = true;
+            continue;
+        }
+        if (target_util.is_libcpp_lib_name(target_info.target, lib_name)) {
+            link_libcpp = true;
+            continue;
+        }
+        switch (target_util.classifyCompilerRtLibName(target_info.target, lib_name)) {
+            .none => {},
+            .only_libunwind, .both => {
+                link_libunwind = true;
+                continue;
+            },
+            .only_compiler_rt => {
+                std.log.warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
+                continue;
+            },
+        }
+
+        if (fs.path.isAbsolute(lib_name)) {
+            fatal("cannot use absolute path as a system library: {s}", .{lib_name});
+        }
+
+        if (target_info.target.os.tag == .wasi) {
+            if (wasi_libc.getEmulatedLibCRTFile(lib_name)) |crt_file| {
+                try wasi_emulated_libs.append(crt_file);
+                continue;
+            }
+        }
+
+        try external_system_libs.append(arena, .{
+            .name = lib_name,
+            .info = info,
+        });
+    }
+    // After this point, external_system_libs is used instead of system_libs.
+
+    // libc++ depends on libc
+    if (link_libcpp) {
+        link_libc = true;
+    }
+
+    // Trigger native system library path detection if necessary.
+    if (sysroot == null and cross_target.isNativeOs() and
+        (external_system_libs.len != 0 or want_native_include_dirs))
+    {
+        const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
+            fatal("unable to detect native system paths: {s}", .{@errorName(err)});
+        };
+        for (paths.warnings.items) |warning| {
+            warn("{s}", .{warning});
+        }
+
+        const has_sysroot = if (comptime builtin.target.isDarwin()) outer: {
+            if (std.zig.system.darwin.isDarwinSDKInstalled(arena)) {
+                const sdk = std.zig.system.darwin.getDarwinSDK(arena, target_info.target) orelse
+                    break :outer false;
+                native_darwin_sdk = sdk;
+                try clang_argv.ensureUnusedCapacity(2);
+                clang_argv.appendAssumeCapacity("-isysroot");
+                clang_argv.appendAssumeCapacity(sdk.path);
+                break :outer true;
+            } else break :outer false;
+        } else false;
+
+        try clang_argv.ensureUnusedCapacity(paths.include_dirs.items.len * 2);
+        const isystem_flag = if (has_sysroot) "-iwithsysroot" else "-isystem";
+        for (paths.include_dirs.items) |include_dir| {
+            clang_argv.appendAssumeCapacity(isystem_flag);
+            clang_argv.appendAssumeCapacity(include_dir);
+        }
+
+        try clang_argv.ensureUnusedCapacity(paths.framework_dirs.items.len * 2);
+        try framework_dirs.ensureUnusedCapacity(paths.framework_dirs.items.len);
+        const iframework_flag = if (has_sysroot) "-iframeworkwithsysroot" else "-iframework";
+        for (paths.framework_dirs.items) |framework_dir| {
+            clang_argv.appendAssumeCapacity(iframework_flag);
+            clang_argv.appendAssumeCapacity(framework_dir);
+            framework_dirs.appendAssumeCapacity(framework_dir);
+        }
+
+        try lib_dirs.appendSlice(paths.lib_dirs.items);
+        try rpath_list.appendSlice(paths.rpaths.items);
+    }
+
     // Now that we have target info, we can find out if any of the system libraries
     // are part of libc or libc++. We remove them from the list and communicate their
     // existence via flags instead.
@@ -2622,27 +2734,7 @@ fn buildOutputType(
             preferred_mode: std.builtin.LinkMode,
         }).init(arena);
 
-        syslib: for (system_libs.keys(), system_libs.values()) |lib_name, info| {
-            if (target_util.is_libc_lib_name(target_info.target, lib_name)) {
-                link_libc = true;
-                continue;
-            }
-            if (target_util.is_libcpp_lib_name(target_info.target, lib_name)) {
-                link_libcpp = true;
-                continue;
-            }
-            switch (target_util.classifyCompilerRtLibName(target_info.target, lib_name)) {
-                .none => {},
-                .only_libunwind, .both => {
-                    link_libunwind = true;
-                    continue;
-                },
-                .only_compiler_rt => {
-                    std.log.warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
-                    continue;
-                },
-            }
-
+        syslib: for (external_system_libs.items(.name), external_system_libs.items(.info)) |lib_name, info| {
             if (target_info.target.os.tag == .windows) {
                 const exists = mingw.libExists(arena, target_info.target, zig_lib_directory, lib_name) catch |err| {
                     fatal("failed to check zig installation for DLL import libs: {s}", .{
@@ -2662,16 +2754,8 @@ fn buildOutputType(
                 }
             }
 
-            if (fs.path.isAbsolute(lib_name)) {
-                fatal("cannot use absolute path as a system library: {s}", .{lib_name});
-            }
-
-            if (target_info.target.os.tag == .wasi) {
-                if (wasi_libc.getEmulatedLibCRTFile(lib_name)) |crt_file| {
-                    try wasi_emulated_libs.append(crt_file);
-                    continue;
-                }
-            }
+            // Checked in the first pass above while looking for libc libraries.
+            assert(!fs.path.isAbsolute(lib_name));
 
             checked_paths.clearRetainingCapacity();
 
@@ -2819,70 +2903,7 @@ fn buildOutputType(
             process.exit(1);
         }
     }
-    // libc++ depends on libc
-    if (link_libcpp) {
-        link_libc = true;
-    }
-
-    if (use_lld) |opt| {
-        if (opt and cross_target.isDarwin()) {
-            fatal("LLD requested with Mach-O object format. Only the self-hosted linker is supported for this target.", .{});
-        }
-    }
-
-    if (want_lto) |opt| {
-        if (opt and cross_target.isDarwin()) {
-            fatal("LTO is not yet supported with the Mach-O object format. More details: https://github.com/ziglang/zig/issues/8680", .{});
-        }
-    }
-
-    if (comptime builtin.target.isDarwin()) {
-        // If we want to link against frameworks, we need system headers.
-        if (framework_dirs.items.len > 0 or frameworks.count() > 0)
-            want_native_include_dirs = true;
-    }
-
-    if (sysroot == null and cross_target.isNativeOs() and
-        (resolved_system_libs.len != 0 or want_native_include_dirs))
-    {
-        const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
-            fatal("unable to detect native system paths: {s}", .{@errorName(err)});
-        };
-        for (paths.warnings.items) |warning| {
-            warn("{s}", .{warning});
-        }
-
-        const has_sysroot = if (comptime builtin.target.isDarwin()) outer: {
-            if (std.zig.system.darwin.isDarwinSDKInstalled(arena)) {
-                const sdk = std.zig.system.darwin.getDarwinSDK(arena, target_info.target) orelse
-                    break :outer false;
-                native_darwin_sdk = sdk;
-                try clang_argv.ensureUnusedCapacity(2);
-                clang_argv.appendAssumeCapacity("-isysroot");
-                clang_argv.appendAssumeCapacity(sdk.path);
-                break :outer true;
-            } else break :outer false;
-        } else false;
-
-        try clang_argv.ensureUnusedCapacity(paths.include_dirs.items.len * 2);
-        const isystem_flag = if (has_sysroot) "-iwithsysroot" else "-isystem";
-        for (paths.include_dirs.items) |include_dir| {
-            clang_argv.appendAssumeCapacity(isystem_flag);
-            clang_argv.appendAssumeCapacity(include_dir);
-        }
-
-        try clang_argv.ensureUnusedCapacity(paths.framework_dirs.items.len * 2);
-        try framework_dirs.ensureUnusedCapacity(paths.framework_dirs.items.len);
-        const iframework_flag = if (has_sysroot) "-iframeworkwithsysroot" else "-iframework";
-        for (paths.framework_dirs.items) |framework_dir| {
-            clang_argv.appendAssumeCapacity(iframework_flag);
-            clang_argv.appendAssumeCapacity(framework_dir);
-            framework_dirs.appendAssumeCapacity(framework_dir);
-        }
-
-        try lib_dirs.appendSlice(paths.lib_dirs.items);
-        try rpath_list.appendSlice(paths.rpaths.items);
-    }
+    // After this point, resolved_system_libs is used instead of external_system_libs.
 
     const object_format = target_info.target.ofmt;
 
