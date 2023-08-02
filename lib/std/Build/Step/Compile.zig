@@ -1339,8 +1339,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(try std.fmt.allocPrint(b.allocator, "-freference-trace={d}", .{some}));
     }
 
-    try addFlag(&zig_args, "LLVM", self.use_llvm);
-    try addFlag(&zig_args, "LLD", self.use_lld);
+    try addFlag(&zig_args, "llvm", self.use_llvm);
+    try addFlag(&zig_args, "lld", self.use_lld);
 
     if (self.target.ofmt) |ofmt| {
         try zig_args.append(try std.fmt.allocPrint(b.allocator, "-ofmt={s}", .{@tagName(ofmt)}));
