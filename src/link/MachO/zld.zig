@@ -1492,6 +1492,42 @@ pub const Zld = struct {
                 try thunks.createThunks(self, @as(u8, @intCast(sect_id)));
             }
         }
+
+        // Update offsets of all symbols contained within each Atom.
+        // We need to do this since our unwind info synthesiser relies on
+        // traversing the symbols when synthesising unwind info and DWARF CFI records.
+        for (slice.items(.first_atom_index)) |first_atom_index| {
+            if (first_atom_index == 0) continue;
+            var atom_index = first_atom_index;
+
+            while (true) {
+                const atom = self.getAtom(atom_index);
+                const sym = self.getSymbol(atom.getSymbolWithLoc());
+
+                if (atom.getFile() != null) {
+                    // Update each symbol contained within the atom
+                    var it = Atom.getInnerSymbolsIterator(self, atom_index);
+                    while (it.next()) |sym_loc| {
+                        const inner_sym = self.getSymbolPtr(sym_loc);
+                        inner_sym.n_value = sym.n_value + Atom.calcInnerSymbolOffset(
+                            self,
+                            atom_index,
+                            sym_loc.sym_index,
+                        );
+                    }
+
+                    // If there is a section alias, update it now too
+                    if (Atom.getSectionAlias(self, atom_index)) |sym_loc| {
+                        const alias = self.getSymbolPtr(sym_loc);
+                        alias.n_value = sym.n_value;
+                    }
+                }
+
+                if (atom.next_index) |next_index| {
+                    atom_index = next_index;
+                } else break;
+            }
+        }
     }
 
     fn allocateSegments(self: *Zld) !void {

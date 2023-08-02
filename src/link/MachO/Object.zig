@@ -75,11 +75,11 @@ exec_atoms: std.ArrayListUnmanaged(AtomIndex) = .{},
 
 eh_frame_sect_id: ?u8 = null,
 eh_frame_relocs_lookup: std.AutoArrayHashMapUnmanaged(u32, Record) = .{},
-eh_frame_records_lookup: std.AutoArrayHashMapUnmanaged(AtomIndex, u32) = .{},
+eh_frame_records_lookup: std.AutoArrayHashMapUnmanaged(SymbolWithLoc, u32) = .{},
 
 unwind_info_sect_id: ?u8 = null,
 unwind_relocs_lookup: []Record = undefined,
-unwind_records_lookup: std.AutoHashMapUnmanaged(AtomIndex, u32) = .{},
+unwind_records_lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .{},
 
 const Entry = struct {
     start: u32 = 0,
@@ -274,11 +274,11 @@ const SymbolAtIndex = struct {
         const sym = self.getSymbol(ctx);
         if (!sym.ext()) {
             const sym_name = self.getSymbolName(ctx);
-            if (mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L")) return 0;
-            return 1;
+            if (mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L")) return 3;
+            return 2;
         }
-        if (sym.weakDef() or sym.pext()) return 2;
-        return 3;
+        if (sym.weakDef() or sym.pext()) return 1;
+        return 0;
     }
 
     /// Performs lexicographic-like check.
@@ -423,8 +423,8 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                 zld,
                 object_id,
                 sym_index,
-                0,
-                0,
+                sym_index,
+                1,
                 sect.size,
                 sect.@"align",
                 out_sect_id,
@@ -502,8 +502,8 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                     zld,
                     object_id,
                     sym_index,
-                    0,
-                    0,
+                    sym_index,
+                    1,
                     atom_size,
                     sect.@"align",
                     out_sect_id,
@@ -521,7 +521,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                 const atom_loc = filterSymbolsByAddress(symtab[next_sym_index..], addr, addr + 1);
                 assert(atom_loc.len > 0);
                 const atom_sym_index = atom_loc.index + next_sym_index;
-                const nsyms_trailing = atom_loc.len - 1;
+                const nsyms_trailing = atom_loc.len;
                 next_sym_index += atom_loc.len;
 
                 const atom_size = if (next_sym_index < sect_start_index + sect_loc.len)
@@ -538,7 +538,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                     zld,
                     object_id,
                     atom_sym_index,
-                    atom_sym_index + 1,
+                    atom_sym_index,
                     nsyms_trailing,
                     atom_size,
                     atom_align,
@@ -772,8 +772,7 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
             if (target.getFile() != object_id) {
                 self.eh_frame_relocs_lookup.getPtr(offset).?.dead = true;
             } else {
-                const atom_index = self.getAtomIndexForSymbol(target.sym_index).?;
-                self.eh_frame_records_lookup.putAssumeCapacityNoClobber(atom_index, offset);
+                self.eh_frame_records_lookup.putAssumeCapacityNoClobber(target, offset);
             }
         }
     }
@@ -802,9 +801,9 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
         _ = try zld.initSection("__TEXT", "__unwind_info", .{});
     }
 
-    try self.unwind_records_lookup.ensureTotalCapacity(gpa, @as(u32, @intCast(self.exec_atoms.items.len)));
-
     const unwind_records = self.getUnwindRecords();
+
+    try self.unwind_records_lookup.ensureTotalCapacity(gpa, @as(u32, @intCast(unwind_records.len)));
 
     const needs_eh_frame = for (unwind_records) |record| {
         if (UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) break true;
@@ -844,8 +843,7 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
         if (target.getFile() != object_id) {
             self.unwind_relocs_lookup[record_id].dead = true;
         } else {
-            const atom_index = self.getAtomIndexForSymbol(target.sym_index).?;
-            self.unwind_records_lookup.putAssumeCapacityNoClobber(atom_index, @as(u32, @intCast(record_id)));
+            self.unwind_records_lookup.putAssumeCapacityNoClobber(target, @as(u32, @intCast(record_id)));
         }
     }
 }
@@ -1012,7 +1010,13 @@ pub fn getSymbolByAddress(self: Object, addr: u64, sect_hint: ?u8) u32 {
                 Predicate{ .addr = @as(i64, @intCast(addr)) },
             );
             if (target_sym_index > 0) {
-                return @as(u32, @intCast(lookup.start + target_sym_index - 1));
+                // Hone in on the most senior alias of the target symbol.
+                // See SymbolAtIndex.lessThan for more context.
+                var start = target_sym_index - 1;
+                while (start > 0 and
+                    self.source_address_lookup[lookup.start..][start - 1] == addr) : (start -= 1)
+                {}
+                return @as(u32, @intCast(lookup.start + start));
             }
         }
         return self.getSectionAliasSymbolIndex(sect_id);
