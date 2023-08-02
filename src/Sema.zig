@@ -745,9 +745,9 @@ pub const Block = struct {
         return result_index;
     }
 
-    fn addUnreachable(block: *Block, safety_check: bool) !void {
+    fn addUnreachable(block: *Block, src: LazySrcLoc, safety_check: bool) !void {
         if (safety_check and block.wantSafety()) {
-            try block.sema.safetyPanic(block, .unreach);
+            try block.sema.safetyPanic(block, src, .unreach);
         } else {
             _ = try block.addNoOp(.unreach);
         }
@@ -4304,7 +4304,7 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             if (arg_len == .none) continue;
             if (i == len_idx) continue;
             const ok = try block.addBinOp(.cmp_eq, len, arg_len);
-            try sema.addSafetyCheck(block, ok, .for_len_mismatch);
+            try sema.addSafetyCheck(block, src, ok, .for_len_mismatch);
         }
     }
 
@@ -5442,7 +5442,7 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.I
     if (block.is_comptime) {
         return sema.fail(block, src, "encountered @panic at comptime", .{});
     }
-    try sema.panicWithMsg(block, msg_inst);
+    try sema.panicWithMsg(block, src, msg_inst, .@"@panic");
     return always_noreturn;
 }
 
@@ -6605,7 +6605,7 @@ fn zirCall(
         !block.is_comptime and !block.is_typeof and (input_is_error or pop_error_return_trace))
     {
         const call_inst: Air.Inst.Ref = if (modifier == .always_tail) undefined else b: {
-            break :b try sema.analyzeCall(block, func, func_ty, callee_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src, call_dbg_node);
+            break :b try sema.analyzeCall(block, func, func_ty, callee_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src, call_dbg_node, .call);
         };
 
         const return_ty = sema.typeOf(call_inst);
@@ -6635,11 +6635,11 @@ fn zirCall(
         }
 
         if (modifier == .always_tail) // Perform the call *after* the restore, so that a tail call is possible.
-            return sema.analyzeCall(block, func, func_ty, callee_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src, call_dbg_node);
+            return sema.analyzeCall(block, func, func_ty, callee_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src, call_dbg_node, .call);
 
         return call_inst;
     } else {
-        return sema.analyzeCall(block, func, func_ty, callee_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src, call_dbg_node);
+        return sema.analyzeCall(block, func, func_ty, callee_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src, call_dbg_node, .call);
     }
 }
 
@@ -6719,9 +6719,11 @@ fn checkCallArgumentCount(
 fn callBuiltin(
     sema: *Sema,
     block: *Block,
+    call_src: LazySrcLoc,
     builtin_fn: Air.Inst.Ref,
     modifier: std.builtin.CallModifier,
     args: []const Air.Inst.Ref,
+    operation: CallOperation,
 ) !void {
     const mod = sema.mod;
     const callee_ty = sema.typeOf(builtin_fn);
@@ -6744,8 +6746,16 @@ fn callBuiltin(
     if (args.len != fn_params_len or (func_ty_info.is_var_args and args.len < fn_params_len)) {
         std.debug.panic("parameter count mismatch calling builtin fn, expected {d}, found {d}", .{ fn_params_len, args.len });
     }
-    _ = try sema.analyzeCall(block, builtin_fn, func_ty, sema.src, sema.src, modifier, false, args, null, null);
+    _ = try sema.analyzeCall(block, builtin_fn, func_ty, call_src, call_src, modifier, false, args, null, null, operation);
 }
+
+const CallOperation = enum {
+    call,
+    @"@call",
+    @"@panic",
+    @"safety check",
+    @"error return",
+};
 
 fn analyzeCall(
     sema: *Sema,
@@ -6759,6 +6769,7 @@ fn analyzeCall(
     uncasted_args: []const Air.Inst.Ref,
     bound_arg_src: ?LazySrcLoc,
     call_dbg_node: ?Zir.Inst.Index,
+    operation: CallOperation,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
@@ -6830,7 +6841,17 @@ fn analyzeCall(
         func_ty_info.cc == .Inline;
 
     if (sema.func_is_naked and !is_inline_call and !is_comptime_call) {
-        return sema.fail(block, call_src, "runtime call not allowed in naked function", .{});
+        const msg = msg: {
+            const msg = try sema.errMsg(block, call_src, "runtime {s} not allowed in naked function", .{@tagName(operation)});
+            errdefer msg.destroy(sema.gpa);
+
+            switch (operation) {
+                .call, .@"@call", .@"@panic", .@"error return" => {},
+                .@"safety check" => try sema.errNote(block, call_src, msg, "use @setRuntimeSafety to disable runtime safety", .{}),
+            }
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     if (!is_inline_call and is_generic_call) {
@@ -7281,7 +7302,7 @@ fn analyzeCall(
                     else => {},
                 }
             }
-            try sema.safetyPanic(block, .noreturn_returned);
+            try sema.safetyPanic(block, call_src, .noreturn_returned);
             return Air.Inst.Ref.unreachable_value;
         }
         if (func_ty_info.return_type == .noreturn_type) {
@@ -7939,7 +7960,7 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         const zero_val = try sema.addConstant(try mod.intValue(Type.err_int, 0));
         const is_non_zero = try block.addBinOp(.cmp_neq, operand, zero_val);
         const ok = try block.addBinOp(.bit_and, is_lt_len, is_non_zero);
-        try sema.addSafetyCheck(block, ok, .invalid_error_code);
+        try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
     }
     return block.addInst(.{
         .tag = .bitcast,
@@ -8131,7 +8152,7 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         mod.backendSupportsFeature(.is_named_enum_value))
     {
         const ok = try block.addUnOp(.is_named_enum_value, result);
-        try sema.addSafetyCheck(block, ok, .invalid_enum_value);
+        try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
     }
     return result;
 }
@@ -8207,7 +8228,7 @@ fn analyzeOptionalPayloadPtr(
     try sema.requireRuntimeBlock(block, src, null);
     if (safety_check and block.wantSafety()) {
         const is_non_null = try block.addUnOp(.is_non_null_ptr, optional_ptr);
-        try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
+        try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
     }
     const air_tag: Air.Inst.Tag = if (initializing)
         .optional_payload_ptr_set
@@ -8264,7 +8285,7 @@ fn zirOptionalPayload(
     try sema.requireRuntimeBlock(block, src, null);
     if (safety_check and block.wantSafety()) {
         const is_non_null = try block.addUnOp(.is_non_null, operand);
-        try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
+        try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
     }
     return block.addTyOp(.optional_payload, result_ty, operand);
 }
@@ -8318,7 +8339,7 @@ fn analyzeErrUnionPayload(
     if (safety_check and block.wantSafety() and
         !err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod))
     {
-        try sema.panicUnwrapError(block, operand, .unwrap_errunion_err, .is_non_err);
+        try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err, .is_non_err);
     }
 
     return block.addTyOp(.unwrap_errunion_payload, payload_ty, operand);
@@ -8399,7 +8420,7 @@ fn analyzeErrUnionPayloadPtr(
     if (safety_check and block.wantSafety() and
         !err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod))
     {
-        try sema.panicUnwrapError(block, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
+        try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
     }
 
     const air_tag: Air.Inst.Tag = if (initializing)
@@ -9637,7 +9658,7 @@ fn intCast(
                     const is_in_range = try block.addBinOp(.cmp_lte, operand, zero_inst);
                     break :ok is_in_range;
                 };
-                try sema.addSafetyCheck(block, ok, .cast_truncated_data);
+                try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
             }
         }
 
@@ -9691,7 +9712,7 @@ fn intCast(
                     break :ok is_in_range;
                 };
                 // TODO negative_to_unsigned?
-                try sema.addSafetyCheck(block, ok, .cast_truncated_data);
+                try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
             } else {
                 const ok = if (is_vector) ok: {
                     const is_in_range = try block.addCmpVector(diff, dest_max, .lte);
@@ -9707,7 +9728,7 @@ fn intCast(
                     const is_in_range = try block.addBinOp(.cmp_lte, diff, dest_max);
                     break :ok is_in_range;
                 };
-                try sema.addSafetyCheck(block, ok, .cast_truncated_data);
+                try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
             }
         } else if (actual_info.signedness == .signed and wanted_info.signedness == .unsigned) {
             // no shrinkage, yes sign loss
@@ -9730,7 +9751,7 @@ fn intCast(
                 const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
                 break :ok is_in_range;
             };
-            try sema.addSafetyCheck(block, ok, .negative_to_unsigned);
+            try sema.addSafetyCheck(block, src, ok, .negative_to_unsigned);
         }
     }
     return block.addTyOp(.intcast, dest_ty, operand);
@@ -10319,7 +10340,7 @@ const SwitchProngAnalysis = struct {
                 .ErrorSet => if (spa.else_error_ty) |ty| {
                     return sema.bitCast(block, ty, spa.operand, operand_src, null);
                 } else {
-                    try block.addUnreachable(false);
+                    try block.addUnreachable(operand_src, false);
                     return Air.Inst.Ref.unreachable_value;
                 },
                 else => return spa.operand,
@@ -11475,7 +11496,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         if (special_prong == .none) {
             return sema.fail(block, src, "switch must handle all possibilities", .{});
         }
-        if (err_set and try sema.maybeErrorUnwrap(block, special.body, operand)) {
+        if (err_set and try sema.maybeErrorUnwrap(block, special.body, operand, operand_src)) {
             return Air.Inst.Ref.unreachable_value;
         }
         if (mod.backendSupportsFeature(.is_named_enum_value) and block.wantSafety() and operand_ty.zigTypeTag(mod) == .Enum and
@@ -11483,7 +11504,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         {
             try sema.zirDbgStmt(block, cond_dbg_node_index);
             const ok = try block.addUnOp(.is_named_enum_value, operand);
-            try sema.addSafetyCheck(block, ok, .corrupt_switch);
+            try sema.addSafetyCheck(block, src, ok, .corrupt_switch);
         }
 
         return spa.resolveProngComptime(
@@ -11543,7 +11564,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             break :blk field_ty.zigTypeTag(mod) != .NoReturn;
         } else true;
 
-        if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
+        if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src)) {
             // nothing to do here
         } else if (analyze_body) {
             try spa.analyzeProngRuntime(
@@ -11725,7 +11746,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
             const body = sema.code.extra[extra_index..][0..info.body_len];
             extra_index += info.body_len;
-            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
+            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src)) {
                 // nothing to do here
             } else if (analyze_body) {
                 try spa.analyzeProngRuntime(
@@ -11812,7 +11833,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
             const body = sema.code.extra[extra_index..][0..info.body_len];
             extra_index += info.body_len;
-            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
+            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src)) {
                 // nothing to do here
             } else {
                 try spa.analyzeProngRuntime(
@@ -12045,7 +12066,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         {
             try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
             const ok = try case_block.addUnOp(.is_named_enum_value, operand);
-            try sema.addSafetyCheck(&case_block, ok, .corrupt_switch);
+            try sema.addSafetyCheck(&case_block, src, ok, .corrupt_switch);
         }
 
         const analyze_body = if (union_originally and !special.is_inline)
@@ -12058,7 +12079,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         else
             true;
         if (special.body.len != 0 and err_set and
-            try sema.maybeErrorUnwrap(&case_block, special.body, operand))
+            try sema.maybeErrorUnwrap(&case_block, special.body, operand, operand_src))
         {
             // nothing to do here
         } else if (special.body.len != 0 and analyze_body and !special.is_inline) {
@@ -12077,7 +12098,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             // that it is unreachable.
             if (case_block.wantSafety()) {
                 try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
-                try sema.safetyPanic(&case_block, .corrupt_switch);
+                try sema.safetyPanic(&case_block, src, .corrupt_switch);
             } else {
                 _ = try case_block.addNoOp(.unreach);
             }
@@ -12420,7 +12441,7 @@ fn validateSwitchNoRange(
     return sema.failWithOwnedErrorMsg(msg);
 }
 
-fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, operand: Air.Inst.Ref) !bool {
+fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, operand: Air.Inst.Ref, operand_src: LazySrcLoc) !bool {
     const mod = sema.mod;
     if (!mod.backendSupportsFeature(.panic_unwrap_error)) return false;
 
@@ -12459,14 +12480,14 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
             .field_val => try sema.zirFieldVal(block, inst),
             .@"unreachable" => {
                 if (!mod.comp.formatted_panics) {
-                    try sema.safetyPanic(block, .unwrap_error);
+                    try sema.safetyPanic(block, operand_src, .unwrap_error);
                     return true;
                 }
 
                 const panic_fn = try sema.getBuiltin("panicUnwrapError");
                 const err_return_trace = try sema.getErrorReturnTrace(block);
                 const args: [2]Air.Inst.Ref = .{ err_return_trace, operand };
-                try sema.callBuiltin(block, panic_fn, .auto, &args);
+                try sema.callBuiltin(block, operand_src, panic_fn, .auto, &args, .@"safety check");
                 return true;
             },
             .panic => {
@@ -12476,7 +12497,7 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
                 const panic_fn = try sema.getBuiltin("panic");
                 const err_return_trace = try sema.getErrorReturnTrace(block);
                 const args: [3]Air.Inst.Ref = .{ msg_inst, err_return_trace, .null_value };
-                try sema.callBuiltin(block, panic_fn, .auto, &args);
+                try sema.callBuiltin(block, operand_src, panic_fn, .auto, &args, .@"safety check");
                 return true;
             },
             else => unreachable,
@@ -12851,7 +12872,7 @@ fn zirShl(
                 const bit_count_inst = try sema.addConstant(bit_count_val);
                 break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
             };
-            try sema.addSafetyCheck(block, ok, .shift_rhs_too_big);
+            try sema.addSafetyCheck(block, src, ok, .shift_rhs_too_big);
         }
 
         if (air_tag == .shl_exact) {
@@ -12880,7 +12901,7 @@ fn zirShl(
             const zero_ov = try sema.addConstant(try mod.intValue(Type.u1, 0));
             const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
-            try sema.addSafetyCheck(block, no_ov, .shl_overflow);
+            try sema.addSafetyCheck(block, src, no_ov, .shl_overflow);
             return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
         }
     }
@@ -13001,7 +13022,7 @@ fn zirShr(
                 const bit_count_inst = try sema.addConstant(bit_count_val);
                 break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
             };
-            try sema.addSafetyCheck(block, ok, .shift_rhs_too_big);
+            try sema.addSafetyCheck(block, src, ok, .shift_rhs_too_big);
         }
 
         if (air_tag == .shr_exact) {
@@ -13017,7 +13038,7 @@ fn zirShr(
                     } },
                 });
             } else try block.addBinOp(.cmp_eq, lhs, back);
-            try sema.addSafetyCheck(block, ok, .shr_overflow);
+            try sema.addSafetyCheck(block, src, ok, .shr_overflow);
         }
     }
     return result;
@@ -13894,8 +13915,8 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (block.wantSafety()) {
-        try sema.addDivIntOverflowSafety(block, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
-        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+        try sema.addDivIntOverflowSafety(block, src, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, src, resolved_type, maybe_rhs_val, casted_rhs, is_int);
     }
 
     const air_tag = if (is_int) blk: {
@@ -14025,8 +14046,8 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     // div_trunc and check for remainder.
 
     if (block.wantSafety()) {
-        try sema.addDivIntOverflowSafety(block, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
-        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+        try sema.addDivIntOverflowSafety(block, src, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, src, resolved_type, maybe_rhs_val, casted_rhs, is_int);
 
         const result = try block.addBinOp(.div_trunc, casted_lhs, casted_rhs);
         const ok = if (!is_int) ok: {
@@ -14076,7 +14097,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :ok is_in_range;
             }
         };
-        try sema.addSafetyCheck(block, ok, .exact_division_remainder);
+        try sema.addSafetyCheck(block, src, ok, .exact_division_remainder);
         return result;
     }
 
@@ -14191,8 +14212,8 @@ fn zirDivFloor(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (block.wantSafety()) {
-        try sema.addDivIntOverflowSafety(block, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
-        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+        try sema.addDivIntOverflowSafety(block, src, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, src, resolved_type, maybe_rhs_val, casted_rhs, is_int);
     }
 
     return block.addBinOp(airTag(block, is_int, .div_floor, .div_floor_optimized), casted_lhs, casted_rhs);
@@ -14308,8 +14329,8 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (block.wantSafety()) {
-        try sema.addDivIntOverflowSafety(block, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
-        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+        try sema.addDivIntOverflowSafety(block, src, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, src, resolved_type, maybe_rhs_val, casted_rhs, is_int);
     }
 
     return block.addBinOp(airTag(block, is_int, .div_trunc, .div_trunc_optimized), casted_lhs, casted_rhs);
@@ -14318,6 +14339,7 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 fn addDivIntOverflowSafety(
     sema: *Sema,
     block: *Block,
+    src: LazySrcLoc,
     resolved_type: Type,
     lhs_scalar_ty: Type,
     maybe_lhs_val: ?Value,
@@ -14391,12 +14413,13 @@ fn addDivIntOverflowSafety(
         }
         assert(ok != .none);
     }
-    try sema.addSafetyCheck(block, ok, .integer_overflow);
+    try sema.addSafetyCheck(block, src, ok, .integer_overflow);
 }
 
 fn addDivByZeroSafety(
     sema: *Sema,
     block: *Block,
+    src: LazySrcLoc,
     resolved_type: Type,
     maybe_rhs_val: ?Value,
     casted_rhs: Air.Inst.Ref,
@@ -14429,7 +14452,7 @@ fn addDivByZeroSafety(
         const zero = try sema.addConstant(scalar_zero);
         break :ok try block.addBinOp(if (is_int) .cmp_neq else .cmp_neq_optimized, casted_rhs, zero);
     };
-    try sema.addSafetyCheck(block, ok, .divide_by_zero);
+    try sema.addSafetyCheck(block, src, ok, .divide_by_zero);
 }
 
 fn airTag(block: *Block, is_int: bool, normal: Air.Inst.Tag, optimized: Air.Inst.Tag) Air.Inst.Tag {
@@ -14569,7 +14592,7 @@ fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (block.wantSafety()) {
-        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, src, resolved_type, maybe_rhs_val, casted_rhs, is_int);
     }
 
     const air_tag = airTag(block, is_int, .rem, .rem_optimized);
@@ -14720,7 +14743,7 @@ fn zirMod(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (block.wantSafety()) {
-        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, src, resolved_type, maybe_rhs_val, casted_rhs, is_int);
     }
 
     const air_tag = airTag(block, is_int, .mod, .mod_optimized);
@@ -14820,7 +14843,7 @@ fn zirRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (block.wantSafety()) {
-        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, src, resolved_type, maybe_rhs_val, casted_rhs, is_int);
     }
 
     const air_tag = airTag(block, is_int, .rem, .rem_optimized);
@@ -15558,7 +15581,7 @@ fn analyzeArithmetic(
                 const zero_ov = try sema.addConstant(try mod.intValue(Type.u1, 0));
                 const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
-                try sema.addSafetyCheck(block, no_ov, .integer_overflow);
+                try sema.addSafetyCheck(block, src, no_ov, .integer_overflow);
                 return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
             }
         }
@@ -17979,7 +18002,7 @@ fn zirCondbr(
         break :blk try sub_block.addTyOp(.unwrap_errunion_err, result_ty, err_operand);
     };
 
-    if (err_cond != null and try sema.maybeErrorUnwrap(&sub_block, else_body, err_cond.?)) {
+    if (err_cond != null and try sema.maybeErrorUnwrap(&sub_block, else_body, err_cond.?, cond_src)) {
         // nothing to do
     } else {
         try sema.analyzeBodyRuntimeBreak(&sub_block, else_body);
@@ -18171,7 +18194,15 @@ fn zirUnreachable(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         return sema.fail(block, src, "reached unreachable code", .{});
     }
     // TODO Add compile error for @optimizeFor occurring too late in a scope.
-    try block.addUnreachable(true);
+    block.addUnreachable(src, true) catch |err| switch (err) {
+        error.AnalysisFail => {
+            const msg = sema.err orelse return err;
+            if (!mem.eql(u8, msg.msg, "runtime safety check not allowed in naked function")) return err;
+            try sema.errNote(block, src, msg, "the end of a naked function is implicitly unreachable", .{});
+            return err;
+        },
+        else => |e| return e,
+    };
     return always_noreturn;
 }
 
@@ -18202,21 +18233,21 @@ fn zirRetImplicit(
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const r_brace_src = inst_data.src();
     if (block.inlining == null and sema.func_is_naked) {
         assert(!block.is_comptime);
         if (block.wantSafety()) {
             // Calling a safety function from a naked function would not be legal.
             _ = try block.addNoOp(.trap);
         } else {
-            try block.addUnreachable(false);
+            try block.addUnreachable(r_brace_src, false);
         }
         return always_noreturn;
     }
 
-    const mod = sema.mod;
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
     const operand = try sema.resolveInst(inst_data.operand);
-    const r_brace_src = inst_data.src();
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
     const base_tag = sema.fn_ret_ty.baseZigTypeTag(mod);
     if (base_tag == .NoReturn) {
@@ -18270,7 +18301,7 @@ fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir
 
     if (sema.wantErrorReturnTracing(sema.fn_ret_ty)) {
         const is_non_err = try sema.analyzePtrIsNonErr(block, src, ret_ptr);
-        return sema.retWithErrTracing(block, is_non_err, .ret_load, ret_ptr);
+        return sema.retWithErrTracing(block, src, is_non_err, .ret_load, ret_ptr);
     }
 
     _ = try block.addUnOp(.ret_load, ret_ptr);
@@ -18280,6 +18311,7 @@ fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir
 fn retWithErrTracing(
     sema: *Sema,
     block: *Block,
+    src: LazySrcLoc,
     is_non_err: Air.Inst.Ref,
     ret_tag: Air.Inst.Tag,
     operand: Air.Inst.Ref,
@@ -18302,7 +18334,7 @@ fn retWithErrTracing(
     const args: [1]Air.Inst.Ref = .{err_return_trace};
 
     if (!need_check) {
-        try sema.callBuiltin(block, return_err_fn, .never_inline, &args);
+        try sema.callBuiltin(block, src, return_err_fn, .never_inline, &args, .@"error return");
         _ = try block.addUnOp(ret_tag, operand);
         return always_noreturn;
     }
@@ -18313,7 +18345,7 @@ fn retWithErrTracing(
 
     var else_block = block.makeSubBlock();
     defer else_block.instructions.deinit(gpa);
-    try sema.callBuiltin(&else_block, return_err_fn, .never_inline, &args);
+    try sema.callBuiltin(&else_block, src, return_err_fn, .never_inline, &args, .@"error return");
     _ = try else_block.addUnOp(ret_tag, operand);
 
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
@@ -18470,7 +18502,14 @@ fn analyzeRet(
     } else if (block.is_comptime) {
         return sema.fail(block, src, "function called at runtime cannot return value at comptime", .{});
     } else if (sema.func_is_naked) {
-        return sema.fail(block, src, "cannot return from naked function", .{});
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "cannot return from naked function", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.errNote(block, src, msg, "can only return using assembly", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     try sema.resolveTypeLayout(sema.fn_ret_ty);
@@ -18479,7 +18518,7 @@ fn analyzeRet(
         // Avoid adding a frame to the error return trace in case the value is comptime-known
         // to be not an error.
         const is_non_err = try sema.analyzeIsNonErr(block, src, operand);
-        return sema.retWithErrTracing(block, is_non_err, .ret, operand);
+        return sema.retWithErrTracing(block, src, is_non_err, .ret, operand);
     }
 
     _ = try block.addUnOp(.ret, operand);
@@ -19624,7 +19663,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety() and sema.mod.backendSupportsFeature(.is_named_enum_value)) {
         const ok = try block.addUnOp(.is_named_enum_value, casted_operand);
-        try sema.addSafetyCheck(block, ok, .invalid_enum_value);
+        try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
     }
     // In case the value is runtime-known, we have an AIR instruction for this instead
     // of trying to lower it in Sema because an optimization pass may result in the operand
@@ -20769,7 +20808,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     if (dest_ty.intInfo(mod).bits == 0) {
         if (block.wantSafety()) {
             const ok = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, operand, try sema.addConstant(try mod.floatValue(operand_ty, 0.0)));
-            try sema.addSafetyCheck(block, ok, .integer_part_out_of_bounds);
+            try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
         }
         return sema.addConstant(try mod.intValue(dest_ty, 0));
     }
@@ -20780,7 +20819,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
         const ok_pos = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_lt_optimized else .cmp_lt, diff, try sema.addConstant(try mod.floatValue(operand_ty, 1.0)));
         const ok_neg = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_gt_optimized else .cmp_gt, diff, try sema.addConstant(try mod.floatValue(operand_ty, -1.0)));
         const ok = try block.addBinOp(.bool_and, ok_pos, ok_neg);
-        try sema.addSafetyCheck(block, ok, .integer_part_out_of_bounds);
+        try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
     }
     return result;
 }
@@ -20857,7 +20896,7 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     if (block.wantSafety() and (try sema.typeHasRuntimeBits(elem_ty) or elem_ty.zigTypeTag(mod) == .Fn)) {
         if (!ptr_ty.isAllowzeroPtr(mod)) {
             const is_non_zero = try block.addBinOp(.cmp_neq, operand_coerced, .zero_usize);
-            try sema.addSafetyCheck(block, is_non_zero, .cast_to_null);
+            try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
         }
 
         if (ptr_align > 1) {
@@ -20866,7 +20905,7 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             );
             const remainder = try block.addBinOp(.bit_and, operand_coerced, align_minus_1);
             const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-            try sema.addSafetyCheck(block, is_aligned, .incorrect_alignment);
+            try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
         }
     }
     return block.addBitCast(ptr_ty, operand_coerced);
@@ -20954,7 +20993,7 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     if (block.wantSafety() and !dest_ty.isAnyError(mod) and sema.mod.backendSupportsFeature(.error_set_has_value)) {
         const err_int_inst = try block.addBitCast(Type.err_int, operand);
         const ok = try block.addTyOp(.error_set_has_value, dest_ty, err_int_inst);
-        try sema.addSafetyCheck(block, ok, .invalid_error_code);
+        try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
     }
     return block.addBitCast(dest_ty, operand);
 }
@@ -21300,7 +21339,7 @@ fn ptrCastFull(
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bit_or, len_zero, is_non_zero);
         } else is_non_zero;
-        try sema.addSafetyCheck(block, ok, .cast_to_null);
+        try sema.addSafetyCheck(block, src, ok, .cast_to_null);
     }
 
     if (block.wantSafety() and dest_align > src_align and try sema.typeHasRuntimeBits(dest_info.child.toType())) {
@@ -21315,7 +21354,7 @@ fn ptrCastFull(
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bit_or, len_zero, is_aligned);
         } else is_aligned;
-        try sema.addSafetyCheck(block, ok, .incorrect_alignment);
+        try sema.addSafetyCheck(block, src, ok, .incorrect_alignment);
     }
 
     // If we're going from an array pointer to a slice, this will only be the pointer part!
@@ -22992,7 +23031,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const callee_ty = sema.typeOf(func);
     const func_ty = try sema.checkCallArgumentCount(block, func, func_src, callee_ty, resolved_args.len, false);
     const ensure_result_used = extra.flags.ensure_result_used;
-    return sema.analyzeCall(block, func, func_ty, func_src, call_src, modifier, ensure_result_used, resolved_args, null, null);
+    return sema.analyzeCall(block, func, func_ty, func_src, call_src, modifier, ensure_result_used, resolved_args, null, null, .@"@call");
 }
 
 fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -23477,7 +23516,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
         if (block.wantSafety()) {
             const ok = try block.addBinOp(.cmp_eq, dest_len, src_len);
-            try sema.addSafetyCheck(block, ok, .memcpy_len_mismatch);
+            try sema.addSafetyCheck(block, src, ok, .memcpy_len_mismatch);
         }
     } else if (dest_len != .none) {
         if (try sema.resolveDefinedValue(block, dest_src, dest_len)) |dest_len_val| {
@@ -23619,7 +23658,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         const ok1 = try block.addBinOp(.cmp_gte, raw_dest_ptr, src_plus_len);
         const ok2 = try block.addBinOp(.cmp_gte, new_src_ptr, dest_plus_len);
         const ok = try block.addBinOp(.bit_or, ok1, ok2);
-        try sema.addSafetyCheck(block, ok, .memcpy_alias);
+        try sema.addSafetyCheck(block, src, ok, .memcpy_alias);
     }
 
     _ = try block.addInst(.{
@@ -24862,6 +24901,7 @@ fn preparePanicId(sema: *Sema, block: *Block, panic_id: Module.PanicId) !Module.
 fn addSafetyCheck(
     sema: *Sema,
     parent_block: *Block,
+    src: LazySrcLoc,
     ok: Air.Inst.Ref,
     panic_id: Module.PanicId,
 ) !void {
@@ -24881,7 +24921,7 @@ fn addSafetyCheck(
 
     defer fail_block.instructions.deinit(gpa);
 
-    try sema.safetyPanic(&fail_block, panic_id);
+    try sema.safetyPanic(&fail_block, src, panic_id);
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
 }
 
@@ -24940,7 +24980,7 @@ fn addSafetyCheckExtra(
     parent_block.instructions.appendAssumeCapacity(block_inst);
 }
 
-fn panicWithMsg(sema: *Sema, block: *Block, msg_inst: Air.Inst.Ref) !void {
+fn panicWithMsg(sema: *Sema, block: *Block, src: LazySrcLoc, msg_inst: Air.Inst.Ref, operation: CallOperation) !void {
     const mod = sema.mod;
 
     if (!mod.backendSupportsFeature(.panic_fn)) {
@@ -24959,12 +24999,13 @@ fn panicWithMsg(sema: *Sema, block: *Block, msg_inst: Air.Inst.Ref) !void {
         .ty = opt_usize_ty.toIntern(),
         .val = .none,
     } })).toValue());
-    try sema.callBuiltin(block, panic_fn, .auto, &.{ msg_inst, null_stack_trace, null_ret_addr });
+    try sema.callBuiltin(block, src, panic_fn, .auto, &.{ msg_inst, null_stack_trace, null_ret_addr }, operation);
 }
 
 fn panicUnwrapError(
     sema: *Sema,
     parent_block: *Block,
+    src: LazySrcLoc,
     operand: Air.Inst.Ref,
     unwrap_err_tag: Air.Inst.Tag,
     is_non_err_tag: Air.Inst.Tag,
@@ -24972,7 +25013,7 @@ fn panicUnwrapError(
     assert(!parent_block.is_comptime);
     const ok = try parent_block.addUnOp(is_non_err_tag, operand);
     if (!sema.mod.comp.formatted_panics) {
-        return sema.addSafetyCheck(parent_block, ok, .unwrap_error);
+        return sema.addSafetyCheck(parent_block, src, ok, .unwrap_error);
     }
     const gpa = sema.gpa;
 
@@ -24997,7 +25038,7 @@ fn panicUnwrapError(
             const err = try fail_block.addTyOp(unwrap_err_tag, Type.anyerror, operand);
             const err_return_trace = try sema.getErrorReturnTrace(&fail_block);
             const args: [2]Air.Inst.Ref = .{ err_return_trace, err };
-            try sema.callBuiltin(&fail_block, panic_fn, .auto, &args);
+            try sema.callBuiltin(&fail_block, src, panic_fn, .auto, &args, .@"safety check");
         }
     }
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
@@ -25006,6 +25047,7 @@ fn panicUnwrapError(
 fn panicIndexOutOfBounds(
     sema: *Sema,
     parent_block: *Block,
+    src: LazySrcLoc,
     index: Air.Inst.Ref,
     len: Air.Inst.Ref,
     cmp_op: Air.Inst.Tag,
@@ -25013,28 +25055,30 @@ fn panicIndexOutOfBounds(
     assert(!parent_block.is_comptime);
     const ok = try parent_block.addBinOp(cmp_op, index, len);
     if (!sema.mod.comp.formatted_panics) {
-        return sema.addSafetyCheck(parent_block, ok, .index_out_of_bounds);
+        return sema.addSafetyCheck(parent_block, src, ok, .index_out_of_bounds);
     }
-    try sema.safetyCheckFormatted(parent_block, ok, "panicOutOfBounds", &.{ index, len });
+    try sema.safetyCheckFormatted(parent_block, src, ok, "panicOutOfBounds", &.{ index, len });
 }
 
 fn panicInactiveUnionField(
     sema: *Sema,
     parent_block: *Block,
+    src: LazySrcLoc,
     active_tag: Air.Inst.Ref,
     wanted_tag: Air.Inst.Ref,
 ) !void {
     assert(!parent_block.is_comptime);
     const ok = try parent_block.addBinOp(.cmp_eq, active_tag, wanted_tag);
     if (!sema.mod.comp.formatted_panics) {
-        return sema.addSafetyCheck(parent_block, ok, .inactive_union_field);
+        return sema.addSafetyCheck(parent_block, src, ok, .inactive_union_field);
     }
-    try sema.safetyCheckFormatted(parent_block, ok, "panicInactiveUnionField", &.{ active_tag, wanted_tag });
+    try sema.safetyCheckFormatted(parent_block, src, ok, "panicInactiveUnionField", &.{ active_tag, wanted_tag });
 }
 
 fn panicSentinelMismatch(
     sema: *Sema,
     parent_block: *Block,
+    src: LazySrcLoc,
     maybe_sentinel: ?Value,
     sentinel_ty: Type,
     ptr: Air.Inst.Ref,
@@ -25069,19 +25113,20 @@ fn panicSentinelMismatch(
     else {
         const panic_fn = try sema.getBuiltin("checkNonScalarSentinel");
         const args: [2]Air.Inst.Ref = .{ expected_sentinel, actual_sentinel };
-        try sema.callBuiltin(parent_block, panic_fn, .auto, &args);
+        try sema.callBuiltin(parent_block, src, panic_fn, .auto, &args, .@"safety check");
         return;
     };
 
     if (!sema.mod.comp.formatted_panics) {
-        return sema.addSafetyCheck(parent_block, ok, .sentinel_mismatch);
+        return sema.addSafetyCheck(parent_block, src, ok, .sentinel_mismatch);
     }
-    try sema.safetyCheckFormatted(parent_block, ok, "panicSentinelMismatch", &.{ expected_sentinel, actual_sentinel });
+    try sema.safetyCheckFormatted(parent_block, src, ok, "panicSentinelMismatch", &.{ expected_sentinel, actual_sentinel });
 }
 
 fn safetyCheckFormatted(
     sema: *Sema,
     parent_block: *Block,
+    src: LazySrcLoc,
     ok: Air.Inst.Ref,
     func: []const u8,
     args: []const Air.Inst.Ref,
@@ -25106,15 +25151,15 @@ fn safetyCheckFormatted(
         _ = try fail_block.addNoOp(.trap);
     } else {
         const panic_fn = try sema.getBuiltin(func);
-        try sema.callBuiltin(&fail_block, panic_fn, .auto, args);
+        try sema.callBuiltin(&fail_block, src, panic_fn, .auto, args, .@"safety check");
     }
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
 }
 
-fn safetyPanic(sema: *Sema, block: *Block, panic_id: Module.PanicId) CompileError!void {
+fn safetyPanic(sema: *Sema, block: *Block, src: LazySrcLoc, panic_id: Module.PanicId) CompileError!void {
     const msg_decl_index = try sema.preparePanicId(block, panic_id);
-    const msg_inst = try sema.analyzeDeclVal(block, sema.src, msg_decl_index);
-    try sema.panicWithMsg(block, msg_inst);
+    const msg_inst = try sema.analyzeDeclVal(block, src, msg_decl_index);
+    try sema.panicWithMsg(block, src, msg_inst, .@"safety check");
 }
 
 fn emitBackwardBranch(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
@@ -26199,7 +26244,7 @@ fn unionFieldPtr(
         // TODO would it be better if get_union_tag supported pointers to unions?
         const union_val = try block.addTyOp(.load, union_ty, union_ptr);
         const active_tag = try block.addTyOp(.get_union_tag, union_obj.tag_ty, union_val);
-        try sema.panicInactiveUnionField(block, active_tag, wanted_tag);
+        try sema.panicInactiveUnionField(block, src, active_tag, wanted_tag);
     }
     if (field.ty.zigTypeTag(mod) == .NoReturn) {
         _ = try block.addNoOp(.unreach);
@@ -26271,7 +26316,7 @@ fn unionFieldVal(
         const wanted_tag_val = try mod.enumValueFieldIndex(union_obj.tag_ty, enum_field_index);
         const wanted_tag = try sema.addConstant(wanted_tag_val);
         const active_tag = try block.addTyOp(.get_union_tag, union_obj.tag_ty, union_byval);
-        try sema.panicInactiveUnionField(block, active_tag, wanted_tag);
+        try sema.panicInactiveUnionField(block, src, active_tag, wanted_tag);
     }
     if (field.ty.zigTypeTag(mod) == .NoReturn) {
         _ = try block.addNoOp(.unreach);
@@ -26626,7 +26671,7 @@ fn elemValArray(
         if (maybe_index_val == null) {
             const len_inst = try sema.addIntUnsigned(Type.usize, array_len);
             const cmp_op: Air.Inst.Tag = if (array_sent != null) .cmp_lte else .cmp_lt;
-            try sema.panicIndexOutOfBounds(block, elem_index, len_inst, cmp_op);
+            try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
         }
     }
     return block.addBinOp(.array_elem_val, array, elem_index);
@@ -26688,7 +26733,7 @@ fn elemPtrArray(
     if (oob_safety and block.wantSafety() and offset == null) {
         const len_inst = try sema.addIntUnsigned(Type.usize, array_len);
         const cmp_op: Air.Inst.Tag = if (array_sent) .cmp_lte else .cmp_lt;
-        try sema.panicIndexOutOfBounds(block, elem_index, len_inst, cmp_op);
+        try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
     }
 
     return block.addPtrElemPtr(array_ptr, elem_index, elem_ptr_ty);
@@ -26746,7 +26791,7 @@ fn elemValSlice(
         else
             try block.addTyOp(.slice_len, Type.usize, slice);
         const cmp_op: Air.Inst.Tag = if (slice_sent) .cmp_lte else .cmp_lt;
-        try sema.panicIndexOutOfBounds(block, elem_index, len_inst, cmp_op);
+        try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
     }
     try sema.queueFullTypeResolution(sema.typeOf(slice));
     return block.addBinOp(.slice_elem_val, slice, elem_index);
@@ -26806,7 +26851,7 @@ fn elemPtrSlice(
             break :len try block.addTyOp(.slice_len, Type.usize, slice);
         };
         const cmp_op: Air.Inst.Tag = if (slice_sent) .cmp_lte else .cmp_lt;
-        try sema.panicIndexOutOfBounds(block, elem_index, len_inst, cmp_op);
+        try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
     }
     return block.addSliceElemPtr(slice, elem_index, elem_ptr_ty);
 }
@@ -29705,7 +29750,7 @@ fn coerceCompatiblePtrs(
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bit_or, len_zero, is_non_zero);
         } else is_non_zero;
-        try sema.addSafetyCheck(block, ok, .cast_to_null);
+        try sema.addSafetyCheck(block, inst_src, ok, .cast_to_null);
     }
     return sema.bitCast(block, dest_ty, inst, inst_src, null);
 }
@@ -31134,9 +31179,9 @@ fn analyzeSlice(
         try sema.requireRuntimeBlock(block, src, runtime_src.?);
         const ok = try block.addBinOp(.cmp_lte, start, end);
         if (!sema.mod.comp.formatted_panics) {
-            try sema.addSafetyCheck(block, ok, .start_index_greater_than_end);
+            try sema.addSafetyCheck(block, src, ok, .start_index_greater_than_end);
         } else {
-            try sema.safetyCheckFormatted(block, ok, "panicStartGreaterThanEnd", &.{ start, end });
+            try sema.safetyCheckFormatted(block, src, ok, "panicStartGreaterThanEnd", &.{ start, end });
         }
     }
     const new_len = if (by_length)
@@ -31173,7 +31218,7 @@ fn analyzeSlice(
                 // requirement: slicing C ptr is non-null
                 if (ptr_ptr_child_ty.isCPtr(mod)) {
                     const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
-                    try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
+                    try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
                 }
 
                 if (slice_ty.isSlice(mod)) {
@@ -31188,11 +31233,11 @@ fn analyzeSlice(
                     else
                         end;
 
-                    try sema.panicIndexOutOfBounds(block, actual_end, actual_len, .cmp_lte);
+                    try sema.panicIndexOutOfBounds(block, src, actual_end, actual_len, .cmp_lte);
                 }
 
                 // requirement: result[new_len] == slice_sentinel
-                try sema.panicSentinelMismatch(block, slice_sentinel, elem_ty, result, new_len);
+                try sema.panicSentinelMismatch(block, src, slice_sentinel, elem_ty, result, new_len);
             }
             return result;
         };
@@ -31230,7 +31275,7 @@ fn analyzeSlice(
         // requirement: slicing C ptr is non-null
         if (ptr_ptr_child_ty.isCPtr(mod)) {
             const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
-            try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
+            try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
         }
 
         // requirement: end <= len
@@ -31254,11 +31299,11 @@ fn analyzeSlice(
                 try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src, true)
             else
                 end;
-            try sema.panicIndexOutOfBounds(block, actual_end, len_inst, .cmp_lte);
+            try sema.panicIndexOutOfBounds(block, src, actual_end, len_inst, .cmp_lte);
         }
 
         // requirement: start <= end
-        try sema.panicIndexOutOfBounds(block, start, end, .cmp_lte);
+        try sema.panicIndexOutOfBounds(block, src, start, end, .cmp_lte);
     }
     const result = try block.addInst(.{
         .tag = .slice,
@@ -31272,7 +31317,7 @@ fn analyzeSlice(
     });
     if (block.wantSafety()) {
         // requirement: result[new_len] == slice_sentinel
-        try sema.panicSentinelMismatch(block, slice_sentinel, elem_ty, result, new_len);
+        try sema.panicSentinelMismatch(block, src, slice_sentinel, elem_ty, result, new_len);
     }
     return result;
 }
