@@ -3549,17 +3549,12 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             try positionals.append(comp.libcxx_static_lib.?.full_object_path);
         }
 
-        {
-            // Add all system library paths to positionals.
-            const vals = options.system_libs.values();
-            try positionals.ensureUnusedCapacity(vals.len);
-            for (vals) |info| positionals.appendAssumeCapacity(info.path);
-        }
-
         var libs = std.StringArrayHashMap(link.SystemLib).init(arena);
 
-        for (options.system_libs.values()) |v| {
-            try libs.put(v.path, v);
+        {
+            const vals = options.system_libs.values();
+            try libs.ensureUnusedCapacity(vals.len);
+            for (vals) |v| libs.putAssumeCapacity(v.path, v);
         }
 
         try MachO.resolveLibSystem(arena, comp, options.sysroot, target, options.lib_dirs, &libs);
