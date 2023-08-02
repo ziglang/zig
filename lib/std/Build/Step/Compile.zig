@@ -1072,17 +1072,20 @@ pub fn addConfigHeader(self: *Compile, config_header: *Step.ConfigHeader) void {
 }
 
 pub fn addLibraryPath(self: *Compile, directory_source: LazyPath) void {
-    self.lib_paths.append(directory_source) catch @panic("OOM");
+    const b = self.step.owner;
+    self.lib_paths.append(directory_source.dupe(b)) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
 pub fn addRPath(self: *Compile, directory_source: LazyPath) void {
-    self.rpaths.append(directory_source) catch @panic("OOM");
+    const b = self.step.owner;
+    self.rpaths.append(directory_source.dupe(b)) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
 pub fn addFrameworkPath(self: *Compile, directory_source: LazyPath) void {
-    self.framework_dirs.append(directory_source) catch @panic("OOM");
+    const b = self.step.owner;
+    self.framework_dirs.append(directory_source.dupe(b)) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
