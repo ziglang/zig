@@ -477,9 +477,15 @@ const usage_build_generic =
     \\  -l[lib], --library [lib]       Link against system library (only if actually used)
     \\  -needed-l[lib],                Link against system library (even if unused)
     \\    --needed-library [lib]
+    \\  --ambiguous-static-library [l] Link against system library, checking for a
+    \\                                 static lib in each search path, then checking
+    \\                                 for a dynamic lib in each search path. Use of
+    \\                                 this CLI option is a code smell.
     \\  -L[d], --library-directory [d] Add a directory to the library search path
-    \\  -search_paths_first            Search each library search path for dynamic libs then static libs
-    \\  -search_dylibs_first           Search for dynamic libs in each library search path, then static libs.
+    \\  -search_paths_first            For each library search path, check for dynamic
+    \\                                 lib then static lib before proceeding to next path.
+    \\  -search_dylibs_first           Search for dynamic libs in all library search
+    \\                                 paths, then static libs.
     \\  -T[script], --script [script]  Use a custom linker script
     \\  --version-script [path]        Provide a version .map file
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
@@ -1154,6 +1160,13 @@ fn buildOutputType(
                             .weak = true,
                             .preferred_mode = lib_preferred_mode orelse .Dynamic,
                             .search_strategy = lib_search_strategy orelse .no_fallback,
+                        });
+                    } else if (mem.eql(u8, arg, "--ambiguous-static-library")) {
+                        try system_libs.put(args_iter.nextOrFatal(), .{
+                            .needed = false,
+                            .weak = false,
+                            .preferred_mode = lib_preferred_mode orelse .Static,
+                            .search_strategy = lib_search_strategy orelse .mode_first,
                         });
                     } else if (mem.eql(u8, arg, "-D")) {
                         try clang_argv.append(arg);
