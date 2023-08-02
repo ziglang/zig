@@ -17,8 +17,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     {
         // -search_dylibs_first
-        const exe = createScenario(b, optimize, target, "search_dylibs_first");
-        exe.search_strategy = .dylibs_first;
+        const exe = createScenario(b, optimize, target, "search_dylibs_first", .mode_first);
 
         const check = exe.checkObject();
         check.checkStart();
@@ -34,8 +33,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     {
         // -search_paths_first
-        const exe = createScenario(b, optimize, target, "search_paths_first");
-        exe.search_strategy = .paths_first;
+        const exe = createScenario(b, optimize, target, "search_paths_first", .paths_first);
 
         const run = b.addRunArtifact(exe);
         run.skip_foreign_checks = true;
@@ -49,6 +47,7 @@ fn createScenario(
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
     name: []const u8,
+    search_strategy: std.Build.Step.Compile.SystemLib.SearchStrategy,
 ) *std.Build.Step.Compile {
     const static = b.addStaticLibrary(.{
         .name = name,
@@ -73,7 +72,10 @@ fn createScenario(
         .target = target,
     });
     exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
-    exe.linkSystemLibraryName(name);
+    exe.linkSystemLibrary2(name, .{
+        .use_pkg_config = .no,
+        .search_strategy = search_strategy,
+    });
     exe.linkLibC();
     exe.addLibraryPath(static.getEmittedBinDirectory());
     exe.addLibraryPath(dylib.getEmittedBinDirectory());
