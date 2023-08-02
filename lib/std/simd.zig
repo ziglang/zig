@@ -294,7 +294,7 @@ test "vector shifting" {
     try std.testing.expectEqual([4]u32{ 40, 30, 20, 10 }, reverseOrder(base));
 }
 
-/// Return the index of the last true bool in `vec` or null if there
+/// Return the index of the first true bool in `vec` or null if there
 /// is none.
 pub fn firstTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
     const len = vectorLength(@TypeOf(vec));
