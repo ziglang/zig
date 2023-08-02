@@ -1149,7 +1149,7 @@ pub fn addVcpkgPaths(self: *Compile, linkage: Compile.Linkage) !void {
 
             const include_path = b.pathJoin(&.{ root, "installed", triplet, "include" });
             errdefer allocator.free(include_path);
-            try self.include_dirs.append(IncludeDir{ .raw_path = include_path });
+            try self.include_dirs.append(IncludeDir{ .path = .{ .path = include_path } });
 
             const lib_path = b.pathJoin(&.{ root, "installed", triplet, "lib" });
             try self.lib_paths.append(.{ .path = lib_path });
