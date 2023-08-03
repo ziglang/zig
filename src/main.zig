@@ -2674,7 +2674,7 @@ fn buildOutputType(
     // After this point, external_system_libs is used instead of system_libs.
 
     // Trigger native system library path detection if necessary.
-    if (sysroot == null and cross_target.isNativeOs() and
+    if (sysroot == null and cross_target.isNativeOs() and cross_target.isNativeAbi() and
         (external_system_libs.len != 0 or want_native_include_dirs))
     {
         const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
