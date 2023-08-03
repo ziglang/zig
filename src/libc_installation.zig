@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const Target = std.Target;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
-const build_options = @import("build_options");
 
 const is_darwin = builtin.target.isDarwin();
 const is_windows = builtin.target.os.tag == .windows;
@@ -184,9 +183,6 @@ pub const LibCInstallation = struct {
         if (is_darwin) {
             @panic("Darwin is handled separately via std.zig.system.darwin module");
         } else if (is_windows) {
-            if (!build_options.have_llvm)
-                return error.WindowsSdkNotFound;
-
             var sdk: ZigWindowsSDK = ZigWindowsSDK.find(args.allocator) catch |err| switch (err) {
                 error.NotFound => return error.WindowsSdkNotFound,
                 error.PathTooLong => return error.WindowsSdkNotFound,
