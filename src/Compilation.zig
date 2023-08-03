@@ -853,14 +853,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
-        const sysroot = blk: {
-            if (options.sysroot) |sysroot| {
-                break :blk sysroot;
-            } else {
-                break :blk null;
-            }
-        };
-
         const lto = blk: {
             if (options.want_lto) |explicit| {
                 if (!use_lld and !options.target.isDarwin())
@@ -945,6 +937,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             link_libc,
             options.libc_installation,
         );
+
+        const sysroot = options.sysroot orelse libc_dirs.sysroot;
 
         const must_pie = target_util.requiresPIE(options.target);
         const pie: bool = if (options.want_pie) |explicit| pie: {
@@ -4828,6 +4822,7 @@ const LibCDirs = struct {
     libc_include_dir_list: []const []const u8,
     libc_installation: ?*const LibCInstallation,
     libc_framework_dir_list: []const []const u8,
+    sysroot: ?[]const u8,
 };
 
 fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8, target: Target) !LibCDirs {
@@ -4859,6 +4854,7 @@ fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8,
         .libc_include_dir_list = list,
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
+        .sysroot = null,
     };
 }
 
@@ -4875,6 +4871,7 @@ fn detectLibCIncludeDirs(
             .libc_include_dir_list = &[0][]u8{},
             .libc_installation = null,
             .libc_framework_dir_list = &.{},
+            .sysroot = null,
         };
     }
 
@@ -4931,6 +4928,7 @@ fn detectLibCIncludeDirs(
         .libc_include_dir_list = &[0][]u8{},
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
+        .sysroot = null,
     };
 }
 
@@ -4964,16 +4962,20 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
         list.appendAssumeCapacity(config_dir);
     }
 
+    var sysroot: ?[]const u8 = null;
+
     if (target.isDarwin()) d: {
         const down1 = std.fs.path.dirname(lci.sys_include_dir.?) orelse break :d;
         const down2 = std.fs.path.dirname(down1) orelse break :d;
         try framework_list.append(try std.fs.path.join(arena, &.{ down2, "System", "Library", "Frameworks" }));
+        sysroot = down2;
     }
 
     return LibCDirs{
         .libc_include_dir_list = list.items,
         .libc_installation = lci,
         .libc_framework_dir_list = framework_list.items,
+        .sysroot = sysroot,
     };
 }
 
@@ -5034,6 +5036,7 @@ fn detectLibCFromBuilding(
         .libc_include_dir_list = list,
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
+        .sysroot = null,
     };
 }
 
