@@ -367,10 +367,7 @@ pub const MiscTask = enum {
 
     @"mingw-w64 crt2.o",
     @"mingw-w64 dllcrt2.o",
-    @"mingw-w64 mingw32.lib",
-    @"mingw-w64 msvcrt-os.lib",
-    @"mingw-w64 mingwex.lib",
-    @"mingw-w64 uuid.lib",
+    @"mingw-w64 CRT lib",
 };
 
 pub const MiscError = struct {
@@ -1702,16 +1699,21 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         if (comp.wantBuildMinGWFromSource()) {
             if (!target_util.canBuildLibC(target)) return error.LibCUnavailable;
 
-            const static_lib_jobs = [_]Job{
-                .{ .mingw_crt_file = .mingw32_lib },
-                .{ .mingw_crt_file = .msvcrt_os_lib },
-                .{ .mingw_crt_file = .mingwex_lib },
-                .{ .mingw_crt_file = .uuid_lib },
-            };
             const crt_job: Job = .{ .mingw_crt_file = if (is_dyn_lib) .dllcrt2_o else .crt2_o };
-            try comp.work_queue.ensureUnusedCapacity(static_lib_jobs.len + 1);
-            comp.work_queue.writeAssumeCapacity(&static_lib_jobs);
-            comp.work_queue.writeItemAssumeCapacity(crt_job);
+            try comp.work_queue.writeItem(crt_job);
+
+            var add_libc = true;
+            var it = comp.bin_file.options.system_libs.iterator();
+            while (it.next()) |entry| {
+                const name = entry.key_ptr.*;
+                if (std.mem.startsWith(u8, name, "msvcr") or std.mem.startsWith(u8, name, "ucrt") or std.mem.startsWith(u8, name, "crtdll")) {
+                    add_libc = false;
+                    break;
+                }
+            }
+            if (add_libc) {
+                try comp.bin_file.options.system_libs.put(comp.gpa, "ucrt", .{ .needed = true, .weak = false, .path = null });
+            }
 
             // When linking mingw-w64 there are some import libs we always need.
             for (mingw.always_link_libs) |name| {
@@ -1721,6 +1723,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                     .path = null,
                 });
             }
+
+            try mingw.processSystemLibs(comp);
         }
         // Generate Windows import libs.
         if (target.os.tag == .windows) {
