@@ -149,13 +149,6 @@ entitlements: ?[]const u8 = null,
 /// (Darwin) Size of the pagezero segment.
 pagezero_size: ?u64 = null,
 
-/// (Darwin) Search strategy for searching system libraries. Either `paths_first` or `dylibs_first`.
-/// The former lowers to `-search_paths_first` linker option, while the latter to `-search_dylibs_first`
-/// option.
-/// By default, if no option is specified, the linker assumes `paths_first` as the default
-/// search strategy.
-search_strategy: ?enum { paths_first, dylibs_first } = null,
-
 /// (Darwin) Set size of the padding between the end of load commands
 /// and start of `__TEXT,__text` section.
 headerpad_size: ?u32 = null,
@@ -242,7 +235,11 @@ pub const SystemLib = struct {
     name: []const u8,
     needed: bool,
     weak: bool,
-    use_pkg_config: enum {
+    use_pkg_config: UsePkgConfig,
+    preferred_link_mode: std.builtin.LinkMode,
+    search_strategy: SystemLib.SearchStrategy,
+
+    pub const UsePkgConfig = enum {
         /// Don't use pkg-config, just pass -lfoo where foo is name.
         no,
         /// Try to get information on how to link the library from pkg-config.
@@ -251,7 +248,9 @@ pub const SystemLib = struct {
         /// Try to get information on how to link the library from pkg-config.
         /// If that fails, error out.
         force,
-    },
+    };
+
+    pub const SearchStrategy = enum { paths_first, mode_first, no_fallback };
 };
 
 const FrameworkLinkInfo = struct {
@@ -718,74 +717,29 @@ pub fn defineCMacroRaw(self: *Compile, name_and_value: []const u8) void {
     self.c_macros.append(b.dupe(name_and_value)) catch @panic("OOM");
 }
 
-/// This one has no integration with anything, it just puts -lname on the command line.
-/// Prefer to use `linkSystemLibrary` instead.
+/// deprecated: use linkSystemLibrary2
 pub fn linkSystemLibraryName(self: *Compile, name: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .system_lib = .{
-            .name = b.dupe(name),
-            .needed = false,
-            .weak = false,
-            .use_pkg_config = .no,
-        },
-    }) catch @panic("OOM");
+    return linkSystemLibrary2(self, name, .{ .use_pkg_config = .no });
 }
 
-/// This one has no integration with anything, it just puts -needed-lname on the command line.
-/// Prefer to use `linkSystemLibraryNeeded` instead.
+/// deprecated: use linkSystemLibrary2
 pub fn linkSystemLibraryNeededName(self: *Compile, name: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .system_lib = .{
-            .name = b.dupe(name),
-            .needed = true,
-            .weak = false,
-            .use_pkg_config = .no,
-        },
-    }) catch @panic("OOM");
+    return linkSystemLibrary2(self, name, .{ .needed = true, .use_pkg_config = .no });
 }
 
-/// Darwin-only. This one has no integration with anything, it just puts -weak-lname on the
-/// command line. Prefer to use `linkSystemLibraryWeak` instead.
+/// deprecated: use linkSystemLibrary2
 pub fn linkSystemLibraryWeakName(self: *Compile, name: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .system_lib = .{
-            .name = b.dupe(name),
-            .needed = false,
-            .weak = true,
-            .use_pkg_config = .no,
-        },
-    }) catch @panic("OOM");
+    return linkSystemLibrary2(self, name, .{ .weak = true, .use_pkg_config = .no });
 }
 
-/// This links against a system library, exclusively using pkg-config to find the library.
-/// Prefer to use `linkSystemLibrary` instead.
+/// deprecated: use linkSystemLibrary2
 pub fn linkSystemLibraryPkgConfigOnly(self: *Compile, lib_name: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .system_lib = .{
-            .name = b.dupe(lib_name),
-            .needed = false,
-            .weak = false,
-            .use_pkg_config = .force,
-        },
-    }) catch @panic("OOM");
+    return linkSystemLibrary2(self, lib_name, .{ .use_pkg_config = .force });
 }
 
-/// This links against a system library, exclusively using pkg-config to find the library.
-/// Prefer to use `linkSystemLibraryNeeded` instead.
+/// deprecated: use linkSystemLibrary2
 pub fn linkSystemLibraryNeededPkgConfigOnly(self: *Compile, lib_name: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .system_lib = .{
-            .name = b.dupe(lib_name),
-            .needed = true,
-            .weak = false,
-            .use_pkg_config = .force,
-        },
-    }) catch @panic("OOM");
+    return linkSystemLibrary2(self, lib_name, .{ .needed = true, .use_pkg_config = .force });
 }
 
 /// Run pkg-config for the given library name and parse the output, returning the arguments
@@ -885,21 +839,32 @@ fn runPkgConfig(self: *Compile, lib_name: []const u8) ![]const []const u8 {
 }
 
 pub fn linkSystemLibrary(self: *Compile, name: []const u8) void {
-    self.linkSystemLibraryInner(name, .{});
+    self.linkSystemLibrary2(name, .{});
 }
 
+/// deprecated: use linkSystemLibrary2
 pub fn linkSystemLibraryNeeded(self: *Compile, name: []const u8) void {
-    self.linkSystemLibraryInner(name, .{ .needed = true });
+    return linkSystemLibrary2(self, name, .{ .needed = true });
 }
 
+/// deprecated: use linkSystemLibrary2
 pub fn linkSystemLibraryWeak(self: *Compile, name: []const u8) void {
-    self.linkSystemLibraryInner(name, .{ .weak = true });
+    return linkSystemLibrary2(self, name, .{ .weak = true });
 }
 
-fn linkSystemLibraryInner(self: *Compile, name: []const u8, opts: struct {
+pub const LinkSystemLibraryOptions = struct {
     needed: bool = false,
     weak: bool = false,
-}) void {
+    use_pkg_config: SystemLib.UsePkgConfig = .yes,
+    preferred_link_mode: std.builtin.LinkMode = .Dynamic,
+    search_strategy: SystemLib.SearchStrategy = .paths_first,
+};
+
+pub fn linkSystemLibrary2(
+    self: *Compile,
+    name: []const u8,
+    options: LinkSystemLibraryOptions,
+) void {
     const b = self.step.owner;
     if (isLibCLibrary(name)) {
         self.linkLibC();
@@ -913,9 +878,11 @@ fn linkSystemLibraryInner(self: *Compile, name: []const u8, opts: struct {
     self.link_objects.append(.{
         .system_lib = .{
             .name = b.dupe(name),
-            .needed = opts.needed,
-            .weak = opts.weak,
-            .use_pkg_config = .yes,
+            .needed = options.needed,
+            .weak = options.weak,
+            .use_pkg_config = options.use_pkg_config,
+            .preferred_link_mode = options.preferred_link_mode,
+            .search_strategy = options.search_strategy,
         },
     }) catch @panic("OOM");
 }
@@ -1385,6 +1352,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try transitive_deps.add(self.link_objects.items);
 
     var prev_has_cflags = false;
+    var prev_search_strategy: SystemLib.SearchStrategy = .paths_first;
+    var prev_preferred_link_mode: std.builtin.LinkMode = .Dynamic;
 
     for (transitive_deps.link_objects.items) |link_object| {
         switch (link_object) {
@@ -1420,6 +1389,28 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             },
 
             .system_lib => |system_lib| {
+                if ((system_lib.search_strategy != prev_search_strategy or
+                    system_lib.preferred_link_mode != prev_preferred_link_mode) and
+                    self.linkage != .static)
+                {
+                    switch (system_lib.search_strategy) {
+                        .no_fallback => switch (system_lib.preferred_link_mode) {
+                            .Dynamic => try zig_args.append("-search_dylibs_only"),
+                            .Static => try zig_args.append("-search_static_only"),
+                        },
+                        .paths_first => switch (system_lib.preferred_link_mode) {
+                            .Dynamic => try zig_args.append("-search_paths_first"),
+                            .Static => try zig_args.append("-search_paths_first_static"),
+                        },
+                        .mode_first => switch (system_lib.preferred_link_mode) {
+                            .Dynamic => try zig_args.append("-search_dylibs_first"),
+                            .Static => try zig_args.append("-search_static_first"),
+                        },
+                    }
+                    prev_search_strategy = system_lib.search_strategy;
+                    prev_preferred_link_mode = system_lib.preferred_link_mode;
+                }
+
                 const prefix: []const u8 = prefix: {
                     if (system_lib.needed) break :prefix "-needed-l";
                     if (system_lib.weak) break :prefix "-weak-l";
@@ -1662,10 +1653,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         const size = try std.fmt.allocPrint(b.allocator, "{x}", .{pagezero_size});
         try zig_args.appendSlice(&[_][]const u8{ "-pagezero_size", size });
     }
-    if (self.search_strategy) |strat| switch (strat) {
-        .paths_first => try zig_args.append("-search_paths_first"),
-        .dylibs_first => try zig_args.append("-search_dylibs_first"),
-    };
     if (self.headerpad_size) |headerpad_size| {
         const size = try std.fmt.allocPrint(b.allocator, "{x}", .{headerpad_size});
         try zig_args.appendSlice(&[_][]const u8{ "-headerpad", size });

@@ -3410,7 +3410,6 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.add(stack_size);
         man.hash.addOptional(options.pagezero_size);
-        man.hash.addOptional(options.search_strategy);
         man.hash.addOptional(options.headerpad_size);
         man.hash.add(options.headerpad_max_install_names);
         man.hash.add(gc_sections);
@@ -3418,13 +3417,13 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         man.hash.add(options.strip);
         man.hash.addListOfBytes(options.lib_dirs);
         man.hash.addListOfBytes(options.framework_dirs);
-        link.hashAddSystemLibs(&man.hash, options.frameworks);
+        link.hashAddFrameworks(&man.hash, options.frameworks);
         man.hash.addListOfBytes(options.rpath_list);
         if (is_dyn_lib) {
             man.hash.addOptionalBytes(options.install_name);
             man.hash.addOptional(options.version);
         }
-        link.hashAddSystemLibs(&man.hash, options.system_libs);
+        try link.hashAddSystemLibs(&man, options.system_libs);
         man.hash.addOptionalBytes(options.sysroot);
         man.hash.addListOfBytes(options.force_undefined_symbols.keys());
         try man.addOptionalFile(options.entitlements);
@@ -3550,84 +3549,15 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             try positionals.append(comp.libcxx_static_lib.?.full_object_path);
         }
 
-        // Shared and static libraries passed via `-l` flag.
-        var candidate_libs = std.StringArrayHashMap(link.SystemLib).init(arena);
-
-        const system_lib_names = options.system_libs.keys();
-        for (system_lib_names) |system_lib_name| {
-            // By this time, we depend on these libs being dynamically linked libraries and not static libraries
-            // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
-            // case we want to avoid prepending "-l".
-            if (Compilation.classifyFileExt(system_lib_name) == .shared_library) {
-                try positionals.append(system_lib_name);
-                continue;
-            }
-
-            const system_lib_info = options.system_libs.get(system_lib_name).?;
-            try candidate_libs.put(system_lib_name, .{
-                .needed = system_lib_info.needed,
-                .weak = system_lib_info.weak,
-            });
-        }
-
-        var lib_dirs = std.ArrayList([]const u8).init(arena);
-        for (options.lib_dirs) |dir| {
-            if (try MachO.resolveSearchDir(arena, dir, options.sysroot)) |search_dir| {
-                try lib_dirs.append(search_dir);
-            } else {
-                log.warn("directory not found for '-L{s}'", .{dir});
-            }
-        }
-
         var libs = std.StringArrayHashMap(link.SystemLib).init(arena);
 
-        // Assume ld64 default -search_paths_first if no strategy specified.
-        const search_strategy = options.search_strategy orelse .paths_first;
-        outer: for (candidate_libs.keys()) |lib_name| {
-            switch (search_strategy) {
-                .paths_first => {
-                    // Look in each directory for a dylib (stub first), and then for archive
-                    for (lib_dirs.items) |dir| {
-                        for (&[_][]const u8{ ".tbd", ".dylib", ".a" }) |ext| {
-                            if (try MachO.resolveLib(arena, dir, lib_name, ext)) |full_path| {
-                                try libs.put(full_path, candidate_libs.get(lib_name).?);
-                                continue :outer;
-                            }
-                        }
-                    } else {
-                        log.warn("library not found for '-l{s}'", .{lib_name});
-                        lib_not_found = true;
-                    }
-                },
-                .dylibs_first => {
-                    // First, look for a dylib in each search dir
-                    for (lib_dirs.items) |dir| {
-                        for (&[_][]const u8{ ".tbd", ".dylib" }) |ext| {
-                            if (try MachO.resolveLib(arena, dir, lib_name, ext)) |full_path| {
-                                try libs.put(full_path, candidate_libs.get(lib_name).?);
-                                continue :outer;
-                            }
-                        }
-                    } else for (lib_dirs.items) |dir| {
-                        if (try MachO.resolveLib(arena, dir, lib_name, ".a")) |full_path| {
-                            try libs.put(full_path, candidate_libs.get(lib_name).?);
-                        } else {
-                            log.warn("library not found for '-l{s}'", .{lib_name});
-                            lib_not_found = true;
-                        }
-                    }
-                },
-            }
+        {
+            const vals = options.system_libs.values();
+            try libs.ensureUnusedCapacity(vals.len);
+            for (vals) |v| libs.putAssumeCapacity(v.path.?, v);
         }
 
-        if (lib_not_found) {
-            log.warn("Library search paths:", .{});
-            for (lib_dirs.items) |dir| {
-                log.warn("  {s}", .{dir});
-            }
-        }
-
-        try MachO.resolveLibSystem(arena, comp, options.sysroot, target, lib_dirs.items, &libs);
+        try MachO.resolveLibSystem(arena, comp, options.sysroot, target, options.lib_dirs, &libs);
 
         // frameworks
         var framework_dirs = std.ArrayList([]const u8).init(arena);
@@ -3647,6 +3577,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                         try libs.put(full_path, .{
                             .needed = info.needed,
                             .weak = info.weak,
+                            .path = full_path,
                         });
                         continue :outer;
                     }
@@ -3697,11 +3628,6 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 try argv.append("-pagezero_size");
                 try argv.append(try std.fmt.allocPrint(arena, "0x{x}", .{pagezero_size}));
             }
-
-            if (options.search_strategy) |strat| switch (strat) {
-                .paths_first => try argv.append("-search_paths_first"),
-                .dylibs_first => try argv.append("-search_dylibs_first"),
-            };
 
             if (options.headerpad_size) |headerpad_size| {
                 try argv.append("-headerpad_size");
