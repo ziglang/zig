@@ -2764,7 +2764,7 @@ fn buildOutputType(
                             info.fallbackMode(),
                         )) {
                             const path = try arena.dupe(u8, test_path.items);
-                            switch (info.preferred_mode) {
+                            switch (info.fallbackMode()) {
                                 .Static => try link_objects.append(.{ .path = path }),
                                 .Dynamic => try resolved_system_libs.append(arena, .{
                                     .name = lib_name,
@@ -2822,7 +2822,7 @@ fn buildOutputType(
                             info.fallbackMode(),
                         )) {
                             const path = try arena.dupe(u8, test_path.items);
-                            switch (info.preferred_mode) {
+                            switch (info.fallbackMode()) {
                                 .Static => try link_objects.append(.{ .path = path }),
                                 .Dynamic => try resolved_system_libs.append(arena, .{
                                     .name = lib_name,
