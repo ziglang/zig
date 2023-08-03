@@ -124,6 +124,7 @@ zig_lib_directory: Directory,
 local_cache_directory: Directory,
 global_cache_directory: Directory,
 libc_include_dir_list: []const []const u8,
+libc_framework_dir_list: []const []const u8,
 thread_pool: *ThreadPool,
 
 /// Populated when we build the libc++ static library. A Job to build this is placed in the queue
@@ -1593,6 +1594,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .cache_parent = cache,
             .self_exe_path = options.self_exe_path,
             .libc_include_dir_list = libc_dirs.libc_include_dir_list,
+            .libc_framework_dir_list = libc_dirs.libc_framework_dir_list,
             .sanitize_c = sanitize_c,
             .thread_pool = options.thread_pool,
             .clang_passthrough_mode = options.clang_passthrough_mode,
@@ -4335,8 +4337,12 @@ pub fn addCCArgs(
                 try argv.append("-ObjC++");
             }
 
+            for (comp.libc_framework_dir_list) |framework_dir| {
+                try argv.appendSlice(&.{ "-iframework", framework_dir });
+            }
+
             for (comp.bin_file.options.framework_dirs) |framework_dir| {
-                try argv.appendSlice(&.{ "-isystem", framework_dir });
+                try argv.appendSlice(&.{ "-F", framework_dir });
             }
 
             // According to Rich Felker libc headers are supposed to go before C language headers.
@@ -4821,6 +4827,7 @@ test "classifyFileExt" {
 const LibCDirs = struct {
     libc_include_dir_list: []const []const u8,
     libc_installation: ?*const LibCInstallation,
+    libc_framework_dir_list: []const []const u8,
 };
 
 fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8, target: Target) !LibCDirs {
@@ -4851,6 +4858,7 @@ fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8,
     return LibCDirs{
         .libc_include_dir_list = list,
         .libc_installation = null,
+        .libc_framework_dir_list = &.{},
     };
 }
 
@@ -4866,6 +4874,7 @@ fn detectLibCIncludeDirs(
         return LibCDirs{
             .libc_include_dir_list = &[0][]u8{},
             .libc_installation = null,
+            .libc_framework_dir_list = &.{},
         };
     }
 
@@ -4921,11 +4930,13 @@ fn detectLibCIncludeDirs(
     return LibCDirs{
         .libc_include_dir_list = &[0][]u8{},
         .libc_installation = null,
+        .libc_framework_dir_list = &.{},
     };
 }
 
 fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const LibCInstallation) !LibCDirs {
     var list = try std.ArrayList([]const u8).initCapacity(arena, 5);
+    var framework_list = std.ArrayList([]const u8).init(arena);
 
     list.appendAssumeCapacity(lci.include_dir.?);
 
@@ -4953,9 +4964,16 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
         list.appendAssumeCapacity(config_dir);
     }
 
+    if (target.isDarwin()) d: {
+        const down1 = std.fs.path.dirname(lci.sys_include_dir.?) orelse break :d;
+        const down2 = std.fs.path.dirname(down1) orelse break :d;
+        try framework_list.append(try std.fs.path.join(arena, &.{ down2, "System", "Library", "Frameworks" }));
+    }
+
     return LibCDirs{
         .libc_include_dir_list = list.items,
         .libc_installation = lci,
+        .libc_framework_dir_list = framework_list.items,
     };
 }
 
@@ -5015,6 +5033,7 @@ fn detectLibCFromBuilding(
     return LibCDirs{
         .libc_include_dir_list = list,
         .libc_installation = null,
+        .libc_framework_dir_list = &.{},
     };
 }
 

@@ -2695,11 +2695,8 @@ fn buildOutputType(
         try rpath_list.appendSlice(paths.rpaths.items);
     }
 
-    // Now that we have target info, we can find out if any of the system libraries
-    // are part of libc or libc++. We remove them from the list and communicate their
-    // existence via flags instead.
-    // Similarly, if any libs in this list are statically provided, we omit
-    // them from the resolved list and populate the link_objects array instead.
+    // If any libs in this list are statically provided, we omit them from the
+    // resolved list and populate the link_objects array instead.
     {
         var test_path = std.ArrayList(u8).init(gpa);
         defer test_path.deinit();
