@@ -8467,9 +8467,10 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_close#}
 
       {#header_open|@extern#}
-      <pre>{#syntax#}@extern(T: type, comptime options: std.builtin.ExternOptions) *T{#endsyntax#}</pre>
+      <pre>{#syntax#}@extern(T: type, comptime options: std.builtin.ExternOptions) T{#endsyntax#}</pre>
       <p>
       Creates a reference to an external symbol in the output object file.
+      T must be a pointer type.
       </p>
       {#see_also|@export#}
       {#header_close#}
