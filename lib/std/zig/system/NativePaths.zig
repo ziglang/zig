@@ -86,8 +86,6 @@ pub fn detect(arena: Allocator, native_info: NativeTargetInfo) !NativePaths {
             try self.addIncludeDir(try std.fs.path.join(arena, &.{ sdk.path, "usr/include" }));
             return self;
         }
-        // These do not include headers, so the ones that come with the SDK are preferred.
-        try self.addFrameworkDir("/System/Library/Frameworks");
         return self;
     }
 
