@@ -891,7 +891,6 @@ fn buildOutputType(
     var minor_subsystem_version: ?u32 = null;
     var wasi_exec_model: ?std.builtin.WasiExecModel = null;
     var enable_link_snapshots: bool = false;
-    var native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null;
     var install_name: ?[]const u8 = null;
     var hash_style: link.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
@@ -3367,7 +3366,6 @@ fn buildOutputType(
         .wasi_exec_model = wasi_exec_model,
         .debug_compile_errors = debug_compile_errors,
         .enable_link_snapshots = enable_link_snapshots,
-        .native_darwin_sdk = native_darwin_sdk,
         .install_name = install_name,
         .entitlements = entitlements,
         .pagezero_size = pagezero_size,
@@ -4243,10 +4241,12 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
         if (!cross_target.isNative()) {
             fatal("unable to detect libc for non-native target", .{});
         }
+        const target_info = try detectNativeTargetInfo(cross_target);
 
         var libc = LibCInstallation.findNative(.{
             .allocator = gpa,
             .verbose = true,
+            .target = target_info.target,
         }) catch |err| {
             fatal("unable to detect native libc: {s}", .{@errorName(err)});
         };

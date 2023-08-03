@@ -637,8 +637,6 @@ pub const InitOptions = struct {
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     /// (Zig compiler development) Enable dumping linker's state as JSON.
     enable_link_snapshots: bool = false,
-    /// (Darwin) Path and version of the native SDK if detected.
-    native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
     /// (Darwin) Install name of the dylib
     install_name: ?[]const u8 = null,
     /// (Darwin) Path to entitlements file
@@ -945,7 +943,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             options.is_native_abi,
             link_libc,
             options.libc_installation,
-            options.native_darwin_sdk != null,
         );
 
         const must_pie = target_util.requiresPIE(options.target);
@@ -1560,7 +1557,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .wasi_exec_model = wasi_exec_model,
             .hash_style = options.hash_style,
             .enable_link_snapshots = options.enable_link_snapshots,
-            .native_darwin_sdk = options.native_darwin_sdk,
             .install_name = options.install_name,
             .entitlements = options.entitlements,
             .pagezero_size = options.pagezero_size,
@@ -4865,7 +4861,6 @@ fn detectLibCIncludeDirs(
     is_native_abi: bool,
     link_libc: bool,
     libc_installation: ?*const LibCInstallation,
-    has_macos_sdk: bool,
 ) !LibCDirs {
     if (!link_libc) {
         return LibCDirs{
@@ -4881,28 +4876,19 @@ fn detectLibCIncludeDirs(
     // If linking system libraries and targeting the native abi, default to
     // using the system libc installation.
     if (is_native_abi and !target.isMinGW()) {
-        if (target.isDarwin()) {
-            return if (has_macos_sdk)
-                // For Darwin/macOS, we are all set with getDarwinSDK found earlier.
-                LibCDirs{
-                    .libc_include_dir_list = &[0][]u8{},
-                    .libc_installation = null,
-                }
-            else
-                getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target);
-        }
         const libc = try arena.create(LibCInstallation);
-        libc.* = LibCInstallation.findNative(.{ .allocator = arena }) catch |err| switch (err) {
+        libc.* = LibCInstallation.findNative(.{ .allocator = arena, .target = target }) catch |err| switch (err) {
             error.CCompilerExitCode,
             error.CCompilerCrashed,
             error.CCompilerCannotFindHeaders,
             error.UnableToSpawnCCompiler,
+            error.DarwinSdkNotFound,
             => |e| {
                 // We tried to integrate with the native system C compiler,
                 // however, it is not installed. So we must rely on our bundled
                 // libc files.
                 if (target_util.canBuildLibC(target)) {
-                    return detectLibCFromBuilding(arena, zig_lib_dir, target, has_macos_sdk);
+                    return detectLibCFromBuilding(arena, zig_lib_dir, target);
                 }
                 return e;
             },
@@ -4914,7 +4900,7 @@ fn detectLibCIncludeDirs(
     // If not linking system libraries, build and provide our own libc by
     // default if possible.
     if (target_util.canBuildLibC(target)) {
-        return detectLibCFromBuilding(arena, zig_lib_dir, target, has_macos_sdk);
+        return detectLibCFromBuilding(arena, zig_lib_dir, target);
     }
 
     // If zig can't build the libc for the target and we are targeting the
@@ -4928,7 +4914,7 @@ fn detectLibCIncludeDirs(
 
     if (use_system_abi) {
         const libc = try arena.create(LibCInstallation);
-        libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true });
+        libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true, .target = target });
         return detectLibCFromLibCInstallation(arena, target, libc);
     }
 
@@ -4977,69 +4963,59 @@ fn detectLibCFromBuilding(
     arena: Allocator,
     zig_lib_dir: []const u8,
     target: std.Target,
-    has_macos_sdk: bool,
 ) !LibCDirs {
-    switch (target.os.tag) {
-        .macos => return if (has_macos_sdk)
-            // For Darwin/macOS, we are all set with getDarwinSDK found earlier.
-            LibCDirs{
-                .libc_include_dir_list = &[0][]u8{},
-                .libc_installation = null,
-            }
-        else
-            getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target),
-        else => {
-            const generic_name = target_util.libCGenericName(target);
-            // Some architectures are handled by the same set of headers.
-            const arch_name = if (target.abi.isMusl())
-                musl.archNameHeaders(target.cpu.arch)
-            else if (target.cpu.arch.isThumb())
-                // ARM headers are valid for Thumb too.
-                switch (target.cpu.arch) {
-                    .thumb => "arm",
-                    .thumbeb => "armeb",
-                    else => unreachable,
-                }
-            else
-                @tagName(target.cpu.arch);
-            const os_name = @tagName(target.os.tag);
-            // Musl's headers are ABI-agnostic and so they all have the "musl" ABI name.
-            const abi_name = if (target.abi.isMusl()) "musl" else @tagName(target.abi);
-            const s = std.fs.path.sep_str;
-            const arch_include_dir = try std.fmt.allocPrint(
-                arena,
-                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
-                .{ zig_lib_dir, arch_name, os_name, abi_name },
-            );
-            const generic_include_dir = try std.fmt.allocPrint(
-                arena,
-                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
-                .{ zig_lib_dir, generic_name },
-            );
-            const generic_arch_name = target_util.osArchName(target);
-            const arch_os_include_dir = try std.fmt.allocPrint(
-                arena,
-                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
-                .{ zig_lib_dir, generic_arch_name, os_name },
-            );
-            const generic_os_include_dir = try std.fmt.allocPrint(
-                arena,
-                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
-                .{ zig_lib_dir, os_name },
-            );
+    if (target.isDarwin())
+        return getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target);
 
-            const list = try arena.alloc([]const u8, 4);
-            list[0] = arch_include_dir;
-            list[1] = generic_include_dir;
-            list[2] = arch_os_include_dir;
-            list[3] = generic_os_include_dir;
+    const generic_name = target_util.libCGenericName(target);
+    // Some architectures are handled by the same set of headers.
+    const arch_name = if (target.abi.isMusl())
+        musl.archNameHeaders(target.cpu.arch)
+    else if (target.cpu.arch.isThumb())
+        // ARM headers are valid for Thumb too.
+        switch (target.cpu.arch) {
+            .thumb => "arm",
+            .thumbeb => "armeb",
+            else => unreachable,
+        }
+    else
+        @tagName(target.cpu.arch);
+    const os_name = @tagName(target.os.tag);
+    // Musl's headers are ABI-agnostic and so they all have the "musl" ABI name.
+    const abi_name = if (target.abi.isMusl()) "musl" else @tagName(target.abi);
+    const s = std.fs.path.sep_str;
+    const arch_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
+        .{ zig_lib_dir, arch_name, os_name, abi_name },
+    );
+    const generic_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
+        .{ zig_lib_dir, generic_name },
+    );
+    const generic_arch_name = target_util.osArchName(target);
+    const arch_os_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
+        .{ zig_lib_dir, generic_arch_name, os_name },
+    );
+    const generic_os_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
+        .{ zig_lib_dir, os_name },
+    );
 
-            return LibCDirs{
-                .libc_include_dir_list = list,
-                .libc_installation = null,
-            };
-        },
-    }
+    const list = try arena.alloc([]const u8, 4);
+    list[0] = arch_include_dir;
+    list[1] = generic_include_dir;
+    list[2] = arch_os_include_dir;
+    list[3] = generic_os_include_dir;
+
+    return LibCDirs{
+        .libc_include_dir_list = list,
+        .libc_installation = null,
+    };
 }
 
 pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {
