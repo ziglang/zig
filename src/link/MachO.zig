@@ -829,55 +829,50 @@ pub fn resolveLibSystem(
     out_libs: anytype,
 ) !void {
     // If we were given the sysroot, try to look there first for libSystem.B.{dylib, tbd}.
-    var libsystem_available = false;
-    if (syslibroot != null) blk: {
-        // Try stub file first. If we hit it, then we're done as the stub file
-        // re-exports every single symbol definition.
-        for (search_dirs) |dir| {
-            if (try resolveLib(arena, dir, "System", ".tbd")) |full_path| {
-                try out_libs.put(full_path, .{
-                    .needed = true,
-                    .weak = false,
-                    .path = full_path,
-                });
-                libsystem_available = true;
-                break :blk;
-            }
+    if (syslibroot) |root| {
+        const full_dir_path = try std.fs.path.join(arena, &.{ root, "usr", "lib" });
+        if (try resolveLibSystemInDirs(arena, &.{full_dir_path}, out_libs)) return;
+    }
+
+    // Next, try input search dirs if we are linking on a custom host such as Nix.
+    if (try resolveLibSystemInDirs(arena, search_dirs, out_libs)) return;
+
+    // As a fallback, try linking against Zig shipped stub.
+    const libsystem_name = try std.fmt.allocPrint(arena, "libSystem.{d}.tbd", .{
+        target.os.version_range.semver.min.major,
+    });
+    const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        "libc", "darwin", libsystem_name,
+    });
+    try out_libs.put(full_path, .{
+        .needed = true,
+        .weak = false,
+        .path = full_path,
+    });
+}
+
+fn resolveLibSystemInDirs(arena: Allocator, dirs: []const []const u8, out_libs: anytype) !bool {
+    // Try stub file first. If we hit it, then we're done as the stub file
+    // re-exports every single symbol definition.
+    for (dirs) |dir| {
+        if (try resolveLib(arena, dir, "System", ".tbd")) |full_path| {
+            try out_libs.put(full_path, .{ .needed = true, .weak = false, .path = full_path });
+            return true;
         }
-        // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
-        // doesn't export libc.dylib which we'll need to resolve subsequently also.
-        for (search_dirs) |dir| {
-            if (try resolveLib(arena, dir, "System", ".dylib")) |libsystem_path| {
-                if (try resolveLib(arena, dir, "c", ".dylib")) |libc_path| {
-                    try out_libs.put(libsystem_path, .{
-                        .needed = true,
-                        .weak = false,
-                        .path = libsystem_path,
-                    });
-                    try out_libs.put(libc_path, .{
-                        .needed = true,
-                        .weak = false,
-                        .path = libc_path,
-                    });
-                    libsystem_available = true;
-                    break :blk;
-                }
+    }
+    // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
+    // doesn't export libc.dylib which we'll need to resolve subsequently also.
+    for (dirs) |dir| {
+        if (try resolveLib(arena, dir, "System", ".dylib")) |libsystem_path| {
+            if (try resolveLib(arena, dir, "c", ".dylib")) |libc_path| {
+                try out_libs.put(libsystem_path, .{ .needed = true, .weak = false, .path = libsystem_path });
+                try out_libs.put(libc_path, .{ .needed = true, .weak = false, .path = libc_path });
+                return true;
             }
         }
     }
-    if (!libsystem_available) {
-        const libsystem_name = try std.fmt.allocPrint(arena, "libSystem.{d}.tbd", .{
-            target.os.version_range.semver.min.major,
-        });
-        const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-            "libc", "darwin", libsystem_name,
-        });
-        try out_libs.put(full_path, .{
-            .needed = true,
-            .weak = false,
-            .path = full_path,
-        });
-    }
+
+    return false;
 }
 
 pub fn resolveSearchDir(
