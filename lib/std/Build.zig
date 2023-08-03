@@ -139,7 +139,8 @@ const InitializedDepContext = struct {
 
     pub fn hash(self: @This(), k: InitializedDepKey) u64 {
         var hasher = std.hash.Wyhash.init(0);
-        hashUserInputOptionsMap(self.allocator, k, &hasher);
+        hasher.update(k.build_root_string);
+        hashUserInputOptionsMap(self.allocator, k.user_input_options, &hasher);
         return hasher.final();
     }
 
@@ -148,12 +149,12 @@ const InitializedDepContext = struct {
         if (!std.mem.eql(u8, lhs.build_root_string, rhs.build_root_string))
             return false;
 
-        if (lhs.count() != rhs.count())
+        if (lhs.user_input_options.count() != rhs.user_input_options.count())
             return false;
 
-        var it = lhs.iterator();
+        var it = lhs.user_input_options.iterator();
         while (it.next()) |lhs_entry| {
-            const rhs_value = rhs.get(lhs_entry.key_ptr.*) orelse return false;
+            const rhs_value = rhs.user_input_options.get(lhs_entry.key_ptr.*) orelse return false;
             if (!userValuesAreSame(lhs_entry.value_ptr.*.value, rhs_value.value))
                 return false;
         }
@@ -507,7 +508,7 @@ const OrderedUserInputOption = struct {
     used: bool,
 
     fn hash(self: OrderedUserInputOption, hasher: *std.hash.Wyhash) void {
-        hasher.addBytes(self.name);
+        hasher.update(self.name);
         self.value.hash(hasher);
     }
 
@@ -548,7 +549,9 @@ fn determineAndApplyInstallPrefix(b: *Build) !void {
     hash.add(@as(u32, 0xd8cb0055));
     hash.addBytes(b.dep_prefix);
 
-    hashUserInputOptionsMap(b.allocator, b.user_input_options, &hash);
+    var wyhash = std.hash.Wyhash.init(0);
+    hashUserInputOptionsMap(b.allocator, b.user_input_options, &wyhash);
+    hash.add(wyhash.final());
 
     // TODO additionally update the hash with `args`.
     const digest = hash.final();
