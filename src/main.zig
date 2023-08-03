@@ -2685,34 +2685,13 @@ fn buildOutputType(
             warn("{s}", .{warning});
         }
 
-        const has_sysroot = if (comptime builtin.target.isDarwin()) outer: {
-            if (std.zig.system.darwin.isDarwinSDKInstalled(arena)) {
-                const sdk = std.zig.system.darwin.getDarwinSDK(arena, target_info.target) orelse
-                    break :outer false;
-                native_darwin_sdk = sdk;
-                try clang_argv.ensureUnusedCapacity(2);
-                clang_argv.appendAssumeCapacity("-isysroot");
-                clang_argv.appendAssumeCapacity(sdk.path);
-                break :outer true;
-            } else break :outer false;
-        } else false;
-
         try clang_argv.ensureUnusedCapacity(paths.include_dirs.items.len * 2);
-        const isystem_flag = if (has_sysroot) "-iwithsysroot" else "-isystem";
         for (paths.include_dirs.items) |include_dir| {
-            clang_argv.appendAssumeCapacity(isystem_flag);
+            clang_argv.appendAssumeCapacity("-isystem");
             clang_argv.appendAssumeCapacity(include_dir);
         }
 
-        try clang_argv.ensureUnusedCapacity(paths.framework_dirs.items.len * 2);
-        try framework_dirs.ensureUnusedCapacity(paths.framework_dirs.items.len);
-        const iframework_flag = if (has_sysroot) "-iframeworkwithsysroot" else "-iframework";
-        for (paths.framework_dirs.items) |framework_dir| {
-            clang_argv.appendAssumeCapacity(iframework_flag);
-            clang_argv.appendAssumeCapacity(framework_dir);
-            framework_dirs.appendAssumeCapacity(framework_dir);
-        }
-
+        try framework_dirs.appendSlice(paths.framework_dirs.items);
         try lib_dirs.appendSlice(paths.lib_dirs.items);
         try rpath_list.appendSlice(paths.rpaths.items);
     }

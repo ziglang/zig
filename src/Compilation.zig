@@ -857,8 +857,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const sysroot = blk: {
             if (options.sysroot) |sysroot| {
                 break :blk sysroot;
-            } else if (options.native_darwin_sdk) |sdk| {
-                break :blk sdk.path;
             } else {
                 break :blk null;
             }
@@ -4339,6 +4337,10 @@ pub fn addCCArgs(
 
             if (ext == .mm) {
                 try argv.append("-ObjC++");
+            }
+
+            for (comp.bin_file.options.framework_dirs) |framework_dir| {
+                try argv.appendSlice(&.{ "-isystem", framework_dir });
             }
 
             // According to Rich Felker libc headers are supposed to go before C language headers.

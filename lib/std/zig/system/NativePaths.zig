@@ -1,6 +1,5 @@
 const std = @import("../../std.zig");
 const builtin = @import("builtin");
-const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const process = std.process;
 const mem = std.mem;
@@ -8,28 +7,18 @@ const mem = std.mem;
 const NativePaths = @This();
 const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 
-include_dirs: ArrayList([:0]u8),
-lib_dirs: ArrayList([:0]u8),
-framework_dirs: ArrayList([:0]u8),
-rpaths: ArrayList([:0]u8),
-warnings: ArrayList([:0]u8),
+arena: Allocator,
+include_dirs: std.ArrayListUnmanaged([]const u8) = .{},
+lib_dirs: std.ArrayListUnmanaged([]const u8) = .{},
+framework_dirs: std.ArrayListUnmanaged([]const u8) = .{},
+rpaths: std.ArrayListUnmanaged([]const u8) = .{},
+warnings: std.ArrayListUnmanaged([]const u8) = .{},
 
-pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths {
+pub fn detect(arena: Allocator, native_info: NativeTargetInfo) !NativePaths {
     const native_target = native_info.target;
-
-    var self: NativePaths = .{
-        .include_dirs = ArrayList([:0]u8).init(allocator),
-        .lib_dirs = ArrayList([:0]u8).init(allocator),
-        .framework_dirs = ArrayList([:0]u8).init(allocator),
-        .rpaths = ArrayList([:0]u8).init(allocator),
-        .warnings = ArrayList([:0]u8).init(allocator),
-    };
-    errdefer self.deinit();
-
+    var self: NativePaths = .{ .arena = arena };
     var is_nix = false;
-    if (process.getEnvVarOwned(allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
-        defer allocator.free(nix_cflags_compile);
-
+    if (process.getEnvVarOwned(arena, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
         is_nix = true;
         var it = mem.tokenizeScalar(u8, nix_cflags_compile, ' ');
         while (true) {
@@ -58,9 +47,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         error.EnvironmentVariableNotFound => {},
         error.OutOfMemory => |e| return e,
     }
-    if (process.getEnvVarOwned(allocator, "NIX_LDFLAGS")) |nix_ldflags| {
-        defer allocator.free(nix_ldflags);
-
+    if (process.getEnvVarOwned(arena, "NIX_LDFLAGS")) |nix_ldflags| {
         is_nix = true;
         var it = mem.tokenizeScalar(u8, nix_ldflags, ' ');
         while (true) {
@@ -89,17 +76,18 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         return self;
     }
 
+    // TODO: consider also adding homebrew paths
+    // TODO: consider also adding macports paths
     if (comptime builtin.target.isDarwin()) {
-        try self.addIncludeDir("/usr/include");
-        try self.addLibDir("/usr/lib");
-        try self.addFrameworkDir("/System/Library/Frameworks");
-
-        if (builtin.target.os.version_range.semver.min.major < 11) {
-            try self.addIncludeDir("/usr/local/include");
-            try self.addLibDir("/usr/local/lib");
-            try self.addFrameworkDir("/Library/Frameworks");
+        if (std.zig.system.darwin.isDarwinSDKInstalled(arena)) sdk: {
+            const sdk = std.zig.system.darwin.getDarwinSDK(arena, native_target) orelse break :sdk;
+            try self.addLibDir(try std.fs.path.join(arena, &.{ sdk.path, "usr/lib" }));
+            try self.addFrameworkDir(try std.fs.path.join(arena, &.{ sdk.path, "System/Library/Frameworks" }));
+            try self.addIncludeDir(try std.fs.path.join(arena, &.{ sdk.path, "usr/include" }));
+            return self;
         }
-
+        // These do not include headers, so the ones that come with the SDK are preferred.
+        try self.addFrameworkDir("/System/Library/Frameworks");
         return self;
     }
 
@@ -115,8 +103,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
     }
 
     if (builtin.os.tag != .windows) {
-        const triple = try native_target.linuxTriple(allocator);
-        defer allocator.free(triple);
+        const triple = try native_target.linuxTriple(arena);
 
         const qual = native_target.ptrBitWidth();
 
@@ -172,69 +159,42 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
     return self;
 }
 
-pub fn deinit(self: *NativePaths) void {
-    deinitArray(&self.include_dirs);
-    deinitArray(&self.lib_dirs);
-    deinitArray(&self.framework_dirs);
-    deinitArray(&self.rpaths);
-    deinitArray(&self.warnings);
-    self.* = undefined;
-}
-
-fn deinitArray(array: *ArrayList([:0]u8)) void {
-    for (array.items) |item| {
-        array.allocator.free(item);
-    }
-    array.deinit();
-}
-
 pub fn addIncludeDir(self: *NativePaths, s: []const u8) !void {
-    return self.appendArray(&self.include_dirs, s);
+    return self.include_dirs.append(self.arena, s);
 }
 
 pub fn addIncludeDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
-    const item = try std.fmt.allocPrintZ(self.include_dirs.allocator, fmt, args);
-    errdefer self.include_dirs.allocator.free(item);
-    try self.include_dirs.append(item);
+    const item = try std.fmt.allocPrint(self.arena, fmt, args);
+    try self.include_dirs.append(self.arena, item);
 }
 
 pub fn addLibDir(self: *NativePaths, s: []const u8) !void {
-    return self.appendArray(&self.lib_dirs, s);
+    try self.lib_dirs.append(self.arena, s);
 }
 
 pub fn addLibDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
-    const item = try std.fmt.allocPrintZ(self.lib_dirs.allocator, fmt, args);
-    errdefer self.lib_dirs.allocator.free(item);
-    try self.lib_dirs.append(item);
+    const item = try std.fmt.allocPrint(self.arena, fmt, args);
+    try self.lib_dirs.append(self.arena, item);
 }
 
 pub fn addWarning(self: *NativePaths, s: []const u8) !void {
-    return self.appendArray(&self.warnings, s);
+    return self.warnings.append(self.arena, s);
 }
 
 pub fn addFrameworkDir(self: *NativePaths, s: []const u8) !void {
-    return self.appendArray(&self.framework_dirs, s);
+    return self.framework_dirs.append(self.arena, s);
 }
 
 pub fn addFrameworkDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
-    const item = try std.fmt.allocPrintZ(self.framework_dirs.allocator, fmt, args);
-    errdefer self.framework_dirs.allocator.free(item);
-    try self.framework_dirs.append(item);
+    const item = try std.fmt.allocPrint(self.arena, fmt, args);
+    try self.framework_dirs.append(self.arena, item);
 }
 
 pub fn addWarningFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
-    const item = try std.fmt.allocPrintZ(self.warnings.allocator, fmt, args);
-    errdefer self.warnings.allocator.free(item);
-    try self.warnings.append(item);
+    const item = try std.fmt.allocPrint(self.arena, fmt, args);
+    try self.warnings.append(self.arena, item);
 }
 
 pub fn addRPath(self: *NativePaths, s: []const u8) !void {
-    return self.appendArray(&self.rpaths, s);
-}
-
-fn appendArray(self: *NativePaths, array: *ArrayList([:0]u8), s: []const u8) !void {
-    _ = self;
-    const item = try array.allocator.dupeZ(u8, s);
-    errdefer array.allocator.free(item);
-    try array.append(item);
+    try self.rpaths.append(self.arena, s);
 }
