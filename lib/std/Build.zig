@@ -126,7 +126,41 @@ dep_prefix: []const u8 = "",
 modules: std.StringArrayHashMap(*Module),
 /// A map from build root dirs to the corresponding `*Dependency`. This is shared with all child
 /// `Build`s.
-initialized_deps: *std.StringHashMap(*Dependency),
+initialized_deps: *InitializedDepMap,
+
+const InitializedDepMap = std.HashMap(InitializedDepKey, *Dependency, InitializedDepContext, std.hash_map.default_max_load_percentage);
+const InitializedDepKey = struct {
+    build_root_string: []const u8,
+    user_input_options: UserInputOptionsMap,
+};
+
+const InitializedDepContext = struct {
+    allocator: Allocator,
+
+    pub fn hash(self: @This(), k: InitializedDepKey) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hashUserInputOptionsMap(self.allocator, k, &hasher);
+        return hasher.final();
+    }
+
+    pub fn eql(self: @This(), lhs: InitializedDepKey, rhs: InitializedDepKey) bool {
+        _ = self;
+        if (!std.mem.eql(u8, lhs.build_root_string, rhs.build_root_string))
+            return false;
+
+        if (lhs.count() != rhs.count())
+            return false;
+
+        var it = lhs.iterator();
+        while (it.next()) |lhs_entry| {
+            const rhs_value = rhs.get(lhs_entry.key_ptr.*) orelse return false;
+            if (!userValuesAreSame(lhs_entry.value_ptr.*.value, rhs_value.value))
+                return false;
+        }
+
+        return true;
+    }
+};
 
 pub const ExecError = error{
     ReadFailure,
@@ -212,8 +246,8 @@ pub fn create(
     const env_map = try allocator.create(EnvMap);
     env_map.* = try process.getEnvMap(allocator);
 
-    const initialized_deps = try allocator.create(std.StringHashMap(*Dependency));
-    initialized_deps.* = std.StringHashMap(*Dependency).init(allocator);
+    const initialized_deps = try allocator.create(InitializedDepMap);
+    initialized_deps.* = InitializedDepMap.initContext(allocator, .{ .allocator = allocator });
 
     const self = try allocator.create(Build);
     self.* = .{
@@ -429,15 +463,15 @@ const OrderedUserValue = union(enum) {
         }
     };
 
-    fn hash(self: OrderedUserValue, hasher: *Cache.HashHelper) void {
+    fn hash(self: OrderedUserValue, hasher: *std.hash.Wyhash) void {
         switch (self) {
             .flag => {},
-            .scalar => |scalar| hasher.addBytes(scalar),
+            .scalar => |scalar| hasher.update(scalar),
             // lists are already ordered
             .list => |list| for (list.items) |list_entry|
-                hasher.addBytes(list_entry),
+                hasher.update(list_entry),
             .map => |map| for (map.items) |map_entry| {
-                hasher.addBytes(map_entry.name);
+                hasher.update(map_entry.name);
                 map_entry.value.hash(hasher);
             },
         }
@@ -472,7 +506,7 @@ const OrderedUserInputOption = struct {
     value: OrderedUserValue,
     used: bool,
 
-    fn hash(self: OrderedUserInputOption, hasher: *Cache.HashHelper) void {
+    fn hash(self: OrderedUserInputOption, hasher: *std.hash.Wyhash) void {
         hasher.addBytes(self.name);
         self.value.hash(hasher);
     }
@@ -492,7 +526,7 @@ const OrderedUserInputOption = struct {
 
 // The hash should be consistent with the same values given a different order.
 // This function takes a user input map, orders it, then hashes the contents.
-fn hashUserInputOptionsMap(allocator: Allocator, user_input_options: UserInputOptionsMap, hasher: *Cache.HashHelper) void {
+fn hashUserInputOptionsMap(allocator: Allocator, user_input_options: UserInputOptionsMap, hasher: *std.hash.Wyhash) void {
     var ordered = ArrayList(OrderedUserInputOption).init(allocator);
     var it = user_input_options.iterator();
     while (it.next()) |entry|
@@ -1704,20 +1738,6 @@ fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
     return true;
 }
 
-fn userInputOptionsMapsAreSame(lhs: UserInputOptionsMap, rhs: UserInputOptionsMap) bool {
-    if (lhs.count() != rhs.count())
-        return false;
-
-    var it = lhs.iterator();
-    while (it.next()) |lhs_entry| {
-        const rhs_value = rhs.get(lhs_entry.key_ptr.*) orelse return false;
-        if (!userValuesAreSame(lhs_entry.value_ptr.*.value, rhs_value.value))
-            return false;
-    }
-
-    return true;
-}
-
 pub fn dependencyInner(
     b: *Build,
     name: []const u8,
@@ -1726,11 +1746,11 @@ pub fn dependencyInner(
     args: anytype,
 ) *Dependency {
     const user_input_options = userInputOptionsFromArgs(b.allocator, args);
-    if (b.initialized_deps.get(build_root_string)) |dep| {
-        if (userInputOptionsMapsAreSame(user_input_options, dep.builder.user_input_options)) {
-            return dep;
-        }
-    }
+    if (b.initialized_deps.get(.{
+        .build_root_string = build_root_string,
+        .user_input_options = user_input_options,
+    })) |dep|
+        return dep;
 
     const build_root: std.Build.Cache.Directory = .{
         .path = build_root_string,
@@ -1751,8 +1771,10 @@ pub fn dependencyInner(
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
     dep.* = .{ .builder = sub_builder };
 
-    b.initialized_deps.put(build_root_string, dep) catch @panic("OOM");
-
+    b.initialized_deps.put(.{
+        .build_root_string = build_root_string,
+        .user_input_options = user_input_options,
+    }, dep) catch @panic("OOM");
     return dep;
 }
 
