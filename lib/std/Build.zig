@@ -553,7 +553,6 @@ fn determineAndApplyInstallPrefix(b: *Build) !void {
     hashUserInputOptionsMap(b.allocator, b.user_input_options, &wyhash);
     hash.add(wyhash.final());
 
-    // TODO additionally update the hash with `args`.
     const digest = hash.final();
     const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &digest });
     b.resolveInstallPrefix(install_prefix, .{});
