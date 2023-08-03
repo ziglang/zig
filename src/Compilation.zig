@@ -2362,10 +2362,10 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     if (comp.bin_file.options.link_libc) {
         man.hash.add(comp.bin_file.options.libc_installation != null);
         if (comp.bin_file.options.libc_installation) |libc_installation| {
-            man.hash.addBytes(libc_installation.crt_dir.?);
+            man.hash.addOptionalBytes(libc_installation.crt_dir);
             if (target.abi == .msvc) {
-                man.hash.addBytes(libc_installation.msvc_lib_dir.?);
-                man.hash.addBytes(libc_installation.kernel32_lib_dir.?);
+                man.hash.addOptionalBytes(libc_installation.msvc_lib_dir);
+                man.hash.addOptionalBytes(libc_installation.kernel32_lib_dir);
             }
         }
         man.hash.addOptionalBytes(comp.bin_file.options.dynamic_linker);
