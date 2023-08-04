@@ -1068,6 +1068,10 @@ pub const WriteError = error{
 
     /// Connection reset by peer.
     ConnectionResetByPeer,
+
+    /// This error occurs when trying to write UTF-8 text to a Windows console,
+    /// and the UTF-8 to UTF-16 conversion fails. Windows-only.
+    InvalidUtf8,
 } || UnexpectedError;
 
 /// Write to a file descriptor.
@@ -3239,8 +3243,7 @@ pub fn isatty(handle: fd_t) bool {
         if (isCygwinPty(handle))
             return true;
 
-        var out: windows.DWORD = undefined;
-        return windows.kernel32.GetConsoleMode(handle, &out) != 0;
+        return windows.IsConsoleHandle(handle);
     }
     if (builtin.link_libc) {
         return system.isatty(handle) != 0;

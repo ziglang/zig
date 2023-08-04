@@ -543,6 +543,7 @@ pub const File = struct {
         DeviceBusy,
         InvalidArgument,
         HotSwapUnavailableOnHostOperatingSystem,
+        InvalidUtf8,
     };
 
     /// Called from within the CodeGen to lower a local variable instantion as an unnamed
