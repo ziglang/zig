@@ -714,7 +714,7 @@ endif()
 
 if(MSVC)
   set(ZIG_HOST_TARGET_ABI "-msvc")
-elif(MINGW)
+elseif(MINGW)
   set(ZIG_HOST_TARGET_ABI "-gnu")
 else()
   set(ZIG_HOST_TARGET_ABI "")
