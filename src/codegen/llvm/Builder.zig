@@ -9035,6 +9035,7 @@ fn castConstAssumeCapacity(self: *Builder, tag: Constant.Tag, val: Constant, ty:
             .ptrtoint => &llvm.Value.constPtrToInt,
             .inttoptr => &llvm.Value.constIntToPtr,
             .bitcast => &llvm.Value.constBitCast,
+            .addrspacecast => &llvm.Value.constAddrSpaceCast,
             else => unreachable,
         }(val.toLlvm(self), ty.toLlvm(self)));
     }
