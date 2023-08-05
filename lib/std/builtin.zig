@@ -736,7 +736,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_x86_64 or
         builtin.zig_backend == .stage2_x86 or
-        builtin.zig_backend == .stage2_riscv64 or
+        builtin.zig_backend == .zsf_riscv64 or
         builtin.zig_backend == .zsf_sparc64 or
         builtin.zig_backend == .zsf_spirv64)
     {
