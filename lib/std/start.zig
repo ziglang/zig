@@ -17,7 +17,7 @@ const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 // Until then, we have simplified logic here for self-hosted. TODO remove this once
 // self-hosted is capable enough to handle all of the real start.zig logic.
 pub const simplified_logic =
-    builtin.zig_backend == .stage2_x86 or
+    builtin.zig_backend == .zsf_x86 or
     builtin.zig_backend == .stage2_aarch64 or
     builtin.zig_backend == .stage2_arm or
     builtin.zig_backend == .zsf_riscv64 or
