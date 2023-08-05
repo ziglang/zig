@@ -1065,6 +1065,21 @@ pub const Builder = opaque {
     pub const buildFTrunc = ZigLLVMBuildFTrunc;
     extern fn ZigLLVMBuildFTrunc(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
 
+    pub const buildBitReverse = ZigLLVMBuildBitReverse;
+    extern fn ZigLLVMBuildBitReverse(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildBSwap = ZigLLVMBuildBSwap;
+    extern fn ZigLLVMBuildBSwap(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildCTPop = ZigLLVMBuildCTPop;
+    extern fn ZigLLVMBuildCTPop(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildCTLZ = ZigLLVMBuildCTLZ;
+    extern fn ZigLLVMBuildCTLZ(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildCTTZ = ZigLLVMBuildCTTZ;
+    extern fn ZigLLVMBuildCTTZ(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
+
     pub const buildFMA = ZigLLVMBuildFMA;
     extern fn ZigLLVMBuildFMA(builder: *Builder, a: *Value, b: *Value, c: *Value, name: [*:0]const u8) *Value;
 

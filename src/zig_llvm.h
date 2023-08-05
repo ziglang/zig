@@ -155,6 +155,13 @@ ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildSin(LLVMBuilderRef builder, LLVMValueRef V
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildSqrt(LLVMBuilderRef builder, LLVMValueRef V, const char* name);
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildFTrunc(LLVMBuilderRef builder, LLVMValueRef V, const char* name);
 
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildBitReverse(LLVMBuilderRef builder, LLVMValueRef V, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildBSwap(LLVMBuilderRef builder, LLVMValueRef V, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCTPop(LLVMBuilderRef builder, LLVMValueRef V, const char* name);
+
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCTLZ(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCTTZ(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);
+
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildFMA(LLVMBuilderRef builder, LLVMValueRef A, LLVMValueRef B, LLVMValueRef C, const char* name);
 
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMaxNum(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS, const char* name);

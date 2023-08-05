@@ -546,6 +546,31 @@ LLVMValueRef ZigLLVMBuildFTrunc(LLVMBuilderRef B, LLVMValueRef V, const char *na
     return wrap(call_inst);
 }
 
+LLVMValueRef ZigLLVMBuildBitReverse(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::bitreverse, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildBSwap(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::bswap, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildCTPop(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::ctpop, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildCTLZ(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::ctlz, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildCTTZ(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateBinaryIntrinsic(Intrinsic::cttz, unwrap(LHS), unwrap(RHS), nullptr, name);
+    return wrap(call_inst);
+}
+
 LLVMValueRef ZigLLVMBuildFMA(LLVMBuilderRef builder, LLVMValueRef A, LLVMValueRef B, LLVMValueRef C, const char *name) {
     llvm::Type* types[1] = {
         unwrap(A)->getType(),
