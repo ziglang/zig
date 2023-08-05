@@ -7622,7 +7622,7 @@ fn instantiateGenericCall(
             else if (call_src == .node_offset) .{ .call_arg = .{
                 .decl = block.src_decl,
                 .call_node_offset = call_src.node_offset.x,
-                .arg_index = @intCast(total_i),
+                .arg_index = @intCast(total_i - @intFromBool(bound_arg_src != null)),
             } } else .unneeded;
 
             const comptime_arg = callee.comptime_args.get(ip)[total_i];
@@ -9341,17 +9341,6 @@ fn zirParam(
         // Even though a comptime argument is provided, the generic function wants to treat
         // this as a runtime parameter.
         assert(sema.inst_map.remove(inst));
-    }
-
-    if (sema.generic_owner != .none) {
-        if (try sema.typeHasOnePossibleValue(param_ty)) |opv| {
-            // In this case we are instantiating a generic function call with a non-comptime
-            // non-anytype parameter that ended up being a one-possible-type.
-            // We don't want the parameter to be part of the instantiated function type.
-            sema.inst_map.putAssumeCapacity(inst, Air.internedToRef(opv.toIntern()));
-            sema.comptime_args[param_index] = opv.toIntern();
-            return;
-        }
     }
 
     try block.params.append(sema.arena, .{
