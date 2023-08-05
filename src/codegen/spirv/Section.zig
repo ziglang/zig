@@ -372,8 +372,6 @@ test "SPIR-V Section emit() - string" {
 }
 
 test "SPIR-V Section emit() - extended mask" {
-    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
-
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 

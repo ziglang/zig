@@ -84,8 +84,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
 /// here in compiler-rt.
 pub fn F16T(comptime other_type: type) type {
     return switch (builtin.cpu.arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => f16,
-        .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
+        .aarch64, .aarch64_be, .aarch64_32, .riscv64 => f16,
         .x86, .x86_64 => if (builtin.target.isDarwin()) switch (other_type) {
             // Starting with LLVM 16, Darwin uses different abi for f16
             // depending on the type of the other return/argument..???

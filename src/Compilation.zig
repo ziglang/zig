@@ -5184,16 +5184,16 @@ pub fn dump_argv(argv: []const []const u8) void {
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
     if (comp.bin_file.options.use_llvm) return .stage2_llvm;
     const target = comp.bin_file.options.target;
-    if (target.ofmt == .c) return .stage2_c;
+    if (target.ofmt == .c) return .zsf_c;
     return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,
-        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
-        .x86_64 => .stage2_x86_64,
-        .x86 => .stage2_x86,
-        .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
-        .riscv64 => .stage2_riscv64,
-        .sparc64 => .stage2_sparc64,
-        .spirv64 => .stage2_spirv64,
+        .wasm32, .wasm64 => .zsf_wasm,
+        .arm, .armeb, .thumb, .thumbeb => .zsf_arm,
+        .x86_64 => .zsf_x86_64,
+        .x86 => .zsf_x86,
+        .aarch64, .aarch64_be, .aarch64_32 => .zsf_aarch64,
+        .riscv64 => .zsf_riscv64,
+        .sparc64 => .zsf_sparc64,
+        .spirv64 => .zsf_spirv64,
         else => .other,
     };
 }

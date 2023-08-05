@@ -667,42 +667,38 @@ pub const CompilerBackend = enum(u64) {
     /// in which case this value is appropriate. Be cool and make sure your
     /// code supports `other` Zig compilers!
     other = 0,
-    /// The original Zig compiler created in 2015 by Andrew Kelley. Implemented
-    /// in C++. Used LLVM. Deleted from the ZSF ziglang/zig codebase on
-    /// December 6th, 2022.
-    stage1 = 1,
-    /// The reference implementation self-hosted compiler of Zig, using the
+    /// The reference implementation by Zig Software Foundation, using the
     /// LLVM backend.
     stage2_llvm = 2,
-    /// The reference implementation self-hosted compiler of Zig, using the
+    /// The reference implementation by Zig Software Foundation, using the
     /// backend that generates C source code.
     /// Note that one can observe whether the compilation will output C code
     /// directly with `object_format` value rather than the `compiler_backend` value.
-    stage2_c = 3,
-    /// The reference implementation self-hosted compiler of Zig, using the
+    zsf_c = 3,
+    /// The reference implementation by Zig Software Foundation, using the
     /// WebAssembly backend.
-    stage2_wasm = 4,
-    /// The reference implementation self-hosted compiler of Zig, using the
+    zsf_wasm = 4,
+    /// The reference implementation by Zig Software Foundation, using the
     /// arm backend.
-    stage2_arm = 5,
-    /// The reference implementation self-hosted compiler of Zig, using the
+    zsf_arm = 5,
+    /// The reference implementation by Zig Software Foundation, using the
     /// x86_64 backend.
-    stage2_x86_64 = 6,
-    /// The reference implementation self-hosted compiler of Zig, using the
+    zsf_x86_64 = 6,
+    /// The reference implementation by Zig Software Foundation, using the
     /// aarch64 backend.
-    stage2_aarch64 = 7,
-    /// The reference implementation self-hosted compiler of Zig, using the
+    zsf_aarch64 = 7,
+    /// The reference implementation by Zig Software Foundation, using the
     /// x86 backend.
-    stage2_x86 = 8,
-    /// The reference implementation self-hosted compiler of Zig, using the
+    zsf_x86 = 8,
+    /// The reference implementation by Zig Software Foundation, using the
     /// riscv64 backend.
-    stage2_riscv64 = 9,
-    /// The reference implementation self-hosted compiler of Zig, using the
+    zsf_riscv64 = 9,
+    /// The reference implementation by Zig Software Foundation, using the
     /// sparc64 backend.
-    stage2_sparc64 = 10,
-    /// The reference implementation self-hosted compiler of Zig, using the
+    zsf_sparc64 = 10,
+    /// The reference implementation by Zig Software Foundation, using the
     /// spirv backend.
-    stage2_spirv64 = 11,
+    zsf_spirv64 = 11,
 
     _,
 };
