@@ -6,7 +6,7 @@ test "flags in packed union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const FlagBits = packed struct(u8) {
         enable_1: bool = false,

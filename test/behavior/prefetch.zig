@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 test "@prefetch()" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     var a: u32 = 42;
 

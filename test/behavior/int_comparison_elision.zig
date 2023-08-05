@@ -4,7 +4,7 @@ const maxInt = std.math.maxInt;
 const builtin = @import("builtin");
 
 test "int comparison elision" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     testIntEdges(u0);
     testIntEdges(i0);

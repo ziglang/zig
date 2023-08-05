@@ -33,7 +33,7 @@ test "pointer to thread local array" {
         else => return error.SkipZigTest,
     }; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const s = "Hello world";
     std.mem.copy(u8, buffer[0..], s);

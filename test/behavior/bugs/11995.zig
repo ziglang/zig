@@ -22,7 +22,7 @@ test {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     var string: [5]u8 = "hello".*;
     const arg_data = wuffs_base__slice_u8{ .ptr = @as([*c]u8, @ptrCast(&string)), .len = string.len };

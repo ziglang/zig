@@ -10,7 +10,7 @@ fn main0() !void {
 }
 
 test "issue12644" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     main0() catch |e| {
         try std.testing.expect(e == error.AnError);

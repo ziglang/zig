@@ -12,7 +12,7 @@ const b_list: []B = &[_]B{};
 const a = A{ .b_list_pointer = &b_list };
 
 test "segfault bug" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const assert = std.debug.assert;
     const obj = B{ .a_pointer = &a };
@@ -30,7 +30,7 @@ pub const B2 = struct {
 var b_value = B2{ .pointer_array = &[_]*A2{} };
 
 test "basic stuff" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     std.debug.assert(&b_value == &b_value);
 }

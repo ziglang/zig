@@ -23,7 +23,7 @@ pub var log_level = std.log.Level.warn;
 
 fn print(comptime fmt: []const u8, args: anytype) void {
     // Disable printing in tests for simple backends.
-    if (builtin.zig_backend == .stage2_spirv64) return;
+    if (builtin.zig_backend == .zsf_spirv64) return;
 
     std.debug.print(fmt, args);
 }

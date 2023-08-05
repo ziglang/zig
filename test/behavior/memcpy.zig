@@ -6,7 +6,7 @@ test "memcpy and memset intrinsics" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     try testMemcpyMemset();
     try comptime testMemcpyMemset();
@@ -28,7 +28,7 @@ test "@memcpy with both operands single-ptr-to-array, one is null-terminated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     try testMemcpyBothSinglePtrArrayOneIsNullTerminated();
     try comptime testMemcpyBothSinglePtrArrayOneIsNullTerminated();
@@ -49,7 +49,7 @@ test "@memcpy dest many pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     try testMemcpyDestManyPtr();
     try comptime testMemcpyDestManyPtr();
@@ -68,7 +68,7 @@ fn testMemcpyDestManyPtr() !void {
 }
 
 comptime {
-    if (builtin.zig_backend != .stage2_spirv64) {
+    if (builtin.zig_backend != .zsf_spirv64) {
         const S = struct {
             buffer: [8]u8 = undefined,
             fn set(self: *@This(), items: []const u8) void {

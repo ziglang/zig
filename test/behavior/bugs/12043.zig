@@ -7,7 +7,7 @@ fn foo(x: anytype) void {
     ok = x;
 }
 test {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const x = &foo;
     x(true);

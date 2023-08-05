@@ -9,7 +9,7 @@ test "switch on empty enum" {
 }
 
 test "switch on empty enum with a specified tag type" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const E = enum(u8) {};
     var e: E = undefined;
@@ -18,7 +18,7 @@ test "switch on empty enum with a specified tag type" {
 
 test "switch on empty auto numbered tagged union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const U = union(enum(u8)) {};
     var u: U = undefined;
@@ -47,7 +47,7 @@ test "empty extern union" {
 }
 
 test "empty union passed as argument" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const U = union(enum) {
         fn f(u: @This()) void {
@@ -58,7 +58,7 @@ test "empty union passed as argument" {
 }
 
 test "empty enum passed as argument" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const E = enum {
         fn f(e: @This()) void {
