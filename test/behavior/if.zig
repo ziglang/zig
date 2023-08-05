@@ -44,7 +44,7 @@ var global_with_val: anyerror!u32 = 0;
 var global_with_err: anyerror!u32 = error.SomeError;
 
 test "unwrap mutable global var" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     if (global_with_val) |v| {
@@ -80,7 +80,7 @@ test "const result loc, runtime if cond, else unreachable" {
 
 test "if copies its payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -115,7 +115,7 @@ test "if prongs cast to expected type instead of peer type resolution" {
 test "if peer expressions inferred optional type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     var self: []const u8 = "abcdef";
@@ -133,7 +133,7 @@ test "if peer expressions inferred optional type" {
 test "if-else expression with runtime condition result location is inferred optional" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const A = struct { b: u64, c: u64 };

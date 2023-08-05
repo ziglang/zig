@@ -7,7 +7,7 @@ const builtin = @import("builtin");
 test "uint128" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     var buff: u128 = maxInt(u128);
@@ -26,7 +26,7 @@ test "uint128" {
 test "undefined 128 bit int" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     @setRuntimeSafety(true);
@@ -44,7 +44,7 @@ test "undefined 128 bit int" {
 test "int128" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     var buff: i128 = -1;
@@ -68,7 +68,7 @@ test "truncate int128" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     {
@@ -89,7 +89,7 @@ test "truncate int128" {
 test "shift int128" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const types = .{ u128, i128 };

@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 const assert = std.debug.assert;
 
 test "while loop" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     var i: i32 = 0;
     while (i < 4) {
@@ -23,7 +23,7 @@ fn whileLoop2() i32 {
 }
 
 test "static eval while" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     try expect(static_eval_while_number == 1);
 }
@@ -109,7 +109,7 @@ fn testBreakOuter() void {
 
 test "while copies its payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -148,7 +148,7 @@ fn runContinueAndBreakTest() !void {
 
 test "while with optional as condition" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     numbers_left = 10;
@@ -161,7 +161,7 @@ test "while with optional as condition" {
 
 test "while with optional as condition with else" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     numbers_left = 10;
@@ -178,7 +178,7 @@ test "while with optional as condition with else" {
 }
 
 test "while with error union condition" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     numbers_left = 10;
@@ -211,7 +211,7 @@ test "while on bool with else result follow break prong" {
 test "while on optional with else result follow else prong" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     const result = while (returnNull()) |value| {
         break value;
@@ -222,7 +222,7 @@ test "while on optional with else result follow else prong" {
 test "while on optional with else result follow break prong" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const result = while (returnOptional(10)) |value| {
@@ -262,7 +262,7 @@ fn returnWithImplicitCastFromWhileLoopTest() anyerror!void {
 }
 
 test "while on error union with else result follow else prong" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const result = while (returnError()) |value| {
@@ -272,7 +272,7 @@ test "while on error union with else result follow else prong" {
 }
 
 test "while on error union with else result follow break prong" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const result = while (returnSuccess(10)) |value| {
@@ -299,7 +299,7 @@ test "while bool 2 break statements and an else" {
 test "while optional 2 break statements and an else" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn entry(opt_t: ?bool, f: bool) !void {
@@ -318,7 +318,7 @@ test "while optional 2 break statements and an else" {
 test "while error 2 break statements and an else" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const S = struct {

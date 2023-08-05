@@ -49,14 +49,14 @@ fn constant() !void {
 }
 
 test "pointer-to-array constness for zero-size elements, var" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     try mutable();
     try comptime mutable();
 }
 
 test "pointer-to-array constness for zero-size elements, const" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     try constant();
     try comptime constant();

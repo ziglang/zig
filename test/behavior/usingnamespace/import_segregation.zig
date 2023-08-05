@@ -5,7 +5,7 @@ usingnamespace @import("foo.zig");
 usingnamespace @import("bar.zig");
 
 test "no clobbering happened" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     @This().foo_function();
     @This().bar_function();

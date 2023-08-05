@@ -76,7 +76,7 @@ fn bigToNativeEndian(comptime T: type, v: T) T {
 }
 test "type pun endianness" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     comptime {
         const StructOfBytes = extern struct { x: [4]u8 };
@@ -377,7 +377,7 @@ test "offset field ptr by enclosing array element size" {
 
 test "accessing reinterpreted memory of parent object" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     const S = extern struct {
         a: f32,

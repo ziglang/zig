@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 const native_endian = builtin.target.cpu.arch.endian();
 
 test "reinterpret bytes as integer with nonzero offset" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretBytesAsInteger();
     try comptime testReinterpretBytesAsInteger();
@@ -22,7 +22,7 @@ fn testReinterpretBytesAsInteger() !void {
 test "reinterpret an array over multiple elements, with no well-defined layout" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     try testReinterpretWithOffsetAndNoWellDefinedLayout();
@@ -38,7 +38,7 @@ fn testReinterpretWithOffsetAndNoWellDefinedLayout() !void {
 }
 
 test "reinterpret bytes inside auto-layout struct as integer with nonzero offset" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretStructWrappedBytesAsInteger();
     try comptime testReinterpretStructWrappedBytesAsInteger();
@@ -56,7 +56,7 @@ fn testReinterpretStructWrappedBytesAsInteger() !void {
 
 test "reinterpret bytes of an array into an extern struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretBytesAsExternStruct();
     try comptime testReinterpretBytesAsExternStruct();
@@ -77,7 +77,7 @@ fn testReinterpretBytesAsExternStruct() !void {
 }
 
 test "reinterpret bytes of an extern struct (with under-aligned fields) into another" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretExternStructAsExternStruct();
     try comptime testReinterpretExternStructAsExternStruct();
@@ -101,7 +101,7 @@ fn testReinterpretExternStructAsExternStruct() !void {
 }
 
 test "reinterpret bytes of an extern struct into another" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretOverAlignedExternStructAsExternStruct();
     try comptime testReinterpretOverAlignedExternStructAsExternStruct();
@@ -129,7 +129,7 @@ fn testReinterpretOverAlignedExternStructAsExternStruct() !void {
 test "lower reinterpreted comptime field ptr (with under-aligned fields)" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     // Test lowering a field ptr
@@ -152,7 +152,7 @@ test "lower reinterpreted comptime field ptr (with under-aligned fields)" {
 test "lower reinterpreted comptime field ptr" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     // Test lowering a field ptr
@@ -173,7 +173,7 @@ test "lower reinterpreted comptime field ptr" {
 }
 
 test "reinterpret struct field at comptime" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -197,7 +197,7 @@ const Bytes = struct {
 };
 
 test "ptrcast of const integer has the correct object size" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     const is_value = ~@as(isize, @intCast(std.math.minInt(isize)));
     const is_bytes = @as([*]const u8, @ptrCast(&is_value))[0..@sizeOf(isize)];
@@ -231,7 +231,7 @@ test "ptrcast of const integer has the correct object size" {
 
 test "implicit optional pointer to optional anyopaque pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -245,7 +245,7 @@ test "implicit optional pointer to optional anyopaque pointer" {
 test "@ptrCast slice to slice" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     const S = struct {
@@ -263,7 +263,7 @@ test "@ptrCast slice to slice" {
 test "comptime @ptrCast a subset of an array, then write through it" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     comptime {
         var buff: [16]u8 align(4) = undefined;

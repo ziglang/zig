@@ -21,7 +21,7 @@ pub const simplified_logic =
     builtin.zig_backend == .stage2_aarch64 or
     builtin.zig_backend == .stage2_arm or
     builtin.zig_backend == .stage2_riscv64 or
-    builtin.zig_backend == .stage2_sparc64 or
+    builtin.zig_backend == .zsf_sparc64 or
     builtin.cpu.arch == .spirv32 or
     builtin.cpu.arch == .spirv64;
 

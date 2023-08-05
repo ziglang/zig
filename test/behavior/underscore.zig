@@ -7,7 +7,7 @@ test "ignore lval with underscore" {
 }
 
 test "ignore lval with underscore (while loop)" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     while (optionalReturnError()) |_| {

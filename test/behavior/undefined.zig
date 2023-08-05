@@ -16,7 +16,7 @@ test "init static array to undefined" {
     // This test causes `initStaticArray()` to be codegen'd, and the
     // C backend does not yet support returning arrays, so it fails
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     try expect(static_array[0] == 1);
     try expect(static_array[4] == 2);
@@ -46,7 +46,7 @@ fn setFooX(foo: *Foo) void {
 test "assign undefined to struct" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     comptime {
@@ -64,7 +64,7 @@ test "assign undefined to struct" {
 test "assign undefined to struct with method" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     comptime {
@@ -80,7 +80,7 @@ test "assign undefined to struct with method" {
 }
 
 test "type name of undefined" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     const x = undefined;
     try expect(mem.eql(u8, @typeName(@TypeOf(x)), "@TypeOf(undefined)"));
