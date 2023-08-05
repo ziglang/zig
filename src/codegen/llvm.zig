@@ -5100,11 +5100,11 @@ pub const FuncGen = struct {
                 .memcpy         => try self.airMemcpy(inst),
                 .set_union_tag  => try self.airSetUnionTag(inst),
                 .get_union_tag  => try self.airGetUnionTag(inst),
-                .clz            => try self.airClzCtz(inst, "llvm.ctlz"),
-                .ctz            => try self.airClzCtz(inst, "llvm.cttz"),
-                .popcount       => try self.airBitOp(inst, "llvm.ctpop"),
-                .byte_swap      => try self.airByteSwap(inst, "llvm.bswap"),
-                .bit_reverse    => try self.airBitOp(inst, "llvm.bitreverse"),
+                .clz            => try self.airClzCtz(inst, .@"llvm.ctlz."),
+                .ctz            => try self.airClzCtz(inst, .@"llvm.cttz."),
+                .popcount       => try self.airBitOp(inst, .@"llvm.ctpop."),
+                .byte_swap      => try self.airByteSwap(inst),
+                .bit_reverse    => try self.airBitOp(inst, .@"llvm.bitreverse."),
                 .tag_name       => try self.airTagName(inst),
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
@@ -9526,64 +9526,29 @@ pub const FuncGen = struct {
         return self.buildFloatOp(.neg, operand_ty, 1, .{operand});
     }
 
-    fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !Builder.Value {
+    fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, intrinsic: Builder.Function.Instruction.Tag) !Builder.Value {
         const o = self.dg.object;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const operand_ty = self.typeOf(ty_op.operand);
         const operand = try self.resolveInst(ty_op.operand);
 
-        const llvm_operand_ty = try o.lowerType(operand_ty);
-        const llvm_fn_ty = try o.builder.fnType(llvm_operand_ty, &.{ llvm_operand_ty, .i1 }, .normal);
-        const fn_val = try self.getIntrinsic(llvm_fn_name, &.{llvm_operand_ty});
+        const wrong_size_result = try self.wip.bin(intrinsic, operand, (try o.builder.intConst(.i1, 0)).toValue(), "");
 
-        const params = [_]*llvm.Value{
-            operand.toLlvm(&self.wip),
-            Builder.Constant.false.toLlvm(&o.builder),
-        };
-        const wrong_size_result = (try self.wip.unimplemented(llvm_operand_ty, "")).finish(
-            self.builder.buildCallOld(
-                llvm_fn_ty.toLlvm(&o.builder),
-                fn_val,
-                &params,
-                params.len,
-                .C,
-                .Auto,
-                "",
-            ),
-            &self.wip,
-        );
         const result_ty = self.typeOfIndex(inst);
         return self.wip.conv(.unsigned, wrong_size_result, try o.lowerType(result_ty), "");
     }
 
-    fn airBitOp(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !Builder.Value {
+    fn airBitOp(self: *FuncGen, inst: Air.Inst.Index, intrinsic: Builder.Function.Instruction.Tag) !Builder.Value {
         const o = self.dg.object;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const operand_ty = self.typeOf(ty_op.operand);
         const operand = try self.resolveInst(ty_op.operand);
 
-        const llvm_operand_ty = try o.lowerType(operand_ty);
-        const llvm_fn_ty = try o.builder.fnType(llvm_operand_ty, &.{llvm_operand_ty}, .normal);
-        const fn_val = try self.getIntrinsic(llvm_fn_name, &.{llvm_operand_ty});
+        const wrong_size_result = try self.wip.un(intrinsic, operand, "");
 
-        const params = [_]*llvm.Value{operand.toLlvm(&self.wip)};
-        const wrong_size_result = (try self.wip.unimplemented(llvm_operand_ty, "")).finish(
-            self.builder.buildCallOld(
-                llvm_fn_ty.toLlvm(&o.builder),
-                fn_val,
-                &params,
-                params.len,
-                .C,
-                .Auto,
-                "",
-            ),
-            &self.wip,
-        );
         const result_ty = self.typeOfIndex(inst);
         return self.wip.conv(.unsigned, wrong_size_result, try o.lowerType(result_ty), "");
     }
 
-    fn airByteSwap(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !Builder.Value {
+    fn airByteSwap(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -9611,22 +9576,7 @@ pub const FuncGen = struct {
             bits = bits + 8;
         }
 
-        const llvm_fn_ty = try o.builder.fnType(llvm_operand_ty, &.{llvm_operand_ty}, .normal);
-        const fn_val = try self.getIntrinsic(llvm_fn_name, &.{llvm_operand_ty});
-
-        const params = [_]*llvm.Value{operand.toLlvm(&self.wip)};
-        const wrong_size_result = (try self.wip.unimplemented(llvm_operand_ty, "")).finish(
-            self.builder.buildCallOld(
-                llvm_fn_ty.toLlvm(&o.builder),
-                fn_val,
-                &params,
-                params.len,
-                .C,
-                .Auto,
-                "",
-            ),
-            &self.wip,
-        );
+        const wrong_size_result = try self.wip.un(.@"llvm.bswap.", operand, "");
 
         const result_ty = self.typeOfIndex(inst);
         return self.wip.conv(.unsigned, wrong_size_result, try o.lowerType(result_ty), "");
