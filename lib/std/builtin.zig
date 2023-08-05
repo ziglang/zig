@@ -732,7 +732,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
     // For backends that cannot handle the language features depended on by the
     // default panic handler, we have a simpler panic handler:
     if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_arm or
+        builtin.zig_backend == .zsf_arm or
         builtin.zig_backend == .zsf_aarch64 or
         builtin.zig_backend == .zsf_x86_64 or
         builtin.zig_backend == .zsf_x86 or

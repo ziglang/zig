@@ -45,7 +45,7 @@ test "inline switch enums" {
 const U = union(E) { a: void, b: u2, c: u3, d: u4 };
 test "inline switch unions" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 

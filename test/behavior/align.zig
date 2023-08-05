@@ -61,7 +61,7 @@ test "alignment of struct with pointer has same alignment as usize" {
 }
 
 test "alignment and size of structs with 128-bit fields" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
@@ -250,7 +250,7 @@ fn testBytesAlign(b: u8) !void {
 
 test "@alignCast slices" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -268,7 +268,7 @@ fn sliceExpects4(slice: []align(4) u32) void {
 
 test "return error union with 128-bit integer" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -280,7 +280,7 @@ fn give() anyerror!u128 {
 
 test "page aligned array on stack" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -311,7 +311,7 @@ fn noop4() align(4) void {}
 
 test "function alignment" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
     // function alignment is a compile error on wasm32/wasm64
@@ -326,7 +326,7 @@ test "function alignment" {
 
 test "implicitly decreasing fn alignment" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -350,7 +350,7 @@ fn alignedBig() align(16) i32 {
 
 test "@alignCast functions" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -371,7 +371,7 @@ fn simple4() align(4) i32 {
 }
 
 test "function align expression depends on generic parameter" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
 
@@ -473,7 +473,7 @@ const DefaultAligned = struct {
 
 test "read 128-bit field from default aligned struct in stack memory" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -491,7 +491,7 @@ var default_aligned_global = DefaultAligned{
 
 test "read 128-bit field from default aligned struct in global memory" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -499,7 +499,7 @@ test "read 128-bit field from default aligned struct in global memory" {
 }
 
 test "struct field explicit alignment" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
@@ -544,7 +544,7 @@ test "align(@alignOf(T)) T does not force resolution of T" {
 
 test "align(N) on functions" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
@@ -565,7 +565,7 @@ fn overaligned_fn() align(0x1000) i32 {
 }
 
 test "comptime alloc alignment" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
@@ -596,7 +596,7 @@ test "alignment of slice element" {
 
 test "sub-aligned pointer field access" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;

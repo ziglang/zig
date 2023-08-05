@@ -153,7 +153,7 @@ test "@TypeOf() has no runtime side effects" {
 }
 
 test "branching logic inside @TypeOf" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
 
     const S = struct {
         var data: i32 = 0;
@@ -266,7 +266,7 @@ test "bitSizeOf comptime_int" {
 
 test "runtime instructions inside typeof in comptime only scope" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 

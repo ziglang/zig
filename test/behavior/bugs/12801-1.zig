@@ -7,7 +7,7 @@ fn capacity_() u64 {
 }
 
 test {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
 
     try std.testing.expect((@This(){}).capacity() == 64);
 }

@@ -12,7 +12,7 @@ pub const OnConfirm = DeleagateWithContext(fn (bool) void);
 pub const CustomDraw = DeleagateWithContext(fn (?OnConfirm) void);
 
 test "simple test" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 

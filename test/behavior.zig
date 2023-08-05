@@ -245,7 +245,7 @@ test {
         _ = @import("behavior/asm.zig");
     }
 
-    if (builtin.zig_backend != .stage2_arm and
+    if (builtin.zig_backend != .zsf_arm and
         builtin.zig_backend != .zsf_x86_64 and
         builtin.zig_backend != .zsf_aarch64 and
         builtin.zig_backend != .stage2_c and

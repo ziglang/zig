@@ -16,7 +16,7 @@ test "int comparison elision" {
     // TODO: support int types > 128 bits wide in other backends
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
 
     // TODO: panic: integer overflow with int types > 65528 bits wide
     // TODO: LLVM generates too many parameters for wasmtime when splitting up int > 64000 bits wide
