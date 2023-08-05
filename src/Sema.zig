@@ -36558,6 +36558,10 @@ fn intFromFloatScalar(
 ) CompileError!Value {
     const mod = sema.mod;
 
+    if (val.isUndef(mod)) {
+        return (try mod.intern(.{ .undef = int_ty.toIntern() })).toValue();
+    }
+
     const float = val.toFloat(f128, mod);
     if (std.math.isNan(float)) {
         return sema.fail(block, src, "float value NaN cannot be stored in integer type '{}'", .{
