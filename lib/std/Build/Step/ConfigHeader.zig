@@ -546,9 +546,9 @@ fn replace_variables(
                     allocator.free(content_buf);
                     content_buf = buf;
                 },
-                .string => |string| {
-                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ beginline, string, endline });
-                    last_index = start_index + string.len + 1;
+                .string, .ident => |x| {
+                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ beginline, x, endline });
+                    last_index = start_index + x.len + 1;
 
                     allocator.free(content_buf);
                     content_buf = buf;
