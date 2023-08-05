@@ -19393,13 +19393,14 @@ fn zirArrayInit(
         },
         else => |e| return e,
     };
+    const is_tuple = array_ty.zigTypeTag(mod) == .Struct;
     const sentinel_val = array_ty.sentinel(mod);
 
     const resolved_args = try gpa.alloc(Air.Inst.Ref, args.len - 1 + @intFromBool(sentinel_val != null));
     defer gpa.free(resolved_args);
     for (args[1..], 0..) |arg, i| {
         const resolved_arg = try sema.resolveInst(arg);
-        const elem_ty = if (array_ty.zigTypeTag(mod) == .Struct)
+        const elem_ty = if (is_tuple)
             array_ty.structFieldType(i, mod)
         else
             array_ty.elemType2(mod);
@@ -19411,6 +19412,18 @@ fn zirArrayInit(
                 unreachable;
             },
             else => return err,
+        };
+        if (is_tuple) if (try array_ty.structFieldValueComptime(mod, i)) |field_val| {
+            const init_val = try sema.resolveMaybeUndefVal(resolved_args[i]) orelse {
+                const decl = mod.declPtr(block.src_decl);
+                const elem_src = mod.initSrc(src.node_offset.x, decl, i);
+                return sema.failWithNeededComptime(block, elem_src, "value stored in comptime field must be comptime-known");
+            };
+            if (!field_val.eql(init_val, elem_ty, mod)) {
+                const decl = mod.declPtr(block.src_decl);
+                const elem_src = mod.initSrc(src.node_offset.x, decl, i);
+                return sema.failWithInvalidComptimeFieldStore(block, elem_src, array_ty, i);
+            }
         };
     }
 
