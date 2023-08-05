@@ -207,7 +207,7 @@ pub fn addCases(ctx: *Cases) !void {
             ":1:38: note: declared comptime here",
             ":8:36: error: runtime-known argument passed to comptime parameter",
             ":2:41: note: declared comptime here",
-            ":13:29: error: runtime-known argument passed to comptime-only type parameter",
+            ":13:29: error: runtime-known argument passed to parameter of comptime-only type",
             ":3:24: note: declared here",
             ":12:35: note: struct requires comptime because of this field",
             ":12:35: note: types are not available at runtime",

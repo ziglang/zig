@@ -25,6 +25,8 @@ const S = struct {
 // target=native
 //
 // :3:18: error: expected type 'bool', found 'void'
+// :18:43: note: parameter type declared here
 // :8:18: error: expected type 'void', found 'bool'
+// :19:43: note: parameter type declared here
 // :14:26: error: runtime-known argument passed to comptime parameter
 // :20:57: note: declared comptime here
