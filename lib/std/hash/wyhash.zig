@@ -57,6 +57,10 @@ pub const Wyhash = struct {
         }
 
         const remaining_bytes = input[i..];
+        if (remaining_bytes.len < 16 and i >= 48) {
+            const rem = 16 - remaining_bytes.len;
+            @memcpy(self.buf[self.buf.len - rem ..], input[i - rem .. i]);
+        }
         @memcpy(self.buf[0..remaining_bytes.len], remaining_bytes);
         self.buf_len = remaining_bytes.len;
     }
@@ -269,5 +273,21 @@ test "iterative non-divisible update" {
         const iterative_hash = wy.final();
 
         try std.testing.expectEqual(iterative_hash, non_iterative_hash);
+    }
+}
+
+test "iterative maintains last sixteen" {
+    const input = "Z" ** 48 ++ "01234567890abcdefg";
+    const seed = 0;
+
+    for (0..17) |i| {
+        const payload = input[0 .. input.len - i];
+        const non_iterative_hash = Wyhash.hash(seed, payload);
+
+        var wh = Wyhash.init(seed);
+        wh.update(payload);
+        const iterative_hash = wh.final();
+
+        try expectEqual(non_iterative_hash, iterative_hash);
     }
 }
