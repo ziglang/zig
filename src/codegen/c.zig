@@ -2835,7 +2835,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
             .arg      => try airArg(f, inst),
 
-            .trap       => try airTrap(f.object.writer()),
+            .trap       => try airTrap(f, f.object.writer()),
             .breakpoint => try airBreakpoint(f.object.writer()),
             .ret_addr   => try airRetAddr(f, inst),
             .frame_addr => try airFrameAddress(f, inst),
@@ -4591,7 +4591,11 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !Loca
     };
 }
 
-fn airTrap(writer: anytype) !CValue {
+fn airTrap(f: *Function, writer: anytype) !CValue {
+    const mod = f.object.dg.module;
+    // Not even allowed to call trap in a naked function.
+    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention(mod) == .Naked) return .none;
+
     try writer.writeAll("zig_trap();\n");
     return .none;
 }
