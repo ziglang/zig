@@ -481,6 +481,81 @@ LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef
     return wrap(call_inst);
 }
 
+LLVMValueRef ZigLLVMBuildCeil(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::ceil, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildCos(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::cos, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildExp(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::exp, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildExp2(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::exp2, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildFAbs(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::fabs, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildFloor(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::floor, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildLog(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::log, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildLog10(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::log10, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildLog2(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::log2, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildRound(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::round, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSin(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::sin, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildSqrt(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::sqrt, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildFTrunc(LLVMBuilderRef B, LLVMValueRef V, const char *name) {
+    CallInst *call_inst = unwrap(B)->CreateUnaryIntrinsic(Intrinsic::trunc, unwrap(V), nullptr, name);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildFMA(LLVMBuilderRef builder, LLVMValueRef A, LLVMValueRef B, LLVMValueRef C, const char *name) {
+    llvm::Type* types[1] = {
+        unwrap(A)->getType(),
+    };
+    llvm::Value* values[3] = {unwrap(A), unwrap(B), unwrap(C)};
+
+    CallInst *call_inst = unwrap(builder)->CreateIntrinsic(Intrinsic::fma, types, values, nullptr, name);
+    return wrap(call_inst);
+}
+
 LLVMValueRef ZigLLVMBuildMaxNum(LLVMBuilderRef B, LLVMValueRef LHS, LLVMValueRef RHS, const char *name) {
     CallInst *call_inst = unwrap(B)->CreateMaxNum(unwrap(LHS), unwrap(RHS), name);
     return wrap(call_inst);

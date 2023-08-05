@@ -2416,6 +2416,20 @@ pub const Function = struct {
             inttoptr,
             @"llvm.maxnum.",
             @"llvm.minnum.",
+            @"llvm.ceil.",
+            @"llvm.cos.",
+            @"llvm.exp.",
+            @"llvm.exp2.",
+            @"llvm.fabs.",
+            @"llvm.floor.",
+            @"llvm.log.",
+            @"llvm.log10.",
+            @"llvm.log2.",
+            @"llvm.round.",
+            @"llvm.sin.",
+            @"llvm.sqrt.",
+            @"llvm.trunc.",
+            @"llvm.fma.",
             @"llvm.sadd.sat.",
             @"llvm.smax.",
             @"llvm.smin.",
@@ -2689,6 +2703,19 @@ pub const Function = struct {
                         .changeScalarAssumeCapacity(.i1, wip.builder),
                     .fneg,
                     .@"fneg fast",
+                    .@"llvm.ceil.",
+                    .@"llvm.cos.",
+                    .@"llvm.exp.",
+                    .@"llvm.exp2.",
+                    .@"llvm.fabs.",
+                    .@"llvm.floor.",
+                    .@"llvm.log.",
+                    .@"llvm.log10.",
+                    .@"llvm.log2.",
+                    .@"llvm.round.",
+                    .@"llvm.sin.",
+                    .@"llvm.sqrt.",
+                    .@"llvm.trunc.",
                     => @as(Value, @enumFromInt(instruction.data)).typeOfWip(wip),
                     .getelementptr,
                     .@"getelementptr inbounds",
@@ -2725,6 +2752,7 @@ pub const Function = struct {
                     },
                     .unimplemented => @enumFromInt(instruction.data),
                     .va_arg => wip.extraData(VaArg, instruction.data).type,
+                    .@"llvm.fma." => wip.extraData(FusedMultiplyAdd, instruction.data).a.typeOfWip(wip),
                 };
             }
 
@@ -2887,6 +2915,19 @@ pub const Function = struct {
                         .changeScalarAssumeCapacity(.i1, builder),
                     .fneg,
                     .@"fneg fast",
+                    .@"llvm.ceil.",
+                    .@"llvm.cos.",
+                    .@"llvm.exp.",
+                    .@"llvm.exp2.",
+                    .@"llvm.fabs.",
+                    .@"llvm.floor.",
+                    .@"llvm.log.",
+                    .@"llvm.log10.",
+                    .@"llvm.log2.",
+                    .@"llvm.round.",
+                    .@"llvm.sin.",
+                    .@"llvm.sqrt.",
+                    .@"llvm.trunc.",
                     => @as(Value, @enumFromInt(instruction.data)).typeOf(function_index, builder),
                     .getelementptr,
                     .@"getelementptr inbounds",
@@ -2925,6 +2966,7 @@ pub const Function = struct {
                     },
                     .unimplemented => @enumFromInt(instruction.data),
                     .va_arg => function.extraData(VaArg, instruction.data).type,
+                    .@"llvm.fma." => function.extraData(FusedMultiplyAdd, instruction.data).a.typeOf(function_index, builder),
                 };
             }
 
@@ -3015,6 +3057,12 @@ pub const Function = struct {
             lhs: Value,
             rhs: Value,
             mask: Value,
+        };
+
+        pub const FusedMultiplyAdd = struct {
+            a: Value,
+            b: Value,
+            c: Value,
         };
 
         pub const ExtractValue = struct {
@@ -3424,6 +3472,19 @@ pub const WipFunction = struct {
         switch (tag) {
             .fneg,
             .@"fneg fast",
+            .@"llvm.ceil.",
+            .@"llvm.cos.",
+            .@"llvm.exp.",
+            .@"llvm.exp2.",
+            .@"llvm.fabs.",
+            .@"llvm.floor.",
+            .@"llvm.log.",
+            .@"llvm.log10.",
+            .@"llvm.log2.",
+            .@"llvm.round.",
+            .@"llvm.sin.",
+            .@"llvm.sqrt.",
+            .@"llvm.trunc.",
             => assert(val.typeOfWip(self).scalarType(self.builder).isFloatingPoint()),
             else => unreachable,
         }
@@ -3433,10 +3494,37 @@ pub const WipFunction = struct {
             switch (tag) {
                 .fneg => self.llvm.builder.setFastMath(false),
                 .@"fneg fast" => self.llvm.builder.setFastMath(true),
+                .@"llvm.ceil.",
+                .@"llvm.cos.",
+                .@"llvm.exp.",
+                .@"llvm.exp2.",
+                .@"llvm.fabs.",
+                .@"llvm.floor.",
+                .@"llvm.log.",
+                .@"llvm.log10.",
+                .@"llvm.log2.",
+                .@"llvm.round.",
+                .@"llvm.sin.",
+                .@"llvm.sqrt.",
+                .@"llvm.trunc.",
+                => {},
                 else => unreachable,
             }
             self.llvm.instructions.appendAssumeCapacity(switch (tag) {
                 .fneg, .@"fneg fast" => &llvm.Builder.buildFNeg,
+                .@"llvm.ceil." => &llvm.Builder.buildCeil,
+                .@"llvm.cos." => &llvm.Builder.buildCos,
+                .@"llvm.exp." => &llvm.Builder.buildExp,
+                .@"llvm.exp2." => &llvm.Builder.buildExp2,
+                .@"llvm.fabs." => &llvm.Builder.buildFAbs,
+                .@"llvm.floor." => &llvm.Builder.buildFloor,
+                .@"llvm.log." => &llvm.Builder.buildLog,
+                .@"llvm.log10." => &llvm.Builder.buildLog10,
+                .@"llvm.log2." => &llvm.Builder.buildLog2,
+                .@"llvm.round." => &llvm.Builder.buildRound,
+                .@"llvm.sin." => &llvm.Builder.buildSin,
+                .@"llvm.sqrt." => &llvm.Builder.buildSqrt,
+                .@"llvm.trunc." => &llvm.Builder.buildFTrunc,
                 else => unreachable,
             }(self.llvm.builder, val.toLlvm(self), instruction.llvmName(self)));
         }
@@ -4330,6 +4418,29 @@ pub const WipFunction = struct {
         return instruction.toValue();
     }
 
+    pub fn fusedMultiplyAdd(self: *WipFunction, a: Value, b: Value, c: Value) Allocator.Error!Value {
+        assert(a.typeOfWip(self) == b.typeOfWip(self) and a.typeOfWip(self) == c.typeOfWip(self));
+        try self.ensureUnusedExtraCapacity(1, Instruction.FusedMultiplyAdd, 0);
+        const instruction = try self.addInst("", .{
+            .tag = .@"llvm.fma.",
+            .data = self.addExtraAssumeCapacity(Instruction.FusedMultiplyAdd{
+                .a = a,
+                .b = b,
+                .c = c,
+            }),
+        });
+        if (self.builder.useLibLlvm()) {
+            self.llvm.instructions.appendAssumeCapacity(llvm.Builder.buildFMA(
+                self.llvm.builder,
+                a.toLlvm(self),
+                b.toLlvm(self),
+                c.toLlvm(self),
+                instruction.llvmName(self),
+            ));
+        }
+        return instruction.toValue();
+    }
+
     pub const WipUnimplemented = struct {
         instruction: Instruction.Index,
 
@@ -4685,6 +4796,19 @@ pub const WipFunction = struct {
                     .fneg,
                     .@"fneg fast",
                     .ret,
+                    .@"llvm.ceil.",
+                    .@"llvm.cos.",
+                    .@"llvm.exp.",
+                    .@"llvm.exp2.",
+                    .@"llvm.fabs.",
+                    .@"llvm.floor.",
+                    .@"llvm.log.",
+                    .@"llvm.log10.",
+                    .@"llvm.log2.",
+                    .@"llvm.round.",
+                    .@"llvm.sin.",
+                    .@"llvm.sqrt.",
+                    .@"llvm.trunc.",
                     => instruction.data = @intFromEnum(instructions.map(@enumFromInt(instruction.data))),
                     .getelementptr,
                     .@"getelementptr inbounds",
@@ -4788,6 +4912,14 @@ pub const WipFunction = struct {
                         instruction.data = wip_extra.addExtra(Instruction.VaArg{
                             .list = instructions.map(extra.list),
                             .type = extra.type,
+                        });
+                    },
+                    .@"llvm.fma." => {
+                        const extra = self.extraData(Instruction.FusedMultiplyAdd, instruction.data);
+                        instruction.data = wip_extra.addExtra(Instruction.FusedMultiplyAdd{
+                            .a = instructions.map(extra.a),
+                            .b = instructions.map(extra.b),
+                            .c = instructions.map(extra.c),
                         });
                     },
                 }
@@ -7561,6 +7693,19 @@ pub fn printUnbuffered(
                         .fneg,
                         .@"fneg fast",
                         .ret,
+                        .@"llvm.ceil.",
+                        .@"llvm.cos.",
+                        .@"llvm.exp.",
+                        .@"llvm.exp2.",
+                        .@"llvm.fabs.",
+                        .@"llvm.floor.",
+                        .@"llvm.log.",
+                        .@"llvm.log10.",
+                        .@"llvm.log2.",
+                        .@"llvm.round.",
+                        .@"llvm.sin.",
+                        .@"llvm.sqrt.",
+                        .@"llvm.trunc.",
                         => |tag| {
                             const val: Value = @enumFromInt(instruction.data);
                             try writer.print("  {s} {%}\n", .{
@@ -7779,6 +7924,19 @@ pub fn printUnbuffered(
                                 @tagName(tag),
                                 extra.list.fmt(function_index, self),
                                 extra.type.fmt(self),
+                            });
+                        },
+                        .@"llvm.fma." => {
+                            const extra =
+                                function.extraData(Function.Instruction.FusedMultiplyAdd, instruction.data);
+                            const ty = instruction_index.typeOf(function_index, self);
+                            try writer.print("  %{} = call {%} @llvm.fma.{m}({%}, {%}, {%})\n", .{
+                                instruction_index.name(&function).fmt(self),
+                                ty.fmt(self),
+                                ty.fmt(self),
+                                extra.a.fmt(function_index, self),
+                                extra.b.fmt(function_index, self),
+                                extra.c.fmt(function_index, self),
                             });
                         },
                     }

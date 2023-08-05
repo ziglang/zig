@@ -1026,6 +1026,48 @@ pub const Builder = opaque {
     pub const buildMinNum = ZigLLVMBuildMinNum;
     extern fn ZigLLVMBuildMinNum(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
 
+    pub const buildCeil = ZigLLVMBuildCeil;
+    extern fn ZigLLVMBuildCeil(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildCos = ZigLLVMBuildCos;
+    extern fn ZigLLVMBuildCos(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildExp = ZigLLVMBuildExp;
+    extern fn ZigLLVMBuildExp(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildExp2 = ZigLLVMBuildExp2;
+    extern fn ZigLLVMBuildExp2(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildFAbs = ZigLLVMBuildFAbs;
+    extern fn ZigLLVMBuildFAbs(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildFloor = ZigLLVMBuildFloor;
+    extern fn ZigLLVMBuildFloor(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildLog = ZigLLVMBuildLog;
+    extern fn ZigLLVMBuildLog(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildLog10 = ZigLLVMBuildLog10;
+    extern fn ZigLLVMBuildLog10(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildLog2 = ZigLLVMBuildLog2;
+    extern fn ZigLLVMBuildLog2(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildRound = ZigLLVMBuildRound;
+    extern fn ZigLLVMBuildRound(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildSin = ZigLLVMBuildSin;
+    extern fn ZigLLVMBuildSin(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildSqrt = ZigLLVMBuildSqrt;
+    extern fn ZigLLVMBuildSqrt(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildFTrunc = ZigLLVMBuildFTrunc;
+    extern fn ZigLLVMBuildFTrunc(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
+
+    pub const buildFMA = ZigLLVMBuildFMA;
+    extern fn ZigLLVMBuildFMA(builder: *Builder, a: *Value, b: *Value, c: *Value, name: [*:0]const u8) *Value;
+
     pub const buildUMax = ZigLLVMBuildUMax;
     extern fn ZigLLVMBuildUMax(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
 
