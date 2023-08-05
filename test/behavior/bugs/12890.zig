@@ -9,7 +9,7 @@ fn a(b: []u3, c: u3) void {
     }
 }
 test {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 

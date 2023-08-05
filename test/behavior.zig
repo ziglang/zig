@@ -247,7 +247,7 @@ test {
 
     if (builtin.zig_backend != .stage2_arm and
         builtin.zig_backend != .zsf_x86_64 and
-        builtin.zig_backend != .stage2_aarch64 and
+        builtin.zig_backend != .zsf_aarch64 and
         builtin.zig_backend != .stage2_c and
         builtin.zig_backend != .zsf_spirv64)
     {

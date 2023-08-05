@@ -5,7 +5,7 @@ fn foo(a: []u8) void {
 }
 
 test "address of 0 length array" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 

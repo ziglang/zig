@@ -29,7 +29,7 @@ pub const default_mode: ModeOverride = if (is_async) Mode.evented else .blocking
 
 fn getStdOutHandle() os.fd_t {
     if (builtin.os.tag == .windows) {
-        if (builtin.zig_backend == .stage2_aarch64) {
+        if (builtin.zig_backend == .zsf_aarch64) {
             // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
             return os.windows.GetStdHandle(os.windows.STD_OUTPUT_HANDLE) catch os.windows.INVALID_HANDLE_VALUE;
         }
@@ -55,7 +55,7 @@ pub fn getStdOut() File {
 
 fn getStdErrHandle() os.fd_t {
     if (builtin.os.tag == .windows) {
-        if (builtin.zig_backend == .stage2_aarch64) {
+        if (builtin.zig_backend == .zsf_aarch64) {
             // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
             return os.windows.GetStdHandle(os.windows.STD_ERROR_HANDLE) catch os.windows.INVALID_HANDLE_VALUE;
         }
@@ -81,7 +81,7 @@ pub fn getStdErr() File {
 
 fn getStdInHandle() os.fd_t {
     if (builtin.os.tag == .windows) {
-        if (builtin.zig_backend == .stage2_aarch64) {
+        if (builtin.zig_backend == .zsf_aarch64) {
             // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
             return os.windows.GetStdHandle(os.windows.STD_INPUT_HANDLE) catch os.windows.INVALID_HANDLE_VALUE;
         }

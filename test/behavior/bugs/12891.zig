@@ -35,7 +35,7 @@ test "inf >= 1" {
     try std.testing.expect(f >= i);
 }
 test "isNan(nan * 1)" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -43,7 +43,7 @@ test "isNan(nan * 1)" {
     try std.testing.expect(std.math.isNan(nan_times_one));
 }
 test "runtime isNan(nan * 1)" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -51,7 +51,7 @@ test "runtime isNan(nan * 1)" {
     try std.testing.expect(std.math.isNan(nan_times_one));
 }
 test "isNan(nan * 0)" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -61,7 +61,7 @@ test "isNan(nan * 0)" {
     try std.testing.expect(std.math.isNan(zero_times_nan));
 }
 test "isNan(inf * 0)" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -71,7 +71,7 @@ test "isNan(inf * 0)" {
     try std.testing.expect(std.math.isNan(zero_times_inf));
 }
 test "runtime isNan(nan * 0)" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -81,7 +81,7 @@ test "runtime isNan(nan * 0)" {
     try std.testing.expect(std.math.isNan(zero_times_nan));
 }
 test "runtime isNan(inf * 0)" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
