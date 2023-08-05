@@ -4409,6 +4409,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             while (i < args.len) : (i += 1) {
                 const arg = args[i];
                 if (mem.startsWith(u8, arg, "-")) {
+                    if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+                        try io.getStdOut().writeAll(usage_build);
+                        return cleanExit();
+                    }
                     if (mem.eql(u8, arg, "--build-file")) {
                         if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                         i += 1;
