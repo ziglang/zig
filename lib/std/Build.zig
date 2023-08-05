@@ -488,7 +488,7 @@ const OrderedUserValue = union(enum) {
             }) catch @panic("OOM");
         }
 
-        std.sort.insertion(Pair, ordered.items, {}, Pair.lessThan);
+        std.mem.sortUnstable(Pair, ordered.items, {}, Pair.lessThan);
         return ordered;
     }
 
@@ -533,7 +533,7 @@ fn hashUserInputOptionsMap(allocator: Allocator, user_input_options: UserInputOp
     while (it.next()) |entry|
         ordered.append(OrderedUserInputOption.fromUnordered(allocator, entry.value_ptr.*)) catch @panic("OOM");
 
-    std.sort.insertion(OrderedUserInputOption, ordered.items, {}, OrderedUserInputOption.lessThan);
+    std.mem.sortUnstable(OrderedUserInputOption, ordered.items, {}, OrderedUserInputOption.lessThan);
 
     // juice it
     for (ordered.items) |user_option|
