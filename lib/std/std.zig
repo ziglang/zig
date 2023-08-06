@@ -51,52 +51,130 @@ pub const Tz = tz.Tz;
 pub const Uri = @import("Uri.zig");
 
 pub const array_hash_map = @import("array_hash_map.zig");
+
+/// Memory ordering, atomic data structures and operations.
 pub const atomic = @import("atomic.zig");
+
+/// Base64 encoding / decoding.
 pub const base64 = @import("base64.zig");
+
+/// Bit-fiddling data structures.
 pub const bit_set = @import("bit_set.zig");
+
+/// Comptime-available information about the target machine and build mode.
 pub const builtin = @import("builtin.zig");
+
 pub const c = @import("c.zig");
 pub const coff = @import("coff.zig");
+
+/// Compression algorithms such as zlib, zstd, etc.
 pub const compress = @import("compress.zig");
+
+/// Cryptography.
 pub const crypto = @import("crypto.zig");
+
 pub const cstr = @import("cstr.zig");
+
+/// Debug printing, allocation and other debug helpers.
 pub const debug = @import("debug.zig");
 pub const dwarf = @import("dwarf.zig");
 pub const elf = @import("elf.zig");
+
+/// Enum-related metaprogramming helpers.
 pub const enums = @import("enums.zig");
+
+/// Evented I/O data structures.
 pub const event = @import("event.zig");
+
 pub const fifo = @import("fifo.zig");
+
+/// String formatting and parsing (eg parsing numbers out of strings).
 pub const fmt = @import("fmt.zig");
+
+/// File-system related types.
 pub const fs = @import("fs.zig");
+
+/// Fast hashing functions (i.e. not cryptographically secure)
 pub const hash = @import("hash.zig");
 pub const hash_map = @import("hash_map.zig");
+
+/// Allocator implementations.
 pub const heap = @import("heap.zig");
+
+/// HTTP client and server.
 pub const http = @import("http.zig");
+
+/// I/O Streams, Reader/Writer interfaces and common helpers.
 pub const io = @import("io.zig");
+
+/// JSON parsing and serialization.
 pub const json = @import("json.zig");
 pub const leb = @import("leb128.zig");
+
+/// A standardized interface for logging.
 pub const log = @import("log.zig");
 pub const macho = @import("macho.zig");
+
+/// Mathematical constants and operations.
 pub const math = @import("math.zig");
+
+/// Functions for comparing, searching and manipulating memory.
 pub const mem = @import("mem.zig");
+
+/// Metaprogramming helpers.
 pub const meta = @import("meta.zig");
+
+/// Networking.
 pub const net = @import("net.zig");
+
+/// Wrappers around OS-specific APIs.
 pub const os = @import("os.zig");
+
 pub const once = @import("once.zig").once;
+
+/// A set of array and slice types that bit-pack integer elements.
 pub const packed_int_array = @import("packed_int_array.zig");
+
 pub const pdb = @import("pdb.zig");
+
+/// Accessors for process-related info (e.g. command line arguments)
+/// aand spawning of child processes.
 pub const process = @import("process.zig");
+
+/// Fast pseudo-random number generators (i.e. non-cryptographically secure).
 pub const rand = @import("rand.zig");
+
+/// Sorting.
 pub const sort = @import("sort.zig");
+
+/// Single Instruction Multiple Data (SIMD) helpers.
 pub const simd = @import("simd.zig");
+
+/// ASCII text manipulation.
 pub const ascii = @import("ascii.zig");
+
+/// Tar archive format compression / decompression.
 pub const tar = @import("tar.zig");
+
+/// Testing allocator, testing assertions, and other helpers for testing code.
 pub const testing = @import("testing.zig");
+
+/// Sleep, obtaining the current time and constants for conversions.
 pub const time = @import("time.zig");
+
+/// Timezones.
 pub const tz = @import("tz.zig");
+
+/// UTF8 and UTF16LE ecoding / decoding.
 pub const unicode = @import("unicode.zig");
+
+/// Helpers for integrating with Valgrind.
 pub const valgrind = @import("valgrind.zig");
+
+/// Constants and types representing the WASM binary format.
 pub const wasm = @import("wasm.zig");
+
+/// Tokenizing and parsing of Zig code and other Zig-specific language tooling.
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
 
@@ -106,6 +184,7 @@ pub const build = Build;
 const root = @import("root");
 const options_override = if (@hasDecl(root, "std_options")) root.std_options else struct {};
 
+/// Stdlib-wide options that can be overridden by the root file.
 pub const options = struct {
     pub const enable_segfault_handler: bool = if (@hasDecl(options_override, "enable_segfault_handler"))
         options_override.enable_segfault_handler
