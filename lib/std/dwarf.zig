@@ -3,7 +3,6 @@ const std = @import("std.zig");
 const debug = std.debug;
 const fs = std.fs;
 const io = std.io;
-const os = std.os;
 const mem = std.mem;
 const math = std.math;
 const leb = @import("leb128.zig");
