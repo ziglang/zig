@@ -6,7 +6,6 @@ const testing = std.testing;
 const mem = std.mem;
 const os = std.os;
 const c = std.c;
-const maxInt = std.math.maxInt;
 const Allocator = std.mem.Allocator;
 
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;

@@ -1,9 +1,6 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
-const io = std.io;
 const mem = std.mem;
-const os = std.os;
-const fs = std.fs;
 
 pub const CoffHeaderFlags = packed struct {
     /// Image only, Windows CE, and Microsoft Windows NT and later.

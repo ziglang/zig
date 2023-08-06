@@ -2,12 +2,10 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
 const os = std.os;
-const assert = std.debug.assert;
 const testing = std.testing;
 const elf = std.elf;
 const windows = std.os.windows;
 const system = std.os.system;
-const maxInt = std.math.maxInt;
 
 pub const DynLib = switch (builtin.os.tag) {
     .linux => if (builtin.link_libc) DlDynlib else ElfDynLib,

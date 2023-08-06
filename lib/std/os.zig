@@ -25,9 +25,6 @@ const fs = std.fs;
 const dl = @import("dynamic_library.zig");
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 const is_windows = builtin.os.tag == .windows;
-const Allocator = std.mem.Allocator;
-const Preopen = std.fs.wasi.Preopen;
-const PreopenList = std.fs.wasi.PreopenList;
 
 pub const darwin = std.c;
 pub const dragonfly = std.c;
