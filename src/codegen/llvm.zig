@@ -5100,11 +5100,11 @@ pub const FuncGen = struct {
                 .memcpy         => try self.airMemcpy(inst),
                 .set_union_tag  => try self.airSetUnionTag(inst),
                 .get_union_tag  => try self.airGetUnionTag(inst),
-                .clz            => try self.airClzCtz(inst, "llvm.ctlz"),
-                .ctz            => try self.airClzCtz(inst, "llvm.cttz"),
-                .popcount       => try self.airBitOp(inst, "llvm.ctpop"),
-                .byte_swap      => try self.airByteSwap(inst, "llvm.bswap"),
-                .bit_reverse    => try self.airBitOp(inst, "llvm.bitreverse"),
+                .clz            => try self.airClzCtz(inst, .@"llvm.ctlz."),
+                .ctz            => try self.airClzCtz(inst, .@"llvm.cttz."),
+                .popcount       => try self.airBitOp(inst, .@"llvm.ctpop."),
+                .byte_swap      => try self.airByteSwap(inst),
+                .bit_reverse    => try self.airBitOp(inst, .@"llvm.bitreverse."),
                 .tag_name       => try self.airTagName(inst),
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
@@ -8282,8 +8282,7 @@ pub const FuncGen = struct {
         const scalar_ty = ty.scalarType(mod);
         const llvm_ty = try o.lowerType(ty);
 
-        const intrinsics_allowed = op != .tan and intrinsicsAllowed(scalar_ty, target);
-        const strat: FloatOpStrat = if (intrinsics_allowed) switch (op) {
+        if (op != .tan and intrinsicsAllowed(scalar_ty, target)) switch (op) {
             // Some operations are dedicated LLVM instructions, not available as intrinsics
             .neg => return self.wip.un(.fneg, params[0], ""),
             .add => return self.wip.bin(.fadd, params[0], params[1], ""),
@@ -8293,83 +8292,84 @@ pub const FuncGen = struct {
             .fmod => return self.wip.bin(.frem, params[0], params[1], ""),
             .fmax => return self.wip.bin(.@"llvm.maxnum.", params[0], params[1], ""),
             .fmin => return self.wip.bin(.@"llvm.minnum.", params[0], params[1], ""),
-            else => .{ .intrinsic = "llvm." ++ @tagName(op) },
-        } else b: {
-            const float_bits = scalar_ty.floatBits(target);
-            break :b switch (op) {
-                .neg => {
-                    // In this case we can generate a softfloat negation by XORing the
-                    // bits with a constant.
-                    const int_ty = try o.builder.intType(@intCast(float_bits));
-                    const cast_ty = try llvm_ty.changeScalar(int_ty, &o.builder);
-                    const sign_mask = try o.builder.splatValue(
-                        cast_ty,
-                        try o.builder.intConst(int_ty, @as(u128, 1) << @intCast(float_bits - 1)),
-                    );
-                    const bitcasted_operand = try self.wip.cast(.bitcast, params[0], cast_ty, "");
-                    const result = try self.wip.bin(.xor, bitcasted_operand, sign_mask, "");
-                    return self.wip.cast(.bitcast, result, llvm_ty, "");
-                },
-                .add, .sub, .div, .mul => .{ .libc = try o.builder.fmt("__{s}{s}f3", .{
-                    @tagName(op), compilerRtFloatAbbrev(float_bits),
-                }) },
-                .ceil,
-                .cos,
-                .exp,
-                .exp2,
-                .fabs,
-                .floor,
-                .fma,
-                .fmax,
-                .fmin,
-                .fmod,
-                .log,
-                .log10,
-                .log2,
-                .round,
-                .sin,
-                .sqrt,
-                .tan,
-                .trunc,
-                => .{ .libc = try o.builder.fmt("{s}{s}{s}", .{
-                    libcFloatPrefix(float_bits), @tagName(op), libcFloatSuffix(float_bits),
-                }) },
-            };
+            .ceil => return self.wip.un(.@"llvm.ceil.", params[0], ""),
+            .cos => return self.wip.un(.@"llvm.cos.", params[0], ""),
+            .exp => return self.wip.un(.@"llvm.exp.", params[0], ""),
+            .exp2 => return self.wip.un(.@"llvm.exp2.", params[0], ""),
+            .fabs => return self.wip.un(.@"llvm.fabs.", params[0], ""),
+            .floor => return self.wip.un(.@"llvm.floor.", params[0], ""),
+            .log => return self.wip.un(.@"llvm.log.", params[0], ""),
+            .log10 => return self.wip.un(.@"llvm.log10.", params[0], ""),
+            .log2 => return self.wip.un(.@"llvm.log2.", params[0], ""),
+            .round => return self.wip.un(.@"llvm.round.", params[0], ""),
+            .sin => return self.wip.un(.@"llvm.sin.", params[0], ""),
+            .sqrt => return self.wip.un(.@"llvm.sqrt.", params[0], ""),
+            .trunc => return self.wip.un(.@"llvm.trunc.", params[0], ""),
+            .fma => return self.wip.fusedMultiplyAdd(params[0], params[1], params[2]),
+            .tan => unreachable,
         };
 
-        const llvm_fn = switch (strat) {
-            .intrinsic => |fn_name| try self.getIntrinsic(fn_name, &.{llvm_ty}),
-            .libc => |fn_name| b: {
-                const scalar_llvm_ty = llvm_ty.scalarType(&o.builder);
-                const libc_fn = try self.getLibcFunction(
-                    fn_name,
-                    ([1]Builder.Type{scalar_llvm_ty} ** 3)[0..params.len],
-                    scalar_llvm_ty,
+        const float_bits = scalar_ty.floatBits(target);
+        const fn_name = switch (op) {
+            .neg => {
+                // In this case we can generate a softfloat negation by XORing the
+                // bits with a constant.
+                const int_ty = try o.builder.intType(@intCast(float_bits));
+                const cast_ty = try llvm_ty.changeScalar(int_ty, &o.builder);
+                const sign_mask = try o.builder.splatValue(
+                    cast_ty,
+                    try o.builder.intConst(int_ty, @as(u128, 1) << @intCast(float_bits - 1)),
                 );
-                if (ty.zigTypeTag(mod) == .Vector) {
-                    const result = try o.builder.poisonValue(llvm_ty);
-                    return self.buildElementwiseCall(libc_fn, &params, result, ty.vectorLen(mod));
-                }
-
-                break :b libc_fn.toLlvm(&o.builder);
+                const bitcasted_operand = try self.wip.cast(.bitcast, params[0], cast_ty, "");
+                const result = try self.wip.bin(.xor, bitcasted_operand, sign_mask, "");
+                return self.wip.cast(.bitcast, result, llvm_ty, "");
             },
+            .add, .sub, .div, .mul => try o.builder.fmt("__{s}{s}f3", .{
+                @tagName(op), compilerRtFloatAbbrev(float_bits),
+            }),
+            .ceil,
+            .cos,
+            .exp,
+            .exp2,
+            .fabs,
+            .floor,
+            .fma,
+            .fmax,
+            .fmin,
+            .fmod,
+            .log,
+            .log10,
+            .log2,
+            .round,
+            .sin,
+            .sqrt,
+            .tan,
+            .trunc,
+            => try o.builder.fmt("{s}{s}{s}", .{
+                libcFloatPrefix(float_bits), @tagName(op), libcFloatSuffix(float_bits),
+            }),
         };
-        const llvm_fn_ty = try o.builder.fnType(
-            llvm_ty,
-            ([1]Builder.Type{llvm_ty} ** 3)[0..params.len],
-            .normal,
+
+        const scalar_llvm_ty = llvm_ty.scalarType(&o.builder);
+        const libc_fn = try self.getLibcFunction(
+            fn_name,
+            ([1]Builder.Type{scalar_llvm_ty} ** 3)[0..params.len],
+            scalar_llvm_ty,
         );
-        var llvm_params: [params_len]*llvm.Value = undefined;
-        for (&llvm_params, params) |*llvm_param, param| llvm_param.* = param.toLlvm(&self.wip);
-        return (try self.wip.unimplemented(llvm_ty, "")).finish(self.builder.buildCallOld(
-            llvm_fn_ty.toLlvm(&o.builder),
-            llvm_fn,
-            &llvm_params,
-            params_len,
-            .C,
-            .Auto,
+        if (ty.zigTypeTag(mod) == .Vector) {
+            const result = try o.builder.poisonValue(llvm_ty);
+            return self.buildElementwiseCall(libc_fn, &params, result, ty.vectorLen(mod));
+        }
+
+        return self.wip.call(
+            .normal,
+            .ccc,
+            .none,
+            libc_fn.typeOf(&o.builder),
+            libc_fn.toValue(&o.builder),
+            &params,
             "",
-        ), &self.wip);
+        );
     }
 
     fn airMulAdd(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9526,64 +9526,29 @@ pub const FuncGen = struct {
         return self.buildFloatOp(.neg, operand_ty, 1, .{operand});
     }
 
-    fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !Builder.Value {
+    fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, intrinsic: Builder.Function.Instruction.Tag) !Builder.Value {
         const o = self.dg.object;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const operand_ty = self.typeOf(ty_op.operand);
         const operand = try self.resolveInst(ty_op.operand);
 
-        const llvm_operand_ty = try o.lowerType(operand_ty);
-        const llvm_fn_ty = try o.builder.fnType(llvm_operand_ty, &.{ llvm_operand_ty, .i1 }, .normal);
-        const fn_val = try self.getIntrinsic(llvm_fn_name, &.{llvm_operand_ty});
+        const wrong_size_result = try self.wip.bin(intrinsic, operand, (try o.builder.intConst(.i1, 0)).toValue(), "");
 
-        const params = [_]*llvm.Value{
-            operand.toLlvm(&self.wip),
-            Builder.Constant.false.toLlvm(&o.builder),
-        };
-        const wrong_size_result = (try self.wip.unimplemented(llvm_operand_ty, "")).finish(
-            self.builder.buildCallOld(
-                llvm_fn_ty.toLlvm(&o.builder),
-                fn_val,
-                &params,
-                params.len,
-                .C,
-                .Auto,
-                "",
-            ),
-            &self.wip,
-        );
         const result_ty = self.typeOfIndex(inst);
         return self.wip.conv(.unsigned, wrong_size_result, try o.lowerType(result_ty), "");
     }
 
-    fn airBitOp(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !Builder.Value {
+    fn airBitOp(self: *FuncGen, inst: Air.Inst.Index, intrinsic: Builder.Function.Instruction.Tag) !Builder.Value {
         const o = self.dg.object;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const operand_ty = self.typeOf(ty_op.operand);
         const operand = try self.resolveInst(ty_op.operand);
 
-        const llvm_operand_ty = try o.lowerType(operand_ty);
-        const llvm_fn_ty = try o.builder.fnType(llvm_operand_ty, &.{llvm_operand_ty}, .normal);
-        const fn_val = try self.getIntrinsic(llvm_fn_name, &.{llvm_operand_ty});
+        const wrong_size_result = try self.wip.un(intrinsic, operand, "");
 
-        const params = [_]*llvm.Value{operand.toLlvm(&self.wip)};
-        const wrong_size_result = (try self.wip.unimplemented(llvm_operand_ty, "")).finish(
-            self.builder.buildCallOld(
-                llvm_fn_ty.toLlvm(&o.builder),
-                fn_val,
-                &params,
-                params.len,
-                .C,
-                .Auto,
-                "",
-            ),
-            &self.wip,
-        );
         const result_ty = self.typeOfIndex(inst);
         return self.wip.conv(.unsigned, wrong_size_result, try o.lowerType(result_ty), "");
     }
 
-    fn airByteSwap(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !Builder.Value {
+    fn airByteSwap(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -9611,22 +9576,7 @@ pub const FuncGen = struct {
             bits = bits + 8;
         }
 
-        const llvm_fn_ty = try o.builder.fnType(llvm_operand_ty, &.{llvm_operand_ty}, .normal);
-        const fn_val = try self.getIntrinsic(llvm_fn_name, &.{llvm_operand_ty});
-
-        const params = [_]*llvm.Value{operand.toLlvm(&self.wip)};
-        const wrong_size_result = (try self.wip.unimplemented(llvm_operand_ty, "")).finish(
-            self.builder.buildCallOld(
-                llvm_fn_ty.toLlvm(&o.builder),
-                fn_val,
-                &params,
-                params.len,
-                .C,
-                .Auto,
-                "",
-            ),
-            &self.wip,
-        );
+        const wrong_size_result = try self.wip.un(.@"llvm.bswap.", operand, "");
 
         const result_ty = self.typeOfIndex(inst);
         return self.wip.conv(.unsigned, wrong_size_result, try o.lowerType(result_ty), "");
