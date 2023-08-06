@@ -564,125 +564,149 @@ fn ReadConsoleWithUtf16ToUtf8Conversion(hConsoleInput: HANDLE, buffer: []u8) Rea
         error.ConsoleHandleLimitReached => @panic("Reached maximum number of 64 console handles."),
         else => return error.Unexpected,
     };
-    // The temporary buffer can be huge, so keep it away from stack
-    var heap_allocator: std.heap.HeapAllocator = std.heap.HeapAllocator.init();
-    defer heap_allocator.deinit();
-    const allocator: std.mem.Allocator = heap_allocator.allocator();
-    var temp_buffer: []u8 = allocator.alloc(u8, buffer.len) catch @panic("Out of memory.");
-    defer allocator.free(temp_buffer);
-
+    var temp_buffer: [1024]u8 = undefined;
     var bytes_read: DWORD = 0;
     var reached_end_of_line: bool = false;
-
-    // Try flushing leftover UTF-8 bytes first (one codepoint at most)
-    if (handle_data.utf8_buffer.bytes_used != 0) {
-        // LF will only appear at the first byte and there will be only one byte in the buffer
-        if (handle_data.utf8_buffer.data[0] == 0x0A) {
-            assert(handle_data.utf8_buffer.bytes_used == 1);
-            reached_end_of_line = true;
-        }
-        // Is there enough space for all bytes in UTF-8 buffer?
-        const has_enough_space: bool = buffer.len >= handle_data.utf8_buffer.bytes_used;
-        const max_bytes_to_read: usize = if (has_enough_space) handle_data.utf8_buffer.bytes_used else buffer.len;
-        for (0..max_bytes_to_read) |index| {
-            temp_buffer[index] = handle_data.utf8_buffer.data[handle_data.utf8_buffer.front_index];
-            // Front index wraps around in the case of 4-byte sequence (non-BMP code point)
-            handle_data.utf8_buffer.front_index +%= 1;
-        }
-        bytes_read += @truncate(max_bytes_to_read);
-        handle_data.utf8_buffer.bytes_used -= @truncate(max_bytes_to_read);
-        if (has_enough_space) {
-            // UTF-8 buffer is now empty, we can safely reset front_index to zero
-            handle_data.utf8_buffer.front_index = 0;
-        } else {
-            return ReadConsoleProcessUtf8Buffer(buffer, temp_buffer, bytes_read, false);
-        }
-        // LF ends a console read immediately
-        if (reached_end_of_line) {
-            return ReadConsoleProcessUtf8Buffer(buffer, temp_buffer, bytes_read, false);
-        }
-    }
-    assert(handle_data.utf8_buffer.front_index == 0);
+    const TruncateState = enum {
+        do_not_truncate,
+        truncate_after_SUB,
+        truncate_all,
+    };
+    var truncate_state: TruncateState = .do_not_truncate;
     while (bytes_read < buffer.len) {
-        // Read only one code unit each loop
-        var utf16_code_unit: u16 = undefined;
-        var utf16_code_units_read: DWORD = undefined;
-        if (kernel32.ReadConsoleW(hConsoleInput, &utf16_code_unit, 1, &utf16_code_units_read, null) == FALSE) {
-            switch (kernel32.GetLastError()) {
-                .INVALID_HANDLE => return error.NotOpenForReading,
-                else => |err| return unexpectedError(err),
-            }
+        const remaining_buffer: []u8 = buffer[bytes_read..buffer.len];
+        var has_enough_space_in_remaining_buffer: bool = undefined;
+        var bytes_read_into_temp_buffer: DWORD = 0;
+        var truncate_index: DWORD = undefined;
+        // If a SUB character is encountered in a previous loop, truncate everything in this loop
+        if (truncate_state == .truncate_after_SUB) {
+            truncate_state = .truncate_all;
         }
-        if (utf16_code_unit == 0x000D) {
-            // CR should always be followed by an LF, so just discard it
-            continue;
-        } else if (utf16_code_unit >= 0xD800 and utf16_code_unit <= 0xDBFF) {
-            // When a high surrogate is encountered, store it into the UTF-16 buffer
-            assert(handle_data.utf16_buffer.code_units_used == 0);
-            handle_data.utf16_buffer.data[0] = utf16_code_unit;
-            handle_data.utf16_buffer.code_units_used = 1;
-            continue;
-        } else if (utf16_code_unit >= 0xDC00 and utf16_code_unit <= 0xDFFF) {
-            // When a low surrogate is encountered, assemble surrogate pair and convert to UTF-8
-            if (!(utf16_code_units_read == 1 and
-                handle_data.utf16_buffer.data[0] >= 0xD800 and handle_data.utf16_buffer.data[0] <= 0xDBFF)) {
-                unreachable;
-            }
-            handle_data.utf16_buffer.data[1] = utf16_code_unit;
-            handle_data.utf16_buffer.code_units_used = 0;
-            const utf8_bytes: usize = std.unicode.utf16leToUtf8(&handle_data.utf8_buffer.data, &handle_data.utf16_buffer.data) catch return error.Unexpected;
-            assert(utf8_bytes == 4);
-            handle_data.utf8_buffer.bytes_used = 4;
-        } else {
-            assert(handle_data.utf16_buffer.code_units_used == 0);
-            const utf8_bytes: usize = std.unicode.utf16leToUtf8(&handle_data.utf8_buffer.data, @as(*[1]u16, &utf16_code_unit)) catch return error.Unexpected;
-            handle_data.utf8_buffer.bytes_used = @truncate(utf8_bytes);
-            // LF ends a console read immediately
-            if (handle_data.utf8_buffer.bytes_used == 1 and handle_data.utf8_buffer.data[0] == 0x0A) {
+        // Try flushing leftover UTF-8 bytes first (one codepoint at most)
+        if (handle_data.utf8_buffer.bytes_used != 0) {
+            if (handle_data.utf8_buffer.data[0] == 0x0A) {
+                assert(handle_data.utf8_buffer.bytes_used == 1);
                 reached_end_of_line = true;
+            } else if (handle_data.utf8_buffer.data[0] == 0x1A) {
+                assert(handle_data.utf8_buffer.bytes_used == 1);
+                // Truncate after SUB character in this loop if we never truncated in previous loops
+                if (truncate_state == .do_not_truncate) {
+                    truncate_state = .truncate_after_SUB;
+                    truncate_index = 1;
+                }
+            }
+            // Is there enough space for all bytes in UTF-8 buffer?
+            const has_enough_space: bool = remaining_buffer.len >= handle_data.utf8_buffer.bytes_used;
+            const max_bytes_to_read: usize = if (has_enough_space) handle_data.utf8_buffer.bytes_used else remaining_buffer.len;
+            for (0..max_bytes_to_read) |index| {
+                temp_buffer[index] = handle_data.utf8_buffer.data[handle_data.utf8_buffer.front_index];
+                // Front index wraps around in the case of 4-byte sequence (non-BMP code point)
+                handle_data.utf8_buffer.front_index +%= 1;
+            }
+            bytes_read_into_temp_buffer += @truncate(max_bytes_to_read);
+            handle_data.utf8_buffer.bytes_used -= @truncate(max_bytes_to_read);
+            if (has_enough_space) {
+                // UTF-8 buffer is now empty, we can safely reset front_index to zero
+                handle_data.utf8_buffer.front_index = 0;
+            } else {
+                switch (truncate_state) {
+                    .truncate_all => {},
+                    else => @memcpy(remaining_buffer[0..bytes_read_into_temp_buffer], temp_buffer[0..bytes_read_into_temp_buffer]),
+                }
+                bytes_read += bytes_read_into_temp_buffer;
+                break;
+            }
+            // LF ends a console read immediately
+            if (reached_end_of_line) {
+                switch (truncate_state) {
+                    .truncate_all => {},
+                    else => @memcpy(remaining_buffer[0..bytes_read_into_temp_buffer], temp_buffer[0..bytes_read_into_temp_buffer]),
+                }
+                bytes_read += bytes_read_into_temp_buffer;
+                break;
             }
         }
-        // Is there enough space for all bytes in UTF-8 buffer?
-        const has_enough_space: bool = buffer.len >= bytes_read + handle_data.utf8_buffer.bytes_used;
-        const max_bytes_to_read: usize = if (has_enough_space) handle_data.utf8_buffer.bytes_used else buffer.len - bytes_read;
-        for (0..max_bytes_to_read) |index| {
-            temp_buffer[bytes_read + index] = handle_data.utf8_buffer.data[handle_data.utf8_buffer.front_index];
-            // Front index wraps around in the case of 4-byte sequence (non-BMP code point)
-            handle_data.utf8_buffer.front_index +%= 1;
+        assert(handle_data.utf8_buffer.front_index == 0);
+        while (bytes_read_into_temp_buffer < temp_buffer.len) {
+            // Read only one code unit each loop
+            var utf16_code_unit: u16 = undefined;
+            var utf16_code_units_read: DWORD = undefined;
+            if (kernel32.ReadConsoleW(hConsoleInput, &utf16_code_unit, 1, &utf16_code_units_read, null) == FALSE) {
+                switch (kernel32.GetLastError()) {
+                    .INVALID_HANDLE => return error.NotOpenForReading,
+                    else => |err| return unexpectedError(err),
+                }
+            }
+            if (utf16_code_unit == 0x000D) {
+                // CR should always be followed by an LF, so just discard it
+                continue;
+            } else if (utf16_code_unit >= 0xD800 and utf16_code_unit <= 0xDBFF) {
+                // When a high surrogate is encountered, store it into the UTF-16 buffer
+                assert(handle_data.utf16_buffer.code_units_used == 0);
+                handle_data.utf16_buffer.data[0] = utf16_code_unit;
+                handle_data.utf16_buffer.code_units_used = 1;
+                continue;
+            } else if (utf16_code_unit >= 0xDC00 and utf16_code_unit <= 0xDFFF) {
+                // When a low surrogate is encountered, assemble surrogate pair and convert to UTF-8
+                if (!(utf16_code_units_read == 1 and handle_data.utf16_buffer.data[0] >= 0xD800 and handle_data.utf16_buffer.data[0] <= 0xDBFF)) {
+                    unreachable;
+                }
+                handle_data.utf16_buffer.data[1] = utf16_code_unit;
+                handle_data.utf16_buffer.code_units_used = 0;
+                const utf8_bytes: usize = std.unicode.utf16leToUtf8(&handle_data.utf8_buffer.data, &handle_data.utf16_buffer.data) catch return error.Unexpected;
+                assert(utf8_bytes == 4);
+                handle_data.utf8_buffer.bytes_used = 4;
+            } else {
+                assert(handle_data.utf16_buffer.code_units_used == 0);
+                const utf8_bytes: usize = std.unicode.utf16leToUtf8(&handle_data.utf8_buffer.data, @as(*[1]u16, &utf16_code_unit)) catch return error.Unexpected;
+                handle_data.utf8_buffer.bytes_used = @truncate(utf8_bytes);
+                if (handle_data.utf8_buffer.bytes_used == 1) {
+                    if (handle_data.utf8_buffer.data[0] == 0x0A) {
+                        reached_end_of_line = true;
+                    } else if (handle_data.utf8_buffer.data[0] == 0x1A) {
+                        if (truncate_state == .do_not_truncate) {
+                            truncate_state = .truncate_after_SUB;
+                            truncate_index = bytes_read_into_temp_buffer + 1;
+                        }
+                    }
+                }
+            }
+            // Is there enough space for all bytes in UTF-8 buffer?
+            has_enough_space_in_remaining_buffer = remaining_buffer.len >= bytes_read_into_temp_buffer + handle_data.utf8_buffer.bytes_used;
+            const has_enough_space: bool = has_enough_space_in_remaining_buffer and temp_buffer.len >= bytes_read_into_temp_buffer + handle_data.utf8_buffer.bytes_used;
+            const max_bytes_to_read: usize = if (has_enough_space) handle_data.utf8_buffer.bytes_used else remaining_buffer.len - bytes_read_into_temp_buffer;
+            for (0..max_bytes_to_read) |index| {
+                temp_buffer[bytes_read_into_temp_buffer + index] = handle_data.utf8_buffer.data[handle_data.utf8_buffer.front_index];
+                // Front index wraps around in the case of 4-byte sequence (non-BMP code point)
+                handle_data.utf8_buffer.front_index +%= 1;
+            }
+            bytes_read_into_temp_buffer += @truncate(max_bytes_to_read);
+            handle_data.utf8_buffer.bytes_used -= @truncate(max_bytes_to_read);
+            if (has_enough_space) {
+                // UTF-8 buffer is now empty, we can safely reset front_index to zero
+                handle_data.utf8_buffer.front_index = 0;
+            } else {
+                break;
+            }
+            // LF ends a console read immediately
+            if (reached_end_of_line) {
+                break;
+            }
         }
-        bytes_read += @truncate(max_bytes_to_read);
-        handle_data.utf8_buffer.bytes_used -= @truncate(max_bytes_to_read);
-        if (has_enough_space) {
-            // UTF-8 buffer is now empty, we can safely reset front_index to zero
-            handle_data.utf8_buffer.front_index = 0;
-        } else {
-            break;
-        }
-        // LF ends a console read immediately
-        if (reached_end_of_line) {
+        // Copy to user-provided buffer
+        const bytes_copied: DWORD = switch (truncate_state) {
+            .do_not_truncate => bytes_read_into_temp_buffer,
+            .truncate_after_SUB => truncate_index,
+            .truncate_all => 0,
+        };
+        @memcpy(remaining_buffer[0..bytes_copied], temp_buffer[0..bytes_copied]);
+        bytes_read += bytes_copied;
+        // Early return conditions
+        if (!has_enough_space_in_remaining_buffer or reached_end_of_line) {
             break;
         }
     }
-    return ReadConsoleProcessUtf8Buffer(buffer, temp_buffer, bytes_read, true);
-}
-
-fn ReadConsoleProcessUtf8Buffer(buffer: []u8, temp_buffer: []u8, bytes_read: DWORD, comptime truncate_after_SUB: bool) DWORD {
-    if (truncate_after_SUB) {
-        // Truncate everything after the SUB (Ctrl+Z) character
-        var index: DWORD = 0;
-        var reached_end_of_file: bool = false;
-        while (index < bytes_read and !reached_end_of_file) {
-            if (temp_buffer[index] == 0x1A) {
-                reached_end_of_file = true;
-            }
-            buffer[index] = temp_buffer[index];
-            index += 1;
-        }
-        return index;
-    } else {
-        std.mem.copy(u8, buffer, temp_buffer);
-        return bytes_read;
-    }
+    return bytes_read;
 }
 
 pub const WriteFileError = error{
@@ -809,7 +833,7 @@ fn WriteConsoleWithUtf8ToUtf16Conversion(handle: HANDLE, bytes: []const u8) Writ
                 bytes_written += @truncate(bytes_available);
                 return bytes_written;
             } else {
-                utf16_code_units = std.unicode.utf8ToUtf16Le(&utf16_buffer, bytes[byte_index..byte_index + utf8_byte_sequence_length]) catch return error.InvalidUtf8;
+                utf16_code_units = std.unicode.utf8ToUtf16Le(&utf16_buffer, bytes[byte_index .. byte_index + utf8_byte_sequence_length]) catch return error.InvalidUtf8;
                 byte_index += utf8_byte_sequence_length;
             }
         } else {
