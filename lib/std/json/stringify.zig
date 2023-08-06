@@ -34,7 +34,7 @@ pub const StringifyOptions = struct {
     /// Should unicode characters be escaped in strings?
     escape_unicode: bool = false,
 
-    /// When true, renders numbers outside the range `Â±1<<53` (the precise integer range of f64) as JSON strings in base 10.
+    /// When true, renders numbers outside the range `+-1<<53` (the precise integer range of f64) as JSON strings in base 10.
     emit_big_numbers_quoted: bool = false,
 };
 
@@ -164,7 +164,7 @@ pub fn writeStreamArbitraryDepth(
 ///  * Zig `bool` -> JSON `true` or `false`.
 ///  * Zig `?T` -> `null` or the rendering of `T`.
 ///  * Zig `i32`, `u64`, etc. -> JSON number or string.
-///      * If the value is outside the range `Â±1<<53` (the precise integer range of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
+///      * If the value is outside the range `+-1<<53` (the precise integer range of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
 ///  * Zig floats -> JSON number or string.
 ///      * If the value cannot be precisely represented by an f64, it is rendered as a JSON string. Otherwise, it is rendered as JSON number.
 ///      * TODO: Float rendering will likely change in the future, e.g. to remove the unnecessary "e+00".
@@ -402,13 +402,11 @@ pub fn WriteStream(
         pub fn write(self: *Self, value: anytype) Error!void {
             const T = @TypeOf(value);
             switch (@typeInfo(T)) {
-                .Int => |info| {
-                    const emit_unquoted =
-                        if (!self.options.emit_big_numbers_quoted) true
-                        else if (info.bits < 53) true
-                        else (value < 4503599627370496 and (info.signedness == .unsigned or value > -4503599627370496));
+                .Int => {
                     try self.valueStart();
-                    if (emit_unquoted) {
+                    if (!self.options.emit_big_numbers_quoted or
+                        (value > -(1 << 53) and value < (1 << 53)))
+                    {
                         try self.stream.print("{}", .{value});
                     } else {
                         try self.stream.print("\"{}\"", .{value});
