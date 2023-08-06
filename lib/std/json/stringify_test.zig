@@ -126,6 +126,7 @@ test "stringify basic types" {
     try testStringify("4.2e+01", 42.0, .{});
     try testStringify("42", @as(u8, 42), .{});
     try testStringify("42", @as(u128, 42), .{});
+    try testStringify("9999999999999999", 9999999999999999, .{});
     try testStringify("4.2e+01", @as(f32, 42), .{});
     try testStringify("4.2e+01", @as(f64, 42), .{});
     try testStringify("\"ItBroke\"", @as(anyerror, error.ItBroke), .{});
@@ -431,4 +432,9 @@ test "print" {
         \\}
     ;
     try std.testing.expectEqualStrings(expected, result);
+}
+
+test "big integers" {
+    try testStringify("9999999999999999", 9999999999999999, .{});
+    try testStringify("\"9999999999999999\"", 9999999999999999, .{ .emit_big_numbers_quoted = true });
 }
