@@ -1151,13 +1151,13 @@ pub const Attribute = union(Kind) {
                 .sret,
                 .elementtype,
                 => |ty| try writer.print(" {s}({%})", .{ @tagName(attribute), ty.fmt(data.builder) }),
-                .@"align" => |alignment| try writer.print("{}", .{alignment}),
+                .@"align" => |alignment| try writer.print("{ }", .{alignment}),
                 .dereferenceable,
                 .dereferenceable_or_null,
                 => |size| try writer.print(" {s}({d})", .{ @tagName(attribute), size }),
                 .nofpclass => |fpclass| {
                     const Int = @typeInfo(FpClass).Struct.backing_integer.?;
-                    try writer.print("{s}(", .{@tagName(attribute)});
+                    try writer.print(" {s}(", .{@tagName(attribute)});
                     var any = false;
                     var remaining: Int = @bitCast(fpclass);
                     inline for (@typeInfo(FpClass).Struct.decls) |decl| {
@@ -1175,13 +1175,13 @@ pub const Attribute = union(Kind) {
                 },
                 .alignstack => |alignment| try writer.print(
                     if (comptime std.mem.indexOfScalar(u8, fmt_str, '#') != null)
-                        "{s}={d}"
+                        " {s}={d}"
                     else
-                        "{s}({d})",
+                        " {s}({d})",
                     .{ @tagName(attribute), alignment.toByteUnits() orelse return },
                 ),
                 .allockind => |allockind| {
-                    try writer.print("{s}(\"", .{@tagName(attribute)});
+                    try writer.print(" {s}(\"", .{@tagName(attribute)});
                     var any = false;
                     inline for (@typeInfo(AllocKind).Struct.fields) |field| {
                         if (comptime std.mem.eql(u8, field.name, "_")) continue;
@@ -1196,22 +1196,22 @@ pub const Attribute = union(Kind) {
                     try writer.writeAll("\")");
                 },
                 .allocsize => |allocsize| {
-                    try writer.print("{s}({d}", .{ @tagName(attribute), allocsize.elem_size });
+                    try writer.print(" {s}({d}", .{ @tagName(attribute), allocsize.elem_size });
                     if (allocsize.num_elems != AllocSize.none)
                         try writer.print(",{d}", .{allocsize.num_elems});
                     try writer.writeByte(')');
                 },
-                .memory => |memory| try writer.print("{s}({s}, argmem: {s}, inaccessiblemem: {s})", .{
+                .memory => |memory| try writer.print(" {s}({s}, argmem: {s}, inaccessiblemem: {s})", .{
                     @tagName(attribute),
                     @tagName(memory.other),
                     @tagName(memory.argmem),
                     @tagName(memory.inaccessiblemem),
                 }),
                 .uwtable => |uwtable| if (uwtable != .none) {
-                    try writer.writeAll(@tagName(attribute));
+                    try writer.print(" {s}", .{@tagName(attribute)});
                     if (uwtable != UwTable.default) try writer.print("({s})", .{@tagName(uwtable)});
                 },
-                .vscale_range => |vscale_range| try writer.print("{s}({d},{d})", .{
+                .vscale_range => |vscale_range| try writer.print(" {s}({d},{d})", .{
                     @tagName(attribute),
                     vscale_range.min.toByteUnits().?,
                     vscale_range.max.toByteUnits() orelse 0,
@@ -1867,7 +1867,7 @@ pub const AddrSpace = enum(u24) {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (self != .default) try writer.print("{s} addrspace({d})", .{ prefix, @intFromEnum(self) });
+        if (self != .default) try writer.print("{s}addrspace({d})", .{ prefix, @intFromEnum(self) });
     }
 };
 
@@ -1908,7 +1908,7 @@ pub const Alignment = enum(u6) {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        try writer.print("{s} align {d}", .{ prefix, self.toByteUnits() orelse return });
+        try writer.print("{s}align {d}", .{ prefix, self.toByteUnits() orelse return });
     }
 };
 
@@ -7413,7 +7413,7 @@ pub fn printUnbuffered(
             if (variable.global.getReplacement(self) != .none) continue;
             const global = variable.global.ptrConst(self);
             try writer.print(
-                \\{} ={}{}{}{}{}{}{}{} {s} {%}{ }{,}
+                \\{} ={}{}{}{}{}{}{}{} {s} {%}{ }{, }
                 \\
             , .{
                 variable.global.fmt(self),
@@ -7612,7 +7612,7 @@ pub fn printUnbuffered(
                         => |tag| {
                             const extra =
                                 function.extraData(Function.Instruction.Alloca, instruction.data);
-                            try writer.print("  %{} = {s} {%}{,%}{,}{,}\n", .{
+                            try writer.print("  %{} = {s} {%}{,%}{, }{, }\n", .{
                                 instruction_index.name(&function).fmt(self),
                                 @tagName(tag),
                                 extra.type.fmt(self),
@@ -7840,7 +7840,7 @@ pub fn printUnbuffered(
                         => |tag| {
                             const extra =
                                 function.extraData(Function.Instruction.Load, instruction.data);
-                            try writer.print("  %{} = {s} {%}, {%}{}{}{,}\n", .{
+                            try writer.print("  %{} = {s} {%}, {%}{}{}{, }\n", .{
                                 instruction_index.name(&function).fmt(self),
                                 @tagName(tag),
                                 extra.type.fmt(self),
@@ -7908,7 +7908,7 @@ pub fn printUnbuffered(
                         => |tag| {
                             const extra =
                                 function.extraData(Function.Instruction.Store, instruction.data);
-                            try writer.print("  {s} {%}, {%}{}{}{,}\n", .{
+                            try writer.print("  {s} {%}, {%}{}{}{, }\n", .{
                                 @tagName(tag),
                                 extra.val.fmt(function_index, self),
                                 extra.ptr.fmt(function_index, self),
