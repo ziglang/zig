@@ -7727,7 +7727,14 @@ pub fn printUnbuffered(
                         },
                         .fneg,
                         .@"fneg fast",
-                        .ret,
+                        => |tag| {
+                            const val: Value = @enumFromInt(instruction.data);
+                            try writer.print("  %{} = {s} {%}\n", .{
+                                instruction_index.name(&function).fmt(self),
+                                @tagName(tag),
+                                val.fmt(function_index, self),
+                            });
+                        },
                         .@"llvm.ceil.",
                         .@"llvm.cos.",
                         .@"llvm.exp.",
@@ -7746,8 +7753,12 @@ pub fn printUnbuffered(
                         .@"llvm.ctpop.",
                         => |tag| {
                             const val: Value = @enumFromInt(instruction.data);
-                            try writer.print("  {s} {%}\n", .{
+                            const ty = val.typeOf(function_index, self);
+                            try writer.print("  %{} = call {%} @{s}{m}({%})\n", .{
+                                instruction_index.name(&function).fmt(self),
+                                ty.fmt(self),
                                 @tagName(tag),
+                                ty.fmt(self),
                                 val.fmt(function_index, self),
                             });
                         },
@@ -7872,6 +7883,13 @@ pub fn printUnbuffered(
                             }
                             try writer.writeByte('\n');
                         },
+                        .ret => |tag| {
+                            const val: Value = @enumFromInt(instruction.data);
+                            try writer.print("  {s} {%}\n", .{
+                                @tagName(tag),
+                                val.fmt(function_index, self),
+                            });
+                        },
                         .@"ret void",
                         .@"unreachable",
                         => |tag| try writer.print("  {s}\n", .{@tagName(tag)}),
@@ -7966,13 +7984,14 @@ pub fn printUnbuffered(
                                 extra.type.fmt(self),
                             });
                         },
-                        .@"llvm.fma." => {
+                        .@"llvm.fma." => |tag| {
                             const extra =
                                 function.extraData(Function.Instruction.FusedMultiplyAdd, instruction.data);
                             const ty = instruction_index.typeOf(function_index, self);
-                            try writer.print("  %{} = call {%} @llvm.fma.{m}({%}, {%}, {%})\n", .{
+                            try writer.print("  %{} = call {%} @{s}{m}({%}, {%}, {%})\n", .{
                                 instruction_index.name(&function).fmt(self),
                                 ty.fmt(self),
+                                @tagName(tag),
                                 ty.fmt(self),
                                 extra.a.fmt(function_index, self),
                                 extra.b.fmt(function_index, self),
