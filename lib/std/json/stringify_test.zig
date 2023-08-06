@@ -434,7 +434,7 @@ test "print" {
     try std.testing.expectEqualStrings(expected, result);
 }
 
-test "big integers" {
+test "nonportable numbers" {
     try testStringify("9999999999999999", 9999999999999999, .{});
-    try testStringify("\"9999999999999999\"", 9999999999999999, .{ .emit_big_numbers_quoted = true });
+    try testStringify("\"9999999999999999\"", 9999999999999999, .{ .emit_nonportable_numbers_as_strings = true });
 }
