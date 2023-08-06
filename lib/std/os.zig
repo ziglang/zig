@@ -2636,23 +2636,44 @@ pub fn renameatW(
 
     const rename_info = @as(*windows.FILE_RENAME_INFORMATION, @ptrCast(&rename_info_buf));
 
-    rename_info.* = .{
-        .ReplaceIfExists = ReplaceIfExists,
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
-        .FileNameLength = @as(u32, @intCast(new_path_w.len * 2)), // already checked error.NameTooLong
-        .FileName = undefined,
-    };
+    if (builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
+        var flags: windows.ULONG = windows.FILE_RENAME_POSIX_SEMANTICS | windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE;
+        if (ReplaceIfExists == windows.TRUE) flags |= windows.FILE_RENAME_REPLACE_IF_EXISTS;
+        rename_info.* = .{
+            .Flags = flags,
+            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
+            .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
+            .FileName = undefined,
+        };
+    } else {
+        rename_info.* = .{
+            .Flags = ReplaceIfExists,
+            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
+            .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
+            .FileName = undefined,
+        };
+    }
     @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
 
     var io_status_block: windows.IO_STATUS_BLOCK = undefined;
 
-    const rc = windows.ntdll.NtSetInformationFile(
-        src_fd,
-        &io_status_block,
-        rename_info,
-        @as(u32, @intCast(struct_len)), // already checked for error.NameTooLong
-        .FileRenameInformation,
-    );
+    const rc = if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
+        windows.ntdll.NtSetInformationFile(
+            src_fd,
+            &io_status_block,
+            rename_info,
+            @intCast(struct_len), // already checked for error.NameTooLong
+            .FileRenameInformationEx,
+        );
+    } else {
+        windows.ntdll.NtSetInformationFile(
+            src_fd,
+            &io_status_block,
+            rename_info,
+            @intCast(struct_len), // already checked for error.NameTooLong
+            .FileRenameInformation,
+        );
+    };
 
     switch (rc) {
         .SUCCESS => return,
