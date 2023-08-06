@@ -50,10 +50,12 @@ constant_extra: std.ArrayListUnmanaged(u32),
 constant_limbs: std.ArrayListUnmanaged(std.math.big.Limb),
 
 pub const expected_args_len = 16;
+pub const expected_attrs_len = 16;
 pub const expected_fields_len = 32;
 pub const expected_gep_indices_len = 8;
 pub const expected_cases_len = 8;
 pub const expected_incoming_len = 8;
+pub const expected_intrinsic_name_len = 64;
 
 pub const Options = struct {
     allocator: Allocator,
@@ -151,11 +153,14 @@ pub const Type = enum(u32) {
     i80,
     i128,
     ptr,
+    @"ptr addrspace(4)",
 
     none = std.math.maxInt(u32),
     _,
 
     pub const err_int = Type.i16;
+    pub const ptr_amdgpu_constant =
+        @field(Type, std.fmt.comptimePrint("ptr{ }", .{AddrSpace.amdgpu.constant}));
 
     pub const Tag = enum(u4) {
         simple,
@@ -391,7 +396,7 @@ pub const Type = enum(u32) {
             .double, .i64, .x86_mmx => 64,
             .x86_fp80, .i80 => 80,
             .fp128, .ppc_fp128, .i128 => 128,
-            .ptr => @panic("TODO: query data layout"),
+            .ptr, .@"ptr addrspace(4)" => @panic("TODO: query data layout"),
             _ => {
                 const item = builder.type_items.items[@intFromEnum(self)];
                 return switch (item.tag) {
@@ -690,7 +695,7 @@ pub const Type = enum(u32) {
                 }
             },
             .integer => try writer.print("i{d}", .{item.data}),
-            .pointer => try writer.print("ptr{}", .{@as(AddrSpace, @enumFromInt(item.data))}),
+            .pointer => try writer.print("ptr{ }", .{@as(AddrSpace, @enumFromInt(item.data))}),
             .target => {
                 var extra = data.builder.typeExtraDataTrail(Type.Target, item.data);
                 const types = extra.trail.next(extra.data.types_len, Type, data.builder);
@@ -795,6 +800,7 @@ pub const Type = enum(u32) {
             .i80,
             .i128,
             .ptr,
+            .@"ptr addrspace(4)",
             => true,
             .none => unreachable,
             _ => {
@@ -1201,12 +1207,20 @@ pub const Attribute = union(Kind) {
                         try writer.print(",{d}", .{allocsize.num_elems});
                     try writer.writeByte(')');
                 },
-                .memory => |memory| try writer.print(" {s}({s}, argmem: {s}, inaccessiblemem: {s})", .{
-                    @tagName(attribute),
-                    @tagName(memory.other),
-                    @tagName(memory.argmem),
-                    @tagName(memory.inaccessiblemem),
-                }),
+                .memory => |memory| {
+                    try writer.print(" {s}(", .{@tagName(attribute)});
+                    var any = memory.other != .none or
+                        (memory.argmem == .none and memory.inaccessiblemem == .none);
+                    if (any) try writer.writeAll(@tagName(memory.other));
+                    inline for (.{ "argmem", "inaccessiblemem" }) |kind| {
+                        if (@field(memory, kind) != memory.other) {
+                            if (any) try writer.writeAll(", ");
+                            try writer.print("{s}: {s}", .{ kind, @tagName(@field(memory, kind)) });
+                            any = true;
+                        }
+                    }
+                    try writer.writeByte(')');
+                },
                 .uwtable => |uwtable| if (uwtable != .none) {
                     try writer.print(" {s}", .{@tagName(attribute)});
                     if (uwtable != UwTable.default) try writer.print("({s})", .{@tagName(uwtable)});
@@ -1424,12 +1438,16 @@ pub const Attribute = union(Kind) {
     };
 
     pub const Memory = packed struct(u32) {
-        argmem: Effect,
-        inaccessiblemem: Effect,
-        other: Effect,
+        argmem: Effect = .none,
+        inaccessiblemem: Effect = .none,
+        other: Effect = .none,
         _: u26 = 0,
 
         pub const Effect = enum(u2) { none, read, write, readwrite };
+
+        fn all(effect: Effect) Memory {
+            return .{ .argmem = effect, .inaccessiblemem = effect, .other = effect };
+        }
     };
 
     pub const UwTable = enum(u32) {
@@ -2279,6 +2297,820 @@ pub const Variable = struct {
     };
 };
 
+pub const Intrinsic = enum {
+    // Variable Argument Handling
+    va_start,
+    va_end,
+    va_copy,
+
+    // Code Generator
+    returnaddress,
+    addressofreturnaddress,
+    sponentry,
+    frameaddress,
+    prefetch,
+    @"thread.pointer",
+
+    // Standard C/C++ Library
+    abs,
+    smax,
+    smin,
+    umax,
+    umin,
+    memcpy,
+    @"memcpy.inline",
+    memmove,
+    memset,
+    @"memset.inline",
+    sqrt,
+    powi,
+    sin,
+    cos,
+    pow,
+    exp,
+    exp2,
+    ldexp,
+    frexp,
+    log,
+    log10,
+    log2,
+    fma,
+    fabs,
+    minnum,
+    maxnum,
+    minimum,
+    maximum,
+    copysign,
+    floor,
+    ceil,
+    trunc,
+    rint,
+    nearbyint,
+    round,
+    roundeven,
+    lround,
+    llround,
+    lrint,
+    llrint,
+
+    // Bit Manipulation
+    bitreverse,
+    bswap,
+    ctpop,
+    ctlz,
+    cttz,
+    fshl,
+    fshr,
+
+    // Arithmetic with Overflow
+    @"sadd.with.overflow",
+    @"uadd.with.overflow",
+    @"ssub.with.overflow",
+    @"usub.with.overflow",
+    @"smul.with.overflow",
+    @"umul.with.overflow",
+
+    // Saturation Arithmetic
+    @"sadd.sat",
+    @"uadd.sat",
+    @"ssub.sat",
+    @"usub.sat",
+    @"sshl.sat",
+    @"ushl.sat",
+
+    // Fixed Point Arithmetic
+    @"smul.fix",
+    @"umul.fix",
+    @"smul.fix.sat",
+    @"umul.fix.sat",
+    @"sdiv.fix",
+    @"udiv.fix",
+    @"sdiv.fix.sat",
+    @"udiv.fix.sat",
+
+    // Specialised Arithmetic
+    canonicalisze,
+    fmuladd,
+
+    // Vector Reduction
+    @"vector.reduce.add",
+    @"vector.reduce.fadd",
+    @"vector.reduce.mul",
+    @"vector.reduce.fmul",
+    @"vector.reduce.and",
+    @"vector.reduce.or",
+    @"vector.reduce.xor",
+    @"vector.reduce.smax",
+    @"vector.reduce.smin",
+    @"vector.reduce.umax",
+    @"vector.reduce.umin",
+    @"vector.reduce.fmax",
+    @"vector.reduce.fmin",
+    @"vector.reduce.fmaximum",
+    @"vector.reduce.fminimum",
+    @"vector.reduce.insert",
+    @"vector.reduce.extract",
+    @"vector.insert",
+    @"vector.extract",
+
+    // General
+    @"llvm.var.annotation",
+    @"llvm.ptr.annotation",
+    annotation,
+    @"codeview.annotation",
+    trap,
+    debugtrap,
+    ubsantrap,
+    stackprotector,
+    stackguard,
+    objectsize,
+    expect,
+    @"expect.with.probability",
+    assume,
+    @"ssa.copy",
+    @"type.test",
+    @"type.checked.load",
+    @"type.checked.load.relative",
+    @"arithmetic.fence",
+    donothing,
+    @"load.relative",
+    @"llvm.sideeffect",
+    @"is.constant",
+    ptrmask,
+    @"threadlocal.address",
+    vscale,
+
+    // AMDGPU
+    @"amdgcn.workitem.id.x",
+    @"amdgcn.workitem.id.y",
+    @"amdgcn.workitem.id.z",
+    @"amdgcn.workgroup.id.x",
+    @"amdgcn.workgroup.id.y",
+    @"amdgcn.workgroup.id.z",
+    @"amdgcn.dispatch.ptr",
+
+    // WebAssembly
+    @"wasm.memory.size",
+    @"wasm.memory.grow",
+
+    const Signature = struct {
+        params: []const Parameter = &.{},
+        attrs: []const Attribute = &.{},
+
+        const Parameter = struct {
+            kind: Kind,
+            attrs: []const Attribute = &.{},
+
+            const Kind = union(enum) {
+                type: Type,
+                overloaded,
+                overloaded_tuple: u8,
+                matches: u8,
+                matches_tuple: packed struct { param: u4, field: u4 },
+                matches_with_overflow: u8,
+            };
+        };
+    };
+
+    const signatures = std.enums.EnumArray(Intrinsic, Signature).initDefault(.{}, .{
+        .va_start = .{
+            .params = &.{
+                .{ .kind = .{ .type = .void } },
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+        .va_end = .{
+            .params = &.{
+                .{ .kind = .{ .type = .void } },
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+        .va_copy = .{
+            .params = &.{
+                .{ .kind = .{ .type = .void } },
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+
+        .returnaddress = .{
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .addressofreturnaddress = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .sponentry = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .frameaddress = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .prefetch = .{
+            .params = &.{
+                .{ .kind = .{ .type = .void } },
+                .{ .kind = .overloaded, .attrs = &.{ .nocapture, .readonly } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.readwrite) } },
+        },
+        .@"thread.pointer" = .{
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .abs = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .smax = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .smin = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .umax = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .umin = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .sqrt = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .powi = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .sin = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .cos = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .pow = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .exp = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .exp2 = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .ldexp = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .frexp = .{
+            .params = &.{
+                .{ .kind = .{ .overloaded_tuple = 2 } },
+                .{ .kind = .{ .matches_tuple = .{ .param = 0, .field = 0 } } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .log = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .log10 = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .log2 = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .fma = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .fabs = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .minnum = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .maxnum = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .minimum = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .maximum = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .copysign = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .floor = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .ceil = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .trunc = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .rint = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .nearbyint = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .round = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .roundeven = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .lround = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .llround = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .lrint = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .llrint = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .bitreverse = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .bswap = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .ctpop = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .ctlz = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i1 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .cttz = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i1 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .fshl = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .fshr = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"sadd.with.overflow" = .{
+            .params = &.{
+                .{ .kind = .{ .matches_with_overflow = 1 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 1 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"uadd.with.overflow" = .{
+            .params = &.{
+                .{ .kind = .{ .matches_with_overflow = 1 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 1 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"ssub.with.overflow" = .{
+            .params = &.{
+                .{ .kind = .{ .matches_with_overflow = 1 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 1 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"usub.with.overflow" = .{
+            .params = &.{
+                .{ .kind = .{ .matches_with_overflow = 1 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 1 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"smul.with.overflow" = .{
+            .params = &.{
+                .{ .kind = .{ .matches_with_overflow = 1 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 1 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"umul.with.overflow" = .{
+            .params = &.{
+                .{ .kind = .{ .matches_with_overflow = 1 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 1 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"sadd.sat" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"uadd.sat" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"ssub.sat" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"usub.sat" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"sshl.sat" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"ushl.sat" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"smul.fix" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"umul.fix" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"smul.fix.sat" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"umul.fix.sat" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"sdiv.fix" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"udiv.fix" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"sdiv.fix.sat" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"udiv.fix.sat" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .trap = .{
+            .params = &.{
+                .{ .kind = .{ .type = .void } },
+            },
+            .attrs = &.{ .cold, .noreturn, .nounwind, .{ .memory = .{ .inaccessiblemem = .write } } },
+        },
+        .debugtrap = .{
+            .params = &.{
+                .{ .kind = .{ .type = .void } },
+            },
+            .attrs = &.{.nounwind},
+        },
+        .ubsantrap = .{
+            .params = &.{
+                .{ .kind = .{ .type = .void } },
+                .{ .kind = .{ .type = .i8 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .cold, .noreturn, .nounwind },
+        },
+
+        .@"amdgcn.workitem.id.x" = .{
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.workitem.id.y" = .{
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.workitem.id.z" = .{
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.workgroup.id.x" = .{
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.workgroup.id.y" = .{
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.workgroup.id.z" = .{
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.dispatch.ptr" = .{
+            .params = &.{
+                .{
+                    .kind = .{ .type = Type.ptr_amdgpu_constant },
+                    .attrs = &.{.{ .@"align" = Builder.Alignment.fromByteUnits(4) }},
+                },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"wasm.memory.size" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"wasm.memory.grow" = .{
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+    });
+};
+
 pub const Function = struct {
     global: Global.Index,
     call_conv: CallConv = CallConv.default,
@@ -2414,39 +3246,6 @@ pub const Function = struct {
             insertelement,
             insertvalue,
             inttoptr,
-            @"llvm.maxnum.",
-            @"llvm.minnum.",
-            @"llvm.ceil.",
-            @"llvm.cos.",
-            @"llvm.exp.",
-            @"llvm.exp2.",
-            @"llvm.fabs.",
-            @"llvm.floor.",
-            @"llvm.log.",
-            @"llvm.log10.",
-            @"llvm.log2.",
-            @"llvm.round.",
-            @"llvm.sin.",
-            @"llvm.sqrt.",
-            @"llvm.trunc.",
-            @"llvm.fma.",
-            @"llvm.bitreverse.",
-            @"llvm.bswap.",
-            @"llvm.ctpop.",
-            @"llvm.ctlz.",
-            @"llvm.cttz.",
-            @"llvm.sadd.sat.",
-            @"llvm.smax.",
-            @"llvm.smin.",
-            @"llvm.smul.fix.sat.",
-            @"llvm.sshl.sat.",
-            @"llvm.ssub.sat.",
-            @"llvm.uadd.sat.",
-            @"llvm.umax.",
-            @"llvm.umin.",
-            @"llvm.umul.fix.sat.",
-            @"llvm.ushl.sat.",
-            @"llvm.usub.sat.",
             load,
             @"load atomic",
             @"load atomic volatile",
@@ -2575,22 +3374,6 @@ pub const Function = struct {
                     .@"frem fast",
                     .fsub,
                     .@"fsub fast",
-                    .@"llvm.maxnum.",
-                    .@"llvm.minnum.",
-                    .@"llvm.ctlz.",
-                    .@"llvm.cttz.",
-                    .@"llvm.sadd.sat.",
-                    .@"llvm.smax.",
-                    .@"llvm.smin.",
-                    .@"llvm.smul.fix.sat.",
-                    .@"llvm.sshl.sat.",
-                    .@"llvm.ssub.sat.",
-                    .@"llvm.uadd.sat.",
-                    .@"llvm.umax.",
-                    .@"llvm.umin.",
-                    .@"llvm.umul.fix.sat.",
-                    .@"llvm.ushl.sat.",
-                    .@"llvm.usub.sat.",
                     .lshr,
                     .@"lshr exact",
                     .mul,
@@ -2710,22 +3493,6 @@ pub const Function = struct {
                         .changeScalarAssumeCapacity(.i1, wip.builder),
                     .fneg,
                     .@"fneg fast",
-                    .@"llvm.ceil.",
-                    .@"llvm.cos.",
-                    .@"llvm.exp.",
-                    .@"llvm.exp2.",
-                    .@"llvm.fabs.",
-                    .@"llvm.floor.",
-                    .@"llvm.log.",
-                    .@"llvm.log10.",
-                    .@"llvm.log2.",
-                    .@"llvm.round.",
-                    .@"llvm.sin.",
-                    .@"llvm.sqrt.",
-                    .@"llvm.trunc.",
-                    .@"llvm.bitreverse.",
-                    .@"llvm.bswap.",
-                    .@"llvm.ctpop.",
                     => @as(Value, @enumFromInt(instruction.data)).typeOfWip(wip),
                     .getelementptr,
                     .@"getelementptr inbounds",
@@ -2762,7 +3529,6 @@ pub const Function = struct {
                     },
                     .unimplemented => @enumFromInt(instruction.data),
                     .va_arg => wip.extraData(VaArg, instruction.data).type,
-                    .@"llvm.fma." => wip.extraData(FusedMultiplyAdd, instruction.data).a.typeOfWip(wip),
                 };
             }
 
@@ -2791,22 +3557,6 @@ pub const Function = struct {
                     .@"frem fast",
                     .fsub,
                     .@"fsub fast",
-                    .@"llvm.maxnum.",
-                    .@"llvm.minnum.",
-                    .@"llvm.ctlz.",
-                    .@"llvm.cttz.",
-                    .@"llvm.sadd.sat.",
-                    .@"llvm.smax.",
-                    .@"llvm.smin.",
-                    .@"llvm.smul.fix.sat.",
-                    .@"llvm.sshl.sat.",
-                    .@"llvm.ssub.sat.",
-                    .@"llvm.uadd.sat.",
-                    .@"llvm.umax.",
-                    .@"llvm.umin.",
-                    .@"llvm.umul.fix.sat.",
-                    .@"llvm.ushl.sat.",
-                    .@"llvm.usub.sat.",
                     .lshr,
                     .@"lshr exact",
                     .mul,
@@ -2927,22 +3677,6 @@ pub const Function = struct {
                         .changeScalarAssumeCapacity(.i1, builder),
                     .fneg,
                     .@"fneg fast",
-                    .@"llvm.ceil.",
-                    .@"llvm.cos.",
-                    .@"llvm.exp.",
-                    .@"llvm.exp2.",
-                    .@"llvm.fabs.",
-                    .@"llvm.floor.",
-                    .@"llvm.log.",
-                    .@"llvm.log10.",
-                    .@"llvm.log2.",
-                    .@"llvm.round.",
-                    .@"llvm.sin.",
-                    .@"llvm.sqrt.",
-                    .@"llvm.trunc.",
-                    .@"llvm.bitreverse.",
-                    .@"llvm.bswap.",
-                    .@"llvm.ctpop.",
                     => @as(Value, @enumFromInt(instruction.data)).typeOf(function_index, builder),
                     .getelementptr,
                     .@"getelementptr inbounds",
@@ -2981,7 +3715,6 @@ pub const Function = struct {
                     },
                     .unimplemented => @enumFromInt(instruction.data),
                     .va_arg => function.extraData(VaArg, instruction.data).type,
-                    .@"llvm.fma." => function.extraData(FusedMultiplyAdd, instruction.data).a.typeOf(function_index, builder),
                 };
             }
 
@@ -3072,12 +3805,6 @@ pub const Function = struct {
             lhs: Value,
             rhs: Value,
             mask: Value,
-        };
-
-        pub const FusedMultiplyAdd = struct {
-            a: Value,
-            b: Value,
-            c: Value,
         };
 
         pub const ExtractValue = struct {
@@ -3487,24 +4214,7 @@ pub const WipFunction = struct {
         switch (tag) {
             .fneg,
             .@"fneg fast",
-            .@"llvm.ceil.",
-            .@"llvm.cos.",
-            .@"llvm.exp.",
-            .@"llvm.exp2.",
-            .@"llvm.fabs.",
-            .@"llvm.floor.",
-            .@"llvm.log.",
-            .@"llvm.log10.",
-            .@"llvm.log2.",
-            .@"llvm.round.",
-            .@"llvm.sin.",
-            .@"llvm.sqrt.",
-            .@"llvm.trunc.",
             => assert(val.typeOfWip(self).scalarType(self.builder).isFloatingPoint()),
-            .@"llvm.bitreverse.",
-            .@"llvm.bswap.",
-            .@"llvm.ctpop.",
-            => assert(val.typeOfWip(self).scalarType(self.builder).isInteger(self.builder)),
             else => unreachable,
         }
         try self.ensureUnusedExtraCapacity(1, NoExtra, 0);
@@ -3513,43 +4223,10 @@ pub const WipFunction = struct {
             switch (tag) {
                 .fneg => self.llvm.builder.setFastMath(false),
                 .@"fneg fast" => self.llvm.builder.setFastMath(true),
-                .@"llvm.ceil.",
-                .@"llvm.cos.",
-                .@"llvm.exp.",
-                .@"llvm.exp2.",
-                .@"llvm.fabs.",
-                .@"llvm.floor.",
-                .@"llvm.log.",
-                .@"llvm.log10.",
-                .@"llvm.log2.",
-                .@"llvm.round.",
-                .@"llvm.sin.",
-                .@"llvm.sqrt.",
-                .@"llvm.trunc.",
-                .@"llvm.bitreverse.",
-                .@"llvm.bswap.",
-                .@"llvm.ctpop.",
-                => {},
                 else => unreachable,
             }
             self.llvm.instructions.appendAssumeCapacity(switch (tag) {
                 .fneg, .@"fneg fast" => &llvm.Builder.buildFNeg,
-                .@"llvm.ceil." => &llvm.Builder.buildCeil,
-                .@"llvm.cos." => &llvm.Builder.buildCos,
-                .@"llvm.exp." => &llvm.Builder.buildExp,
-                .@"llvm.exp2." => &llvm.Builder.buildExp2,
-                .@"llvm.fabs." => &llvm.Builder.buildFAbs,
-                .@"llvm.floor." => &llvm.Builder.buildFloor,
-                .@"llvm.log." => &llvm.Builder.buildLog,
-                .@"llvm.log10." => &llvm.Builder.buildLog10,
-                .@"llvm.log2." => &llvm.Builder.buildLog2,
-                .@"llvm.round." => &llvm.Builder.buildRound,
-                .@"llvm.sin." => &llvm.Builder.buildSin,
-                .@"llvm.sqrt." => &llvm.Builder.buildSqrt,
-                .@"llvm.trunc." => &llvm.Builder.buildFTrunc,
-                .@"llvm.bitreverse." => &llvm.Builder.buildBitReverse,
-                .@"llvm.bswap." => &llvm.Builder.buildBSwap,
-                .@"llvm.ctpop." => &llvm.Builder.buildCTPop,
                 else => unreachable,
             }(self.llvm.builder, val.toLlvm(self), instruction.llvmName(self)));
         }
@@ -3593,20 +4270,6 @@ pub const WipFunction = struct {
             .@"frem fast",
             .fsub,
             .@"fsub fast",
-            .@"llvm.maxnum.",
-            .@"llvm.minnum.",
-            .@"llvm.sadd.sat.",
-            .@"llvm.smax.",
-            .@"llvm.smin.",
-            .@"llvm.smul.fix.sat.",
-            .@"llvm.sshl.sat.",
-            .@"llvm.ssub.sat.",
-            .@"llvm.uadd.sat.",
-            .@"llvm.umax.",
-            .@"llvm.umin.",
-            .@"llvm.umul.fix.sat.",
-            .@"llvm.ushl.sat.",
-            .@"llvm.usub.sat.",
             .lshr,
             .@"lshr exact",
             .mul,
@@ -3627,9 +4290,6 @@ pub const WipFunction = struct {
             .urem,
             .xor,
             => assert(lhs.typeOfWip(self) == rhs.typeOfWip(self)),
-            .@"llvm.ctlz.",
-            .@"llvm.cttz.",
-            => assert(lhs.typeOfWip(self).scalarType(self.builder).isInteger(self.builder) and rhs.typeOfWip(self) == .i1),
             else => unreachable,
         }
         try self.ensureUnusedExtraCapacity(1, Instruction.Binary, 0);
@@ -3665,22 +4325,6 @@ pub const WipFunction = struct {
                 .fmul, .@"fmul fast" => &llvm.Builder.buildFMul,
                 .frem, .@"frem fast" => &llvm.Builder.buildFRem,
                 .fsub, .@"fsub fast" => &llvm.Builder.buildFSub,
-                .@"llvm.maxnum." => &llvm.Builder.buildMaxNum,
-                .@"llvm.minnum." => &llvm.Builder.buildMinNum,
-                .@"llvm.ctlz." => &llvm.Builder.buildCTLZ,
-                .@"llvm.cttz." => &llvm.Builder.buildCTTZ,
-                .@"llvm.sadd.sat." => &llvm.Builder.buildSAddSat,
-                .@"llvm.smax." => &llvm.Builder.buildSMax,
-                .@"llvm.smin." => &llvm.Builder.buildSMin,
-                .@"llvm.smul.fix.sat." => &llvm.Builder.buildSMulFixSat,
-                .@"llvm.sshl.sat." => &llvm.Builder.buildSShlSat,
-                .@"llvm.ssub.sat." => &llvm.Builder.buildSSubSat,
-                .@"llvm.uadd.sat." => &llvm.Builder.buildUAddSat,
-                .@"llvm.umax." => &llvm.Builder.buildUMax,
-                .@"llvm.umin." => &llvm.Builder.buildUMin,
-                .@"llvm.umul.fix.sat." => &llvm.Builder.buildUMulFixSat,
-                .@"llvm.ushl.sat." => &llvm.Builder.buildUShlSat,
-                .@"llvm.usub.sat." => &llvm.Builder.buildUSubSat,
                 .lshr => &llvm.Builder.buildLShr,
                 .@"lshr exact" => &llvm.Builder.buildLShrExact,
                 .mul => &llvm.Builder.buildMul,
@@ -4419,7 +5063,7 @@ pub const WipFunction = struct {
         self: *WipFunction,
         function_attributes: FunctionAttributes,
         ty: Type,
-        kind: Constant.Asm.Info,
+        kind: Constant.Assembly.Info,
         assembly: String,
         constraints: String,
         args: []const Value,
@@ -4427,6 +5071,25 @@ pub const WipFunction = struct {
     ) Allocator.Error!Value {
         const callee = try self.builder.asmValue(ty, kind, assembly, constraints);
         return self.call(.normal, CallConv.default, function_attributes, ty, callee, args, name);
+    }
+
+    pub fn callIntrinsic(
+        self: *WipFunction,
+        id: Intrinsic,
+        overload: []const Type,
+        args: []const Value,
+        name: []const u8,
+    ) Allocator.Error!Value {
+        const intrinsic = try self.builder.getIntrinsic(id, overload);
+        return self.call(
+            .normal,
+            CallConv.default,
+            .none,
+            intrinsic.typeOf(self.builder),
+            intrinsic.toValue(self.builder),
+            args,
+            name,
+        );
     }
 
     pub fn vaArg(self: *WipFunction, list: Value, ty: Type, name: []const u8) Allocator.Error!Value {
@@ -4445,29 +5108,6 @@ pub const WipFunction = struct {
                 instruction.llvmName(self),
             ),
         );
-        return instruction.toValue();
-    }
-
-    pub fn fusedMultiplyAdd(self: *WipFunction, a: Value, b: Value, c: Value) Allocator.Error!Value {
-        assert(a.typeOfWip(self) == b.typeOfWip(self) and a.typeOfWip(self) == c.typeOfWip(self));
-        try self.ensureUnusedExtraCapacity(1, Instruction.FusedMultiplyAdd, 0);
-        const instruction = try self.addInst("", .{
-            .tag = .@"llvm.fma.",
-            .data = self.addExtraAssumeCapacity(Instruction.FusedMultiplyAdd{
-                .a = a,
-                .b = b,
-                .c = c,
-            }),
-        });
-        if (self.builder.useLibLlvm()) {
-            self.llvm.instructions.appendAssumeCapacity(llvm.Builder.buildFMA(
-                self.llvm.builder,
-                a.toLlvm(self),
-                b.toLlvm(self),
-                c.toLlvm(self),
-                instruction.llvmName(self),
-            ));
-        }
         return instruction.toValue();
     }
 
@@ -4697,22 +5337,6 @@ pub const WipFunction = struct {
                     .@"icmp ugt",
                     .@"icmp ule",
                     .@"icmp ult",
-                    .@"llvm.maxnum.",
-                    .@"llvm.minnum.",
-                    .@"llvm.ctlz.",
-                    .@"llvm.cttz.",
-                    .@"llvm.sadd.sat.",
-                    .@"llvm.smax.",
-                    .@"llvm.smin.",
-                    .@"llvm.smul.fix.sat.",
-                    .@"llvm.sshl.sat.",
-                    .@"llvm.ssub.sat.",
-                    .@"llvm.uadd.sat.",
-                    .@"llvm.umax.",
-                    .@"llvm.umin.",
-                    .@"llvm.umul.fix.sat.",
-                    .@"llvm.ushl.sat.",
-                    .@"llvm.usub.sat.",
                     .lshr,
                     .@"lshr exact",
                     .mul,
@@ -4828,22 +5452,6 @@ pub const WipFunction = struct {
                     .fneg,
                     .@"fneg fast",
                     .ret,
-                    .@"llvm.ceil.",
-                    .@"llvm.cos.",
-                    .@"llvm.exp.",
-                    .@"llvm.exp2.",
-                    .@"llvm.fabs.",
-                    .@"llvm.floor.",
-                    .@"llvm.log.",
-                    .@"llvm.log10.",
-                    .@"llvm.log2.",
-                    .@"llvm.round.",
-                    .@"llvm.sin.",
-                    .@"llvm.sqrt.",
-                    .@"llvm.trunc.",
-                    .@"llvm.bitreverse.",
-                    .@"llvm.bswap.",
-                    .@"llvm.ctpop.",
                     => instruction.data = @intFromEnum(instructions.map(@enumFromInt(instruction.data))),
                     .getelementptr,
                     .@"getelementptr inbounds",
@@ -4947,14 +5555,6 @@ pub const WipFunction = struct {
                         instruction.data = wip_extra.addExtra(Instruction.VaArg{
                             .list = instructions.map(extra.list),
                             .type = extra.type,
-                        });
-                    },
-                    .@"llvm.fma." => {
-                        const extra = self.extraData(Instruction.FusedMultiplyAdd, instruction.data);
-                        instruction.data = wip_extra.addExtra(Instruction.FusedMultiplyAdd{
-                            .a = instructions.map(extra.a),
-                            .b = instructions.map(extra.b),
-                            .c = instructions.map(extra.c),
                         });
                     },
                 }
@@ -5627,7 +6227,7 @@ pub const Constant = enum(u32) {
         rhs: Constant,
     };
 
-    pub const Asm = extern struct {
+    pub const Assembly = extern struct {
         type: Type,
         assembly: String,
         constraints: String,
@@ -5651,7 +6251,7 @@ pub const Constant = enum(u32) {
     }
 
     pub fn toValue(self: Constant) Value {
-        return @enumFromInt(@intFromEnum(Value.first_constant) + @intFromEnum(self));
+        return @enumFromInt(Value.first_constant + @intFromEnum(self));
     }
 
     pub fn typeOf(self: Constant, builder: *Builder) Type {
@@ -6139,7 +6739,7 @@ pub const Constant = enum(u32) {
                     .@"asm alignstack inteldialect unwind",
                     .@"asm sideeffect alignstack inteldialect unwind",
                     => |tag| {
-                        const extra = data.builder.constantExtraData(Asm, item.data);
+                        const extra = data.builder.constantExtraData(Assembly, item.data);
                         try writer.print("{s} {\"}, {\"}", .{
                             @tagName(tag),
                             extra.assembly.fmt(data.builder),
@@ -6166,18 +6766,20 @@ pub const Constant = enum(u32) {
 
 pub const Value = enum(u32) {
     none = std.math.maxInt(u31),
+    false = first_constant + @intFromEnum(Constant.false),
+    true = first_constant + @intFromEnum(Constant.true),
     _,
 
-    const first_constant: Value = @enumFromInt(1 << 31);
+    const first_constant = 1 << 31;
 
     pub fn unwrap(self: Value) union(enum) {
         instruction: Function.Instruction.Index,
         constant: Constant,
     } {
-        return if (@intFromEnum(self) < @intFromEnum(first_constant))
+        return if (@intFromEnum(self) < first_constant)
             .{ .instruction = @enumFromInt(@intFromEnum(self)) }
         else
-            .{ .constant = @enumFromInt(@intFromEnum(self) - @intFromEnum(first_constant)) };
+            .{ .constant = @enumFromInt(@intFromEnum(self) - first_constant) };
     }
 
     pub fn typeOfWip(self: Value, wip: *const WipFunction) Type {
@@ -6349,8 +6951,11 @@ pub fn init(options: Options) InitError!Builder {
         inline for (.{ 1, 8, 16, 29, 32, 64, 80, 128 }) |bits|
             assert(self.intTypeAssumeCapacity(bits) ==
                 @field(Type, std.fmt.comptimePrint("i{d}", .{bits})));
-        inline for (.{0}) |addr_space|
-            assert(self.ptrTypeAssumeCapacity(@enumFromInt(addr_space)) == .ptr);
+        inline for (.{ 0, 4 }) |addr_space_index| {
+            const addr_space: AddrSpace = @enumFromInt(addr_space_index);
+            assert(self.ptrTypeAssumeCapacity(addr_space) ==
+                @field(Type, std.fmt.comptimePrint("ptr{ }", .{addr_space})));
+        }
     }
 
     {
@@ -6883,17 +7488,136 @@ pub fn getGlobal(self: *const Builder, name: String) ?Global.Index {
     return @enumFromInt(self.globals.getIndex(name) orelse return null);
 }
 
+pub fn addFunction(self: *Builder, ty: Type, name: String) Allocator.Error!Function.Index {
+    assert(!name.isAnon());
+    try self.ensureUnusedTypeCapacity(1, NoExtra, 0);
+    try self.ensureUnusedGlobalCapacity(name);
+    try self.functions.ensureUnusedCapacity(self.gpa, 1);
+    return self.addFunctionAssumeCapacity(ty, name);
+}
+
+pub fn addFunctionAssumeCapacity(self: *Builder, ty: Type, name: String) Function.Index {
+    assert(ty.isFunction(self));
+    if (self.useLibLlvm()) self.llvm.globals.appendAssumeCapacity(
+        self.llvm.module.?.addFunction(name.slice(self).?, ty.toLlvm(self)),
+    );
+    const function_index: Function.Index = @enumFromInt(self.functions.items.len);
+    self.functions.appendAssumeCapacity(.{ .global = self.addGlobalAssumeCapacity(name, .{
+        .type = ty,
+        .kind = .{ .function = function_index },
+    }) });
+    return function_index;
+}
+
+pub fn getIntrinsic(
+    self: *Builder,
+    id: Intrinsic,
+    overload: []const Type,
+) Allocator.Error!Function.Index {
+    const ExpectedContents = extern union {
+        name: [expected_intrinsic_name_len]u8,
+        attrs: extern struct {
+            params: [expected_args_len]Type,
+            fn_attrs: [FunctionAttributes.params_index + expected_args_len]Attributes,
+            attrs: [expected_attrs_len]Attribute.Index,
+            fields: [expected_fields_len]Type,
+        },
+    };
+    var stack align(@max(@alignOf(std.heap.StackFallbackAllocator(0)), @alignOf(ExpectedContents))) =
+        std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
+    const allocator = stack.get();
+
+    const name = name: {
+        var buffer = std.ArrayList(u8).init(allocator);
+        defer buffer.deinit();
+
+        try buffer.writer().print("llvm.{s}", .{@tagName(id)});
+        for (overload) |ty| try buffer.writer().print(".{m}", .{ty.fmt(self)});
+        break :name try self.string(buffer.items);
+    };
+    if (self.getGlobal(name)) |global| return global.ptrConst(self).kind.function;
+
+    const signature = Intrinsic.signatures.get(id);
+    const param_types = try allocator.alloc(Type, signature.params.len);
+    defer allocator.free(param_types);
+    const function_attributes =
+        try allocator.alloc(Attributes, FunctionAttributes.return_index + signature.params.len);
+    defer allocator.free(function_attributes);
+
+    var attributes: struct {
+        builder: *Builder,
+        list: std.ArrayList(Attribute.Index),
+
+        fn deinit(state: *@This()) void {
+            state.list.deinit();
+            state.* = undefined;
+        }
+
+        fn get(state: *@This(), attributes: []const Attribute) Allocator.Error!Attributes {
+            try state.list.resize(attributes.len);
+            for (state.list.items, attributes) |*item, attribute|
+                item.* = try state.builder.attr(attribute);
+            return state.builder.attrs(state.list.items);
+        }
+    } = .{ .builder = self, .list = std.ArrayList(Attribute.Index).init(allocator) };
+    defer attributes.deinit();
+
+    var overload_index: usize = 0;
+    function_attributes[FunctionAttributes.function_index] = try attributes.get(signature.attrs);
+    for (
+        param_types,
+        function_attributes[FunctionAttributes.return_index..],
+        signature.params,
+    ) |*param_type, *param_attributes, signature_param| {
+        switch (signature_param.kind) {
+            .type => |ty| param_type.* = ty,
+            .overloaded => {
+                param_type.* = overload[overload_index];
+                overload_index += 1;
+            },
+            .overloaded_tuple => |len| {
+                const fields = try allocator.alloc(Type, len);
+                defer allocator.free(fields);
+                for (fields, overload[overload_index..][0..len]) |*field, ty| field.* = ty;
+                param_type.* = try self.structType(.normal, fields);
+                overload_index += len;
+            },
+            .matches, .matches_tuple, .matches_with_overflow => {},
+        }
+        param_attributes.* = try attributes.get(signature_param.attrs);
+    }
+    assert(overload_index == overload.len);
+    for (param_types, signature.params) |*param_type, signature_param| switch (signature_param.kind) {
+        .type, .overloaded, .overloaded_tuple => {},
+        .matches => |param_index| param_type.* = param_types[param_index],
+        .matches_tuple => |tuple| param_type.* =
+            param_types[tuple.param].structFields(self)[tuple.field],
+        .matches_with_overflow => |param_index| {
+            const ty = param_types[param_index];
+            param_type.* = try self.structType(.normal, &.{ ty, try ty.changeScalar(.i1, self) });
+        },
+    };
+
+    const function_index =
+        try self.addFunction(try self.fnType(param_types[0], param_types[1..], .normal), name);
+    function_index.ptr(self).attributes = try self.fnAttrs(function_attributes);
+    return function_index;
+}
+
 pub fn intConst(self: *Builder, ty: Type, value: anytype) Allocator.Error!Constant {
+    const int_value = switch (@typeInfo(@TypeOf(value))) {
+        .Int, .ComptimeInt => value,
+        .Enum => @intFromEnum(value),
+        else => @compileError("intConst expected an integral value, got " ++ @typeName(@TypeOf(value))),
+    };
     var limbs: [
-        switch (@typeInfo(@TypeOf(value))) {
+        switch (@typeInfo(@TypeOf(int_value))) {
             .Int => |info| std.math.big.int.calcTwosCompLimbCount(info.bits),
-            .ComptimeInt => std.math.big.int.calcLimbLen(value),
-            else => @compileError(
-                "intConst expected an integral value, got " ++ @typeName(@TypeOf(value)),
-            ),
+            .ComptimeInt => std.math.big.int.calcLimbLen(int_value),
+            else => unreachable,
         }
     ]std.math.big.Limb = undefined;
-    return self.bigIntConst(ty, std.math.big.int.Mutable.init(&limbs, value).toConst());
+    return self.bigIntConst(ty, std.math.big.int.Mutable.init(&limbs, int_value).toConst());
 }
 
 pub fn intValue(self: *Builder, ty: Type, value: anytype) Allocator.Error!Value {
@@ -7304,18 +8028,18 @@ pub fn binValue(self: *Builder, tag: Constant.Tag, lhs: Constant, rhs: Constant)
 pub fn asmConst(
     self: *Builder,
     ty: Type,
-    info: Constant.Asm.Info,
+    info: Constant.Assembly.Info,
     assembly: String,
     constraints: String,
 ) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, Constant.Asm, 0);
+    try self.ensureUnusedConstantCapacity(1, Constant.Assembly, 0);
     return self.asmConstAssumeCapacity(ty, info, assembly, constraints);
 }
 
 pub fn asmValue(
     self: *Builder,
     ty: Type,
-    info: Constant.Asm.Info,
+    info: Constant.Assembly.Info,
     assembly: String,
     constraints: String,
 ) Allocator.Error!Value {
@@ -7413,7 +8137,7 @@ pub fn printUnbuffered(
             if (variable.global.getReplacement(self) != .none) continue;
             const global = variable.global.ptrConst(self);
             try writer.print(
-                \\{} ={}{}{}{}{}{}{}{} {s} {%}{ }{, }
+                \\{} ={}{}{}{}{}{}{ }{} {s} {%}{ }{, }
                 \\
             , .{
                 variable.global.fmt(self),
@@ -7472,7 +8196,9 @@ pub fn printUnbuffered(
                     function.attributes.param(arg, self).fmt(self),
                 });
                 if (function.instructions.len > 0)
-                    try writer.print(" {}", .{function.arg(@intCast(arg)).fmt(function_index, self)});
+                    try writer.print(" {}", .{function.arg(@intCast(arg)).fmt(function_index, self)})
+                else
+                    try writer.print(" %{d}", .{arg});
             }
             switch (global.type.functionKind(self)) {
                 .normal => {},
@@ -7481,11 +8207,11 @@ pub fn printUnbuffered(
                     try writer.writeAll("...");
                 },
             }
-            try writer.print("){}{}", .{ global.unnamed_addr, global.addr_space });
+            try writer.print("){}{ }", .{ global.unnamed_addr, global.addr_space });
             if (function_attributes != .none) try writer.print(" #{d}", .{
                 (try attribute_groups.getOrPutValue(self.gpa, function_attributes, {})).index,
             });
-            try writer.print("{}", .{function.alignment});
+            try writer.print("{ }", .{function.alignment});
             if (function.instructions.len > 0) {
                 var block_incoming_len: u32 = undefined;
                 try writer.writeAll(" {\n");
@@ -7735,33 +8461,6 @@ pub fn printUnbuffered(
                                 val.fmt(function_index, self),
                             });
                         },
-                        .@"llvm.ceil.",
-                        .@"llvm.cos.",
-                        .@"llvm.exp.",
-                        .@"llvm.exp2.",
-                        .@"llvm.fabs.",
-                        .@"llvm.floor.",
-                        .@"llvm.log.",
-                        .@"llvm.log10.",
-                        .@"llvm.log2.",
-                        .@"llvm.round.",
-                        .@"llvm.sin.",
-                        .@"llvm.sqrt.",
-                        .@"llvm.trunc.",
-                        .@"llvm.bitreverse.",
-                        .@"llvm.bswap.",
-                        .@"llvm.ctpop.",
-                        => |tag| {
-                            const val: Value = @enumFromInt(instruction.data);
-                            const ty = val.typeOf(function_index, self);
-                            try writer.print("  %{} = call {%} @{s}{m}({%})\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                ty.fmt(self),
-                                @tagName(tag),
-                                ty.fmt(self),
-                                val.fmt(function_index, self),
-                            });
-                        },
                         .getelementptr,
                         .@"getelementptr inbounds",
                         => |tag| {
@@ -7808,41 +8507,6 @@ pub fn printUnbuffered(
                             });
                             for (indices) |index| try writer.print(", {d}", .{index});
                             try writer.writeByte('\n');
-                        },
-                        .@"llvm.maxnum.",
-                        .@"llvm.minnum.",
-                        .@"llvm.ctlz.",
-                        .@"llvm.cttz.",
-                        .@"llvm.sadd.sat.",
-                        .@"llvm.smax.",
-                        .@"llvm.smin.",
-                        .@"llvm.smul.fix.sat.",
-                        .@"llvm.sshl.sat.",
-                        .@"llvm.ssub.sat.",
-                        .@"llvm.uadd.sat.",
-                        .@"llvm.umax.",
-                        .@"llvm.umin.",
-                        .@"llvm.umul.fix.sat.",
-                        .@"llvm.ushl.sat.",
-                        .@"llvm.usub.sat.",
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Binary, instruction.data);
-                            const ty = instruction_index.typeOf(function_index, self);
-                            try writer.print("  %{} = call {%} @{s}{m}({%}, {%}{s})\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                ty.fmt(self),
-                                @tagName(tag),
-                                ty.fmt(self),
-                                extra.lhs.fmt(function_index, self),
-                                extra.rhs.fmt(function_index, self),
-                                switch (tag) {
-                                    .@"llvm.smul.fix.sat.",
-                                    .@"llvm.umul.fix.sat.",
-                                    => ", i32 0",
-                                    else => "",
-                                },
-                            });
                         },
                         .load,
                         .@"load atomic",
@@ -7982,20 +8646,6 @@ pub fn printUnbuffered(
                                 @tagName(tag),
                                 extra.list.fmt(function_index, self),
                                 extra.type.fmt(self),
-                            });
-                        },
-                        .@"llvm.fma." => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.FusedMultiplyAdd, instruction.data);
-                            const ty = instruction_index.typeOf(function_index, self);
-                            try writer.print("  %{} = call {%} @{s}{m}({%}, {%}, {%})\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                ty.fmt(self),
-                                @tagName(tag),
-                                ty.fmt(self),
-                                extra.a.fmt(function_index, self),
-                                extra.b.fmt(function_index, self),
-                                extra.c.fmt(function_index, self),
                             });
                         },
                     }
@@ -9623,13 +10273,13 @@ fn binConstAssumeCapacity(
 fn asmConstAssumeCapacity(
     self: *Builder,
     ty: Type,
-    info: Constant.Asm.Info,
+    info: Constant.Assembly.Info,
     assembly: String,
     constraints: String,
 ) Constant {
     assert(ty.functionKind(self) == .normal);
 
-    const Key = struct { tag: Constant.Tag, extra: Constant.Asm };
+    const Key = struct { tag: Constant.Tag, extra: Constant.Assembly };
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
@@ -9641,7 +10291,7 @@ fn asmConstAssumeCapacity(
         pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
             if (lhs_key.tag != ctx.builder.constant_items.items(.tag)[rhs_index]) return false;
             const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.Asm, rhs_data);
+            const rhs_extra = ctx.builder.constantExtraData(Constant.Assembly, rhs_data);
             return std.meta.eql(lhs_key.extra, rhs_extra);
         }
     };

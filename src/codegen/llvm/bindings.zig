@@ -345,9 +345,6 @@ pub const Value = opaque {
     pub const addSretAttr = ZigLLVMAddSretAttr;
     extern fn ZigLLVMAddSretAttr(fn_ref: *Value, type_val: *Type) void;
 
-    pub const setCallSret = ZigLLVMSetCallSret;
-    extern fn ZigLLVMSetCallSret(Call: *Value, return_type: *Type) void;
-
     pub const getParam = LLVMGetParam;
     extern fn LLVMGetParam(Fn: *Value, Index: c_uint) *Value;
 
@@ -487,9 +484,6 @@ pub const Module = opaque {
 
     pub const getNamedFunction = LLVMGetNamedFunction;
     extern fn LLVMGetNamedFunction(*Module, Name: [*:0]const u8) ?*Value;
-
-    pub const getIntrinsicDeclaration = LLVMGetIntrinsicDeclaration;
-    extern fn LLVMGetIntrinsicDeclaration(Mod: *Module, ID: c_uint, ParamTypes: ?[*]const *Type, ParamCount: usize) *Value;
 
     pub const printToString = LLVMPrintModuleToString;
     extern fn LLVMPrintModuleToString(*Module) [*:0]const u8;
@@ -664,18 +658,6 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *Value;
 
-    pub const buildCallOld = ZigLLVMBuildCall;
-    extern fn ZigLLVMBuildCall(
-        *Builder,
-        *Type,
-        Fn: *Value,
-        Args: [*]const *Value,
-        NumArgs: c_uint,
-        CC: CallConv,
-        attr: CallAttr,
-        Name: [*:0]const u8,
-    ) *Value;
-
     pub const buildRetVoid = LLVMBuildRetVoid;
     extern fn LLVMBuildRetVoid(*Builder) *Value;
 
@@ -712,12 +694,6 @@ pub const Builder = opaque {
     pub const buildNUWAdd = LLVMBuildNUWAdd;
     extern fn LLVMBuildNUWAdd(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
-    pub const buildSAddSat = ZigLLVMBuildSAddSat;
-    extern fn ZigLLVMBuildSAddSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildUAddSat = ZigLLVMBuildUAddSat;
-    extern fn ZigLLVMBuildUAddSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
     pub const buildFSub = LLVMBuildFSub;
     extern fn LLVMBuildFSub(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
@@ -733,12 +709,6 @@ pub const Builder = opaque {
     pub const buildNUWSub = LLVMBuildNUWSub;
     extern fn LLVMBuildNUWSub(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
-    pub const buildSSubSat = ZigLLVMBuildSSubSat;
-    extern fn ZigLLVMBuildSSubSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildUSubSat = ZigLLVMBuildUSubSat;
-    extern fn ZigLLVMBuildUSubSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
     pub const buildFMul = LLVMBuildFMul;
     extern fn LLVMBuildFMul(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
@@ -750,12 +720,6 @@ pub const Builder = opaque {
 
     pub const buildNUWMul = LLVMBuildNUWMul;
     extern fn LLVMBuildNUWMul(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildSMulFixSat = ZigLLVMBuildSMulFixSat;
-    extern fn ZigLLVMBuildSMulFixSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildUMulFixSat = ZigLLVMBuildUMulFixSat;
-    extern fn ZigLLVMBuildUMulFixSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
     pub const buildUDiv = LLVMBuildUDiv;
     extern fn LLVMBuildUDiv(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
@@ -799,20 +763,11 @@ pub const Builder = opaque {
     pub const buildNSWShl = ZigLLVMBuildNSWShl;
     extern fn ZigLLVMBuildNSWShl(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
-    pub const buildSShlSat = ZigLLVMBuildSShlSat;
-    extern fn ZigLLVMBuildSShlSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildUShlSat = ZigLLVMBuildUShlSat;
-    extern fn ZigLLVMBuildUShlSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
     pub const buildOr = LLVMBuildOr;
     extern fn LLVMBuildOr(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
     pub const buildXor = LLVMBuildXor;
     extern fn LLVMBuildXor(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildIntCast2 = LLVMBuildIntCast2;
-    extern fn LLVMBuildIntCast2(*Builder, Val: *Value, DestTy: *Type, IsSigned: Bool, Name: [*:0]const u8) *Value;
 
     pub const buildBitCast = LLVMBuildBitCast;
     extern fn LLVMBuildBitCast(*Builder, Val: *Value, DestTy: *Type, Name: [*:0]const u8) *Value;
@@ -1019,81 +974,6 @@ pub const Builder = opaque {
         Size: *Value,
         is_volatile: bool,
     ) *Value;
-
-    pub const buildMaxNum = ZigLLVMBuildMaxNum;
-    extern fn ZigLLVMBuildMaxNum(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildMinNum = ZigLLVMBuildMinNum;
-    extern fn ZigLLVMBuildMinNum(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildCeil = ZigLLVMBuildCeil;
-    extern fn ZigLLVMBuildCeil(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildCos = ZigLLVMBuildCos;
-    extern fn ZigLLVMBuildCos(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildExp = ZigLLVMBuildExp;
-    extern fn ZigLLVMBuildExp(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildExp2 = ZigLLVMBuildExp2;
-    extern fn ZigLLVMBuildExp2(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildFAbs = ZigLLVMBuildFAbs;
-    extern fn ZigLLVMBuildFAbs(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildFloor = ZigLLVMBuildFloor;
-    extern fn ZigLLVMBuildFloor(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildLog = ZigLLVMBuildLog;
-    extern fn ZigLLVMBuildLog(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildLog10 = ZigLLVMBuildLog10;
-    extern fn ZigLLVMBuildLog10(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildLog2 = ZigLLVMBuildLog2;
-    extern fn ZigLLVMBuildLog2(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildRound = ZigLLVMBuildRound;
-    extern fn ZigLLVMBuildRound(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildSin = ZigLLVMBuildSin;
-    extern fn ZigLLVMBuildSin(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildSqrt = ZigLLVMBuildSqrt;
-    extern fn ZigLLVMBuildSqrt(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildFTrunc = ZigLLVMBuildFTrunc;
-    extern fn ZigLLVMBuildFTrunc(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildBitReverse = ZigLLVMBuildBitReverse;
-    extern fn ZigLLVMBuildBitReverse(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildBSwap = ZigLLVMBuildBSwap;
-    extern fn ZigLLVMBuildBSwap(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildCTPop = ZigLLVMBuildCTPop;
-    extern fn ZigLLVMBuildCTPop(builder: *Builder, V: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildCTLZ = ZigLLVMBuildCTLZ;
-    extern fn ZigLLVMBuildCTLZ(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildCTTZ = ZigLLVMBuildCTTZ;
-    extern fn ZigLLVMBuildCTTZ(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildFMA = ZigLLVMBuildFMA;
-    extern fn ZigLLVMBuildFMA(builder: *Builder, a: *Value, b: *Value, c: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildUMax = ZigLLVMBuildUMax;
-    extern fn ZigLLVMBuildUMax(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildUMin = ZigLLVMBuildUMin;
-    extern fn ZigLLVMBuildUMin(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildSMax = ZigLLVMBuildSMax;
-    extern fn ZigLLVMBuildSMax(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildSMin = ZigLLVMBuildSMin;
-    extern fn ZigLLVMBuildSMin(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
 
     pub const buildExactUDiv = LLVMBuildExactUDiv;
     extern fn LLVMBuildExactUDiv(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
@@ -1563,9 +1443,6 @@ extern fn ZigLLVMWriteImportLibrary(
     kill_at: bool,
 ) bool;
 
-pub const setCallElemTypeAttr = ZigLLVMSetCallElemTypeAttr;
-extern fn ZigLLVMSetCallElemTypeAttr(Call: *Value, arg_index: usize, return_type: *Type) void;
-
 pub const Linkage = enum(c_uint) {
     External,
     AvailableExternally,
@@ -1784,9 +1661,6 @@ pub const DIGlobalVariable = opaque {
 pub const DIGlobalVariableExpression = opaque {
     pub const getVariable = ZigLLVMGlobalGetVariable;
     extern fn ZigLLVMGlobalGetVariable(global_variable: *DIGlobalVariableExpression) *DIGlobalVariable;
-
-    pub const getExpression = ZigLLVMGlobalGetExpression;
-    extern fn ZigLLVMGlobalGetExpression(global_variable: *DIGlobalVariableExpression) *DIGlobalExpression;
 };
 pub const DIType = opaque {
     pub const toScope = ZigLLVMTypeToScope;

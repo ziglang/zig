@@ -4962,9 +4962,9 @@ pub const FuncGen = struct {
                 .mul_wrap      => try self.airMulWrap(inst),
                 .mul_sat       => try self.airMulSat(inst),
 
-                .add_safe => try self.airSafeArithmetic(inst, "llvm.sadd.with.overflow", "llvm.uadd.with.overflow"),
-                .sub_safe => try self.airSafeArithmetic(inst, "llvm.ssub.with.overflow", "llvm.usub.with.overflow"),
-                .mul_safe => try self.airSafeArithmetic(inst, "llvm.smul.with.overflow", "llvm.umul.with.overflow"),
+                .add_safe => try self.airSafeArithmetic(inst, .@"sadd.with.overflow", .@"uadd.with.overflow"),
+                .sub_safe => try self.airSafeArithmetic(inst, .@"ssub.with.overflow", .@"usub.with.overflow"),
+                .mul_safe => try self.airSafeArithmetic(inst, .@"smul.with.overflow", .@"umul.with.overflow"),
 
                 .div_float => try self.airDivFloat(inst, false),
                 .div_trunc => try self.airDivTrunc(inst, false),
@@ -4989,9 +4989,9 @@ pub const FuncGen = struct {
                 .rem_optimized       => try self.airRem(inst, true),
                 .mod_optimized       => try self.airMod(inst, true),
 
-                .add_with_overflow => try self.airOverflow(inst, "llvm.sadd.with.overflow", "llvm.uadd.with.overflow"),
-                .sub_with_overflow => try self.airOverflow(inst, "llvm.ssub.with.overflow", "llvm.usub.with.overflow"),
-                .mul_with_overflow => try self.airOverflow(inst, "llvm.smul.with.overflow", "llvm.umul.with.overflow"),
+                .add_with_overflow => try self.airOverflow(inst, .@"sadd.with.overflow", .@"uadd.with.overflow"),
+                .sub_with_overflow => try self.airOverflow(inst, .@"ssub.with.overflow", .@"usub.with.overflow"),
+                .mul_with_overflow => try self.airOverflow(inst, .@"smul.with.overflow", .@"umul.with.overflow"),
                 .shl_with_overflow => try self.airShlWithOverflow(inst),
 
                 .bit_and, .bool_and => try self.airAnd(inst),
@@ -5100,11 +5100,11 @@ pub const FuncGen = struct {
                 .memcpy         => try self.airMemcpy(inst),
                 .set_union_tag  => try self.airSetUnionTag(inst),
                 .get_union_tag  => try self.airGetUnionTag(inst),
-                .clz            => try self.airClzCtz(inst, .@"llvm.ctlz."),
-                .ctz            => try self.airClzCtz(inst, .@"llvm.cttz."),
-                .popcount       => try self.airBitOp(inst, .@"llvm.ctpop."),
+                .clz            => try self.airClzCtz(inst, .ctlz),
+                .ctz            => try self.airClzCtz(inst, .cttz),
+                .popcount       => try self.airBitOp(inst, .ctpop),
                 .byte_swap      => try self.airByteSwap(inst),
-                .bit_reverse    => try self.airBitOp(inst, .@"llvm.bitreverse."),
+                .bit_reverse    => try self.airBitOp(inst, .bitreverse),
                 .tag_name       => try self.airTagName(inst),
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
@@ -5645,22 +5645,7 @@ pub const FuncGen = struct {
         const result_alignment = Builder.Alignment.fromByteUnits(va_list_ty.abiAlignment(mod));
         const dest_list = try self.buildAlloca(llvm_va_list_ty, result_alignment);
 
-        const llvm_fn_name = "llvm.va_copy";
-        const llvm_fn_ty = try o.builder.fnType(.void, &.{ .ptr, .ptr }, .normal);
-        const llvm_fn = o.llvm_module.getNamedFunction(llvm_fn_name) orelse
-            o.llvm_module.addFunction(llvm_fn_name, llvm_fn_ty.toLlvm(&o.builder));
-
-        const args: [2]*llvm.Value = .{ dest_list.toLlvm(&self.wip), src_list.toLlvm(&self.wip) };
-        _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildCallOld(
-            llvm_fn_ty.toLlvm(&o.builder),
-            llvm_fn,
-            &args,
-            args.len,
-            .Fast,
-            .Auto,
-            "",
-        ), &self.wip);
-
+        _ = try self.wip.callIntrinsic(.va_copy, &.{}, &.{ dest_list, src_list }, "");
         return if (isByRef(va_list_ty, mod))
             dest_list
         else
@@ -5668,25 +5653,10 @@ pub const FuncGen = struct {
     }
 
     fn airCVaEnd(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
         const un_op = self.air.instructions.items(.data)[inst].un_op;
-        const list = try self.resolveInst(un_op);
+        const src_list = try self.resolveInst(un_op);
 
-        const llvm_fn_name = "llvm.va_end";
-        const llvm_fn_ty = try o.builder.fnType(.void, &.{.ptr}, .normal);
-        const llvm_fn = o.llvm_module.getNamedFunction(llvm_fn_name) orelse
-            o.llvm_module.addFunction(llvm_fn_name, llvm_fn_ty.toLlvm(&o.builder));
-
-        const args: [1]*llvm.Value = .{list.toLlvm(&self.wip)};
-        _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildCallOld(
-            llvm_fn_ty.toLlvm(&o.builder),
-            llvm_fn,
-            &args,
-            args.len,
-            .Fast,
-            .Auto,
-            "",
-        ), &self.wip);
+        _ = try self.wip.callIntrinsic(.va_end, &.{}, &.{src_list}, "");
         return .none;
     }
 
@@ -5697,28 +5667,13 @@ pub const FuncGen = struct {
         const llvm_va_list_ty = try o.lowerType(va_list_ty);
 
         const result_alignment = Builder.Alignment.fromByteUnits(va_list_ty.abiAlignment(mod));
-        const list = try self.buildAlloca(llvm_va_list_ty, result_alignment);
+        const dest_list = try self.buildAlloca(llvm_va_list_ty, result_alignment);
 
-        const llvm_fn_name = "llvm.va_start";
-        const llvm_fn_ty = try o.builder.fnType(.void, &.{.ptr}, .normal);
-        const llvm_fn = o.llvm_module.getNamedFunction(llvm_fn_name) orelse
-            o.llvm_module.addFunction(llvm_fn_name, llvm_fn_ty.toLlvm(&o.builder));
-
-        const args: [1]*llvm.Value = .{list.toLlvm(&self.wip)};
-        _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildCallOld(
-            llvm_fn_ty.toLlvm(&o.builder),
-            llvm_fn,
-            &args,
-            args.len,
-            .Fast,
-            .Auto,
-            "",
-        ), &self.wip);
-
+        _ = try self.wip.callIntrinsic(.va_start, &.{}, &.{dest_list}, "");
         return if (isByRef(va_list_ty, mod))
-            list
+            dest_list
         else
-            try self.wip.load(.normal, llvm_va_list_ty, list, result_alignment, "");
+            try self.wip.load(.normal, llvm_va_list_ty, dest_list, result_alignment, "");
     }
 
     fn airCmp(self: *FuncGen, inst: Air.Inst.Index, op: math.CompareOperator, want_fast_math: bool) !Builder.Value {
@@ -7570,40 +7525,18 @@ pub const FuncGen = struct {
         const o = self.dg.object;
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const index = pl_op.payload;
-        const llvm_fn = try self.getIntrinsic("llvm.wasm.memory.size", &.{.i32});
-        const args: [1]*llvm.Value = .{
-            (try o.builder.intConst(.i32, index)).toLlvm(&o.builder),
-        };
-        return (try self.wip.unimplemented(.i32, "")).finish(self.builder.buildCallOld(
-            (try o.builder.fnType(.i32, &.{.i32}, .normal)).toLlvm(&o.builder),
-            llvm_fn,
-            &args,
-            args.len,
-            .Fast,
-            .Auto,
-            "",
-        ), &self.wip);
+        return self.wip.callIntrinsic(.@"wasm.memory.size", &.{.i32}, &.{
+            try o.builder.intValue(.i32, index),
+        }, "");
     }
 
     fn airWasmMemoryGrow(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const index = pl_op.payload;
-        const operand = try self.resolveInst(pl_op.operand);
-        const llvm_fn = try self.getIntrinsic("llvm.wasm.memory.grow", &.{.i32});
-        const args: [2]*llvm.Value = .{
-            (try o.builder.intConst(.i32, index)).toLlvm(&o.builder),
-            operand.toLlvm(&self.wip),
-        };
-        return (try self.wip.unimplemented(.i32, "")).finish(self.builder.buildCallOld(
-            (try o.builder.fnType(.i32, &.{ .i32, .i32 }, .normal)).toLlvm(&o.builder),
-            llvm_fn,
-            &args,
-            args.len,
-            .Fast,
-            .Auto,
-            "",
-        ), &self.wip);
+        return self.wip.callIntrinsic(.@"wasm.memory.grow", &.{.i32}, &.{
+            try o.builder.intValue(.i32, index), try self.resolveInst(pl_op.operand),
+        }, "");
     }
 
     fn airVectorStoreElem(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -7636,13 +7569,16 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const scalar_ty = self.typeOfIndex(inst).scalarType(mod);
+        const inst_ty = self.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType(mod);
 
-        if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.fmin, scalar_ty, 2, .{ lhs, rhs });
-        return self.wip.bin(if (scalar_ty.isSignedInt(mod))
-            .@"llvm.smin."
-        else
-            .@"llvm.umin.", lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.fmin, inst_ty, 2, .{ lhs, rhs });
+        return self.wip.callIntrinsic(
+            if (scalar_ty.isSignedInt(mod)) .smin else .umin,
+            &.{try o.lowerType(inst_ty)},
+            &.{ lhs, rhs },
+            "",
+        );
     }
 
     fn airMax(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -7651,13 +7587,16 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const scalar_ty = self.typeOfIndex(inst).scalarType(mod);
+        const inst_ty = self.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType(mod);
 
-        if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.fmax, scalar_ty, 2, .{ lhs, rhs });
-        return self.wip.bin(if (scalar_ty.isSignedInt(mod))
-            .@"llvm.smax."
-        else
-            .@"llvm.umax.", lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.fmax, inst_ty, 2, .{ lhs, rhs });
+        return self.wip.callIntrinsic(
+            if (scalar_ty.isSignedInt(mod)) .smax else .umax,
+            &.{try o.lowerType(inst_ty)},
+            &.{ lhs, rhs },
+            "",
+        );
     }
 
     fn airSlice(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -7688,8 +7627,8 @@ pub const FuncGen = struct {
     fn airSafeArithmetic(
         fg: *FuncGen,
         inst: Air.Inst.Index,
-        signed_intrinsic: []const u8,
-        unsigned_intrinsic: []const u8,
+        signed_intrinsic: Builder.Intrinsic,
+        unsigned_intrinsic: Builder.Intrinsic,
     ) !Builder.Value {
         const o = fg.dg.object;
         const mod = o.module;
@@ -7699,36 +7638,19 @@ pub const FuncGen = struct {
         const rhs = try fg.resolveInst(bin_op.rhs);
         const inst_ty = fg.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType(mod);
-        const is_scalar = scalar_ty.ip_index == inst_ty.ip_index;
 
-        const intrinsic_name = switch (scalar_ty.isSignedInt(mod)) {
-            true => signed_intrinsic,
-            false => unsigned_intrinsic,
-        };
+        const intrinsic = if (scalar_ty.isSignedInt(mod)) signed_intrinsic else unsigned_intrinsic;
         const llvm_inst_ty = try o.lowerType(inst_ty);
-        const llvm_ret_ty = try o.builder.structType(.normal, &.{
-            llvm_inst_ty,
-            try llvm_inst_ty.changeScalar(.i1, &o.builder),
-        });
-        const llvm_fn_ty = try o.builder.fnType(llvm_ret_ty, &.{ llvm_inst_ty, llvm_inst_ty }, .normal);
-        const llvm_fn = try fg.getIntrinsic(intrinsic_name, &.{llvm_inst_ty});
-        const result_struct = (try fg.wip.unimplemented(llvm_ret_ty, "")).finish(fg.builder.buildCallOld(
-            llvm_fn_ty.toLlvm(&o.builder),
-            llvm_fn,
-            &[_]*llvm.Value{ lhs.toLlvm(&fg.wip), rhs.toLlvm(&fg.wip) },
-            2,
-            .Fast,
-            .Auto,
-            "",
-        ), &fg.wip);
-        const overflow_bit = try fg.wip.extractValue(result_struct, &.{1}, "");
-        const scalar_overflow_bit = switch (is_scalar) {
-            true => overflow_bit,
-            false => (try fg.wip.unimplemented(.i1, "")).finish(
+        const results = try fg.wip.callIntrinsic(intrinsic, &.{llvm_inst_ty}, &.{ lhs, rhs }, "");
+
+        const overflow_bit = try fg.wip.extractValue(results, &.{1}, "");
+        const scalar_overflow_bit = if (llvm_inst_ty.isVector(&o.builder))
+            (try fg.wip.unimplemented(.i1, "")).finish(
                 fg.builder.buildOrReduce(overflow_bit.toLlvm(&fg.wip)),
                 &fg.wip,
-            ),
-        };
+            )
+        else
+            overflow_bit;
 
         const fail_block = try fg.wip.block(1, "OverflowFail");
         const ok_block = try fg.wip.block(1, "OverflowOk");
@@ -7738,7 +7660,7 @@ pub const FuncGen = struct {
         try fg.buildSimplePanic(.integer_overflow);
 
         fg.wip.cursor = .{ .block = ok_block };
-        return fg.wip.extractValue(result_struct, &.{0}, "");
+        return fg.wip.extractValue(results, &.{0}, "");
     }
 
     fn airAddWrap(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -7759,10 +7681,12 @@ pub const FuncGen = struct {
         const scalar_ty = inst_ty.scalarType(mod);
 
         if (scalar_ty.isAnyFloat()) return self.todo("saturating float add", .{});
-        return self.wip.bin(if (scalar_ty.isSignedInt(mod))
-            .@"llvm.sadd.sat."
-        else
-            .@"llvm.uadd.sat.", lhs, rhs, "");
+        return self.wip.callIntrinsic(
+            if (scalar_ty.isSignedInt(mod)) .@"sadd.sat" else .@"uadd.sat",
+            &.{try o.lowerType(inst_ty)},
+            &.{ lhs, rhs },
+            "",
+        );
     }
 
     fn airSub(self: *FuncGen, inst: Air.Inst.Index, want_fast_math: bool) !Builder.Value {
@@ -7798,10 +7722,12 @@ pub const FuncGen = struct {
         const scalar_ty = inst_ty.scalarType(mod);
 
         if (scalar_ty.isAnyFloat()) return self.todo("saturating float sub", .{});
-        return self.wip.bin(if (scalar_ty.isSignedInt(mod))
-            .@"llvm.ssub.sat."
-        else
-            .@"llvm.usub.sat.", lhs, rhs, "");
+        return self.wip.callIntrinsic(
+            if (scalar_ty.isSignedInt(mod)) .@"ssub.sat" else .@"usub.sat",
+            &.{try o.lowerType(inst_ty)},
+            &.{ lhs, rhs },
+            "",
+        );
     }
 
     fn airMul(self: *FuncGen, inst: Air.Inst.Index, want_fast_math: bool) !Builder.Value {
@@ -7837,10 +7763,12 @@ pub const FuncGen = struct {
         const scalar_ty = inst_ty.scalarType(mod);
 
         if (scalar_ty.isAnyFloat()) return self.todo("saturating float mul", .{});
-        return self.wip.bin(if (scalar_ty.isSignedInt(mod))
-            .@"llvm.smul.fix.sat."
-        else
-            .@"llvm.umul.fix.sat.", lhs, rhs, "");
+        return self.wip.callIntrinsic(
+            if (scalar_ty.isSignedInt(mod)) .@"smul.fix.sat" else .@"umul.fix.sat",
+            &.{try o.lowerType(inst_ty)},
+            &.{ lhs, rhs, try o.builder.intValue(.i32, 0) },
+            "",
+        );
     }
 
     fn airDivFloat(self: *FuncGen, inst: Air.Inst.Index, want_fast_math: bool) !Builder.Value {
@@ -8028,8 +7956,8 @@ pub const FuncGen = struct {
     fn airOverflow(
         self: *FuncGen,
         inst: Air.Inst.Index,
-        signed_intrinsic: []const u8,
-        unsigned_intrinsic: []const u8,
+        signed_intrinsic: Builder.Intrinsic,
+        unsigned_intrinsic: Builder.Intrinsic,
     ) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
@@ -8041,48 +7969,29 @@ pub const FuncGen = struct {
 
         const lhs_ty = self.typeOf(extra.lhs);
         const scalar_ty = lhs_ty.scalarType(mod);
-        const dest_ty = self.typeOfIndex(inst);
+        const inst_ty = self.typeOfIndex(inst);
 
-        const intrinsic_name = if (scalar_ty.isSignedInt(mod)) signed_intrinsic else unsigned_intrinsic;
-
-        const llvm_dest_ty = try o.lowerType(dest_ty);
+        const intrinsic = if (scalar_ty.isSignedInt(mod)) signed_intrinsic else unsigned_intrinsic;
+        const llvm_inst_ty = try o.lowerType(inst_ty);
         const llvm_lhs_ty = try o.lowerType(lhs_ty);
+        const results = try self.wip.callIntrinsic(intrinsic, &.{llvm_lhs_ty}, &.{ lhs, rhs }, "");
 
-        const llvm_fn = try self.getIntrinsic(intrinsic_name, &.{llvm_lhs_ty});
-        const llvm_ret_ty = try o.builder.structType(
-            .normal,
-            &.{ llvm_lhs_ty, try llvm_lhs_ty.changeScalar(.i1, &o.builder) },
-        );
-        const llvm_fn_ty = try o.builder.fnType(llvm_ret_ty, &.{ llvm_lhs_ty, llvm_lhs_ty }, .normal);
-        const result_struct = (try self.wip.unimplemented(llvm_ret_ty, "")).finish(
-            self.builder.buildCallOld(
-                llvm_fn_ty.toLlvm(&o.builder),
-                llvm_fn,
-                &[_]*llvm.Value{ lhs.toLlvm(&self.wip), rhs.toLlvm(&self.wip) },
-                2,
-                .Fast,
-                .Auto,
-                "",
-            ),
-            &self.wip,
-        );
+        const result_val = try self.wip.extractValue(results, &.{0}, "");
+        const overflow_bit = try self.wip.extractValue(results, &.{1}, "");
 
-        const result = try self.wip.extractValue(result_struct, &.{0}, "");
-        const overflow_bit = try self.wip.extractValue(result_struct, &.{1}, "");
+        const result_index = llvmField(inst_ty, 0, mod).?.index;
+        const overflow_index = llvmField(inst_ty, 1, mod).?.index;
 
-        const result_index = llvmField(dest_ty, 0, mod).?.index;
-        const overflow_index = llvmField(dest_ty, 1, mod).?.index;
-
-        if (isByRef(dest_ty, mod)) {
-            const result_alignment = Builder.Alignment.fromByteUnits(dest_ty.abiAlignment(mod));
-            const alloca_inst = try self.buildAlloca(llvm_dest_ty, result_alignment);
+        if (isByRef(inst_ty, mod)) {
+            const result_alignment = Builder.Alignment.fromByteUnits(inst_ty.abiAlignment(mod));
+            const alloca_inst = try self.buildAlloca(llvm_inst_ty, result_alignment);
             {
-                const field_ptr = try self.wip.gepStruct(llvm_dest_ty, alloca_inst, result_index, "");
-                _ = try self.wip.store(.normal, result, field_ptr, result_alignment);
+                const field_ptr = try self.wip.gepStruct(llvm_inst_ty, alloca_inst, result_index, "");
+                _ = try self.wip.store(.normal, result_val, field_ptr, result_alignment);
             }
             {
                 const overflow_alignment = comptime Builder.Alignment.fromByteUnits(1);
-                const field_ptr = try self.wip.gepStruct(llvm_dest_ty, alloca_inst, overflow_index, "");
+                const field_ptr = try self.wip.gepStruct(llvm_inst_ty, alloca_inst, overflow_index, "");
                 _ = try self.wip.store(.normal, overflow_bit, field_ptr, overflow_alignment);
             }
 
@@ -8090,9 +7999,9 @@ pub const FuncGen = struct {
         }
 
         var fields: [2]Builder.Value = undefined;
-        fields[result_index] = result;
+        fields[result_index] = result_val;
         fields[overflow_index] = overflow_bit;
-        return self.wip.buildAggregate(llvm_dest_ty, &fields, "");
+        return self.wip.buildAggregate(llvm_inst_ty, &fields, "");
     }
 
     fn buildElementwiseCall(
@@ -8140,22 +8049,7 @@ pub const FuncGen = struct {
             .function => |function| function,
             else => unreachable,
         };
-
-        const fn_type = try o.builder.fnType(return_type, param_types, .normal);
-        const f = o.llvm_module.addFunction(fn_name.slice(&o.builder).?, fn_type.toLlvm(&o.builder));
-
-        var global = Builder.Global{
-            .type = fn_type,
-            .kind = .{ .function = @enumFromInt(o.builder.functions.items.len) },
-        };
-        var function = Builder.Function{
-            .global = @enumFromInt(o.builder.globals.count()),
-        };
-
-        try o.builder.llvm.globals.append(self.gpa, f);
-        _ = try o.builder.addGlobal(fn_name, global);
-        try o.builder.functions.append(self.gpa, function);
-        return global.kind.function;
+        return o.builder.addFunction(try o.builder.fnType(return_type, param_types, .normal), fn_name);
     }
 
     /// Creates a floating point comparison by lowering to the appropriate
@@ -8290,22 +8184,22 @@ pub const FuncGen = struct {
             .mul => return self.wip.bin(.fmul, params[0], params[1], ""),
             .div => return self.wip.bin(.fdiv, params[0], params[1], ""),
             .fmod => return self.wip.bin(.frem, params[0], params[1], ""),
-            .fmax => return self.wip.bin(.@"llvm.maxnum.", params[0], params[1], ""),
-            .fmin => return self.wip.bin(.@"llvm.minnum.", params[0], params[1], ""),
-            .ceil => return self.wip.un(.@"llvm.ceil.", params[0], ""),
-            .cos => return self.wip.un(.@"llvm.cos.", params[0], ""),
-            .exp => return self.wip.un(.@"llvm.exp.", params[0], ""),
-            .exp2 => return self.wip.un(.@"llvm.exp2.", params[0], ""),
-            .fabs => return self.wip.un(.@"llvm.fabs.", params[0], ""),
-            .floor => return self.wip.un(.@"llvm.floor.", params[0], ""),
-            .log => return self.wip.un(.@"llvm.log.", params[0], ""),
-            .log10 => return self.wip.un(.@"llvm.log10.", params[0], ""),
-            .log2 => return self.wip.un(.@"llvm.log2.", params[0], ""),
-            .round => return self.wip.un(.@"llvm.round.", params[0], ""),
-            .sin => return self.wip.un(.@"llvm.sin.", params[0], ""),
-            .sqrt => return self.wip.un(.@"llvm.sqrt.", params[0], ""),
-            .trunc => return self.wip.un(.@"llvm.trunc.", params[0], ""),
-            .fma => return self.wip.fusedMultiplyAdd(params[0], params[1], params[2]),
+            .fmax => return self.wip.callIntrinsic(.maxnum, &.{llvm_ty}, &params, ""),
+            .fmin => return self.wip.callIntrinsic(.minnum, &.{llvm_ty}, &params, ""),
+            .ceil => return self.wip.callIntrinsic(.ceil, &.{llvm_ty}, &params, ""),
+            .cos => return self.wip.callIntrinsic(.cos, &.{llvm_ty}, &params, ""),
+            .exp => return self.wip.callIntrinsic(.exp, &.{llvm_ty}, &params, ""),
+            .exp2 => return self.wip.callIntrinsic(.exp2, &.{llvm_ty}, &params, ""),
+            .fabs => return self.wip.callIntrinsic(.fabs, &.{llvm_ty}, &params, ""),
+            .floor => return self.wip.callIntrinsic(.floor, &.{llvm_ty}, &params, ""),
+            .log => return self.wip.callIntrinsic(.log, &.{llvm_ty}, &params, ""),
+            .log10 => return self.wip.callIntrinsic(.log10, &.{llvm_ty}, &params, ""),
+            .log2 => return self.wip.callIntrinsic(.log2, &.{llvm_ty}, &params, ""),
+            .round => return self.wip.callIntrinsic(.round, &.{llvm_ty}, &params, ""),
+            .sin => return self.wip.callIntrinsic(.sin, &.{llvm_ty}, &params, ""),
+            .sqrt => return self.wip.callIntrinsic(.sqrt, &.{llvm_ty}, &params, ""),
+            .trunc => return self.wip.callIntrinsic(.trunc, &.{llvm_ty}, &params, ""),
+            .fma => return self.wip.callIntrinsic(.fma, &.{llvm_ty}, &params, ""),
             .tan => unreachable,
         };
 
@@ -8499,25 +8393,27 @@ pub const FuncGen = struct {
 
         const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
 
-        const result = try self.wip.bin(if (lhs_scalar_ty.isSignedInt(mod))
-            .@"llvm.sshl.sat."
-        else
-            .@"llvm.ushl.sat.", lhs, casted_rhs, "");
+        const llvm_lhs_ty = try o.lowerType(lhs_ty);
+        const llvm_lhs_scalar_ty = llvm_lhs_ty.scalarType(&o.builder);
+        const result = try self.wip.callIntrinsic(
+            if (lhs_scalar_ty.isSignedInt(mod)) .@"sshl.sat" else .@"ushl.sat",
+            &.{llvm_lhs_ty},
+            &.{ lhs, casted_rhs },
+            "",
+        );
 
         // LLVM langref says "If b is (statically or dynamically) equal to or
         // larger than the integer bit width of the arguments, the result is a
         // poison value."
         // However Zig semantics says that saturating shift left can never produce
         // undefined; instead it saturates.
-        const lhs_llvm_ty = try o.lowerType(lhs_ty);
-        const lhs_scalar_llvm_ty = lhs_llvm_ty.scalarType(&o.builder);
         const bits = try o.builder.splatValue(
-            lhs_llvm_ty,
-            try o.builder.intConst(lhs_scalar_llvm_ty, lhs_bits),
+            llvm_lhs_ty,
+            try o.builder.intConst(llvm_lhs_scalar_ty, lhs_bits),
         );
         const lhs_max = try o.builder.splatValue(
-            lhs_llvm_ty,
-            try o.builder.intConst(lhs_scalar_llvm_ty, -1),
+            llvm_lhs_ty,
+            try o.builder.intConst(llvm_lhs_scalar_ty, -1),
         );
         const in_range = try self.wip.icmp(.ult, rhs, bits, "");
         return self.wip.select(in_range, result, lhs_max, "");
@@ -8940,90 +8836,38 @@ pub const FuncGen = struct {
 
     fn airTrap(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         _ = inst;
-        const o = self.dg.object;
-        const llvm_fn = try self.getIntrinsic("llvm.trap", &.{});
-        _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildCallOld(
-            (try o.builder.fnType(.void, &.{}, .normal)).toLlvm(&o.builder),
-            llvm_fn,
-            undefined,
-            0,
-            .Cold,
-            .Auto,
-            "",
-        ), &self.wip);
+        _ = try self.wip.callIntrinsic(.trap, &.{}, &.{}, "");
         _ = try self.wip.@"unreachable"();
         return .none;
     }
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         _ = inst;
-        const o = self.dg.object;
-        const llvm_fn = try self.getIntrinsic("llvm.debugtrap", &.{});
-        _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildCallOld(
-            (try o.builder.fnType(.void, &.{}, .normal)).toLlvm(&o.builder),
-            llvm_fn,
-            undefined,
-            0,
-            .C,
-            .Auto,
-            "",
-        ), &self.wip);
+        _ = try self.wip.callIntrinsic(.debugtrap, &.{}, &.{}, "");
         return .none;
     }
 
     fn airRetAddr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         _ = inst;
         const o = self.dg.object;
-        const mod = o.module;
         const llvm_usize = try o.lowerType(Type.usize);
-        const target = mod.getTarget();
-        if (!target_util.supportsReturnAddress(target)) {
+        if (!target_util.supportsReturnAddress(o.module.getTarget())) {
             // https://github.com/ziglang/zig/issues/11946
             return o.builder.intValue(llvm_usize, 0);
         }
-
-        const llvm_fn = try self.getIntrinsic("llvm.returnaddress", &.{});
-        const params = [_]*llvm.Value{
-            (try o.builder.intConst(.i32, 0)).toLlvm(&o.builder),
-        };
-        const ptr_val = (try self.wip.unimplemented(.ptr, "")).finish(self.builder.buildCallOld(
-            (try o.builder.fnType(.ptr, &.{.i32}, .normal)).toLlvm(&o.builder),
-            llvm_fn,
-            &params,
-            params.len,
-            .Fast,
-            .Auto,
-            "",
-        ), &self.wip);
-        return self.wip.cast(.ptrtoint, ptr_val, llvm_usize, "");
+        const result = try self.wip.callIntrinsic(.returnaddress, &.{}, &.{
+            try o.builder.intValue(.i32, 0),
+        }, "");
+        return self.wip.cast(.ptrtoint, result, llvm_usize, "");
     }
 
     fn airFrameAddress(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         _ = inst;
         const o = self.dg.object;
-        const llvm_fn_name = "llvm.frameaddress.p0";
-        const llvm_fn = o.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
-            const fn_type = try o.builder.fnType(.ptr, &.{.i32}, .normal);
-            break :blk o.llvm_module.addFunction(llvm_fn_name, fn_type.toLlvm(&o.builder));
-        };
-        const llvm_fn_ty = try o.builder.fnType(.ptr, &.{.i32}, .normal);
-
-        const params = [_]*llvm.Value{
-            (try o.builder.intConst(.i32, 0)).toLlvm(&o.builder),
-        };
-        const ptr_val = (try self.wip.unimplemented(llvm_fn_ty.functionReturn(&o.builder), "")).finish(
-            self.builder.buildCallOld(
-                llvm_fn_ty.toLlvm(&o.builder),
-                llvm_fn,
-                &params,
-                params.len,
-                .Fast,
-                .Auto,
-                "",
-            ),
-            &self.wip,
-        );
-        return self.wip.cast(.ptrtoint, ptr_val, try o.lowerType(Type.usize), "");
+        const result = try self.wip.callIntrinsic(.frameaddress, &.{.ptr}, &.{
+            try o.builder.intValue(.i32, 0),
+        }, "");
+        return self.wip.cast(.ptrtoint, result, try o.lowerType(Type.usize), "");
     }
 
     fn airFence(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9526,26 +9370,37 @@ pub const FuncGen = struct {
         return self.buildFloatOp(.neg, operand_ty, 1, .{operand});
     }
 
-    fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, intrinsic: Builder.Function.Instruction.Tag) !Builder.Value {
+    fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, intrinsic: Builder.Intrinsic) !Builder.Value {
         const o = self.dg.object;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const inst_ty = self.typeOfIndex(inst);
+        const operand_ty = self.typeOf(ty_op.operand);
         const operand = try self.resolveInst(ty_op.operand);
 
-        const wrong_size_result = try self.wip.bin(intrinsic, operand, (try o.builder.intConst(.i1, 0)).toValue(), "");
-
-        const result_ty = self.typeOfIndex(inst);
-        return self.wip.conv(.unsigned, wrong_size_result, try o.lowerType(result_ty), "");
+        const result =
+            try self.wip.callIntrinsic(
+            intrinsic,
+            &.{try o.lowerType(operand_ty)},
+            &.{ operand, .false },
+            "",
+        );
+        return self.wip.conv(.unsigned, result, try o.lowerType(inst_ty), "");
     }
 
-    fn airBitOp(self: *FuncGen, inst: Air.Inst.Index, intrinsic: Builder.Function.Instruction.Tag) !Builder.Value {
+    fn airBitOp(self: *FuncGen, inst: Air.Inst.Index, intrinsic: Builder.Intrinsic) !Builder.Value {
         const o = self.dg.object;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const inst_ty = self.typeOfIndex(inst);
+        const operand_ty = self.typeOf(ty_op.operand);
         const operand = try self.resolveInst(ty_op.operand);
 
-        const wrong_size_result = try self.wip.un(intrinsic, operand, "");
-
-        const result_ty = self.typeOfIndex(inst);
-        return self.wip.conv(.unsigned, wrong_size_result, try o.lowerType(result_ty), "");
+        const result = try self.wip.callIntrinsic(
+            intrinsic,
+            &.{try o.lowerType(operand_ty)},
+            &.{operand},
+            "",
+        );
+        return self.wip.conv(.unsigned, result, try o.lowerType(inst_ty), "");
     }
 
     fn airByteSwap(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9556,6 +9411,7 @@ pub const FuncGen = struct {
         var bits = operand_ty.intInfo(mod).bits;
         assert(bits % 8 == 0);
 
+        const inst_ty = self.typeOfIndex(inst);
         var operand = try self.resolveInst(ty_op.operand);
         var llvm_operand_ty = try o.lowerType(operand_ty);
 
@@ -9576,10 +9432,8 @@ pub const FuncGen = struct {
             bits = bits + 8;
         }
 
-        const wrong_size_result = try self.wip.un(.@"llvm.bswap.", operand, "");
-
-        const result_ty = self.typeOfIndex(inst);
-        return self.wip.conv(.unsigned, wrong_size_result, try o.lowerType(result_ty), "");
+        const result = try self.wip.callIntrinsic(.bswap, &.{llvm_operand_ty}, &.{operand}, "");
+        return self.wip.conv(.unsigned, result, try o.lowerType(inst_ty), "");
     }
 
     fn airErrorSetHasValue(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9609,11 +9463,7 @@ pub const FuncGen = struct {
 
         self.wip.cursor = .{ .block = end_block };
         const phi = try self.wip.phi(.i1, "");
-        try phi.finish(
-            &.{ Builder.Constant.true.toValue(), Builder.Constant.false.toValue() },
-            &.{ valid_block, invalid_block },
-            &self.wip,
-        );
+        try phi.finish(&.{ .true, .false }, &.{ valid_block, invalid_block }, &self.wip);
         return phi.toValue();
     }
 
@@ -9646,37 +9496,24 @@ pub const FuncGen = struct {
         errdefer assert(o.named_enum_map.remove(enum_type.decl));
 
         const fqn = try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod);
-        const llvm_fn_name = try o.builder.fmt("__zig_is_named_enum_value_{}", .{
-            fqn.fmt(&mod.intern_pool),
-        });
+        const function_index = try o.builder.addFunction(
+            try o.builder.fnType(.i1, &.{try o.lowerType(enum_type.tag_ty.toType())}, .normal),
+            try o.builder.fmt("__zig_is_named_enum_value_{}", .{fqn.fmt(&mod.intern_pool)}),
+        );
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
 
-        const fn_type = try o.builder.fnType(.i1, &.{
-            try o.lowerType(enum_type.tag_ty.toType()),
-        }, .normal);
-        const fn_val = o.llvm_module.addFunction(llvm_fn_name.slice(&o.builder).?, fn_type.toLlvm(&o.builder));
-        fn_val.setLinkage(.Internal);
-        fn_val.setFunctionCallConv(.Fast);
-        try o.addCommonFnAttributes(&attributes, fn_val);
+        function_index.toLlvm(&o.builder).setLinkage(.Internal);
+        function_index.toLlvm(&o.builder).setFunctionCallConv(.Fast);
+        try o.addCommonFnAttributes(&attributes, function_index.toLlvm(&o.builder));
 
-        var global = Builder.Global{
-            .linkage = .internal,
-            .type = fn_type,
-            .kind = .{ .function = @enumFromInt(o.builder.functions.items.len) },
-        };
-        var function = Builder.Function{
-            .global = @enumFromInt(o.builder.globals.count()),
-            .call_conv = .fastcc,
-            .attributes = try attributes.finish(&o.builder),
-        };
-        try o.builder.llvm.globals.append(self.gpa, fn_val);
-        _ = try o.builder.addGlobal(llvm_fn_name, global);
-        try o.builder.functions.append(self.gpa, function);
-        gop.value_ptr.* = global.kind.function;
+        function_index.ptrConst(&o.builder).global.ptr(&o.builder).linkage = .internal;
+        function_index.ptr(&o.builder).call_conv = .fastcc;
+        function_index.ptr(&o.builder).attributes = try attributes.finish(&o.builder);
+        gop.value_ptr.* = function_index;
 
-        var wip = try Builder.WipFunction.init(&o.builder, global.kind.function);
+        var wip = try Builder.WipFunction.init(&o.builder, function_index);
         defer wip.deinit();
         wip.cursor = .{ .block = try wip.block(0, "Entry") };
 
@@ -9693,13 +9530,13 @@ pub const FuncGen = struct {
             try wip_switch.addCase(this_tag_int_value, named_block, &wip);
         }
         wip.cursor = .{ .block = named_block };
-        _ = try wip.ret(Builder.Constant.true.toValue());
+        _ = try wip.ret(.true);
 
         wip.cursor = .{ .block = unnamed_block };
-        _ = try wip.ret(Builder.Constant.false.toValue());
+        _ = try wip.ret(.false);
 
         try wip.finish();
-        return global.kind.function;
+        return function_index;
     }
 
     fn airTagName(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9730,38 +9567,27 @@ pub const FuncGen = struct {
         if (gop.found_existing) return gop.value_ptr.ptrConst(&o.builder).kind.function;
         errdefer assert(o.decl_map.remove(enum_type.decl));
 
+        const usize_ty = try o.lowerType(Type.usize);
+        const ret_ty = try o.lowerType(Type.slice_const_u8_sentinel_0);
         const fqn = try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod);
-        const llvm_fn_name = try o.builder.fmt("__zig_tag_name_{}", .{fqn.fmt(&mod.intern_pool)});
+        const function_index = try o.builder.addFunction(
+            try o.builder.fnType(ret_ty, &.{try o.lowerType(enum_type.tag_ty.toType())}, .normal),
+            try o.builder.fmt("__zig_tag_name_{}", .{fqn.fmt(&mod.intern_pool)}),
+        );
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
 
-        const ret_ty = try o.lowerType(Type.slice_const_u8_sentinel_0);
-        const usize_ty = try o.lowerType(Type.usize);
+        function_index.toLlvm(&o.builder).setLinkage(.Internal);
+        function_index.toLlvm(&o.builder).setFunctionCallConv(.Fast);
+        try o.addCommonFnAttributes(&attributes, function_index.toLlvm(&o.builder));
 
-        const fn_type = try o.builder.fnType(ret_ty, &.{
-            try o.lowerType(enum_type.tag_ty.toType()),
-        }, .normal);
-        const fn_val = o.llvm_module.addFunction(llvm_fn_name.slice(&o.builder).?, fn_type.toLlvm(&o.builder));
-        fn_val.setLinkage(.Internal);
-        fn_val.setFunctionCallConv(.Fast);
-        try o.addCommonFnAttributes(&attributes, fn_val);
+        function_index.ptrConst(&o.builder).global.ptr(&o.builder).linkage = .internal;
+        function_index.ptr(&o.builder).call_conv = .fastcc;
+        function_index.ptr(&o.builder).attributes = try attributes.finish(&o.builder);
+        gop.value_ptr.* = function_index.ptrConst(&o.builder).global;
 
-        var global = Builder.Global{
-            .linkage = .internal,
-            .type = fn_type,
-            .kind = .{ .function = @enumFromInt(o.builder.functions.items.len) },
-        };
-        var function = Builder.Function{
-            .global = @enumFromInt(o.builder.globals.count()),
-            .call_conv = .fastcc,
-            .attributes = try attributes.finish(&o.builder),
-        };
-        try o.builder.llvm.globals.append(self.gpa, fn_val);
-        gop.value_ptr.* = try o.builder.addGlobal(llvm_fn_name, global);
-        try o.builder.functions.append(self.gpa, function);
-
-        var wip = try Builder.WipFunction.init(&o.builder, global.kind.function);
+        var wip = try Builder.WipFunction.init(&o.builder, function_index);
         defer wip.deinit();
         wip.cursor = .{ .block = try wip.block(0, "Entry") };
 
@@ -9817,7 +9643,7 @@ pub const FuncGen = struct {
         _ = try wip.@"unreachable"();
 
         try wip.finish();
-        return global.kind.function;
+        return function_index;
     }
 
     fn getCmpLtErrorsLenFunction(self: *FuncGen) !Builder.Function.Index {
@@ -9826,33 +9652,23 @@ pub const FuncGen = struct {
         const name = try o.builder.string(lt_errors_fn_name);
         if (o.builder.getGlobal(name)) |llvm_fn| return llvm_fn.ptrConst(&o.builder).kind.function;
 
-        // Function signature: fn (anyerror) bool
-
-        const fn_type = try o.builder.fnType(.i1, &.{Builder.Type.err_int}, .normal);
-        const llvm_fn = o.llvm_module.addFunction(name.slice(&o.builder).?, fn_type.toLlvm(&o.builder));
+        const function_index = try o.builder.addFunction(
+            try o.builder.fnType(.i1, &.{Builder.Type.err_int}, .normal),
+            name,
+        );
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
 
-        llvm_fn.setLinkage(.Internal);
-        llvm_fn.setFunctionCallConv(.Fast);
-        try o.addCommonFnAttributes(&attributes, llvm_fn);
+        function_index.toLlvm(&o.builder).setLinkage(.Internal);
+        function_index.toLlvm(&o.builder).setFunctionCallConv(.Fast);
+        try o.addCommonFnAttributes(&attributes, function_index.toLlvm(&o.builder));
 
-        var global = Builder.Global{
-            .linkage = .internal,
-            .type = fn_type,
-            .kind = .{ .function = @enumFromInt(o.builder.functions.items.len) },
-        };
-        var function = Builder.Function{
-            .global = @enumFromInt(o.builder.globals.count()),
-            .call_conv = .fastcc,
-            .attributes = try attributes.finish(&o.builder),
-        };
+        function_index.ptrConst(&o.builder).global.ptr(&o.builder).linkage = .internal;
+        function_index.ptr(&o.builder).call_conv = .fastcc;
+        function_index.ptr(&o.builder).attributes = try attributes.finish(&o.builder);
 
-        try o.builder.llvm.globals.append(self.gpa, llvm_fn);
-        _ = try o.builder.addGlobal(name, global);
-        try o.builder.functions.append(self.gpa, function);
-        return global.kind.function;
+        return function_index;
     }
 
     fn airErrorName(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -10416,29 +10232,12 @@ pub const FuncGen = struct {
             .data => {},
         }
 
-        const llvm_fn_name = "llvm.prefetch.p0";
-        // declare void @llvm.prefetch(i8*, i32, i32, i32)
-        const llvm_fn_ty = try o.builder.fnType(.void, &.{ .ptr, .i32, .i32, .i32 }, .normal);
-        const fn_val = o.llvm_module.getNamedFunction(llvm_fn_name) orelse
-            o.llvm_module.addFunction(llvm_fn_name, llvm_fn_ty.toLlvm(&o.builder));
-
-        const ptr = try self.resolveInst(prefetch.ptr);
-
-        const params = [_]*llvm.Value{
-            ptr.toLlvm(&self.wip),
-            (try o.builder.intConst(.i32, @intFromEnum(prefetch.rw))).toLlvm(&o.builder),
-            (try o.builder.intConst(.i32, prefetch.locality)).toLlvm(&o.builder),
-            (try o.builder.intConst(.i32, @intFromEnum(prefetch.cache))).toLlvm(&o.builder),
-        };
-        _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildCallOld(
-            llvm_fn_ty.toLlvm(&o.builder),
-            fn_val,
-            &params,
-            params.len,
-            .C,
-            .Auto,
-            "",
-        ), &self.wip);
+        _ = try self.wip.callIntrinsic(.prefetch, &.{.ptr}, &.{
+            try self.resolveInst(prefetch.ptr),
+            try o.builder.intValue(.i32, prefetch.rw),
+            try o.builder.intValue(.i32, prefetch.locality),
+            try o.builder.intValue(.i32, prefetch.cache),
+        }, "");
         return .none;
     }
 
@@ -10451,26 +10250,20 @@ pub const FuncGen = struct {
         return self.wip.cast(.addrspacecast, operand, try o.lowerType(inst_ty), "");
     }
 
-    fn amdgcnWorkIntrinsic(self: *FuncGen, dimension: u32, default: u32, comptime basename: []const u8) !Builder.Value {
+    fn amdgcnWorkIntrinsic(
+        self: *FuncGen,
+        dimension: u32,
+        default: u32,
+        comptime basename: []const u8,
+    ) !Builder.Value {
         const o = self.dg.object;
-        const llvm_fn_name = switch (dimension) {
-            0 => basename ++ ".x",
-            1 => basename ++ ".y",
-            2 => basename ++ ".z",
+        const intrinsic = switch (dimension) {
+            0 => @field(Builder.Intrinsic, basename ++ ".x"),
+            1 => @field(Builder.Intrinsic, basename ++ ".y"),
+            2 => @field(Builder.Intrinsic, basename ++ ".z"),
             else => return o.builder.intValue(.i32, default),
         };
-
-        const args: [0]*llvm.Value = .{};
-        const llvm_fn = try self.getIntrinsic(llvm_fn_name, &.{});
-        return (try self.wip.unimplemented(.i32, "")).finish(self.builder.buildCallOld(
-            (try o.builder.fnType(.i32, &.{}, .normal)).toLlvm(&o.builder),
-            llvm_fn,
-            &args,
-            args.len,
-            .Fast,
-            .Auto,
-            "",
-        ), &self.wip);
+        return self.wip.callIntrinsic(intrinsic, &.{}, &.{}, "");
     }
 
     fn airWorkItemId(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -10480,7 +10273,7 @@ pub const FuncGen = struct {
 
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const dimension = pl_op.payload;
-        return self.amdgcnWorkIntrinsic(dimension, 0, "llvm.amdgcn.workitem.id");
+        return self.amdgcnWorkIntrinsic(dimension, 0, "amdgcn.workitem.id");
     }
 
     fn airWorkGroupSize(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -10492,27 +10285,9 @@ pub const FuncGen = struct {
         const dimension = pl_op.payload;
         if (dimension >= 3) return o.builder.intValue(.i32, 1);
 
-        var attributes: Builder.FunctionAttributes.Wip = .{};
-        defer attributes.deinit(&o.builder);
-
         // Fetch the dispatch pointer, which points to this structure:
         // https://github.com/RadeonOpenCompute/ROCR-Runtime/blob/adae6c61e10d371f7cbc3d0e94ae2c070cab18a4/src/inc/hsa.h#L2913
-        const llvm_fn = try self.getIntrinsic("llvm.amdgcn.dispatch.ptr", &.{});
-        const args: [0]*llvm.Value = .{};
-        const llvm_ret_ty = try o.builder.ptrType(Builder.AddrSpace.amdgpu.constant);
-        const dispatch_ptr = (try self.wip.unimplemented(llvm_ret_ty, "")).finish(self.builder.buildCallOld(
-            (try o.builder.fnType(llvm_ret_ty, &.{}, .normal)).toLlvm(&o.builder),
-            llvm_fn,
-            &args,
-            args.len,
-            .Fast,
-            .Auto,
-            "",
-        ), &self.wip);
-        try attributes.addRetAttr(.{
-            .@"align" = comptime Builder.Alignment.fromByteUnits(4),
-        }, &o.builder);
-        o.addAttrInt(dispatch_ptr.toLlvm(&self.wip), 0, "align", 4);
+        const dispatch_ptr = try self.wip.callIntrinsic(.@"amdgcn.dispatch.ptr", &.{}, &.{}, "");
 
         // Load the work_group_* member from the struct as u16.
         // Just treat the dispatch pointer as an array of u16 to keep things simple.
@@ -10530,7 +10305,7 @@ pub const FuncGen = struct {
 
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const dimension = pl_op.payload;
-        return self.amdgcnWorkIntrinsic(dimension, 0, "llvm.amdgcn.workgroup.id");
+        return self.amdgcnWorkIntrinsic(dimension, 0, "amdgcn.workgroup.id");
     }
 
     fn getErrorNameTable(self: *FuncGen) Allocator.Error!Builder.Variable.Index {
@@ -10716,20 +10491,6 @@ pub const FuncGen = struct {
         }
     }
 
-    fn getIntrinsic(
-        fg: *FuncGen,
-        name: []const u8,
-        types: []const Builder.Type,
-    ) Allocator.Error!*llvm.Value {
-        const o = fg.dg.object;
-        const id = llvm.lookupIntrinsicID(name.ptr, name.len);
-        assert(id != 0);
-        const llvm_types = try o.gpa.alloc(*llvm.Type, types.len);
-        defer o.gpa.free(llvm_types);
-        for (llvm_types, types) |*llvm_type, ty| llvm_type.* = ty.toLlvm(&o.builder);
-        return o.llvm_module.getIntrinsicDeclaration(id, llvm_types.ptr, llvm_types.len);
-    }
-
     /// Load a by-ref type by constructing a new alloca and performing a memcpy.
     fn loadByRef(
         fg: *FuncGen,
@@ -10778,7 +10539,7 @@ pub const FuncGen = struct {
 
         assert(info.flags.vector_index != .runtime);
         if (info.flags.vector_index != .none) {
-            const index_u32 = try o.builder.intValue(.i32, @intFromEnum(info.flags.vector_index));
+            const index_u32 = try o.builder.intValue(.i32, info.flags.vector_index);
             const vec_elem_ty = try o.lowerType(elem_ty);
             const vec_ty = try o.builder.vectorType(.normal, info.packed_offset.host_size, vec_elem_ty);
 
@@ -10848,7 +10609,7 @@ pub const FuncGen = struct {
 
         assert(info.flags.vector_index != .runtime);
         if (info.flags.vector_index != .none) {
-            const index_u32 = try o.builder.intValue(.i32, @intFromEnum(info.flags.vector_index));
+            const index_u32 = try o.builder.intValue(.i32, info.flags.vector_index);
             const vec_elem_ty = try o.lowerType(elem_ty);
             const vec_ty = try o.builder.vectorType(.normal, info.packed_offset.host_size, vec_elem_ty);
 
@@ -10982,26 +10743,15 @@ pub const FuncGen = struct {
             else => unreachable,
         };
 
-        const fn_llvm_ty = (try o.builder.fnType(llvm_usize, &(.{llvm_usize} ** 2), .normal)).toLlvm(&o.builder);
-        const array_ptr_as_usize = try fg.wip.cast(.ptrtoint, array_ptr, llvm_usize, "");
-        const args = [_]*llvm.Value{ array_ptr_as_usize.toLlvm(&fg.wip), default_value.toLlvm(&fg.wip) };
-        const asm_fn = llvm.getInlineAsm(
-            fn_llvm_ty,
-            arch_specific.template.ptr,
-            arch_specific.template.len,
-            arch_specific.constraints.ptr,
-            arch_specific.constraints.len,
-            .True, // has side effects
-            .False, // alignstack
-            .ATT,
-            .False, // can throw
+        return try fg.wip.callAsm(
+            .none,
+            try o.builder.fnType(llvm_usize, &.{ llvm_usize, llvm_usize }, .normal),
+            .{ .sideeffect = true },
+            try o.builder.string(arch_specific.template),
+            try o.builder.string(arch_specific.constraints),
+            &.{ try fg.wip.cast(.ptrtoint, array_ptr, llvm_usize, ""), default_value },
+            "",
         );
-
-        const call = (try fg.wip.unimplemented(llvm_usize, "")).finish(
-            fg.builder.buildCallOld(fn_llvm_ty, asm_fn, &args, args.len, .C, .Auto, ""),
-            &fg.wip,
-        );
-        return call;
     }
 
     fn typeOf(fg: *FuncGen, inst: Air.Inst.Ref) Type {
