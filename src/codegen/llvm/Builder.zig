@@ -2177,7 +2177,7 @@ pub const Global = struct {
             if (!builder.useLibLlvm()) return;
             const index = @intFromEnum(self.unwrap(builder));
             const name_slice = self.name(builder).slice(builder) orelse "";
-            builder.llvm.globals.items[index].setValueName2(name_slice.ptr, name_slice.len);
+            builder.llvm.globals.items[index].setValueName(name_slice.ptr, name_slice.len);
         }
 
         fn replaceAssumeCapacity(self: Index, other: Index, builder: *Builder) void {
@@ -3759,12 +3759,15 @@ pub const Function = struct {
             arg,
             ashr,
             @"ashr exact",
+            atomicrmw,
             bitcast,
             block,
             br,
             br_cond,
             call,
             @"call fast",
+            cmpxchg,
+            @"cmpxchg weak",
             extractelement,
             extractvalue,
             fadd,
@@ -3833,8 +3836,6 @@ pub const Function = struct {
             inttoptr,
             load,
             @"load atomic",
-            @"load atomic volatile",
-            @"load volatile",
             lshr,
             @"lshr exact",
             mul,
@@ -3865,8 +3866,6 @@ pub const Function = struct {
             srem,
             store,
             @"store atomic",
-            @"store atomic volatile",
-            @"store volatile",
             sub,
             @"sub nsw",
             @"sub nuw",
@@ -3879,7 +3878,6 @@ pub const Function = struct {
             @"udiv exact",
             urem,
             uitofp,
-            unimplemented,
             @"unreachable",
             va_arg,
             xor,
@@ -3920,8 +3918,6 @@ pub const Function = struct {
                     .@"ret void",
                     .store,
                     .@"store atomic",
-                    .@"store atomic volatile",
-                    .@"store volatile",
                     .@"switch",
                     .@"unreachable",
                     => false,
@@ -3933,7 +3929,6 @@ pub const Function = struct {
                     .@"notail call fast",
                     .@"tail call",
                     .@"tail call fast",
-                    .unimplemented,
                     => self.typeOfWip(wip) != .void,
                     else => true,
                 };
@@ -4003,6 +3998,7 @@ pub const Function = struct {
                     ),
                     .arg => wip.function.typeOf(wip.builder)
                         .functionParameters(wip.builder)[instruction.data],
+                    .atomicrmw => wip.extraData(AtomicRmw, instruction.data).val.typeOfWip(wip),
                     .block => .label,
                     .br,
                     .br_cond,
@@ -4011,8 +4007,6 @@ pub const Function = struct {
                     .@"ret void",
                     .store,
                     .@"store atomic",
-                    .@"store atomic volatile",
-                    .@"store volatile",
                     .@"switch",
                     .@"unreachable",
                     => .none,
@@ -4025,6 +4019,12 @@ pub const Function = struct {
                     .@"tail call",
                     .@"tail call fast",
                     => wip.extraData(Call, instruction.data).ty.functionReturn(wip.builder),
+                    .cmpxchg,
+                    .@"cmpxchg weak",
+                    => wip.builder.structTypeAssumeCapacity(.normal, &.{
+                        wip.extraData(CmpXchg, instruction.data).cmp.typeOfWip(wip),
+                        .i1,
+                    }) catch unreachable,
                     .extractelement => wip.extraData(ExtractElement, instruction.data)
                         .val.typeOfWip(wip).childType(wip.builder),
                     .extractvalue => {
@@ -4096,8 +4096,6 @@ pub const Function = struct {
                     .insertvalue => wip.extraData(InsertValue, instruction.data).val.typeOfWip(wip),
                     .load,
                     .@"load atomic",
-                    .@"load atomic volatile",
-                    .@"load volatile",
                     => wip.extraData(Load, instruction.data).type,
                     .phi,
                     .@"phi fast",
@@ -4112,7 +4110,6 @@ pub const Function = struct {
                             wip.builder,
                         );
                     },
-                    .unimplemented => @enumFromInt(instruction.data),
                     .va_arg => wip.extraData(VaArg, instruction.data).type,
                 };
             }
@@ -4186,6 +4183,8 @@ pub const Function = struct {
                     ),
                     .arg => function.global.typeOf(builder)
                         .functionParameters(builder)[instruction.data],
+                    .atomicrmw => function.extraData(AtomicRmw, instruction.data)
+                        .val.typeOf(function_index, builder),
                     .block => .label,
                     .br,
                     .br_cond,
@@ -4194,8 +4193,6 @@ pub const Function = struct {
                     .@"ret void",
                     .store,
                     .@"store atomic",
-                    .@"store atomic volatile",
-                    .@"store volatile",
                     .@"switch",
                     .@"unreachable",
                     => .none,
@@ -4208,6 +4205,13 @@ pub const Function = struct {
                     .@"tail call",
                     .@"tail call fast",
                     => function.extraData(Call, instruction.data).ty.functionReturn(builder),
+                    .cmpxchg,
+                    .@"cmpxchg weak",
+                    => builder.structTypeAssumeCapacity(.normal, &.{
+                        function.extraData(CmpXchg, instruction.data)
+                            .cmp.typeOf(function_index, builder),
+                        .i1,
+                    }) catch unreachable,
                     .extractelement => function.extraData(ExtractElement, instruction.data)
                         .val.typeOf(function_index, builder).childType(builder),
                     .extractvalue => {
@@ -4282,8 +4286,6 @@ pub const Function = struct {
                         .val.typeOf(function_index, builder),
                     .load,
                     .@"load atomic",
-                    .@"load atomic volatile",
-                    .@"load volatile",
                     => function.extraData(Load, instruction.data).type,
                     .phi,
                     .@"phi fast",
@@ -4298,7 +4300,6 @@ pub const Function = struct {
                             builder,
                         );
                     },
-                    .unimplemented => @enumFromInt(instruction.data),
                     .va_arg => function.extraData(VaArg, instruction.data).type,
                 };
             }
@@ -4346,7 +4347,7 @@ pub const Function = struct {
                 return wip.llvm.instructions.items[@intFromEnum(self)];
             }
 
-            fn llvmName(self: Instruction.Index, wip: *const WipFunction) [*:0]const u8 {
+            fn llvmName(self: Instruction.Index, wip: *const WipFunction) [:0]const u8 {
                 return if (wip.builder.strip)
                     ""
                 else
@@ -4419,15 +4420,49 @@ pub const Function = struct {
         };
 
         pub const Load = struct {
+            info: MemoryAccessInfo,
             type: Type,
             ptr: Value,
-            info: MemoryAccessInfo,
         };
 
         pub const Store = struct {
+            info: MemoryAccessInfo,
             val: Value,
             ptr: Value,
+        };
+
+        pub const CmpXchg = struct {
             info: MemoryAccessInfo,
+            ptr: Value,
+            cmp: Value,
+            new: Value,
+
+            pub const Kind = enum { strong, weak };
+        };
+
+        pub const AtomicRmw = struct {
+            info: MemoryAccessInfo,
+            ptr: Value,
+            val: Value,
+
+            pub const Operation = enum(u5) {
+                xchg,
+                add,
+                sub,
+                @"and",
+                nand,
+                @"or",
+                xor,
+                max,
+                min,
+                umax,
+                umin,
+                fadd,
+                fsub,
+                fmax,
+                fmin,
+                none = std.math.maxInt(u5),
+            };
         };
 
         pub const GetElementPtr = struct {
@@ -5163,21 +5198,21 @@ pub const WipFunction = struct {
 
     pub fn load(
         self: *WipFunction,
-        kind: MemoryAccessKind,
+        access_kind: MemoryAccessKind,
         ty: Type,
         ptr: Value,
         alignment: Alignment,
         name: []const u8,
     ) Allocator.Error!Value {
-        return self.loadAtomic(kind, ty, ptr, .system, .none, alignment, name);
+        return self.loadAtomic(access_kind, ty, ptr, .system, .none, alignment, name);
     }
 
     pub fn loadAtomic(
         self: *WipFunction,
-        kind: MemoryAccessKind,
+        access_kind: MemoryAccessKind,
         ty: Type,
         ptr: Value,
-        scope: SyncScope,
+        sync_scope: SyncScope,
         ordering: AtomicOrdering,
         alignment: Alignment,
         name: []const u8,
@@ -5186,22 +5221,21 @@ pub const WipFunction = struct {
         try self.ensureUnusedExtraCapacity(1, Instruction.Load, 0);
         const instruction = try self.addInst(name, .{
             .tag = switch (ordering) {
-                .none => switch (kind) {
-                    .normal => .load,
-                    .@"volatile" => .@"load volatile",
-                },
-                else => switch (kind) {
-                    .normal => .@"load atomic",
-                    .@"volatile" => .@"load atomic volatile",
-                },
+                .none => .load,
+                else => .@"load atomic",
             },
             .data = self.addExtraAssumeCapacity(Instruction.Load{
+                .info = .{
+                    .access_kind = access_kind,
+                    .sync_scope = switch (ordering) {
+                        .none => .system,
+                        else => sync_scope,
+                    },
+                    .success_ordering = ordering,
+                    .alignment = alignment,
+                },
                 .type = ty,
                 .ptr = ptr,
-                .info = .{ .scope = switch (ordering) {
-                    .none => .system,
-                    else => scope,
-                }, .ordering = ordering, .alignment = alignment },
             }),
         });
         if (self.builder.useLibLlvm()) {
@@ -5210,6 +5244,7 @@ pub const WipFunction = struct {
                 ptr.toLlvm(self),
                 instruction.llvmName(self),
             );
+            if (access_kind == .@"volatile") llvm_instruction.setVolatile(.True);
             if (ordering != .none) llvm_instruction.setOrdering(@enumFromInt(@intFromEnum(ordering)));
             if (alignment.toByteUnits()) |bytes| llvm_instruction.setAlignment(@intCast(bytes));
             self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
@@ -5229,10 +5264,10 @@ pub const WipFunction = struct {
 
     pub fn storeAtomic(
         self: *WipFunction,
-        kind: MemoryAccessKind,
+        access_kind: MemoryAccessKind,
         val: Value,
         ptr: Value,
-        scope: SyncScope,
+        sync_scope: SyncScope,
         ordering: AtomicOrdering,
         alignment: Alignment,
     ) Allocator.Error!Instruction.Index {
@@ -5240,30 +5275,26 @@ pub const WipFunction = struct {
         try self.ensureUnusedExtraCapacity(1, Instruction.Store, 0);
         const instruction = try self.addInst(null, .{
             .tag = switch (ordering) {
-                .none => switch (kind) {
-                    .normal => .store,
-                    .@"volatile" => .@"store volatile",
-                },
-                else => switch (kind) {
-                    .normal => .@"store atomic",
-                    .@"volatile" => .@"store atomic volatile",
-                },
+                .none => .store,
+                else => .@"store atomic",
             },
             .data = self.addExtraAssumeCapacity(Instruction.Store{
+                .info = .{
+                    .access_kind = access_kind,
+                    .sync_scope = switch (ordering) {
+                        .none => .system,
+                        else => sync_scope,
+                    },
+                    .success_ordering = ordering,
+                    .alignment = alignment,
+                },
                 .val = val,
                 .ptr = ptr,
-                .info = .{ .scope = switch (ordering) {
-                    .none => .system,
-                    else => scope,
-                }, .ordering = ordering, .alignment = alignment },
             }),
         });
         if (self.builder.useLibLlvm()) {
             const llvm_instruction = self.llvm.builder.buildStore(val.toLlvm(self), ptr.toLlvm(self));
-            switch (kind) {
-                .normal => {},
-                .@"volatile" => llvm_instruction.setVolatile(.True),
-            }
+            if (access_kind == .@"volatile") llvm_instruction.setVolatile(.True);
             if (ordering != .none) llvm_instruction.setOrdering(@enumFromInt(@intFromEnum(ordering)));
             if (alignment.toByteUnits()) |bytes| llvm_instruction.setAlignment(@intCast(bytes));
             self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
@@ -5273,7 +5304,7 @@ pub const WipFunction = struct {
 
     pub fn fence(
         self: *WipFunction,
-        scope: SyncScope,
+        sync_scope: SyncScope,
         ordering: AtomicOrdering,
     ) Allocator.Error!Instruction.Index {
         assert(ordering != .none);
@@ -5281,19 +5312,128 @@ pub const WipFunction = struct {
         const instruction = try self.addInst(null, .{
             .tag = .fence,
             .data = @bitCast(MemoryAccessInfo{
-                .scope = scope,
-                .ordering = ordering,
-                .alignment = undefined,
+                .sync_scope = sync_scope,
+                .success_ordering = ordering,
             }),
         });
         if (self.builder.useLibLlvm()) self.llvm.instructions.appendAssumeCapacity(
             self.llvm.builder.buildFence(
                 @enumFromInt(@intFromEnum(ordering)),
-                llvm.Bool.fromBool(scope == .singlethread),
+                llvm.Bool.fromBool(sync_scope == .singlethread),
                 "",
             ),
         );
         return instruction;
+    }
+
+    pub fn cmpxchg(
+        self: *WipFunction,
+        kind: Instruction.CmpXchg.Kind,
+        access_kind: MemoryAccessKind,
+        ptr: Value,
+        cmp: Value,
+        new: Value,
+        sync_scope: SyncScope,
+        success_ordering: AtomicOrdering,
+        failure_ordering: AtomicOrdering,
+        alignment: Alignment,
+        name: []const u8,
+    ) Allocator.Error!Value {
+        assert(ptr.typeOfWip(self).isPointer(self.builder));
+        const ty = cmp.typeOfWip(self);
+        assert(ty == new.typeOfWip(self));
+        assert(success_ordering != .none);
+        assert(failure_ordering != .none);
+
+        _ = try self.builder.structType(.normal, &.{ ty, .i1 });
+        try self.ensureUnusedExtraCapacity(1, Instruction.CmpXchg, 0);
+        const instruction = try self.addInst(name, .{
+            .tag = switch (kind) {
+                .strong => .cmpxchg,
+                .weak => .@"cmpxchg weak",
+            },
+            .data = self.addExtraAssumeCapacity(Instruction.CmpXchg{
+                .info = .{
+                    .access_kind = access_kind,
+                    .sync_scope = sync_scope,
+                    .success_ordering = success_ordering,
+                    .failure_ordering = failure_ordering,
+                    .alignment = alignment,
+                },
+                .ptr = ptr,
+                .cmp = cmp,
+                .new = new,
+            }),
+        });
+        if (self.builder.useLibLlvm()) {
+            const llvm_instruction = self.llvm.builder.buildAtomicCmpXchg(
+                ptr.toLlvm(self),
+                cmp.toLlvm(self),
+                new.toLlvm(self),
+                @enumFromInt(@intFromEnum(success_ordering)),
+                @enumFromInt(@intFromEnum(failure_ordering)),
+                llvm.Bool.fromBool(sync_scope == .singlethread),
+            );
+            if (kind == .weak) llvm_instruction.setWeak(.True);
+            if (access_kind == .@"volatile") llvm_instruction.setVolatile(.True);
+            if (alignment.toByteUnits()) |bytes| llvm_instruction.setAlignment(@intCast(bytes));
+            const llvm_name = instruction.llvmName(self);
+            if (llvm_name.len > 0) llvm_instruction.setValueName(
+                llvm_name.ptr,
+                @intCast(llvm_name.len),
+            );
+            self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
+        }
+        return instruction.toValue();
+    }
+
+    pub fn atomicrmw(
+        self: *WipFunction,
+        access_kind: MemoryAccessKind,
+        operation: Instruction.AtomicRmw.Operation,
+        ptr: Value,
+        val: Value,
+        sync_scope: SyncScope,
+        ordering: AtomicOrdering,
+        alignment: Alignment,
+        name: []const u8,
+    ) Allocator.Error!Value {
+        assert(ptr.typeOfWip(self).isPointer(self.builder));
+        assert(ordering != .none);
+
+        try self.ensureUnusedExtraCapacity(1, Instruction.AtomicRmw, 0);
+        const instruction = try self.addInst(name, .{
+            .tag = .atomicrmw,
+            .data = self.addExtraAssumeCapacity(Instruction.AtomicRmw{
+                .info = .{
+                    .access_kind = access_kind,
+                    .atomic_rmw_operation = operation,
+                    .sync_scope = sync_scope,
+                    .success_ordering = ordering,
+                    .alignment = alignment,
+                },
+                .ptr = ptr,
+                .val = val,
+            }),
+        });
+        if (self.builder.useLibLlvm()) {
+            const llvm_instruction = self.llvm.builder.buildAtomicRmw(
+                @enumFromInt(@intFromEnum(operation)),
+                ptr.toLlvm(self),
+                val.toLlvm(self),
+                @enumFromInt(@intFromEnum(ordering)),
+                llvm.Bool.fromBool(sync_scope == .singlethread),
+            );
+            if (access_kind == .@"volatile") llvm_instruction.setVolatile(.True);
+            if (alignment.toByteUnits()) |bytes| llvm_instruction.setAlignment(@intCast(bytes));
+            const llvm_name = instruction.llvmName(self);
+            if (llvm_name.len > 0) llvm_instruction.setValueName(
+                llvm_name.ptr,
+                @intCast(llvm_name.len),
+            );
+            self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
+        }
+        return instruction.toValue();
     }
 
     pub fn gep(
@@ -5747,30 +5887,6 @@ pub const WipFunction = struct {
         return instruction.toValue();
     }
 
-    pub const WipUnimplemented = struct {
-        instruction: Instruction.Index,
-
-        pub fn finish(self: WipUnimplemented, val: *llvm.Value, wip: *WipFunction) Value {
-            assert(wip.builder.useLibLlvm());
-            wip.llvm.instructions.items[@intFromEnum(self.instruction)] = val;
-            return self.instruction.toValue();
-        }
-    };
-
-    pub fn unimplemented(
-        self: *WipFunction,
-        ty: Type,
-        name: []const u8,
-    ) Allocator.Error!WipUnimplemented {
-        try self.ensureUnusedExtraCapacity(1, NoExtra, 0);
-        const instruction = try self.addInst(name, .{
-            .tag = .unimplemented,
-            .data = @intFromEnum(ty),
-        });
-        if (self.builder.useLibLlvm()) _ = self.llvm.instructions.addOneAssumeCapacity();
-        return .{ .instruction = instruction };
-    }
-
     pub fn finish(self: *WipFunction) Allocator.Error!void {
         const gpa = self.builder.gpa;
         const function = self.function.ptr(self.builder);
@@ -6035,19 +6151,19 @@ pub const WipFunction = struct {
                     .arg,
                     .block,
                     => unreachable,
+                    .atomicrmw => {
+                        const extra = self.extraData(Instruction.AtomicRmw, instruction.data);
+                        instruction.data = wip_extra.addExtra(Instruction.AtomicRmw{
+                            .info = extra.info,
+                            .ptr = instructions.map(extra.ptr),
+                            .val = instructions.map(extra.val),
+                        });
+                    },
                     .br,
                     .fence,
                     .@"ret void",
-                    .unimplemented,
                     .@"unreachable",
                     => {},
-                    .extractelement => {
-                        const extra = self.extraData(Instruction.ExtractElement, instruction.data);
-                        instruction.data = wip_extra.addExtra(Instruction.ExtractElement{
-                            .val = instructions.map(extra.val),
-                            .index = instructions.map(extra.index),
-                        });
-                    },
                     .br_cond => {
                         const extra = self.extraData(Instruction.BrCond, instruction.data);
                         instruction.data = wip_extra.addExtra(Instruction.BrCond{
@@ -6075,6 +6191,24 @@ pub const WipFunction = struct {
                             .args_len = extra.data.args_len,
                         });
                         wip_extra.appendMappedValues(args, instructions);
+                    },
+                    .cmpxchg,
+                    .@"cmpxchg weak",
+                    => {
+                        const extra = self.extraData(Instruction.CmpXchg, instruction.data);
+                        instruction.data = wip_extra.addExtra(Instruction.CmpXchg{
+                            .info = extra.info,
+                            .ptr = instructions.map(extra.ptr),
+                            .cmp = instructions.map(extra.cmp),
+                            .new = instructions.map(extra.new),
+                        });
+                    },
+                    .extractelement => {
+                        const extra = self.extraData(Instruction.ExtractElement, instruction.data);
+                        instruction.data = wip_extra.addExtra(Instruction.ExtractElement{
+                            .val = instructions.map(extra.val),
+                            .index = instructions.map(extra.index),
+                        });
                     },
                     .extractvalue => {
                         var extra = self.extraDataTrail(Instruction.ExtractValue, instruction.data);
@@ -6121,8 +6255,6 @@ pub const WipFunction = struct {
                     },
                     .load,
                     .@"load atomic",
-                    .@"load atomic volatile",
-                    .@"load volatile",
                     => {
                         const extra = self.extraData(Instruction.Load, instruction.data);
                         instruction.data = wip_extra.addExtra(Instruction.Load{
@@ -6164,8 +6296,6 @@ pub const WipFunction = struct {
                     },
                     .store,
                     .@"store atomic",
-                    .@"store atomic volatile",
-                    .@"store volatile",
                     => {
                         const extra = self.extraData(Instruction.Store, instruction.data);
                         instruction.data = wip_extra.addExtra(Instruction.Store{
@@ -6619,6 +6749,15 @@ pub const IntegerCondition = enum(u6) {
 pub const MemoryAccessKind = enum(u1) {
     normal,
     @"volatile",
+
+    pub fn format(
+        self: MemoryAccessKind,
+        comptime prefix: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        if (self != .normal) try writer.print("{s}{s}", .{ prefix, @tagName(self) });
+    }
 };
 
 pub const SyncScope = enum(u1) {
@@ -6632,7 +6771,7 @@ pub const SyncScope = enum(u1) {
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         if (self != .system) try writer.print(
-            \\{s} syncscope("{s}")
+            \\{s}syncscope("{s}")
         , .{ prefix, @tagName(self) });
     }
 };
@@ -6652,15 +6791,18 @@ pub const AtomicOrdering = enum(u3) {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (self != .none) try writer.print("{s} {s}", .{ prefix, @tagName(self) });
+        if (self != .none) try writer.print("{s}{s}", .{ prefix, @tagName(self) });
     }
 };
 
 const MemoryAccessInfo = packed struct(u32) {
-    scope: SyncScope,
-    ordering: AtomicOrdering,
-    alignment: Alignment,
-    _: u22 = undefined,
+    access_kind: MemoryAccessKind = .normal,
+    atomic_rmw_operation: Function.Instruction.AtomicRmw.Operation = .none,
+    sync_scope: SyncScope,
+    success_ordering: AtomicOrdering,
+    failure_ordering: AtomicOrdering = .none,
+    alignment: Alignment = .default,
+    _: u13 = undefined,
 };
 
 pub const FastMath = packed struct(u32) {
@@ -7542,7 +7684,7 @@ pub fn init(options: Options) InitError!Builder {
     if (options.name.len > 0) self.source_filename = try self.string(options.name);
     self.initializeLLVMTarget(options.target.cpu.arch);
     if (self.useLibLlvm()) self.llvm.module = llvm.Module.createWithName(
-        (self.source_filename.slice(&self) orelse "").ptr,
+        (self.source_filename.slice(&self) orelse ""),
         self.llvm.context,
     );
 
@@ -8983,6 +9125,21 @@ pub fn printUnbuffered(
                             });
                         },
                         .arg => unreachable,
+                        .atomicrmw => |tag| {
+                            const extra =
+                                function.extraData(Function.Instruction.AtomicRmw, instruction.data);
+                            try writer.print("  %{} = {s}{ } {s} {%}, {%}{ }{ }{, }\n", .{
+                                instruction_index.name(&function).fmt(self),
+                                @tagName(tag),
+                                extra.info.access_kind,
+                                @tagName(extra.info.atomic_rmw_operation),
+                                extra.ptr.fmt(function_index, self),
+                                extra.val.fmt(function_index, self),
+                                extra.info.sync_scope,
+                                extra.info.success_ordering,
+                                extra.info.alignment,
+                            });
+                        },
                         .block => {
                             block_incoming_len = instruction.data;
                             const name = instruction_index.name(&function);
@@ -9056,6 +9213,24 @@ pub fn printUnbuffered(
                             });
                             try writer.writeByte('\n');
                         },
+                        .cmpxchg,
+                        .@"cmpxchg weak",
+                        => |tag| {
+                            const extra =
+                                function.extraData(Function.Instruction.CmpXchg, instruction.data);
+                            try writer.print("  %{} = {s}{ } {%}, {%}, {%}{ }{ }{ }{, }\n", .{
+                                instruction_index.name(&function).fmt(self),
+                                @tagName(tag),
+                                extra.info.access_kind,
+                                extra.ptr.fmt(function_index, self),
+                                extra.cmp.fmt(function_index, self),
+                                extra.new.fmt(function_index, self),
+                                extra.info.sync_scope,
+                                extra.info.success_ordering,
+                                extra.info.failure_ordering,
+                                extra.info.alignment,
+                            });
+                        },
                         .extractelement => |tag| {
                             const extra = function.extraData(
                                 Function.Instruction.ExtractElement,
@@ -9084,7 +9259,11 @@ pub fn printUnbuffered(
                         },
                         .fence => |tag| {
                             const info: MemoryAccessInfo = @bitCast(instruction.data);
-                            try writer.print("  {s}{}{}", .{ @tagName(tag), info.scope, info.ordering });
+                            try writer.print("  {s}{ }{ }", .{
+                                @tagName(tag),
+                                info.sync_scope,
+                                info.success_ordering,
+                            });
                         },
                         .fneg,
                         .@"fneg fast",
@@ -9145,18 +9324,17 @@ pub fn printUnbuffered(
                         },
                         .load,
                         .@"load atomic",
-                        .@"load atomic volatile",
-                        .@"load volatile",
                         => |tag| {
                             const extra =
                                 function.extraData(Function.Instruction.Load, instruction.data);
-                            try writer.print("  %{} = {s} {%}, {%}{}{}{, }\n", .{
+                            try writer.print("  %{} = {s}{ } {%}, {%}{ }{ }{, }\n", .{
                                 instruction_index.name(&function).fmt(self),
                                 @tagName(tag),
+                                extra.info.access_kind,
                                 extra.type.fmt(self),
                                 extra.ptr.fmt(function_index, self),
-                                extra.info.scope,
-                                extra.info.ordering,
+                                extra.info.sync_scope,
+                                extra.info.success_ordering,
                                 extra.info.alignment,
                             });
                         },
@@ -9220,17 +9398,16 @@ pub fn printUnbuffered(
                         },
                         .store,
                         .@"store atomic",
-                        .@"store atomic volatile",
-                        .@"store volatile",
                         => |tag| {
                             const extra =
                                 function.extraData(Function.Instruction.Store, instruction.data);
-                            try writer.print("  {s} {%}, {%}{}{}{, }\n", .{
+                            try writer.print("  {s}{ } {%}, {%}{ }{ }{, }\n", .{
                                 @tagName(tag),
+                                extra.info.access_kind,
                                 extra.val.fmt(function_index, self),
                                 extra.ptr.fmt(function_index, self),
-                                extra.info.scope,
-                                extra.info.ordering,
+                                extra.info.sync_scope,
+                                extra.info.success_ordering,
                                 extra.info.alignment,
                             });
                         },
@@ -9253,25 +9430,6 @@ pub fn printUnbuffered(
                                 },
                             );
                             try writer.writeAll("  ]\n");
-                        },
-                        .unimplemented => |tag| {
-                            const ty: Type = @enumFromInt(instruction.data);
-                            if (true) {
-                                try writer.writeAll("  ");
-                                switch (ty) {
-                                    .none, .void => {},
-                                    else => try writer.print("%{} = ", .{
-                                        instruction_index.name(&function).fmt(self),
-                                    }),
-                                }
-                                try writer.print("{s} {%}\n", .{ @tagName(tag), ty.fmt(self) });
-                            } else switch (ty) {
-                                .none, .void => {},
-                                else => try writer.print("  %{} = load {%}, ptr undef\n", .{
-                                    instruction_index.name(&function).fmt(self),
-                                    ty.fmt(self),
-                                }),
-                            }
                         },
                         .va_arg => |tag| {
                             const extra =

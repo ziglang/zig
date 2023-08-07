@@ -330,10 +330,7 @@ pub const Value = opaque {
     pub const fnSetSubprogram = ZigLLVMFnSetSubprogram;
     extern fn ZigLLVMFnSetSubprogram(f: *Value, subprogram: *DISubprogram) void;
 
-    pub const setValueName = LLVMSetValueName;
-    extern fn LLVMSetValueName(Val: *Value, Name: [*:0]const u8) void;
-
-    pub const setValueName2 = LLVMSetValueName2;
+    pub const setValueName = LLVMSetValueName2;
     extern fn LLVMSetValueName2(Val: *Value, Name: [*]const u8, NameLen: usize) void;
 
     pub const getValueName = LLVMGetValueName;

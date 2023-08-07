@@ -4911,8 +4911,8 @@ pub const FuncGen = struct {
 
                 .array_to_slice => try self.airArrayToSlice(inst),
                 .float_from_int   => try self.airFloatFromInt(inst),
-                .cmpxchg_weak   => try self.airCmpxchg(inst, true),
-                .cmpxchg_strong => try self.airCmpxchg(inst, false),
+                .cmpxchg_weak   => try self.airCmpxchg(inst, .weak),
+                .cmpxchg_strong => try self.airCmpxchg(inst, .strong),
                 .fence          => try self.airFence(inst),
                 .atomic_rmw     => try self.airAtomicRmw(inst),
                 .atomic_load    => try self.airAtomicLoad(inst),
@@ -8723,15 +8723,20 @@ pub const FuncGen = struct {
         return .none;
     }
 
-    fn airCmpxchg(self: *FuncGen, inst: Air.Inst.Index, is_weak: bool) !Builder.Value {
+    fn airCmpxchg(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        kind: Builder.Function.Instruction.CmpXchg.Kind,
+    ) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
         const ptr = try self.resolveInst(extra.ptr);
+        const ptr_ty = self.typeOf(extra.ptr);
         var expected_value = try self.resolveInst(extra.expected_value);
         var new_value = try self.resolveInst(extra.new_value);
-        const operand_ty = self.typeOf(extra.ptr).childType(mod);
+        const operand_ty = ptr_ty.childType(mod);
         const llvm_operand_ty = try o.lowerType(operand_ty);
         const llvm_abi_ty = try o.getAtomicAbiType(operand_ty, false);
         if (llvm_abi_ty != .none) {
@@ -8742,22 +8747,18 @@ pub const FuncGen = struct {
             new_value = try self.wip.conv(signedness, new_value, llvm_abi_ty, "");
         }
 
-        const llvm_result_ty = try o.builder.structType(.normal, &.{
-            if (llvm_abi_ty != .none) llvm_abi_ty else llvm_operand_ty,
-            .i1,
-        });
-        const result = (try self.wip.unimplemented(llvm_result_ty, "")).finish(
-            self.builder.buildAtomicCmpXchg(
-                ptr.toLlvm(&self.wip),
-                expected_value.toLlvm(&self.wip),
-                new_value.toLlvm(&self.wip),
-                @enumFromInt(@intFromEnum(toLlvmAtomicOrdering(extra.successOrder()))),
-                @enumFromInt(@intFromEnum(toLlvmAtomicOrdering(extra.failureOrder()))),
-                llvm.Bool.fromBool(self.sync_scope == .singlethread),
-            ),
-            &self.wip,
+        const result = try self.wip.cmpxchg(
+            kind,
+            if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal,
+            ptr,
+            expected_value,
+            new_value,
+            self.sync_scope,
+            toLlvmAtomicOrdering(extra.successOrder()),
+            toLlvmAtomicOrdering(extra.failureOrder()),
+            Builder.Alignment.fromByteUnits(ptr_ty.ptrAlignment(mod)),
+            "",
         );
-        result.toLlvm(&self.wip).setWeak(llvm.Bool.fromBool(is_weak));
 
         const optional_ty = self.typeOfIndex(inst);
 
@@ -8789,63 +8790,54 @@ pub const FuncGen = struct {
         const is_float = operand_ty.isRuntimeFloat();
         const op = toLlvmAtomicRmwBinOp(extra.op(), is_signed_int, is_float);
         const ordering = toLlvmAtomicOrdering(extra.ordering());
-        const single_threaded = llvm.Bool.fromBool(self.sync_scope == .singlethread);
-        const llvm_abi_ty = try o.getAtomicAbiType(operand_ty, op == .Xchg);
+        const llvm_abi_ty = try o.getAtomicAbiType(operand_ty, op == .xchg);
         const llvm_operand_ty = try o.lowerType(operand_ty);
+
+        const access_kind: Builder.MemoryAccessKind =
+            if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal;
+        const ptr_alignment = Builder.Alignment.fromByteUnits(ptr_ty.ptrAlignment(mod));
+
         if (llvm_abi_ty != .none) {
             // operand needs widening and truncating or bitcasting.
-            const casted_operand = try self.wip.cast(
-                if (is_float) .bitcast else if (is_signed_int) .sext else .zext,
-                @enumFromInt(@intFromEnum(operand)),
-                llvm_abi_ty,
+            return self.wip.cast(if (is_float) .bitcast else .trunc, try self.wip.atomicrmw(
+                access_kind,
+                op,
+                ptr,
+                try self.wip.cast(
+                    if (is_float) .bitcast else if (is_signed_int) .sext else .zext,
+                    operand,
+                    llvm_abi_ty,
+                    "",
+                ),
+                self.sync_scope,
+                ordering,
+                ptr_alignment,
                 "",
-            );
-
-            const uncasted_result = (try self.wip.unimplemented(llvm_abi_ty, "")).finish(
-                self.builder.buildAtomicRmw(
-                    op,
-                    ptr.toLlvm(&self.wip),
-                    casted_operand.toLlvm(&self.wip),
-                    @enumFromInt(@intFromEnum(ordering)),
-                    single_threaded,
-                ),
-                &self.wip,
-            );
-
-            if (is_float) {
-                return self.wip.cast(.bitcast, uncasted_result, llvm_operand_ty, "");
-            } else {
-                return self.wip.cast(.trunc, uncasted_result, llvm_operand_ty, "");
-            }
+            ), llvm_operand_ty, "");
         }
 
-        if (!llvm_operand_ty.isPointer(&o.builder)) {
-            return (try self.wip.unimplemented(llvm_operand_ty, "")).finish(
-                self.builder.buildAtomicRmw(
-                    op,
-                    ptr.toLlvm(&self.wip),
-                    operand.toLlvm(&self.wip),
-                    @enumFromInt(@intFromEnum(ordering)),
-                    single_threaded,
-                ),
-                &self.wip,
-            );
-        }
+        if (!llvm_operand_ty.isPointer(&o.builder)) return self.wip.atomicrmw(
+            access_kind,
+            op,
+            ptr,
+            operand,
+            self.sync_scope,
+            ordering,
+            ptr_alignment,
+            "",
+        );
 
         // It's a pointer but we need to treat it as an int.
-        const llvm_usize = try o.lowerType(Type.usize);
-        const casted_operand = try self.wip.cast(.ptrtoint, operand, llvm_usize, "");
-        const uncasted_result = (try self.wip.unimplemented(llvm_usize, "")).finish(
-            self.builder.buildAtomicRmw(
-                op,
-                ptr.toLlvm(&self.wip),
-                casted_operand.toLlvm(&self.wip),
-                @enumFromInt(@intFromEnum(ordering)),
-                single_threaded,
-            ),
-            &self.wip,
-        );
-        return self.wip.cast(.inttoptr, uncasted_result, llvm_operand_ty, "");
+        return self.wip.cast(.inttoptr, try self.wip.atomicrmw(
+            access_kind,
+            op,
+            ptr,
+            try self.wip.cast(.ptrtoint, operand, try o.lowerType(Type.usize), ""),
+            self.sync_scope,
+            ordering,
+            ptr_alignment,
+            "",
+        ), llvm_operand_ty, "");
     }
 
     fn airAtomicLoad(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -10581,17 +10573,17 @@ fn toLlvmAtomicRmwBinOp(
     op: std.builtin.AtomicRmwOp,
     is_signed: bool,
     is_float: bool,
-) llvm.AtomicRMWBinOp {
+) Builder.Function.Instruction.AtomicRmw.Operation {
     return switch (op) {
-        .Xchg => .Xchg,
-        .Add => if (is_float) .FAdd else return .Add,
-        .Sub => if (is_float) .FSub else return .Sub,
-        .And => .And,
-        .Nand => .Nand,
-        .Or => .Or,
-        .Xor => .Xor,
-        .Max => if (is_float) .FMax else if (is_signed) .Max else return .UMax,
-        .Min => if (is_float) .FMin else if (is_signed) .Min else return .UMin,
+        .Xchg => .xchg,
+        .Add => if (is_float) .fadd else return .add,
+        .Sub => if (is_float) .fsub else return .sub,
+        .And => .@"and",
+        .Nand => .nand,
+        .Or => .@"or",
+        .Xor => .xor,
+        .Max => if (is_float) .fmax else if (is_signed) .max else return .umax,
+        .Min => if (is_float) .fmin else if (is_signed) .min else return .umin,
     };
 }
 

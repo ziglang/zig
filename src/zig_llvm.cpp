@@ -1123,11 +1123,11 @@ void ZigLLVMTakeName(LLVMValueRef new_owner, LLVMValueRef victim) {
 }
 
 ZigLLVMDIGlobalVariable* ZigLLVMGlobalGetVariable(ZigLLVMDIGlobalVariableExpression *global_variable_expression) {
-	return reinterpret_cast<ZigLLVMDIGlobalVariable*>(reinterpret_cast<DIGlobalVariableExpression*>(global_variable_expression)->getVariable());
+    return reinterpret_cast<ZigLLVMDIGlobalVariable*>(reinterpret_cast<DIGlobalVariableExpression*>(global_variable_expression)->getVariable());
 }
 
 void ZigLLVMAttachMetaData(LLVMValueRef Val, ZigLLVMDIGlobalVariableExpression *global_variable_expression) {
-	unwrap<GlobalVariable>(Val)->addDebugInfo(reinterpret_cast<DIGlobalVariableExpression*>(global_variable_expression));
+    unwrap<GlobalVariable>(Val)->addDebugInfo(reinterpret_cast<DIGlobalVariableExpression*>(global_variable_expression));
 }
 
 static_assert((Triple::ArchType)ZigLLVM_UnknownArch == Triple::UnknownArch, "");
