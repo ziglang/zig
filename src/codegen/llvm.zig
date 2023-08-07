@@ -7464,18 +7464,16 @@ pub const FuncGen = struct {
         const llvm_inst_ty = try o.lowerType(inst_ty);
         const results = try fg.wip.callIntrinsic(intrinsic, &.{llvm_inst_ty}, &.{ lhs, rhs }, "");
 
-        const overflow_bit = try fg.wip.extractValue(results, &.{1}, "");
-        const scalar_overflow_bit = if (llvm_inst_ty.isVector(&o.builder))
-            (try fg.wip.unimplemented(.i1, "")).finish(
-                fg.builder.buildOrReduce(overflow_bit.toLlvm(&fg.wip)),
-                &fg.wip,
-            )
+        const overflow_bits = try fg.wip.extractValue(results, &.{1}, "");
+        const overflow_bits_ty = overflow_bits.typeOfWip(&fg.wip);
+        const overflow_bit = if (overflow_bits_ty.isVector(&o.builder))
+            try fg.wip.callIntrinsic(.@"vector.reduce.or", &.{overflow_bits_ty}, &.{overflow_bits}, "")
         else
-            overflow_bit;
+            overflow_bits;
 
         const fail_block = try fg.wip.block(1, "OverflowFail");
         const ok_block = try fg.wip.block(1, "OverflowOk");
-        _ = try fg.wip.brCond(scalar_overflow_bit, fail_block, ok_block);
+        _ = try fg.wip.brCond(overflow_bit, fail_block, ok_block);
 
         fg.wip.cursor = .{ .block = fail_block };
         try fg.buildSimplePanic(.integer_overflow);
@@ -9643,72 +9641,53 @@ pub const FuncGen = struct {
         const reduce = self.air.instructions.items(.data)[inst].reduce;
         const operand = try self.resolveInst(reduce.operand);
         const operand_ty = self.typeOf(reduce.operand);
+        const llvm_operand_ty = try o.lowerType(operand_ty);
         const scalar_ty = self.typeOfIndex(inst);
         const llvm_scalar_ty = try o.lowerType(scalar_ty);
 
         switch (reduce.operation) {
-            .And => return (try self.wip.unimplemented(llvm_scalar_ty, ""))
-                .finish(self.builder.buildAndReduce(operand.toLlvm(&self.wip)), &self.wip),
-            .Or => return (try self.wip.unimplemented(llvm_scalar_ty, ""))
-                .finish(self.builder.buildOrReduce(operand.toLlvm(&self.wip)), &self.wip),
-            .Xor => return (try self.wip.unimplemented(llvm_scalar_ty, ""))
-                .finish(self.builder.buildXorReduce(operand.toLlvm(&self.wip)), &self.wip),
-            .Min => switch (scalar_ty.zigTypeTag(mod)) {
-                .Int => return (try self.wip.unimplemented(llvm_scalar_ty, "")).finish(
-                    self.builder.buildIntMinReduce(
-                        operand.toLlvm(&self.wip),
-                        scalar_ty.isSignedInt(mod),
-                    ),
-                    &self.wip,
-                ),
-                .Float => if (intrinsicsAllowed(scalar_ty, target)) {
-                    return (try self.wip.unimplemented(llvm_scalar_ty, ""))
-                        .finish(self.builder.buildFPMinReduce(operand.toLlvm(&self.wip)), &self.wip);
-                },
+            .And, .Or, .Xor => return self.wip.callIntrinsic(switch (reduce.operation) {
+                .And => .@"vector.reduce.and",
+                .Or => .@"vector.reduce.or",
+                .Xor => .@"vector.reduce.xor",
+                else => unreachable,
+            }, &.{llvm_operand_ty}, &.{operand}, ""),
+            .Min, .Max => switch (scalar_ty.zigTypeTag(mod)) {
+                .Int => return self.wip.callIntrinsic(switch (reduce.operation) {
+                    .Min => if (scalar_ty.isSignedInt(mod))
+                        .@"vector.reduce.smin"
+                    else
+                        .@"vector.reduce.umin",
+                    .Max => if (scalar_ty.isSignedInt(mod))
+                        .@"vector.reduce.smax"
+                    else
+                        .@"vector.reduce.umax",
+                    else => unreachable,
+                }, &.{llvm_operand_ty}, &.{operand}, ""),
+                .Float => if (intrinsicsAllowed(scalar_ty, target))
+                    return self.wip.callIntrinsic(switch (reduce.operation) {
+                        .Min => .@"vector.reduce.fmin",
+                        .Max => .@"vector.reduce.fmax",
+                        else => unreachable,
+                    }, &.{llvm_operand_ty}, &.{operand}, ""),
                 else => unreachable,
             },
-            .Max => switch (scalar_ty.zigTypeTag(mod)) {
-                .Int => return (try self.wip.unimplemented(llvm_scalar_ty, "")).finish(
-                    self.builder.buildIntMaxReduce(
-                        operand.toLlvm(&self.wip),
-                        scalar_ty.isSignedInt(mod),
-                    ),
-                    &self.wip,
-                ),
-                .Float => if (intrinsicsAllowed(scalar_ty, target)) {
-                    return (try self.wip.unimplemented(llvm_scalar_ty, ""))
-                        .finish(self.builder.buildFPMaxReduce(operand.toLlvm(&self.wip)), &self.wip);
-                },
-                else => unreachable,
-            },
-            .Add => switch (scalar_ty.zigTypeTag(mod)) {
-                .Int => return (try self.wip.unimplemented(llvm_scalar_ty, ""))
-                    .finish(self.builder.buildAddReduce(operand.toLlvm(&self.wip)), &self.wip),
-                .Float => if (intrinsicsAllowed(scalar_ty, target)) {
-                    const neutral_value = try o.builder.fpConst(llvm_scalar_ty, -0.0);
-                    return (try self.wip.unimplemented(llvm_scalar_ty, "")).finish(
-                        self.builder.buildFPAddReduce(
-                            neutral_value.toLlvm(&o.builder),
-                            operand.toLlvm(&self.wip),
-                        ),
-                        &self.wip,
-                    );
-                },
-                else => unreachable,
-            },
-            .Mul => switch (scalar_ty.zigTypeTag(mod)) {
-                .Int => return (try self.wip.unimplemented(llvm_scalar_ty, ""))
-                    .finish(self.builder.buildMulReduce(operand.toLlvm(&self.wip)), &self.wip),
-                .Float => if (intrinsicsAllowed(scalar_ty, target)) {
-                    const neutral_value = try o.builder.fpConst(llvm_scalar_ty, 1.0);
-                    return (try self.wip.unimplemented(llvm_scalar_ty, "")).finish(
-                        self.builder.buildFPMulReduce(
-                            neutral_value.toLlvm(&o.builder),
-                            operand.toLlvm(&self.wip),
-                        ),
-                        &self.wip,
-                    );
-                },
+            .Add, .Mul => switch (scalar_ty.zigTypeTag(mod)) {
+                .Int => return self.wip.callIntrinsic(switch (reduce.operation) {
+                    .Add => .@"vector.reduce.add",
+                    .Mul => .@"vector.reduce.mul",
+                    else => unreachable,
+                }, &.{llvm_operand_ty}, &.{operand}, ""),
+                .Float => if (intrinsicsAllowed(scalar_ty, target))
+                    return self.wip.callIntrinsic(switch (reduce.operation) {
+                        .Add => .@"vector.reduce.fadd",
+                        .Mul => .@"vector.reduce.fmul",
+                        else => unreachable,
+                    }, &.{llvm_operand_ty}, &.{ switch (reduce.operation) {
+                        .Add => try o.builder.fpValue(llvm_scalar_ty, -0.0),
+                        .Mul => try o.builder.fpValue(llvm_scalar_ty, 1.0),
+                        else => unreachable,
+                    }, operand }, ""),
                 else => unreachable,
             },
         }

@@ -1134,50 +1134,6 @@ bool ZigLLDLinkWasm(int argc, const char **argv, bool can_exit_early, bool disab
     return lld::wasm::link(args, llvm::outs(), llvm::errs(), can_exit_early, disable_output);
 }
 
-LLVMValueRef ZigLLVMBuildAndReduce(LLVMBuilderRef B, LLVMValueRef Val) {
-    return wrap(unwrap(B)->CreateAndReduce(unwrap(Val)));
-}
-
-LLVMValueRef ZigLLVMBuildOrReduce(LLVMBuilderRef B, LLVMValueRef Val) {
-    return wrap(unwrap(B)->CreateOrReduce(unwrap(Val)));
-}
-
-LLVMValueRef ZigLLVMBuildXorReduce(LLVMBuilderRef B, LLVMValueRef Val) {
-    return wrap(unwrap(B)->CreateXorReduce(unwrap(Val)));
-}
-
-LLVMValueRef ZigLLVMBuildIntMaxReduce(LLVMBuilderRef B, LLVMValueRef Val, bool is_signed) {
-    return wrap(unwrap(B)->CreateIntMaxReduce(unwrap(Val), is_signed));
-}
-
-LLVMValueRef ZigLLVMBuildIntMinReduce(LLVMBuilderRef B, LLVMValueRef Val, bool is_signed) {
-    return wrap(unwrap(B)->CreateIntMinReduce(unwrap(Val), is_signed));
-}
-
-LLVMValueRef ZigLLVMBuildFPMaxReduce(LLVMBuilderRef B, LLVMValueRef Val) {
-    return wrap(unwrap(B)->CreateFPMaxReduce(unwrap(Val)));
-}
-
-LLVMValueRef ZigLLVMBuildFPMinReduce(LLVMBuilderRef B, LLVMValueRef Val) {
-    return wrap(unwrap(B)->CreateFPMinReduce(unwrap(Val)));
-}
-
-LLVMValueRef ZigLLVMBuildAddReduce(LLVMBuilderRef B, LLVMValueRef Val) {
-    return wrap(unwrap(B)->CreateAddReduce(unwrap(Val)));
-}
-
-LLVMValueRef ZigLLVMBuildMulReduce(LLVMBuilderRef B, LLVMValueRef Val) {
-    return wrap(unwrap(B)->CreateMulReduce(unwrap(Val)));
-}
-
-LLVMValueRef ZigLLVMBuildFPAddReduce(LLVMBuilderRef B, LLVMValueRef Acc, LLVMValueRef Val) {
-    return wrap(unwrap(B)->CreateFAddReduce(unwrap(Acc), unwrap(Val)));
-}
-
-LLVMValueRef ZigLLVMBuildFPMulReduce(LLVMBuilderRef B, LLVMValueRef Acc, LLVMValueRef Val) {
-    return wrap(unwrap(B)->CreateFMulReduce(unwrap(Acc), unwrap(Val)));
-}
-
 void ZigLLVMTakeName(LLVMValueRef new_owner, LLVMValueRef victim) {
     unwrap(new_owner)->takeName(unwrap(victim));
 }

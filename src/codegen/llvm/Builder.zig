@@ -2472,12 +2472,13 @@ pub const Intrinsic = enum {
 
             const Kind = union(enum) {
                 type: Type,
-                change_scalar: struct {
+                overloaded,
+                matches: u8,
+                matches_scalar: u8,
+                matches_changed_scalar: struct {
                     index: u8,
                     scalar: Type,
                 },
-                overloaded,
-                matches: u8,
             };
         };
     };
@@ -2921,7 +2922,7 @@ pub const Intrinsic = enum {
             .ret_len = 2,
             .params = &.{
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
@@ -2931,7 +2932,7 @@ pub const Intrinsic = enum {
             .ret_len = 2,
             .params = &.{
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
@@ -2941,7 +2942,7 @@ pub const Intrinsic = enum {
             .ret_len = 2,
             .params = &.{
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
@@ -2951,7 +2952,7 @@ pub const Intrinsic = enum {
             .ret_len = 2,
             .params = &.{
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
@@ -2961,7 +2962,7 @@ pub const Intrinsic = enum {
             .ret_len = 2,
             .params = &.{
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
@@ -2971,7 +2972,7 @@ pub const Intrinsic = enum {
             .ret_len = 2,
             .params = &.{
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
                 .{ .kind = .{ .matches = 0 } },
                 .{ .kind = .{ .matches = 0 } },
             },
@@ -3112,6 +3113,148 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"vector.reduce.add" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fadd" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 2 } },
+                .{ .kind = .{ .matches_scalar = 2 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.mul" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fmul" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 2 } },
+                .{ .kind = .{ .matches_scalar = 2 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.and" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.or" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.xor" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.smax" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.smin" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.umax" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.umin" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fmax" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fmin" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fmaximum" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fminimum" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.insert" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i64 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.extract" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i64 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
 
         .trap = .{
@@ -7742,18 +7885,11 @@ pub fn getIntrinsic(
     for (0.., param_types, signature.params) |param_index, *param_type, signature_param| {
         switch (signature_param.kind) {
             .type => |ty| param_type.* = ty,
-            .change_scalar => |info| {
-                assert(info.index < param_index);
-                param_type.* = try param_types[info.index].changeScalar(info.scalar, self);
-            },
             .overloaded => {
                 param_type.* = overload[overload_index];
                 overload_index += 1;
             },
-            .matches => |index| {
-                assert(index < param_index);
-                param_type.* = param_types[index];
-            },
+            .matches, .matches_scalar, .matches_changed_scalar => {},
         }
         function_attributes[
             if (param_index < signature.ret_len)
@@ -7763,6 +7899,15 @@ pub fn getIntrinsic(
         ] = try attributes.get(signature_param.attrs);
     }
     assert(overload_index == overload.len);
+    for (param_types, signature.params) |*param_type, signature_param| {
+        param_type.* = switch (signature_param.kind) {
+            .type, .overloaded => continue,
+            .matches => |param_index| param_types[param_index],
+            .matches_scalar => |param_index| param_types[param_index].scalarType(self),
+            .matches_changed_scalar => |info| try param_types[info.index]
+                .changeScalar(info.scalar, self),
+        };
+    }
 
     const function_index =
         try self.addFunction(try self.fnType(switch (signature.ret_len) {

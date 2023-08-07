@@ -497,18 +497,6 @@ enum ZigLLVM_ObjectFormatType {
     ZigLLVM_XCOFF,
 };
 
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildAndReduce(LLVMBuilderRef B, LLVMValueRef Val);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildOrReduce(LLVMBuilderRef B, LLVMValueRef Val);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildXorReduce(LLVMBuilderRef B, LLVMValueRef Val);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildIntMaxReduce(LLVMBuilderRef B, LLVMValueRef Val, bool is_signed);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildIntMinReduce(LLVMBuilderRef B, LLVMValueRef Val, bool is_signed);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildFPMaxReduce(LLVMBuilderRef B, LLVMValueRef Val);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildFPMinReduce(LLVMBuilderRef B, LLVMValueRef Val);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildAddReduce(LLVMBuilderRef B, LLVMValueRef Val);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMulReduce(LLVMBuilderRef B, LLVMValueRef Val);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildFPAddReduce(LLVMBuilderRef B, LLVMValueRef Acc, LLVMValueRef Val);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildFPMulReduce(LLVMBuilderRef B, LLVMValueRef Acc, LLVMValueRef Val);
-
 ZIG_EXTERN_C void ZigLLVMTakeName(LLVMValueRef new_owner, LLVMValueRef victim);
 
 #define ZigLLVM_DIFlags_Zero 0U

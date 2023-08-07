@@ -993,39 +993,6 @@ pub const Builder = opaque {
     pub const buildShuffleVector = LLVMBuildShuffleVector;
     extern fn LLVMBuildShuffleVector(*Builder, V1: *Value, V2: *Value, Mask: *Value, Name: [*:0]const u8) *Value;
 
-    pub const buildAndReduce = ZigLLVMBuildAndReduce;
-    extern fn ZigLLVMBuildAndReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildOrReduce = ZigLLVMBuildOrReduce;
-    extern fn ZigLLVMBuildOrReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildXorReduce = ZigLLVMBuildXorReduce;
-    extern fn ZigLLVMBuildXorReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildIntMaxReduce = ZigLLVMBuildIntMaxReduce;
-    extern fn ZigLLVMBuildIntMaxReduce(B: *Builder, Val: *Value, is_signed: bool) *Value;
-
-    pub const buildIntMinReduce = ZigLLVMBuildIntMinReduce;
-    extern fn ZigLLVMBuildIntMinReduce(B: *Builder, Val: *Value, is_signed: bool) *Value;
-
-    pub const buildFPMaxReduce = ZigLLVMBuildFPMaxReduce;
-    extern fn ZigLLVMBuildFPMaxReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildFPMinReduce = ZigLLVMBuildFPMinReduce;
-    extern fn ZigLLVMBuildFPMinReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildAddReduce = ZigLLVMBuildAddReduce;
-    extern fn ZigLLVMBuildAddReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildMulReduce = ZigLLVMBuildMulReduce;
-    extern fn ZigLLVMBuildMulReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildFPAddReduce = ZigLLVMBuildFPAddReduce;
-    extern fn ZigLLVMBuildFPAddReduce(B: *Builder, Acc: *Value, Val: *Value) *Value;
-
-    pub const buildFPMulReduce = ZigLLVMBuildFPMulReduce;
-    extern fn ZigLLVMBuildFPMulReduce(B: *Builder, Acc: *Value, Val: *Value) *Value;
-
     pub const setFastMath = ZigLLVMSetFastMath;
     extern fn ZigLLVMSetFastMath(B: *Builder, on_state: bool) void;
 
