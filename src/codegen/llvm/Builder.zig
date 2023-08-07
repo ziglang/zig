@@ -2462,7 +2462,8 @@ pub const Intrinsic = enum {
     @"wasm.memory.grow",
 
     const Signature = struct {
-        params: []const Parameter = &.{},
+        ret_len: u8,
+        params: []const Parameter,
         attrs: []const Attribute = &.{},
 
         const Parameter = struct {
@@ -2471,33 +2472,37 @@ pub const Intrinsic = enum {
 
             const Kind = union(enum) {
                 type: Type,
+                change_scalar: struct {
+                    index: u8,
+                    scalar: Type,
+                },
                 overloaded,
-                overloaded_tuple: u8,
                 matches: u8,
-                matches_tuple: packed struct { param: u4, field: u4 },
-                matches_with_overflow: u8,
             };
         };
     };
 
-    const signatures = std.enums.EnumArray(Intrinsic, Signature).initDefault(.{}, .{
+    const signatures = std.enums.EnumArray(Intrinsic, Signature).initDefault(.{
+        .ret_len = 0,
+        .params = &.{},
+    }, .{
         .va_start = .{
+            .ret_len = 0,
             .params = &.{
-                .{ .kind = .{ .type = .void } },
                 .{ .kind = .{ .type = .ptr } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
         },
         .va_end = .{
+            .ret_len = 0,
             .params = &.{
-                .{ .kind = .{ .type = .void } },
                 .{ .kind = .{ .type = .ptr } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
         },
         .va_copy = .{
+            .ret_len = 0,
             .params = &.{
-                .{ .kind = .{ .type = .void } },
                 .{ .kind = .{ .type = .ptr } },
                 .{ .kind = .{ .type = .ptr } },
             },
@@ -2505,6 +2510,7 @@ pub const Intrinsic = enum {
         },
 
         .returnaddress = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .ptr } },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
@@ -2512,18 +2518,21 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .addressofreturnaddress = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .sponentry = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .frameaddress = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
@@ -2531,8 +2540,8 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .prefetch = .{
+            .ret_len = 0,
             .params = &.{
-                .{ .kind = .{ .type = .void } },
                 .{ .kind = .overloaded, .attrs = &.{ .nocapture, .readonly } },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
                 .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
@@ -2541,6 +2550,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.readwrite) } },
         },
         .@"thread.pointer" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .ptr } },
             },
@@ -2548,6 +2558,7 @@ pub const Intrinsic = enum {
         },
 
         .abs = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2556,6 +2567,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .smax = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2564,6 +2576,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .smin = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2572,6 +2585,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .umax = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2580,6 +2594,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .umin = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2588,6 +2603,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .sqrt = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2595,6 +2611,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .powi = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2603,6 +2620,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .sin = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2610,6 +2628,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .cos = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2617,6 +2636,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .pow = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2625,6 +2645,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .exp = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2632,6 +2653,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .exp2 = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2639,6 +2661,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .ldexp = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2647,13 +2670,16 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .frexp = .{
+            .ret_len = 2,
             .params = &.{
-                .{ .kind = .{ .overloaded_tuple = 2 } },
-                .{ .kind = .{ .matches_tuple = .{ .param = 0, .field = 0 } } },
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .log = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2661,6 +2687,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .log10 = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2668,6 +2695,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .log2 = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2675,6 +2703,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .fma = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2684,6 +2713,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .fabs = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2691,6 +2721,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .minnum = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2699,6 +2730,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .maxnum = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2707,6 +2739,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .minimum = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2715,6 +2748,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .maximum = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2723,6 +2757,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .copysign = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2731,6 +2766,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .floor = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2738,6 +2774,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .ceil = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2745,6 +2782,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .trunc = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2752,6 +2790,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .rint = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2759,6 +2798,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .nearbyint = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2766,6 +2806,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .round = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2773,6 +2814,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .roundeven = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2780,6 +2822,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .lround = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .overloaded },
@@ -2787,6 +2830,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .llround = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .overloaded },
@@ -2794,6 +2838,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .lrint = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .overloaded },
@@ -2801,6 +2846,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .llrint = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .overloaded },
@@ -2809,6 +2855,7 @@ pub const Intrinsic = enum {
         },
 
         .bitreverse = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2816,6 +2863,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .bswap = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2823,6 +2871,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .ctpop = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2830,6 +2879,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .ctlz = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2838,6 +2888,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .cttz = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2846,6 +2897,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .fshl = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2855,6 +2907,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .fshr = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2865,55 +2918,68 @@ pub const Intrinsic = enum {
         },
 
         .@"sadd.with.overflow" = .{
+            .ret_len = 2,
             .params = &.{
-                .{ .kind = .{ .matches_with_overflow = 1 } },
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .matches = 1 } },
+                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"uadd.with.overflow" = .{
+            .ret_len = 2,
             .params = &.{
-                .{ .kind = .{ .matches_with_overflow = 1 } },
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .matches = 1 } },
+                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"ssub.with.overflow" = .{
+            .ret_len = 2,
             .params = &.{
-                .{ .kind = .{ .matches_with_overflow = 1 } },
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .matches = 1 } },
+                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"usub.with.overflow" = .{
+            .ret_len = 2,
             .params = &.{
-                .{ .kind = .{ .matches_with_overflow = 1 } },
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .matches = 1 } },
+                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"smul.with.overflow" = .{
+            .ret_len = 2,
             .params = &.{
-                .{ .kind = .{ .matches_with_overflow = 1 } },
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .matches = 1 } },
+                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"umul.with.overflow" = .{
+            .ret_len = 2,
             .params = &.{
-                .{ .kind = .{ .matches_with_overflow = 1 } },
                 .{ .kind = .overloaded },
-                .{ .kind = .{ .matches = 1 } },
+                .{ .kind = .{ .change_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
 
         .@"sadd.sat" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2922,6 +2988,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"uadd.sat" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2930,6 +2997,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"ssub.sat" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2938,6 +3006,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"usub.sat" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2946,6 +3015,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"sshl.sat" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2954,6 +3024,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"ushl.sat" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2963,6 +3034,7 @@ pub const Intrinsic = enum {
         },
 
         .@"smul.fix" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2972,6 +3044,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"umul.fix" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2981,6 +3054,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"smul.fix.sat" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2990,6 +3064,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"umul.fix.sat" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -2999,6 +3074,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"sdiv.fix" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -3008,6 +3084,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"udiv.fix" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -3017,6 +3094,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"sdiv.fix.sat" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -3026,6 +3104,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"udiv.fix.sat" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
@@ -3036,62 +3115,67 @@ pub const Intrinsic = enum {
         },
 
         .trap = .{
-            .params = &.{
-                .{ .kind = .{ .type = .void } },
-            },
+            .ret_len = 0,
+            .params = &.{},
             .attrs = &.{ .cold, .noreturn, .nounwind, .{ .memory = .{ .inaccessiblemem = .write } } },
         },
         .debugtrap = .{
-            .params = &.{
-                .{ .kind = .{ .type = .void } },
-            },
+            .ret_len = 0,
+            .params = &.{},
             .attrs = &.{.nounwind},
         },
         .ubsantrap = .{
+            .ret_len = 0,
             .params = &.{
-                .{ .kind = .{ .type = .void } },
                 .{ .kind = .{ .type = .i8 }, .attrs = &.{.immarg} },
             },
             .attrs = &.{ .cold, .noreturn, .nounwind },
         },
 
         .@"amdgcn.workitem.id.x" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"amdgcn.workitem.id.y" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"amdgcn.workitem.id.z" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"amdgcn.workgroup.id.x" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"amdgcn.workgroup.id.y" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"amdgcn.workgroup.id.z" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .{ .type = .i32 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"amdgcn.dispatch.ptr" = .{
+            .ret_len = 1,
             .params = &.{
                 .{
                     .kind = .{ .type = Type.ptr_amdgpu_constant },
@@ -3102,6 +3186,7 @@ pub const Intrinsic = enum {
         },
 
         .@"wasm.memory.size" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i32 } },
@@ -3109,6 +3194,7 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .@"wasm.memory.grow" = .{
+            .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i32 } },
@@ -7627,8 +7713,10 @@ pub fn getIntrinsic(
     const signature = Intrinsic.signatures.get(id);
     const param_types = try allocator.alloc(Type, signature.params.len);
     defer allocator.free(param_types);
-    const function_attributes =
-        try allocator.alloc(Attributes, FunctionAttributes.return_index + signature.params.len);
+    const function_attributes = try allocator.alloc(
+        Attributes,
+        FunctionAttributes.params_index + (signature.params.len - signature.ret_len),
+    );
     defer allocator.free(function_attributes);
 
     var attributes: struct {
@@ -7651,42 +7739,37 @@ pub fn getIntrinsic(
 
     var overload_index: usize = 0;
     function_attributes[FunctionAttributes.function_index] = try attributes.get(signature.attrs);
-    for (
-        param_types,
-        function_attributes[FunctionAttributes.return_index..],
-        signature.params,
-    ) |*param_type, *param_attributes, signature_param| {
+    for (0.., param_types, signature.params) |param_index, *param_type, signature_param| {
         switch (signature_param.kind) {
             .type => |ty| param_type.* = ty,
+            .change_scalar => |info| {
+                assert(info.index < param_index);
+                param_type.* = try param_types[info.index].changeScalar(info.scalar, self);
+            },
             .overloaded => {
                 param_type.* = overload[overload_index];
                 overload_index += 1;
             },
-            .overloaded_tuple => |len| {
-                const fields = try allocator.alloc(Type, len);
-                defer allocator.free(fields);
-                for (fields, overload[overload_index..][0..len]) |*field, ty| field.* = ty;
-                param_type.* = try self.structType(.normal, fields);
-                overload_index += len;
+            .matches => |index| {
+                assert(index < param_index);
+                param_type.* = param_types[index];
             },
-            .matches, .matches_tuple, .matches_with_overflow => {},
         }
-        param_attributes.* = try attributes.get(signature_param.attrs);
+        function_attributes[
+            if (param_index < signature.ret_len)
+                FunctionAttributes.return_index
+            else
+                FunctionAttributes.params_index + (param_index - signature.ret_len)
+        ] = try attributes.get(signature_param.attrs);
     }
     assert(overload_index == overload.len);
-    for (param_types, signature.params) |*param_type, signature_param| switch (signature_param.kind) {
-        .type, .overloaded, .overloaded_tuple => {},
-        .matches => |param_index| param_type.* = param_types[param_index],
-        .matches_tuple => |tuple| param_type.* =
-            param_types[tuple.param].structFields(self)[tuple.field],
-        .matches_with_overflow => |param_index| {
-            const ty = param_types[param_index];
-            param_type.* = try self.structType(.normal, &.{ ty, try ty.changeScalar(.i1, self) });
-        },
-    };
 
     const function_index =
-        try self.addFunction(try self.fnType(param_types[0], param_types[1..], .normal), name);
+        try self.addFunction(try self.fnType(switch (signature.ret_len) {
+        0 => .void,
+        1 => param_types[0],
+        else => try self.structType(.normal, param_types[0..signature.ret_len]),
+    }, param_types[signature.ret_len..], .normal), name);
     function_index.ptr(self).attributes = try self.fnAttrs(function_attributes);
     return function_index;
 }
