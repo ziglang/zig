@@ -1314,28 +1314,21 @@ pub const Object = struct {
 
         if (func.analysis(ip).is_noinline) {
             try attributes.addFnAttr(.@"noinline", &o.builder);
-            o.addFnAttr(llvm_func, "noinline");
         } else {
             _ = try attributes.removeFnAttr(.@"noinline");
-            Object.removeFnAttr(llvm_func, "noinline");
         }
 
         if (func.analysis(ip).stack_alignment.toByteUnitsOptional()) |alignment| {
             try attributes.addFnAttr(.{ .alignstack = Builder.Alignment.fromByteUnits(alignment) }, &o.builder);
             try attributes.addFnAttr(.@"noinline", &o.builder);
-            o.addFnAttrInt(llvm_func, "alignstack", alignment);
-            o.addFnAttr(llvm_func, "noinline");
         } else {
             _ = try attributes.removeFnAttr(.alignstack);
-            Object.removeFnAttr(llvm_func, "alignstack");
         }
 
         if (func.analysis(ip).is_cold) {
             try attributes.addFnAttr(.cold, &o.builder);
-            o.addFnAttr(llvm_func, "cold");
         } else {
             _ = try attributes.removeFnAttr(.cold);
-            Object.removeFnAttr(llvm_func, "cold");
         }
 
         // TODO: disable this if safety is off for the function scope
@@ -1346,10 +1339,6 @@ pub const Object = struct {
                 .kind = try o.builder.string("stack-protector-buffer-size"),
                 .value = try o.builder.fmt("{d}", .{ssp_buf_size}),
             } }, &o.builder);
-            var buf: [12]u8 = undefined;
-            const arg = std.fmt.bufPrintZ(&buf, "{d}", .{ssp_buf_size}) catch unreachable;
-            o.addFnAttr(llvm_func, "sspstrong");
-            o.addFnAttrString(llvm_func, "stack-protector-buffer-size", arg);
         }
 
         // TODO: disable this if safety is off for the function scope
@@ -1358,13 +1347,11 @@ pub const Object = struct {
                 .kind = try o.builder.string("probe-stack"),
                 .value = try o.builder.string("__zig_probe_stack"),
             } }, &o.builder);
-            o.addFnAttrString(llvm_func, "probe-stack", "__zig_probe_stack");
         } else if (target.os.tag == .uefi) {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("no-stack-arg-probe"),
                 .value = .empty,
             } }, &o.builder);
-            o.addFnAttrString(llvm_func, "no-stack-arg-probe", "");
         }
 
         if (ip.stringToSliceUnwrap(decl.@"linksection")) |section| {
@@ -1389,14 +1376,8 @@ pub const Object = struct {
         } else .none;
 
         if (ccAbiPromoteInt(fn_info.cc, mod, fn_info.return_type.toType())) |s| switch (s) {
-            .signed => {
-                try attributes.addRetAttr(.signext, &o.builder);
-                o.addAttr(llvm_func, 0, "signext");
-            },
-            .unsigned => {
-                try attributes.addRetAttr(.zeroext, &o.builder);
-                o.addAttr(llvm_func, 0, "zeroext");
-            },
+            .signed => try attributes.addRetAttr(.signext, &o.builder),
+            .unsigned => try attributes.addRetAttr(.zeroext, &o.builder),
         };
 
         const err_return_tracing = fn_info.return_type.toType().isError(mod) and
@@ -1437,7 +1418,7 @@ pub const Object = struct {
                         } else {
                             args.appendAssumeCapacity(param);
 
-                            try o.addByValParamAttrsOld(&attributes, llvm_func, param_ty, param_index, fn_info, llvm_arg_i);
+                            try o.addByValParamAttrs(&attributes, param_ty, param_index, fn_info, llvm_arg_i);
                         }
                         llvm_arg_i += 1;
                     },
@@ -1447,7 +1428,7 @@ pub const Object = struct {
                         const param = wip.arg(llvm_arg_i);
                         const alignment = Builder.Alignment.fromByteUnits(param_ty.abiAlignment(mod));
 
-                        try o.addByRefParamAttrsOld(&attributes, llvm_func, llvm_arg_i, alignment, it.byval_attr, param_llvm_ty);
+                        try o.addByRefParamAttrs(&attributes, llvm_arg_i, alignment, it.byval_attr, param_llvm_ty);
                         llvm_arg_i += 1;
 
                         if (isByRef(param_ty, mod)) {
@@ -1463,7 +1444,6 @@ pub const Object = struct {
                         const alignment = Builder.Alignment.fromByteUnits(param_ty.abiAlignment(mod));
 
                         try attributes.addParamAttr(llvm_arg_i, .noundef, &o.builder);
-                        o.addArgAttr(llvm_func, llvm_arg_i, "noundef");
                         llvm_arg_i += 1;
 
                         if (isByRef(param_ty, mod)) {
@@ -1500,23 +1480,19 @@ pub const Object = struct {
                         if (math.cast(u5, it.zig_index - 1)) |i| {
                             if (@as(u1, @truncate(fn_info.noalias_bits >> i)) != 0) {
                                 try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
-                                o.addArgAttr(llvm_func, llvm_arg_i, "noalias");
                             }
                         }
                         if (param_ty.zigTypeTag(mod) != .Optional) {
                             try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
-                            o.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
                         }
                         if (ptr_info.flags.is_const) {
                             try attributes.addParamAttr(llvm_arg_i, .readonly, &o.builder);
-                            o.addArgAttr(llvm_func, llvm_arg_i, "readonly");
                         }
                         const elem_align = Builder.Alignment.fromByteUnits(
                             ptr_info.flags.alignment.toByteUnitsOptional() orelse
                                 @max(ptr_info.child.toType().abiAlignment(mod), 1),
                         );
                         try attributes.addParamAttr(llvm_arg_i, .{ .@"align" = elem_align }, &o.builder);
-                        o.addArgAttrInt(llvm_func, llvm_arg_i, "align", elem_align.toByteUnits() orelse 0);
                         const ptr_param = wip.arg(llvm_arg_i);
                         llvm_arg_i += 1;
                         const len_param = wip.arg(llvm_arg_i);
@@ -1590,7 +1566,7 @@ pub const Object = struct {
             }
         }
 
-        function.ptr(&o.builder).attributes = try attributes.finish(&o.builder);
+        function.setAttributes(try attributes.finish(&o.builder), &o.builder);
 
         var di_file: ?*llvm.DIFile = null;
         var di_scope: ?*llvm.DIScope = null;
@@ -2951,15 +2927,11 @@ pub const Object = struct {
                     .kind = try o.builder.string("wasm-import-name"),
                     .value = try o.builder.string(ip.stringToSlice(decl.name)),
                 } }, &o.builder);
-                o.addFnAttrString(llvm_fn, "wasm-import-name", ip.stringToSlice(decl.name));
                 if (ip.stringToSliceUnwrap(decl.getOwnedExternFunc(mod).?.lib_name)) |lib_name| {
-                    if (!std.mem.eql(u8, lib_name, "c")) {
-                        try attributes.addFnAttr(.{ .string = .{
-                            .kind = try o.builder.string("wasm-import-module"),
-                            .value = try o.builder.string(lib_name),
-                        } }, &o.builder);
-                        o.addFnAttrString(llvm_fn, "wasm-import-module", lib_name);
-                    }
+                    if (!std.mem.eql(u8, lib_name, "c")) try attributes.addFnAttr(.{ .string = .{
+                        .kind = try o.builder.string("wasm-import-module"),
+                        .value = try o.builder.string(lib_name),
+                    } }, &o.builder);
                 }
             }
         }
@@ -2969,12 +2941,9 @@ pub const Object = struct {
             // Sret pointers must not be address 0
             try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
             try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
-            o.addArgAttr(llvm_fn, llvm_arg_i, "nonnull"); // Sret pointers must not be address 0
-            o.addArgAttr(llvm_fn, llvm_arg_i, "noalias");
 
             const raw_llvm_ret_ty = try o.lowerType(fn_info.return_type.toType());
             try attributes.addParamAttr(llvm_arg_i, .{ .sret = raw_llvm_ret_ty }, &o.builder);
-            llvm_fn.addSretAttr(raw_llvm_ret_ty.toLlvm(&o.builder));
 
             llvm_arg_i += 1;
         }
@@ -2984,7 +2953,6 @@ pub const Object = struct {
 
         if (err_return_tracing) {
             try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
-            o.addArgAttr(llvm_fn, llvm_arg_i, "nonnull");
             llvm_arg_i += 1;
         }
 
@@ -2995,7 +2963,6 @@ pub const Object = struct {
             },
             .Naked => {
                 try attributes.addFnAttr(.naked, &o.builder);
-                o.addFnAttr(llvm_fn, "naked");
             },
             .Async => {
                 function.call_conv = .fastcc;
@@ -3014,11 +2981,10 @@ pub const Object = struct {
         }
 
         // Function attributes that are independent of analysis results of the function body.
-        try o.addCommonFnAttributes(&attributes, llvm_fn);
+        try o.addCommonFnAttributes(&attributes);
 
         if (fn_info.return_type == .noreturn_type) {
             try attributes.addFnAttr(.noreturn, &o.builder);
-            o.addFnAttr(llvm_fn, "noreturn");
         }
 
         // Add parameter attributes. We handle only the case of extern functions (no body)
@@ -3031,7 +2997,7 @@ pub const Object = struct {
                     const param_index = it.zig_index - 1;
                     const param_ty = fn_info.param_types.get(ip)[param_index].toType();
                     if (!isByRef(param_ty, mod)) {
-                        try o.addByValParamAttrsOld(&attributes, llvm_fn, param_ty, param_index, fn_info, it.llvm_index - 1);
+                        try o.addByValParamAttrs(&attributes, param_ty, param_index, fn_info, it.llvm_index - 1);
                     }
                 },
                 .byref => {
@@ -3039,11 +3005,10 @@ pub const Object = struct {
                     const param_llvm_ty = try o.lowerType(param_ty.toType());
                     const alignment =
                         Builder.Alignment.fromByteUnits(param_ty.toType().abiAlignment(mod));
-                    try o.addByRefParamAttrsOld(&attributes, llvm_fn, it.llvm_index - 1, alignment, it.byval_attr, param_llvm_ty);
+                    try o.addByRefParamAttrs(&attributes, it.llvm_index - 1, alignment, it.byval_attr, param_llvm_ty);
                 },
                 .byref_mut => {
                     try attributes.addParamAttr(it.llvm_index - 1, .noundef, &o.builder);
-                    o.addArgAttr(llvm_fn, it.llvm_index - 1, "noundef");
                 },
                 // No attributes needed for these.
                 .no_bits,
@@ -3060,43 +3025,36 @@ pub const Object = struct {
             };
         }
 
-        function.attributes = try attributes.finish(&o.builder);
-
         try o.builder.llvm.globals.append(o.gpa, llvm_fn);
         gop.value_ptr.* = try o.builder.addGlobal(fqn, global);
         try o.builder.functions.append(o.gpa, function);
+        global.kind.function.setAttributes(try attributes.finish(&o.builder), &o.builder);
         return global.kind.function;
     }
 
     fn addCommonFnAttributes(
         o: *Object,
         attributes: *Builder.FunctionAttributes.Wip,
-        llvm_fn: *llvm.Value,
     ) Allocator.Error!void {
         const comp = o.module.comp;
 
         if (!comp.bin_file.options.red_zone) {
             try attributes.addFnAttr(.noredzone, &o.builder);
-            o.addFnAttr(llvm_fn, "noredzone");
         }
         if (comp.bin_file.options.omit_frame_pointer) {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("frame-pointer"),
                 .value = try o.builder.string("none"),
             } }, &o.builder);
-            o.addFnAttrString(llvm_fn, "frame-pointer", "none");
         } else {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("frame-pointer"),
                 .value = try o.builder.string("all"),
             } }, &o.builder);
-            o.addFnAttrString(llvm_fn, "frame-pointer", "all");
         }
         try attributes.addFnAttr(.nounwind, &o.builder);
-        o.addFnAttr(llvm_fn, "nounwind");
         if (comp.unwind_tables) {
             try attributes.addFnAttr(.{ .uwtable = Builder.Attribute.UwTable.default }, &o.builder);
-            o.addFnAttrInt(llvm_fn, "uwtable", 2);
         }
         if (comp.bin_file.options.skip_linker_dependencies or
             comp.bin_file.options.no_builtin)
@@ -3107,38 +3065,31 @@ pub const Object = struct {
             // body of memcpy with a call to memcpy, which would then cause a stack
             // overflow instead of performing memcpy.
             try attributes.addFnAttr(.nobuiltin, &o.builder);
-            o.addFnAttr(llvm_fn, "nobuiltin");
         }
         if (comp.bin_file.options.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
             try attributes.addFnAttr(.optsize, &o.builder);
-            o.addFnAttr(llvm_fn, "minsize");
-            o.addFnAttr(llvm_fn, "optsize");
         }
         if (comp.bin_file.options.tsan) {
             try attributes.addFnAttr(.sanitize_thread, &o.builder);
-            o.addFnAttr(llvm_fn, "sanitize_thread");
         }
         if (comp.getTarget().cpu.model.llvm_name) |s| {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("target-cpu"),
                 .value = try o.builder.string(s),
             } }, &o.builder);
-            llvm_fn.addFunctionAttr("target-cpu", s);
         }
         if (comp.bin_file.options.llvm_cpu_features) |s| {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("target-features"),
                 .value = try o.builder.string(std.mem.span(s)),
             } }, &o.builder);
-            llvm_fn.addFunctionAttr("target-features", s);
         }
         if (comp.getTarget().cpu.arch.isBpf()) {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("no-builtins"),
                 .value = .empty,
             } }, &o.builder);
-            llvm_fn.addFunctionAttr("no-builtins", "");
         }
     }
 
@@ -4483,69 +4434,6 @@ pub const Object = struct {
         return o.builder.castConst(.inttoptr, try o.builder.intConst(llvm_usize, int), llvm_ptr_ty);
     }
 
-    fn addAttr(o: *Object, val: *llvm.Value, index: llvm.AttributeIndex, name: []const u8) void {
-        return o.addAttrInt(val, index, name, 0);
-    }
-
-    fn addArgAttr(o: *Object, fn_val: *llvm.Value, param_index: u32, attr_name: []const u8) void {
-        return o.addAttr(fn_val, param_index + 1, attr_name);
-    }
-
-    fn addArgAttrInt(o: *Object, fn_val: *llvm.Value, param_index: u32, attr_name: []const u8, int: u64) void {
-        return o.addAttrInt(fn_val, param_index + 1, attr_name, int);
-    }
-
-    fn removeAttr(val: *llvm.Value, index: llvm.AttributeIndex, name: []const u8) void {
-        const kind_id = llvm.getEnumAttributeKindForName(name.ptr, name.len);
-        assert(kind_id != 0);
-        val.removeEnumAttributeAtIndex(index, kind_id);
-    }
-
-    fn addAttrInt(
-        o: *Object,
-        val: *llvm.Value,
-        index: llvm.AttributeIndex,
-        name: []const u8,
-        int: u64,
-    ) void {
-        const kind_id = llvm.getEnumAttributeKindForName(name.ptr, name.len);
-        assert(kind_id != 0);
-        const llvm_attr = o.builder.llvm.context.createEnumAttribute(kind_id, int);
-        val.addAttributeAtIndex(index, llvm_attr);
-    }
-
-    fn addAttrString(
-        o: *Object,
-        val: *llvm.Value,
-        index: llvm.AttributeIndex,
-        name: []const u8,
-        value: []const u8,
-    ) void {
-        const llvm_attr = o.builder.llvm.context.createStringAttribute(
-            name.ptr,
-            @intCast(name.len),
-            value.ptr,
-            @intCast(value.len),
-        );
-        val.addAttributeAtIndex(index, llvm_attr);
-    }
-
-    fn addFnAttr(o: *Object, val: *llvm.Value, name: []const u8) void {
-        o.addAttr(val, std.math.maxInt(llvm.AttributeIndex), name);
-    }
-
-    fn addFnAttrString(o: *Object, val: *llvm.Value, name: []const u8, value: []const u8) void {
-        o.addAttrString(val, std.math.maxInt(llvm.AttributeIndex), name, value);
-    }
-
-    fn removeFnAttr(fn_val: *llvm.Value, name: []const u8) void {
-        removeAttr(fn_val, std.math.maxInt(llvm.AttributeIndex), name);
-    }
-
-    fn addFnAttrInt(o: *Object, fn_val: *llvm.Value, name: []const u8, int: u64) void {
-        return o.addAttrInt(fn_val, std.math.maxInt(llvm.AttributeIndex), name, int);
-    }
-
     /// If the operand type of an atomic operation is not byte sized we need to
     /// widen it before using it and then truncate the result.
     /// RMW exchange of floating-point values is bitcasted to same-sized integer
@@ -4608,80 +4496,13 @@ pub const Object = struct {
         attributes: *Builder.FunctionAttributes.Wip,
         llvm_arg_i: u32,
         alignment: Builder.Alignment,
-        byval_attr: bool,
+        byval: bool,
         param_llvm_ty: Builder.Type,
     ) Allocator.Error!void {
         try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
         try attributes.addParamAttr(llvm_arg_i, .readonly, &o.builder);
         try attributes.addParamAttr(llvm_arg_i, .{ .@"align" = alignment }, &o.builder);
-        if (byval_attr) {
-            try attributes.addParamAttr(llvm_arg_i, .{ .byval = param_llvm_ty }, &o.builder);
-        }
-    }
-
-    fn addByValParamAttrsOld(
-        o: *Object,
-        attributes: *Builder.FunctionAttributes.Wip,
-        llvm_fn: *llvm.Value,
-        param_ty: Type,
-        param_index: u32,
-        fn_info: InternPool.Key.FuncType,
-        llvm_arg_i: u32,
-    ) Allocator.Error!void {
-        const mod = o.module;
-        if (param_ty.isPtrAtRuntime(mod)) {
-            const ptr_info = param_ty.ptrInfo(mod);
-            if (math.cast(u5, param_index)) |i| {
-                if (@as(u1, @truncate(fn_info.noalias_bits >> i)) != 0) {
-                    try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
-                    o.addArgAttr(llvm_fn, llvm_arg_i, "noalias");
-                }
-            }
-            if (!param_ty.isPtrLikeOptional(mod) and !ptr_info.flags.is_allowzero) {
-                try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
-                o.addArgAttr(llvm_fn, llvm_arg_i, "nonnull");
-            }
-            if (ptr_info.flags.is_const) {
-                try attributes.addParamAttr(llvm_arg_i, .readonly, &o.builder);
-                o.addArgAttr(llvm_fn, llvm_arg_i, "readonly");
-            }
-            const elem_align = Builder.Alignment.fromByteUnits(
-                ptr_info.flags.alignment.toByteUnitsOptional() orelse
-                    @max(ptr_info.child.toType().abiAlignment(mod), 1),
-            );
-            try attributes.addParamAttr(llvm_arg_i, .{ .@"align" = elem_align }, &o.builder);
-            o.addArgAttrInt(llvm_fn, llvm_arg_i, "align", elem_align.toByteUnits() orelse 0);
-        } else if (ccAbiPromoteInt(fn_info.cc, mod, param_ty)) |s| switch (s) {
-            .signed => {
-                try attributes.addParamAttr(llvm_arg_i, .signext, &o.builder);
-                o.addArgAttr(llvm_fn, llvm_arg_i, "signext");
-            },
-            .unsigned => {
-                try attributes.addParamAttr(llvm_arg_i, .zeroext, &o.builder);
-                o.addArgAttr(llvm_fn, llvm_arg_i, "zeroext");
-            },
-        };
-    }
-
-    fn addByRefParamAttrsOld(
-        o: *Object,
-        attributes: *Builder.FunctionAttributes.Wip,
-        llvm_fn: *llvm.Value,
-        llvm_arg_i: u32,
-        alignment: Builder.Alignment,
-        byval_attr: bool,
-        param_llvm_ty: Builder.Type,
-    ) Allocator.Error!void {
-        try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
-        try attributes.addParamAttr(llvm_arg_i, .readonly, &o.builder);
-        try attributes.addParamAttr(llvm_arg_i, .{ .@"align" = alignment }, &o.builder);
-        o.addArgAttr(llvm_fn, llvm_arg_i, "nonnull");
-        o.addArgAttr(llvm_fn, llvm_arg_i, "readonly");
-        o.addArgAttrInt(llvm_fn, llvm_arg_i, "align", alignment.toByteUnits() orelse 0);
-        if (byval_attr) {
-            try attributes.addParamAttr(llvm_arg_i, .{ .byval = param_llvm_ty }, &o.builder);
-            llvm_fn.addByValAttr(llvm_arg_i, param_llvm_ty.toLlvm(&o.builder));
-        }
+        if (byval) try attributes.addParamAttr(llvm_arg_i, .{ .byval = param_llvm_ty }, &o.builder);
     }
 };
 
@@ -9503,15 +9324,15 @@ pub const FuncGen = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-
-        function_index.toLlvm(&o.builder).setLinkage(.Internal);
-        function_index.toLlvm(&o.builder).setFunctionCallConv(.Fast);
-        try o.addCommonFnAttributes(&attributes, function_index.toLlvm(&o.builder));
+        try o.addCommonFnAttributes(&attributes);
+        function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
 
         function_index.ptrConst(&o.builder).global.ptr(&o.builder).linkage = .internal;
         function_index.ptr(&o.builder).call_conv = .fastcc;
-        function_index.ptr(&o.builder).attributes = try attributes.finish(&o.builder);
         gop.value_ptr.* = function_index;
+
+        function_index.toLlvm(&o.builder).setLinkage(.Internal);
+        function_index.toLlvm(&o.builder).setFunctionCallConv(.Fast);
 
         var wip = try Builder.WipFunction.init(&o.builder, function_index);
         defer wip.deinit();
@@ -9577,15 +9398,15 @@ pub const FuncGen = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-
-        function_index.toLlvm(&o.builder).setLinkage(.Internal);
-        function_index.toLlvm(&o.builder).setFunctionCallConv(.Fast);
-        try o.addCommonFnAttributes(&attributes, function_index.toLlvm(&o.builder));
+        try o.addCommonFnAttributes(&attributes);
+        function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
 
         function_index.ptrConst(&o.builder).global.ptr(&o.builder).linkage = .internal;
         function_index.ptr(&o.builder).call_conv = .fastcc;
-        function_index.ptr(&o.builder).attributes = try attributes.finish(&o.builder);
         gop.value_ptr.* = function_index.ptrConst(&o.builder).global;
+
+        function_index.toLlvm(&o.builder).setLinkage(.Internal);
+        function_index.toLlvm(&o.builder).setFunctionCallConv(.Fast);
 
         var wip = try Builder.WipFunction.init(&o.builder, function_index);
         defer wip.deinit();
@@ -9659,14 +9480,14 @@ pub const FuncGen = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-
-        function_index.toLlvm(&o.builder).setLinkage(.Internal);
-        function_index.toLlvm(&o.builder).setFunctionCallConv(.Fast);
-        try o.addCommonFnAttributes(&attributes, function_index.toLlvm(&o.builder));
+        try o.addCommonFnAttributes(&attributes);
+        function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
 
         function_index.ptrConst(&o.builder).global.ptr(&o.builder).linkage = .internal;
         function_index.ptr(&o.builder).call_conv = .fastcc;
-        function_index.ptr(&o.builder).attributes = try attributes.finish(&o.builder);
+
+        function_index.toLlvm(&o.builder).setLinkage(.Internal);
+        function_index.toLlvm(&o.builder).setFunctionCallConv(.Fast);
 
         return function_index;
     }

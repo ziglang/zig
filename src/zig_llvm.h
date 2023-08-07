@@ -122,15 +122,6 @@ enum ZigLLVM_CallingConv {
     ZigLLVM_MaxID = 1023,
 };
 
-enum ZigLLVM_CallAttr {
-    ZigLLVM_CallAttrAuto,
-    ZigLLVM_CallAttrNeverTail,
-    ZigLLVM_CallAttrNeverInline,
-    ZigLLVM_CallAttrAlwaysTail,
-    ZigLLVM_CallAttrAlwaysInline,
-};
-ZIG_EXTERN_C void ZigLLVMAddAttributeAtIndex(LLVMValueRef Val, unsigned Idx, LLVMAttributeRef A);
-
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
         LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile);
 
@@ -300,11 +291,6 @@ ZIG_EXTERN_C LLVMValueRef ZigLLVMInsertDbgValueIntrinsicAtEnd(struct ZigLLVMDIBu
         struct ZigLLVMDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref);
 
 ZIG_EXTERN_C void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
-
-ZIG_EXTERN_C void ZigLLVMAddFunctionAttr(LLVMValueRef fn, const char *attr_name, const char *attr_value);
-ZIG_EXTERN_C void ZigLLVMAddByValAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val);
-ZIG_EXTERN_C void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, LLVMTypeRef type_val);
-ZIG_EXTERN_C void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn);
 
 ZIG_EXTERN_C void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv);
 

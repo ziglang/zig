@@ -115,11 +115,14 @@ pub const Context = opaque {
 };
 
 pub const Value = opaque {
-    pub const addAttributeAtIndex = ZigLLVMAddAttributeAtIndex;
-    extern fn ZigLLVMAddAttributeAtIndex(*Value, Idx: AttributeIndex, A: *Attribute) void;
+    pub const addAttributeAtIndex = LLVMAddAttributeAtIndex;
+    extern fn LLVMAddAttributeAtIndex(F: *Value, Idx: AttributeIndex, A: *Attribute) void;
 
     pub const removeEnumAttributeAtIndex = LLVMRemoveEnumAttributeAtIndex;
     extern fn LLVMRemoveEnumAttributeAtIndex(F: *Value, Idx: AttributeIndex, KindID: c_uint) void;
+
+    pub const removeStringAttributeAtIndex = LLVMRemoveStringAttributeAtIndex;
+    extern fn LLVMRemoveStringAttributeAtIndex(F: *Value, Idx: AttributeIndex, K: [*]const u8, KLen: c_uint) void;
 
     pub const getFirstBasicBlock = LLVMGetFirstBasicBlock;
     extern fn LLVMGetFirstBasicBlock(Fn: *Value) ?*BasicBlock;
@@ -342,9 +345,6 @@ pub const Value = opaque {
     pub const deleteFunction = LLVMDeleteFunction;
     extern fn LLVMDeleteFunction(Fn: *Value) void;
 
-    pub const addSretAttr = ZigLLVMAddSretAttr;
-    extern fn ZigLLVMAddSretAttr(fn_ref: *Value, type_val: *Type) void;
-
     pub const getParam = LLVMGetParam;
     extern fn LLVMGetParam(Fn: *Value, Index: c_uint) *Value;
 
@@ -368,9 +368,6 @@ pub const Value = opaque {
 
     pub const getAlignment = LLVMGetAlignment;
     extern fn LLVMGetAlignment(V: *Value) c_uint;
-
-    pub const addFunctionAttr = ZigLLVMAddFunctionAttr;
-    extern fn ZigLLVMAddFunctionAttr(Fn: *Value, attr_name: [*:0]const u8, attr_value: [*:0]const u8) void;
 
     pub const addByValAttr = ZigLLVMAddByValAttr;
     extern fn ZigLLVMAddByValAttr(Fn: *Value, ArgNo: c_uint, type: *Type) void;

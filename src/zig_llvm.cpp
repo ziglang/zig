@@ -408,14 +408,6 @@ void ZigLLVMSetTailCallKind(LLVMValueRef Call, enum ZigLLVMTailCallKind TailCall
     unwrap<CallInst>(Call)->setTailCallKind(TCK);
 }
 
-void ZigLLVMAddAttributeAtIndex(LLVMValueRef Val, unsigned Idx, LLVMAttributeRef A) {
-    if (isa<Function>(unwrap(Val))) {
-        unwrap<Function>(Val)->addAttributeAtIndex(Idx, unwrap(A));
-    } else {
-        unwrap<CallInst>(Val)->addAttributeAtIndex(Idx, unwrap(A));
-    }
-}
-
 LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
         LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile)
 {
@@ -950,36 +942,6 @@ void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
     }
 }
 
-void ZigLLVMAddByValAttr(LLVMValueRef Val, unsigned ArgNo, LLVMTypeRef type_val) {
-    if (isa<Function>(unwrap(Val))) {
-        Function *func = unwrap<Function>(Val);
-        AttrBuilder attr_builder(func->getContext());
-        Type *llvm_type = unwrap<Type>(type_val);
-        attr_builder.addByValAttr(llvm_type);
-        func->addParamAttrs(ArgNo, attr_builder);
-    } else {
-        CallInst *call = unwrap<CallInst>(Val);
-        AttrBuilder attr_builder(call->getContext());
-        Type *llvm_type = unwrap<Type>(type_val);
-        attr_builder.addByValAttr(llvm_type);
-        // NOTE: +1 here since index 0 refers to the return value
-        call->addAttributeAtIndex(ArgNo + 1, attr_builder.getAttribute(Attribute::ByVal));
-    }
-}
-
-void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, LLVMTypeRef type_val) {
-    Function *func = unwrap<Function>(fn_ref);
-    AttrBuilder attr_builder(func->getContext());
-    Type *llvm_type = unwrap<Type>(type_val);
-    attr_builder.addStructRetAttr(llvm_type);
-    func->addParamAttrs(0, attr_builder);
-}
-
-void ZigLLVMAddFunctionAttr(LLVMValueRef fn_ref, const char *attr_name, const char *attr_value) {
-    Function *func = unwrap<Function>(fn_ref);
-    func->addFnAttr(attr_name, attr_value);
-}
-
 void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
     cl::ParseCommandLineOptions(argc, argv);
 }
@@ -1170,14 +1132,6 @@ bool ZigLLDLinkELF(int argc, const char **argv, bool can_exit_early, bool disabl
 bool ZigLLDLinkWasm(int argc, const char **argv, bool can_exit_early, bool disable_output) {
     std::vector<const char *> args(argv, argv + argc);
     return lld::wasm::link(args, llvm::outs(), llvm::errs(), can_exit_early, disable_output);
-}
-
-inline LLVMAttributeRef wrap(Attribute Attr) {
-    return reinterpret_cast<LLVMAttributeRef>(Attr.getRawPointer());
-}
-
-inline Attribute unwrap(LLVMAttributeRef Attr) {
-    return Attribute::fromRawPointer(Attr);
 }
 
 LLVMValueRef ZigLLVMBuildAndReduce(LLVMBuilderRef B, LLVMValueRef Val) {

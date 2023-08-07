@@ -1349,20 +1349,28 @@ pub const Attribute = union(Kind) {
         //sanitize_memtag,
         sanitize_address_dyninit,
 
-        string = std.math.maxInt(u31) - 1,
-        none = std.math.maxInt(u31),
+        string = std.math.maxInt(u31),
+        none = std.math.maxInt(u32),
         _,
 
         pub const len = @typeInfo(Kind).Enum.fields.len - 2;
 
         pub fn fromString(str: String) Kind {
             assert(!str.isAnon());
-            return @enumFromInt(@intFromEnum(str));
+            const kind: Kind = @enumFromInt(@intFromEnum(str));
+            assert(kind != .none);
+            return kind;
         }
 
         fn toString(self: Kind) ?String {
+            assert(self != .none);
             const str: String = @enumFromInt(@intFromEnum(self));
             return if (str.isAnon()) null else str;
+        }
+
+        fn toLlvm(self: Kind, builder: *const Builder) *c_uint {
+            assert(builder.useLibLlvm());
+            return &builder.llvm.attribute_kind_ids.?[@intFromEnum(self)];
         }
     };
 
@@ -3145,6 +3153,86 @@ pub const Function = struct {
 
         pub fn toValue(self: Index, builder: *const Builder) Value {
             return self.toConst(builder).toValue();
+        }
+
+        pub fn setAttributes(
+            self: Index,
+            new_function_attributes: FunctionAttributes,
+            builder: *Builder,
+        ) void {
+            if (builder.useLibLlvm()) {
+                const llvm_function = self.toLlvm(builder);
+                const old_function_attributes = self.ptrConst(builder).attributes;
+                for (0..@max(
+                    old_function_attributes.slice(builder).len,
+                    new_function_attributes.slice(builder).len,
+                )) |function_attribute_index| {
+                    const llvm_attribute_index =
+                        @as(llvm.AttributeIndex, @intCast(function_attribute_index)) -% 1;
+                    const old_attributes_slice =
+                        old_function_attributes.get(function_attribute_index, builder).slice(builder);
+                    const new_attributes_slice =
+                        new_function_attributes.get(function_attribute_index, builder).slice(builder);
+                    var old_attribute_index: usize = 0;
+                    var new_attribute_index: usize = 0;
+                    while (true) {
+                        const old_attribute_kind = if (old_attribute_index < old_attributes_slice.len)
+                            old_attributes_slice[old_attribute_index].getKind(builder)
+                        else
+                            .none;
+                        const new_attribute_kind = if (new_attribute_index < new_attributes_slice.len)
+                            new_attributes_slice[new_attribute_index].getKind(builder)
+                        else
+                            .none;
+                        switch (std.math.order(
+                            @intFromEnum(old_attribute_kind),
+                            @intFromEnum(new_attribute_kind),
+                        )) {
+                            .lt => {
+                                // Removed
+                                if (old_attribute_kind.toString()) |name| {
+                                    const slice = name.slice(builder).?;
+                                    llvm_function.removeStringAttributeAtIndex(
+                                        llvm_attribute_index,
+                                        slice.ptr,
+                                        @intCast(slice.len),
+                                    );
+                                } else {
+                                    const llvm_kind_id = old_attribute_kind.toLlvm(builder).*;
+                                    assert(llvm_kind_id != 0);
+                                    llvm_function.removeEnumAttributeAtIndex(
+                                        llvm_attribute_index,
+                                        llvm_kind_id,
+                                    );
+                                }
+                                old_attribute_index += 1;
+                                continue;
+                            },
+                            .eq => {
+                                // Iteration finished
+                                if (old_attribute_kind == .none) break;
+                                // No change
+                                if (old_attributes_slice[old_attribute_index] ==
+                                    new_attributes_slice[new_attribute_index])
+                                {
+                                    old_attribute_index += 1;
+                                    new_attribute_index += 1;
+                                    continue;
+                                }
+                                old_attribute_index += 1;
+                            },
+                            .gt => {},
+                        }
+                        // New or changed
+                        llvm_function.addAttributeAtIndex(
+                            llvm_attribute_index,
+                            new_attributes_slice[new_attribute_index].toLlvm(builder),
+                        );
+                        new_attribute_index += 1;
+                    }
+                }
+            }
+            self.ptr(builder).attributes = new_function_attributes;
         }
 
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
@@ -5048,9 +5136,8 @@ pub const WipFunction = struct {
                 .tail, .tail_fast => .Tail,
             });
             for (0.., function_attributes.slice(self.builder)) |index, attributes| {
-                const attribute_index = @as(llvm.AttributeIndex, @intCast(index)) -% 1;
                 for (attributes.slice(self.builder)) |attribute| llvm_instruction.addCallSiteAttribute(
-                    attribute_index,
+                    @as(llvm.AttributeIndex, @intCast(index)) -% 1,
                     attribute.toLlvm(self.builder),
                 );
             }
@@ -7368,16 +7455,16 @@ pub fn attr(self: *Builder, attribute: Attribute) Allocator.Error!Attribute.Inde
         gop.value_ptr.* = {};
         if (self.useLibLlvm()) self.llvm.attributes.appendAssumeCapacity(switch (attribute) {
             else => llvm_attr: {
-                const kind_id = &self.llvm.attribute_kind_ids.?[@intFromEnum(attribute)];
-                if (kind_id.* == 0) {
+                const llvm_kind_id = attribute.getKind().toLlvm(self);
+                if (llvm_kind_id.* == 0) {
                     const name = @tagName(attribute);
-                    kind_id.* = llvm.getEnumAttributeKindForName(name.ptr, name.len);
-                    assert(kind_id.* != 0);
+                    llvm_kind_id.* = llvm.getEnumAttributeKindForName(name.ptr, name.len);
+                    assert(llvm_kind_id.* != 0);
                 }
                 break :llvm_attr switch (attribute) {
                     else => switch (attribute) {
                         inline else => |value| self.llvm.context.createEnumAttribute(
-                            kind_id.*,
+                            llvm_kind_id.*,
                             switch (@TypeOf(value)) {
                                 void => 0,
                                 u32 => value,
@@ -7411,7 +7498,7 @@ pub fn attr(self: *Builder, attribute: Attribute) Allocator.Error!Attribute.Inde
                     .inalloca,
                     .sret,
                     .elementtype,
-                    => |ty| self.llvm.context.createTypeAttribute(kind_id.*, ty.toLlvm(self)),
+                    => |ty| self.llvm.context.createTypeAttribute(llvm_kind_id.*, ty.toLlvm(self)),
                     .string, .none => unreachable,
                 };
             },
