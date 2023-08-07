@@ -1847,6 +1847,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .div_float, .div_exact => func.airDiv(inst),
         .div_trunc => func.airDivTrunc(inst),
         .div_floor => func.airDivFloor(inst),
+        .div_ceil => func.airDivCeil(inst),
         .bit_and => func.airBinOp(inst, .@"and"),
         .bit_or => func.airBinOp(inst, .@"or"),
         .bool_and => func.airBinOp(inst, .@"and"),
@@ -2049,6 +2050,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .div_float_optimized,
         .div_trunc_optimized,
         .div_floor_optimized,
+        .div_ceil_optimized,
         .div_exact_optimized,
         .rem_optimized,
         .mod_optimized,
@@ -6808,6 +6810,11 @@ fn airDivFloor(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const result = try func.allocLocal(ty);
     try func.addLabel(.local_set, result.local.value);
     func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+}
+
+fn airDivCeil(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    _ = inst;
+    return func.fail("TODO: implement `@divCeil` for {}", .{func.target.cpu.arch});
 }
 
 fn divSigned(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type) InnerError!WValue {

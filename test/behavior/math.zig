@@ -535,6 +535,8 @@ fn testDivisionFP16() !void {
 
     try expect(divFloor(f16, 5.0, 3.0) == 1.0);
     try expect(divFloor(f16, -5.0, 3.0) == -2.0);
+    try expect(divCeil(f16, 5.0, 3.0) == 2.0);
+    try expect(divCeil(f16, -5.0, 3.0) == -1.0);
     try expect(divTrunc(f16, 5.0, 3.0) == 1.0);
     try expect(divTrunc(f16, -5.0, 3.0) == -1.0);
     try expect(divTrunc(f16, 9.0, -10.0) == 0.0);
@@ -549,6 +551,9 @@ fn divExact(comptime T: type, a: T, b: T) T {
 }
 fn divFloor(comptime T: type, a: T, b: T) T {
     return @divFloor(a, b);
+}
+fn divCeil(comptime T: type, a: T, b: T) T {
+    return @divCeil(a, b);
 }
 fn divTrunc(comptime T: type, a: T, b: T) T {
     return @divTrunc(a, b);

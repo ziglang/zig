@@ -30,6 +30,16 @@ fn testDivision() !void {
     try expect(divFloor(i32, -14, 12) == -2);
     try expect(divFloor(i32, -2, 12) == -1);
 
+    try expect(divCeil(i8, 5, 3) == 2);
+    try expect(divCeil(i16, -5, 3) == -1);
+    try expect(divCeil(i64, -0x80000000, -2) == 0x40000000);
+    try expect(divCeil(i32, 0, -0x80000000) == 0);
+    try expect(divCeil(i64, -0x40000001, 0x40000000) == -1);
+    try expect(divCeil(i32, -0x80000000, 1) == -0x80000000);
+    try expect(divCeil(i32, 10, 12) == 1);
+    try expect(divCeil(i32, -14, 12) == -1);
+    try expect(divCeil(i32, -2, 12) == 0);
+
     try expect(divTrunc(i32, 5, 3) == 1);
     try expect(divTrunc(i32, -5, 3) == -1);
     try expect(divTrunc(i32, 9, -10) == 0);
@@ -59,6 +69,24 @@ fn testDivision() !void {
             1194735857077236777412821811143690633098347576 / 508740759824825164163191790951174292733114988 == 2,
         );
         try expect(
+            @divFloor(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -3,
+        );
+        try expect(
+            @divFloor(1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == -3,
+        );
+        try expect(
+            @divFloor(-1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == 2,
+        );
+        try expect(
+            @divCeil(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -2,
+        );
+        try expect(
+            @divCeil(1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == -2,
+        );
+        try expect(
+            @divCeil(-1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == 3,
+        );
+        try expect(
             @divTrunc(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -2,
         );
         try expect(
@@ -80,6 +108,9 @@ fn divExact(comptime T: type, a: T, b: T) T {
 }
 fn divFloor(comptime T: type, a: T, b: T) T {
     return @divFloor(a, b);
+}
+fn divCeil(comptime T: type, a: T, b: T) T {
+    return @divCeil(a, b);
 }
 fn divTrunc(comptime T: type, a: T, b: T) T {
     return @divTrunc(a, b);

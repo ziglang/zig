@@ -687,6 +687,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .div_float       => try self.airBinOp(inst, .div_float),
             .div_trunc       => try self.airBinOp(inst, .div_trunc),
             .div_floor       => try self.airBinOp(inst, .div_floor),
+            .div_ceil        => try self.airBinOp(inst, .div_ceil),
             .div_exact       => try self.airBinOp(inst, .div_exact),
             .rem             => try self.airBinOp(inst, .rem),
             .mod             => try self.airBinOp(inst, .mod),
@@ -871,6 +872,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .div_float_optimized,
             .div_trunc_optimized,
             .div_floor_optimized,
+            .div_ceil_optimized,
             .div_exact_optimized,
             .rem_optimized,
             .mod_optimized,
@@ -2072,6 +2074,22 @@ fn divFloor(
     }
 }
 
+fn divCeil(
+    self: *Self,
+    lhs_bind: ReadArg.Bind,
+    rhs_bind: ReadArg.Bind,
+    lhs_ty: Type,
+    rhs_ty: Type,
+    maybe_inst: ?Air.Inst.Index,
+) InnerError!MCValue {
+    _ = maybe_inst;
+    _ = rhs_ty;
+    _ = lhs_ty;
+    _ = rhs_bind;
+    _ = lhs_bind;
+    return self.fail("TODO: implement `@divCeil` for {}", .{self.target.cpu.arch});
+}
+
 fn divExact(
     self: *Self,
     lhs_bind: ReadArg.Bind,
@@ -2448,6 +2466,8 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
             .div_trunc => try self.divTrunc(lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
 
             .div_floor => try self.divFloor(lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
+
+            .div_ceil => try self.divCeil(lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
 
             .div_exact => try self.divExact(lhs_bind, rhs_bind, lhs_ty, rhs_ty, inst),
 

@@ -37,6 +37,7 @@ pub const Tag = enum {
     c_va_start,
     div_exact,
     div_floor,
+    div_ceil,
     div_trunc,
     embed_file,
     int_from_enum,
@@ -416,6 +417,13 @@ pub const list = list: {
             "@divFloor",
             .{
                 .tag = .div_floor,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@divCeil",
+            .{
+                .tag = .div_ceil,
                 .param_count = 2,
             },
         },

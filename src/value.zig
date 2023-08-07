@@ -2605,6 +2605,48 @@ pub const Value = struct {
         return mod.intValue_big(ty, result_q.toConst());
     }
 
+    pub fn intDivCeil(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
+        if (ty.zigTypeTag(mod) == .Vector) {
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
+            for (result_data, 0..) |*scalar, i| {
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try (try intDivCeilScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
+            }
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
+        }
+        return intDivCeilScalar(lhs, rhs, ty, allocator, mod);
+    }
+
+    pub fn intDivCeilScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
+        const rhs_bigint = rhs.toBigInt(&rhs_space, mod);
+        const limbs_q = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len,
+        );
+        const limbs_r = try allocator.alloc(
+            std.math.big.Limb,
+            rhs_bigint.limbs.len,
+        );
+        const limbs_buffer = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
+        var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
+        result_q.divCeil(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
+        return mod.intValue_big(ty, result_q.toConst());
+    }
+
     pub fn intMod(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
@@ -3334,6 +3376,51 @@ pub const Value = struct {
             .ty = float_type.toIntern(),
             .storage = storage,
         } })));
+    }
+
+    pub fn floatDivCeil(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: Allocator,
+        mod: *Module,
+    ) !Value {
+        if (float_type.zigTypeTag(mod) == .Vector) {
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
+            for (result_data, 0..) |*scalar, i| {
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try (try floatDivCeilScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
+            }
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
+        }
+        return floatDivCeilScalar(lhs, rhs, float_type, mod);
+    }
+
+    pub fn floatDivCeilScalar(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        mod: *Module,
+    ) !Value {
+        const target = mod.getTarget();
+        // TODO: Replace @ceil(x / y) with @divCeil(x, y).
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @ceil(lhs.toFloat(f16, mod) / rhs.toFloat(f16, mod)) },
+            32 => .{ .f32 = @ceil(lhs.toFloat(f32, mod) / rhs.toFloat(f32, mod)) },
+            64 => .{ .f64 = @ceil(lhs.toFloat(f64, mod) / rhs.toFloat(f64, mod)) },
+            80 => .{ .f80 = @ceil(lhs.toFloat(f80, mod) / rhs.toFloat(f80, mod)) },
+            128 => .{ .f128 = @ceil(lhs.toFloat(f128, mod) / rhs.toFloat(f128, mod)) },
+            else => unreachable,
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.toIntern(),
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn floatDivTrunc(
