@@ -3015,7 +3015,10 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
 
             const field_offset = switch (parent_ty.zigTypeTag(mod)) {
                 .Struct => switch (parent_ty.containerLayout(mod)) {
-                    .Packed => parent_ty.packedStructFieldByteOffset(@as(usize, @intCast(field.index)), mod),
+                    .Packed => if (parent_ty.packedStructFieldByteAligned(@intCast(field.index), mod))
+                        parent_ty.packedStructFieldByteOffset(@as(usize, @intCast(field.index)), mod)
+                    else
+                        0,
                     else => parent_ty.structFieldOffset(@as(usize, @intCast(field.index)), mod),
                 },
                 .Union => switch (parent_ty.containerLayout(mod)) {

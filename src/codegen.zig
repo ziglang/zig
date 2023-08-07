@@ -696,13 +696,10 @@ fn lowerParentPtr(
                             mod,
                         )),
                         .Packed => if (mod.typeToStruct(base_type.toType())) |struct_obj|
-                            math.divExact(u16, struct_obj.packedFieldBitOffset(
-                                mod,
-                                @intCast(field.index),
-                            ), 8) catch |err| switch (err) {
-                                error.UnexpectedRemainder => 0,
-                                error.DivisionByZero => unreachable,
-                            }
+                            if (base_type.toType().packedStructFieldByteAligned(@intCast(field.index), mod))
+                                @divExact(struct_obj.packedFieldBitOffset(mod, @intCast(field.index)), 8)
+                            else
+                                0
                         else
                             0,
                     },

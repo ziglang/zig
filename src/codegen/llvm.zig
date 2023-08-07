@@ -3702,7 +3702,7 @@ pub const Object = struct {
                     .opt_payload,
                     .elem,
                     .field,
-                    => try o.lowerParentPtr(val, ty.ptrInfo(mod).packed_offset.bit_offset % 8 == 0),
+                    => try o.lowerParentPtr(val),
                     .comptime_field => unreachable,
                 };
                 switch (ptr.len) {
@@ -4137,14 +4137,14 @@ pub const Object = struct {
         return o.lowerDeclRefValue(ptr_ty, decl_index);
     }
 
-    fn lowerParentPtr(o: *Object, ptr_val: Value, byte_aligned: bool) Allocator.Error!Builder.Constant {
+    fn lowerParentPtr(o: *Object, ptr_val: Value) Allocator.Error!Builder.Constant {
         const mod = o.module;
         return switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
             .decl => |decl| o.lowerParentPtrDecl(decl),
             .mut_decl => |mut_decl| o.lowerParentPtrDecl(mut_decl.decl),
             .int => |int| try o.lowerIntAsPtr(int),
             .eu_payload => |eu_ptr| {
-                const parent_ptr = try o.lowerParentPtr(eu_ptr.toValue(), true);
+                const parent_ptr = try o.lowerParentPtr(eu_ptr.toValue());
 
                 const eu_ty = mod.intern_pool.typeOf(eu_ptr).toType().childType(mod);
                 const payload_ty = eu_ty.errorUnionPayload(mod);
@@ -4161,7 +4161,7 @@ pub const Object = struct {
                 });
             },
             .opt_payload => |opt_ptr| {
-                const parent_ptr = try o.lowerParentPtr(opt_ptr.toValue(), true);
+                const parent_ptr = try o.lowerParentPtr(opt_ptr.toValue());
 
                 const opt_ty = mod.intern_pool.typeOf(opt_ptr).toType().childType(mod);
                 const payload_ty = opt_ty.optionalChild(mod);
@@ -4179,7 +4179,7 @@ pub const Object = struct {
             },
             .comptime_field => unreachable,
             .elem => |elem_ptr| {
-                const parent_ptr = try o.lowerParentPtr(elem_ptr.base.toValue(), true);
+                const parent_ptr = try o.lowerParentPtr(elem_ptr.base.toValue());
                 const elem_ty = mod.intern_pool.typeOf(elem_ptr.base).toType().elemType2(mod);
 
                 return o.builder.gepConst(.inbounds, try o.lowerType(elem_ty), parent_ptr, null, &.{
@@ -4187,7 +4187,7 @@ pub const Object = struct {
                 });
             },
             .field => |field_ptr| {
-                const parent_ptr = try o.lowerParentPtr(field_ptr.base.toValue(), byte_aligned);
+                const parent_ptr = try o.lowerParentPtr(field_ptr.base.toValue());
                 const parent_ty = mod.intern_pool.typeOf(field_ptr.base).toType().childType(mod);
 
                 const field_index: u32 = @intCast(field_ptr.index);
@@ -4213,7 +4213,10 @@ pub const Object = struct {
                     },
                     .Struct => {
                         if (parent_ty.containerLayout(mod) == .Packed) {
+                            const ptr_ty = mod.intern_pool.typeOf(ptr_val.ip_index).toType();
+                            const byte_aligned = ptr_ty.isPackedStructFieldPtrByteAligned(mod);
                             if (!byte_aligned) return parent_ptr;
+
                             const llvm_usize = try o.lowerType(Type.usize);
                             const base_addr =
                                 try o.builder.castConst(.ptrtoint, parent_ptr, llvm_usize);

@@ -3113,6 +3113,42 @@ pub const Type = struct {
         };
     }
 
+    // value can be accessed through a normal ptr (without packed_offset related masking)
+    pub fn isPackedStructFieldPtrByteAligned(ptr_ty: Type, mod: *Module) bool {
+        const ptr_info = ptr_ty.ptrInfo(mod);
+        if (ptr_info.packed_offset.host_size == 0) return true;
+        const elem_ty = ptr_ty.childType(mod);
+        const elem_abi_size = elem_ty.abiSize(mod);
+        const elem_size_bits = elem_ty.bitSize(mod);
+        const bit_offset = ptr_info.packed_offset.bit_offset;
+
+        return (bit_offset % 8 == 0 and elem_abi_size * 8 == elem_size_bits);
+    }
+
+    pub fn packedStructFieldByteAligned(ty: Type, field_index: usize, mod: *Module) bool {
+        const struct_type = mod.intern_pool.indexToKey(ty.toIntern()).struct_type;
+        const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+        assert(struct_obj.layout == .Packed);
+        comptime assert(Type.packed_struct_layout_version == 2);
+
+        var bit_offset: u16 = undefined;
+        var elem_abi_size: u64 = 0;
+        var elem_size_bits: u16 = undefined;
+        var running_bits: u16 = 0;
+        for (struct_obj.fields.values(), 0..) |f, i| {
+            if (!f.ty.hasRuntimeBits(mod)) continue;
+
+            const field_bits = @as(u16, @intCast(f.ty.bitSize(mod)));
+            if (i == field_index) {
+                bit_offset = running_bits;
+                elem_size_bits = field_bits;
+                elem_abi_size = f.ty.abiSize(mod);
+            }
+            running_bits += field_bits;
+        }
+        return (bit_offset % 8 == 0 and elem_abi_size * 8 == elem_size_bits);
+    }
+
     pub fn packedStructFieldByteOffset(ty: Type, field_index: usize, mod: *Module) u32 {
         const struct_type = mod.intern_pool.indexToKey(ty.toIntern()).struct_type;
         const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
