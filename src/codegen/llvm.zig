@@ -9775,10 +9775,8 @@ pub const FuncGen = struct {
                         else
                             try self.wip.cast(.bitcast, non_int_val, small_int_ty, "");
                         const shift_rhs = try o.builder.intValue(int_ty, running_bits);
-                        // If the field is as large as the entire packed struct, this
-                        // zext would go from, e.g. i16 to i16. This is legal with
-                        // constZExtOrBitCast but not legal with constZExt.
-                        const extended_int_val = try self.wip.conv(.unsigned, small_int_val, int_ty, "");
+                        const extended_int_val =
+                            try self.wip.conv(.unsigned, small_int_val, int_ty, "");
                         const shifted = try self.wip.bin(.shl, extended_int_val, shift_rhs, "");
                         running_int = try self.wip.bin(.@"or", running_int, shifted, "");
                         running_bits += ty_bit_size;

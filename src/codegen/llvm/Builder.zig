@@ -6894,6 +6894,7 @@ pub const Constant = enum(u32) {
         @"and",
         @"or",
         xor,
+        select,
         @"asm",
         @"asm sideeffect",
         @"asm alignstack",
@@ -7001,6 +7002,12 @@ pub const Constant = enum(u32) {
     };
 
     pub const Binary = extern struct {
+        lhs: Constant,
+        rhs: Constant,
+    };
+
+    pub const Select = extern struct {
+        cond: Constant,
         lhs: Constant,
         rhs: Constant,
     };
@@ -7136,6 +7143,7 @@ pub const Constant = enum(u32) {
                     .@"or",
                     .xor,
                     => builder.constantExtraData(Binary, item.data).lhs.typeOf(builder),
+                    .select => builder.constantExtraData(Select, item.data).lhs.typeOf(builder),
                     .@"asm",
                     .@"asm sideeffect",
                     .@"asm alignstack",
@@ -7496,6 +7504,15 @@ pub const Constant = enum(u32) {
                         const extra = data.builder.constantExtraData(Binary, item.data);
                         try writer.print("{s} ({%}, {%})", .{
                             @tagName(tag),
+                            extra.lhs.fmt(data.builder),
+                            extra.rhs.fmt(data.builder),
+                        });
+                    },
+                    .select => |tag| {
+                        const extra = data.builder.constantExtraData(Select, item.data);
+                        try writer.print("{s} ({%}, {%}, {%})", .{
+                            @tagName(tag),
+                            extra.cond.fmt(data.builder),
                             extra.lhs.fmt(data.builder),
                             extra.rhs.fmt(data.builder),
                         });
@@ -8800,6 +8817,20 @@ pub fn binConst(
 
 pub fn binValue(self: *Builder, tag: Constant.Tag, lhs: Constant, rhs: Constant) Allocator.Error!Value {
     return (try self.binConst(tag, lhs, rhs)).toValue();
+}
+
+pub fn selectConst(
+    self: *Builder,
+    cond: Constant,
+    lhs: Constant,
+    rhs: Constant,
+) Allocator.Error!Constant {
+    try self.ensureUnusedConstantCapacity(1, Constant.Select, 0);
+    return self.selectConstAssumeCapacity(cond, lhs, rhs);
+}
+
+pub fn selectValue(self: *Builder, cond: Constant, lhs: Constant, rhs: Constant) Allocator.Error!Value {
+    return (try self.selectConst(cond, lhs, rhs)).toValue();
 }
 
 pub fn asmConst(
@@ -11059,6 +11090,42 @@ fn binConstAssumeCapacity(
             .xor => &llvm.Value.constXor,
             else => unreachable,
         }(lhs.toLlvm(self), rhs.toLlvm(self)));
+    }
+    return @enumFromInt(gop.index);
+}
+
+comptime {
+    _ = &selectValue;
+}
+
+fn selectConstAssumeCapacity(self: *Builder, cond: Constant, lhs: Constant, rhs: Constant) Constant {
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Constant.Select) u32 {
+            return @truncate(std.hash.Wyhash.hash(
+                std.hash.uint32(@intFromEnum(Constant.Tag.select)),
+                std.mem.asBytes(&key),
+            ));
+        }
+        pub fn eql(ctx: @This(), lhs_key: Constant.Select, _: void, rhs_index: usize) bool {
+            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .select) return false;
+            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.constantExtraData(Constant.Select, rhs_data);
+            return std.meta.eql(lhs_key, rhs_extra);
+        }
+    };
+    const data = Constant.Select{ .cond = cond, .lhs = lhs, .rhs = rhs };
+    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.constant_items.appendAssumeCapacity(.{
+            .tag = .select,
+            .data = self.addConstantExtraAssumeCapacity(data),
+        });
+        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
+            cond.toLlvm(self).constSelect(lhs.toLlvm(self), rhs.toLlvm(self)),
+        );
     }
     return @enumFromInt(gop.index);
 }
