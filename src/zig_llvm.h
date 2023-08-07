@@ -122,12 +122,6 @@ enum ZigLLVM_CallingConv {
     ZigLLVM_MaxID = 1023,
 };
 
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
-        LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile);
-
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef Val, LLVMValueRef Size,
-        unsigned Align, bool isVolatile);
-
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildNSWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
         const char *name);
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildNUWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,

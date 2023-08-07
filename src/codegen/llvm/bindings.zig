@@ -951,27 +951,6 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *Value;
 
-    pub const buildMemSet = ZigLLVMBuildMemSet;
-    extern fn ZigLLVMBuildMemSet(
-        B: *Builder,
-        Ptr: *Value,
-        Val: *Value,
-        Len: *Value,
-        Align: c_uint,
-        is_volatile: bool,
-    ) *Value;
-
-    pub const buildMemCpy = ZigLLVMBuildMemCpy;
-    extern fn ZigLLVMBuildMemCpy(
-        B: *Builder,
-        Dst: *Value,
-        DstAlign: c_uint,
-        Src: *Value,
-        SrcAlign: c_uint,
-        Size: *Value,
-        is_volatile: bool,
-    ) *Value;
-
     pub const buildExactUDiv = LLVMBuildExactUDiv;
     extern fn LLVMBuildExactUDiv(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 

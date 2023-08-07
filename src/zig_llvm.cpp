@@ -408,22 +408,6 @@ void ZigLLVMSetTailCallKind(LLVMValueRef Call, enum ZigLLVMTailCallKind TailCall
     unwrap<CallInst>(Call)->setTailCallKind(TCK);
 }
 
-LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
-        LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile)
-{
-    CallInst *call_inst = unwrap(B)->CreateMemCpy(unwrap(Dst),
-        MaybeAlign(DstAlign), unwrap(Src), MaybeAlign(SrcAlign), unwrap(Size), isVolatile);
-    return wrap(call_inst);
-}
-
-LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef Val, LLVMValueRef Size,
-        unsigned Align, bool isVolatile)
-{
-    CallInst *call_inst = unwrap(B)->CreateMemSet(unwrap(Ptr), unwrap(Val), unwrap(Size),
-            MaybeAlign(Align), isVolatile);
-    return wrap(call_inst);
-}
-
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
     assert( isa<Function>(unwrap(fn)) );
     Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(fn));

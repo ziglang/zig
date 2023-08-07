@@ -2397,7 +2397,7 @@ pub const Intrinsic = enum {
     @"udiv.fix.sat",
 
     // Specialised Arithmetic
-    canonicalisze,
+    canonicalize,
     fmuladd,
 
     // Vector Reduction
@@ -2416,14 +2416,15 @@ pub const Intrinsic = enum {
     @"vector.reduce.fmin",
     @"vector.reduce.fmaximum",
     @"vector.reduce.fminimum",
-    @"vector.reduce.insert",
-    @"vector.reduce.extract",
     @"vector.insert",
     @"vector.extract",
 
+    // Floating-Point Test
+    @"is.fpclass",
+
     // General
-    @"llvm.var.annotation",
-    @"llvm.ptr.annotation",
+    @"var.annotation",
+    @"ptr.annotation",
     annotation,
     @"codeview.annotation",
     trap,
@@ -2442,7 +2443,7 @@ pub const Intrinsic = enum {
     @"arithmetic.fence",
     donothing,
     @"load.relative",
-    @"llvm.sideeffect",
+    sideeffect,
     @"is.constant",
     ptrmask,
     @"threadlocal.address",
@@ -2483,10 +2484,7 @@ pub const Intrinsic = enum {
         };
     };
 
-    const signatures = std.enums.EnumArray(Intrinsic, Signature).initDefault(.{
-        .ret_len = 0,
-        .params = &.{},
-    }, .{
+    const signatures = std.enums.EnumArray(Intrinsic, Signature).init(.{
         .va_start = .{
             .ret_len = 0,
             .params = &.{
@@ -2602,6 +2600,56 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .matches = 0 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .memcpy = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .writeonly } },
+                .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .readonly } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .readwrite } } },
+        },
+        .@"memcpy.inline" = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .writeonly } },
+                .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .readonly } },
+                .{ .kind = .overloaded, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .readwrite } } },
+        },
+        .memmove = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{ .nocapture, .writeonly } },
+                .{ .kind = .overloaded, .attrs = &.{ .nocapture, .readonly } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .readwrite } } },
+        },
+        .memset = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{ .nocapture, .writeonly } },
+                .{ .kind = .{ .type = .i8 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .write } } },
+        },
+        .@"memset.inline" = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{ .nocapture, .writeonly } },
+                .{ .kind = .{ .type = .i8 } },
+                .{ .kind = .overloaded, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .write } } },
         },
         .sqrt = .{
             .ret_len = 1,
@@ -2884,7 +2932,7 @@ pub const Intrinsic = enum {
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
-                .{ .kind = .{ .type = .i1 } },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
@@ -2893,7 +2941,7 @@ pub const Intrinsic = enum {
             .params = &.{
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .matches = 0 } },
-                .{ .kind = .{ .type = .i1 } },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
@@ -3115,6 +3163,25 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
 
+        .canonicalize = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .fmuladd = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
         .@"vector.reduce.add" = .{
             .ret_len = 1,
             .params = &.{
@@ -3257,6 +3324,57 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
 
+        .@"is.fpclass" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 1, .scalar = .i1 } } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"var.annotation" = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 1 } },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .matches = 1 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .readwrite } } },
+        },
+        .@"ptr.annotation" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 2 } },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .matches = 2 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .readwrite } } },
+        },
+        .annotation = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 2 } },
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .readwrite } } },
+        },
+        .@"codeview.annotation" = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .metadata } },
+            },
+            .attrs = &.{ .nocallback, .noduplicate, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .readwrite } } },
+        },
         .trap = .{
             .ret_len = 0,
             .params = &.{},
@@ -3273,6 +3391,156 @@ pub const Intrinsic = enum {
                 .{ .kind = .{ .type = .i8 }, .attrs = &.{.immarg} },
             },
             .attrs = &.{ .cold, .noreturn, .nounwind },
+        },
+        .stackprotector = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+        .stackguard = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+        .objectsize = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .expect = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"expect.with.probability" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .double }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .assume = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.noundef} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .write } } },
+        },
+        .@"ssa.copy" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 }, .attrs = &.{.returned} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"type.test" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i1 } },
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .metadata } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"type.checked.load" = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .i1 } },
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .type = .metadata } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"type.checked.load.relative" = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .i1 } },
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .type = .metadata } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"arithmetic.fence" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .donothing = .{
+            .ret_len = 0,
+            .params = &.{},
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"load.relative" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .argmem = .read } } },
+        },
+        .sideeffect = .{
+            .ret_len = 0,
+            .params = &.{},
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .readwrite } } },
+        },
+        .@"is.constant" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .convergent, .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .ptrmask = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"threadlocal.address" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{.nonnull} },
+                .{ .kind = .{ .matches = 0 }, .attrs = &.{.nonnull} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .vscale = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
 
         .@"amdgcn.workitem.id.x" = .{
@@ -5391,6 +5659,7 @@ pub const WipFunction = struct {
 
     pub fn callIntrinsic(
         self: *WipFunction,
+        function_attributes: FunctionAttributes,
         id: Intrinsic,
         overload: []const Type,
         args: []const Value,
@@ -5400,12 +5669,63 @@ pub const WipFunction = struct {
         return self.call(
             .normal,
             CallConv.default,
-            .none,
+            function_attributes,
             intrinsic.typeOf(self.builder),
             intrinsic.toValue(self.builder),
             args,
             name,
         );
+    }
+
+    pub fn callMemCpy(
+        self: *WipFunction,
+        dst: Value,
+        dst_align: Alignment,
+        src: Value,
+        src_align: Alignment,
+        len: Value,
+        kind: MemoryAccessKind,
+    ) Allocator.Error!Instruction.Index {
+        var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
+        var src_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = src_align })};
+        const value = try self.callIntrinsic(
+            try self.builder.fnAttrs(&.{
+                .none,
+                .none,
+                try self.builder.attrs(&dst_attrs),
+                try self.builder.attrs(&src_attrs),
+            }),
+            .memcpy,
+            &.{ dst.typeOfWip(self), src.typeOfWip(self), len.typeOfWip(self) },
+            &.{ dst, src, len, switch (kind) {
+                .normal => Value.false,
+                .@"volatile" => Value.true,
+            } },
+            undefined,
+        );
+        return value.unwrap().instruction;
+    }
+
+    pub fn callMemSet(
+        self: *WipFunction,
+        dst: Value,
+        dst_align: Alignment,
+        val: Value,
+        len: Value,
+        kind: MemoryAccessKind,
+    ) Allocator.Error!Instruction.Index {
+        var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
+        const value = try self.callIntrinsic(
+            try self.builder.fnAttrs(&.{ .none, .none, try self.builder.attrs(&dst_attrs) }),
+            .memset,
+            &.{ dst.typeOfWip(self), len.typeOfWip(self) },
+            &.{ dst, val, len, switch (kind) {
+                .normal => Value.false,
+                .@"volatile" => Value.true,
+            } },
+            undefined,
+        );
+        return value.unwrap().instruction;
     }
 
     pub fn vaArg(self: *WipFunction, list: Value, ty: Type, name: []const u8) Allocator.Error!Value {

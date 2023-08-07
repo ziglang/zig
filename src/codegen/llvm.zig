@@ -5466,7 +5466,7 @@ pub const FuncGen = struct {
         const result_alignment = Builder.Alignment.fromByteUnits(va_list_ty.abiAlignment(mod));
         const dest_list = try self.buildAlloca(llvm_va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.va_copy, &.{}, &.{ dest_list, src_list }, "");
+        _ = try self.wip.callIntrinsic(.none, .va_copy, &.{}, &.{ dest_list, src_list }, "");
         return if (isByRef(va_list_ty, mod))
             dest_list
         else
@@ -5477,7 +5477,7 @@ pub const FuncGen = struct {
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const src_list = try self.resolveInst(un_op);
 
-        _ = try self.wip.callIntrinsic(.va_end, &.{}, &.{src_list}, "");
+        _ = try self.wip.callIntrinsic(.none, .va_end, &.{}, &.{src_list}, "");
         return .none;
     }
 
@@ -5490,7 +5490,7 @@ pub const FuncGen = struct {
         const result_alignment = Builder.Alignment.fromByteUnits(va_list_ty.abiAlignment(mod));
         const dest_list = try self.buildAlloca(llvm_va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.va_start, &.{}, &.{dest_list}, "");
+        _ = try self.wip.callIntrinsic(.none, .va_start, &.{}, &.{dest_list}, "");
         return if (isByRef(va_list_ty, mod))
             dest_list
         else
@@ -5600,8 +5600,8 @@ pub const FuncGen = struct {
                 const both_pl_block_end = self.wip.cursor.block;
 
                 self.wip.cursor = .{ .block = end_block };
-                const llvm_i1_0 = try o.builder.intValue(.i1, 0);
-                const llvm_i1_1 = try o.builder.intValue(.i1, 1);
+                const llvm_i1_0 = Builder.Value.false;
+                const llvm_i1_1 = Builder.Value.true;
                 const incoming_values: [3]Builder.Value = .{
                     switch (op) {
                         .eq => llvm_i1_1,
@@ -5822,7 +5822,7 @@ pub const FuncGen = struct {
                 if (can_elide_load)
                     return payload_ptr;
 
-                return fg.loadByRef(payload_ptr, payload_ty, payload_alignment, false);
+                return fg.loadByRef(payload_ptr, payload_ty, payload_alignment, .normal);
             }
             const load_ty = err_union_llvm_ty.structFields(&o.builder)[offset];
             return fg.wip.load(.normal, load_ty, payload_ptr, payload_alignment, "");
@@ -6121,7 +6121,7 @@ pub const FuncGen = struct {
                 return ptr;
 
             const elem_alignment = Builder.Alignment.fromByteUnits(elem_ty.abiAlignment(mod));
-            return self.loadByRef(ptr, elem_ty, elem_alignment, false);
+            return self.loadByRef(ptr, elem_ty, elem_alignment, .normal);
         }
 
         return self.load(ptr, slice_ty);
@@ -6161,7 +6161,7 @@ pub const FuncGen = struct {
                     try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
                 if (canElideLoad(self, body_tail)) return elem_ptr;
                 const elem_alignment = Builder.Alignment.fromByteUnits(elem_ty.abiAlignment(mod));
-                return self.loadByRef(elem_ptr, elem_ty, elem_alignment, false);
+                return self.loadByRef(elem_ptr, elem_ty, elem_alignment, .normal);
             } else {
                 const elem_llvm_ty = try o.lowerType(elem_ty);
                 if (Air.refToIndex(bin_op.lhs)) |lhs_index| {
@@ -6221,7 +6221,7 @@ pub const FuncGen = struct {
         if (isByRef(elem_ty, mod)) {
             if (self.canElideLoad(body_tail)) return ptr;
             const elem_alignment = Builder.Alignment.fromByteUnits(elem_ty.abiAlignment(mod));
-            return self.loadByRef(ptr, elem_ty, elem_alignment, false);
+            return self.loadByRef(ptr, elem_ty, elem_alignment, .normal);
         }
 
         return self.load(ptr, ptr_ty);
@@ -6351,7 +6351,7 @@ pub const FuncGen = struct {
 
                     assert(llvm_field.alignment != 0);
                     const field_alignment = Builder.Alignment.fromByteUnits(llvm_field.alignment);
-                    return self.loadByRef(field_ptr, field_ty, field_alignment, false);
+                    return self.loadByRef(field_ptr, field_ty, field_alignment, .normal);
                 } else {
                     return self.load(field_ptr, field_ptr_ty);
                 }
@@ -6366,7 +6366,7 @@ pub const FuncGen = struct {
                 const payload_alignment = Builder.Alignment.fromByteUnits(layout.payload_align);
                 if (isByRef(field_ty, mod)) {
                     if (canElideLoad(self, body_tail)) return field_ptr;
-                    return self.loadByRef(field_ptr, field_ty, payload_alignment, false);
+                    return self.loadByRef(field_ptr, field_ty, payload_alignment, .normal);
                 } else {
                     return self.wip.load(.normal, llvm_field_ty, field_ptr, payload_alignment, "");
                 }
@@ -7150,7 +7150,7 @@ pub const FuncGen = struct {
             const payload_ptr = try self.wip.gepStruct(err_union_llvm_ty, operand, offset, "");
             if (isByRef(payload_ty, mod)) {
                 if (self.canElideLoad(body_tail)) return payload_ptr;
-                return self.loadByRef(payload_ptr, payload_ty, payload_alignment, false);
+                return self.loadByRef(payload_ptr, payload_ty, payload_alignment, .normal);
             }
             const payload_llvm_ty = err_union_llvm_ty.structFields(&o.builder)[offset];
             return self.wip.load(.normal, payload_llvm_ty, payload_ptr, payload_alignment, "");
@@ -7346,7 +7346,7 @@ pub const FuncGen = struct {
         const o = self.dg.object;
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const index = pl_op.payload;
-        return self.wip.callIntrinsic(.@"wasm.memory.size", &.{.i32}, &.{
+        return self.wip.callIntrinsic(.none, .@"wasm.memory.size", &.{.i32}, &.{
             try o.builder.intValue(.i32, index),
         }, "");
     }
@@ -7355,7 +7355,7 @@ pub const FuncGen = struct {
         const o = self.dg.object;
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const index = pl_op.payload;
-        return self.wip.callIntrinsic(.@"wasm.memory.grow", &.{.i32}, &.{
+        return self.wip.callIntrinsic(.none, .@"wasm.memory.grow", &.{.i32}, &.{
             try o.builder.intValue(.i32, index), try self.resolveInst(pl_op.operand),
         }, "");
     }
@@ -7371,13 +7371,11 @@ pub const FuncGen = struct {
         const index = try self.resolveInst(extra.lhs);
         const operand = try self.resolveInst(extra.rhs);
 
-        const kind: Builder.MemoryAccessKind = switch (vector_ptr_ty.isVolatilePtr(mod)) {
-            false => .normal,
-            true => .@"volatile",
-        };
+        const access_kind: Builder.MemoryAccessKind =
+            if (vector_ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal;
         const elem_llvm_ty = try o.lowerType(vector_ptr_ty.childType(mod));
         const alignment = Builder.Alignment.fromByteUnits(vector_ptr_ty.ptrAlignment(mod));
-        const loaded = try self.wip.load(kind, elem_llvm_ty, vector_ptr, alignment, "");
+        const loaded = try self.wip.load(access_kind, elem_llvm_ty, vector_ptr, alignment, "");
 
         const new_vector = try self.wip.insertElement(loaded, operand, index, "");
         _ = try self.store(vector_ptr, vector_ptr_ty, new_vector, .none);
@@ -7395,6 +7393,7 @@ pub const FuncGen = struct {
 
         if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.fmin, inst_ty, 2, .{ lhs, rhs });
         return self.wip.callIntrinsic(
+            .none,
             if (scalar_ty.isSignedInt(mod)) .smin else .umin,
             &.{try o.lowerType(inst_ty)},
             &.{ lhs, rhs },
@@ -7413,6 +7412,7 @@ pub const FuncGen = struct {
 
         if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.fmax, inst_ty, 2, .{ lhs, rhs });
         return self.wip.callIntrinsic(
+            .none,
             if (scalar_ty.isSignedInt(mod)) .smax else .umax,
             &.{try o.lowerType(inst_ty)},
             &.{ lhs, rhs },
@@ -7462,12 +7462,19 @@ pub const FuncGen = struct {
 
         const intrinsic = if (scalar_ty.isSignedInt(mod)) signed_intrinsic else unsigned_intrinsic;
         const llvm_inst_ty = try o.lowerType(inst_ty);
-        const results = try fg.wip.callIntrinsic(intrinsic, &.{llvm_inst_ty}, &.{ lhs, rhs }, "");
+        const results =
+            try fg.wip.callIntrinsic(.none, intrinsic, &.{llvm_inst_ty}, &.{ lhs, rhs }, "");
 
         const overflow_bits = try fg.wip.extractValue(results, &.{1}, "");
         const overflow_bits_ty = overflow_bits.typeOfWip(&fg.wip);
         const overflow_bit = if (overflow_bits_ty.isVector(&o.builder))
-            try fg.wip.callIntrinsic(.@"vector.reduce.or", &.{overflow_bits_ty}, &.{overflow_bits}, "")
+            try fg.wip.callIntrinsic(
+                .none,
+                .@"vector.reduce.or",
+                &.{overflow_bits_ty},
+                &.{overflow_bits},
+                "",
+            )
         else
             overflow_bits;
 
@@ -7501,6 +7508,7 @@ pub const FuncGen = struct {
 
         if (scalar_ty.isAnyFloat()) return self.todo("saturating float add", .{});
         return self.wip.callIntrinsic(
+            .none,
             if (scalar_ty.isSignedInt(mod)) .@"sadd.sat" else .@"uadd.sat",
             &.{try o.lowerType(inst_ty)},
             &.{ lhs, rhs },
@@ -7542,6 +7550,7 @@ pub const FuncGen = struct {
 
         if (scalar_ty.isAnyFloat()) return self.todo("saturating float sub", .{});
         return self.wip.callIntrinsic(
+            .none,
             if (scalar_ty.isSignedInt(mod)) .@"ssub.sat" else .@"usub.sat",
             &.{try o.lowerType(inst_ty)},
             &.{ lhs, rhs },
@@ -7583,6 +7592,7 @@ pub const FuncGen = struct {
 
         if (scalar_ty.isAnyFloat()) return self.todo("saturating float mul", .{});
         return self.wip.callIntrinsic(
+            .none,
             if (scalar_ty.isSignedInt(mod)) .@"smul.fix.sat" else .@"umul.fix.sat",
             &.{try o.lowerType(inst_ty)},
             &.{ lhs, rhs, try o.builder.intValue(.i32, 0) },
@@ -7793,7 +7803,8 @@ pub const FuncGen = struct {
         const intrinsic = if (scalar_ty.isSignedInt(mod)) signed_intrinsic else unsigned_intrinsic;
         const llvm_inst_ty = try o.lowerType(inst_ty);
         const llvm_lhs_ty = try o.lowerType(lhs_ty);
-        const results = try self.wip.callIntrinsic(intrinsic, &.{llvm_lhs_ty}, &.{ lhs, rhs }, "");
+        const results =
+            try self.wip.callIntrinsic(.none, intrinsic, &.{llvm_lhs_ty}, &.{ lhs, rhs }, "");
 
         const result_val = try self.wip.extractValue(results, &.{0}, "");
         const overflow_bit = try self.wip.extractValue(results, &.{1}, "");
@@ -7998,27 +8009,49 @@ pub const FuncGen = struct {
         if (op != .tan and intrinsicsAllowed(scalar_ty, target)) switch (op) {
             // Some operations are dedicated LLVM instructions, not available as intrinsics
             .neg => return self.wip.un(.fneg, params[0], ""),
-            .add => return self.wip.bin(.fadd, params[0], params[1], ""),
-            .sub => return self.wip.bin(.fsub, params[0], params[1], ""),
-            .mul => return self.wip.bin(.fmul, params[0], params[1], ""),
-            .div => return self.wip.bin(.fdiv, params[0], params[1], ""),
-            .fmod => return self.wip.bin(.frem, params[0], params[1], ""),
-            .fmax => return self.wip.callIntrinsic(.maxnum, &.{llvm_ty}, &params, ""),
-            .fmin => return self.wip.callIntrinsic(.minnum, &.{llvm_ty}, &params, ""),
-            .ceil => return self.wip.callIntrinsic(.ceil, &.{llvm_ty}, &params, ""),
-            .cos => return self.wip.callIntrinsic(.cos, &.{llvm_ty}, &params, ""),
-            .exp => return self.wip.callIntrinsic(.exp, &.{llvm_ty}, &params, ""),
-            .exp2 => return self.wip.callIntrinsic(.exp2, &.{llvm_ty}, &params, ""),
-            .fabs => return self.wip.callIntrinsic(.fabs, &.{llvm_ty}, &params, ""),
-            .floor => return self.wip.callIntrinsic(.floor, &.{llvm_ty}, &params, ""),
-            .log => return self.wip.callIntrinsic(.log, &.{llvm_ty}, &params, ""),
-            .log10 => return self.wip.callIntrinsic(.log10, &.{llvm_ty}, &params, ""),
-            .log2 => return self.wip.callIntrinsic(.log2, &.{llvm_ty}, &params, ""),
-            .round => return self.wip.callIntrinsic(.round, &.{llvm_ty}, &params, ""),
-            .sin => return self.wip.callIntrinsic(.sin, &.{llvm_ty}, &params, ""),
-            .sqrt => return self.wip.callIntrinsic(.sqrt, &.{llvm_ty}, &params, ""),
-            .trunc => return self.wip.callIntrinsic(.trunc, &.{llvm_ty}, &params, ""),
-            .fma => return self.wip.callIntrinsic(.fma, &.{llvm_ty}, &params, ""),
+            .add, .sub, .mul, .div, .fmod => return self.wip.bin(switch (op) {
+                .add => .fadd,
+                .sub => .fsub,
+                .mul => .fmul,
+                .div => .fdiv,
+                .fmod => .frem,
+                else => unreachable,
+            }, params[0], params[1], ""),
+            .fmax,
+            .fmin,
+            .ceil,
+            .cos,
+            .exp,
+            .exp2,
+            .fabs,
+            .floor,
+            .log,
+            .log10,
+            .log2,
+            .round,
+            .sin,
+            .sqrt,
+            .trunc,
+            .fma,
+            => return self.wip.callIntrinsic(.none, switch (op) {
+                .fmax => .maxnum,
+                .fmin => .minnum,
+                .ceil => .ceil,
+                .cos => .cos,
+                .exp => .exp,
+                .exp2 => .exp2,
+                .fabs => .fabs,
+                .floor => .floor,
+                .log => .log,
+                .log10 => .log10,
+                .log2 => .log2,
+                .round => .round,
+                .sin => .sin,
+                .sqrt => .sqrt,
+                .trunc => .trunc,
+                .fma => .fma,
+                else => unreachable,
+            }, &.{llvm_ty}, &params, ""),
             .tan => unreachable,
         };
 
@@ -8215,6 +8248,7 @@ pub const FuncGen = struct {
         const llvm_lhs_ty = try o.lowerType(lhs_ty);
         const llvm_lhs_scalar_ty = llvm_lhs_ty.scalarType(&o.builder);
         const result = try self.wip.callIntrinsic(
+            .none,
             if (lhs_scalar_ty.isSignedInt(mod)) .@"sshl.sat" else .@"ushl.sat",
             &.{llvm_lhs_ty},
             &.{ lhs, casted_rhs },
@@ -8588,21 +8622,14 @@ pub const FuncGen = struct {
             // Even if safety is disabled, we still emit a memset to undefined since it conveys
             // extra information to LLVM. However, safety makes the difference between using
             // 0xaa or actual undefined for the fill byte.
-            const fill_byte = if (safety)
-                try o.builder.intConst(.i8, 0xaa)
-            else
-                try o.builder.undefConst(.i8);
-            const operand_size = operand_ty.abiSize(mod);
-            const usize_ty = try o.lowerType(Type.usize);
-            const len = try o.builder.intValue(usize_ty, operand_size);
-            const dest_ptr_align = Builder.Alignment.fromByteUnits(ptr_ty.ptrAlignment(mod));
-            _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildMemSet(
-                dest_ptr.toLlvm(&self.wip),
-                fill_byte.toLlvm(&o.builder),
-                len.toLlvm(&self.wip),
-                @intCast(dest_ptr_align.toByteUnits() orelse 0),
-                ptr_ty.isVolatilePtr(mod),
-            ), &self.wip);
+            const len = try o.builder.intValue(try o.lowerType(Type.usize), operand_ty.abiSize(mod));
+            _ = try self.wip.callMemSet(
+                dest_ptr,
+                Builder.Alignment.fromByteUnits(ptr_ty.ptrAlignment(mod)),
+                if (safety) try o.builder.intValue(.i8, 0xaa) else try o.builder.undefValue(.i8),
+                len,
+                if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal,
+            );
             if (safety and mod.comp.bin_file.options.valgrind) {
                 try self.valgrindMarkUndef(dest_ptr, len);
             }
@@ -8655,14 +8682,14 @@ pub const FuncGen = struct {
 
     fn airTrap(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         _ = inst;
-        _ = try self.wip.callIntrinsic(.trap, &.{}, &.{}, "");
+        _ = try self.wip.callIntrinsic(.none, .trap, &.{}, &.{}, "");
         _ = try self.wip.@"unreachable"();
         return .none;
     }
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         _ = inst;
-        _ = try self.wip.callIntrinsic(.debugtrap, &.{}, &.{}, "");
+        _ = try self.wip.callIntrinsic(.none, .debugtrap, &.{}, &.{}, "");
         return .none;
     }
 
@@ -8674,7 +8701,7 @@ pub const FuncGen = struct {
             // https://github.com/ziglang/zig/issues/11946
             return o.builder.intValue(llvm_usize, 0);
         }
-        const result = try self.wip.callIntrinsic(.returnaddress, &.{}, &.{
+        const result = try self.wip.callIntrinsic(.none, .returnaddress, &.{}, &.{
             try o.builder.intValue(.i32, 0),
         }, "");
         return self.wip.cast(.ptrtoint, result, llvm_usize, "");
@@ -8683,7 +8710,7 @@ pub const FuncGen = struct {
     fn airFrameAddress(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         _ = inst;
         const o = self.dg.object;
-        const result = try self.wip.callIntrinsic(.frameaddress, &.{.ptr}, &.{
+        const result = try self.wip.callIntrinsic(.none, .frameaddress, &.{.ptr}, &.{
             try o.builder.intValue(.i32, 0),
         }, "");
         return self.wip.cast(.ptrtoint, result, try o.lowerType(Type.usize), "");
@@ -8835,16 +8862,14 @@ pub const FuncGen = struct {
         const ptr_alignment = Builder.Alignment.fromByteUnits(
             info.flags.alignment.toByteUnitsOptional() orelse info.child.toType().abiAlignment(mod),
         );
-        const ptr_kind: Builder.MemoryAccessKind = switch (info.flags.is_volatile) {
-            false => .normal,
-            true => .@"volatile",
-        };
+        const access_kind: Builder.MemoryAccessKind =
+            if (info.flags.is_volatile) .@"volatile" else .normal;
         const elem_llvm_ty = try o.lowerType(elem_ty);
 
         if (llvm_abi_ty != .none) {
             // operand needs widening and truncating
             const loaded = try self.wip.loadAtomic(
-                ptr_kind,
+                access_kind,
                 llvm_abi_ty,
                 ptr,
                 self.sync_scope,
@@ -8855,7 +8880,7 @@ pub const FuncGen = struct {
             return self.wip.cast(.trunc, loaded, elem_llvm_ty, "");
         }
         return self.wip.loadAtomic(
-            ptr_kind,
+            access_kind,
             elem_llvm_ty,
             ptr,
             self.sync_scope,
@@ -8902,7 +8927,8 @@ pub const FuncGen = struct {
         const elem_ty = self.typeOf(bin_op.rhs);
         const dest_ptr_align = Builder.Alignment.fromByteUnits(ptr_ty.ptrAlignment(mod));
         const dest_ptr = try self.sliceOrArrayPtr(dest_slice, ptr_ty);
-        const is_volatile = ptr_ty.isVolatilePtr(mod);
+        const access_kind: Builder.MemoryAccessKind =
+            if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal;
 
         // Any WebAssembly runtime will trap when the destination pointer is out-of-bounds, regardless
         // of the length. This means we need to emit a check where we skip the memset when the length
@@ -8923,17 +8949,10 @@ pub const FuncGen = struct {
                     try o.builder.undefValue(.i8);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
+                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
                 } else {
-                    _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildMemSet(
-                        dest_ptr.toLlvm(&self.wip),
-                        fill_byte.toLlvm(&self.wip),
-                        len.toLlvm(&self.wip),
-                        @intCast(dest_ptr_align.toByteUnits() orelse 0),
-                        is_volatile,
-                    ), &self.wip);
+                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
                 }
-
                 if (safety and mod.comp.bin_file.options.valgrind) {
                     try self.valgrindMarkUndef(dest_ptr, len);
                 }
@@ -8945,19 +8964,12 @@ pub const FuncGen = struct {
             // repeating byte pattern of 0 bytes. In such case, the memset
             // intrinsic can be used.
             if (try elem_val.hasRepeatedByteRepr(elem_ty, mod)) |byte_val| {
-                const fill_byte = try self.resolveValue(.{ .ty = Type.u8, .val = byte_val });
+                const fill_byte = try o.builder.intValue(.i8, byte_val);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte.toValue(), len, dest_ptr_align, is_volatile);
+                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
                 } else {
-                    _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildMemSet(
-                        dest_ptr.toLlvm(&self.wip),
-                        fill_byte.toLlvm(&o.builder),
-                        len.toLlvm(&self.wip),
-                        @intCast(dest_ptr_align.toByteUnits() orelse 0),
-                        is_volatile,
-                    ), &self.wip);
+                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
                 }
                 return .none;
             }
@@ -8972,15 +8984,9 @@ pub const FuncGen = struct {
             const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
 
             if (intrinsic_len0_traps) {
-                try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
+                try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
             } else {
-                _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildMemSet(
-                    dest_ptr.toLlvm(&self.wip),
-                    fill_byte.toLlvm(&self.wip),
-                    len.toLlvm(&self.wip),
-                    @intCast(dest_ptr_align.toByteUnits() orelse 0),
-                    is_volatile,
-                ), &self.wip);
+                _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
             }
             return .none;
         }
@@ -9006,10 +9012,10 @@ pub const FuncGen = struct {
         const body_block = try self.wip.block(1, "InlineMemsetBody");
         const end_block = try self.wip.block(1, "InlineMemsetEnd");
 
-        const usize_ty = try o.lowerType(Type.usize);
+        const llvm_usize_ty = try o.lowerType(Type.usize);
         const len = switch (ptr_ty.ptrSize(mod)) {
             .Slice => try self.wip.extractValue(dest_slice, &.{1}, ""),
-            .One => try o.builder.intValue(usize_ty, ptr_ty.childType(mod).arrayLen(mod)),
+            .One => try o.builder.intValue(llvm_usize_ty, ptr_ty.childType(mod).arrayLen(mod)),
             .Many, .C => unreachable,
         };
         const elem_llvm_ty = try o.lowerType(elem_ty);
@@ -9022,25 +9028,22 @@ pub const FuncGen = struct {
         _ = try self.wip.brCond(end, body_block, end_block);
 
         self.wip.cursor = .{ .block = body_block };
-        const elem_abi_alignment = elem_ty.abiAlignment(mod);
-        const it_ptr_alignment = Builder.Alignment.fromByteUnits(
-            @min(elem_abi_alignment, dest_ptr_align.toByteUnits() orelse std.math.maxInt(u64)),
+        const elem_abi_align = elem_ty.abiAlignment(mod);
+        const it_ptr_align = Builder.Alignment.fromByteUnits(
+            @min(elem_abi_align, dest_ptr_align.toByteUnits() orelse std.math.maxInt(u64)),
         );
         if (isByRef(elem_ty, mod)) {
-            _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildMemCpy(
-                it_ptr.toValue().toLlvm(&self.wip),
-                @intCast(it_ptr_alignment.toByteUnits() orelse 0),
-                value.toLlvm(&self.wip),
-                elem_abi_alignment,
-                (try o.builder.intConst(usize_ty, elem_abi_size)).toLlvm(&o.builder),
-                is_volatile,
-            ), &self.wip);
-        } else _ = try self.wip.store(switch (is_volatile) {
-            false => .normal,
-            true => .@"volatile",
-        }, value, it_ptr.toValue(), it_ptr_alignment);
+            _ = try self.wip.callMemCpy(
+                it_ptr.toValue(),
+                it_ptr_align,
+                value,
+                Builder.Alignment.fromByteUnits(elem_abi_align),
+                try o.builder.intValue(llvm_usize_ty, elem_abi_size),
+                access_kind,
+            );
+        } else _ = try self.wip.store(access_kind, value, it_ptr.toValue(), it_ptr_align);
         const next_ptr = try self.wip.gep(.inbounds, elem_llvm_ty, it_ptr.toValue(), &.{
-            try o.builder.intValue(usize_ty, 1),
+            try o.builder.intValue(llvm_usize_ty, 1),
         }, "");
         _ = try self.wip.br(loop_block);
 
@@ -9055,7 +9058,7 @@ pub const FuncGen = struct {
         fill_byte: Builder.Value,
         len: Builder.Value,
         dest_ptr_align: Builder.Alignment,
-        is_volatile: bool,
+        access_kind: Builder.MemoryAccessKind,
     ) !void {
         const o = self.dg.object;
         const llvm_usize_ty = try o.lowerType(Type.usize);
@@ -9064,13 +9067,7 @@ pub const FuncGen = struct {
         const end_block = try self.wip.block(2, "MemsetTrapEnd");
         _ = try self.wip.brCond(cond, memset_block, end_block);
         self.wip.cursor = .{ .block = memset_block };
-        _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildMemSet(
-            dest_ptr.toLlvm(&self.wip),
-            fill_byte.toLlvm(&self.wip),
-            len.toLlvm(&self.wip),
-            @intCast(dest_ptr_align.toByteUnits() orelse 0),
-            is_volatile,
-        ), &self.wip);
+        _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
         _ = try self.wip.br(end_block);
         self.wip.cursor = .{ .block = end_block };
     }
@@ -9086,7 +9083,8 @@ pub const FuncGen = struct {
         const src_ptr = try self.sliceOrArrayPtr(src_slice, src_ptr_ty);
         const len = try self.sliceOrArrayLenInBytes(dest_slice, dest_ptr_ty);
         const dest_ptr = try self.sliceOrArrayPtr(dest_slice, dest_ptr_ty);
-        const is_volatile = src_ptr_ty.isVolatilePtr(mod) or dest_ptr_ty.isVolatilePtr(mod);
+        const access_kind: Builder.MemoryAccessKind = if (src_ptr_ty.isVolatilePtr(mod) or
+            dest_ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal;
 
         // When bulk-memory is enabled, this will be lowered to WebAssembly's memory.copy instruction.
         // This instruction will trap on an invalid address, regardless of the length.
@@ -9103,27 +9101,27 @@ pub const FuncGen = struct {
             const end_block = try self.wip.block(2, "MemcpyTrapEnd");
             _ = try self.wip.brCond(cond, memcpy_block, end_block);
             self.wip.cursor = .{ .block = memcpy_block };
-            _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildMemCpy(
-                dest_ptr.toLlvm(&self.wip),
-                dest_ptr_ty.ptrAlignment(mod),
-                src_ptr.toLlvm(&self.wip),
-                src_ptr_ty.ptrAlignment(mod),
-                len.toLlvm(&self.wip),
-                is_volatile,
-            ), &self.wip);
+            _ = try self.wip.callMemCpy(
+                dest_ptr,
+                Builder.Alignment.fromByteUnits(dest_ptr_ty.ptrAlignment(mod)),
+                src_ptr,
+                Builder.Alignment.fromByteUnits(src_ptr_ty.ptrAlignment(mod)),
+                len,
+                access_kind,
+            );
             _ = try self.wip.br(end_block);
             self.wip.cursor = .{ .block = end_block };
             return .none;
         }
 
-        _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildMemCpy(
-            dest_ptr.toLlvm(&self.wip),
-            dest_ptr_ty.ptrAlignment(mod),
-            src_ptr.toLlvm(&self.wip),
-            src_ptr_ty.ptrAlignment(mod),
-            len.toLlvm(&self.wip),
-            is_volatile,
-        ), &self.wip);
+        _ = try self.wip.callMemCpy(
+            dest_ptr,
+            Builder.Alignment.fromByteUnits(dest_ptr_ty.ptrAlignment(mod)),
+            src_ptr,
+            Builder.Alignment.fromByteUnits(src_ptr_ty.ptrAlignment(mod)),
+            len,
+            access_kind,
+        );
         return .none;
     }
 
@@ -9196,8 +9194,8 @@ pub const FuncGen = struct {
         const operand_ty = self.typeOf(ty_op.operand);
         const operand = try self.resolveInst(ty_op.operand);
 
-        const result =
-            try self.wip.callIntrinsic(
+        const result = try self.wip.callIntrinsic(
+            .none,
             intrinsic,
             &.{try o.lowerType(operand_ty)},
             &.{ operand, .false },
@@ -9214,6 +9212,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
 
         const result = try self.wip.callIntrinsic(
+            .none,
             intrinsic,
             &.{try o.lowerType(operand_ty)},
             &.{operand},
@@ -9251,7 +9250,7 @@ pub const FuncGen = struct {
             bits = bits + 8;
         }
 
-        const result = try self.wip.callIntrinsic(.bswap, &.{llvm_operand_ty}, &.{operand}, "");
+        const result = try self.wip.callIntrinsic(.none, .bswap, &.{llvm_operand_ty}, &.{operand}, "");
         return self.wip.conv(.unsigned, result, try o.lowerType(inst_ty), "");
     }
 
@@ -9646,14 +9645,14 @@ pub const FuncGen = struct {
         const llvm_scalar_ty = try o.lowerType(scalar_ty);
 
         switch (reduce.operation) {
-            .And, .Or, .Xor => return self.wip.callIntrinsic(switch (reduce.operation) {
+            .And, .Or, .Xor => return self.wip.callIntrinsic(.none, switch (reduce.operation) {
                 .And => .@"vector.reduce.and",
                 .Or => .@"vector.reduce.or",
                 .Xor => .@"vector.reduce.xor",
                 else => unreachable,
             }, &.{llvm_operand_ty}, &.{operand}, ""),
             .Min, .Max => switch (scalar_ty.zigTypeTag(mod)) {
-                .Int => return self.wip.callIntrinsic(switch (reduce.operation) {
+                .Int => return self.wip.callIntrinsic(.none, switch (reduce.operation) {
                     .Min => if (scalar_ty.isSignedInt(mod))
                         .@"vector.reduce.smin"
                     else
@@ -9665,7 +9664,7 @@ pub const FuncGen = struct {
                     else => unreachable,
                 }, &.{llvm_operand_ty}, &.{operand}, ""),
                 .Float => if (intrinsicsAllowed(scalar_ty, target))
-                    return self.wip.callIntrinsic(switch (reduce.operation) {
+                    return self.wip.callIntrinsic(.none, switch (reduce.operation) {
                         .Min => .@"vector.reduce.fmin",
                         .Max => .@"vector.reduce.fmax",
                         else => unreachable,
@@ -9673,13 +9672,13 @@ pub const FuncGen = struct {
                 else => unreachable,
             },
             .Add, .Mul => switch (scalar_ty.zigTypeTag(mod)) {
-                .Int => return self.wip.callIntrinsic(switch (reduce.operation) {
+                .Int => return self.wip.callIntrinsic(.none, switch (reduce.operation) {
                     .Add => .@"vector.reduce.add",
                     .Mul => .@"vector.reduce.mul",
                     else => unreachable,
                 }, &.{llvm_operand_ty}, &.{operand}, ""),
                 .Float => if (intrinsicsAllowed(scalar_ty, target))
-                    return self.wip.callIntrinsic(switch (reduce.operation) {
+                    return self.wip.callIntrinsic(.none, switch (reduce.operation) {
                         .Add => .@"vector.reduce.fadd",
                         .Mul => .@"vector.reduce.fmul",
                         else => unreachable,
@@ -10032,7 +10031,7 @@ pub const FuncGen = struct {
             .data => {},
         }
 
-        _ = try self.wip.callIntrinsic(.prefetch, &.{.ptr}, &.{
+        _ = try self.wip.callIntrinsic(.none, .prefetch, &.{.ptr}, &.{
             try self.resolveInst(prefetch.ptr),
             try o.builder.intValue(.i32, prefetch.rw),
             try o.builder.intValue(.i32, prefetch.locality),
@@ -10056,14 +10055,12 @@ pub const FuncGen = struct {
         default: u32,
         comptime basename: []const u8,
     ) !Builder.Value {
-        const o = self.dg.object;
-        const intrinsic = switch (dimension) {
+        return self.wip.callIntrinsic(.none, switch (dimension) {
             0 => @field(Builder.Intrinsic, basename ++ ".x"),
             1 => @field(Builder.Intrinsic, basename ++ ".y"),
             2 => @field(Builder.Intrinsic, basename ++ ".z"),
-            else => return o.builder.intValue(.i32, default),
-        };
-        return self.wip.callIntrinsic(intrinsic, &.{}, &.{}, "");
+            else => return self.dg.object.builder.intValue(.i32, default),
+        }, &.{}, &.{}, "");
     }
 
     fn airWorkItemId(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -10087,7 +10084,7 @@ pub const FuncGen = struct {
 
         // Fetch the dispatch pointer, which points to this structure:
         // https://github.com/RadeonOpenCompute/ROCR-Runtime/blob/adae6c61e10d371f7cbc3d0e94ae2c070cab18a4/src/inc/hsa.h#L2913
-        const dispatch_ptr = try self.wip.callIntrinsic(.@"amdgcn.dispatch.ptr", &.{}, &.{}, "");
+        const dispatch_ptr = try self.wip.callIntrinsic(.none, .@"amdgcn.dispatch.ptr", &.{}, &.{}, "");
 
         // Load the work_group_* member from the struct as u16.
         // Just treat the dispatch pointer as an array of u16 to keep things simple.
@@ -10188,7 +10185,7 @@ pub const FuncGen = struct {
                 if (can_elide_load)
                     return payload_ptr;
 
-                return fg.loadByRef(payload_ptr, payload_ty, payload_alignment, false);
+                return fg.loadByRef(payload_ptr, payload_ty, payload_alignment, .normal);
             }
             const payload_llvm_ty = try o.lowerType(payload_ty);
             return fg.wip.load(.normal, payload_llvm_ty, payload_ptr, payload_alignment, "");
@@ -10297,7 +10294,7 @@ pub const FuncGen = struct {
         ptr: Builder.Value,
         pointee_type: Type,
         ptr_alignment: Builder.Alignment,
-        is_volatile: bool,
+        access_kind: Builder.MemoryAccessKind,
     ) !Builder.Value {
         const o = fg.dg.object;
         const mod = o.module;
@@ -10306,16 +10303,15 @@ pub const FuncGen = struct {
             @max(ptr_alignment.toByteUnits() orelse 0, pointee_type.abiAlignment(mod)),
         );
         const result_ptr = try fg.buildAlloca(pointee_llvm_ty, result_align);
-        const usize_ty = try o.lowerType(Type.usize);
         const size_bytes = pointee_type.abiSize(mod);
-        _ = (try fg.wip.unimplemented(.void, "")).finish(fg.builder.buildMemCpy(
-            result_ptr.toLlvm(&fg.wip),
-            @intCast(result_align.toByteUnits() orelse 0),
-            ptr.toLlvm(&fg.wip),
-            @intCast(ptr_alignment.toByteUnits() orelse 0),
-            (try o.builder.intConst(usize_ty, size_bytes)).toLlvm(&o.builder),
-            is_volatile,
-        ), &fg.wip);
+        _ = try fg.wip.callMemCpy(
+            result_ptr,
+            result_align,
+            ptr,
+            ptr_alignment,
+            try o.builder.intValue(try o.lowerType(Type.usize), size_bytes),
+            access_kind,
+        );
         return result_ptr;
     }
 
@@ -10332,10 +10328,8 @@ pub const FuncGen = struct {
         const ptr_alignment = Builder.Alignment.fromByteUnits(
             info.flags.alignment.toByteUnitsOptional() orelse elem_ty.abiAlignment(mod),
         );
-        const ptr_kind: Builder.MemoryAccessKind = switch (info.flags.is_volatile) {
-            false => .normal,
-            true => .@"volatile",
-        };
+        const access_kind: Builder.MemoryAccessKind =
+            if (info.flags.is_volatile) .@"volatile" else .normal;
 
         assert(info.flags.vector_index != .runtime);
         if (info.flags.vector_index != .none) {
@@ -10343,19 +10337,20 @@ pub const FuncGen = struct {
             const vec_elem_ty = try o.lowerType(elem_ty);
             const vec_ty = try o.builder.vectorType(.normal, info.packed_offset.host_size, vec_elem_ty);
 
-            const loaded_vector = try self.wip.load(ptr_kind, vec_ty, ptr, ptr_alignment, "");
+            const loaded_vector = try self.wip.load(access_kind, vec_ty, ptr, ptr_alignment, "");
             return self.wip.extractElement(loaded_vector, index_u32, "");
         }
 
         if (info.packed_offset.host_size == 0) {
             if (isByRef(elem_ty, mod)) {
-                return self.loadByRef(ptr, elem_ty, ptr_alignment, info.flags.is_volatile);
+                return self.loadByRef(ptr, elem_ty, ptr_alignment, access_kind);
             }
-            return self.wip.load(ptr_kind, try o.lowerType(elem_ty), ptr, ptr_alignment, "");
+            return self.wip.load(access_kind, try o.lowerType(elem_ty), ptr, ptr_alignment, "");
         }
 
         const containing_int_ty = try o.builder.intType(@intCast(info.packed_offset.host_size * 8));
-        const containing_int = try self.wip.load(ptr_kind, containing_int_ty, ptr, ptr_alignment, "");
+        const containing_int =
+            try self.wip.load(access_kind, containing_int_ty, ptr, ptr_alignment, "");
 
         const elem_bits = ptr_ty.childType(mod).bitSize(mod);
         const shift_amt = try o.builder.intValue(containing_int_ty, info.packed_offset.bit_offset);
@@ -10402,10 +10397,8 @@ pub const FuncGen = struct {
             return;
         }
         const ptr_alignment = Builder.Alignment.fromByteUnits(ptr_ty.ptrAlignment(mod));
-        const ptr_kind: Builder.MemoryAccessKind = switch (info.flags.is_volatile) {
-            false => .normal,
-            true => .@"volatile",
-        };
+        const access_kind: Builder.MemoryAccessKind =
+            if (info.flags.is_volatile) .@"volatile" else .normal;
 
         assert(info.flags.vector_index != .runtime);
         if (info.flags.vector_index != .none) {
@@ -10413,12 +10406,12 @@ pub const FuncGen = struct {
             const vec_elem_ty = try o.lowerType(elem_ty);
             const vec_ty = try o.builder.vectorType(.normal, info.packed_offset.host_size, vec_elem_ty);
 
-            const loaded_vector = try self.wip.load(ptr_kind, vec_ty, ptr, ptr_alignment, "");
+            const loaded_vector = try self.wip.load(access_kind, vec_ty, ptr, ptr_alignment, "");
 
             const modified_vector = try self.wip.insertElement(loaded_vector, elem, index_u32, "");
 
             assert(ordering == .none);
-            _ = try self.wip.store(ptr_kind, modified_vector, ptr, ptr_alignment);
+            _ = try self.wip.store(access_kind, modified_vector, ptr, ptr_alignment);
             return;
         }
 
@@ -10426,7 +10419,7 @@ pub const FuncGen = struct {
             const containing_int_ty = try o.builder.intType(@intCast(info.packed_offset.host_size * 8));
             assert(ordering == .none);
             const containing_int =
-                try self.wip.load(ptr_kind, containing_int_ty, ptr, ptr_alignment, "");
+                try self.wip.load(access_kind, containing_int_ty, ptr, ptr_alignment, "");
             const elem_bits = ptr_ty.childType(mod).bitSize(mod);
             const shift_amt = try o.builder.intConst(containing_int_ty, info.packed_offset.bit_offset);
             // Convert to equally-sized integer type in order to perform the bit
@@ -10450,23 +10443,29 @@ pub const FuncGen = struct {
             const ored_value = try self.wip.bin(.@"or", shifted_value, anded_containing_int, "");
 
             assert(ordering == .none);
-            _ = try self.wip.store(ptr_kind, ored_value, ptr, ptr_alignment);
+            _ = try self.wip.store(access_kind, ored_value, ptr, ptr_alignment);
             return;
         }
         if (!isByRef(elem_ty, mod)) {
-            _ = try self.wip.storeAtomic(ptr_kind, elem, ptr, self.sync_scope, ordering, ptr_alignment);
+            _ = try self.wip.storeAtomic(
+                access_kind,
+                elem,
+                ptr,
+                self.sync_scope,
+                ordering,
+                ptr_alignment,
+            );
             return;
         }
         assert(ordering == .none);
-        const size_bytes = elem_ty.abiSize(mod);
-        _ = (try self.wip.unimplemented(.void, "")).finish(self.builder.buildMemCpy(
-            ptr.toLlvm(&self.wip),
-            @intCast(ptr_alignment.toByteUnits() orelse 0),
-            elem.toLlvm(&self.wip),
-            elem_ty.abiAlignment(mod),
-            (try o.builder.intConst(try o.lowerType(Type.usize), size_bytes)).toLlvm(&o.builder),
-            info.flags.is_volatile,
-        ), &self.wip);
+        _ = try self.wip.callMemCpy(
+            ptr,
+            ptr_alignment,
+            elem,
+            Builder.Alignment.fromByteUnits(elem_ty.abiAlignment(mod)),
+            try o.builder.intValue(try o.lowerType(Type.usize), elem_ty.abiSize(mod)),
+            access_kind,
+        );
     }
 
     fn valgrindMarkUndef(fg: *FuncGen, ptr: Builder.Value, len: Builder.Value) Allocator.Error!void {
