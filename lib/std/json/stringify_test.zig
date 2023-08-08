@@ -171,6 +171,11 @@ test "stringify enums" {
     try testStringify("\"bar\"", E.bar, .{});
 }
 
+test "stringify enum literals" {
+    try testStringify("\"foo\"", .foo, .{});
+    try testStringify("\"bar\"", .bar, .{});
+}
+
 test "stringify tagged unions" {
     const T = union(enum) {
         nothing,

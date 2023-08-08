@@ -452,7 +452,7 @@ pub fn WriteStream(
                         return try self.write(null);
                     }
                 },
-                .Enum => {
+                .Enum, .EnumLiteral => {
                     if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
                         return value.jsonStringify(self);
                     }
