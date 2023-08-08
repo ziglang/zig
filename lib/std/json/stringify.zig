@@ -178,6 +178,7 @@ pub fn writeStreamArbitraryDepth(
 ///      * If the union declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
 ///  * Zig `enum` -> JSON string naming the active tag.
 ///      * If the enum declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
+///  * Zig untyped enum literal -> JSON string naming the active tag.
 ///  * Zig error -> JSON string naming the error.
 ///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
 ///
