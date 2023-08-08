@@ -1071,13 +1071,8 @@ pub fn readElfDebugInfo(
     parent_mapped_mem: ?[]align(mem.page_size) const u8,
 ) !ModuleDebugInfo {
     nosuspend {
-
-        // TODO https://github.com/ziglang/zig/issues/5525
         const elf_file = (if (elf_filename) |filename| blk: {
-            break :blk if (fs.path.isAbsolute(filename))
-                fs.openFileAbsolute(filename, .{ .intended_io_mode = .blocking })
-            else
-                fs.cwd().openFile(filename, .{ .intended_io_mode = .blocking });
+            break :blk fs.cwd().openFile(filename, .{ .intended_io_mode = .blocking });
         } else fs.openSelfExe(.{ .intended_io_mode = .blocking })) catch |err| switch (err) {
             error.FileNotFound => return error.MissingDebugInfo,
             else => return err,
@@ -1702,7 +1697,7 @@ pub const DebugInfo = struct {
                 // a binary is produced with -gdwarf, since the section names are longer than 8 bytes.
                 if (coff_obj.strtabRequired()) {
                     var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
-                    // openFileAbsoluteW requires the prefix to be present
+                    // openFileW requires the NT namespace prefix to be present
                     mem.copy(u16, name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
 
                     const process_handle = windows.kernel32.GetCurrentProcess();
@@ -1714,7 +1709,7 @@ pub const DebugInfo = struct {
                     );
 
                     if (len == 0) return error.MissingDebugInfo;
-                    const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
+                    const coff_file = fs.cwd().openFileW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
                         error.FileNotFound => return error.MissingDebugInfo,
                         else => return err,
                     };

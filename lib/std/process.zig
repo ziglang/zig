@@ -967,7 +967,7 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
 /// TODO this reads /etc/passwd. But sometimes the user/id mapping is in something else
 /// like NIS, AD, etc. See `man nss` or look at an strace for `id myuser`.
 pub fn posixGetUserInfo(name: []const u8) !UserInfo {
-    const file = try std.fs.openFileAbsolute("/etc/passwd", .{});
+    const file = try std.fs.cwd().openFile("/etc/passwd", .{});
     defer file.close();
 
     const reader = file.reader();
@@ -1207,7 +1207,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
 }
 
 fn totalSystemMemoryLinux() !usize {
-    var file = try std.fs.openFileAbsoluteZ("/proc/meminfo", .{});
+    var file = try std.fs.cwd().openFileZ("/proc/meminfo", .{});
     defer file.close();
     var buf: [50]u8 = undefined;
     const amt = try file.read(&buf);

@@ -476,7 +476,7 @@ pub const Windows81Sdk = struct {
             if (!std.fs.path.isAbsolute(sdk_lib_dir_path)) return error.Windows81SdkNotFound;
 
             // enumerate files in sdk path looking for latest version
-            var sdk_lib_dir = std.fs.openIterableDirAbsolute(sdk_lib_dir_path, .{}) catch |err| switch (err) {
+            var sdk_lib_dir = std.fs.cwd().openIterableDir(sdk_lib_dir_path, .{}) catch |err| switch (err) {
                 error.NameTooLong => return error.PathTooLong,
                 else => return error.Windows81SdkNotFound,
             };
@@ -727,7 +727,7 @@ const MsvcLibDir = struct {
             if (!std.fs.path.isAbsolute(visualstudio_folder_path)) return error.PathNotFound;
             // enumerate folders that contain `privateregistry.bin`, looking for all versions
             // f.i. %localappdata%\Microsoft\VisualStudio\17.0_9e9cbb98\
-            var visualstudio_folder = std.fs.openIterableDirAbsolute(visualstudio_folder_path, .{}) catch return error.PathNotFound;
+            var visualstudio_folder = std.fs.cwd().openIterableDir(visualstudio_folder_path, .{}) catch return error.PathNotFound;
             defer visualstudio_folder.close();
 
             var iterator = visualstudio_folder.iterate();
@@ -874,7 +874,7 @@ const MsvcLibDir = struct {
     fn verifyLibDir(lib_dir_path: []const u8) bool {
         std.debug.assert(std.fs.path.isAbsolute(lib_dir_path)); // should be already handled in `findVia*`
 
-        var dir = std.fs.openDirAbsolute(lib_dir_path, .{}) catch return false;
+        var dir = std.fs.cwd().openDir(lib_dir_path, .{}) catch return false;
         defer dir.close();
 
         const stat = dir.statFile("vcruntime.lib") catch return false;

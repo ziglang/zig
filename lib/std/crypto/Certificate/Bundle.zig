@@ -96,7 +96,7 @@ fn rescanLinux(cb: *Bundle, gpa: Allocator) RescanLinuxError!void {
 
     scan: {
         for (cert_file_paths) |cert_file_path| {
-            if (addCertsFromFilePathAbsolute(cb, gpa, cert_file_path)) |_| {
+            if (addCertsFromFilePath(cb, gpa, std.fs.cwd(), cert_file_path)) |_| {
                 break :scan;
             } else |err| switch (err) {
                 error.FileNotFound => continue,
@@ -105,7 +105,7 @@ fn rescanLinux(cb: *Bundle, gpa: Allocator) RescanLinuxError!void {
         }
 
         for (cert_dir_paths) |cert_dir_path| {
-            addCertsFromDirPathAbsolute(cb, gpa, cert_dir_path) catch |err| switch (err) {
+            addCertsFromDirPath(cb, gpa, std.fs.cwd(), cert_dir_path) catch |err| switch (err) {
                 error.FileNotFound => continue,
                 else => |e| return e,
             };
@@ -120,7 +120,7 @@ const RescanBSDError = AddCertsFromFilePathError;
 fn rescanBSD(cb: *Bundle, gpa: Allocator, cert_file_path: []const u8) RescanBSDError!void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
-    try addCertsFromFilePathAbsolute(cb, gpa, cert_file_path);
+    try addCertsFromFilePath(cb, gpa, std.fs.cwd(), cert_file_path);
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
@@ -164,17 +164,6 @@ pub fn addCertsFromDirPath(
     return addCertsFromDir(cb, gpa, iterable_dir);
 }
 
-pub fn addCertsFromDirPathAbsolute(
-    cb: *Bundle,
-    gpa: Allocator,
-    abs_dir_path: []const u8,
-) AddCertsFromDirPathError!void {
-    assert(fs.path.isAbsolute(abs_dir_path));
-    var iterable_dir = try fs.openIterableDirAbsolute(abs_dir_path, .{});
-    defer iterable_dir.close();
-    return addCertsFromDir(cb, gpa, iterable_dir);
-}
-
 pub const AddCertsFromDirError = AddCertsFromFilePathError;
 
 pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir) AddCertsFromDirError!void {
@@ -190,17 +179,6 @@ pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir
 }
 
 pub const AddCertsFromFilePathError = fs.File.OpenError || AddCertsFromFileError;
-
-pub fn addCertsFromFilePathAbsolute(
-    cb: *Bundle,
-    gpa: Allocator,
-    abs_file_path: []const u8,
-) AddCertsFromFilePathError!void {
-    assert(fs.path.isAbsolute(abs_file_path));
-    var file = try fs.openFileAbsolute(abs_file_path, .{});
-    defer file.close();
-    return addCertsFromFile(cb, gpa, file);
-}
 
 pub fn addCertsFromFilePath(
     cb: *Bundle,

@@ -11,7 +11,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
 
-    const file = try fs.openFileAbsolute("/System/Library/Keychains/SystemRootCertificates.keychain", .{});
+    const file = try fs.cwd().openFile("/System/Library/Keychains/SystemRootCertificates.keychain", .{});
     defer file.close();
 
     const bytes = try file.readToEndAlloc(gpa, std.math.maxInt(u32));

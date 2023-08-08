@@ -320,7 +320,7 @@ fn detectAbiAndDynamicLinker(
         // #! (2) + 255 (max length of shebang line since Linux 5.1) + \n (1)
         var buffer: [258]u8 = undefined;
         while (true) {
-            const file = fs.openFileAbsolute(file_name, .{}) catch |err| switch (err) {
+            const file = fs.cwd().openFile(file_name, .{}) catch |err| switch (err) {
                 error.NoSpaceLeft => unreachable,
                 error.NameTooLong => unreachable,
                 error.PathAlreadyExists => unreachable,
