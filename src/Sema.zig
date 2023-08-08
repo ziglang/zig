@@ -7908,6 +7908,8 @@ fn instantiateGenericCall(
     const callee = mod.funcInfo(callee_index);
     callee.branchQuota(ip).* = @max(callee.branchQuota(ip).*, sema.branch_quota);
 
+    try sema.addReferencedBy(block, call_src, callee.owner_decl);
+
     // Make a runtime call to the new function, making sure to omit the comptime args.
     const func_ty = callee.ty.toType();
     const func_ty_info = mod.typeToFunc(func_ty).?;
