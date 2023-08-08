@@ -1079,7 +1079,8 @@ pub const Object = struct {
             // Same logic as below but for externs instead of exports.
             const decl_name = object.builder.stringIfExists(mod.intern_pool.stringToSlice(mod.declPtr(decl_index).name)) orelse continue;
             const other_global = object.builder.getGlobal(decl_name) orelse continue;
-            if (other_global.eql(global, &object.builder)) continue;
+            if (other_global.toConst().getBase(&object.builder) ==
+                global.toConst().getBase(&object.builder)) continue;
 
             try global.replace(other_global, &object.builder);
         }
@@ -1087,13 +1088,14 @@ pub const Object = struct {
 
         for (mod.decl_exports.keys(), mod.decl_exports.values()) |decl_index, export_list| {
             const global = object.decl_map.get(decl_index) orelse continue;
+            const global_base = global.toConst().getBase(&object.builder);
             for (export_list.items) |exp| {
                 // Detect if the LLVM global has already been created as an extern. In such
                 // case, we need to replace all uses of it with this exported global.
                 const exp_name = object.builder.stringIfExists(mod.intern_pool.stringToSlice(exp.opts.name)) orelse continue;
 
                 const other_global = object.builder.getGlobal(exp_name) orelse continue;
-                if (other_global.eql(global, &object.builder)) continue;
+                if (other_global.toConst().getBase(&object.builder) == global_base) continue;
 
                 try global.takeName(other_global, &object.builder);
                 try other_global.replace(global, &object.builder);
@@ -1714,7 +1716,7 @@ pub const Object = struct {
                         try self.builder.string(section),
                         &self.builder,
                     ),
-                    else => unreachable,
+                    .alias, .replaced => unreachable,
                 };
             if (decl.val.getVariable(mod)) |decl_var| if (decl_var.is_threadlocal)
                 global_index.ptrConst(&self.builder).kind
@@ -1735,15 +1737,16 @@ pub const Object = struct {
                             continue;
                         },
                         .variable, .function => {},
-                        else => unreachable,
+                        .replaced => unreachable,
                     }
                 }
-                _ = try self.builder.addAlias(
-                    exp_name,
+                const alias_index = try self.builder.addAlias(
+                    .empty,
                     global_index.typeOf(&self.builder),
                     .default,
                     global_index.toConst(),
                 );
+                try alias_index.rename(exp_name, &self.builder);
             }
         } else {
             const fqn = try self.builder.string(
@@ -7703,7 +7706,7 @@ pub const FuncGen = struct {
         if (o.builder.getGlobal(fn_name)) |global| return switch (global.ptrConst(&o.builder).kind) {
             .alias => |alias| alias.getAliasee(&o.builder).ptrConst(&o.builder).kind.function,
             .function => |function| function,
-            else => unreachable,
+            .variable, .replaced => unreachable,
         };
         return o.builder.addFunction(
             try o.builder.fnType(return_type, param_types, .normal),
@@ -7751,11 +7754,7 @@ pub const FuncGen = struct {
         };
         const fn_name = try o.builder.fmt("__{s}{s}f2", .{ fn_base_name, compiler_rt_float_abbrev });
 
-        const libc_fn = try self.getLibcFunction(
-            fn_name,
-            ([1]Builder.Type{scalar_llvm_ty} ** 2)[0..],
-            .i32,
-        );
+        const libc_fn = try self.getLibcFunction(fn_name, &.{ scalar_llvm_ty, scalar_llvm_ty }, .i32);
 
         const zero = try o.builder.intConst(.i32, 0);
         const int_cond: Builder.IntegerCondition = switch (pred) {

@@ -2320,6 +2320,10 @@ pub const Alias = struct {
             return self.ptrConst(builder).global.name(builder);
         }
 
+        pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
+            return self.ptrConst(builder).global.rename(new_name, builder);
+        }
+
         pub fn typeOf(self: Index, builder: *const Builder) Type {
             return self.ptrConst(builder).global.typeOf(builder);
         }
@@ -2371,6 +2375,10 @@ pub const Variable = struct {
 
         pub fn name(self: Index, builder: *const Builder) String {
             return self.ptrConst(builder).global.name(builder);
+        }
+
+        pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
+            return self.ptrConst(builder).global.rename(new_name, builder);
         }
 
         pub fn typeOf(self: Index, builder: *const Builder) Type {
@@ -3810,6 +3818,10 @@ pub const Function = struct {
 
         pub fn name(self: Index, builder: *const Builder) String {
             return self.ptrConst(builder).global.name(builder);
+        }
+
+        pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
+            return self.ptrConst(builder).global.rename(new_name, builder);
         }
 
         pub fn typeOf(self: Index, builder: *const Builder) Type {
@@ -9393,518 +9405,521 @@ pub fn printUnbuffered(
         need_newline = true;
     }
 
-    var attribute_groups: std.AutoArrayHashMapUnmanaged(Attributes, void) = .{};
-    defer attribute_groups.deinit(self.gpa);
-
-    if (self.functions.items.len > 0) {
+    if (self.aliases.items.len > 0) {
         if (need_newline) try writer.writeByte('\n');
-        for (0.., self.functions.items) |function_i, function| {
-            if (function_i > 0) try writer.writeByte('\n');
-            const function_index: Function.Index = @enumFromInt(function_i);
-            if (function.global.getReplacement(self) != .none) continue;
-            const global = function.global.ptrConst(self);
-            const params_len = global.type.functionParameters(self).len;
-            const function_attributes = function.attributes.func(self);
-            if (function_attributes != .none) try writer.print(
-                \\; Function Attrs:{}
-                \\
-            , .{function_attributes.fmt(self)});
+        for (self.aliases.items) |alias| {
+            if (alias.global.getReplacement(self) != .none) continue;
+            const global = alias.global.ptrConst(self);
             try writer.print(
-                \\{s}{}{}{}{}{}{"} {} {}(
+                \\{} ={}{}{}{}{ }{} alias {%}, {%}
+                \\
             , .{
-                if (function.instructions.len > 0) "define" else "declare",
+                alias.global.fmt(self),
                 global.linkage,
                 global.preemption,
                 global.visibility,
                 global.dll_storage_class,
-                function.call_conv,
-                function.attributes.ret(self).fmt(self),
-                global.type.functionReturn(self).fmt(self),
-                function.global.fmt(self),
+                alias.thread_local,
+                global.unnamed_addr,
+                global.type.fmt(self),
+                alias.aliasee.fmt(self),
             });
-            for (0..params_len) |arg| {
-                if (arg > 0) try writer.writeAll(", ");
-                try writer.print(
-                    \\{%}{"}
-                , .{
-                    global.type.functionParameters(self)[arg].fmt(self),
-                    function.attributes.param(arg, self).fmt(self),
-                });
-                if (function.instructions.len > 0)
-                    try writer.print(" {}", .{function.arg(@intCast(arg)).fmt(function_index, self)})
-                else
-                    try writer.print(" %{d}", .{arg});
-            }
-            switch (global.type.functionKind(self)) {
-                .normal => {},
-                .vararg => {
-                    if (params_len > 0) try writer.writeAll(", ");
-                    try writer.writeAll("...");
-                },
-            }
-            try writer.print("){}{ }", .{ global.unnamed_addr, global.addr_space });
-            if (function_attributes != .none) try writer.print(" #{d}", .{
-                (try attribute_groups.getOrPutValue(self.gpa, function_attributes, {})).index,
-            });
-            try writer.print("{ }", .{function.alignment});
-            if (function.instructions.len > 0) {
-                var block_incoming_len: u32 = undefined;
-                try writer.writeAll(" {\n");
-                for (params_len..function.instructions.len) |instruction_i| {
-                    const instruction_index: Function.Instruction.Index = @enumFromInt(instruction_i);
-                    const instruction = function.instructions.get(@intFromEnum(instruction_index));
-                    switch (instruction.tag) {
-                        .add,
-                        .@"add nsw",
-                        .@"add nuw",
-                        .@"add nuw nsw",
-                        .@"and",
-                        .ashr,
-                        .@"ashr exact",
-                        .fadd,
-                        .@"fadd fast",
-                        .@"fcmp false",
-                        .@"fcmp fast false",
-                        .@"fcmp fast oeq",
-                        .@"fcmp fast oge",
-                        .@"fcmp fast ogt",
-                        .@"fcmp fast ole",
-                        .@"fcmp fast olt",
-                        .@"fcmp fast one",
-                        .@"fcmp fast ord",
-                        .@"fcmp fast true",
-                        .@"fcmp fast ueq",
-                        .@"fcmp fast uge",
-                        .@"fcmp fast ugt",
-                        .@"fcmp fast ule",
-                        .@"fcmp fast ult",
-                        .@"fcmp fast une",
-                        .@"fcmp fast uno",
-                        .@"fcmp oeq",
-                        .@"fcmp oge",
-                        .@"fcmp ogt",
-                        .@"fcmp ole",
-                        .@"fcmp olt",
-                        .@"fcmp one",
-                        .@"fcmp ord",
-                        .@"fcmp true",
-                        .@"fcmp ueq",
-                        .@"fcmp uge",
-                        .@"fcmp ugt",
-                        .@"fcmp ule",
-                        .@"fcmp ult",
-                        .@"fcmp une",
-                        .@"fcmp uno",
-                        .fdiv,
-                        .@"fdiv fast",
-                        .fmul,
-                        .@"fmul fast",
-                        .frem,
-                        .@"frem fast",
-                        .fsub,
-                        .@"fsub fast",
-                        .@"icmp eq",
-                        .@"icmp ne",
-                        .@"icmp sge",
-                        .@"icmp sgt",
-                        .@"icmp sle",
-                        .@"icmp slt",
-                        .@"icmp uge",
-                        .@"icmp ugt",
-                        .@"icmp ule",
-                        .@"icmp ult",
-                        .lshr,
-                        .@"lshr exact",
-                        .mul,
-                        .@"mul nsw",
-                        .@"mul nuw",
-                        .@"mul nuw nsw",
-                        .@"or",
-                        .sdiv,
-                        .@"sdiv exact",
-                        .srem,
-                        .shl,
-                        .@"shl nsw",
-                        .@"shl nuw",
-                        .@"shl nuw nsw",
-                        .sub,
-                        .@"sub nsw",
-                        .@"sub nuw",
-                        .@"sub nuw nsw",
-                        .udiv,
-                        .@"udiv exact",
-                        .urem,
-                        .xor,
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Binary, instruction.data);
-                            try writer.print("  %{} = {s} {%}, {}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.lhs.fmt(function_index, self),
-                                extra.rhs.fmt(function_index, self),
-                            });
-                        },
-                        .addrspacecast,
-                        .bitcast,
-                        .fpext,
-                        .fptosi,
-                        .fptoui,
-                        .fptrunc,
-                        .inttoptr,
-                        .ptrtoint,
-                        .sext,
-                        .sitofp,
-                        .trunc,
-                        .uitofp,
-                        .zext,
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Cast, instruction.data);
-                            try writer.print("  %{} = {s} {%} to {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.val.fmt(function_index, self),
-                                extra.type.fmt(self),
-                            });
-                        },
-                        .alloca,
-                        .@"alloca inalloca",
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Alloca, instruction.data);
-                            try writer.print("  %{} = {s} {%}{,%}{, }{, }\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.type.fmt(self),
-                                extra.len.fmt(function_index, self),
-                                extra.info.alignment,
-                                extra.info.addr_space,
-                            });
-                        },
-                        .arg => unreachable,
-                        .atomicrmw => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.AtomicRmw, instruction.data);
-                            try writer.print("  %{} = {s}{ } {s} {%}, {%}{ }{ }{, }\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.info.access_kind,
-                                @tagName(extra.info.atomic_rmw_operation),
-                                extra.ptr.fmt(function_index, self),
-                                extra.val.fmt(function_index, self),
-                                extra.info.sync_scope,
-                                extra.info.success_ordering,
-                                extra.info.alignment,
-                            });
-                        },
-                        .block => {
-                            block_incoming_len = instruction.data;
-                            const name = instruction_index.name(&function);
-                            if (@intFromEnum(instruction_index) > params_len)
-                                try writer.writeByte('\n');
-                            try writer.print("{}:\n", .{name.fmt(self)});
-                        },
-                        .br => |tag| {
-                            const target: Function.Block.Index = @enumFromInt(instruction.data);
-                            try writer.print("  {s} {%}\n", .{
-                                @tagName(tag), target.toInst(&function).fmt(function_index, self),
-                            });
-                        },
-                        .br_cond => {
-                            const extra =
-                                function.extraData(Function.Instruction.BrCond, instruction.data);
-                            try writer.print("  br {%}, {%}, {%}\n", .{
-                                extra.cond.fmt(function_index, self),
-                                extra.then.toInst(&function).fmt(function_index, self),
-                                extra.@"else".toInst(&function).fmt(function_index, self),
-                            });
-                        },
-                        .call,
-                        .@"call fast",
-                        .@"musttail call",
-                        .@"musttail call fast",
-                        .@"notail call",
-                        .@"notail call fast",
-                        .@"tail call",
-                        .@"tail call fast",
-                        => |tag| {
-                            var extra =
-                                function.extraDataTrail(Function.Instruction.Call, instruction.data);
-                            const args = extra.trail.next(extra.data.args_len, Value, &function);
-                            try writer.writeAll("  ");
-                            const ret_ty = extra.data.ty.functionReturn(self);
-                            switch (ret_ty) {
-                                .void => {},
-                                else => try writer.print("%{} = ", .{
-                                    instruction_index.name(&function).fmt(self),
-                                }),
-                                .none => unreachable,
-                            }
-                            try writer.print("{s}{}{}{} {%} {}(", .{
-                                @tagName(tag),
-                                extra.data.info.call_conv,
-                                extra.data.attributes.ret(self).fmt(self),
-                                extra.data.callee.typeOf(function_index, self).pointerAddrSpace(self),
-                                switch (extra.data.ty.functionKind(self)) {
-                                    .normal => ret_ty,
-                                    .vararg => extra.data.ty,
-                                }.fmt(self),
-                                extra.data.callee.fmt(function_index, self),
-                            });
-                            for (0.., args) |arg_index, arg| {
-                                if (arg_index > 0) try writer.writeAll(", ");
-                                try writer.print("{%}{} {}", .{
-                                    arg.typeOf(function_index, self).fmt(self),
-                                    extra.data.attributes.param(arg_index, self).fmt(self),
-                                    arg.fmt(function_index, self),
-                                });
-                            }
-                            try writer.writeByte(')');
-                            const call_function_attributes = extra.data.attributes.func(self);
-                            if (call_function_attributes != .none) try writer.print(" #{d}", .{
-                                (try attribute_groups.getOrPutValue(
-                                    self.gpa,
-                                    call_function_attributes,
-                                    {},
-                                )).index,
-                            });
-                            try writer.writeByte('\n');
-                        },
-                        .cmpxchg,
-                        .@"cmpxchg weak",
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.CmpXchg, instruction.data);
-                            try writer.print("  %{} = {s}{ } {%}, {%}, {%}{ }{ }{ }{, }\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.info.access_kind,
-                                extra.ptr.fmt(function_index, self),
-                                extra.cmp.fmt(function_index, self),
-                                extra.new.fmt(function_index, self),
-                                extra.info.sync_scope,
-                                extra.info.success_ordering,
-                                extra.info.failure_ordering,
-                                extra.info.alignment,
-                            });
-                        },
-                        .extractelement => |tag| {
-                            const extra = function.extraData(
-                                Function.Instruction.ExtractElement,
-                                instruction.data,
-                            );
-                            try writer.print("  %{} = {s} {%}, {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.val.fmt(function_index, self),
-                                extra.index.fmt(function_index, self),
-                            });
-                        },
-                        .extractvalue => |tag| {
-                            var extra = function.extraDataTrail(
-                                Function.Instruction.ExtractValue,
-                                instruction.data,
-                            );
-                            const indices = extra.trail.next(extra.data.indices_len, u32, &function);
-                            try writer.print("  %{} = {s} {%}", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.data.val.fmt(function_index, self),
-                            });
-                            for (indices) |index| try writer.print(", {d}", .{index});
-                            try writer.writeByte('\n');
-                        },
-                        .fence => |tag| {
-                            const info: MemoryAccessInfo = @bitCast(instruction.data);
-                            try writer.print("  {s}{ }{ }", .{
-                                @tagName(tag),
-                                info.sync_scope,
-                                info.success_ordering,
-                            });
-                        },
-                        .fneg,
-                        .@"fneg fast",
-                        => |tag| {
-                            const val: Value = @enumFromInt(instruction.data);
-                            try writer.print("  %{} = {s} {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                val.fmt(function_index, self),
-                            });
-                        },
-                        .getelementptr,
-                        .@"getelementptr inbounds",
-                        => |tag| {
-                            var extra = function.extraDataTrail(
-                                Function.Instruction.GetElementPtr,
-                                instruction.data,
-                            );
-                            const indices = extra.trail.next(extra.data.indices_len, Value, &function);
-                            try writer.print("  %{} = {s} {%}, {%}", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.data.type.fmt(self),
-                                extra.data.base.fmt(function_index, self),
-                            });
-                            for (indices) |index| try writer.print(", {%}", .{
-                                index.fmt(function_index, self),
-                            });
-                            try writer.writeByte('\n');
-                        },
-                        .insertelement => |tag| {
-                            const extra = function.extraData(
-                                Function.Instruction.InsertElement,
-                                instruction.data,
-                            );
-                            try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.val.fmt(function_index, self),
-                                extra.elem.fmt(function_index, self),
-                                extra.index.fmt(function_index, self),
-                            });
-                        },
-                        .insertvalue => |tag| {
-                            var extra = function.extraDataTrail(
-                                Function.Instruction.InsertValue,
-                                instruction.data,
-                            );
-                            const indices = extra.trail.next(extra.data.indices_len, u32, &function);
-                            try writer.print("  %{} = {s} {%}, {%}", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.data.val.fmt(function_index, self),
-                                extra.data.elem.fmt(function_index, self),
-                            });
-                            for (indices) |index| try writer.print(", {d}", .{index});
-                            try writer.writeByte('\n');
-                        },
-                        .load,
-                        .@"load atomic",
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Load, instruction.data);
-                            try writer.print("  %{} = {s}{ } {%}, {%}{ }{ }{, }\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.info.access_kind,
-                                extra.type.fmt(self),
-                                extra.ptr.fmt(function_index, self),
-                                extra.info.sync_scope,
-                                extra.info.success_ordering,
-                                extra.info.alignment,
-                            });
-                        },
-                        .phi,
-                        .@"phi fast",
-                        => |tag| {
-                            var extra =
-                                function.extraDataTrail(Function.Instruction.Phi, instruction.data);
-                            const vals = extra.trail.next(block_incoming_len, Value, &function);
-                            const blocks =
-                                extra.trail.next(block_incoming_len, Function.Block.Index, &function);
-                            try writer.print("  %{} = {s} {%} ", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                vals[0].typeOf(function_index, self).fmt(self),
-                            });
-                            for (0.., vals, blocks) |incoming_index, incoming_val, incoming_block| {
-                                if (incoming_index > 0) try writer.writeAll(", ");
-                                try writer.print("[ {}, {} ]", .{
-                                    incoming_val.fmt(function_index, self),
-                                    incoming_block.toInst(&function).fmt(function_index, self),
-                                });
-                            }
-                            try writer.writeByte('\n');
-                        },
-                        .ret => |tag| {
-                            const val: Value = @enumFromInt(instruction.data);
-                            try writer.print("  {s} {%}\n", .{
-                                @tagName(tag),
-                                val.fmt(function_index, self),
-                            });
-                        },
-                        .@"ret void",
-                        .@"unreachable",
-                        => |tag| try writer.print("  {s}\n", .{@tagName(tag)}),
-                        .select,
-                        .@"select fast",
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Select, instruction.data);
-                            try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.cond.fmt(function_index, self),
-                                extra.lhs.fmt(function_index, self),
-                                extra.rhs.fmt(function_index, self),
-                            });
-                        },
-                        .shufflevector => |tag| {
-                            const extra = function.extraData(
-                                Function.Instruction.ShuffleVector,
-                                instruction.data,
-                            );
-                            try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.lhs.fmt(function_index, self),
-                                extra.rhs.fmt(function_index, self),
-                                extra.mask.fmt(function_index, self),
-                            });
-                        },
-                        .store,
-                        .@"store atomic",
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Store, instruction.data);
-                            try writer.print("  {s}{ } {%}, {%}{ }{ }{, }\n", .{
-                                @tagName(tag),
-                                extra.info.access_kind,
-                                extra.val.fmt(function_index, self),
-                                extra.ptr.fmt(function_index, self),
-                                extra.info.sync_scope,
-                                extra.info.success_ordering,
-                                extra.info.alignment,
-                            });
-                        },
-                        .@"switch" => |tag| {
-                            var extra =
-                                function.extraDataTrail(Function.Instruction.Switch, instruction.data);
-                            const vals = extra.trail.next(extra.data.cases_len, Constant, &function);
-                            const blocks =
-                                extra.trail.next(extra.data.cases_len, Function.Block.Index, &function);
-                            try writer.print("  {s} {%}, {%} [\n", .{
-                                @tagName(tag),
-                                extra.data.val.fmt(function_index, self),
-                                extra.data.default.toInst(&function).fmt(function_index, self),
-                            });
-                            for (vals, blocks) |case_val, case_block| try writer.print(
-                                "    {%}, {%}\n",
-                                .{
-                                    case_val.fmt(self),
-                                    case_block.toInst(&function).fmt(function_index, self),
-                                },
-                            );
-                            try writer.writeAll("  ]\n");
-                        },
-                        .va_arg => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.VaArg, instruction.data);
-                            try writer.print("  %{} = {s} {%}, {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.list.fmt(function_index, self),
-                                extra.type.fmt(self),
-                            });
-                        },
-                    }
-                }
-                try writer.writeByte('}');
-            }
-            try writer.writeByte('\n');
         }
+        need_newline = true;
+    }
+
+    var attribute_groups: std.AutoArrayHashMapUnmanaged(Attributes, void) = .{};
+    defer attribute_groups.deinit(self.gpa);
+
+    for (0.., self.functions.items) |function_i, function| {
+        if (function.global.getReplacement(self) != .none) continue;
+        if (need_newline) try writer.writeByte('\n');
+        const function_index: Function.Index = @enumFromInt(function_i);
+        const global = function.global.ptrConst(self);
+        const params_len = global.type.functionParameters(self).len;
+        const function_attributes = function.attributes.func(self);
+        if (function_attributes != .none) try writer.print(
+            \\; Function Attrs:{}
+            \\
+        , .{function_attributes.fmt(self)});
+        try writer.print(
+            \\{s}{}{}{}{}{}{"} {} {}(
+        , .{
+            if (function.instructions.len > 0) "define" else "declare",
+            global.linkage,
+            global.preemption,
+            global.visibility,
+            global.dll_storage_class,
+            function.call_conv,
+            function.attributes.ret(self).fmt(self),
+            global.type.functionReturn(self).fmt(self),
+            function.global.fmt(self),
+        });
+        for (0..params_len) |arg| {
+            if (arg > 0) try writer.writeAll(", ");
+            try writer.print(
+                \\{%}{"}
+            , .{
+                global.type.functionParameters(self)[arg].fmt(self),
+                function.attributes.param(arg, self).fmt(self),
+            });
+            if (function.instructions.len > 0)
+                try writer.print(" {}", .{function.arg(@intCast(arg)).fmt(function_index, self)})
+            else
+                try writer.print(" %{d}", .{arg});
+        }
+        switch (global.type.functionKind(self)) {
+            .normal => {},
+            .vararg => {
+                if (params_len > 0) try writer.writeAll(", ");
+                try writer.writeAll("...");
+            },
+        }
+        try writer.print("){}{ }", .{ global.unnamed_addr, global.addr_space });
+        if (function_attributes != .none) try writer.print(" #{d}", .{
+            (try attribute_groups.getOrPutValue(self.gpa, function_attributes, {})).index,
+        });
+        try writer.print("{ }", .{function.alignment});
+        if (function.instructions.len > 0) {
+            var block_incoming_len: u32 = undefined;
+            try writer.writeAll(" {\n");
+            for (params_len..function.instructions.len) |instruction_i| {
+                const instruction_index: Function.Instruction.Index = @enumFromInt(instruction_i);
+                const instruction = function.instructions.get(@intFromEnum(instruction_index));
+                switch (instruction.tag) {
+                    .add,
+                    .@"add nsw",
+                    .@"add nuw",
+                    .@"add nuw nsw",
+                    .@"and",
+                    .ashr,
+                    .@"ashr exact",
+                    .fadd,
+                    .@"fadd fast",
+                    .@"fcmp false",
+                    .@"fcmp fast false",
+                    .@"fcmp fast oeq",
+                    .@"fcmp fast oge",
+                    .@"fcmp fast ogt",
+                    .@"fcmp fast ole",
+                    .@"fcmp fast olt",
+                    .@"fcmp fast one",
+                    .@"fcmp fast ord",
+                    .@"fcmp fast true",
+                    .@"fcmp fast ueq",
+                    .@"fcmp fast uge",
+                    .@"fcmp fast ugt",
+                    .@"fcmp fast ule",
+                    .@"fcmp fast ult",
+                    .@"fcmp fast une",
+                    .@"fcmp fast uno",
+                    .@"fcmp oeq",
+                    .@"fcmp oge",
+                    .@"fcmp ogt",
+                    .@"fcmp ole",
+                    .@"fcmp olt",
+                    .@"fcmp one",
+                    .@"fcmp ord",
+                    .@"fcmp true",
+                    .@"fcmp ueq",
+                    .@"fcmp uge",
+                    .@"fcmp ugt",
+                    .@"fcmp ule",
+                    .@"fcmp ult",
+                    .@"fcmp une",
+                    .@"fcmp uno",
+                    .fdiv,
+                    .@"fdiv fast",
+                    .fmul,
+                    .@"fmul fast",
+                    .frem,
+                    .@"frem fast",
+                    .fsub,
+                    .@"fsub fast",
+                    .@"icmp eq",
+                    .@"icmp ne",
+                    .@"icmp sge",
+                    .@"icmp sgt",
+                    .@"icmp sle",
+                    .@"icmp slt",
+                    .@"icmp uge",
+                    .@"icmp ugt",
+                    .@"icmp ule",
+                    .@"icmp ult",
+                    .lshr,
+                    .@"lshr exact",
+                    .mul,
+                    .@"mul nsw",
+                    .@"mul nuw",
+                    .@"mul nuw nsw",
+                    .@"or",
+                    .sdiv,
+                    .@"sdiv exact",
+                    .srem,
+                    .shl,
+                    .@"shl nsw",
+                    .@"shl nuw",
+                    .@"shl nuw nsw",
+                    .sub,
+                    .@"sub nsw",
+                    .@"sub nuw",
+                    .@"sub nuw nsw",
+                    .udiv,
+                    .@"udiv exact",
+                    .urem,
+                    .xor,
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Binary, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.lhs.fmt(function_index, self),
+                            extra.rhs.fmt(function_index, self),
+                        });
+                    },
+                    .addrspacecast,
+                    .bitcast,
+                    .fpext,
+                    .fptosi,
+                    .fptoui,
+                    .fptrunc,
+                    .inttoptr,
+                    .ptrtoint,
+                    .sext,
+                    .sitofp,
+                    .trunc,
+                    .uitofp,
+                    .zext,
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Cast, instruction.data);
+                        try writer.print("  %{} = {s} {%} to {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.val.fmt(function_index, self),
+                            extra.type.fmt(self),
+                        });
+                    },
+                    .alloca,
+                    .@"alloca inalloca",
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Alloca, instruction.data);
+                        try writer.print("  %{} = {s} {%}{,%}{, }{, }\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.type.fmt(self),
+                            extra.len.fmt(function_index, self),
+                            extra.info.alignment,
+                            extra.info.addr_space,
+                        });
+                    },
+                    .arg => unreachable,
+                    .atomicrmw => |tag| {
+                        const extra =
+                            function.extraData(Function.Instruction.AtomicRmw, instruction.data);
+                        try writer.print("  %{} = {s}{ } {s} {%}, {%}{ }{ }{, }\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.info.access_kind,
+                            @tagName(extra.info.atomic_rmw_operation),
+                            extra.ptr.fmt(function_index, self),
+                            extra.val.fmt(function_index, self),
+                            extra.info.sync_scope,
+                            extra.info.success_ordering,
+                            extra.info.alignment,
+                        });
+                    },
+                    .block => {
+                        block_incoming_len = instruction.data;
+                        const name = instruction_index.name(&function);
+                        if (@intFromEnum(instruction_index) > params_len)
+                            try writer.writeByte('\n');
+                        try writer.print("{}:\n", .{name.fmt(self)});
+                    },
+                    .br => |tag| {
+                        const target: Function.Block.Index = @enumFromInt(instruction.data);
+                        try writer.print("  {s} {%}\n", .{
+                            @tagName(tag), target.toInst(&function).fmt(function_index, self),
+                        });
+                    },
+                    .br_cond => {
+                        const extra = function.extraData(Function.Instruction.BrCond, instruction.data);
+                        try writer.print("  br {%}, {%}, {%}\n", .{
+                            extra.cond.fmt(function_index, self),
+                            extra.then.toInst(&function).fmt(function_index, self),
+                            extra.@"else".toInst(&function).fmt(function_index, self),
+                        });
+                    },
+                    .call,
+                    .@"call fast",
+                    .@"musttail call",
+                    .@"musttail call fast",
+                    .@"notail call",
+                    .@"notail call fast",
+                    .@"tail call",
+                    .@"tail call fast",
+                    => |tag| {
+                        var extra =
+                            function.extraDataTrail(Function.Instruction.Call, instruction.data);
+                        const args = extra.trail.next(extra.data.args_len, Value, &function);
+                        try writer.writeAll("  ");
+                        const ret_ty = extra.data.ty.functionReturn(self);
+                        switch (ret_ty) {
+                            .void => {},
+                            else => try writer.print("%{} = ", .{
+                                instruction_index.name(&function).fmt(self),
+                            }),
+                            .none => unreachable,
+                        }
+                        try writer.print("{s}{}{}{} {%} {}(", .{
+                            @tagName(tag),
+                            extra.data.info.call_conv,
+                            extra.data.attributes.ret(self).fmt(self),
+                            extra.data.callee.typeOf(function_index, self).pointerAddrSpace(self),
+                            switch (extra.data.ty.functionKind(self)) {
+                                .normal => ret_ty,
+                                .vararg => extra.data.ty,
+                            }.fmt(self),
+                            extra.data.callee.fmt(function_index, self),
+                        });
+                        for (0.., args) |arg_index, arg| {
+                            if (arg_index > 0) try writer.writeAll(", ");
+                            try writer.print("{%}{} {}", .{
+                                arg.typeOf(function_index, self).fmt(self),
+                                extra.data.attributes.param(arg_index, self).fmt(self),
+                                arg.fmt(function_index, self),
+                            });
+                        }
+                        try writer.writeByte(')');
+                        const call_function_attributes = extra.data.attributes.func(self);
+                        if (call_function_attributes != .none) try writer.print(" #{d}", .{
+                            (try attribute_groups.getOrPutValue(
+                                self.gpa,
+                                call_function_attributes,
+                                {},
+                            )).index,
+                        });
+                        try writer.writeByte('\n');
+                    },
+                    .cmpxchg,
+                    .@"cmpxchg weak",
+                    => |tag| {
+                        const extra =
+                            function.extraData(Function.Instruction.CmpXchg, instruction.data);
+                        try writer.print("  %{} = {s}{ } {%}, {%}, {%}{ }{ }{ }{, }\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.info.access_kind,
+                            extra.ptr.fmt(function_index, self),
+                            extra.cmp.fmt(function_index, self),
+                            extra.new.fmt(function_index, self),
+                            extra.info.sync_scope,
+                            extra.info.success_ordering,
+                            extra.info.failure_ordering,
+                            extra.info.alignment,
+                        });
+                    },
+                    .extractelement => |tag| {
+                        const extra =
+                            function.extraData(Function.Instruction.ExtractElement, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.val.fmt(function_index, self),
+                            extra.index.fmt(function_index, self),
+                        });
+                    },
+                    .extractvalue => |tag| {
+                        var extra = function.extraDataTrail(
+                            Function.Instruction.ExtractValue,
+                            instruction.data,
+                        );
+                        const indices = extra.trail.next(extra.data.indices_len, u32, &function);
+                        try writer.print("  %{} = {s} {%}", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.data.val.fmt(function_index, self),
+                        });
+                        for (indices) |index| try writer.print(", {d}", .{index});
+                        try writer.writeByte('\n');
+                    },
+                    .fence => |tag| {
+                        const info: MemoryAccessInfo = @bitCast(instruction.data);
+                        try writer.print("  {s}{ }{ }", .{
+                            @tagName(tag),
+                            info.sync_scope,
+                            info.success_ordering,
+                        });
+                    },
+                    .fneg,
+                    .@"fneg fast",
+                    => |tag| {
+                        const val: Value = @enumFromInt(instruction.data);
+                        try writer.print("  %{} = {s} {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            val.fmt(function_index, self),
+                        });
+                    },
+                    .getelementptr,
+                    .@"getelementptr inbounds",
+                    => |tag| {
+                        var extra = function.extraDataTrail(
+                            Function.Instruction.GetElementPtr,
+                            instruction.data,
+                        );
+                        const indices = extra.trail.next(extra.data.indices_len, Value, &function);
+                        try writer.print("  %{} = {s} {%}, {%}", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.data.type.fmt(self),
+                            extra.data.base.fmt(function_index, self),
+                        });
+                        for (indices) |index| try writer.print(", {%}", .{
+                            index.fmt(function_index, self),
+                        });
+                        try writer.writeByte('\n');
+                    },
+                    .insertelement => |tag| {
+                        const extra =
+                            function.extraData(Function.Instruction.InsertElement, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.val.fmt(function_index, self),
+                            extra.elem.fmt(function_index, self),
+                            extra.index.fmt(function_index, self),
+                        });
+                    },
+                    .insertvalue => |tag| {
+                        var extra =
+                            function.extraDataTrail(Function.Instruction.InsertValue, instruction.data);
+                        const indices = extra.trail.next(extra.data.indices_len, u32, &function);
+                        try writer.print("  %{} = {s} {%}, {%}", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.data.val.fmt(function_index, self),
+                            extra.data.elem.fmt(function_index, self),
+                        });
+                        for (indices) |index| try writer.print(", {d}", .{index});
+                        try writer.writeByte('\n');
+                    },
+                    .load,
+                    .@"load atomic",
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Load, instruction.data);
+                        try writer.print("  %{} = {s}{ } {%}, {%}{ }{ }{, }\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.info.access_kind,
+                            extra.type.fmt(self),
+                            extra.ptr.fmt(function_index, self),
+                            extra.info.sync_scope,
+                            extra.info.success_ordering,
+                            extra.info.alignment,
+                        });
+                    },
+                    .phi,
+                    .@"phi fast",
+                    => |tag| {
+                        var extra = function.extraDataTrail(Function.Instruction.Phi, instruction.data);
+                        const vals = extra.trail.next(block_incoming_len, Value, &function);
+                        const blocks =
+                            extra.trail.next(block_incoming_len, Function.Block.Index, &function);
+                        try writer.print("  %{} = {s} {%} ", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            vals[0].typeOf(function_index, self).fmt(self),
+                        });
+                        for (0.., vals, blocks) |incoming_index, incoming_val, incoming_block| {
+                            if (incoming_index > 0) try writer.writeAll(", ");
+                            try writer.print("[ {}, {} ]", .{
+                                incoming_val.fmt(function_index, self),
+                                incoming_block.toInst(&function).fmt(function_index, self),
+                            });
+                        }
+                        try writer.writeByte('\n');
+                    },
+                    .ret => |tag| {
+                        const val: Value = @enumFromInt(instruction.data);
+                        try writer.print("  {s} {%}\n", .{
+                            @tagName(tag),
+                            val.fmt(function_index, self),
+                        });
+                    },
+                    .@"ret void",
+                    .@"unreachable",
+                    => |tag| try writer.print("  {s}\n", .{@tagName(tag)}),
+                    .select,
+                    .@"select fast",
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Select, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.cond.fmt(function_index, self),
+                            extra.lhs.fmt(function_index, self),
+                            extra.rhs.fmt(function_index, self),
+                        });
+                    },
+                    .shufflevector => |tag| {
+                        const extra =
+                            function.extraData(Function.Instruction.ShuffleVector, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.lhs.fmt(function_index, self),
+                            extra.rhs.fmt(function_index, self),
+                            extra.mask.fmt(function_index, self),
+                        });
+                    },
+                    .store,
+                    .@"store atomic",
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Store, instruction.data);
+                        try writer.print("  {s}{ } {%}, {%}{ }{ }{, }\n", .{
+                            @tagName(tag),
+                            extra.info.access_kind,
+                            extra.val.fmt(function_index, self),
+                            extra.ptr.fmt(function_index, self),
+                            extra.info.sync_scope,
+                            extra.info.success_ordering,
+                            extra.info.alignment,
+                        });
+                    },
+                    .@"switch" => |tag| {
+                        var extra =
+                            function.extraDataTrail(Function.Instruction.Switch, instruction.data);
+                        const vals = extra.trail.next(extra.data.cases_len, Constant, &function);
+                        const blocks =
+                            extra.trail.next(extra.data.cases_len, Function.Block.Index, &function);
+                        try writer.print("  {s} {%}, {%} [\n", .{
+                            @tagName(tag),
+                            extra.data.val.fmt(function_index, self),
+                            extra.data.default.toInst(&function).fmt(function_index, self),
+                        });
+                        for (vals, blocks) |case_val, case_block| try writer.print(
+                            "    {%}, {%}\n",
+                            .{
+                                case_val.fmt(self),
+                                case_block.toInst(&function).fmt(function_index, self),
+                            },
+                        );
+                        try writer.writeAll("  ]\n");
+                    },
+                    .va_arg => |tag| {
+                        const extra = function.extraData(Function.Instruction.VaArg, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.list.fmt(function_index, self),
+                            extra.type.fmt(self),
+                        });
+                    },
+                }
+            }
+            try writer.writeByte('}');
+        }
+        try writer.writeByte('\n');
         need_newline = true;
     }
 
