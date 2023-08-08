@@ -13,6 +13,7 @@ llvm: if (build_options.have_llvm) struct {
     types: std.ArrayListUnmanaged(*llvm.Type),
     globals: std.ArrayListUnmanaged(*llvm.Value),
     constants: std.ArrayListUnmanaged(*llvm.Value),
+    replacements: std.AutoHashMapUnmanaged(*llvm.Value, Global.Index),
 } else void,
 
 source_filename: String,
@@ -1709,17 +1710,17 @@ pub const FunctionAttributes = enum(u32) {
 };
 
 pub const Linkage = enum {
-    external,
     private,
     internal,
-    available_externally,
-    linkonce,
     weak,
-    common,
-    appending,
-    extern_weak,
-    linkonce_odr,
     weak_odr,
+    linkonce,
+    linkonce_odr,
+    available_externally,
+    appending,
+    common,
+    extern_weak,
+    external,
 
     pub fn format(
         self: Linkage,
@@ -1728,6 +1729,22 @@ pub const Linkage = enum {
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         if (self != .external) try writer.print(" {s}", .{@tagName(self)});
+    }
+
+    fn toLlvm(self: Linkage) llvm.Linkage {
+        return switch (self) {
+            .private => .Private,
+            .internal => .Internal,
+            .weak => .WeakAny,
+            .weak_odr => .WeakODR,
+            .linkonce => .LinkOnceAny,
+            .linkonce_odr => .LinkOnceODR,
+            .available_externally => .AvailableExternally,
+            .appending => .Appending,
+            .common => .Common,
+            .extern_weak => .ExternalWeak,
+            .external => .External,
+        };
     }
 };
 
@@ -1759,6 +1776,14 @@ pub const Visibility = enum {
     ) @TypeOf(writer).Error!void {
         if (self != .default) try writer.print(" {s}", .{@tagName(self)});
     }
+
+    fn toLlvm(self: Visibility) llvm.Visibility {
+        return switch (self) {
+            .default => .Default,
+            .hidden => .Hidden,
+            .protected => .Protected,
+        };
+    }
 };
 
 pub const DllStorageClass = enum {
@@ -1774,6 +1799,14 @@ pub const DllStorageClass = enum {
     ) @TypeOf(writer).Error!void {
         if (self != .default) try writer.print(" {s}", .{@tagName(self)});
     }
+
+    fn toLlvm(self: DllStorageClass) llvm.DLLStorageClass {
+        return switch (self) {
+            .default => .Default,
+            .dllimport => .DLLImport,
+            .dllexport => .DLLExport,
+        };
+    }
 };
 
 pub const ThreadLocal = enum {
@@ -1785,19 +1818,27 @@ pub const ThreadLocal = enum {
 
     pub fn format(
         self: ThreadLocal,
-        comptime _: []const u8,
+        comptime prefix: []const u8,
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         if (self == .default) return;
-        try writer.writeAll(" thread_local");
-        if (self != .generaldynamic) {
-            try writer.writeByte('(');
-            try writer.writeAll(@tagName(self));
-            try writer.writeByte(')');
-        }
+        try writer.print("{s}thread_local", .{prefix});
+        if (self != .generaldynamic) try writer.print("({s})", .{@tagName(self)});
+    }
+
+    fn toLlvm(self: ThreadLocal) llvm.ThreadLocalMode {
+        return switch (self) {
+            .default => .NotThreadLocal,
+            .generaldynamic => .GeneralDynamicTLSModel,
+            .localdynamic => .LocalDynamicTLSModel,
+            .initialexec => .InitialExecTLSModel,
+            .localexec => .LocalExecTLSModel,
+        };
     }
 };
+
+pub const Mutability = enum { global, constant };
 
 pub const UnnamedAddr = enum {
     default,
@@ -2057,6 +2098,11 @@ pub const CallConv = enum(u10) {
             _ => try writer.print(" cc{d}", .{@intFromEnum(self)}),
         }
     }
+
+    fn toLlvm(self: CallConv) llvm.CallConv {
+        // These enum values appear in LLVM IR, and so are guaranteed to be stable.
+        return @enumFromInt(@intFromEnum(self));
+    }
 };
 
 pub const Global = struct {
@@ -2093,10 +2139,6 @@ pub const Global = struct {
             return self.unwrap(builder) == other.unwrap(builder);
         }
 
-        pub fn name(self: Index, builder: *const Builder) String {
-            return builder.globals.keys()[@intFromEnum(self.unwrap(builder))];
-        }
-
         pub fn ptr(self: Index, builder: *Builder) *Global {
             return &builder.globals.values()[@intFromEnum(self.unwrap(builder))];
         }
@@ -2105,12 +2147,40 @@ pub const Global = struct {
             return &builder.globals.values()[@intFromEnum(self.unwrap(builder))];
         }
 
+        pub fn name(self: Index, builder: *const Builder) String {
+            return builder.globals.keys()[@intFromEnum(self.unwrap(builder))];
+        }
+
         pub fn typeOf(self: Index, builder: *const Builder) Type {
             return self.ptrConst(builder).type;
         }
 
         pub fn toConst(self: Index) Constant {
             return @enumFromInt(@intFromEnum(Constant.first_global) + @intFromEnum(self));
+        }
+
+        pub fn setLinkage(self: Index, linkage: Linkage, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setLinkage(linkage.toLlvm());
+            self.ptr(builder).linkage = linkage;
+            self.updateDsoLocal(builder);
+        }
+
+        pub fn setVisibility(self: Index, visibility: Visibility, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setVisibility(visibility.toLlvm());
+            self.ptr(builder).visibility = visibility;
+            self.updateDsoLocal(builder);
+        }
+
+        pub fn setDllStorageClass(self: Index, class: DllStorageClass, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setDLLStorageClass(class.toLlvm());
+            self.ptr(builder).dll_storage_class = class;
+        }
+
+        pub fn setUnnamedAddr(self: Index, unnamed_addr: UnnamedAddr, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setUnnamedAddr(
+                llvm.Bool.fromBool(unnamed_addr != .default),
+            );
+            self.ptr(builder).unnamed_addr = unnamed_addr;
         }
 
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
@@ -2148,7 +2218,34 @@ pub const Global = struct {
 
         pub fn replace(self: Index, other: Index, builder: *Builder) Allocator.Error!void {
             try builder.ensureUnusedGlobalCapacity(.empty);
+            if (builder.useLibLlvm())
+                try builder.llvm.replacements.ensureUnusedCapacity(builder.gpa, 1);
             self.replaceAssumeCapacity(other, builder);
+        }
+
+        pub fn delete(self: Index, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).eraseGlobalValue();
+            self.ptr(builder).kind = .{ .replaced = .none };
+        }
+
+        fn updateDsoLocal(self: Index, builder: *Builder) void {
+            const self_ptr = self.ptr(builder);
+            switch (self_ptr.linkage) {
+                .private, .internal => {
+                    self_ptr.visibility = .default;
+                    self_ptr.dll_storage_class = .default;
+                    self_ptr.preemption = .implicit_dso_local;
+                },
+                .extern_weak => if (self_ptr.preemption == .implicit_dso_local) {
+                    self_ptr.preemption = .dso_local;
+                },
+                else => switch (self_ptr.visibility) {
+                    .default => if (self_ptr.preemption == .implicit_dso_local) {
+                        self_ptr.preemption = .dso_local;
+                    },
+                    else => self_ptr.preemption = .implicit_dso_local,
+                },
+            }
         }
 
         fn renameAssumeCapacity(self: Index, new_name: String, builder: *Builder) void {
@@ -2187,13 +2284,8 @@ pub const Global = struct {
             if (builder.useLibLlvm()) {
                 const self_llvm = self.toLlvm(builder);
                 self_llvm.replaceAllUsesWith(other.toLlvm(builder));
-                switch (self.ptr(builder).kind) {
-                    .alias,
-                    .variable,
-                    => self_llvm.deleteGlobal(),
-                    .function => self_llvm.deleteFunction(),
-                    .replaced => unreachable,
-                }
+                self_llvm.removeGlobalValue();
+                builder.llvm.replacements.putAssumeCapacityNoClobber(self_llvm, other);
             }
             self.ptr(builder).kind = .{ .replaced = other.unwrap(builder) };
         }
@@ -2205,41 +2297,16 @@ pub const Global = struct {
             };
         }
     };
-
-    pub fn updateAttributes(self: *Global) void {
-        switch (self.linkage) {
-            .private, .internal => {
-                self.visibility = .default;
-                self.dll_storage_class = .default;
-                self.preemption = .implicit_dso_local;
-            },
-            .extern_weak => if (self.preemption == .implicit_dso_local) {
-                self.preemption = .dso_local;
-            },
-            else => switch (self.visibility) {
-                .default => if (self.preemption == .implicit_dso_local) {
-                    self.preemption = .dso_local;
-                },
-                else => self.preemption = .implicit_dso_local,
-            },
-        }
-    }
 };
 
 pub const Alias = struct {
     global: Global.Index,
     thread_local: ThreadLocal = .default,
-    init: Constant = .no_init,
+    aliasee: Constant = .no_init,
 
     pub const Index = enum(u32) {
         none = std.math.maxInt(u32),
         _,
-
-        pub fn getAliasee(self: Index, builder: *const Builder) Global.Index {
-            const aliasee = self.ptrConst(builder).init.getBase(builder);
-            assert(aliasee != .none);
-            return aliasee;
-        }
 
         pub fn ptr(self: Index, builder: *Builder) *Alias {
             return &builder.aliases.items[@intFromEnum(self)];
@@ -2247,6 +2314,10 @@ pub const Alias = struct {
 
         pub fn ptrConst(self: Index, builder: *const Builder) *const Alias {
             return &builder.aliases.items[@intFromEnum(self)];
+        }
+
+        pub fn name(self: Index, builder: *const Builder) String {
+            return self.ptrConst(builder).global.name(builder);
         }
 
         pub fn typeOf(self: Index, builder: *const Builder) Type {
@@ -2261,7 +2332,18 @@ pub const Alias = struct {
             return self.toConst(builder).toValue();
         }
 
-        pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
+        pub fn getAliasee(self: Index, builder: *const Builder) Global.Index {
+            const aliasee = self.ptrConst(builder).aliasee.getBase(builder);
+            assert(aliasee != .none);
+            return aliasee;
+        }
+
+        pub fn setAliasee(self: Index, aliasee: Constant, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setAliasee(aliasee.toLlvm(builder));
+            self.ptr(builder).aliasee = aliasee;
+        }
+
+        fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
             return self.ptrConst(builder).global.toLlvm(builder);
         }
     };
@@ -2270,7 +2352,7 @@ pub const Alias = struct {
 pub const Variable = struct {
     global: Global.Index,
     thread_local: ThreadLocal = .default,
-    mutability: enum { global, constant } = .global,
+    mutability: Mutability = .global,
     init: Constant = .no_init,
     section: String = .none,
     alignment: Alignment = .default,
@@ -2287,6 +2369,10 @@ pub const Variable = struct {
             return &builder.variables.items[@intFromEnum(self)];
         }
 
+        pub fn name(self: Index, builder: *const Builder) String {
+            return self.ptrConst(builder).global.name(builder);
+        }
+
         pub fn typeOf(self: Index, builder: *const Builder) Type {
             return self.ptrConst(builder).global.typeOf(builder);
         }
@@ -2297,6 +2383,88 @@ pub const Variable = struct {
 
         pub fn toValue(self: Index, builder: *const Builder) Value {
             return self.toConst(builder).toValue();
+        }
+
+        pub fn setLinkage(self: Index, linkage: Linkage, builder: *Builder) void {
+            return self.ptrConst(builder).global.setLinkage(linkage, builder);
+        }
+
+        pub fn setUnnamedAddr(self: Index, unnamed_addr: UnnamedAddr, builder: *Builder) void {
+            return self.ptrConst(builder).global.setUnnamedAddr(unnamed_addr, builder);
+        }
+
+        pub fn setThreadLocal(self: Index, thread_local: ThreadLocal, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setThreadLocalMode(thread_local.toLlvm());
+            self.ptr(builder).thread_local = thread_local;
+        }
+
+        pub fn setMutability(self: Index, mutability: Mutability, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setGlobalConstant(
+                llvm.Bool.fromBool(mutability == .constant),
+            );
+            self.ptr(builder).mutability = mutability;
+        }
+
+        pub fn setInitializer(
+            self: Index,
+            initializer: Constant,
+            builder: *Builder,
+        ) Allocator.Error!void {
+            if (initializer != .no_init) {
+                const variable = self.ptrConst(builder);
+                const global = variable.global.ptr(builder);
+                const initializer_type = initializer.typeOf(builder);
+                if (builder.useLibLlvm() and global.type != initializer_type) {
+                    try builder.llvm.replacements.ensureUnusedCapacity(builder.gpa, 1);
+                    // LLVM does not allow us to change the type of globals. So we must
+                    // create a new global with the correct type, copy all its attributes,
+                    // and then update all references to point to the new global,
+                    // delete the original, and rename the new one to the old one's name.
+                    // This is necessary because LLVM does not support const bitcasting
+                    // a struct with padding bytes, which is needed to lower a const union value
+                    // to LLVM, when a field other than the most-aligned is active. Instead,
+                    // we must lower to an unnamed struct, and pointer cast at usage sites
+                    // of the global. Such an unnamed struct is the cause of the global type
+                    // mismatch, because we don't have the LLVM type until the *value* is created,
+                    // whereas the global needs to be created based on the type alone, because
+                    // lowering the value may reference the global as a pointer.
+                    // Related: https://github.com/ziglang/zig/issues/13265
+                    const old_global = &builder.llvm.globals.items[@intFromEnum(variable.global)];
+                    const new_global = builder.llvm.module.?.addGlobalInAddressSpace(
+                        initializer_type.toLlvm(builder),
+                        "",
+                        @intFromEnum(global.addr_space),
+                    );
+                    new_global.setLinkage(global.linkage.toLlvm());
+                    new_global.setUnnamedAddr(llvm.Bool.fromBool(global.unnamed_addr != .default));
+                    new_global.setAlignment(@intCast(variable.alignment.toByteUnits() orelse 0));
+                    if (variable.section != .none)
+                        new_global.setSection(variable.section.slice(builder).?);
+                    old_global.*.replaceAllUsesWith(new_global);
+                    builder.llvm.replacements.putAssumeCapacityNoClobber(old_global.*, variable.global);
+                    new_global.takeName(old_global.*);
+                    old_global.*.removeGlobalValue();
+                    old_global.* = new_global;
+                    self.ptr(builder).mutability = .global;
+                }
+                global.type = initializer_type;
+            }
+            if (builder.useLibLlvm()) self.toLlvm(builder).setInitializer(switch (initializer) {
+                .no_init => null,
+                else => initializer.toLlvm(builder),
+            });
+            self.ptr(builder).init = initializer;
+        }
+
+        pub fn setSection(self: Index, section: String, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setSection(section.slice(builder).?);
+            self.ptr(builder).section = section;
+        }
+
+        pub fn setAlignment(self: Index, alignment: Alignment, builder: *Builder) void {
+            if (builder.useLibLlvm())
+                self.toLlvm(builder).setAlignment(@intCast(alignment.toByteUnits() orelse 0));
+            self.ptr(builder).alignment = alignment;
         }
 
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
@@ -3640,6 +3808,10 @@ pub const Function = struct {
             return &builder.functions.items[@intFromEnum(self)];
         }
 
+        pub fn name(self: Index, builder: *const Builder) String {
+            return self.ptrConst(builder).global.name(builder);
+        }
+
         pub fn typeOf(self: Index, builder: *const Builder) Type {
             return self.ptrConst(builder).global.typeOf(builder);
         }
@@ -3650,6 +3822,19 @@ pub const Function = struct {
 
         pub fn toValue(self: Index, builder: *const Builder) Value {
             return self.toConst(builder).toValue();
+        }
+
+        pub fn setLinkage(self: Index, linkage: Linkage, builder: *Builder) void {
+            return self.ptrConst(builder).global.setLinkage(linkage, builder);
+        }
+
+        pub fn setUnnamedAddr(self: Index, unnamed_addr: UnnamedAddr, builder: *Builder) void {
+            return self.ptrConst(builder).global.setUnnamedAddr(unnamed_addr, builder);
+        }
+
+        pub fn setCallConv(self: Index, call_conv: CallConv, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setFunctionCallConv(call_conv.toLlvm());
+            self.ptr(builder).call_conv = call_conv;
         }
 
         pub fn setAttributes(
@@ -3687,12 +3872,12 @@ pub const Function = struct {
                         )) {
                             .lt => {
                                 // Removed
-                                if (old_attribute_kind.toString()) |name| {
-                                    const slice = name.slice(builder).?;
+                                if (old_attribute_kind.toString()) |attribute_name| {
+                                    const attribute_name_slice = attribute_name.slice(builder).?;
                                     llvm_function.removeStringAttributeAtIndex(
                                         llvm_attribute_index,
-                                        slice.ptr,
-                                        @intCast(slice.len),
+                                        attribute_name_slice.ptr,
+                                        @intCast(attribute_name_slice.len),
                                     );
                                 } else {
                                     const llvm_kind_id = old_attribute_kind.toLlvm(builder).*;
@@ -3730,6 +3915,17 @@ pub const Function = struct {
                 }
             }
             self.ptr(builder).attributes = new_function_attributes;
+        }
+
+        pub fn setSection(self: Index, section: String, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setSection(section.slice(builder).?);
+            self.ptr(builder).section = section;
+        }
+
+        pub fn setAlignment(self: Index, alignment: Alignment, builder: *Builder) void {
+            if (builder.useLibLlvm())
+                self.toLlvm(builder).setAlignment(@intCast(alignment.toByteUnits() orelse 0));
+            self.ptr(builder).alignment = alignment;
         }
 
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
@@ -4342,9 +4538,11 @@ pub const Function = struct {
                 return .{ .data = .{ .instruction = self, .function = function, .builder = builder } };
             }
 
-            pub fn toLlvm(self: Instruction.Index, wip: *const WipFunction) *llvm.Value {
+            fn toLlvm(self: Instruction.Index, wip: *const WipFunction) *llvm.Value {
                 assert(wip.builder.useLibLlvm());
-                return wip.llvm.instructions.items[@intFromEnum(self)];
+                const llvm_value = wip.llvm.instructions.items[@intFromEnum(self)];
+                const global = wip.builder.llvm.replacements.get(llvm_value) orelse return llvm_value;
+                return global.toLlvm(wip.builder);
             }
 
             fn llvmName(self: Instruction.Index, wip: *const WipFunction) [:0]const u8 {
@@ -4462,6 +4660,27 @@ pub const Function = struct {
                 fmax,
                 fmin,
                 none = std.math.maxInt(u5),
+
+                fn toLlvm(self: Operation) llvm.AtomicRMWBinOp {
+                    return switch (self) {
+                        .xchg => .Xchg,
+                        .add => .Add,
+                        .sub => .Sub,
+                        .@"and" => .And,
+                        .nand => .Nand,
+                        .@"or" => .Or,
+                        .xor => .Xor,
+                        .max => .Max,
+                        .min => .Min,
+                        .umax => .UMax,
+                        .umin => .UMin,
+                        .fadd => .FAdd,
+                        .fsub => .FSub,
+                        .fmax => .FMax,
+                        .fmin => .FMin,
+                        .none => unreachable,
+                    };
+                }
             };
         };
 
@@ -5245,7 +5464,7 @@ pub const WipFunction = struct {
                 instruction.llvmName(self),
             );
             if (access_kind == .@"volatile") llvm_instruction.setVolatile(.True);
-            if (ordering != .none) llvm_instruction.setOrdering(@enumFromInt(@intFromEnum(ordering)));
+            if (ordering != .none) llvm_instruction.setOrdering(ordering.toLlvm());
             if (alignment.toByteUnits()) |bytes| llvm_instruction.setAlignment(@intCast(bytes));
             self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
         }
@@ -5295,7 +5514,7 @@ pub const WipFunction = struct {
         if (self.builder.useLibLlvm()) {
             const llvm_instruction = self.llvm.builder.buildStore(val.toLlvm(self), ptr.toLlvm(self));
             if (access_kind == .@"volatile") llvm_instruction.setVolatile(.True);
-            if (ordering != .none) llvm_instruction.setOrdering(@enumFromInt(@intFromEnum(ordering)));
+            if (ordering != .none) llvm_instruction.setOrdering(ordering.toLlvm());
             if (alignment.toByteUnits()) |bytes| llvm_instruction.setAlignment(@intCast(bytes));
             self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
         }
@@ -5318,7 +5537,7 @@ pub const WipFunction = struct {
         });
         if (self.builder.useLibLlvm()) self.llvm.instructions.appendAssumeCapacity(
             self.llvm.builder.buildFence(
-                @enumFromInt(@intFromEnum(ordering)),
+                ordering.toLlvm(),
                 llvm.Bool.fromBool(sync_scope == .singlethread),
                 "",
             ),
@@ -5370,8 +5589,8 @@ pub const WipFunction = struct {
                 ptr.toLlvm(self),
                 cmp.toLlvm(self),
                 new.toLlvm(self),
-                @enumFromInt(@intFromEnum(success_ordering)),
-                @enumFromInt(@intFromEnum(failure_ordering)),
+                success_ordering.toLlvm(),
+                failure_ordering.toLlvm(),
                 llvm.Bool.fromBool(sync_scope == .singlethread),
             );
             if (kind == .weak) llvm_instruction.setWeak(.True);
@@ -5418,10 +5637,10 @@ pub const WipFunction = struct {
         });
         if (self.builder.useLibLlvm()) {
             const llvm_instruction = self.llvm.builder.buildAtomicRmw(
-                @enumFromInt(@intFromEnum(operation)),
+                operation.toLlvm(),
                 ptr.toLlvm(self),
                 val.toLlvm(self),
-                @enumFromInt(@intFromEnum(ordering)),
+                ordering.toLlvm(),
                 llvm.Bool.fromBool(sync_scope == .singlethread),
             );
             if (access_kind == .@"volatile") llvm_instruction.setVolatile(.True);
@@ -5608,25 +5827,19 @@ pub const WipFunction = struct {
 
     pub fn fcmp(
         self: *WipFunction,
+        fast: FastMathKind,
         cond: FloatCondition,
         lhs: Value,
         rhs: Value,
         name: []const u8,
     ) Allocator.Error!Value {
-        return self.cmpTag(switch (cond) {
-            inline else => |tag| @field(Instruction.Tag, "fcmp " ++ @tagName(tag)),
-        }, @intFromEnum(cond), lhs, rhs, name);
-    }
-
-    pub fn fcmpFast(
-        self: *WipFunction,
-        cond: FloatCondition,
-        lhs: Value,
-        rhs: Value,
-        name: []const u8,
-    ) Allocator.Error!Value {
-        return self.cmpTag(switch (cond) {
-            inline else => |tag| @field(Instruction.Tag, "fcmp fast " ++ @tagName(tag)),
+        return self.cmpTag(switch (fast) {
+            inline else => |fast_tag| switch (cond) {
+                inline else => |cond_tag| @field(Instruction.Tag, "fcmp " ++ switch (fast_tag) {
+                    .normal => "",
+                    .fast => "fast ",
+                } ++ @tagName(cond_tag)),
+            },
         }, @intFromEnum(cond), lhs, rhs, name);
     }
 
@@ -5684,22 +5897,16 @@ pub const WipFunction = struct {
 
     pub fn select(
         self: *WipFunction,
+        fast: FastMathKind,
         cond: Value,
         lhs: Value,
         rhs: Value,
         name: []const u8,
     ) Allocator.Error!Value {
-        return self.selectTag(.select, cond, lhs, rhs, name);
-    }
-
-    pub fn selectFast(
-        self: *WipFunction,
-        cond: Value,
-        lhs: Value,
-        rhs: Value,
-        name: []const u8,
-    ) Allocator.Error!Value {
-        return self.selectTag(.@"select fast", cond, lhs, rhs, name);
+        return self.selectTag(switch (fast) {
+            .normal => .select,
+            .fast => .@"select fast",
+        }, cond, lhs, rhs, name);
     }
 
     pub fn call(
@@ -5774,7 +5981,7 @@ pub const WipFunction = struct {
                     else => instruction.llvmName(self),
                 },
             );
-            llvm_instruction.setInstructionCallConv(@enumFromInt(@intFromEnum(call_conv)));
+            llvm_instruction.setInstructionCallConv(call_conv.toLlvm());
             llvm_instruction.setTailCallKind(switch (kind) {
                 .normal, .fast => .None,
                 .musttail, .musttail_fast => .MustTail,
@@ -5808,6 +6015,7 @@ pub const WipFunction = struct {
 
     pub fn callIntrinsic(
         self: *WipFunction,
+        fast: FastMathKind,
         function_attributes: FunctionAttributes,
         id: Intrinsic,
         overload: []const Type,
@@ -5816,7 +6024,7 @@ pub const WipFunction = struct {
     ) Allocator.Error!Value {
         const intrinsic = try self.builder.getIntrinsic(id, overload);
         return self.call(
-            .normal,
+            fast.toCallKind(),
             CallConv.default,
             function_attributes,
             intrinsic.typeOf(self.builder),
@@ -5838,6 +6046,7 @@ pub const WipFunction = struct {
         var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
         var src_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = src_align })};
         const value = try self.callIntrinsic(
+            .normal,
             try self.builder.fnAttrs(&.{
                 .none,
                 .none,
@@ -5865,6 +6074,7 @@ pub const WipFunction = struct {
     ) Allocator.Error!Instruction.Index {
         var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
         const value = try self.callIntrinsic(
+            .normal,
             try self.builder.fnAttrs(&.{ .none, .none, try self.builder.attrs(&dst_attrs) }),
             .memset,
             &.{ dst.typeOfWip(self), len.typeOfWip(self) },
@@ -6740,6 +6950,24 @@ pub const FloatCondition = enum(u4) {
     ult = 12,
     ule = 13,
     une = 14,
+
+    fn toLlvm(self: FloatCondition) llvm.RealPredicate {
+        return switch (self) {
+            .oeq => .OEQ,
+            .ogt => .OGT,
+            .oge => .OGE,
+            .olt => .OLT,
+            .ole => .OLE,
+            .one => .ONE,
+            .ord => .ORD,
+            .uno => .UNO,
+            .ueq => .UEQ,
+            .ugt => .UGT,
+            .uge => .UGE,
+            .ult => .ULT,
+            .uno => .UNE,
+        };
+    }
 };
 
 pub const IntegerCondition = enum(u6) {
@@ -6753,6 +6981,20 @@ pub const IntegerCondition = enum(u6) {
     sge = 39,
     slt = 40,
     sle = 41,
+
+    fn toLlvm(self: IntegerCondition) llvm.IntPredicate {
+        return switch (self) {
+            .eq => .EQ,
+            .ne => .NE,
+            .ugt => .UGT,
+            .uge => .UGE,
+            .ult => .ULT,
+            .sgt => .SGT,
+            .sge => .SGE,
+            .slt => .SLT,
+            .sle => .SLE,
+        };
+    }
 };
 
 pub const MemoryAccessKind = enum(u1) {
@@ -6802,6 +7044,18 @@ pub const AtomicOrdering = enum(u3) {
     ) @TypeOf(writer).Error!void {
         if (self != .none) try writer.print("{s}{s}", .{ prefix, @tagName(self) });
     }
+
+    fn toLlvm(self: AtomicOrdering) llvm.AtomicOrdering {
+        return switch (self) {
+            .none => .NotAtomic,
+            .unordered => .Unordered,
+            .monotonic => .Monotonic,
+            .acquire => .Acquire,
+            .release => .Release,
+            .acq_rel => .AcquireRelease,
+            .seq_cst => .SequentiallyConsistent,
+        };
+    }
 };
 
 const MemoryAccessInfo = packed struct(u32) {
@@ -6832,6 +7086,18 @@ pub const FastMath = packed struct(u32) {
         .afn = true,
         .realloc = true,
     };
+};
+
+pub const FastMathKind = enum {
+    normal,
+    fast,
+
+    pub fn toCallKind(self: FastMathKind) Function.Instruction.Call.Kind {
+        return switch (self) {
+            .normal => .normal,
+            .fast => .fast,
+        };
+    }
 };
 
 pub const Constant = enum(u32) {
@@ -7247,7 +7513,7 @@ pub const Constant = enum(u32) {
                 }
             },
             .global => |global| switch (global.ptrConst(builder).kind) {
-                .alias => |alias| cur = alias.ptrConst(builder).init,
+                .alias => |alias| cur = alias.ptrConst(builder).aliasee,
                 .variable, .function => return global,
                 .replaced => unreachable,
             },
@@ -7586,10 +7852,12 @@ pub const Constant = enum(u32) {
 
     pub fn toLlvm(self: Constant, builder: *const Builder) *llvm.Value {
         assert(builder.useLibLlvm());
-        return switch (self.unwrap()) {
+        const llvm_value = switch (self.unwrap()) {
             .constant => |constant| builder.llvm.constants.items[constant],
-            .global => |global| global.toLlvm(builder),
+            .global => |global| return global.toLlvm(builder),
         };
+        const global = builder.llvm.replacements.get(llvm_value) orelse return llvm_value;
+        return global.toLlvm(builder);
     }
 };
 
@@ -7726,6 +7994,7 @@ pub fn init(options: Options) InitError!Builder {
         .types = .{},
         .globals = .{},
         .constants = .{},
+        .replacements = .{},
     };
     errdefer self.deinit();
 
@@ -7805,6 +8074,20 @@ pub fn init(options: Options) InitError!Builder {
 }
 
 pub fn deinit(self: *Builder) void {
+    if (self.useLibLlvm()) {
+        var replacement_it = self.llvm.replacements.keyIterator();
+        while (replacement_it.next()) |replacement| replacement.*.deleteGlobalValue();
+        self.llvm.replacements.deinit(self.gpa);
+        self.llvm.constants.deinit(self.gpa);
+        self.llvm.globals.deinit(self.gpa);
+        self.llvm.types.deinit(self.gpa);
+        self.llvm.attributes.deinit(self.gpa);
+        if (self.llvm.attribute_kind_ids) |attribute_kind_ids| self.gpa.destroy(attribute_kind_ids);
+        if (self.llvm.di_builder) |di_builder| di_builder.dispose();
+        if (self.llvm.module) |module| module.dispose();
+        self.llvm.context.dispose();
+    }
+
     self.module_asm.deinit(self.gpa);
 
     self.string_map.deinit(self.gpa);
@@ -7834,16 +8117,6 @@ pub fn deinit(self: *Builder) void {
     self.constant_extra.deinit(self.gpa);
     self.constant_limbs.deinit(self.gpa);
 
-    if (self.useLibLlvm()) {
-        self.llvm.constants.deinit(self.gpa);
-        self.llvm.globals.deinit(self.gpa);
-        self.llvm.types.deinit(self.gpa);
-        self.llvm.attributes.deinit(self.gpa);
-        if (self.llvm.attribute_kind_ids) |attribute_kind_ids| self.gpa.destroy(attribute_kind_ids);
-        if (self.llvm.di_builder) |di_builder| di_builder.dispose();
-        if (self.llvm.module) |module| module.dispose();
-        self.llvm.context.dispose();
-    }
     self.* = undefined;
 }
 
@@ -8300,10 +8573,10 @@ pub fn addGlobalAssumeCapacity(self: *Builder, name: String, global: Global) Glo
         const global_gop = self.globals.getOrPutAssumeCapacity(id);
         if (!global_gop.found_existing) {
             global_gop.value_ptr.* = global;
-            global_gop.value_ptr.updateAttributes();
-            const index: Global.Index = @enumFromInt(global_gop.index);
-            index.updateName(self);
-            return index;
+            const global_index: Global.Index = @enumFromInt(global_gop.index);
+            global_index.updateDsoLocal(self);
+            global_index.updateName(self);
+            return global_index;
         }
 
         const unique_gop = self.next_unique_global_id.getOrPutAssumeCapacity(name);
@@ -8317,21 +8590,107 @@ pub fn getGlobal(self: *const Builder, name: String) ?Global.Index {
     return @enumFromInt(self.globals.getIndex(name) orelse return null);
 }
 
-pub fn addFunction(self: *Builder, ty: Type, name: String) Allocator.Error!Function.Index {
+pub fn addAlias(
+    self: *Builder,
+    name: String,
+    ty: Type,
+    addr_space: AddrSpace,
+    aliasee: Constant,
+) Allocator.Error!Alias.Index {
+    assert(!name.isAnon());
+    try self.ensureUnusedTypeCapacity(1, NoExtra, 0);
+    try self.ensureUnusedGlobalCapacity(name);
+    try self.aliases.ensureUnusedCapacity(self.gpa, 1);
+    return self.addAliasAssumeCapacity(name, ty, addr_space, aliasee);
+}
+
+pub fn addAliasAssumeCapacity(
+    self: *Builder,
+    name: String,
+    ty: Type,
+    addr_space: AddrSpace,
+    aliasee: Constant,
+) Alias.Index {
+    if (self.useLibLlvm()) self.llvm.globals.appendAssumeCapacity(self.llvm.module.?.addAlias(
+        ty.toLlvm(self),
+        @intFromEnum(addr_space),
+        aliasee.toLlvm(self),
+        name.slice(self).?,
+    ));
+    const alias_index: Alias.Index = @enumFromInt(self.aliases.items.len);
+    self.aliases.appendAssumeCapacity(.{ .global = self.addGlobalAssumeCapacity(name, .{
+        .addr_space = addr_space,
+        .type = ty,
+        .kind = .{ .alias = alias_index },
+    }), .aliasee = aliasee });
+    return alias_index;
+}
+
+pub fn addVariable(
+    self: *Builder,
+    name: String,
+    ty: Type,
+    addr_space: AddrSpace,
+) Allocator.Error!Variable.Index {
+    assert(!name.isAnon());
+    try self.ensureUnusedTypeCapacity(1, NoExtra, 0);
+    try self.ensureUnusedGlobalCapacity(name);
+    try self.variables.ensureUnusedCapacity(self.gpa, 1);
+    return self.addVariableAssumeCapacity(ty, name, addr_space);
+}
+
+pub fn addVariableAssumeCapacity(
+    self: *Builder,
+    ty: Type,
+    name: String,
+    addr_space: AddrSpace,
+) Variable.Index {
+    if (self.useLibLlvm()) self.llvm.globals.appendAssumeCapacity(
+        self.llvm.module.?.addGlobalInAddressSpace(
+            ty.toLlvm(self),
+            name.slice(self).?,
+            @intFromEnum(addr_space),
+        ),
+    );
+    const variable_index: Variable.Index = @enumFromInt(self.variables.items.len);
+    self.variables.appendAssumeCapacity(.{ .global = self.addGlobalAssumeCapacity(name, .{
+        .addr_space = addr_space,
+        .type = ty,
+        .kind = .{ .variable = variable_index },
+    }) });
+    return variable_index;
+}
+
+pub fn addFunction(
+    self: *Builder,
+    ty: Type,
+    name: String,
+    addr_space: AddrSpace,
+) Allocator.Error!Function.Index {
     assert(!name.isAnon());
     try self.ensureUnusedTypeCapacity(1, NoExtra, 0);
     try self.ensureUnusedGlobalCapacity(name);
     try self.functions.ensureUnusedCapacity(self.gpa, 1);
-    return self.addFunctionAssumeCapacity(ty, name);
+    return self.addFunctionAssumeCapacity(ty, name, addr_space);
 }
 
-pub fn addFunctionAssumeCapacity(self: *Builder, ty: Type, name: String) Function.Index {
+pub fn addFunctionAssumeCapacity(
+    self: *Builder,
+    ty: Type,
+    name: String,
+    addr_space: AddrSpace,
+) Function.Index {
     assert(ty.isFunction(self));
     if (self.useLibLlvm()) self.llvm.globals.appendAssumeCapacity(
-        self.llvm.module.?.addFunction(name.slice(self).?, ty.toLlvm(self)),
+        self.llvm.module.?.addFunctionInAddressSpace(
+            name.slice(self).?,
+            ty.toLlvm(self),
+            @intFromEnum(addr_space),
+        ),
     );
     const function_index: Function.Index = @enumFromInt(self.functions.items.len);
     self.functions.appendAssumeCapacity(.{ .global = self.addGlobalAssumeCapacity(name, .{
+        .addr_space = addr_space,
         .type = ty,
         .kind = .{ .function = function_index },
     }) });
@@ -8423,12 +8782,11 @@ pub fn getIntrinsic(
         };
     }
 
-    const function_index =
-        try self.addFunction(try self.fnType(switch (signature.ret_len) {
+    const function_index = try self.addFunction(try self.fnType(switch (signature.ret_len) {
         0 => .void,
         1 => param_types[0],
         else => try self.structType(.normal, param_types[0..signature.ret_len]),
-    }, param_types[signature.ret_len..], .normal), name);
+    }, param_types[signature.ret_len..], .normal), name, .default);
     function_index.ptr(self).attributes = try self.fnAttrs(function_attributes);
     return function_index;
 }
@@ -8889,6 +9247,40 @@ pub fn asmValue(
     return (try self.asmConst(ty, info, assembly, constraints)).toValue();
 }
 
+pub fn verify(self: *Builder) error{}!bool {
+    if (self.useLibLlvm()) {
+        var error_message: [*:0]const u8 = undefined;
+        // verifyModule always allocs the error_message even if there is no error
+        defer llvm.disposeMessage(error_message);
+
+        if (self.llvm.module.?.verify(.ReturnStatus, &error_message).toBool()) {
+            log.err("failed verification of LLVM module:\n{s}\n", .{error_message});
+            return false;
+        }
+    }
+    return true;
+}
+
+pub fn writeBitcodeToFile(self: *Builder, path: []const u8) Allocator.Error!bool {
+    const path_z = try self.gpa.dupeZ(u8, path);
+    defer self.gpa.free(path_z);
+    return self.writeBitcodeToFileZ(path_z);
+}
+
+pub fn writeBitcodeToFileZ(self: *Builder, path: [*:0]const u8) bool {
+    if (self.useLibLlvm()) {
+        const error_code = self.llvm.module.?.writeBitcodeToFile(path);
+        if (error_code != 0) {
+            log.err("failed dumping LLVM module to \"{s}\": {d}", .{ path, error_code });
+            return false;
+        }
+    } else {
+        log.err("writing bitcode without libllvm not implemented", .{});
+        return false;
+    }
+    return true;
+}
+
 pub fn dump(self: *Builder) void {
     if (self.useLibLlvm())
         self.llvm.module.?.dump()
@@ -8980,7 +9372,7 @@ pub fn printUnbuffered(
             if (variable.global.getReplacement(self) != .none) continue;
             const global = variable.global.ptrConst(self);
             try writer.print(
-                \\{} ={}{}{}{}{}{}{ }{} {s} {%}{ }{, }
+                \\{} ={}{}{}{}{ }{}{ }{} {s} {%}{ }{, }
                 \\
             , .{
                 variable.global.fmt(self),
@@ -10906,7 +11298,7 @@ fn icmpConstAssumeCapacity(
             .data = self.addConstantExtraAssumeCapacity(data),
         });
         if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
-            llvm.constICmp(@enumFromInt(@intFromEnum(cond)), lhs.toLlvm(self), rhs.toLlvm(self)),
+            llvm.constICmp(cond.toLlvm(), lhs.toLlvm(self), rhs.toLlvm(self)),
         );
     }
     return @enumFromInt(gop.index);
@@ -10943,7 +11335,7 @@ fn fcmpConstAssumeCapacity(
             .data = self.addConstantExtraAssumeCapacity(data),
         });
         if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
-            llvm.constFCmp(@enumFromInt(@intFromEnum(cond)), lhs.toLlvm(self), rhs.toLlvm(self)),
+            llvm.constFCmp(cond.toLlvm(), lhs.toLlvm(self), rhs.toLlvm(self)),
         );
     }
     return @enumFromInt(gop.index);

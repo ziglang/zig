@@ -492,6 +492,10 @@ enum ZigLLVM_ObjectFormatType {
 };
 
 ZIG_EXTERN_C void ZigLLVMTakeName(LLVMValueRef new_owner, LLVMValueRef victim);
+ZIG_EXTERN_C void ZigLLVMRemoveGlobalValue(LLVMValueRef GlobalVal);
+ZIG_EXTERN_C void ZigLLVMEraseGlobalValue(LLVMValueRef GlobalVal);
+ZIG_EXTERN_C void ZigLLVMDeleteGlobalValue(LLVMValueRef GlobalVal);
+ZIG_EXTERN_C void ZigLLVMSetInitializer(LLVMValueRef GlobalVar, LLVMValueRef ConstantVal);
 
 #define ZigLLVM_DIFlags_Zero 0U
 #define ZigLLVM_DIFlags_Private 1U

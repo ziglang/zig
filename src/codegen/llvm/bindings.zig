@@ -142,8 +142,14 @@ pub const Value = opaque {
     pub const setSection = LLVMSetSection;
     extern fn LLVMSetSection(Global: *Value, Section: [*:0]const u8) void;
 
-    pub const deleteGlobal = LLVMDeleteGlobal;
-    extern fn LLVMDeleteGlobal(GlobalVar: *Value) void;
+    pub const removeGlobalValue = ZigLLVMRemoveGlobalValue;
+    extern fn ZigLLVMRemoveGlobalValue(GlobalVal: *Value) void;
+
+    pub const eraseGlobalValue = ZigLLVMEraseGlobalValue;
+    extern fn ZigLLVMEraseGlobalValue(GlobalVal: *Value) void;
+
+    pub const deleteGlobalValue = ZigLLVMDeleteGlobalValue;
+    extern fn ZigLLVMDeleteGlobalValue(GlobalVal: *Value) void;
 
     pub const setAliasee = LLVMAliasSetAliasee;
     extern fn LLVMAliasSetAliasee(Alias: *Value, Aliasee: *Value) void;
@@ -292,20 +298,14 @@ pub const Value = opaque {
     pub const setValueName = LLVMSetValueName2;
     extern fn LLVMSetValueName2(Val: *Value, Name: [*]const u8, NameLen: usize) void;
 
-    pub const getValueName = LLVMGetValueName;
-    extern fn LLVMGetValueName(Val: *Value) [*:0]const u8;
-
     pub const takeName = ZigLLVMTakeName;
     extern fn ZigLLVMTakeName(new_owner: *Value, victim: *Value) void;
-
-    pub const deleteFunction = LLVMDeleteFunction;
-    extern fn LLVMDeleteFunction(Fn: *Value) void;
 
     pub const getParam = LLVMGetParam;
     extern fn LLVMGetParam(Fn: *Value, Index: c_uint) *Value;
 
-    pub const setInitializer = LLVMSetInitializer;
-    extern fn LLVMSetInitializer(GlobalVar: *Value, ConstantVal: *Value) void;
+    pub const setInitializer = ZigLLVMSetInitializer;
+    extern fn ZigLLVMSetInitializer(GlobalVar: *Value, ConstantVal: ?*Value) void;
 
     pub const setDLLStorageClass = LLVMSetDLLStorageClass;
     extern fn LLVMSetDLLStorageClass(Global: *Value, Class: DLLStorageClass) void;
@@ -315,15 +315,6 @@ pub const Value = opaque {
 
     pub const replaceAllUsesWith = LLVMReplaceAllUsesWith;
     extern fn LLVMReplaceAllUsesWith(OldVal: *Value, NewVal: *Value) void;
-
-    pub const getLinkage = LLVMGetLinkage;
-    extern fn LLVMGetLinkage(Global: *Value) Linkage;
-
-    pub const getUnnamedAddress = LLVMGetUnnamedAddress;
-    extern fn LLVMGetUnnamedAddress(Global: *Value) Bool;
-
-    pub const getAlignment = LLVMGetAlignment;
-    extern fn LLVMGetAlignment(V: *Value) c_uint;
 
     pub const attachMetaData = ZigLLVMAttachMetaData;
     extern fn ZigLLVMAttachMetaData(GlobalVar: *Value, DIG: *DIGlobalVariableExpression) void;
@@ -423,17 +414,11 @@ pub const Module = opaque {
     pub const setModuleCodeModel = ZigLLVMSetModuleCodeModel;
     extern fn ZigLLVMSetModuleCodeModel(module: *Module, code_model: CodeModel) void;
 
-    pub const addFunction = LLVMAddFunction;
-    extern fn LLVMAddFunction(*Module, Name: [*:0]const u8, FunctionTy: *Type) *Value;
-
     pub const addFunctionInAddressSpace = ZigLLVMAddFunctionInAddressSpace;
     extern fn ZigLLVMAddFunctionInAddressSpace(*Module, Name: [*:0]const u8, FunctionTy: *Type, AddressSpace: c_uint) *Value;
 
     pub const printToString = LLVMPrintModuleToString;
     extern fn LLVMPrintModuleToString(*Module) [*:0]const u8;
-
-    pub const addGlobal = LLVMAddGlobal;
-    extern fn LLVMAddGlobal(M: *Module, Ty: *Type, Name: [*:0]const u8) *Value;
 
     pub const addGlobalInAddressSpace = LLVMAddGlobalInAddressSpace;
     extern fn LLVMAddGlobalInAddressSpace(M: *Module, Ty: *Type, Name: [*:0]const u8, AddressSpace: c_uint) *Value;
@@ -449,16 +434,6 @@ pub const Module = opaque {
         Aliasee: *Value,
         Name: [*:0]const u8,
     ) *Value;
-
-    pub const getNamedGlobalAlias = LLVMGetNamedGlobalAlias;
-    extern fn LLVMGetNamedGlobalAlias(
-        M: *Module,
-        /// Empirically, LLVM will call strlen() on `Name` and so it
-        /// must be both null terminated and also have `NameLen` set
-        /// to the size.
-        Name: [*:0]const u8,
-        NameLen: usize,
-    ) ?*Value;
 
     pub const setTarget = LLVMSetTarget;
     extern fn LLVMSetTarget(M: *Module, Triple: [*:0]const u8) void;

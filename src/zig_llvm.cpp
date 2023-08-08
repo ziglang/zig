@@ -1122,6 +1122,22 @@ void ZigLLVMTakeName(LLVMValueRef new_owner, LLVMValueRef victim) {
     unwrap(new_owner)->takeName(unwrap(victim));
 }
 
+void ZigLLVMRemoveGlobalValue(LLVMValueRef GlobalVal) {
+    unwrap<GlobalValue>(GlobalVal)->removeFromParent();
+}
+
+void ZigLLVMEraseGlobalValue(LLVMValueRef GlobalVal) {
+    unwrap<GlobalValue>(GlobalVal)->eraseFromParent();
+}
+
+void ZigLLVMDeleteGlobalValue(LLVMValueRef GlobalVal) {
+    delete unwrap<GlobalVariable>(GlobalVal);
+}
+
+void ZigLLVMSetInitializer(LLVMValueRef GlobalVar, LLVMValueRef ConstantVal) {
+    unwrap<GlobalVariable>(GlobalVar)->setInitializer(ConstantVal ? unwrap<Constant>(ConstantVal) : nullptr);
+}
+
 ZigLLVMDIGlobalVariable* ZigLLVMGlobalGetVariable(ZigLLVMDIGlobalVariableExpression *global_variable_expression) {
     return reinterpret_cast<ZigLLVMDIGlobalVariable*>(reinterpret_cast<DIGlobalVariableExpression*>(global_variable_expression)->getVariable());
 }
