@@ -5723,7 +5723,16 @@ pub const WipFunction = struct {
             .void => null,
             else => name,
         }, .{
-            .tag = .call,
+            .tag = switch (kind) {
+                .normal => .call,
+                .fast => .@"call fast",
+                .musttail => .@"musttail call",
+                .musttail_fast => .@"musttail call fast",
+                .notail => .@"notail call",
+                .notail_fast => .@"notail call fast",
+                .tail => .@"tail call",
+                .tail_fast => .@"tail call fast",
+            },
             .data = self.addExtraAssumeCapacity(Instruction.Call{
                 .info = .{ .call_conv = call_conv },
                 .attributes = function_attributes,
@@ -7312,9 +7321,34 @@ pub const Constant = enum(u32) {
                         .bfloat => 16,
                         else => unreachable,
                     } }),
-                    .float => try writer.print("0x{X:0>16}", .{
-                        @as(u64, @bitCast(@as(f64, @as(f32, @bitCast(item.data))))),
-                    }),
+                    .float => {
+                        const Float = struct {
+                            fn Repr(comptime T: type) type {
+                                return packed struct(std.meta.Int(.unsigned, @bitSizeOf(T))) {
+                                    mantissa: std.meta.Int(.unsigned, std.math.floatMantissaBits(T)),
+                                    exponent: std.meta.Int(.unsigned, std.math.floatExponentBits(T)),
+                                    sign: u1,
+                                };
+                            }
+                        };
+                        const Exponent32 = std.meta.FieldType(Float.Repr(f32), .exponent);
+                        const Exponent64 = std.meta.FieldType(Float.Repr(f64), .exponent);
+                        const repr: Float.Repr(f32) = @bitCast(item.data);
+                        try writer.print("0x{X:0>16}", .{@as(u64, @bitCast(Float.Repr(f64){
+                            .mantissa = std.math.shl(
+                                std.meta.FieldType(Float.Repr(f64), .mantissa),
+                                repr.mantissa,
+                                std.math.floatMantissaBits(f64) - std.math.floatMantissaBits(f32),
+                            ),
+                            .exponent = switch (repr.exponent) {
+                                std.math.minInt(Exponent32) => std.math.minInt(Exponent64),
+                                else => @as(Exponent64, repr.exponent) +
+                                    (std.math.floatExponentMax(f64) - std.math.floatExponentMax(f32)),
+                                std.math.maxInt(Exponent32) => std.math.maxInt(Exponent64),
+                            },
+                            .sign = repr.sign,
+                        }))});
+                    },
                     .double => {
                         const extra = data.builder.constantExtraData(Double, item.data);
                         try writer.print("0x{X:0>8}{X:0>8}", .{ extra.hi, extra.lo });
@@ -8361,6 +8395,7 @@ pub fn getIntrinsic(
 
     var overload_index: usize = 0;
     function_attributes[FunctionAttributes.function_index] = try attributes.get(signature.attrs);
+    function_attributes[FunctionAttributes.return_index] = .none; // needed for void return
     for (0.., param_types, signature.params) |param_index, *param_type, signature_param| {
         switch (signature_param.kind) {
             .type => |ty| param_type.* = ty,
@@ -9573,7 +9608,7 @@ fn fnTypeAssumeCapacity(
         gop.key_ptr.* = {};
         gop.value_ptr.* = {};
         self.type_items.appendAssumeCapacity(.{
-            .tag = .function,
+            .tag = tag,
             .data = self.addTypeExtraAssumeCapacity(Type.Function{
                 .ret = ret,
                 .params_len = @intCast(params.len),

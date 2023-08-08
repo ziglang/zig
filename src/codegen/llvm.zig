@@ -6243,7 +6243,7 @@ pub const FuncGen = struct {
         if (elem_ptr.ptrInfo(mod).flags.vector_index != .none) return base_ptr;
 
         const llvm_elem_ty = try o.lowerPtrElemTy(elem_ty);
-        return try self.wip.gep(.inbounds, llvm_elem_ty, base_ptr, if (ptr_ty.isSinglePointer(mod))
+        return self.wip.gep(.inbounds, llvm_elem_ty, base_ptr, if (ptr_ty.isSinglePointer(mod))
             // If this is a single-item pointer to an array, we need another index in the GEP.
             &.{ try o.builder.intValue(try o.lowerType(Type.usize), 0), rhs }
         else
@@ -10532,7 +10532,7 @@ pub const FuncGen = struct {
             else => unreachable,
         };
 
-        return try fg.wip.callAsm(
+        return fg.wip.callAsm(
             .none,
             try o.builder.fnType(llvm_usize, &.{ llvm_usize, llvm_usize }, .normal),
             .{ .sideeffect = true },
