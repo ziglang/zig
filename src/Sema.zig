@@ -9219,6 +9219,21 @@ fn finishFunc(
     return Air.internedToRef(if (opt_func_index != .none) opt_func_index else func_ty);
 }
 
+fn genericArgSrcLoc(sema: *Sema, block: *Block, param_index: u32, param_src: LazySrcLoc) Module.SrcLoc {
+    const mod = sema.mod;
+    if (sema.generic_owner == .none) return param_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+    const arg_decl = sema.generic_call_decl.unwrap().?;
+    const arg_src: LazySrcLoc = if (param_index == 0 and sema.generic_bound_arg_src != null)
+        sema.generic_bound_arg_src.?
+    else
+        .{ .call_arg = .{
+            .decl = arg_decl,
+            .call_node_offset = sema.generic_call_src.node_offset.x,
+            .arg_index = param_index - @intFromBool(sema.generic_bound_arg_src != null),
+        } };
+    return arg_src.toSrcLoc(mod.declPtr(arg_decl), mod);
+}
+
 fn zirParam(
     sema: *Sema,
     block: *Block,
@@ -9226,7 +9241,6 @@ fn zirParam(
     param_index: u32,
     comptime_syntax: bool,
 ) CompileError!void {
-    const mod = sema.mod;
     const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_tok;
     const src = inst_data.src();
@@ -9330,15 +9344,8 @@ fn zirParam(
                 sema.comptime_args[param_index] = val.toIntern();
                 return;
             }
-            const arg_src: LazySrcLoc = if (param_index == 0 and sema.generic_bound_arg_src != null)
-                sema.generic_bound_arg_src.?
-            else if (sema.generic_call_src == .node_offset) .{ .call_arg = .{
-                .decl = sema.generic_call_decl.unwrap().?,
-                .call_node_offset = sema.generic_call_src.node_offset.x,
-                .arg_index = param_index - @intFromBool(sema.generic_bound_arg_src != null),
-            } } else src;
             const msg = msg: {
-                const src_loc = arg_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+                const src_loc = sema.genericArgSrcLoc(block, param_index, src);
                 const msg = try Module.ErrorMsg.create(gpa, src_loc, "{s}", .{
                     @as([]const u8, "runtime-known argument passed to comptime parameter"),
                 });
@@ -9384,7 +9391,6 @@ fn zirParamAnytype(
     param_index: u32,
     comptime_syntax: bool,
 ) CompileError!void {
-    const mod = sema.mod;
     const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
     const param_name: Zir.NullTerminatedString = @enumFromInt(inst_data.start);
@@ -9398,13 +9404,6 @@ fn zirParamAnytype(
             sema.comptime_args[param_index] = opv.toIntern();
             return;
         }
-        const arg_src: LazySrcLoc = if (param_index == 0 and sema.generic_bound_arg_src != null)
-            sema.generic_bound_arg_src.?
-        else if (sema.generic_call_src == .node_offset) .{ .call_arg = .{
-            .decl = sema.generic_call_decl.unwrap().?,
-            .call_node_offset = sema.generic_call_src.node_offset.x,
-            .arg_index = param_index - @intFromBool(sema.generic_bound_arg_src != null),
-        } } else src;
 
         if (comptime_syntax) {
             if (try sema.resolveMaybeUndefVal(air_ref)) |val| {
@@ -9412,7 +9411,7 @@ fn zirParamAnytype(
                 return;
             }
             const msg = msg: {
-                const src_loc = arg_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+                const src_loc = sema.genericArgSrcLoc(block, param_index, src);
                 const msg = try Module.ErrorMsg.create(gpa, src_loc, "{s}", .{
                     @as([]const u8, "runtime-known argument passed to comptime parameter"),
                 });
@@ -9432,7 +9431,7 @@ fn zirParamAnytype(
                 return;
             }
             const msg = msg: {
-                const src_loc = arg_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+                const src_loc = sema.genericArgSrcLoc(block, param_index, src);
                 const msg = try Module.ErrorMsg.create(gpa, src_loc, "{s}", .{
                     @as([]const u8, "runtime-known argument passed to comptime-only type parameter"),
                 });
