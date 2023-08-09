@@ -823,7 +823,7 @@ pub const Object = struct {
         var builder = try Builder.init(.{
             .allocator = gpa,
             .use_lib_llvm = options.use_lib_llvm,
-            .strip = options.strip,
+            .strip = options.strip or !options.use_lib_llvm, // TODO
             .name = options.root_name,
             .target = options.target,
             .triple = llvm_target_triple,
@@ -961,14 +961,17 @@ pub const Object = struct {
     }
 
     pub fn deinit(self: *Object, gpa: Allocator) void {
-        self.di_map.deinit(gpa);
-        self.di_type_map.deinit(gpa);
-        self.target_data.dispose();
-        self.target_machine.dispose();
+        if (self.builder.useLibLlvm()) {
+            self.di_map.deinit(gpa);
+            self.di_type_map.deinit(gpa);
+            self.target_data.dispose();
+            self.target_machine.dispose();
+        }
         self.decl_map.deinit(gpa);
         self.named_enum_map.deinit(gpa);
         self.type_map.deinit(gpa);
         self.extern_collisions.deinit(gpa);
+        self.builder.deinit();
         self.* = undefined;
     }
 
@@ -1181,6 +1184,9 @@ pub const Object = struct {
         log.debug("emit LLVM object asm={s} bin={s} ir={s} bc={s}", .{
             emit_asm_msg, emit_bin_msg, emit_llvm_ir_msg, emit_llvm_bc_msg,
         });
+
+        if (emit_asm_path == null and emit_bin_path == null and
+            emit_llvm_ir_path == null and emit_llvm_bc_path == null) return;
 
         if (!self.builder.useLibLlvm()) {
             log.err("emitting without libllvm not implemented", .{});

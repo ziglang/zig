@@ -1131,7 +1131,16 @@ void ZigLLVMEraseGlobalValue(LLVMValueRef GlobalVal) {
 }
 
 void ZigLLVMDeleteGlobalValue(LLVMValueRef GlobalVal) {
-    delete unwrap<GlobalVariable>(GlobalVal);
+    auto *GV = unwrap<GlobalValue>(GlobalVal);
+    assert(GV->getParent() == nullptr);
+    switch (GV->getValueID()) {
+#define HANDLE_GLOBAL_VALUE(NAME) \
+        case Value::NAME##Val: \
+            delete static_cast<NAME *>(GV); \
+            break;
+#include <llvm/IR/Value.def>
+        default: llvm_unreachable("Expected global value");
+    }
 }
 
 void ZigLLVMSetInitializer(LLVMValueRef GlobalVar, LLVMValueRef ConstantVal) {
