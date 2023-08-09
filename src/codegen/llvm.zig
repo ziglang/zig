@@ -1408,11 +1408,7 @@ pub const Object = struct {
                         llvm_arg_i += 1;
 
                         const param_llvm_ty = try o.lowerType(param_ty);
-                        const int_llvm_ty = try o.builder.intType(@intCast(param_ty.abiSize(mod) * 8));
-                        const alignment = Builder.Alignment.fromByteUnits(@max(
-                            param_ty.abiAlignment(mod),
-                            o.target_data.abiAlignmentOfType(int_llvm_ty.toLlvm(&o.builder)),
-                        ));
+                        const alignment = Builder.Alignment.fromByteUnits(param_ty.abiAlignment(mod));
                         const arg_ptr = try buildAllocaInner(&wip, false, param_llvm_ty, alignment, target);
                         _ = try wip.store(.normal, param, arg_ptr, alignment);
 
@@ -4938,10 +4934,7 @@ pub const FuncGen = struct {
                 } else {
                     // LLVM does not allow bitcasting structs so we must allocate
                     // a local, store as one type, and then load as another type.
-                    const alignment = Builder.Alignment.fromByteUnits(@max(
-                        param_ty.abiAlignment(mod),
-                        o.target_data.abiAlignmentOfType(int_llvm_ty.toLlvm(&o.builder)),
-                    ));
+                    const alignment = Builder.Alignment.fromByteUnits(param_ty.abiAlignment(mod));
                     const int_ptr = try self.buildAlloca(int_llvm_ty, alignment);
                     _ = try self.wip.store(.normal, llvm_arg, int_ptr, alignment);
                     const loaded = try self.wip.load(.normal, int_llvm_ty, int_ptr, alignment, "");
@@ -5117,12 +5110,10 @@ pub const FuncGen = struct {
             // In this case the function return type is honoring the calling convention by having
             // a different LLVM type than the usual one. We solve this here at the callsite
             // by using our canonical type, then loading it if necessary.
-            const alignment = Builder.Alignment.fromByteUnits(@max(
-                o.target_data.abiAlignmentOfType(abi_ret_ty.toLlvm(&o.builder)),
-                return_type.abiAlignment(mod),
-            ));
-            assert(o.target_data.abiSizeOfType(abi_ret_ty.toLlvm(&o.builder)) >=
-                o.target_data.abiSizeOfType(llvm_ret_ty.toLlvm(&o.builder)));
+            const alignment = Builder.Alignment.fromByteUnits(return_type.abiAlignment(mod));
+            if (o.builder.useLibLlvm())
+                assert(o.target_data.abiSizeOfType(abi_ret_ty.toLlvm(&o.builder)) >=
+                    o.target_data.abiSizeOfType(llvm_ret_ty.toLlvm(&o.builder)));
             const rp = try self.buildAlloca(abi_ret_ty, alignment);
             _ = try self.wip.store(.normal, call, rp, alignment);
             return if (isByRef(return_type, mod))
