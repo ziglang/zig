@@ -225,7 +225,7 @@ pub const PtrWidth = enum { p32, p64 };
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Elf {
     assert(options.target.ofmt == .elf);
 
-    if (build_options.have_llvm and options.use_llvm) {
+    if (options.use_llvm) {
         return createEmpty(allocator, options);
     }
 
@@ -304,7 +304,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         .ptr_width = ptr_width,
         .page_size = page_size,
     };
-    const use_llvm = build_options.have_llvm and options.use_llvm;
+    const use_llvm = options.use_llvm;
     if (use_llvm) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
@@ -314,9 +314,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
 pub fn deinit(self: *Elf) void {
     const gpa = self.base.allocator;
 
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
-    }
+    if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
 
     for (self.sections.items(.free_list)) |*free_list| {
         free_list.deinit(gpa);
@@ -1005,10 +1003,8 @@ pub fn markDirty(self: *Elf, shdr_index: u16, phdr_index: ?u16) void {
 
 pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (self.base.options.emit == null) {
-        if (build_options.have_llvm) {
-            if (self.llvm_object) |llvm_object| {
-                return try llvm_object.flushModule(comp, prog_node);
-            }
+        if (self.llvm_object) |llvm_object| {
+            return try llvm_object.flushModule(comp, prog_node);
         }
         return;
     }
@@ -1026,10 +1022,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp, prog_node);
-        }
+    if (self.llvm_object) |llvm_object| {
+        return try llvm_object.flushModule(comp, prog_node);
     }
 
     const gpa = self.base.allocator;
@@ -2392,9 +2386,7 @@ fn freeUnnamedConsts(self: *Elf, decl_index: Module.Decl.Index) void {
 }
 
 pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
 
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -2577,9 +2569,7 @@ pub fn updateFunc(self: *Elf, mod: *Module, func_index: InternPool.Index, air: A
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -2637,9 +2627,7 @@ pub fn updateDecl(
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -2859,9 +2847,7 @@ pub fn updateDeclExports(
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
 
     if (self.base.options.emit == null) return;
 

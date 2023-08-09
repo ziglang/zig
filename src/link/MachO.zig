@@ -422,7 +422,6 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     const cpu_arch = options.target.cpu.arch;
     const page_size: u16 = if (cpu_arch == .aarch64) 0x4000 else 0x1000;
-    const use_llvm = build_options.have_llvm and options.use_llvm;
 
     const self = try gpa.create(MachO);
     errdefer gpa.destroy(self);
@@ -435,13 +434,13 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
             .file = null,
         },
         .page_size = page_size,
-        .mode = if (use_llvm or options.module == null or options.cache_mode == .whole)
+        .mode = if (options.use_llvm or options.module == null or options.cache_mode == .whole)
             .zld
         else
             .incremental,
     };
 
-    if (use_llvm) {
+    if (options.use_llvm) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
 
@@ -452,10 +451,8 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
 
 pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (self.base.options.emit == null) {
-        if (build_options.have_llvm) {
-            if (self.llvm_object) |llvm_object| {
-                try llvm_object.flushModule(comp, prog_node);
-            }
+        if (self.llvm_object) |llvm_object| {
+            try llvm_object.flushModule(comp, prog_node);
         }
         return;
     }
@@ -479,10 +476,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp, prog_node);
-        }
+    if (self.llvm_object) |llvm_object| {
+        return try llvm_object.flushModule(comp, prog_node);
     }
 
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
@@ -1622,9 +1617,7 @@ fn resolveSymbolsInDylibs(self: *MachO, actions: *std.ArrayList(ResolveAction)) 
 pub fn deinit(self: *MachO) void {
     const gpa = self.base.allocator;
 
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
-    }
+    if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
 
     if (self.d_sym) |*d_sym| {
         d_sym.deinit();
@@ -1855,9 +1848,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1979,9 +1970,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2387,10 +2376,8 @@ pub fn updateDeclExports(
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object|
-            return llvm_object.updateDeclExports(mod, decl_index, exports);
-    }
+    if (self.llvm_object) |llvm_object|
+        return llvm_object.updateDeclExports(mod, decl_index, exports);
 
     if (self.base.options.emit == null) return;
 
@@ -2542,9 +2529,7 @@ fn freeUnnamedConsts(self: *MachO, decl_index: Module.Decl.Index) void {
 }
 
 pub fn freeDecl(self: *MachO, decl_index: Module.Decl.Index) void {
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
 

@@ -8,7 +8,7 @@ const native_endian = builtin.cpu.arch.endian();
 const DW = std.dwarf;
 
 const Builder = @import("llvm/Builder.zig");
-const llvm = if (build_options.have_llvm or true)
+const llvm = if (build_options.have_llvm)
     @import("llvm/bindings.zig")
 else
     @compileError("LLVM unavailable");
@@ -764,15 +764,37 @@ pub const Object = struct {
     builder: Builder,
 
     module: *Module,
-    di_builder: ?*llvm.DIBuilder,
+    di_builder: ?if (build_options.have_llvm) *llvm.DIBuilder else noreturn,
     /// One of these mappings:
     /// - *Module.File => *DIFile
     /// - *Module.Decl (Fn) => *DISubprogram
     /// - *Module.Decl (Non-Fn) => *DIGlobalVariable
-    di_map: std.AutoHashMapUnmanaged(*const anyopaque, *llvm.DINode),
-    di_compile_unit: ?*llvm.DICompileUnit,
-    target_machine: *llvm.TargetMachine,
-    target_data: *llvm.TargetData,
+    di_map: if (build_options.have_llvm) std.AutoHashMapUnmanaged(*const anyopaque, *llvm.DINode) else struct {
+        const K = *const anyopaque;
+        const V = noreturn;
+
+        const Self = @This();
+
+        metadata: ?noreturn = null,
+        size: Size = 0,
+        available: Size = 0,
+
+        pub const Size = u0;
+
+        pub fn deinit(self: *Self, allocator: Allocator) void {
+            _ = allocator;
+            self.* = undefined;
+        }
+
+        pub fn get(self: Self, key: K) ?V {
+            _ = self;
+            _ = key;
+            return null;
+        }
+    },
+    di_compile_unit: ?if (build_options.have_llvm) *llvm.DICompileUnit else noreturn,
+    target_machine: if (build_options.have_llvm) *llvm.TargetMachine else void,
+    target_data: if (build_options.have_llvm) *llvm.TargetData else void,
     target: std.Target,
     /// Ideally we would use `llvm_module.getNamedFunction` to go from *Decl to LLVM function,
     /// but that has some downsides:
@@ -830,8 +852,8 @@ pub const Object = struct {
         });
         errdefer builder.deinit();
 
-        var target_machine: *llvm.TargetMachine = undefined;
-        var target_data: *llvm.TargetData = undefined;
+        var target_machine: if (build_options.have_llvm) *llvm.TargetMachine else void = undefined;
+        var target_data: if (build_options.have_llvm) *llvm.TargetData else void = undefined;
         if (builder.useLibLlvm()) {
             if (!options.strip) {
                 switch (options.target.ofmt) {
@@ -946,7 +968,7 @@ pub const Object = struct {
             .module = options.module.?,
             .di_map = .{},
             .di_builder = if (builder.useLibLlvm()) builder.llvm.di_builder else null, // TODO
-            .di_compile_unit = builder.llvm.di_compile_unit,
+            .di_compile_unit = if (builder.useLibLlvm()) builder.llvm.di_compile_unit else null,
             .target_machine = target_machine,
             .target_data = target_data,
             .target = options.target,
@@ -961,9 +983,9 @@ pub const Object = struct {
     }
 
     pub fn deinit(self: *Object, gpa: Allocator) void {
+        self.di_map.deinit(gpa);
+        self.di_type_map.deinit(gpa);
         if (self.builder.useLibLlvm()) {
-            self.di_map.deinit(gpa);
-            self.di_type_map.deinit(gpa);
             self.target_data.dispose();
             self.target_machine.dispose();
         }
@@ -1519,8 +1541,8 @@ pub const Object = struct {
 
         function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
 
-        var di_file: ?*llvm.DIFile = null;
-        var di_scope: ?*llvm.DIScope = null;
+        var di_file: ?if (build_options.have_llvm) *llvm.DIFile else noreturn = null;
+        var di_scope: ?if (build_options.have_llvm) *llvm.DIScope else noreturn = null;
 
         if (o.di_builder) |dib| {
             di_file = try o.getDIFile(gpa, mod.namespacePtr(decl.src_namespace).file_scope);
@@ -4425,7 +4447,8 @@ pub const DeclGen = struct {
             }, &o.builder);
 
             if (o.di_builder) |dib| {
-                const di_file = try o.getDIFile(o.gpa, mod.namespacePtr(decl.src_namespace).file_scope);
+                const di_file =
+                    try o.getDIFile(o.gpa, mod.namespacePtr(decl.src_namespace).file_scope);
 
                 const line_number = decl.src_line + 1;
                 const is_internal_linkage = !o.module.decl_exports.contains(decl_index);
@@ -4453,18 +4476,18 @@ pub const FuncGen = struct {
     air: Air,
     liveness: Liveness,
     wip: Builder.WipFunction,
-    di_scope: ?*llvm.DIScope,
-    di_file: ?*llvm.DIFile,
+    di_scope: ?if (build_options.have_llvm) *llvm.DIScope else noreturn,
+    di_file: ?if (build_options.have_llvm) *llvm.DIFile else noreturn,
     base_line: u32,
     prev_dbg_line: c_uint,
     prev_dbg_column: c_uint,
 
     /// Stack of locations where a call was inlined.
-    dbg_inlined: std.ArrayListUnmanaged(DbgState) = .{},
+    dbg_inlined: std.ArrayListUnmanaged(if (build_options.have_llvm) DbgState else void) = .{},
 
     /// Stack of `DILexicalBlock`s. dbg_block instructions cannot happend accross
     /// dbg_inline instructions so no special handling there is required.
-    dbg_block_stack: std.ArrayListUnmanaged(*llvm.DIScope) = .{},
+    dbg_block_stack: std.ArrayListUnmanaged(if (build_options.have_llvm) *llvm.DIScope else void) = .{},
 
     /// This stores the LLVM values used in a function, such that they can be referred to
     /// in other instructions. This table is cleared before every function is generated.
@@ -4495,7 +4518,7 @@ pub const FuncGen = struct {
 
     sync_scope: Builder.SyncScope,
 
-    const DbgState = struct { loc: *llvm.DILocation, scope: *llvm.DIScope, base_line: u32 };
+    const DbgState = if (build_options.have_llvm) struct { loc: *llvm.DILocation, scope: *llvm.DIScope, base_line: u32 } else struct {};
     const BreakList = union {
         list: std.MultiArrayList(struct {
             bb: Builder.Function.Block.Index,
@@ -6230,8 +6253,6 @@ pub const FuncGen = struct {
     }
 
     fn airDbgStmt(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        if (!self.dg.object.builder.useLibLlvm()) return .none;
-
         const di_scope = self.di_scope orelse return .none;
         const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
         self.prev_dbg_line = @intCast(self.base_line + dbg_stmt.line + 1);
@@ -6251,8 +6272,6 @@ pub const FuncGen = struct {
 
     fn airDbgInlineBegin(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
-        if (!o.builder.useLibLlvm()) return .none;
-
         const dib = o.di_builder orelse return .none;
         const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
 
@@ -6311,8 +6330,6 @@ pub const FuncGen = struct {
 
     fn airDbgInlineEnd(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
-        if (!o.builder.useLibLlvm()) return .none;
-
         if (o.di_builder == null) return .none;
         const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
 
@@ -6328,8 +6345,6 @@ pub const FuncGen = struct {
 
     fn airDbgBlockBegin(self: *FuncGen) !Builder.Value {
         const o = self.dg.object;
-        if (!o.builder.useLibLlvm()) return .none;
-
         const dib = o.di_builder orelse return .none;
         const old_scope = self.di_scope.?;
         try self.dbg_block_stack.append(self.gpa, old_scope);
@@ -6340,8 +6355,6 @@ pub const FuncGen = struct {
 
     fn airDbgBlockEnd(self: *FuncGen) !Builder.Value {
         const o = self.dg.object;
-        if (!o.builder.useLibLlvm()) return .none;
-
         if (o.di_builder == null) return .none;
         self.di_scope = self.dbg_block_stack.pop();
         return .none;
@@ -6349,8 +6362,6 @@ pub const FuncGen = struct {
 
     fn airDbgVarPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
-        if (!o.builder.useLibLlvm()) return .none;
-
         const mod = o.module;
         const dib = o.di_builder orelse return .none;
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
@@ -6379,8 +6390,6 @@ pub const FuncGen = struct {
 
     fn airDbgVarVal(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
-        if (!o.builder.useLibLlvm()) return .none;
-
         const dib = o.di_builder orelse return .none;
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const operand = try self.resolveInst(pl_op.operand);

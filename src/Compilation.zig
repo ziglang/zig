@@ -1027,7 +1027,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             return error.TargetRequiresSingleThreaded;
         }
 
-        const llvm_cpu_features: ?[*:0]const u8 = if (build_options.have_llvm and use_llvm) blk: {
+        const llvm_cpu_features: ?[*:0]const u8 = if (use_llvm) blk: {
             var buf = std.ArrayList(u8).init(arena);
             for (options.target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
                 const index = @as(Target.Cpu.Feature.Set.Index, @intCast(index_usize));
@@ -5182,7 +5182,7 @@ pub fn dump_argv(argv: []const []const u8) void {
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
-    if (build_options.have_llvm and comp.bin_file.options.use_llvm) return .stage2_llvm;
+    if (comp.bin_file.options.use_llvm) return .stage2_llvm;
     const target = comp.bin_file.options.target;
     if (target.ofmt == .c) return .stage2_c;
     return switch (target.cpu.arch) {
