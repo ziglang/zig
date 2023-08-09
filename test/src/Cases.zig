@@ -74,7 +74,7 @@ pub const Case = struct {
     /// In order to be able to run e.g. Execution updates, this must be set
     /// to Executable.
     output_mode: std.builtin.OutputMode,
-    optimize_mode: std.builtin.Mode = .Debug,
+    optimize_mode: std.builtin.OptimizeMode = .Debug,
     updates: std.ArrayList(Update),
     emit_bin: bool = true,
     emit_h: bool = false,

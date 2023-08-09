@@ -400,22 +400,22 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(std.SemanticVersion, "semver", semver);
     test_cases_options.addOption(?[]const u8, "test_filter", test_filter);
 
-    var chosen_opt_modes_buf: [4]builtin.Mode = undefined;
+    var chosen_opt_modes_buf: [4]builtin.OptimizeMode = undefined;
     var chosen_mode_index: usize = 0;
     if (!skip_debug) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.Debug;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.Debug;
         chosen_mode_index += 1;
     }
     if (!skip_release_safe) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.ReleaseSafe;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.ReleaseSafe;
         chosen_mode_index += 1;
     }
     if (!skip_release_fast) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.ReleaseFast;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.ReleaseFast;
         chosen_mode_index += 1;
     }
     if (!skip_release_small) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.ReleaseSmall;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.ReleaseSmall;
         chosen_mode_index += 1;
     }
     const optimization_modes = chosen_opt_modes_buf[0..chosen_mode_index];

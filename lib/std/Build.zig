@@ -475,7 +475,7 @@ pub const ExecutableOptions = struct {
     root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
     target: CrossTarget = .{},
-    optimize: std.builtin.Mode = .Debug,
+    optimize: std.builtin.OptimizeMode = .Debug,
     linkage: ?Step.Compile.Linkage = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
@@ -509,7 +509,7 @@ pub const ObjectOptions = struct {
     name: []const u8,
     root_source_file: ?LazyPath = null,
     target: CrossTarget,
-    optimize: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
@@ -541,7 +541,7 @@ pub const SharedLibraryOptions = struct {
     root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
     target: CrossTarget,
-    optimize: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
@@ -574,7 +574,7 @@ pub const StaticLibraryOptions = struct {
     name: []const u8,
     root_source_file: ?LazyPath = null,
     target: CrossTarget,
-    optimize: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
@@ -608,7 +608,7 @@ pub const TestOptions = struct {
     name: []const u8 = "test",
     root_source_file: LazyPath,
     target: CrossTarget = .{},
-    optimize: std.builtin.Mode = .Debug,
+    optimize: std.builtin.OptimizeMode = .Debug,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filter: ?[]const u8 = null,
@@ -644,7 +644,7 @@ pub const AssemblyOptions = struct {
     name: []const u8,
     source_file: LazyPath,
     target: CrossTarget,
-    optimize: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
     zig_lib_dir: ?LazyPath = null,
 };
@@ -1000,10 +1000,10 @@ pub fn step(self: *Build, name: []const u8, description: []const u8) *Step {
 }
 
 pub const StandardOptimizeOptionOptions = struct {
-    preferred_optimize_mode: ?std.builtin.Mode = null,
+    preferred_optimize_mode: ?std.builtin.OptimizeMode = null,
 };
 
-pub fn standardOptimizeOption(self: *Build, options: StandardOptimizeOptionOptions) std.builtin.Mode {
+pub fn standardOptimizeOption(self: *Build, options: StandardOptimizeOptionOptions) std.builtin.OptimizeMode {
     if (options.preferred_optimize_mode) |mode| {
         if (self.option(bool, "release", "optimize for end users") orelse false) {
             return mode;
@@ -1012,7 +1012,7 @@ pub fn standardOptimizeOption(self: *Build, options: StandardOptimizeOptionOptio
         }
     } else {
         return self.option(
-            std.builtin.Mode,
+            std.builtin.OptimizeMode,
             "optimize",
             "Prioritize performance, safety, or binary size (-O flag)",
         ) orelse .Debug;

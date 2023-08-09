@@ -102,7 +102,7 @@ pub const Options = struct {
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
-    optimize_mode: std.builtin.Mode,
+    optimize_mode: std.builtin.OptimizeMode,
     machine_code_model: std.builtin.CodeModel,
     root_name: [:0]const u8,
     /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
