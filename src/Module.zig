@@ -5640,7 +5640,7 @@ pub fn getTarget(mod: Module) Target {
     return mod.comp.bin_file.options.target;
 }
 
-pub fn optimizeMode(mod: Module) std.builtin.Mode {
+pub fn optimizeMode(mod: Module) std.builtin.OptimizeMode {
     return mod.comp.bin_file.options.optimize_mode;
 }
 

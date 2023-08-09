@@ -49,7 +49,7 @@ pub const AddExecutableOptions = struct {
     name: ?[]const u8 = null,
     version: ?std.SemanticVersion = null,
     target: ?CrossTarget = null,
-    optimize: ?std.builtin.Mode = null,
+    optimize: ?std.builtin.OptimizeMode = null,
     linkage: ?Step.Compile.Linkage = null,
 };
 
