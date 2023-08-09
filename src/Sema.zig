@@ -70,6 +70,7 @@ generic_owner: InternPool.Index = .none,
 /// instantiation can point back to the instantiation site in addition to the
 /// declaration site.
 generic_call_src: LazySrcLoc = .unneeded,
+generic_bound_arg_src: ?LazySrcLoc = null,
 /// Corresponds to `generic_call_src`.
 generic_call_decl: Decl.OptionalIndex = .none,
 /// The key is types that must be fully resolved prior to machine code
@@ -7077,16 +7078,19 @@ fn analyzeCall(
         const parent_fn_ret_ty_ies = sema.fn_ret_ty_ies;
         const parent_generic_owner = sema.generic_owner;
         const parent_generic_call_src = sema.generic_call_src;
+        const parent_generic_bound_arg_src = sema.generic_bound_arg_src;
         const parent_generic_call_decl = sema.generic_call_decl;
         sema.fn_ret_ty = bare_return_type;
         sema.fn_ret_ty_ies = null;
         sema.generic_owner = .none;
         sema.generic_call_src = .unneeded;
+        sema.generic_bound_arg_src = null;
         sema.generic_call_decl = .none;
         defer sema.fn_ret_ty = parent_fn_ret_ty;
         defer sema.fn_ret_ty_ies = parent_fn_ret_ty_ies;
         defer sema.generic_owner = parent_generic_owner;
         defer sema.generic_call_src = parent_generic_call_src;
+        defer sema.generic_bound_arg_src = parent_generic_bound_arg_src;
         defer sema.generic_call_decl = parent_generic_call_decl;
 
         if (module_fn.analysis(ip).inferred_error_set) {
@@ -7545,6 +7549,7 @@ fn instantiateGenericCall(
         .comptime_args = comptime_args,
         .generic_owner = generic_owner,
         .generic_call_src = call_src,
+        .generic_bound_arg_src = bound_arg_src,
         .generic_call_decl = block.src_decl.toOptional(),
         .branch_quota = sema.branch_quota,
         .branch_count = sema.branch_count,
@@ -8583,17 +8588,20 @@ fn resolveGenericBody(
         const prev_no_partial_func_type = sema.no_partial_func_ty;
         const prev_generic_owner = sema.generic_owner;
         const prev_generic_call_src = sema.generic_call_src;
+        const prev_generic_bound_arg_src = sema.generic_bound_arg_src;
         const prev_generic_call_decl = sema.generic_call_decl;
         block.params = .{};
         sema.no_partial_func_ty = true;
         sema.generic_owner = .none;
         sema.generic_call_src = .unneeded;
+        sema.generic_bound_arg_src = null;
         sema.generic_call_decl = .none;
         defer {
             block.params = prev_params;
             sema.no_partial_func_ty = prev_no_partial_func_type;
             sema.generic_owner = prev_generic_owner;
             sema.generic_call_src = prev_generic_call_src;
+            sema.generic_bound_arg_src = prev_generic_bound_arg_src;
             sema.generic_call_decl = prev_generic_call_decl;
         }
 
@@ -9211,6 +9219,21 @@ fn finishFunc(
     return Air.internedToRef(if (opt_func_index != .none) opt_func_index else func_ty);
 }
 
+fn genericArgSrcLoc(sema: *Sema, block: *Block, param_index: u32, param_src: LazySrcLoc) Module.SrcLoc {
+    const mod = sema.mod;
+    if (sema.generic_owner == .none) return param_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+    const arg_decl = sema.generic_call_decl.unwrap().?;
+    const arg_src: LazySrcLoc = if (param_index == 0 and sema.generic_bound_arg_src != null)
+        sema.generic_bound_arg_src.?
+    else
+        .{ .call_arg = .{
+            .decl = arg_decl,
+            .call_node_offset = sema.generic_call_src.node_offset.x,
+            .arg_index = param_index - @intFromBool(sema.generic_bound_arg_src != null),
+        } };
+    return arg_src.toSrcLoc(mod.declPtr(arg_decl), mod);
+}
+
 fn zirParam(
     sema: *Sema,
     block: *Block,
@@ -9218,7 +9241,6 @@ fn zirParam(
     param_index: u32,
     comptime_syntax: bool,
 ) CompileError!void {
-    const mod = sema.mod;
     const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_tok;
     const src = inst_data.src();
@@ -9235,17 +9257,20 @@ fn zirParam(
             const prev_no_partial_func_type = sema.no_partial_func_ty;
             const prev_generic_owner = sema.generic_owner;
             const prev_generic_call_src = sema.generic_call_src;
+            const prev_generic_bound_arg_src = sema.generic_bound_arg_src;
             const prev_generic_call_decl = sema.generic_call_decl;
             block.params = .{};
             sema.no_partial_func_ty = true;
             sema.generic_owner = .none;
             sema.generic_call_src = .unneeded;
+            sema.generic_bound_arg_src = null;
             sema.generic_call_decl = .none;
             defer {
                 block.params = prev_params;
                 sema.no_partial_func_ty = prev_no_partial_func_type;
                 sema.generic_owner = prev_generic_owner;
                 sema.generic_call_src = prev_generic_call_src;
+                sema.generic_bound_arg_src = prev_generic_bound_arg_src;
                 sema.generic_call_decl = prev_generic_call_decl;
             }
 
@@ -9319,13 +9344,8 @@ fn zirParam(
                 sema.comptime_args[param_index] = val.toIntern();
                 return;
             }
-            const arg_src: LazySrcLoc = if (sema.generic_call_src == .node_offset) .{ .call_arg = .{
-                .decl = sema.generic_call_decl.unwrap().?,
-                .call_node_offset = sema.generic_call_src.node_offset.x,
-                .arg_index = param_index,
-            } } else src;
             const msg = msg: {
-                const src_loc = arg_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+                const src_loc = sema.genericArgSrcLoc(block, param_index, src);
                 const msg = try Module.ErrorMsg.create(gpa, src_loc, "{s}", .{
                     @as([]const u8, "runtime-known argument passed to comptime parameter"),
                 });
@@ -9371,7 +9391,6 @@ fn zirParamAnytype(
     param_index: u32,
     comptime_syntax: bool,
 ) CompileError!void {
-    const mod = sema.mod;
     const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
     const param_name: Zir.NullTerminatedString = @enumFromInt(inst_data.start);
@@ -9385,11 +9404,6 @@ fn zirParamAnytype(
             sema.comptime_args[param_index] = opv.toIntern();
             return;
         }
-        const arg_src: LazySrcLoc = if (sema.generic_call_src == .node_offset) .{ .call_arg = .{
-            .decl = sema.generic_call_decl.unwrap().?,
-            .call_node_offset = sema.generic_call_src.node_offset.x,
-            .arg_index = param_index,
-        } } else src;
 
         if (comptime_syntax) {
             if (try sema.resolveMaybeUndefVal(air_ref)) |val| {
@@ -9397,7 +9411,7 @@ fn zirParamAnytype(
                 return;
             }
             const msg = msg: {
-                const src_loc = arg_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+                const src_loc = sema.genericArgSrcLoc(block, param_index, src);
                 const msg = try Module.ErrorMsg.create(gpa, src_loc, "{s}", .{
                     @as([]const u8, "runtime-known argument passed to comptime parameter"),
                 });
@@ -9417,7 +9431,7 @@ fn zirParamAnytype(
                 return;
             }
             const msg = msg: {
-                const src_loc = arg_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+                const src_loc = sema.genericArgSrcLoc(block, param_index, src);
                 const msg = try Module.ErrorMsg.create(gpa, src_loc, "{s}", .{
                     @as([]const u8, "runtime-known argument passed to comptime-only type parameter"),
                 });
