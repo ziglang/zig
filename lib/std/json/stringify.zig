@@ -33,6 +33,9 @@ pub const StringifyOptions = struct {
 
     /// Should unicode characters be escaped in strings?
     escape_unicode: bool = false,
+
+    /// When true, renders numbers outside the range `+-1<<53` (the precise integer range of f64) as JSON strings in base 10.
+    emit_nonportable_numbers_as_strings: bool = false,
 };
 
 /// Writes the given value to the `std.io.Writer` stream.
@@ -161,7 +164,7 @@ pub fn writeStreamArbitraryDepth(
 ///  * Zig `bool` -> JSON `true` or `false`.
 ///  * Zig `?T` -> `null` or the rendering of `T`.
 ///  * Zig `i32`, `u64`, etc. -> JSON number or string.
-///      * If the value is outside the range `±1<<53` (the precise integer rage of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
+///      * When option `emit_nonportable_numbers_as_strings` is true, if the value is outside the range `+-1<<53` (the precise integer range of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
 ///  * Zig floats -> JSON number or string.
 ///      * If the value cannot be precisely represented by an f64, it is rendered as a JSON string. Otherwise, it is rendered as JSON number.
 ///      * TODO: Float rendering will likely change in the future, e.g. to remove the unnecessary "e+00".
@@ -178,6 +181,7 @@ pub fn writeStreamArbitraryDepth(
 ///      * If the union declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
 ///  * Zig `enum` -> JSON string naming the active tag.
 ///      * If the enum declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
+///  * Zig untyped enum literal -> JSON string naming the active tag.
 ///  * Zig error -> JSON string naming the error.
 ///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
 ///
@@ -399,21 +403,15 @@ pub fn WriteStream(
         pub fn write(self: *Self, value: anytype) Error!void {
             const T = @TypeOf(value);
             switch (@typeInfo(T)) {
-                .Int => |info| {
-                    if (info.bits < 53) {
-                        try self.valueStart();
-                        try self.stream.print("{}", .{value});
-                        self.valueDone();
-                        return;
-                    }
-                    if (value < 4503599627370496 and (info.signedness == .unsigned or value > -4503599627370496)) {
-                        try self.valueStart();
-                        try self.stream.print("{}", .{value});
-                        self.valueDone();
-                        return;
-                    }
+                .Int => {
                     try self.valueStart();
-                    try self.stream.print("\"{}\"", .{value});
+                    if (self.options.emit_nonportable_numbers_as_strings and
+                        (value <= -(1 << 53) or value >= (1 << 53)))
+                    {
+                        try self.stream.print("\"{}\"", .{value});
+                    } else {
+                        try self.stream.print("{}", .{value});
+                    }
                     self.valueDone();
                     return;
                 },
@@ -452,7 +450,7 @@ pub fn WriteStream(
                         return try self.write(null);
                     }
                 },
-                .Enum => {
+                .Enum, .EnumLiteral => {
                     if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
                         return value.jsonStringify(self);
                     }

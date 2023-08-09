@@ -126,6 +126,7 @@ test "stringify basic types" {
     try testStringify("4.2e+01", 42.0, .{});
     try testStringify("42", @as(u8, 42), .{});
     try testStringify("42", @as(u128, 42), .{});
+    try testStringify("9999999999999999", 9999999999999999, .{});
     try testStringify("4.2e+01", @as(f32, 42), .{});
     try testStringify("4.2e+01", @as(f64, 42), .{});
     try testStringify("\"ItBroke\"", @as(anyerror, error.ItBroke), .{});
@@ -169,6 +170,11 @@ test "stringify enums" {
     };
     try testStringify("\"foo\"", E.foo, .{});
     try testStringify("\"bar\"", E.bar, .{});
+}
+
+test "stringify enum literals" {
+    try testStringify("\"foo\"", .foo, .{});
+    try testStringify("\"bar\"", .bar, .{});
 }
 
 test "stringify tagged unions" {
@@ -431,4 +437,9 @@ test "print" {
         \\}
     ;
     try std.testing.expectEqualStrings(expected, result);
+}
+
+test "nonportable numbers" {
+    try testStringify("9999999999999999", 9999999999999999, .{});
+    try testStringify("\"9999999999999999\"", 9999999999999999, .{ .emit_nonportable_numbers_as_strings = true });
 }
