@@ -5034,7 +5034,7 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
         if (val.isUndef(mod)) {
             return sema.fail(block, src, "cannot dereference undefined value", .{});
         }
-    } else if (!(try sema.validateRunTimeType(elem_ty, false))) {
+    } else if (try sema.typeRequiresComptime(elem_ty)) {
         const msg = msg: {
             const msg = try sema.errMsg(
                 block,
@@ -5792,8 +5792,7 @@ fn analyzeBlockBody(
     // TODO add note "missing else causes void value"
 
     const type_src = src; // TODO: better source location
-    const valid_rt = try sema.validateRunTimeType(resolved_ty, false);
-    if (!valid_rt) {
+    if (try sema.typeRequiresComptime(resolved_ty)) {
         const msg = msg: {
             const msg = try sema.errMsg(child_block, type_src, "value with comptime-only type '{}' depends on runtime control flow", .{resolved_ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
@@ -24414,7 +24413,8 @@ fn validateVarType(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    if (try sema.validateRunTimeType(var_ty, is_extern)) return;
+    if (is_extern and var_ty.zigTypeTag(mod) == .Opaque) return;
+    if (!try sema.typeRequiresComptime(var_ty)) return;
 
     const msg = msg: {
         const msg = try sema.errMsg(block, src, "variable of type '{}' must be const or comptime", .{var_ty.fmt(mod)});
@@ -24429,61 +24429,6 @@ fn validateVarType(
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(msg);
-}
-
-fn validateRunTimeType(
-    sema: *Sema,
-    var_ty: Type,
-    is_extern: bool,
-) CompileError!bool {
-    const mod = sema.mod;
-    var ty = var_ty;
-    while (true) switch (ty.zigTypeTag(mod)) {
-        .Bool,
-        .Int,
-        .Float,
-        .ErrorSet,
-        .Frame,
-        .AnyFrame,
-        .Void,
-        => return true,
-
-        .Enum => return !(try sema.typeRequiresComptime(ty)),
-
-        .ComptimeFloat,
-        .ComptimeInt,
-        .EnumLiteral,
-        .NoReturn,
-        .Type,
-        .Undefined,
-        .Null,
-        .Fn,
-        => return false,
-
-        .Pointer => {
-            const elem_ty = ty.childType(mod);
-            switch (elem_ty.zigTypeTag(mod)) {
-                .Opaque => return true,
-                .Fn => return elem_ty.isFnOrHasRuntimeBits(mod),
-                else => ty = elem_ty,
-            }
-        },
-        .Opaque => return is_extern,
-
-        .Optional => {
-            const child_ty = ty.optionalChild(mod);
-            return sema.validateRunTimeType(child_ty, is_extern);
-        },
-        .Array, .Vector => ty = ty.childType(mod),
-
-        .ErrorUnion => ty = ty.errorUnionPayload(mod),
-
-        .Struct, .Union => {
-            const resolved_ty = try sema.resolveTypeFields(ty);
-            const needs_comptime = try sema.typeRequiresComptime(resolved_ty);
-            return !needs_comptime;
-        },
-    };
 }
 
 const TypeSet = std.AutoHashMapUnmanaged(InternPool.Index, void);
@@ -26484,8 +26429,7 @@ fn validateRuntimeElemAccess(
     parent_src: LazySrcLoc,
 ) CompileError!void {
     const mod = sema.mod;
-    const valid_rt = try sema.validateRunTimeType(elem_ty, false);
-    if (!valid_rt) {
+    if (try sema.typeRequiresComptime(elem_ty)) {
         const msg = msg: {
             const msg = try sema.errMsg(
                 block,
@@ -35965,10 +35909,10 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .int_type => return false,
             .ptr_type => |ptr_type| {
                 const child_ty = ptr_type.child.toType();
-                if (child_ty.zigTypeTag(mod) == .Fn) {
-                    return mod.typeToFunc(child_ty).?.is_generic;
-                } else {
-                    return sema.typeRequiresComptime(child_ty);
+                switch (child_ty.zigTypeTag(mod)) {
+                    .Fn => return mod.typeToFunc(child_ty).?.is_generic,
+                    .Opaque => return false,
+                    else => return sema.typeRequiresComptime(child_ty),
                 }
             },
             .anyframe_type => |child| {
@@ -36005,7 +35949,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 .c_longlong,
                 .c_ulonglong,
                 .c_longdouble,
-                .anyopaque,
                 .bool,
                 .void,
                 .anyerror,
@@ -36024,6 +35967,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 .adhoc_inferred_error_set,
                 => false,
 
+                .anyopaque,
                 .type,
                 .comptime_int,
                 .comptime_float,
@@ -36091,7 +36035,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 }
             },
 
-            .opaque_type => false,
+            .opaque_type => true,
             .enum_type => |enum_type| try sema.typeRequiresComptime(enum_type.tag_ty.toType()),
 
             // values, not types
