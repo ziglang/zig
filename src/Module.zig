@@ -2133,10 +2133,40 @@ pub const SrcLoc = struct {
             .call_arg => |call_arg| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(call_arg.call_node_offset);
-                var buf: [1]Ast.Node.Index = undefined;
-                const call_full = tree.fullCall(&buf, node).?;
-                const src_node = call_full.ast.params[call_arg.arg_index];
-                return nodeToSpan(tree, src_node);
+                var buf: [2]Ast.Node.Index = undefined;
+                const call_full = tree.fullCall(buf[0..1], node) orelse {
+                    const node_tags = tree.nodes.items(.tag);
+                    assert(node_tags[node] == .builtin_call);
+                    const call_args_node = tree.extra_data[tree.nodes.items(.data)[node].rhs - 1];
+                    switch (node_tags[call_args_node]) {
+                        .array_init_one,
+                        .array_init_one_comma,
+                        .array_init_dot_two,
+                        .array_init_dot_two_comma,
+                        .array_init_dot,
+                        .array_init_dot_comma,
+                        .array_init,
+                        .array_init_comma,
+                        => {
+                            const full = tree.fullArrayInit(&buf, call_args_node).?.ast.elements;
+                            return nodeToSpan(tree, full[call_arg.arg_index]);
+                        },
+                        .struct_init_one,
+                        .struct_init_one_comma,
+                        .struct_init_dot_two,
+                        .struct_init_dot_two_comma,
+                        .struct_init_dot,
+                        .struct_init_dot_comma,
+                        .struct_init,
+                        .struct_init_comma,
+                        => {
+                            const full = tree.fullStructInit(&buf, call_args_node).?.ast.fields;
+                            return nodeToSpan(tree, full[call_arg.arg_index]);
+                        },
+                        else => return nodeToSpan(tree, call_args_node),
+                    }
+                };
+                return nodeToSpan(tree, call_full.ast.params[call_arg.arg_index]);
             },
             .fn_proto_param => |fn_proto_param| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -5926,21 +5956,15 @@ pub fn argSrc(
         });
         return LazySrcLoc.nodeOffset(0);
     };
-    const node_tags = tree.nodes.items(.tag);
     const node = decl.relativeToNodeIndex(call_node_offset);
     var args: [1]Ast.Node.Index = undefined;
-    const full = switch (node_tags[node]) {
-        .call_one, .call_one_comma, .async_call_one, .async_call_one_comma => tree.callOne(&args, node),
-        .call, .call_comma, .async_call, .async_call_comma => tree.callFull(node),
-        .builtin_call => {
-            const node_datas = tree.nodes.items(.data);
-            const call_args_node = tree.extra_data[node_datas[node].rhs - 1];
-            const call_args_offset = decl.nodeIndexToRelative(call_args_node);
-            return mod.initSrc(call_args_offset, decl, arg_i);
-        },
-        else => unreachable,
+    const call_full = tree.fullCall(&args, node) orelse {
+        assert(tree.nodes.items(.tag)[node] == .builtin_call);
+        const call_args_node = tree.extra_data[tree.nodes.items(.data)[node].rhs - 1];
+        const call_args_offset = decl.nodeIndexToRelative(call_args_node);
+        return mod.initSrc(call_args_offset, decl, arg_i);
     };
-    return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full.ast.params[arg_i]));
+    return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(call_full.ast.params[arg_i]));
 }
 
 pub fn initSrc(
