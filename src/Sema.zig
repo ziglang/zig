@@ -70,6 +70,7 @@ generic_owner: InternPool.Index = .none,
 /// instantiation can point back to the instantiation site in addition to the
 /// declaration site.
 generic_call_src: LazySrcLoc = .unneeded,
+generic_bound_arg_src: ?LazySrcLoc = null,
 /// Corresponds to `generic_call_src`.
 generic_call_decl: Decl.OptionalIndex = .none,
 /// The key is types that must be fully resolved prior to machine code
@@ -7077,16 +7078,19 @@ fn analyzeCall(
         const parent_fn_ret_ty_ies = sema.fn_ret_ty_ies;
         const parent_generic_owner = sema.generic_owner;
         const parent_generic_call_src = sema.generic_call_src;
+        const parent_generic_bound_arg_src = sema.generic_bound_arg_src;
         const parent_generic_call_decl = sema.generic_call_decl;
         sema.fn_ret_ty = bare_return_type;
         sema.fn_ret_ty_ies = null;
         sema.generic_owner = .none;
         sema.generic_call_src = .unneeded;
+        sema.generic_bound_arg_src = null;
         sema.generic_call_decl = .none;
         defer sema.fn_ret_ty = parent_fn_ret_ty;
         defer sema.fn_ret_ty_ies = parent_fn_ret_ty_ies;
         defer sema.generic_owner = parent_generic_owner;
         defer sema.generic_call_src = parent_generic_call_src;
+        defer sema.generic_bound_arg_src = parent_generic_bound_arg_src;
         defer sema.generic_call_decl = parent_generic_call_decl;
 
         if (module_fn.analysis(ip).inferred_error_set) {
@@ -7545,6 +7549,7 @@ fn instantiateGenericCall(
         .comptime_args = comptime_args,
         .generic_owner = generic_owner,
         .generic_call_src = call_src,
+        .generic_bound_arg_src = bound_arg_src,
         .generic_call_decl = block.src_decl.toOptional(),
         .branch_quota = sema.branch_quota,
         .branch_count = sema.branch_count,
@@ -8583,17 +8588,20 @@ fn resolveGenericBody(
         const prev_no_partial_func_type = sema.no_partial_func_ty;
         const prev_generic_owner = sema.generic_owner;
         const prev_generic_call_src = sema.generic_call_src;
+        const prev_generic_bound_arg_src = sema.generic_bound_arg_src;
         const prev_generic_call_decl = sema.generic_call_decl;
         block.params = .{};
         sema.no_partial_func_ty = true;
         sema.generic_owner = .none;
         sema.generic_call_src = .unneeded;
+        sema.generic_bound_arg_src = null;
         sema.generic_call_decl = .none;
         defer {
             block.params = prev_params;
             sema.no_partial_func_ty = prev_no_partial_func_type;
             sema.generic_owner = prev_generic_owner;
             sema.generic_call_src = prev_generic_call_src;
+            sema.generic_bound_arg_src = prev_generic_bound_arg_src;
             sema.generic_call_decl = prev_generic_call_decl;
         }
 
@@ -9235,17 +9243,20 @@ fn zirParam(
             const prev_no_partial_func_type = sema.no_partial_func_ty;
             const prev_generic_owner = sema.generic_owner;
             const prev_generic_call_src = sema.generic_call_src;
+            const prev_generic_bound_arg_src = sema.generic_bound_arg_src;
             const prev_generic_call_decl = sema.generic_call_decl;
             block.params = .{};
             sema.no_partial_func_ty = true;
             sema.generic_owner = .none;
             sema.generic_call_src = .unneeded;
+            sema.generic_bound_arg_src = null;
             sema.generic_call_decl = .none;
             defer {
                 block.params = prev_params;
                 sema.no_partial_func_ty = prev_no_partial_func_type;
                 sema.generic_owner = prev_generic_owner;
                 sema.generic_call_src = prev_generic_call_src;
+                sema.generic_bound_arg_src = prev_generic_bound_arg_src;
                 sema.generic_call_decl = prev_generic_call_decl;
             }
 
@@ -9319,10 +9330,12 @@ fn zirParam(
                 sema.comptime_args[param_index] = val.toIntern();
                 return;
             }
-            const arg_src: LazySrcLoc = if (sema.generic_call_src == .node_offset) .{ .call_arg = .{
+            const arg_src: LazySrcLoc = if (param_index == 0 and sema.generic_bound_arg_src != null)
+                sema.generic_bound_arg_src.?
+            else if (sema.generic_call_src == .node_offset) .{ .call_arg = .{
                 .decl = sema.generic_call_decl.unwrap().?,
                 .call_node_offset = sema.generic_call_src.node_offset.x,
-                .arg_index = param_index,
+                .arg_index = param_index - @intFromBool(sema.generic_bound_arg_src != null),
             } } else src;
             const msg = msg: {
                 const src_loc = arg_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
@@ -9385,10 +9398,12 @@ fn zirParamAnytype(
             sema.comptime_args[param_index] = opv.toIntern();
             return;
         }
-        const arg_src: LazySrcLoc = if (sema.generic_call_src == .node_offset) .{ .call_arg = .{
+        const arg_src: LazySrcLoc = if (param_index == 0 and sema.generic_bound_arg_src != null)
+            sema.generic_bound_arg_src.?
+        else if (sema.generic_call_src == .node_offset) .{ .call_arg = .{
             .decl = sema.generic_call_decl.unwrap().?,
             .call_node_offset = sema.generic_call_src.node_offset.x,
-            .arg_index = param_index,
+            .arg_index = param_index - @intFromBool(sema.generic_bound_arg_src != null),
         } } else src;
 
         if (comptime_syntax) {
