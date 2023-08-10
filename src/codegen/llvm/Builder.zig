@@ -5868,7 +5868,7 @@ pub const WipFunction = struct {
             vals: []const Value,
             blocks: []const Block.Index,
             wip: *WipFunction,
-        ) if (build_options.have_llvm) Allocator.Error!void else void {
+        ) (if (build_options.have_llvm) Allocator.Error else error{})!void {
             const incoming_len = self.block.ptrConst(wip).incoming;
             assert(vals.len == incoming_len and blocks.len == incoming_len);
             const instruction = wip.instructions.get(@intFromEnum(self.instruction));
@@ -8389,9 +8389,9 @@ pub fn fnType(
     kind: Type.Function.Kind,
 ) Allocator.Error!Type {
     try self.ensureUnusedTypeCapacity(1, Type.Function, params.len);
-    return switch (kind) {
-        inline else => |comptime_kind| self.fnTypeAssumeCapacity(ret, params, comptime_kind),
-    };
+    switch (kind) {
+        inline else => |comptime_kind| return self.fnTypeAssumeCapacity(ret, params, comptime_kind),
+    }
 }
 
 pub fn intType(self: *Builder, bits: u24) Allocator.Error!Type {
@@ -8411,9 +8411,9 @@ pub fn vectorType(
     child: Type,
 ) Allocator.Error!Type {
     try self.ensureUnusedTypeCapacity(1, Type.Vector, 0);
-    return switch (kind) {
-        inline else => |comptime_kind| self.vectorTypeAssumeCapacity(comptime_kind, len, child),
-    };
+    switch (kind) {
+        inline else => |comptime_kind| return self.vectorTypeAssumeCapacity(comptime_kind, len, child),
+    }
 }
 
 pub fn arrayType(self: *Builder, len: u64, child: Type) Allocator.Error!Type {
@@ -8428,9 +8428,9 @@ pub fn structType(
     fields: []const Type,
 ) Allocator.Error!Type {
     try self.ensureUnusedTypeCapacity(1, Type.Structure, fields.len);
-    return switch (kind) {
-        inline else => |comptime_kind| self.structTypeAssumeCapacity(comptime_kind, fields),
-    };
+    switch (kind) {
+        inline else => |comptime_kind| return self.structTypeAssumeCapacity(comptime_kind, fields),
+    }
 }
 
 pub fn opaqueType(self: *Builder, name: String) Allocator.Error!Type {
@@ -8450,7 +8450,7 @@ pub fn namedTypeSetBody(
     self: *Builder,
     named_type: Type,
     body_type: Type,
-) if (build_options.have_llvm) Allocator.Error!void else void {
+) (if (build_options.have_llvm) Allocator.Error else error{})!void {
     const named_item = self.type_items.items[@intFromEnum(named_type)];
     self.type_extra.items[named_item.data + std.meta.fieldIndex(Type.NamedStructure, "body").?] =
         @intFromEnum(body_type);
@@ -9985,7 +9985,7 @@ fn fnTypeAssumeCapacity(
     ret: Type,
     params: []const Type,
     comptime kind: Type.Function.Kind,
-) if (build_options.have_llvm) Allocator.Error!Type else Type {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Type {
     const tag: Type.Tag = switch (kind) {
         .normal => .function,
         .vararg => .vararg_function,
@@ -10169,7 +10169,7 @@ fn structTypeAssumeCapacity(
     self: *Builder,
     comptime kind: Type.Structure.Kind,
     fields: []const Type,
-) if (build_options.have_llvm) Allocator.Error!Type else Type {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Type {
     const tag: Type.Tag = switch (kind) {
         .normal => .structure,
         .@"packed" => .packed_structure,
@@ -10397,7 +10397,7 @@ fn bigIntConstAssumeCapacity(
     self: *Builder,
     ty: Type,
     value: std.math.big.int.Const,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) Allocator.Error!Constant {
     const type_item = self.type_items.items[@intFromEnum(ty)];
     assert(type_item.tag == .integer);
     const bits = type_item.data;
@@ -10743,7 +10743,7 @@ fn structConstAssumeCapacity(
     self: *Builder,
     ty: Type,
     vals: []const Constant,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
     const type_item = self.type_items.items[@intFromEnum(ty)];
     var extra = self.typeExtraDataTrail(Type.Structure, switch (type_item.tag) {
         .structure, .packed_structure => type_item.data,
@@ -10791,7 +10791,7 @@ fn arrayConstAssumeCapacity(
     self: *Builder,
     ty: Type,
     vals: []const Constant,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
     const type_item = self.type_items.items[@intFromEnum(ty)];
     const type_extra: struct { len: u64, child: Type } = switch (type_item.tag) {
         inline .small_array, .array => |kind| extra: {
@@ -10859,7 +10859,7 @@ fn vectorConstAssumeCapacity(
     self: *Builder,
     ty: Type,
     vals: []const Constant,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
     assert(ty.isVector(self));
     assert(ty.vectorLen(self) == vals.len);
     for (vals) |val| assert(ty.childType(self) == val.typeOf(self));
@@ -10893,7 +10893,7 @@ fn splatConstAssumeCapacity(
     self: *Builder,
     ty: Type,
     val: Constant,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
     assert(ty.scalarType(self) == val.typeOf(self));
 
     if (!ty.isVector(self)) return val;
@@ -11182,7 +11182,7 @@ fn gepConstAssumeCapacity(
     base: Constant,
     inrange: ?u16,
     indices: []const Constant,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
     const tag: Constant.Tag = switch (kind) {
         .normal => .getelementptr,
         .inbounds => .@"getelementptr inbounds",
