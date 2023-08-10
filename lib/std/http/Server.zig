@@ -441,7 +441,7 @@ pub const Response = struct {
 
                 res.transfer_encoding = .{ .content_length = content_length };
             } else if (has_transfer_encoding) {
-                const transfer_encoding = res.headers.getFirstValue("content-length").?;
+                const transfer_encoding = res.headers.getFirstValue("transfer-encoding").?;
                 if (std.mem.eql(u8, transfer_encoding, "chunked")) {
                     res.transfer_encoding = .chunked;
                 } else {
