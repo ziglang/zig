@@ -1738,3 +1738,28 @@ test "struct init with no result pointer sets field result types" {
 
     try expect(y == x);
 }
+
+test "runtime side-effects in comptime-known struct init" {
+    var side_effects: u4 = 0;
+    const S = struct { a: u4, b: u4, c: u4, d: u4 };
+    const init = S{
+        .d = blk: {
+            side_effects += 8;
+            break :blk 8;
+        },
+        .c = blk: {
+            side_effects += 4;
+            break :blk 4;
+        },
+        .b = blk: {
+            side_effects += 2;
+            break :blk 2;
+        },
+        .a = blk: {
+            side_effects += 1;
+            break :blk 1;
+        },
+    };
+    try expectEqual(S{ .a = 1, .b = 2, .c = 4, .d = 8 }, init);
+    try expectEqual(@as(u4, std.math.maxInt(u4)), side_effects);
+}

@@ -775,3 +775,27 @@ test "array init with no result pointer sets field result types" {
 
     try expect(y == x);
 }
+
+test "runtime side-effects in comptime-known array init" {
+    var side_effects: u4 = 0;
+    const init = [4]u4{
+        blk: {
+            side_effects += 1;
+            break :blk 1;
+        },
+        blk: {
+            side_effects += 2;
+            break :blk 2;
+        },
+        blk: {
+            side_effects += 4;
+            break :blk 4;
+        },
+        blk: {
+            side_effects += 8;
+            break :blk 8;
+        },
+    };
+    try expectEqual([4]u4{ 1, 2, 4, 8 }, init);
+    try expectEqual(@as(u4, std.math.maxInt(u4)), side_effects);
+}
