@@ -630,14 +630,16 @@ fn addCmakeCfgOptionsToExe(
         const lib_suffix = if (static) exe.target.staticLibSuffix()[1..] else exe.target.dynamicLibSuffix()[1..];
         switch (exe.target.getOsTag()) {
             .linux => {
-                // First we try to link against gcc libstdc++. If that doesn't work, we fall
-                // back to -lc++ and cross our fingers.
-                addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), "", need_cpp_includes) catch |err| switch (err) {
-                    error.RequiredLibraryNotFound => {
-                        exe.linkLibCpp();
-                    },
-                    else => |e| return e,
-                };
+                // First we try to link against system libstdc++ or libc++.
+                // If that doesn't work, we fall to -lc++ and cross our fingers.
+                const found = for ([_][]const u8{ "stdc++", "c++" }) |name| {
+                    addCxxKnownPath(b, cfg, exe, b.fmt("lib{s}.{s}", .{ name, lib_suffix }), "", need_cpp_includes) catch |err| switch (err) {
+                        error.RequiredLibraryNotFound => continue,
+                        else => |e| return e,
+                    };
+                    break true;
+                } else false;
+                if (!found) exe.linkLibCpp();
                 exe.linkSystemLibrary("unwind");
             },
             .ios, .macos, .watchos, .tvos => {
