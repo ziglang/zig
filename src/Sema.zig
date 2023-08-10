@@ -36559,7 +36559,9 @@ fn intFromFloatScalar(
     const mod = sema.mod;
 
     if (val.isUndef(mod)) {
-        return (try mod.intern(.{ .undef = int_ty.toIntern() })).toValue();
+        return sema.fail(block, src, "undefined float value cannot be stored in integer type '{}'", .{
+            int_ty.fmt(sema.mod),
+        });
     }
 
     const float = val.toFloat(f128, mod);
