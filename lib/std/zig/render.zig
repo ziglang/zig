@@ -1428,12 +1428,6 @@ fn renderBuiltinCall(
     }
     // Corresponding logic below builtin name rewrite below
 
-    // TODO remove before release of 0.11.0
-    if (mem.eql(u8, slice, "@maximum")) {
-        try ais.writer().writeAll("@max");
-    } else if (mem.eql(u8, slice, "@minimum")) {
-        try ais.writer().writeAll("@min");
-    }
     // TODO remove before release of 0.12.0
     else if (mem.eql(u8, slice, "@boolToInt")) {
         try ais.writer().writeAll("@intFromBool");
