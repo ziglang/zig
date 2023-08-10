@@ -347,15 +347,9 @@ class TagAndPayload_SynthProvider:
         except: return -1
     def get_child_at_index(self, index): return (self.tag, self.payload)[index] if index in range(2) else None
 
-def Zir_Inst__Zir_Inst_Ref_SummaryProvider(value, _=None):
-    members = value.type.enum_members
-    # ignore .var_args_param_type and .none
-    return value if any(value.unsigned == member.unsigned for member in members) else 'instructions[%d]' % (value.unsigned + 2 - len(members))
-
-def Air_Inst__Air_Inst_Ref_SummaryProvider(value, _=None):
-    members = value.type.enum_members
-    # ignore .var_args_param_type and .none
-    return value if any(value.unsigned == member.unsigned for member in members) else 'instructions[%d]' % (value.unsigned + 2 - len(members))
+def InstRef_SummaryProvider(value, _=None):
+    return value if any(value.unsigned == member.unsigned for member in value.type.enum_members) else (
+        'InternPool.Index(%d)' % value.unsigned if value.unsigned < 0x80000000 else 'instructions[%d]' % (value.unsigned - 0x80000000))
 
 class Module_Decl__Module_Decl_Index_SynthProvider:
     def __init__(self, value, _=None): self.value = value
@@ -700,9 +694,9 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig.stage2', type='Zir.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.stage2', regex=True, type=MultiArrayList_Entry('Zir\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.stage2', regex=True, type='^Zir\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
-    add(debugger, category='zig.stage2', type='Zir.Inst::Zir.Inst.Ref', summary=True)
+    add(debugger, category='zig.stage2', type='Zir.Inst::Zir.Inst.Ref', identifier='InstRef', summary=True)
     add(debugger, category='zig.stage2', type='Air.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
-    add(debugger, category='zig.stage2', type='Air.Inst::Air.Inst.Ref', summary=True)
+    add(debugger, category='zig.stage2', type='Air.Inst::Air.Inst.Ref', identifier='InstRef', summary=True)
     add(debugger, category='zig.stage2', regex=True, type=MultiArrayList_Entry('Air\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.stage2', regex=True, type='^Air\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
     add(debugger, category='zig.stage2', type='Module.Decl::Module.Decl.Index', synth=True)
