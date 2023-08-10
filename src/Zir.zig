@@ -248,6 +248,9 @@ pub const Inst = struct {
         /// Given a pointer type, returns its element type.
         /// Uses the `un_node` field.
         elem_type,
+        /// Given a vector type, returns its element type.
+        /// Uses the `un_node` field.
+        vector_elem_type,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -700,10 +703,16 @@ pub const Inst = struct {
         ///   *?S returns *S
         /// Uses the `un_node` field.
         field_base_ptr,
+        /// Given a type, strips all optional and error union types wrapping it.
+        /// e.g. `E!?u32` becomes `u32`, `[]u8` becomes `[]u8`.
+        /// Uses the `un_node` field.
+        opt_eu_base_ty,
         /// Checks that the type supports array init syntax.
+        /// Returns the underlying indexable type (since the given type may be e.g. an optional).
         /// Uses the `un_node` field.
         validate_array_init_ty,
         /// Checks that the type supports struct init syntax.
+        /// Returns the underlying struct type (since the given type may be e.g. an optional).
         /// Uses the `un_node` field.
         validate_struct_init_ty,
         /// Given a set of `field_ptr` instructions, assumes they are all part of a struct
@@ -1023,6 +1032,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1234,6 +1244,7 @@ pub const Inst = struct {
                 .save_err_ret_index,
                 .restore_err_ret_index,
                 .for_len,
+                .opt_eu_base_ty,
                 => false,
 
                 .@"break",
@@ -1327,6 +1338,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1522,6 +1534,7 @@ pub const Inst = struct {
                 .for_len,
                 .@"try",
                 .try_ptr,
+                .opt_eu_base_ty,
                 => false,
 
                 .extended => switch (data.extended.opcode) {
@@ -1557,6 +1570,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type_index = .bin,
                 .elem_type = .un_node,
+                .vector_elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as = .bin,
@@ -1676,6 +1690,7 @@ pub const Inst = struct {
                 .switch_block_ref = .pl_node,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
+                .opt_eu_base_ty = .un_node,
                 .validate_array_init_ty = .pl_node,
                 .validate_struct_init_ty = .un_node,
                 .validate_struct_init = .pl_node,

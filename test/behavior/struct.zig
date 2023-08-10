@@ -1724,3 +1724,17 @@ test "packed struct field in anonymous struct" {
 fn countFields(v: anytype) usize {
     return @typeInfo(@TypeOf(v)).Struct.fields.len;
 }
+
+test "struct init with no result pointer sets field result types" {
+    const S = struct {
+        // A function parameter has a result type, but no result pointer.
+        fn f(s: struct { x: u32 }) u32 {
+            return s.x;
+        }
+    };
+
+    const x: u64 = 123;
+    const y = S.f(.{ .x = @intCast(x) });
+
+    try expect(y == x);
+}

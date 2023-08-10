@@ -155,6 +155,7 @@ const Writer = struct {
             .alloc_mut,
             .alloc_comptime_mut,
             .elem_type,
+            .vector_elem_type,
             .indexable_ptr_len,
             .anyframe_type,
             .bit_not,
@@ -229,6 +230,7 @@ const Writer = struct {
             .make_ptr_const,
             .validate_deref,
             .check_comptime_control_flow,
+            .opt_eu_base_ty,
             => try self.writeUnNode(stream, inst),
 
             .ref,

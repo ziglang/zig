@@ -1509,9 +1509,11 @@ fn arrayInitExpr(
             const tag: Zir.Inst.Tag = if (types.array != .none) .array_init else .array_init_anon;
             return arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
         },
-        .ty, .coerced_ty => {
-            const tag: Zir.Inst.Tag = if (types.array != .none) .array_init else .array_init_anon;
-            const result = try arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
+        .ty, .coerced_ty => |ty_inst| {
+            const arr_ty = if (types.array != .none) types.array else blk: {
+                break :blk try gz.addUnNode(.opt_eu_base_ty, ty_inst, node);
+            };
+            const result = try arrayInitExprInner(gz, scope, node, array_init.ast.elements, arr_ty, types.elem, .array_init);
             return rvalue(gz, ri, result, node);
         },
         .ptr => |ptr_res| {
@@ -1748,7 +1750,9 @@ fn structInitExpr(
         },
         .ty, .coerced_ty => |ty_inst| {
             if (struct_init.ast.type_expr == 0) {
-                const result = try structInitExprRlNone(gz, scope, node, struct_init, ty_inst, .struct_init_anon);
+                const struct_ty_inst = try gz.addUnNode(.opt_eu_base_ty, ty_inst, node);
+                _ = try gz.addUnNode(.validate_struct_init_ty, struct_ty_inst, node);
+                const result = try structInitExprRlTy(gz, scope, node, struct_init, struct_ty_inst, .struct_init);
                 return rvalue(gz, ri, result, node);
             }
             const inner_ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
@@ -2565,6 +2569,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .array_type_sentinel,
             .elem_type_index,
             .elem_type,
+            .vector_elem_type,
             .vector_type,
             .indexable_ptr_len,
             .anyframe_type,
@@ -2743,6 +2748,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .for_len,
             .@"try",
             .try_ptr,
+            .opt_eu_base_ty,
             => break :b false,
 
             .extended => switch (gz.astgen.instructions.items(.data)[inst].extended.opcode) {
@@ -8314,7 +8320,10 @@ fn builtinCall(
                                 local_val.used = ident_token;
                                 _ = try gz.addPlNode(.export_value, node, Zir.Inst.ExportValue{
                                     .operand = local_val.inst,
-                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .export_options_type } }, params[1]),
+                                    // TODO: the result location here should be `.{ .coerced_ty = .export_options_type }`, but
+                                    // that currently hits assertions in Sema due to type resolution issues.
+                                    // See #16603
+                                    .options = try comptimeExpr(gz, scope, .{ .rl = .none }, params[1]),
                                 });
                                 return rvalue(gz, ri, .void_value, node);
                             }
@@ -8329,7 +8338,10 @@ fn builtinCall(
                                 const loaded = try gz.addUnNode(.load, local_ptr.ptr, node);
                                 _ = try gz.addPlNode(.export_value, node, Zir.Inst.ExportValue{
                                     .operand = loaded,
-                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .export_options_type } }, params[1]),
+                                    // TODO: the result location here should be `.{ .coerced_ty = .export_options_type }`, but
+                                    // that currently hits assertions in Sema due to type resolution issues.
+                                    // See #16603
+                                    .options = try comptimeExpr(gz, scope, .{ .rl = .none }, params[1]),
                                 });
                                 return rvalue(gz, ri, .void_value, node);
                             }
@@ -8363,7 +8375,10 @@ fn builtinCall(
                 },
                 else => return astgen.failNode(params[0], "symbol to export must identify a declaration", .{}),
             }
-            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .export_options_type } }, params[1]);
+            // TODO: the result location here should be `.{ .coerced_ty = .export_options_type }`, but
+            // that currently hits assertions in Sema due to type resolution issues.
+            // See #16603
+            const options = try comptimeExpr(gz, scope, .{ .rl = .none }, params[1]);
             _ = try gz.addPlNode(.@"export", node, Zir.Inst.Export{
                 .namespace = namespace,
                 .decl_name = decl_name,
@@ -8373,7 +8388,10 @@ fn builtinCall(
         },
         .@"extern" => {
             const type_inst = try typeExpr(gz, scope, params[0]);
-            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .extern_options_type } }, params[1]);
+            // TODO: the result location here should be `.{ .coerced_ty = .extern_options_type }`, but
+            // that currently hits assertions in Sema due to type resolution issues.
+            // See #16603
+            const options = try comptimeExpr(gz, scope, .{ .rl = .none }, params[1]);
             const result = try gz.addExtendedPayload(.builtin_extern, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = type_inst,
@@ -8477,7 +8495,10 @@ fn builtinCall(
         // zig fmt: on
 
         .Type => {
-            const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .type_info_type } }, params[0]);
+            // TODO: the result location here should be `.{ .coerced_ty = .type_info_type }`, but
+            // that currently hits assertions in Sema due to type resolution issues.
+            // See #16603
+            const operand = try expr(gz, scope, .{ .rl = .none }, params[0]);
 
             const gpa = gz.astgen.gpa;
 
@@ -8604,13 +8625,7 @@ fn builtinCall(
 
         .splat => {
             const result_type = try ri.rl.resultType(gz, node, "@splat");
-            const elem_type = try gz.add(.{
-                .tag = .elem_type_index,
-                .data = .{ .bin = .{
-                    .lhs = result_type,
-                    .rhs = @as(Zir.Inst.Ref, @enumFromInt(0)),
-                } },
-            });
+            const elem_type = try gz.addUnNode(.vector_elem_type, result_type, node);
             const scalar = try expr(gz, scope, .{ .rl = .{ .ty = elem_type } }, params[0]);
             const result = try gz.addPlNode(.splat, node, Zir.Inst.Bin{
                 .lhs = result_type,
@@ -8755,7 +8770,10 @@ fn builtinCall(
         },
         .prefetch => {
             const ptr = try expr(gz, scope, .{ .rl = .none }, params[0]);
-            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .prefetch_options_type } }, params[1]);
+            // TODO: the result location here should be `.{ .coerced_ty = .preftech_options_type }`, but
+            // that currently hits assertions in Sema due to type resolution issues.
+            // See #16603
+            const options = try comptimeExpr(gz, scope, .{ .rl = .none }, params[1]);
             _ = try gz.addExtendedPayload(.prefetch, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = ptr,

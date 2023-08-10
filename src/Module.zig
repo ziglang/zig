@@ -5938,35 +5938,6 @@ pub fn paramSrc(
     unreachable;
 }
 
-pub fn argSrc(
-    mod: *Module,
-    call_node_offset: i32,
-    decl: *Decl,
-    start_arg_i: usize,
-    bound_arg_src: ?LazySrcLoc,
-) LazySrcLoc {
-    @setCold(true);
-    const gpa = mod.gpa;
-    if (start_arg_i == 0 and bound_arg_src != null) return bound_arg_src.?;
-    const arg_i = start_arg_i - @intFromBool(bound_arg_src != null);
-    const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
-        // In this case we emit a warning + a less precise source location.
-        log.warn("unable to load {s}: {s}", .{
-            decl.getFileScope(mod).sub_file_path, @errorName(err),
-        });
-        return LazySrcLoc.nodeOffset(0);
-    };
-    const node = decl.relativeToNodeIndex(call_node_offset);
-    var args: [1]Ast.Node.Index = undefined;
-    const call_full = tree.fullCall(&args, node) orelse {
-        assert(tree.nodes.items(.tag)[node] == .builtin_call);
-        const call_args_node = tree.extra_data[tree.nodes.items(.data)[node].rhs - 1];
-        const call_args_offset = decl.nodeIndexToRelative(call_args_node);
-        return mod.initSrc(call_args_offset, decl, arg_i);
-    };
-    return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(call_full.ast.params[arg_i]));
-}
-
 pub fn initSrc(
     mod: *Module,
     init_node_offset: i32,

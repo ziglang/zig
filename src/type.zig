@@ -3039,6 +3039,7 @@ pub const Type = struct {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                assert(struct_obj.haveFieldTypes());
                 return struct_obj.fields.values()[index].ty;
             },
             .union_type => |union_type| {
