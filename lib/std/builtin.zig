@@ -137,8 +137,7 @@ pub const OptimizeMode = enum {
     ReleaseSmall,
 };
 
-/// Deprecated; use OptimizeMode.
-pub const Mode = OptimizeMode;
+pub const Mode = @compileError("Deprecated; use OptimizeMode.");
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
