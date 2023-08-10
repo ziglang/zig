@@ -889,8 +889,6 @@ test "pwritev, preadv" {
 }
 
 test "access file" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
