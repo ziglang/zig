@@ -36,8 +36,8 @@
 #include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Support/Host.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/LLVMDriver.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Process.h"
@@ -48,6 +48,7 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetParser/Host.h"
 #include <memory>
 #include <optional>
 #include <set>
@@ -209,6 +210,9 @@ extern int cc1_main(ArrayRef<const char *> Argv, const char *Argv0,
                     void *MainAddr);
 extern int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0,
                       void *MainAddr);
+extern int cc1gen_reproducer_main(ArrayRef<const char *> Argv,
+                                  const char *Argv0, void *MainAddr,
+                                  const llvm::ToolContext &);
 
 static void insertTargetAndModeArgs(const ParsedClangName &NameParts,
                                     SmallVectorImpl<const char *> &ArgVector,
@@ -303,6 +307,9 @@ static bool SetBackdoorDriverOutputsFromEnvVars(Driver &TheDriver) {
   TheDriver.CCPrintProcessStats =
       checkEnvVar<bool>("CC_PRINT_PROC_STAT", "CC_PRINT_PROC_STAT_FILE",
                         TheDriver.CCPrintStatReportFilename);
+  TheDriver.CCPrintInternalStats =
+      checkEnvVar<bool>("CC_PRINT_INTERNAL_STAT", "CC_PRINT_INTERNAL_STAT_FILE",
+                        TheDriver.CCPrintInternalStatReportFilename);
 
   return true;
 }
@@ -339,7 +346,8 @@ static void SetInstallDir(SmallVectorImpl<const char *> &argv,
     TheDriver.setInstalledDir(InstalledPathParent);
 }
 
-static int ExecuteCC1Tool(SmallVectorImpl<const char *> &ArgV) {
+static int ExecuteCC1Tool(SmallVectorImpl<const char *> &ArgV,
+                          const llvm::ToolContext &ToolContext) {
   // If we call the cc1 tool from the clangDriver library (through
   // Driver::CC1Main), we need to clean up the options usage count. The options
   // are currently global, and they might have been used previously by the
@@ -358,28 +366,22 @@ static int ExecuteCC1Tool(SmallVectorImpl<const char *> &ArgV) {
     return cc1_main(ArrayRef(ArgV).slice(1), ArgV[0], GetExecutablePathVP);
   if (Tool == "-cc1as")
     return cc1as_main(ArrayRef(ArgV).slice(2), ArgV[0], GetExecutablePathVP);
+  if (Tool == "-cc1gen-reproducer")
+    return cc1gen_reproducer_main(ArrayRef(ArgV).slice(2), ArgV[0],
+                                  GetExecutablePathVP, ToolContext);
   // Reject unknown tools.
   llvm::errs() << "error: unknown integrated tool '" << Tool << "'. "
                << "Valid tools include '-cc1' and '-cc1as'.\n";
   return 1;
 }
 
-extern "C" int ZigClang_main(int Argc, const char **Argv);
-int ZigClang_main(int Argc, const char **Argv) {
+int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext) {
   noteBottomOfStack();
-  // ZIG PATCH: On Windows, InitLLVM calls GetCommandLineW(),
-  // and overwrites the args.  We don't want it to do that,
-  // and we also don't need the signal handlers it installs
-  // (we have our own already), so we just use llvm_shutdown_obj
-  // instead.
-  // llvm::InitLLVM X(Argc, Argv);
-  llvm::llvm_shutdown_obj X;
-
+  llvm::InitLLVM X(Argc, Argv);
   llvm::setBugReportMsg("PLEASE submit a bug report to " BUG_REPORT_URL
                         " and include the crash backtrace, preprocessed "
                         "source, and associated run script.\n");
-  size_t argv_offset = (strcmp(Argv[1], "-cc1") == 0 || strcmp(Argv[1], "-cc1as") == 0) ? 0 : 1;
-  SmallVector<const char *, 256> Args(Argv + argv_offset, Argv + Argc);
+  SmallVector<const char *, 256> Args(Argv, Argv + Argc);
 
   if (llvm::sys::Process::FixupStandardFileDescriptors())
     return 1;
@@ -389,55 +391,20 @@ int ZigClang_main(int Argc, const char **Argv) {
   llvm::BumpPtrAllocator A;
   llvm::StringSaver Saver(A);
 
-  // Parse response files using the GNU syntax, unless we're in CL mode. There
-  // are two ways to put clang in CL compatibility mode: Args[0] is either
-  // clang-cl or cl, or --driver-mode=cl is on the command line. The normal
-  // command line parsing can't happen until after response file parsing, so we
-  // have to manually search for a --driver-mode=cl argument the hard way.
-  // Finally, our -cc1 tools don't care which tokenization mode we use because
-  // response files written by clang will tokenize the same way in either mode.
+  const char *ProgName =
+      ToolContext.NeedsPrependArg ? ToolContext.PrependArg : ToolContext.Path;
+
   bool ClangCLMode =
-      IsClangCL(getDriverMode(Args[0], llvm::ArrayRef(Args).slice(1)));
-  enum { Default, POSIX, Windows } RSPQuoting = Default;
-  for (const char *F : Args) {
-    if (strcmp(F, "--rsp-quoting=posix") == 0)
-      RSPQuoting = POSIX;
-    else if (strcmp(F, "--rsp-quoting=windows") == 0)
-      RSPQuoting = Windows;
-  }
+      IsClangCL(getDriverMode(ProgName, llvm::ArrayRef(Args).slice(1)));
 
-  // Determines whether we want nullptr markers in Args to indicate response
-  // files end-of-lines. We only use this for the /LINK driver argument with
-  // clang-cl.exe on Windows.
-  bool MarkEOLs = ClangCLMode;
-
-  llvm::cl::TokenizerCallback Tokenizer;
-  if (RSPQuoting == Windows || (RSPQuoting == Default && ClangCLMode))
-    Tokenizer = &llvm::cl::TokenizeWindowsCommandLine;
-  else
-    Tokenizer = &llvm::cl::TokenizeGNUCommandLine;
-
-  if (MarkEOLs && Args.size() > 1 && StringRef(Args[1]).startswith("-cc1"))
-    MarkEOLs = false;
-  llvm::cl::ExpansionContext ECtx(A, Tokenizer);
-  ECtx.setMarkEOLs(MarkEOLs);
-  if (llvm::Error Err = ECtx.expandResponseFiles(Args)) {
+  if (llvm::Error Err = expandResponseFiles(Args, ClangCLMode, A)) {
     llvm::errs() << toString(std::move(Err)) << '\n';
     return 1;
   }
 
-  // Handle -cc1 integrated tools, even if -cc1 was expanded from a response
-  // file.
-  auto FirstArg = llvm::find_if(llvm::drop_begin(Args),
-                                [](const char *A) { return A != nullptr; });
-  if (FirstArg != Args.end() && StringRef(*FirstArg).startswith("-cc1")) {
-    // If -cc1 came from a response file, remove the EOL sentinels.
-    if (MarkEOLs) {
-      auto newEnd = std::remove(Args.begin(), Args.end(), nullptr);
-      Args.resize(newEnd - Args.begin());
-    }
-    return ExecuteCC1Tool(Args);
-  }
+  // Handle -cc1 integrated tools.
+  if (Args.size() >= 2 && StringRef(Args[1]).startswith("-cc1"))
+    return ExecuteCC1Tool(Args, ToolContext);
 
   // Handle options that need handling before the real command line parsing in
   // Driver::BuildCompilation()
@@ -483,9 +450,7 @@ int ZigClang_main(int Argc, const char **Argv) {
     ApplyQAOverride(Args, OverrideStr, SavedStrings);
   }
 
-  // Pass local param `Argv[0]` as fallback.
-  // See https://github.com/ziglang/zig/pull/3292 .
-  std::string Path = GetExecutablePath(Argv[0], CanonicalPrefixes);
+  std::string Path = GetExecutablePath(ToolContext.Path, CanonicalPrefixes);
 
   // Whether the cc1 tool should be called inside the current process, or if we
   // should spawn a new clang subprocess (old behavior).
@@ -503,7 +468,7 @@ int ZigClang_main(int Argc, const char **Argv) {
 
   TextDiagnosticPrinter *DiagClient
     = new TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
-  FixupDiagPrefixExeName(DiagClient, Path);
+  FixupDiagPrefixExeName(DiagClient, ProgName);
 
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
 
@@ -521,8 +486,15 @@ int ZigClang_main(int Argc, const char **Argv) {
 
   Driver TheDriver(Path, llvm::sys::getDefaultTargetTriple(), Diags);
   SetInstallDir(Args, TheDriver, CanonicalPrefixes);
-  auto TargetAndMode = ToolChain::getTargetAndModeFromProgramName(Args[0]);
+  auto TargetAndMode = ToolChain::getTargetAndModeFromProgramName(ProgName);
   TheDriver.setTargetAndMode(TargetAndMode);
+  // If -canonical-prefixes is set, GetExecutablePath will have resolved Path
+  // to the llvm driver binary, not clang. In this case, we need to use
+  // PrependArg which should be clang-*. Checking just CanonicalPrefixes is
+  // safe even in the normal case because PrependArg will be null so
+  // setPrependArg will be a no-op.
+  if (ToolContext.NeedsPrependArg || CanonicalPrefixes)
+    TheDriver.setPrependArg(ToolContext.PrependArg);
 
   insertTargetAndModeArgs(TargetAndMode, Args, SavedStrings);
 
@@ -530,7 +502,9 @@ int ZigClang_main(int Argc, const char **Argv) {
     return 1;
 
   if (!UseNewCC1Process) {
-    TheDriver.CC1Main = &ExecuteCC1Tool;
+    TheDriver.CC1Main = [ToolContext](SmallVectorImpl<const char *> &ArgV) {
+      return ExecuteCC1Tool(ArgV, ToolContext);
+    };
     // Ensure the CC1Command actually catches cc1 crashes
     llvm::CrashRecoveryContext::Enable();
   }
