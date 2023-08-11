@@ -945,7 +945,6 @@ const llvm_targets = [_]LlvmTarget{
             "core_5th_gen_avx_tsx",
             "mic_avx512",
             "skylake_avx512",
-            "skylake-avx512",
             "icelake_client",
             "icelake_server",
             "graniterapids_d",
