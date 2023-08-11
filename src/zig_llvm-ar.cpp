@@ -1498,7 +1498,7 @@ static int ranlib_main(int argc, char **argv) {
   return 0;
 }
 
-int llvm_ar_main(int argc, char **argv, const llvm::ToolContext &) {
+static int llvm_ar_main(int argc, char **argv, const llvm::ToolContext &) {
   ToolName = argv[0];
 
   llvm::InitializeAllTargetInfos();
@@ -1527,4 +1527,9 @@ int llvm_ar_main(int argc, char **argv, const llvm::ToolContext &) {
     return ar_main(argc, argv);
 
   fail("not ranlib, ar, lib or dlltool");
+}
+
+extern "C" int ZigLlvmAr_main(int, char **);
+int ZigLlvmAr_main(int argc, char **argv) {
+  return llvm_ar_main(argc, argv, {argv[0], nullptr, false});
 }
