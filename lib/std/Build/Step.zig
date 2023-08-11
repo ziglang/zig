@@ -39,7 +39,7 @@ test_results: TestResults,
 
 /// The return address associated with creation of this step that can be useful
 /// to print along with debugging messages.
-debug_stack_trace: [n_debug_stack_frames]usize,
+debug_stack_trace: []usize,
 
 pub const TestResults = struct {
     fail_count: u32 = 0,
@@ -57,8 +57,6 @@ pub const TestResults = struct {
 };
 
 pub const MakeFn = *const fn (self: *Step, prog_node: *std.Progress.Node) anyerror!void;
-
-const n_debug_stack_frames = 4;
 
 pub const State = enum {
     precheck_unstarted,
@@ -140,14 +138,6 @@ pub const StepOptions = struct {
 pub fn init(options: StepOptions) Step {
     const arena = options.owner.allocator;
 
-    var addresses = [1]usize{0} ** n_debug_stack_frames;
-    const first_ret_addr = options.first_ret_addr orelse @returnAddress();
-    var stack_trace = std.builtin.StackTrace{
-        .instruction_addresses = &addresses,
-        .index = 0,
-    };
-    std.debug.captureStackTrace(first_ret_addr, &stack_trace);
-
     return .{
         .id = options.id,
         .name = arena.dupe(u8, options.name) catch @panic("OOM"),
@@ -157,7 +147,17 @@ pub fn init(options: StepOptions) Step {
         .dependants = .{},
         .state = .precheck_unstarted,
         .max_rss = options.max_rss,
-        .debug_stack_trace = addresses,
+        .debug_stack_trace = blk: {
+            const addresses = arena.alloc(usize, options.owner.debug_stack_frames_count) catch @panic("OOM");
+            @memset(addresses, 0);
+            const first_ret_addr = options.first_ret_addr orelse @returnAddress();
+            var stack_trace = std.builtin.StackTrace{
+                .instruction_addresses = addresses,
+                .index = 0,
+            };
+            std.debug.captureStackTrace(first_ret_addr, &stack_trace);
+            break :blk addresses;
+        },
         .result_error_msgs = .{},
         .result_error_bundle = std.zig.ErrorBundle.empty,
         .result_cached = false,
@@ -199,14 +199,14 @@ pub fn dependOn(self: *Step, other: *Step) void {
     self.dependencies.append(other) catch @panic("OOM");
 }
 
-pub fn getStackTrace(s: *Step) std.builtin.StackTrace {
-    const stack_addresses = &s.debug_stack_trace;
+pub fn getStackTrace(s: *Step) ?std.builtin.StackTrace {
     var len: usize = 0;
-    while (len < n_debug_stack_frames and stack_addresses[len] != 0) {
+    while (len < s.debug_stack_trace.len and s.debug_stack_trace[len] != 0) {
         len += 1;
     }
-    return .{
-        .instruction_addresses = stack_addresses,
+
+    return if (len == 0) null else .{
+        .instruction_addresses = s.debug_stack_trace,
         .index = len,
     };
 }
@@ -245,11 +245,19 @@ pub fn dump(step: *Step) void {
         return;
     };
     const ally = debug_info.allocator;
-    w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
-    std.debug.writeStackTrace(step.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
-        stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
-        return;
-    };
+    if (step.getStackTrace()) |stack_trace| {
+        w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
+        std.debug.writeStackTrace(stack_trace, w, ally, debug_info, tty_config) catch |err| {
+            stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
+            return;
+        };
+    } else {
+        const field = "debug_stack_frames_count";
+        comptime assert(@hasField(Build, field));
+        tty_config.setColor(w, .yellow) catch {};
+        w.print("name: '{s}'. no stack trace collected for this step, see std.Build." ++ field ++ "\n", .{step.name}) catch {};
+        tty_config.setColor(w, .reset) catch {};
+    }
 }
 
 const Step = @This();
