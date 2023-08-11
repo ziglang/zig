@@ -1167,6 +1167,7 @@ pub const OSType = enum(c_int) {
     NetBSD,
     OpenBSD,
     Solaris,
+    UEFI,
     Win32,
     ZOS,
     Haiku,
@@ -1191,6 +1192,7 @@ pub const OSType = enum(c_int) {
     WASI,
     Emscripten,
     ShaderModel,
+    LiteOS,
 };
 
 pub const ArchType = enum(c_int) {
