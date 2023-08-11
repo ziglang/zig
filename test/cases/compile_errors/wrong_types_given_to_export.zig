@@ -7,5 +7,5 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :3:51: error: expected type 'builtin.GlobalLinkage', found 'u32'
+// :3:21: error: expected type 'builtin.GlobalLinkage', found 'u32'
 // :?:?: note: enum declared here

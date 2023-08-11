@@ -441,7 +441,7 @@ pub fn hasDebugInfo(target: std.Target) bool {
     return true;
 }
 
-pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.Mode {
+pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.OptimizeMode {
     if (target.cpu.arch.isWasm() and target.os.tag == .freestanding) {
         return .ReleaseSmall;
     } else {

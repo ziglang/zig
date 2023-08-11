@@ -2133,10 +2133,40 @@ pub const SrcLoc = struct {
             .call_arg => |call_arg| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(call_arg.call_node_offset);
-                var buf: [1]Ast.Node.Index = undefined;
-                const call_full = tree.fullCall(&buf, node).?;
-                const src_node = call_full.ast.params[call_arg.arg_index];
-                return nodeToSpan(tree, src_node);
+                var buf: [2]Ast.Node.Index = undefined;
+                const call_full = tree.fullCall(buf[0..1], node) orelse {
+                    const node_tags = tree.nodes.items(.tag);
+                    assert(node_tags[node] == .builtin_call);
+                    const call_args_node = tree.extra_data[tree.nodes.items(.data)[node].rhs - 1];
+                    switch (node_tags[call_args_node]) {
+                        .array_init_one,
+                        .array_init_one_comma,
+                        .array_init_dot_two,
+                        .array_init_dot_two_comma,
+                        .array_init_dot,
+                        .array_init_dot_comma,
+                        .array_init,
+                        .array_init_comma,
+                        => {
+                            const full = tree.fullArrayInit(&buf, call_args_node).?.ast.elements;
+                            return nodeToSpan(tree, full[call_arg.arg_index]);
+                        },
+                        .struct_init_one,
+                        .struct_init_one_comma,
+                        .struct_init_dot_two,
+                        .struct_init_dot_two_comma,
+                        .struct_init_dot,
+                        .struct_init_dot_comma,
+                        .struct_init,
+                        .struct_init_comma,
+                        => {
+                            const full = tree.fullStructInit(&buf, call_args_node).?.ast.fields;
+                            return nodeToSpan(tree, full[call_arg.arg_index]);
+                        },
+                        else => return nodeToSpan(tree, call_args_node),
+                    }
+                };
+                return nodeToSpan(tree, call_full.ast.params[call_arg.arg_index]);
             },
             .fn_proto_param => |fn_proto_param| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -5610,7 +5640,7 @@ pub fn getTarget(mod: Module) Target {
     return mod.comp.bin_file.options.target;
 }
 
-pub fn optimizeMode(mod: Module) std.builtin.Mode {
+pub fn optimizeMode(mod: Module) std.builtin.OptimizeMode {
     return mod.comp.bin_file.options.optimize_mode;
 }
 
@@ -5906,41 +5936,6 @@ pub fn paramSrc(
         }
     }
     unreachable;
-}
-
-pub fn argSrc(
-    mod: *Module,
-    call_node_offset: i32,
-    decl: *Decl,
-    start_arg_i: usize,
-    bound_arg_src: ?LazySrcLoc,
-) LazySrcLoc {
-    @setCold(true);
-    const gpa = mod.gpa;
-    if (start_arg_i == 0 and bound_arg_src != null) return bound_arg_src.?;
-    const arg_i = start_arg_i - @intFromBool(bound_arg_src != null);
-    const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
-        // In this case we emit a warning + a less precise source location.
-        log.warn("unable to load {s}: {s}", .{
-            decl.getFileScope(mod).sub_file_path, @errorName(err),
-        });
-        return LazySrcLoc.nodeOffset(0);
-    };
-    const node_tags = tree.nodes.items(.tag);
-    const node = decl.relativeToNodeIndex(call_node_offset);
-    var args: [1]Ast.Node.Index = undefined;
-    const full = switch (node_tags[node]) {
-        .call_one, .call_one_comma, .async_call_one, .async_call_one_comma => tree.callOne(&args, node),
-        .call, .call_comma, .async_call, .async_call_comma => tree.callFull(node),
-        .builtin_call => {
-            const node_datas = tree.nodes.items(.data);
-            const call_args_node = tree.extra_data[node_datas[node].rhs - 1];
-            const call_args_offset = decl.nodeIndexToRelative(call_args_node);
-            return mod.initSrc(call_args_offset, decl, arg_i);
-        },
-        else => unreachable,
-    };
-    return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full.ast.params[arg_i]));
 }
 
 pub fn initSrc(
