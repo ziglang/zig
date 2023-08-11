@@ -4662,6 +4662,9 @@ pub fn importFile(
         {
             break :p try gpa.dupe(u8, resolved_path);
         }
+        if (std.fs.path.isAbsolute(resolved_path)) {
+            return error.ImportAbsolutePath;
+        }
         return error.ImportOutsidePkgPath;
     };
     errdefer gpa.free(sub_file_path);
@@ -4738,6 +4741,9 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
             !std.fs.path.isAbsolute(resolved_path))
         {
             break :p try gpa.dupe(u8, resolved_path);
+        }
+        if (std.fs.path.isAbsolute(resolved_path)) {
+            return error.ImportAbsolutePath;
         }
         return error.ImportOutsidePkgPath;
     };

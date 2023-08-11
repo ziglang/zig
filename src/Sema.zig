@@ -12815,6 +12815,9 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         error.ImportOutsidePkgPath => {
             return sema.fail(block, operand_src, "import of file outside package path: '{s}'", .{operand});
         },
+        error.ImportAbsolutePath => {
+            return sema.fail(block, operand_src, "imports using absolute paths are not supported: '{s}'", .{operand});
+        },
         error.PackageNotFound => {
             const name = try block.getFileScope(mod).pkg.getName(sema.gpa, mod.*);
             defer sema.gpa.free(name);
@@ -12849,6 +12852,9 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const embed_file = mod.embedFile(block.getFileScope(mod), name) catch |err| switch (err) {
         error.ImportOutsidePkgPath => {
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
+        },
+        error.ImportAbsolutePath => {
+            return sema.fail(block, operand_src, "imports using absolute paths are not supported: '{s}'", .{name});
         },
         else => {
             // TODO: these errors are file system errors; make sure an update() will
