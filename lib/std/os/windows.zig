@@ -1226,7 +1226,17 @@ pub fn GetFinalPathNameByHandle(
 
             const file_path_begin_index = mem.indexOfPos(u16, final_path, expected_prefix.len, &[_]u16{'\\'}) orelse unreachable;
             const volume_name_u16 = final_path[0..file_path_begin_index];
+            const device_name_u16 = volume_name_u16[expected_prefix.len..];
             const file_name_u16 = final_path[file_path_begin_index..];
+
+            // MUP is Multiple UNC Provider, and indicates that the path is a UNC
+            // path. In this case, the canonical UNC path can be gotten by just
+            // dropping the \Device\Mup\ and making sure the path begins with \\
+            if (mem.eql(u16, device_name_u16, std.unicode.utf8ToUtf16LeStringLiteral("Mup"))) {
+                out_buffer[0] = '\\';
+                mem.copyForwards(u16, out_buffer[1..][0..file_name_u16.len], file_name_u16);
+                return out_buffer[0 .. 1 + file_name_u16.len];
+            }
 
             // Get DOS volume name. DOS volume names are actually symbolic link objects to the
             // actual NT volume. For example:
