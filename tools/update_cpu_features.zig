@@ -40,6 +40,7 @@ const LlvmTarget = struct {
     feature_overrides: []const FeatureOverride = &.{},
     extra_cpus: []const Cpu = &.{},
     extra_features: []const Feature = &.{},
+    omit_cpus: []const []const u8 = &.{},
     branch_quota: ?usize = null,
 };
 
@@ -915,6 +916,40 @@ const llvm_targets = [_]LlvmTarget{
                 .extra_deps = &.{"soft_float"},
             },
         },
+        .omit_cpus = &.{
+            // LLVM defines a bunch of dumb aliases with foreach loops in X86.td.
+            "pentium_mmx",
+            "pentium_pro",
+            "pentium_ii",
+            "pentium_3m",
+            "pentium_iii_no_xmm_regs",
+            "pentium_iii",
+            "pentium_m",
+            "pentium4m",
+            "pentium_4",
+            "pentium_4_sse3",
+            "core_2_duo_ssse3",
+            "core_2_duo_sse4_1",
+            "atom_sse4_2",
+            "goldmont_plus",
+            "core_i7_sse4_2",
+            "core_aes_pclmulqdq",
+            "corei7-avx",
+            "core_2nd_gen_avx",
+            "core-avx-i",
+            "core_3rd_gen_avx",
+            "core-avx2",
+            "core_4th_gen_avx",
+            "core_4th_gen_avx_tsx",
+            "core_5th_gen_avx",
+            "core_5th_gen_avx_tsx",
+            "mic_avx512",
+            "skylake_avx512",
+            "skylake-avx512",
+            "icelake_client",
+            "icelake_server",
+            "graniterapids_d",
+        },
     },
     .{
         .zig_name = "xcore",
@@ -1129,6 +1164,10 @@ fn processOneTarget(job: Job) anyerror!void {
             if (hasSuperclass(&kv.value_ptr.object, "Processor")) {
                 const llvm_name = kv.value_ptr.object.get("Name").?.string;
                 if (llvm_name.len == 0) continue;
+                const omitted = for (llvm_target.omit_cpus) |omit_cpu_name| {
+                    if (mem.eql(u8, omit_cpu_name, llvm_name)) break true;
+                } else false;
+                if (omitted) continue;
 
                 var zig_name = try llvmNameToZigName(arena, llvm_name);
                 var deps = std.ArrayList([]const u8).init(arena);
