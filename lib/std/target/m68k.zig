@@ -11,6 +11,8 @@ pub const Feature = enum {
     isa_68030,
     isa_68040,
     isa_68060,
+    isa_68881,
+    isa_68882,
     reserve_a0,
     reserve_a1,
     reserve_a2,
@@ -68,6 +70,7 @@ pub const all_features = blk: {
         .description = "Is M68040 ISA supported",
         .dependencies = featureSet(&[_]Feature{
             .isa_68030,
+            .isa_68882,
         }),
     };
     result[@intFromEnum(Feature.isa_68060)] = .{
@@ -75,6 +78,18 @@ pub const all_features = blk: {
         .description = "Is M68060 ISA supported",
         .dependencies = featureSet(&[_]Feature{
             .isa_68040,
+        }),
+    };
+    result[@intFromEnum(Feature.isa_68881)] = .{
+        .llvm_name = "isa-68881",
+        .description = "Is M68881 (FPU) ISA supported",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.isa_68882)] = .{
+        .llvm_name = "isa-68882",
+        .description = "Is M68882 (FPU) ISA supported",
+        .dependencies = featureSet(&[_]Feature{
+            .isa_68881,
         }),
     };
     result[@intFromEnum(Feature.reserve_a0)] = .{

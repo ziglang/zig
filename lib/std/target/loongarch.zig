@@ -16,6 +16,7 @@ pub const Feature = enum {
     lbt,
     lsx,
     lvz,
+    ual,
 };
 
 pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
@@ -88,6 +89,11 @@ pub const all_features = blk: {
         .description = "'LVZ' (Loongson Virtualization Extension)",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.ual)] = .{
+        .llvm_name = "ual",
+        .description = "Allow memory accesses to be unaligned",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
@@ -114,6 +120,7 @@ pub const cpu = struct {
         .llvm_name = "generic-la64",
         .features = featureSet(&[_]Feature{
             .@"64bit",
+            .ual,
         }),
     };
     pub const la464 = CpuModel{
@@ -124,6 +131,16 @@ pub const cpu = struct {
             .lasx,
             .lbt,
             .lvz,
+            .ual,
+        }),
+    };
+    pub const loongarch64 = CpuModel{
+        .name = "loongarch64",
+        .llvm_name = "loongarch64",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .d,
+            .ual,
         }),
     };
 };

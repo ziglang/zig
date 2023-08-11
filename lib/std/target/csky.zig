@@ -214,7 +214,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.dsp_silan)] = .{
         .llvm_name = "dsp_silan",
-        .description = "Enable DSP Silan instructions",
+        .description = "Enable DSP Silan instrutions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dspe60)] = .{
@@ -224,7 +224,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.dspv2)] = .{
         .llvm_name = "dspv2",
-        .description = "Enable DSP V2.0 instructions",
+        .description = "Enable DSP V2.0 instrutions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.e1)] = .{
@@ -243,7 +243,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.edsp)] = .{
         .llvm_name = "edsp",
-        .description = "Enable DSP instructions",
+        .description = "Enable DSP instrutions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.elrw)] = .{
@@ -298,12 +298,12 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.fpuv3_hf)] = .{
         .llvm_name = "fpuv3_hf",
-        .description = "Enable FPUv3 harf precision operate instructions",
+        .description = "Enable FPUv3 half precision operate instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fpuv3_hi)] = .{
         .llvm_name = "fpuv3_hi",
-        .description = "Enable FPUv3 harf word converting instructions",
+        .description = "Enable FPUv3 half word converting instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fpuv3_sf)] = .{
@@ -333,12 +333,12 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.hwdiv)] = .{
         .llvm_name = "hwdiv",
-        .description = "Enable divide instructions",
+        .description = "Enable divide instrutions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.istack)] = .{
         .llvm_name = "istack",
-        .description = "Enable interrupt attribute",
+        .description = "Enable interrput attribute",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.java)] = .{
@@ -362,7 +362,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.multiple_stld)] = .{
         .llvm_name = "multiple_stld",
-        .description = "Enable multiple load/store instructions",
+        .description = "Enable multiple load/store instrutions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.nvic)] = .{
@@ -372,7 +372,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.pushpop)] = .{
         .llvm_name = "pushpop",
-        .description = "Enable push/pop instructions",
+        .description = "Enable push/pop instrutions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.smart)] = .{
@@ -3079,7 +3079,7 @@ pub const cpu = struct {
             .btst16,
         }),
     };
-    pub const @"i805" = CpuModel{
+    pub const i805 = CpuModel{
         .name = "i805",
         .llvm_name = "i805",
         .features = featureSet(&[_]Feature{
