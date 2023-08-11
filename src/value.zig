@@ -8,7 +8,6 @@ const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
 const Module = @import("Module.zig");
-const Air = @import("Air.zig");
 const TypedValue = @import("TypedValue.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
@@ -262,6 +261,11 @@ pub const Value = struct {
         return ip.getOrPutTrailingString(gpa, len);
     }
 
+    pub fn intern2(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
+        if (val.ip_index != .none) return val.ip_index;
+        return intern(val, ty, mod);
+    }
+
     pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
         if (val.ip_index != .none) return (try mod.getCoerced(val, ty)).toIntern();
         switch (val.tag()) {
@@ -473,12 +477,15 @@ pub const Value = struct {
         };
     }
 
-    pub fn getFunction(val: Value, mod: *Module) ?*Module.Fn {
-        return mod.funcPtrUnwrap(val.getFunctionIndex(mod));
+    pub fn isFuncBody(val: Value, mod: *Module) bool {
+        return mod.intern_pool.isFuncBody(val.toIntern());
     }
 
-    pub fn getFunctionIndex(val: Value, mod: *Module) Module.Fn.OptionalIndex {
-        return if (val.ip_index != .none) mod.intern_pool.indexToFunc(val.toIntern()) else .none;
+    pub fn getFunction(val: Value, mod: *Module) ?InternPool.Key.Func {
+        return if (val.ip_index != .none) switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .func => |x| x,
+            else => null,
+        } else null;
     }
 
     pub fn getExternFunc(val: Value, mod: *Module) ?InternPool.Key.ExternFunc {
@@ -1462,7 +1469,7 @@ pub const Value = struct {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .variable => |variable| variable.decl,
             .extern_func => |extern_func| extern_func.decl,
-            .func => |func| mod.funcPtr(func.index).owner_decl,
+            .func => |func| func.owner_decl,
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl| decl,
                 .mut_decl => |mut_decl| mut_decl.decl,
@@ -3824,7 +3831,7 @@ pub const Value = struct {
 
     /// If the value is represented in-memory as a series of bytes that all
     /// have the same value, return that byte value, otherwise null.
-    pub fn hasRepeatedByteRepr(val: Value, ty: Type, mod: *Module) !?Value {
+    pub fn hasRepeatedByteRepr(val: Value, ty: Type, mod: *Module) !?u8 {
         const abi_size = std.math.cast(usize, ty.abiSize(mod)) orelse return null;
         assert(abi_size >= 1);
         const byte_buffer = try mod.gpa.alloc(u8, abi_size);
@@ -3845,7 +3852,7 @@ pub const Value = struct {
         for (byte_buffer[1..]) |byte| {
             if (byte != first_byte) return null;
         }
-        return try mod.intValue(Type.u8, first_byte);
+        return first_byte;
     }
 
     pub fn isGenericPoison(val: Value) bool {

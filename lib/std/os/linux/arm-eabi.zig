@@ -103,20 +103,40 @@ const CloneFn = *const fn (arg: usize) callconv(.C) u8;
 /// This matches the libc clone function.
 pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
-pub fn restore() callconv(.Naked) void {
-    return asm volatile ("svc #0"
-        :
-        : [number] "{r7}" (@intFromEnum(SYS.sigreturn)),
-        : "memory"
-    );
+pub fn restore() callconv(.Naked) noreturn {
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => asm volatile (
+            \\ mov r7, %[number]
+            \\ svc #0
+            :
+            : [number] "I" (@intFromEnum(SYS.sigreturn)),
+            : "memory"
+        ),
+        else => asm volatile (
+            \\ svc #0
+            :
+            : [number] "{r7}" (@intFromEnum(SYS.sigreturn)),
+            : "memory"
+        ),
+    }
 }
 
-pub fn restore_rt() callconv(.Naked) void {
-    return asm volatile ("svc #0"
-        :
-        : [number] "{r7}" (@intFromEnum(SYS.rt_sigreturn)),
-        : "memory"
-    );
+pub fn restore_rt() callconv(.Naked) noreturn {
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => asm volatile (
+            \\ mov r7, %[number]
+            \\ svc #0
+            :
+            : [number] "I" (@intFromEnum(SYS.rt_sigreturn)),
+            : "memory"
+        ),
+        else => asm volatile (
+            \\ svc #0
+            :
+            : [number] "{r7}" (@intFromEnum(SYS.rt_sigreturn)),
+            : "memory"
+        ),
+    }
 }
 
 pub const MMAP2_UNIT = 4096;

@@ -19,9 +19,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
     });
     b.default_step.dependOn(&exe.step);
-    exe.addIncludePath(".");
-    exe.addCSourceFile("Foo.mm", &[0][]const u8{});
-    exe.addCSourceFile("test.mm", &[0][]const u8{});
+    exe.addIncludePath(.{ .path = "." });
+    exe.addCSourceFile(.{ .file = .{ .path = "Foo.mm" }, .flags = &[0][]const u8{} });
+    exe.addCSourceFile(.{ .file = .{ .path = "test.mm" }, .flags = &[0][]const u8{} });
     exe.linkLibCpp();
     // TODO when we figure out how to ship framework stubs for cross-compilation,
     // populate paths to the sysroot here.

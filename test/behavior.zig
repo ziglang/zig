@@ -12,6 +12,8 @@ test {
     _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bitreverse.zig");
     _ = @import("behavior/bool.zig");
+    // Ideally, all tests would be categorized and independent from GitHub, but
+    // if that's too much trouble, having test coverage this way is better than nothing.
     _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/421.zig");
     _ = @import("behavior/bugs/529.zig");
@@ -147,6 +149,7 @@ test {
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/c_char_signedness.zig");
     _ = @import("behavior/call.zig");
+    _ = @import("behavior/call_tail.zig");
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/cast_int.zig");
     _ = @import("behavior/comptime_memory.zig");
@@ -190,6 +193,7 @@ test {
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/packed-struct.zig");
     _ = @import("behavior/packed_struct_explicit_backing_int.zig");
+    _ = @import("behavior/packed-union.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/popcount.zig");
     _ = @import("behavior/prefetch.zig");
@@ -220,6 +224,7 @@ test {
     _ = @import("behavior/tuple_declarations.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/type_info.zig");
+    _ = @import("behavior/type_info_only_pub_decls.zig");
     _ = @import("behavior/typename.zig");
     _ = @import("behavior/undefined.zig");
     _ = @import("behavior/underscore.zig");

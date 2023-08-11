@@ -650,7 +650,7 @@ air: Air,
 liveness: Liveness,
 gpa: mem.Allocator,
 debug_output: codegen.DebugInfoOutput,
-mod_fn: *const Module.Fn,
+func_index: InternPool.Index,
 /// Contains a list of current branches.
 /// When we return from a branch, the branch will be popped from this list,
 /// which means branches can only contain references from within its own branch,
@@ -1202,7 +1202,7 @@ fn genFunctype(
 pub fn generate(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    func_index: Module.Fn.Index,
+    func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
@@ -1210,7 +1210,7 @@ pub fn generate(
 ) codegen.CodeGenError!codegen.Result {
     _ = src_loc;
     const mod = bin_file.options.module.?;
-    const func = mod.funcPtr(func_index);
+    const func = mod.funcInfo(func_index);
     var code_gen: CodeGen = .{
         .gpa = bin_file.allocator,
         .air = air,
@@ -1223,7 +1223,7 @@ pub fn generate(
         .target = bin_file.options.target,
         .bin_file = bin_file.cast(link.File.Wasm).?,
         .debug_output = debug_output,
-        .mod_fn = func,
+        .func_index = func_index,
     };
     defer code_gen.deinit();
 
@@ -1237,8 +1237,9 @@ pub fn generate(
 
 fn genFunc(func: *CodeGen) InnerError!void {
     const mod = func.bin_file.base.options.module.?;
+    const ip = &mod.intern_pool;
     const fn_info = mod.typeToFunc(func.decl.ty).?;
-    var func_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types, fn_info.return_type.toType(), mod);
+    var func_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types.get(ip), fn_info.return_type.toType(), mod);
     defer func_type.deinit(func.gpa);
     _ = try func.bin_file.storeDeclType(func.decl_index, func_type);
 
@@ -1347,6 +1348,7 @@ const CallWValues = struct {
 
 fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWValues {
     const mod = func.bin_file.base.options.module.?;
+    const ip = &mod.intern_pool;
     const fn_info = mod.typeToFunc(fn_ty).?;
     const cc = fn_info.cc;
     var result: CallWValues = .{
@@ -1369,7 +1371,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
 
     switch (cc) {
         .Unspecified => {
-            for (fn_info.param_types) |ty| {
+            for (fn_info.param_types.get(ip)) |ty| {
                 if (!ty.toType().hasRuntimeBitsIgnoreComptime(mod)) {
                     continue;
                 }
@@ -1379,7 +1381,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
             }
         },
         .C => {
-            for (fn_info.param_types) |ty| {
+            for (fn_info.param_types.get(ip)) |ty| {
                 const ty_classes = abi.classifyType(ty.toType(), mod);
                 for (ty_classes) |class| {
                     if (class == .none) continue;
@@ -2185,6 +2187,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     const ty = func.typeOf(pl_op.operand);
 
     const mod = func.bin_file.base.options.module.?;
+    const ip = &mod.intern_pool;
     const fn_ty = switch (ty.zigTypeTag(mod)) {
         .Fn => ty,
         .Pointer => ty.childType(mod),
@@ -2203,7 +2206,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         } else if (func_val.getExternFunc(mod)) |extern_func| {
             const ext_decl = mod.declPtr(extern_func.decl);
             const ext_info = mod.typeToFunc(ext_decl.ty).?;
-            var func_type = try genFunctype(func.gpa, ext_info.cc, ext_info.param_types, ext_info.return_type.toType(), mod);
+            var func_type = try genFunctype(func.gpa, ext_info.cc, ext_info.param_types.get(ip), ext_info.return_type.toType(), mod);
             defer func_type.deinit(func.gpa);
             const atom_index = try func.bin_file.getOrCreateAtomForDecl(extern_func.decl);
             const atom = func.bin_file.getAtomPtr(atom_index);
@@ -2253,7 +2256,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         const operand = try func.resolveInst(pl_op.operand);
         try func.emitWValue(operand);
 
-        var fn_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types, fn_info.return_type.toType(), mod);
+        var fn_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types.get(ip), fn_info.return_type.toType(), mod);
         defer fn_type.deinit(func.gpa);
 
         const fn_type_index = try func.bin_file.putOrGetFuncType(fn_type);
@@ -2564,8 +2567,8 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     switch (func.debug_output) {
         .dwarf => |dwarf| {
             const src_index = func.air.instructions.items(.data)[inst].arg.src_index;
-            const name = func.mod_fn.getParamName(func.bin_file.base.options.module.?, src_index);
-            try dwarf.genArgDbgInfo(name, arg_ty, func.mod_fn.owner_decl, .{
+            const name = mod.getParamName(func.func_index, src_index);
+            try dwarf.genArgDbgInfo(name, arg_ty, mod.funcOwnerDeclIndex(func.func_index), .{
                 .wasm_local = arg.local.value,
             });
         },
@@ -3672,8 +3675,9 @@ fn airStructFieldPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const extra = func.air.extraData(Air.StructField, ty_pl.payload);
 
     const struct_ptr = try func.resolveInst(extra.data.struct_operand);
-    const struct_ty = func.typeOf(extra.data.struct_operand).childType(mod);
-    const result = try func.structFieldPtr(inst, extra.data.struct_operand, struct_ptr, struct_ty, extra.data.field_index);
+    const struct_ptr_ty = func.typeOf(extra.data.struct_operand);
+    const struct_ty = struct_ptr_ty.childType(mod);
+    const result = try func.structFieldPtr(inst, extra.data.struct_operand, struct_ptr, struct_ptr_ty, struct_ty, extra.data.field_index);
     func.finishAir(inst, result, &.{extra.data.struct_operand});
 }
 
@@ -3681,9 +3685,10 @@ fn airStructFieldPtrIndex(func: *CodeGen, inst: Air.Inst.Index, index: u32) Inne
     const mod = func.bin_file.base.options.module.?;
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
     const struct_ptr = try func.resolveInst(ty_op.operand);
-    const struct_ty = func.typeOf(ty_op.operand).childType(mod);
+    const struct_ptr_ty = func.typeOf(ty_op.operand);
+    const struct_ty = struct_ptr_ty.childType(mod);
 
-    const result = try func.structFieldPtr(inst, ty_op.operand, struct_ptr, struct_ty, index);
+    const result = try func.structFieldPtr(inst, ty_op.operand, struct_ptr, struct_ptr_ty, struct_ty, index);
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
@@ -3692,18 +3697,21 @@ fn structFieldPtr(
     inst: Air.Inst.Index,
     ref: Air.Inst.Ref,
     struct_ptr: WValue,
+    struct_ptr_ty: Type,
     struct_ty: Type,
     index: u32,
 ) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
     const result_ty = func.typeOfIndex(inst);
+    const struct_ptr_ty_info = struct_ptr_ty.ptrInfo(mod);
+
     const offset = switch (struct_ty.containerLayout(mod)) {
         .Packed => switch (struct_ty.zigTypeTag(mod)) {
             .Struct => offset: {
                 if (result_ty.ptrInfo(mod).packed_offset.host_size != 0) {
                     break :offset @as(u32, 0);
                 }
-                break :offset struct_ty.packedStructFieldByteOffset(index, mod);
+                break :offset struct_ty.packedStructFieldByteOffset(index, mod) + @divExact(struct_ptr_ty_info.packed_offset.bit_offset, 8);
             },
             .Union => 0,
             else => unreachable,
@@ -4157,7 +4165,7 @@ fn airIntcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const op_bits = toWasmBits(@as(u16, @intCast(operand_ty.bitSize(mod)))).?;
     const wanted_bits = toWasmBits(@as(u16, @intCast(ty.bitSize(mod)))).?;
-    const result = if (op_bits == wanted_bits)
+    const result = if (op_bits == wanted_bits and !ty.isSignedInt(mod))
         func.reuseOperand(ty_op.operand, operand)
     else
         try (try func.intcast(operand, operand_ty, ty)).toLocal(func, ty);
@@ -4178,7 +4186,19 @@ fn intcast(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerErro
 
     const op_bits = toWasmBits(given_bitsize).?;
     const wanted_bits = toWasmBits(wanted_bitsize).?;
-    if (op_bits == wanted_bits) return operand;
+    if (op_bits == wanted_bits) {
+        if (given.isSignedInt(mod)) {
+            if (given_bitsize < wanted_bitsize) {
+                // signed integers are stored as two's complement,
+                // when we upcast from a smaller integer to larger
+                // integers, we must get its absolute value similar to
+                // i64_extend_i32_s instruction.
+                return func.signAbsValue(operand, given);
+            }
+            return func.wrapOperand(operand, wanted);
+        }
+        return operand;
+    }
 
     if (op_bits > 32 and op_bits <= 64 and wanted_bits == 32) {
         try func.emitWValue(operand);
@@ -6198,6 +6218,7 @@ fn airCtz(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) !void {
     if (func.debug_output != .dwarf) return func.finishAir(inst, .none, &.{});
 
+    const mod = func.bin_file.base.options.module.?;
     const pl_op = func.air.instructions.items(.data)[inst].pl_op;
     const ty = func.typeOf(pl_op.operand);
     const operand = try func.resolveInst(pl_op.operand);
@@ -6214,7 +6235,7 @@ fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) !void {
             break :blk .nop;
         },
     };
-    try func.debug_output.dwarf.genVarDbgInfo(name, ty, func.mod_fn.owner_decl, is_ptr, loc);
+    try func.debug_output.dwarf.genVarDbgInfo(name, ty, mod.funcOwnerDeclIndex(func.func_index), is_ptr, loc);
 
     func.finishAir(inst, .none, &.{});
 }

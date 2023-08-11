@@ -443,3 +443,36 @@ test "generic function passed as comptime argument" {
     };
     try S.doMath(std.math.add, 5, 6);
 }
+
+test "return type of generic function is function pointer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn b(comptime T: type) ?*const fn () error{}!T {
+            return null;
+        }
+    };
+
+    try expect(null == S.b(void));
+}
+
+test "coerced function body has inequal value with its uncoerced body" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        const A = B(i32, c);
+        fn c() !i32 {
+            return 1234;
+        }
+        fn B(comptime T: type, comptime d: ?fn () anyerror!T) type {
+            return struct {
+                fn do() T {
+                    return d.?() catch @panic("fail");
+                }
+            };
+        }
+    };
+    try expect(S.A.do() == 1234);
+}

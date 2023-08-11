@@ -24,6 +24,6 @@ pub export fn entry3() void {
 // :4:33: error: integer and float literals passed to variadic function must be casted to a fixed-size number type
 // :9:24: error: arrays must be passed by reference to variadic function
 // :13:24: error: cannot pass 'u48' to variadic function
-// :13:24: note: only integers with power of two bits are extern compatible
+// :13:24: note: only integers with 0 or power of two bits are extern compatible
 // :17:24: error: cannot pass 'void' to variadic function
 // :17:24: note: 'void' is a zero bit type; for C 'void' use 'anyopaque'

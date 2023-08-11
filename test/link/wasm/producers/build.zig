@@ -28,16 +28,17 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const version_fmt = "version " ++ builtin.zig_version_string;
 
     const check_lib = lib.checkObject();
-    check_lib.checkStart("name producers");
-    check_lib.checkNext("fields 2");
-    check_lib.checkNext("field_name language");
-    check_lib.checkNext("values 1");
-    check_lib.checkNext("value_name Zig");
-    check_lib.checkNext(version_fmt);
-    check_lib.checkNext("field_name processed-by");
-    check_lib.checkNext("values 1");
-    check_lib.checkNext("value_name Zig");
-    check_lib.checkNext(version_fmt);
+    check_lib.checkStart();
+    check_lib.checkExact("name producers");
+    check_lib.checkExact("fields 2");
+    check_lib.checkExact("field_name language");
+    check_lib.checkExact("values 1");
+    check_lib.checkExact("value_name Zig");
+    check_lib.checkExact(version_fmt);
+    check_lib.checkExact("field_name processed-by");
+    check_lib.checkExact("values 1");
+    check_lib.checkExact("value_name Zig");
+    check_lib.checkExact(version_fmt);
 
     test_step.dependOn(&check_lib.step);
 }

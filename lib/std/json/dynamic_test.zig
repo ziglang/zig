@@ -69,38 +69,34 @@ test "json.parser.dynamic" {
     try testing.expect(mem.eql(u8, large_int.number_string, "18446744073709551615"));
 }
 
-const writeStream = @import("./write_stream.zig").writeStream;
+const writeStream = @import("./stringify.zig").writeStream;
 test "write json then parse it" {
     var out_buffer: [1000]u8 = undefined;
 
     var fixed_buffer_stream = std.io.fixedBufferStream(&out_buffer);
     const out_stream = fixed_buffer_stream.writer();
-    var jw = writeStream(out_stream, 4);
+    var jw = writeStream(out_stream, .{});
+    defer jw.deinit();
 
     try jw.beginObject();
 
     try jw.objectField("f");
-    try jw.emitBool(false);
+    try jw.write(false);
 
     try jw.objectField("t");
-    try jw.emitBool(true);
+    try jw.write(true);
 
     try jw.objectField("int");
-    try jw.emitNumber(1234);
+    try jw.write(1234);
 
     try jw.objectField("array");
     try jw.beginArray();
-
-    try jw.arrayElem();
-    try jw.emitNull();
-
-    try jw.arrayElem();
-    try jw.emitNumber(12.34);
-
+    try jw.write(null);
+    try jw.write(12.34);
     try jw.endArray();
 
     try jw.objectField("str");
-    try jw.emitString("hello");
+    try jw.write("hello");
 
     try jw.endObject();
 
@@ -185,64 +181,50 @@ test "escaped characters" {
 }
 
 test "Value.jsonStringify" {
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try @as(Value, .null).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "null");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .bool = true }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "true");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .integer = 42 }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "42");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .number_string = "43" }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "43");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .float = 42 }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "4.2e+01");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .string = "weeee" }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "\"weeee\"");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        var vals = [_]Value{
-            .{ .integer = 1 },
-            .{ .integer = 2 },
-            .{ .number_string = "3" },
-        };
-        try (Value{
-            .array = Array.fromOwnedSlice(undefined, &vals),
-        }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "[1,2,3]");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        var obj = ObjectMap.init(testing.allocator);
-        defer obj.deinit();
-        try obj.putNoClobber("a", .{ .string = "b" });
-        try (Value{ .object = obj }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "{\"a\":\"b\"}");
-    }
+    var vals = [_]Value{
+        .{ .integer = 1 },
+        .{ .integer = 2 },
+        .{ .number_string = "3" },
+    };
+    var obj = ObjectMap.init(testing.allocator);
+    defer obj.deinit();
+    try obj.putNoClobber("a", .{ .string = "b" });
+    var array = [_]Value{
+        Value.null,
+        Value{ .bool = true },
+        Value{ .integer = 42 },
+        Value{ .number_string = "43" },
+        Value{ .float = 42 },
+        Value{ .string = "weeee" },
+        Value{ .array = Array.fromOwnedSlice(undefined, &vals) },
+        Value{ .object = obj },
+    };
+    var buffer: [0x1000]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+
+    var jw = writeStream(fbs.writer(), .{ .whitespace = .indent_1 });
+    defer jw.deinit();
+    try jw.write(array);
+
+    const expected =
+        \\[
+        \\ null,
+        \\ true,
+        \\ 42,
+        \\ 43,
+        \\ 4.2e+01,
+        \\ "weeee",
+        \\ [
+        \\  1,
+        \\  2,
+        \\  3
+        \\ ],
+        \\ {
+        \\  "a": "b"
+        \\ }
+        \\]
+    ;
+    try testing.expectEqualSlices(u8, expected, fbs.getWritten());
 }
 
 test "parseFromValue(std.json.Value,...)" {

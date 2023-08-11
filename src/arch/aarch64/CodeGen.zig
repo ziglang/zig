@@ -13,6 +13,7 @@ const Value = @import("../../value.zig").Value;
 const TypedValue = @import("../../TypedValue.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
+const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
@@ -49,7 +50,8 @@ liveness: Liveness,
 bin_file: *link.File,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
-mod_fn: *const Module.Fn,
+func_index: InternPool.Index,
+owner_decl: Module.Decl.Index,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
@@ -199,7 +201,7 @@ const DbgInfoReloc = struct {
                     else => unreachable, // not a possible argument
 
                 };
-                try dw.genArgDbgInfo(reloc.name, reloc.ty, function.mod_fn.owner_decl, loc);
+                try dw.genArgDbgInfo(reloc.name, reloc.ty, function.owner_decl, loc);
             },
             .plan9 => {},
             .none => {},
@@ -245,7 +247,7 @@ const DbgInfoReloc = struct {
                         break :blk .nop;
                     },
                 };
-                try dw.genVarDbgInfo(reloc.name, reloc.ty, function.mod_fn.owner_decl, is_ptr, loc);
+                try dw.genVarDbgInfo(reloc.name, reloc.ty, function.owner_decl, is_ptr, loc);
             },
             .plan9 => {},
             .none => {},
@@ -328,7 +330,7 @@ const Self = @This();
 pub fn generate(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    module_fn_index: Module.Fn.Index,
+    func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
@@ -339,8 +341,8 @@ pub fn generate(
     }
 
     const mod = bin_file.options.module.?;
-    const module_fn = mod.funcPtr(module_fn_index);
-    const fn_owner_decl = mod.declPtr(module_fn.owner_decl);
+    const func = mod.funcInfo(func_index);
+    const fn_owner_decl = mod.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
 
@@ -359,7 +361,8 @@ pub fn generate(
         .debug_output = debug_output,
         .target = &bin_file.options.target,
         .bin_file = bin_file,
-        .mod_fn = module_fn,
+        .func_index = func_index,
+        .owner_decl = func.owner_decl,
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
@@ -368,8 +371,8 @@ pub fn generate(
         .branch_stack = &branch_stack,
         .src_loc = src_loc,
         .stack_align = undefined,
-        .end_di_line = module_fn.rbrace_line,
-        .end_di_column = module_fn.rbrace_column,
+        .end_di_line = func.rbrace_line,
+        .end_di_column = func.rbrace_column,
     };
     defer function.stack.deinit(bin_file.allocator);
     defer function.blocks.deinit(bin_file.allocator);
@@ -416,8 +419,8 @@ pub fn generate(
         .src_loc = src_loc,
         .code = code,
         .prev_di_pc = 0,
-        .prev_di_line = module_fn.lbrace_line,
-        .prev_di_column = module_fn.lbrace_column,
+        .prev_di_line = func.lbrace_line,
+        .prev_di_column = func.lbrace_column,
         .stack_size = function.max_end_stack,
         .saved_regs_stack_space = function.saved_regs_stack_space,
     };
@@ -4011,12 +4014,12 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 const atom_index = switch (self.bin_file.tag) {
                                     .macho => blk: {
                                         const macho_file = self.bin_file.cast(link.File.MachO).?;
-                                        const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                        const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
                                         break :blk macho_file.getAtom(atom).getSymbolIndex().?;
                                     },
                                     .coff => blk: {
                                         const coff_file = self.bin_file.cast(link.File.Coff).?;
-                                        const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                        const atom = try coff_file.getOrCreateAtomForDecl(self.owner_decl);
                                         break :blk coff_file.getAtom(atom).getSymbolIndex().?;
                                     },
                                     else => unreachable, // unsupported target format
@@ -4190,10 +4193,11 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     while (self.args[arg_index] == .none) arg_index += 1;
     self.arg_index = arg_index + 1;
 
+    const mod = self.bin_file.options.module.?;
     const ty = self.typeOfIndex(inst);
     const tag = self.air.instructions.items(.tag)[inst];
     const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
-    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, src_index);
+    const name = mod.getParamName(self.func_index, src_index);
 
     try self.dbg_info_relocs.append(self.gpa, .{
         .tag = tag,
@@ -4348,7 +4352,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                 const sym_index = try macho_file.getGlobalSymbol(decl_name, lib_name);
-                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
                 const atom_index = macho_file.getAtom(atom).getSymbolIndex().?;
                 _ = try self.addInst(.{
                     .tag = .call_extern,
@@ -4617,9 +4621,9 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
     const mod = self.bin_file.options.module.?;
-    const function = mod.funcPtr(ty_fn.func);
+    const func = mod.funcInfo(ty_fn.func);
     // TODO emit debug info for function change
-    _ = function;
+    _ = func;
     return self.finishAir(inst, .dead, .{ .none, .none, .none });
 }
 
@@ -5529,12 +5533,12 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         const atom_index = switch (self.bin_file.tag) {
                             .macho => blk: {
                                 const macho_file = self.bin_file.cast(link.File.MachO).?;
-                                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
                                 break :blk macho_file.getAtom(atom).getSymbolIndex().?;
                             },
                             .coff => blk: {
                                 const coff_file = self.bin_file.cast(link.File.Coff).?;
-                                const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                const atom = try coff_file.getOrCreateAtomForDecl(self.owner_decl);
                                 break :blk coff_file.getAtom(atom).getSymbolIndex().?;
                             },
                             else => unreachable, // unsupported target format
@@ -5650,12 +5654,12 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             const atom_index = switch (self.bin_file.tag) {
                 .macho => blk: {
                     const macho_file = self.bin_file.cast(link.File.MachO).?;
-                    const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                    const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
                     break :blk macho_file.getAtom(atom).getSymbolIndex().?;
                 },
                 .coff => blk: {
                     const coff_file = self.bin_file.cast(link.File.Coff).?;
-                    const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                    const atom = try coff_file.getOrCreateAtomForDecl(self.owner_decl);
                     break :blk coff_file.getAtom(atom).getSymbolIndex().?;
                 },
                 else => unreachable, // unsupported target format
@@ -5847,12 +5851,12 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                         const atom_index = switch (self.bin_file.tag) {
                             .macho => blk: {
                                 const macho_file = self.bin_file.cast(link.File.MachO).?;
-                                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
                                 break :blk macho_file.getAtom(atom).getSymbolIndex().?;
                             },
                             .coff => blk: {
                                 const coff_file = self.bin_file.cast(link.File.Coff).?;
-                                const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                const atom = try coff_file.getOrCreateAtomForDecl(self.owner_decl);
                                 break :blk coff_file.getAtom(atom).getSymbolIndex().?;
                             },
                             else => unreachable, // unsupported target format
@@ -6164,7 +6168,7 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
         self.bin_file,
         self.src_loc,
         arg_tv,
-        self.mod_fn.owner_decl,
+        self.owner_decl,
     )) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
@@ -6198,6 +6202,7 @@ const CallMCValues = struct {
 /// Caller must call `CallMCValues.deinit`.
 fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
     const mod = self.bin_file.options.module.?;
+    const ip = &mod.intern_pool;
     const fn_info = mod.typeToFunc(fn_ty).?;
     const cc = fn_info.cc;
     var result: CallMCValues = .{
@@ -6240,10 +6245,10 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 }
             }
 
-            for (fn_info.param_types, 0..) |ty, i| {
+            for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
                 const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
                 if (param_size == 0) {
-                    result.args[i] = .{ .none = {} };
+                    result_arg.* = .{ .none = {} };
                     continue;
                 }
 
@@ -6256,7 +6261,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
                 if (std.math.divCeil(u32, param_size, 8) catch unreachable <= 8 - ncrn) {
                     if (param_size <= 8) {
-                        result.args[i] = .{ .register = self.registerAlias(c_abi_int_param_regs[ncrn], ty.toType()) };
+                        result_arg.* = .{ .register = self.registerAlias(c_abi_int_param_regs[ncrn], ty.toType()) };
                         ncrn += 1;
                     } else {
                         return self.fail("TODO MCValues with multiple registers", .{});
@@ -6273,7 +6278,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                         }
                     }
 
-                    result.args[i] = .{ .stack_argument_offset = nsaa };
+                    result_arg.* = .{ .stack_argument_offset = nsaa };
                     nsaa += param_size;
                 }
             }
@@ -6305,16 +6310,16 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
             var stack_offset: u32 = 0;
 
-            for (fn_info.param_types, 0..) |ty, i| {
+            for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
                 if (ty.toType().abiSize(mod) > 0) {
                     const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
                     const param_alignment = ty.toType().abiAlignment(mod);
 
                     stack_offset = std.mem.alignForward(u32, stack_offset, param_alignment);
-                    result.args[i] = .{ .stack_argument_offset = stack_offset };
+                    result_arg.* = .{ .stack_argument_offset = stack_offset };
                     stack_offset += param_size;
                 } else {
-                    result.args[i] = .{ .none = {} };
+                    result_arg.* = .{ .none = {} };
                 }
             }
 

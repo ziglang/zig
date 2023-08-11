@@ -244,7 +244,6 @@ pub const atan2 = @import("math/atan2.zig").atan2;
 pub const hypot = @import("math/hypot.zig").hypot;
 pub const expm1 = @import("math/expm1.zig").expm1;
 pub const ilogb = @import("math/ilogb.zig").ilogb;
-pub const ln = @import("math/ln.zig").ln;
 pub const log = @import("math/log.zig").log;
 pub const log2 = @import("math/log2.zig").log2;
 pub const log10 = @import("math/log10.zig").log10;
@@ -395,7 +394,6 @@ test {
     _ = hypot;
     _ = expm1;
     _ = ilogb;
-    _ = ln;
     _ = log;
     _ = log2;
     _ = log10;
@@ -438,6 +436,7 @@ pub const min = @compileError("deprecated; use @min instead");
 pub const max = @compileError("deprecated; use @max instead");
 pub const min3 = @compileError("deprecated; use @min instead");
 pub const max3 = @compileError("deprecated; use @max instead");
+pub const ln = @compileError("deprecated; use @log instead");
 
 /// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {

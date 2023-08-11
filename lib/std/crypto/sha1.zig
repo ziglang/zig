@@ -80,6 +80,11 @@ pub const Sha1 = struct {
         d.total_len += b.len;
     }
 
+    pub fn peek(d: Self) [digest_length]u8 {
+        var copy = d;
+        return copy.finalResult();
+    }
+
     pub fn final(d: *Self, out: *[digest_length]u8) void {
         // The buffer here will never be completely full.
         @memset(d.buf[d.buf_len..], 0);
@@ -108,6 +113,12 @@ pub const Sha1 = struct {
         for (d.s, 0..) |s, j| {
             mem.writeIntBig(u32, out[4 * j ..][0..4], s);
         }
+    }
+
+    pub fn finalResult(d: *Self) [digest_length]u8 {
+        var result: [digest_length]u8 = undefined;
+        d.final(&result);
+        return result;
     }
 
     fn round(d: *Self, b: *const [64]u8) void {
@@ -140,7 +151,7 @@ pub const Sha1 = struct {
             roundParam(0, 1, 2, 3, 4, 15),
         };
         inline for (round0a) |r| {
-            s[r.i] = (@as(u32, b[r.i * 4 + 0]) << 24) | (@as(u32, b[r.i * 4 + 1]) << 16) | (@as(u32, b[r.i * 4 + 2]) << 8) | (@as(u32, b[r.i * 4 + 3]) << 0);
+            s[r.i] = mem.readIntBig(u32, b[r.i * 4 ..][0..4]);
 
             v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], @as(u32, 5)) +% 0x5A827999 +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) | (~v[r.b] & v[r.d]));
             v[r.b] = math.rotl(u32, v[r.b], @as(u32, 30));

@@ -54,27 +54,27 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
         if (aAbs == infRep) {
             // infinity * non-zero = +/- infinity
             if (bAbs != 0) {
-                return @as(T, @bitCast(aAbs | productSign));
+                return @bitCast(aAbs | productSign);
             } else {
                 // infinity * zero = NaN
-                return @as(T, @bitCast(qnanRep));
+                return @bitCast(qnanRep);
             }
         }
 
         if (bAbs == infRep) {
             //? non-zero * infinity = +/- infinity
             if (aAbs != 0) {
-                return @as(T, @bitCast(bAbs | productSign));
+                return @bitCast(bAbs | productSign);
             } else {
                 // zero * infinity = NaN
-                return @as(T, @bitCast(qnanRep));
+                return @bitCast(qnanRep);
             }
         }
 
         // zero * anything = +/- zero
-        if (aAbs == 0) return @as(T, @bitCast(productSign));
+        if (aAbs == 0) return @bitCast(productSign);
         // anything * zero = +/- zero
-        if (bAbs == 0) return @as(T, @bitCast(productSign));
+        if (bAbs == 0) return @bitCast(productSign);
 
         // one or both of a or b is denormal, the other (if applicable) is a
         // normal number.  Renormalize one or both of a and b, and set scale to

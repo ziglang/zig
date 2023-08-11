@@ -25,14 +25,14 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const check = obj.checkObject();
 
     check.checkInSymtab();
-    check.checkNext("{*} (__DATA,__TestGlobal) external _test_global");
+    check.checkContains("(__DATA,__TestGlobal) external _test_global");
 
     check.checkInSymtab();
-    check.checkNext("{*} (__TEXT,__TestFn) external _testFn");
+    check.checkContains("(__TEXT,__TestFn) external _testFn");
 
     if (optimize == .Debug) {
         check.checkInSymtab();
-        check.checkNext("{*} (__TEXT,__TestGenFnA) _main.testGenericFn__anon_{*}");
+        check.checkContains("(__TEXT,__TestGenFnA) _main.testGenericFn__anon_");
     }
 
     test_step.dependOn(&check.step);

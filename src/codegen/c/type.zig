@@ -1722,6 +1722,7 @@ pub const CType = extern union {
 
                 .Fn => {
                     const info = mod.typeToFunc(ty).?;
+                    const ip = &mod.intern_pool;
                     if (!info.is_generic) {
                         if (lookup.isMutable()) {
                             const param_kind: Kind = switch (kind) {
@@ -1730,7 +1731,7 @@ pub const CType = extern union {
                                 .payload => unreachable,
                             };
                             _ = try lookup.typeToIndex(info.return_type.toType(), param_kind);
-                            for (info.param_types) |param_type| {
+                            for (info.param_types.get(ip)) |param_type| {
                                 if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
                                 _ = try lookup.typeToIndex(param_type.toType(), param_kind);
                             }
@@ -2014,6 +2015,7 @@ pub const CType = extern union {
                 .function,
                 .varargs_function,
                 => {
+                    const ip = &mod.intern_pool;
                     const info = mod.typeToFunc(ty).?;
                     assert(!info.is_generic);
                     const param_kind: Kind = switch (kind) {
@@ -2023,14 +2025,14 @@ pub const CType = extern union {
                     };
 
                     var c_params_len: usize = 0;
-                    for (info.param_types) |param_type| {
+                    for (info.param_types.get(ip)) |param_type| {
                         if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
                         c_params_len += 1;
                     }
 
                     const params_pl = try arena.alloc(Index, c_params_len);
                     var c_param_i: usize = 0;
-                    for (info.param_types) |param_type| {
+                    for (info.param_types.get(ip)) |param_type| {
                         if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
                         params_pl[c_param_i] = store.set.typeToIndex(param_type.toType(), mod, param_kind).?;
                         c_param_i += 1;
@@ -2147,6 +2149,7 @@ pub const CType = extern union {
                         => {
                             if (ty.zigTypeTag(mod) != .Fn) return false;
 
+                            const ip = &mod.intern_pool;
                             const info = mod.typeToFunc(ty).?;
                             assert(!info.is_generic);
                             const data = cty.cast(Payload.Function).?.data;
@@ -2160,7 +2163,7 @@ pub const CType = extern union {
                                 return false;
 
                             var c_param_i: usize = 0;
-                            for (info.param_types) |param_type| {
+                            for (info.param_types.get(ip)) |param_type| {
                                 if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 if (c_param_i >= data.param_types.len) return false;
@@ -2202,6 +2205,7 @@ pub const CType = extern union {
                     autoHash(hasher, t);
 
                     const mod = self.lookup.getModule();
+                    const ip = &mod.intern_pool;
                     switch (t) {
                         .fwd_anon_struct,
                         .fwd_anon_union,
@@ -2270,7 +2274,7 @@ pub const CType = extern union {
                             };
 
                             self.updateHasherRecurse(hasher, info.return_type.toType(), param_kind);
-                            for (info.param_types) |param_type| {
+                            for (info.param_types.get(ip)) |param_type| {
                                 if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
                                 self.updateHasherRecurse(hasher, param_type.toType(), param_kind);
                             }

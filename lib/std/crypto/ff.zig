@@ -508,18 +508,18 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             var need_sub = false;
             var i: usize = t_bits - 1;
             while (true) : (i -= 1) {
-                var carry = @as(u1, @truncate(math.shr(Limb, y, i)));
+                var carry: u1 = @truncate(math.shr(Limb, y, i));
                 var borrow: u1 = 0;
                 for (0..self.limbs_count()) |j| {
                     const l = ct.select(need_sub, d_limbs[j], x_limbs[j]);
                     var res = (l << 1) + carry;
                     x_limbs[j] = @as(TLimb, @truncate(res));
-                    carry = @as(u1, @truncate(res >> t_bits));
+                    carry = @truncate(res >> t_bits);
 
                     res = x_limbs[j] -% m_limbs[j] -% borrow;
                     d_limbs[j] = @as(TLimb, @truncate(res));
 
-                    borrow = @as(u1, @truncate(res >> t_bits));
+                    borrow = @truncate(res >> t_bits);
                 }
                 need_sub = ct.eql(carry, borrow);
                 if (i == 0) break;
@@ -531,7 +531,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         pub fn add(self: Self, x: Fe, y: Fe) Fe {
             var out = x;
             const overflow = out.v.addWithOverflow(y.v);
-            const underflow = @as(u1, @bitCast(ct.limbsCmpLt(out.v, self.v)));
+            const underflow: u1 = @bitCast(ct.limbsCmpLt(out.v, self.v));
             const need_sub = ct.eql(overflow, underflow);
             _ = out.v.conditionalSubWithOverflow(need_sub, self.v);
             return out;
@@ -540,7 +540,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         /// Subtracts two field elements (mod m).
         pub fn sub(self: Self, x: Fe, y: Fe) Fe {
             var out = x;
-            const underflow = @as(bool, @bitCast(out.v.subWithOverflow(y.v)));
+            const underflow: bool = @bitCast(out.v.subWithOverflow(y.v));
             _ = out.v.conditionalAddWithOverflow(underflow, self.v);
             return out;
         }

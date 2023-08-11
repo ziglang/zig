@@ -39,7 +39,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .plan9 => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -1099,6 +1099,8 @@ pub const Dir = struct {
         InvalidUtf8,
         BadPathName,
         DeviceBusy,
+        /// On Windows, `\\server` or `\\server\share` was not found.
+        NetworkNotFound,
     } || os.UnexpectedError;
 
     pub fn close(self: *Dir) void {
@@ -1158,7 +1160,9 @@ pub const Dir = struct {
             return self.openFileW(path_w.span(), flags);
         }
 
-        var os_flags: u32 = os.O.CLOEXEC;
+        var os_flags: u32 = 0;
+        if (@hasDecl(os.O, "CLOEXEC")) os_flags = os.O.CLOEXEC;
+
         // Use the O locking flags if the os supports them to acquire the lock
         // atomically.
         const has_flock_open_flags = @hasDecl(os.O, "EXLOCK");
@@ -1178,7 +1182,7 @@ pub const Dir = struct {
         if (@hasDecl(os.O, "LARGEFILE")) {
             os_flags |= os.O.LARGEFILE;
         }
-        if (!flags.allow_ctty) {
+        if (@hasDecl(os.O, "NOCTTY") and !flags.allow_ctty) {
             os_flags |= os.O.NOCTTY;
         }
         os_flags |= switch (flags.mode) {
@@ -1194,7 +1198,7 @@ pub const Dir = struct {
 
         // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
         // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
-        if (builtin.target.os.tag != .wasi) {
+        if (@hasDecl(os.system, "LOCK") and builtin.target.os.tag != .wasi) {
             if (!has_flock_open_flags and flags.lock != .none) {
                 // TODO: integrate async I/O
                 const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK.NB else @as(i32, 0);
@@ -1460,32 +1464,22 @@ pub const Dir = struct {
     /// This function is not atomic, and if it returns an error, the file system may
     /// have been modified regardless.
     pub fn makePath(self: Dir, sub_path: []const u8) !void {
-        var end_index: usize = sub_path.len;
+        var it = try path.componentIterator(sub_path);
+        var component = it.last() orelse return;
         while (true) {
-            self.makeDir(sub_path[0..end_index]) catch |err| switch (err) {
+            self.makeDir(component.path) catch |err| switch (err) {
                 error.PathAlreadyExists => {
                     // TODO stat the file and return an error if it's not a directory
                     // this is important because otherwise a dangling symlink
                     // could cause an infinite loop
-                    if (end_index == sub_path.len) return;
                 },
-                error.FileNotFound => {
-                    // march end_index backward until next path component
-                    while (true) {
-                        if (end_index == 0) return err;
-                        end_index -= 1;
-                        if (path.isSep(sub_path[end_index])) break;
-                    }
+                error.FileNotFound => |e| {
+                    component = it.previous() orelse return e;
                     continue;
                 },
-                else => return err,
+                else => |e| return e,
             };
-            if (end_index == sub_path.len) return;
-            // march end_index forward until next path component
-            while (true) {
-                end_index += 1;
-                if (end_index == sub_path.len or path.isSep(sub_path[end_index])) break;
-            }
+            component = it.next() orelse return;
         }
     }
 
@@ -1574,18 +1568,8 @@ pub const Dir = struct {
                 .share_access = share_access,
                 .creation = creation,
                 .io_mode = .blocking,
+                .filter = .any,
             }) catch |err| switch (err) {
-                error.IsDir => break :blk w.OpenFile(pathname, .{
-                    .dir = self.fd,
-                    .access_mask = access_mask,
-                    .share_access = share_access,
-                    .creation = creation,
-                    .io_mode = .blocking,
-                    .filter = .dir_only,
-                }) catch |er| switch (er) {
-                    error.WouldBlock => unreachable,
-                    else => |e2| return e2,
-                },
                 error.WouldBlock => unreachable,
                 else => |e| return e,
             };
@@ -1890,6 +1874,8 @@ pub const Dir = struct {
         ReadOnlyFileSystem,
         InvalidUtf8,
         BadPathName,
+        /// On Windows, `\\server` or `\\server\share` was not found.
+        NetworkNotFound,
         Unexpected,
     };
 
@@ -2112,6 +2098,9 @@ pub const Dir = struct {
         /// On Windows, file paths cannot contain these characters:
         /// '/', '*', '?', '"', '<', '>', '|'
         BadPathName,
+
+        /// On Windows, `\\server` or `\\server\share` was not found.
+        NetworkNotFound,
     } || os.UnexpectedError;
 
     /// Whether `full_path` describes a symlink, file, or directory, this function
@@ -2168,6 +2157,7 @@ pub const Dir = struct {
                                 error.Unexpected,
                                 error.InvalidUtf8,
                                 error.BadPathName,
+                                error.NetworkNotFound,
                                 error.DeviceBusy,
                                 => |e| return e,
                             };
@@ -2204,6 +2194,7 @@ pub const Dir = struct {
                             error.FileSystem,
                             error.FileBusy,
                             error.BadPathName,
+                            error.NetworkNotFound,
                             error.Unexpected,
                             => |e| return e,
                         }
@@ -2257,6 +2248,7 @@ pub const Dir = struct {
                                 error.Unexpected,
                                 error.InvalidUtf8,
                                 error.BadPathName,
+                                error.NetworkNotFound,
                                 error.DeviceBusy,
                                 => |e| return e,
                             };
@@ -2283,6 +2275,7 @@ pub const Dir = struct {
                                 error.FileSystem,
                                 error.FileBusy,
                                 error.BadPathName,
+                                error.NetworkNotFound,
                                 error.Unexpected,
                                 => |e| return e,
                             }
@@ -2353,6 +2346,7 @@ pub const Dir = struct {
                                 error.Unexpected,
                                 error.InvalidUtf8,
                                 error.BadPathName,
+                                error.NetworkNotFound,
                                 error.DeviceBusy,
                                 => |e| return e,
                             };
@@ -2386,6 +2380,7 @@ pub const Dir = struct {
                                 error.FileSystem,
                                 error.FileBusy,
                                 error.BadPathName,
+                                error.NetworkNotFound,
                                 error.Unexpected,
                                 => |e| return e,
                             }
@@ -2446,6 +2441,7 @@ pub const Dir = struct {
                         error.InvalidUtf8,
                         error.BadPathName,
                         error.DeviceBusy,
+                        error.NetworkNotFound,
                         => |e| return e,
                     };
                 } else {
@@ -2469,6 +2465,7 @@ pub const Dir = struct {
                         error.FileSystem,
                         error.FileBusy,
                         error.BadPathName,
+                        error.NetworkNotFound,
                         error.Unexpected,
                         => |e| return e,
                     }
@@ -2929,7 +2926,6 @@ pub const OpenSelfExeError = error{
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
-    Overflow,
     Unexpected,
 } || os.OpenError || SelfExePathError || os.FlockError;
 
@@ -3009,14 +3005,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // TODO could this slice from 0 to out_len instead?
             return mem.sliceTo(out_buffer, 0);
         },
-        .haiku => {
-            // The only possible issue when looking for the self image path is
-            // when the buffer is too short.
-            if (os.find_path(os.B_APP_IMAGE_SYMBOL, os.path_base_directory.B_FIND_IMAGE_PATH, null, out_buffer.ptr, out_buffer.len) != 0)
-                return error.Overflow;
-            return mem.sliceTo(out_buffer, 0);
-        },
-        .openbsd => {
+        .openbsd, .haiku => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
             if (os.argv.len == 0)
                 return error.FileNotFound;
@@ -3115,7 +3104,7 @@ const CopyFileRawError = error{SystemResources} || os.CopyFileRangeError || os.S
 // No metadata is transferred over.
 fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t, maybe_size: ?u64) CopyFileRawError!void {
     if (comptime builtin.target.isDarwin()) {
-        const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE.DATA);
+        const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
         switch (os.errno(rc)) {
             .SUCCESS => return,
             .INVAL => unreachable,

@@ -65,9 +65,13 @@ pub const ExtraIndex = enum(u32) {
     _,
 };
 
+fn ExtraData(comptime T: type) type {
+    return struct { data: T, end: usize };
+}
+
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
-pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, end: usize } {
+pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
     const fields = @typeInfo(T).Struct.fields;
     var i: usize = index;
     var result: T = undefined;
@@ -90,13 +94,24 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
     };
 }
 
-/// Given an index into `string_bytes` returns the null-terminated string found there.
+/// TODO migrate to use this for type safety
+pub const NullTerminatedString = enum(u32) {
+    _,
+};
+
+/// TODO: migrate to nullTerminatedString2 for type safety
 pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
-    var end: usize = index;
+    return nullTerminatedString2(code, @enumFromInt(index));
+}
+
+/// Given an index into `string_bytes` returns the null-terminated string found there.
+pub fn nullTerminatedString2(code: Zir, index: NullTerminatedString) [:0]const u8 {
+    const start = @intFromEnum(index);
+    var end: u32 = start;
     while (code.string_bytes[end] != 0) {
         end += 1;
     }
-    return code.string_bytes[index..end :0];
+    return code.string_bytes[start..end :0];
 }
 
 pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
@@ -233,6 +248,9 @@ pub const Inst = struct {
         /// Given a pointer type, returns its element type.
         /// Uses the `un_node` field.
         elem_type,
+        /// Given a vector type, returns its element type.
+        /// Uses the `un_node` field.
+        vector_elem_type,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -685,10 +703,16 @@ pub const Inst = struct {
         ///   *?S returns *S
         /// Uses the `un_node` field.
         field_base_ptr,
+        /// Given a type, strips all optional and error union types wrapping it.
+        /// e.g. `E!?u32` becomes `u32`, `[]u8` becomes `[]u8`.
+        /// Uses the `un_node` field.
+        opt_eu_base_ty,
         /// Checks that the type supports array init syntax.
+        /// Returns the underlying indexable type (since the given type may be e.g. an optional).
         /// Uses the `un_node` field.
         validate_array_init_ty,
         /// Checks that the type supports struct init syntax.
+        /// Returns the underlying struct type (since the given type may be e.g. an optional).
         /// Uses the `un_node` field.
         validate_struct_init_ty,
         /// Given a set of `field_ptr` instructions, assumes they are all part of a struct
@@ -1008,6 +1032,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1219,6 +1244,7 @@ pub const Inst = struct {
                 .save_err_ret_index,
                 .restore_err_ret_index,
                 .for_len,
+                .opt_eu_base_ty,
                 => false,
 
                 .@"break",
@@ -1312,6 +1338,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1507,6 +1534,7 @@ pub const Inst = struct {
                 .for_len,
                 .@"try",
                 .try_ptr,
+                .opt_eu_base_ty,
                 => false,
 
                 .extended => switch (data.extended.opcode) {
@@ -1542,6 +1570,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type_index = .bin,
                 .elem_type = .un_node,
+                .vector_elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as = .bin,
@@ -1661,6 +1690,7 @@ pub const Inst = struct {
                 .switch_block_ref = .pl_node,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
+                .opt_eu_base_ty = .un_node,
                 .validate_array_init_ty = .pl_node,
                 .validate_struct_init_ty = .un_node,
                 .validate_struct_init = .pl_node,
@@ -2076,6 +2106,7 @@ pub const Inst = struct {
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
         optional_noreturn_type = @intFromEnum(InternPool.Index.optional_noreturn_type),
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
+        adhoc_inferred_error_set_type = @intFromEnum(InternPool.Index.adhoc_inferred_error_set_type),
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
         empty_struct_type = @intFromEnum(InternPool.Index.empty_struct_type),
         undef = @intFromEnum(InternPool.Index.undef),

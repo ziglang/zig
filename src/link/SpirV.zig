@@ -29,6 +29,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
 const codegen = @import("../codegen/spirv.zig");
@@ -103,12 +104,12 @@ pub fn deinit(self: *SpirV) void {
     self.decl_link.deinit();
 }
 
-pub fn updateFunc(self: *SpirV, module: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *SpirV, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
-    const func = module.funcPtr(func_index);
+    const func = module.funcInfo(func_index);
 
     var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
     defer decl_gen.deinit();
@@ -138,7 +139,7 @@ pub fn updateDeclExports(
     exports: []const *Module.Export,
 ) !void {
     const decl = mod.declPtr(decl_index);
-    if (decl.val.getFunctionIndex(mod) != .none and decl.ty.fnCallingConvention(mod) == .Kernel) {
+    if (decl.val.isFuncBody(mod) and decl.ty.fnCallingConvention(mod) == .Kernel) {
         // TODO: Unify with resolveDecl in spirv.zig.
         const entry = try self.decl_link.getOrPut(decl_index);
         if (!entry.found_existing) {

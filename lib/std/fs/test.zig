@@ -341,6 +341,8 @@ test "Dir.realpath smoke test" {
     // with a sharing violation.
     file.close();
 
+    try tmp_dir.dir.makeDir("test_dir");
+
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -353,18 +355,25 @@ test "Dir.realpath smoke test" {
     // First, test non-alloc version
     {
         var buf1: [fs.MAX_PATH_BYTES]u8 = undefined;
-        const file_path = try tmp_dir.dir.realpath("test_file", buf1[0..]);
-        const expected_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "test_file" });
 
-        try testing.expect(mem.eql(u8, file_path, expected_path));
+        const file_path = try tmp_dir.dir.realpath("test_file", buf1[0..]);
+        const expected_file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "test_file" });
+        try testing.expectEqualStrings(expected_file_path, file_path);
+
+        const dir_path = try tmp_dir.dir.realpath("test_dir", buf1[0..]);
+        const expected_dir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "test_dir" });
+        try testing.expectEqualStrings(expected_dir_path, dir_path);
     }
 
     // Next, test alloc version
     {
         const file_path = try tmp_dir.dir.realpathAlloc(allocator, "test_file");
-        const expected_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "test_file" });
+        const expected_file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "test_file" });
+        try testing.expectEqualStrings(expected_file_path, file_path);
 
-        try testing.expect(mem.eql(u8, file_path, expected_path));
+        const dir_path = try tmp_dir.dir.realpathAlloc(allocator, "test_dir");
+        const expected_dir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "test_dir" });
+        try testing.expectEqualStrings(expected_dir_path, dir_path);
     }
 }
 
@@ -1416,34 +1425,13 @@ test "File.PermissionsUnix" {
     try testing.expect(!permissions_unix.unixHas(.other, .execute));
 }
 
-test "delete a read-only file on windows with file pending semantics" {
-    if (builtin.os.tag != .windows or builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1))
+test "delete a read-only file on windows" {
+    if (builtin.os.tag != .windows)
         return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
+    var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    {
-        const file = try tmp.dir.createFile("test_file", .{ .read = true });
-        defer file.close();
-        // Create a file and make it read-only
-        const metadata = try file.metadata();
-        var permissions = metadata.permissions();
-        permissions.setReadOnly(true);
-        try file.setPermissions(permissions);
-        try testing.expectError(error.AccessDenied, tmp.dir.deleteFile("test_file"));
-        // Now make the file not read-only
-        permissions.setReadOnly(false);
-        try file.setPermissions(permissions);
-    }
-    try tmp.dir.deleteFile("test_file");
-}
 
-test "delete a read-only file on windows with posix semantis" {
-    if (builtin.os.tag != .windows or !builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1))
-        return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
     const file = try tmp.dir.createFile("test_file", .{ .read = true });
     defer file.close();
     // Create a file and make it read-only
@@ -1451,7 +1439,21 @@ test "delete a read-only file on windows with posix semantis" {
     var permissions = metadata.permissions();
     permissions.setReadOnly(true);
     try file.setPermissions(permissions);
-    try tmp.dir.deleteFile("test_file"); // file is unmapped and deleted once last handle closed
+
+    // If the OS and filesystem support it, POSIX_SEMANTICS and IGNORE_READONLY_ATTRIBUTE
+    // is used meaning that the deletion of a read-only file will succeed.
+    // Otherwise, this delete will fail and the read-only flag must be unset before it's
+    // able to be deleted.
+    const delete_result = tmp.dir.deleteFile("test_file");
+    if (delete_result) {
+        try testing.expectError(error.FileNotFound, tmp.dir.deleteFile("test_file"));
+    } else |err| {
+        try testing.expectEqual(@as(anyerror, error.AccessDenied), err);
+        // Now make the file not read-only
+        permissions.setReadOnly(false);
+        try file.setPermissions(permissions);
+        try tmp.dir.deleteFile("test_file");
+    }
 }
 
 test "delete a setAsCwd directory on Windows" {

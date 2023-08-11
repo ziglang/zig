@@ -7,5 +7,5 @@ comptime {
 
 pub fn __divhf3(a: f16, b: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(divsf3.__divsf3(a, b)));
+    return @floatCast(divsf3.__divsf3(a, b));
 }

@@ -351,6 +351,7 @@
           <a href="https://ziglang.org/documentation/0.8.1/">0.8.1</a> |
           <a href="https://ziglang.org/documentation/0.9.1/">0.9.1</a> |
           <a href="https://ziglang.org/documentation/0.10.1/">0.10.1</a> |
+          <a href="https://ziglang.org/documentation/0.11.0/">0.11.0</a> |
           master
         </nav>
         <nav aria-labelledby="table-of-contents">
@@ -2286,7 +2287,7 @@ value == null{#endsyntax#}</pre>
           <td>
             Array concatenation.
             <ul>
-              <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
+              <li>Only available when the lengths of both {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
           </td>
           <td>
@@ -2307,7 +2308,7 @@ mem.eql(u32, &together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           <td>
             Array multiplication.
             <ul>
-              <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
+              <li>Only available when the length of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
           </td>
           <td>
@@ -3018,7 +3019,7 @@ test "basic slices" {
     slice[10] += 1;
 
     // Note that `slice.ptr` does not invoke safety checking, while `&slice[0]`
-    // asserts that the slice has len >= 1.
+    // asserts that the slice has len > 0.
 }
       {#code_end#}
       <p>This is one reason we prefer slices to pointers.</p>
@@ -8041,7 +8042,7 @@ pub const CallModifier = enum {
       {#header_close#}
 
       {#header_open|@cDefine#}
-      <pre>{#syntax#}@cDefine(comptime name: []u8, value) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@cDefine(comptime name: []const u8, value) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8085,7 +8086,7 @@ pub const CallModifier = enum {
       {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cInclude#}
-      <pre>{#syntax#}@cInclude(comptime path: []u8) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@cInclude(comptime path: []const u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8176,7 +8177,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileError#}
-      <pre>{#syntax#}@compileError(comptime msg: []u8) noreturn{#endsyntax#}</pre>
+      <pre>{#syntax#}@compileError(comptime msg: []const u8) noreturn{#endsyntax#}</pre>
       <p>
       This function, when semantically analyzed, causes a compile error with the
       message {#syntax#}msg{#endsyntax#}.
@@ -8267,7 +8268,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@cUndef#}
-      <pre>{#syntax#}@cUndef(comptime name: []u8) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@cUndef(comptime name: []const u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8467,9 +8468,10 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_close#}
 
       {#header_open|@extern#}
-      <pre>{#syntax#}@extern(T: type, comptime options: std.builtin.ExternOptions) *T{#endsyntax#}</pre>
+      <pre>{#syntax#}@extern(T: type, comptime options: std.builtin.ExternOptions) T{#endsyntax#}</pre>
       <p>
       Creates a reference to an external symbol in the output object file.
+      T must be a pointer type.
       </p>
       {#see_also|@export#}
       {#header_close#}
@@ -8607,7 +8609,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@import#}
-      <pre>{#syntax#}@import(comptime path: []u8) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@import(comptime path: []const u8) type{#endsyntax#}</pre>
       <p>
       This function finds a zig file corresponding to {#syntax#}path{#endsyntax#} and adds it to the build,
       if it is not already added.
@@ -8772,6 +8774,8 @@ test "integer cast panic" {
       <p>{#syntax#}dest{#endsyntax#} must be a mutable slice or a mutable pointer to an array.
       It may have any alignment, and it may have any element type.</p>
       <p>{#syntax#}elem{#endsyntax#} is coerced to the element type of {#syntax#}dest{#endsyntax#}.</p>
+      <p>For securely zeroing out sensitive contents from memory, you should use
+      {#syntax#}std.crypto.utils.secureZero{#endsyntax#}</p>
       {#header_close#}
 
       {#header_open|@min#}
@@ -10385,7 +10389,26 @@ fn bar(f: *Foo) void {
       {#header_close#}
 
       {#header_open|Out of Bounds Float to Integer Cast#}
-      <p>TODO</p>
+      <p>
+      This happens when casting a float to an integer where the float has a value outside the
+      integer type's range.
+      </p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|test_comptime_out_of_bounds_float_to_integer_cast|float value '4294967296' cannot be stored in integer type 'i32'#}
+comptime {
+	const float: f32 = 4294967296;
+	const int: i32 = @intFromFloat(float);
+	_ = int;
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err|runtime_out_of_bounds_float_to_integer_cast#}
+pub fn main() void {
+	var float: f32 = 4294967296;
+	var int: i32 = @intFromFloat(float);
+	_ = int;
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Pointer Cast Invalid Null#}

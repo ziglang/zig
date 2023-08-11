@@ -199,7 +199,7 @@ pub fn __tan(x_: f64, y_: f64, odd: bool) f64 {
     var hx: u32 = undefined;
     var sign: bool = undefined;
 
-    hx = @as(u32, @intCast(@as(u64, @bitCast(x)) >> 32));
+    hx = @intCast(@as(u64, @bitCast(x)) >> 32);
     const big = (hx & 0x7fffffff) >= 0x3FE59428; // |x| >= 0.6744
     if (big) {
         sign = hx >> 31 != 0;

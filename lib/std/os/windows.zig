@@ -46,6 +46,7 @@ pub const OpenError = error{
     Unexpected,
     NameTooLong,
     WouldBlock,
+    NetworkNotFound,
 };
 
 pub const OpenFileOptions = struct {
@@ -130,6 +131,8 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             .OBJECT_NAME_INVALID => unreachable,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
+            .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
             .NO_MEDIA_IN_DEVICE => return error.NoDevice,
             .INVALID_PARAMETER => unreachable,
             .SHARING_VIOLATION => return error.AccessDenied,
@@ -236,6 +239,7 @@ pub fn DeviceIoControl(
         .SUCCESS => {},
         .PRIVILEGE_NOT_HELD => return error.AccessDenied,
         .ACCESS_DENIED => return error.AccessDenied,
+        .INVALID_DEVICE_REQUEST => return error.AccessDenied, // Not supported by the underlying filesystem
         .INVALID_PARAMETER => unreachable,
         else => return unexpectedStatus(rc),
     }
@@ -699,6 +703,7 @@ pub const CreateSymbolicLinkError = error{
     FileNotFound,
     NameTooLong,
     NoDevice,
+    NetworkNotFound,
     Unexpected,
 };
 
@@ -811,6 +816,9 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .NO_MEDIA_IN_DEVICE => return error.FileNotFound,
+        // TODO: Should BAD_NETWORK_* be translated to a different error?
+        .BAD_NETWORK_PATH => return error.FileNotFound, // \\server was not found
+        .BAD_NETWORK_NAME => return error.FileNotFound, // \\server was found but \\server\share wasn't
         .INVALID_PARAMETER => unreachable,
         .SHARING_VIOLATION => return error.AccessDenied,
         .ACCESS_DENIED => return error.AccessDenied,
@@ -872,6 +880,7 @@ pub const DeleteFileError = error{
     NotDir,
     IsDir,
     DirNotEmpty,
+    NetworkNotFound,
 };
 
 pub const DeleteFileOptions = struct {
@@ -930,6 +939,8 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .OBJECT_NAME_INVALID => unreachable,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
+        .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
         .INVALID_PARAMETER => unreachable,
         .FILE_IS_A_DIRECTORY => return error.IsDir,
         .NOT_A_DIRECTORY => return error.NotDir,
@@ -940,8 +951,13 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     }
     defer CloseHandle(tmp_handle);
 
+    // FileDispositionInformationEx (and therefore FILE_DISPOSITION_POSIX_SEMANTICS and FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE)
+    // are only supported on NTFS filesystems, so the version check on its own is only a partial solution. To support non-NTFS filesystems
+    // like FAT32, we need to fallback to FileDispositionInformation if the usage of FileDispositionInformationEx gives
+    // us INVALID_PARAMETER.
+    var need_fallback = true;
     if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
-        // Deletion with posix semantics.
+        // Deletion with posix semantics if the filesystem supports it.
         var info = FILE_DISPOSITION_INFORMATION_EX{
             .Flags = FILE_DISPOSITION_DELETE |
                 FILE_DISPOSITION_POSIX_SEMANTICS |
@@ -955,7 +971,14 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
             @sizeOf(FILE_DISPOSITION_INFORMATION_EX),
             .FileDispositionInformationEx,
         );
-    } else {
+        switch (rc) {
+            // INVALID_PARAMETER here means that the filesystem does not support FileDispositionInformationEx
+            .INVALID_PARAMETER => {},
+            // For all other statuses, fall down to the switch below to handle them.
+            else => need_fallback = false,
+        }
+    }
+    if (need_fallback) {
         // Deletion with file pending semantics, which requires waiting or moving
         // files to get them removed (from here).
         var file_dispo = FILE_DISPOSITION_INFORMATION{
@@ -1194,6 +1217,7 @@ pub fn GetFinalPathNameByHandle(
                 error.PipeBusy => unreachable,
                 error.PathAlreadyExists => unreachable,
                 error.WouldBlock => unreachable,
+                error.NetworkNotFound => unreachable,
                 else => |e| return e,
             };
             defer CloseHandle(mgmt_handle);
@@ -1905,7 +1929,7 @@ pub fn fileTimeToNanoSeconds(ft: FILETIME) i128 {
 
 /// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
 pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
-    const adjusted = @as(u64, @bitCast(toSysTime(ns)));
+    const adjusted: u64 = @bitCast(toSysTime(ns));
     return FILETIME{
         .dwHighDateTime = @as(u32, @truncate(adjusted >> 32)),
         .dwLowDateTime = @as(u32, @truncate(adjusted)),
@@ -2295,10 +2319,6 @@ pub const UnprefixedPathType = enum {
     root_local_device,
 };
 
-inline fn isSepW(c: u16) bool {
-    return c == '/' or c == '\\';
-}
-
 /// Get the path type of a path that is known to not have any namespace prefixes
 /// (`\\?\`, `\\.\`, `\??\`).
 pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathType {
@@ -2308,9 +2328,10 @@ pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathTy
         std.debug.assert(getNamespacePrefix(T, path) == .none);
     }
 
-    if (isSepW(path[0])) {
+    const windows_path = std.fs.path.PathType.windows;
+    if (windows_path.isSep(T, path[0])) {
         // \x
-        if (path.len < 2 or !isSepW(path[1])) return .rooted;
+        if (path.len < 2 or !windows_path.isSep(T, path[1])) return .rooted;
         // exactly \\. or \\? with nothing trailing
         if (path.len == 3 and (path[2] == '.' or path[2] == '?')) return .root_local_device;
         // \\x
@@ -2319,7 +2340,7 @@ pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathTy
         // x
         if (path.len < 2 or path[1] != ':') return .relative;
         // x:\
-        if (path.len > 2 and isSepW(path[2])) return .drive_absolute;
+        if (path.len > 2 and windows_path.isSep(T, path[2])) return .drive_absolute;
         // x:
         return .drive_relative;
     }
@@ -2475,6 +2496,8 @@ pub const LPCWSTR = [*:0]const WCHAR;
 pub const PVOID = *anyopaque;
 pub const PWSTR = [*:0]WCHAR;
 pub const PCWSTR = [*:0]const WCHAR;
+/// Allocated by SysAllocString, freed by SysFreeString
+pub const BSTR = [*:0]WCHAR;
 pub const SIZE_T = usize;
 pub const UINT = c_uint;
 pub const ULONG_PTR = usize;
@@ -3232,6 +3255,7 @@ pub const KF_FLAG_SIMPLE_IDLIST = 256;
 pub const KF_FLAG_ALIAS_ONLY = -2147483648;
 
 pub const S_OK = 0;
+pub const S_FALSE = 0x00000001;
 pub const E_NOTIMPL = @as(c_long, @bitCast(@as(c_ulong, 0x80004001)));
 pub const E_NOINTERFACE = @as(c_long, @bitCast(@as(c_ulong, 0x80004002)));
 pub const E_POINTER = @as(c_long, @bitCast(@as(c_ulong, 0x80004003)));
@@ -3300,6 +3324,35 @@ pub const PROV_RSA_FULL = 1;
 pub const REGSAM = ACCESS_MASK;
 pub const ACCESS_MASK = DWORD;
 pub const LSTATUS = LONG;
+
+pub const SECTION_INHERIT = enum(c_int) {
+    ViewShare = 0,
+    ViewUnmap = 1,
+};
+
+pub const SECTION_QUERY = 0x0001;
+pub const SECTION_MAP_WRITE = 0x0002;
+pub const SECTION_MAP_READ = 0x0004;
+pub const SECTION_MAP_EXECUTE = 0x0008;
+pub const SECTION_EXTEND_SIZE = 0x0010;
+pub const SECTION_ALL_ACCESS =
+    STANDARD_RIGHTS_REQUIRED |
+    SECTION_QUERY |
+    SECTION_MAP_WRITE |
+    SECTION_MAP_READ |
+    SECTION_MAP_EXECUTE |
+    SECTION_EXTEND_SIZE;
+
+pub const SEC_64K_PAGES = 0x80000;
+pub const SEC_FILE = 0x800000;
+pub const SEC_IMAGE = 0x1000000;
+pub const SEC_PROTECTED_IMAGE = 0x2000000;
+pub const SEC_RESERVE = 0x4000000;
+pub const SEC_COMMIT = 0x8000000;
+pub const SEC_IMAGE_NO_EXECUTE = SEC_IMAGE | SEC_NOCACHE;
+pub const SEC_NOCACHE = 0x10000000;
+pub const SEC_WRITECOMBINE = 0x40000000;
+pub const SEC_LARGE_PAGES = 0x80000000;
 
 pub const HKEY = *opaque {};
 
@@ -3513,15 +3566,11 @@ pub const RTL_RUN_ONCE = extern struct {
 
 pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE{ .Ptr = null };
 
-pub const COINIT_APARTMENTTHREADED = COINIT.COINIT_APARTMENTTHREADED;
-pub const COINIT_MULTITHREADED = COINIT.COINIT_MULTITHREADED;
-pub const COINIT_DISABLE_OLE1DDE = COINIT.COINIT_DISABLE_OLE1DDE;
-pub const COINIT_SPEED_OVER_MEMORY = COINIT.COINIT_SPEED_OVER_MEMORY;
-pub const COINIT = enum(c_int) {
-    COINIT_APARTMENTTHREADED = 2,
-    COINIT_MULTITHREADED = 0,
-    COINIT_DISABLE_OLE1DDE = 4,
-    COINIT_SPEED_OVER_MEMORY = 8,
+pub const COINIT = struct {
+    pub const APARTMENTTHREADED = 2;
+    pub const MULTITHREADED = 0;
+    pub const DISABLE_OLE1DDE = 4;
+    pub const SPEED_OVER_MEMORY = 8;
 };
 
 pub const MEMORY_BASIC_INFORMATION = extern struct {
@@ -4264,6 +4313,26 @@ pub const FILE_BOTH_DIR_INFORMATION = extern struct {
     FileName: [1]WCHAR,
 };
 pub const FILE_BOTH_DIRECTORY_INFORMATION = FILE_BOTH_DIR_INFORMATION;
+
+/// Helper for iterating a byte buffer of FILE_*_INFORMATION structures (from
+/// things like NtQueryDirectoryFile calls).
+pub fn FileInformationIterator(comptime FileInformationType: type) type {
+    return struct {
+        byte_offset: usize = 0,
+        buf: []u8 align(@alignOf(FileInformationType)),
+
+        pub fn next(self: *@This()) ?*FileInformationType {
+            if (self.byte_offset >= self.buf.len) return null;
+            const cur: *FileInformationType = @ptrCast(@alignCast(&self.buf[self.byte_offset]));
+            if (cur.NextEntryOffset == 0) {
+                self.byte_offset = self.buf.len;
+            } else {
+                self.byte_offset += cur.NextEntryOffset;
+            }
+            return cur;
+        }
+    };
+}
 
 pub const IO_APC_ROUTINE = *const fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.C) void;
 

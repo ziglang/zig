@@ -121,12 +121,7 @@ pub const Md5 = struct {
 
         var i: usize = 0;
         while (i < 16) : (i += 1) {
-            // NOTE: Performing or's separately improves perf by ~10%
-            s[i] = 0;
-            s[i] |= @as(u32, b[i * 4 + 0]);
-            s[i] |= @as(u32, b[i * 4 + 1]) << 8;
-            s[i] |= @as(u32, b[i * 4 + 2]) << 16;
-            s[i] |= @as(u32, b[i * 4 + 3]) << 24;
+            s[i] = mem.readIntLittle(u32, b[i * 4 ..][0..4]);
         }
 
         var v: [4]u32 = [_]u32{

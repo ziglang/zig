@@ -1,9 +1,6 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
-const io = std.io;
 const mem = std.mem;
-const os = std.os;
-const fs = std.fs;
 
 pub const CoffHeaderFlags = packed struct {
     /// Image only, Windows CE, and Microsoft Windows NT and later.
@@ -1205,13 +1202,20 @@ pub const Coff = struct {
         return .{ .buffer = self.data[offset..][0..size] };
     }
 
-    pub fn getStrtab(self: *const Coff) ?Strtab {
+    pub fn getStrtab(self: *const Coff) error{InvalidStrtabSize}!?Strtab {
         const coff_header = self.getCoffHeader();
         if (coff_header.pointer_to_symbol_table == 0) return null;
 
         const offset = coff_header.pointer_to_symbol_table + Symbol.sizeOf() * coff_header.number_of_symbols;
         const size = mem.readIntLittle(u32, self.data[offset..][0..4]);
+        if ((offset + size) > self.data.len) return error.InvalidStrtabSize;
+
         return Strtab{ .buffer = self.data[offset..][0..size] };
+    }
+
+    pub fn strtabRequired(self: *const Coff) bool {
+        for (self.getSectionHeaders()) |*sect_hdr| if (sect_hdr.getName() == null) return true;
+        return false;
     }
 
     pub fn getSectionHeaders(self: *const Coff) []align(1) const SectionHeader {
@@ -1230,9 +1234,9 @@ pub const Coff = struct {
         return out_buff;
     }
 
-    pub fn getSectionName(self: *const Coff, sect_hdr: *align(1) const SectionHeader) []const u8 {
+    pub fn getSectionName(self: *const Coff, sect_hdr: *align(1) const SectionHeader) error{InvalidStrtabSize}![]const u8 {
         const name = sect_hdr.getName() orelse blk: {
-            const strtab = self.getStrtab().?;
+            const strtab = (try self.getStrtab()).?;
             const name_offset = sect_hdr.getNameOffset().?;
             break :blk strtab.get(name_offset);
         };
@@ -1241,21 +1245,22 @@ pub const Coff = struct {
 
     pub fn getSectionByName(self: *const Coff, comptime name: []const u8) ?*align(1) const SectionHeader {
         for (self.getSectionHeaders()) |*sect| {
-            if (mem.eql(u8, self.getSectionName(sect), name)) {
+            const section_name = self.getSectionName(sect) catch |e| switch (e) {
+                error.InvalidStrtabSize => continue, //ignore invalid(?) strtab entries - see also GitHub issue #15238
+            };
+            if (mem.eql(u8, section_name, name)) {
                 return sect;
             }
         }
         return null;
     }
 
-    pub fn getSectionData(self: *const Coff, comptime name: []const u8) ![]const u8 {
-        const sec = self.getSectionByName(name) orelse return error.MissingCoffSection;
+    pub fn getSectionData(self: *const Coff, sec: *align(1) const SectionHeader) []const u8 {
         return self.data[sec.pointer_to_raw_data..][0..sec.virtual_size];
     }
 
-    // Return an owned slice full of the section data
-    pub fn getSectionDataAlloc(self: *const Coff, comptime name: []const u8, allocator: mem.Allocator) ![]u8 {
-        const section_data = try self.getSectionData(name);
+    pub fn getSectionDataAlloc(self: *const Coff, sec: *align(1) const SectionHeader, allocator: mem.Allocator) ![]u8 {
+        const section_data = self.getSectionData(sec);
         return allocator.dupe(u8, section_data);
     }
 };

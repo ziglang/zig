@@ -196,6 +196,7 @@ pub fn print(
             .undef => return writer.writeAll("undefined"),
             .runtime_value => return writer.writeAll("(runtime value)"),
             .simple_value => |simple_value| switch (simple_value) {
+                .void => return writer.writeAll("{}"),
                 .empty_struct => return printAggregate(ty, val, writer, level, mod),
                 .generic_poison => return writer.writeAll("(generic poison)"),
                 else => return writer.writeAll(@tagName(simple_value)),
@@ -205,7 +206,7 @@ pub fn print(
                 mod.declPtr(extern_func.decl).name.fmt(ip),
             }),
             .func => |func| return writer.print("(function '{}')", .{
-                mod.declPtr(mod.funcPtr(func.index).owner_decl).name.fmt(ip),
+                mod.declPtr(func.owner_decl).name.fmt(ip),
             }),
             .int => |int| switch (int.storage) {
                 inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),

@@ -1163,15 +1163,10 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
         .linux => {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
         },
-        .freebsd, .netbsd, .dragonfly, .macos => {
+        .freebsd => {
             var physmem: c_ulong = undefined;
             var len: usize = @sizeOf(c_ulong);
-            const name = switch (builtin.os.tag) {
-                .macos => "hw.memsize",
-                .netbsd => "hw.physmem64",
-                else => "hw.physmem",
-            };
-            os.sysctlbynameZ(name, &physmem, &len, null, 0) catch |err| switch (err) {
+            os.sysctlbynameZ("hw.physmem", &physmem, &len, null, 0) catch |err| switch (err) {
                 error.NameTooLong, error.UnknownName => unreachable,
                 else => return error.UnknownTotalSystemMemory,
             };

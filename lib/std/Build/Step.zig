@@ -294,7 +294,7 @@ pub fn evalZigProcess(
     s: *Step,
     argv: []const []const u8,
     prog_node: *std.Progress.Node,
-) ![]const u8 {
+) !?[]const u8 {
     assert(argv.len != 0);
     const b = s.owner;
     const arena = b.allocator;
@@ -423,10 +423,7 @@ pub fn evalZigProcess(
         });
     }
 
-    return result orelse return s.fail(
-        "the following command failed to communicate the compilation result:\n{s}",
-        .{try allocPrintCmd(arena, null, argv)},
-    );
+    return result;
 }
 
 fn sendMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag) !void {

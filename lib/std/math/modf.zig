@@ -37,7 +37,7 @@ pub fn modf(x: anytype) modf_result(@TypeOf(x)) {
 fn modf32(x: f32) modf32_result {
     var result: modf32_result = undefined;
 
-    const u = @as(u32, @bitCast(x));
+    const u: u32 = @bitCast(x);
     const e = @as(i32, @intCast((u >> 23) & 0xFF)) - 0x7F;
     const us = u & 0x80000000;
 
@@ -73,7 +73,7 @@ fn modf32(x: f32) modf32_result {
         return result;
     }
 
-    const uf = @as(f32, @bitCast(u & ~mask));
+    const uf: f32 = @bitCast(u & ~mask);
     result.ipart = uf;
     result.fpart = x - uf;
     return result;
@@ -82,7 +82,7 @@ fn modf32(x: f32) modf32_result {
 fn modf64(x: f64) modf64_result {
     var result: modf64_result = undefined;
 
-    const u = @as(u64, @bitCast(x));
+    const u: u64 = @bitCast(x);
     const e = @as(i32, @intCast((u >> 52) & 0x7FF)) - 0x3FF;
     const us = u & (1 << 63);
 

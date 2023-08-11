@@ -25,9 +25,6 @@ const fs = std.fs;
 const dl = @import("dynamic_library.zig");
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 const is_windows = builtin.os.tag == .windows;
-const Allocator = std.mem.Allocator;
-const Preopen = std.fs.wasi.Preopen;
-const PreopenList = std.fs.wasi.PreopenList;
 
 pub const darwin = std.c;
 pub const dragonfly = std.c;
@@ -146,12 +143,7 @@ pub const addrinfo = system.addrinfo;
 pub const blkcnt_t = system.blkcnt_t;
 pub const blksize_t = system.blksize_t;
 pub const clock_t = system.clock_t;
-pub const cpu_set_t = if (builtin.os.tag == .linux)
-    system.cpu_set_t
-else if (builtin.os.tag == .freebsd)
-    freebsd.cpuset_t
-else
-    u32;
+pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
 pub const dl_phdr_info = system.dl_phdr_info;
 pub const empty_sigset = system.empty_sigset;
@@ -517,18 +509,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
         return;
     }
     switch (builtin.os.tag) {
-        .macos, .ios => {
-            const rc = darwin.CCRandomGenerateBytes(buffer.ptr, buffer.len);
-            if (rc != darwin.CCRNGStatus.kCCSuccess) {
-                if (rc == darwin.CCRNGStatus.kCCParamError or rc == darwin.CCRNGStatus.kCCBufferTooSmall) {
-                    return error.InvalidHandle;
-                } else {
-                    return error.SystemResources;
-                }
-            }
-            return;
-        },
-        .netbsd, .openbsd, .tvos, .watchos => {
+        .netbsd, .openbsd, .macos, .ios, .tvos, .watchos => {
             system.arc4random_buf(buffer.ptr, buffer.len);
             return;
         },
@@ -1001,7 +982,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     if (have_pread_but_not_preadv) {
         // We could loop here; but proper usage of `preadv` must handle partial reads anyway.
         // So we simply read into the first vector only.
-        if (iov.len == 0) return @as(usize, @intCast(0));
+        if (iov.len == 0) return 0;
         const first = iov[0];
         return pread(fd, first.iov_base[0..first.iov_len], offset);
     }
@@ -1463,6 +1444,9 @@ pub const OpenError = error{
     BadPathName,
     InvalidUtf8,
 
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
+
     /// One of these three things:
     /// * pathname  refers to an executable image which is currently being
     ///   executed and write access was requested.
@@ -1908,16 +1892,8 @@ pub fn execvpeZ(
 
 /// Get an environment variable.
 /// See also `getenvZ`.
-pub fn getenv(key: []const u8) ?[]const u8 {
+pub fn getenv(key: []const u8) ?[:0]const u8 {
     if (builtin.link_libc) {
-        var small_key_buf: [64]u8 = undefined;
-        if (key.len < small_key_buf.len) {
-            @memcpy(small_key_buf[0..key.len], key);
-            small_key_buf[key.len] = 0;
-            const key0 = small_key_buf[0..key.len :0];
-            return getenvZ(key0);
-        }
-        // Search the entire `environ` because we don't have a null terminated pointer.
         var ptr = std.c.environ;
         while (ptr[0]) |line| : (ptr += 1) {
             var line_i: usize = 0;
@@ -1926,11 +1902,7 @@ pub fn getenv(key: []const u8) ?[]const u8 {
 
             if (!mem.eql(u8, this_key, key)) continue;
 
-            var end_i: usize = line_i;
-            while (line[end_i] != 0) : (end_i += 1) {}
-            const value = line[line_i + 1 .. end_i];
-
-            return value;
+            return mem.sliceTo(line + line_i + 1, 0);
         }
         return null;
     }
@@ -1946,18 +1918,14 @@ pub fn getenv(key: []const u8) ?[]const u8 {
         const this_key = ptr[0..line_i];
         if (!mem.eql(u8, key, this_key)) continue;
 
-        var end_i: usize = line_i;
-        while (ptr[end_i] != 0) : (end_i += 1) {}
-        const this_value = ptr[line_i + 1 .. end_i];
-
-        return this_value;
+        return mem.sliceTo(ptr + line_i + 1, 0);
     }
     return null;
 }
 
 /// Get an environment variable with a null-terminated name.
 /// See also `getenv`.
-pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
+pub fn getenvZ(key: [*:0]const u8) ?[:0]const u8 {
     if (builtin.link_libc) {
         const value = system.getenv(key) orelse return null;
         return mem.sliceTo(value, 0);
@@ -2323,6 +2291,9 @@ pub const UnlinkError = error{
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
+
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 } || UnexpectedError;
 
 /// Delete a name and possibly the file it refers to.
@@ -2488,6 +2459,8 @@ pub const RenameError = error{
     NoDevice,
     SharingViolation,
     PipeBusy,
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 } || UnexpectedError;
 
 /// Change the name or location of a file.
@@ -2690,6 +2663,7 @@ pub fn renameatW(
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .NOT_SAME_DEVICE => return error.RenameAcrossMountPoints,
+        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
         else => return windows.unexpectedStatus(rc),
     }
 }
@@ -2792,6 +2766,8 @@ pub const MakeDirError = error{
     InvalidUtf8,
     BadPathName,
     NoDevice,
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 } || UnexpectedError;
 
 /// Create a directory.
@@ -2865,6 +2841,8 @@ pub const DeleteDirError = error{
     ReadOnlyFileSystem,
     InvalidUtf8,
     BadPathName,
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 } || UnexpectedError;
 
 /// Deletes an empty directory.
@@ -4710,8 +4688,11 @@ pub fn sysctl(
     newp: ?*anyopaque,
     newlen: usize,
 ) SysCtlError!void {
-    if (builtin.os.tag == .wasi or builtin.os.tag == .haiku) {
-        @compileError("unsupported OS");
+    if (builtin.os.tag == .wasi) {
+        @panic("unsupported"); // TODO should be compile error, not panic
+    }
+    if (builtin.os.tag == .haiku) {
+        @panic("unsupported"); // TODO should be compile error, not panic
     }
 
     const name_len = math.cast(c_uint, name.len) orelse return error.NameTooLong;
@@ -4732,8 +4713,11 @@ pub fn sysctlbynameZ(
     newp: ?*anyopaque,
     newlen: usize,
 ) SysCtlError!void {
-    if (builtin.os.tag == .wasi or builtin.os.tag == .haiku) {
-        @compileError("unsupported OS");
+    if (builtin.os.tag == .wasi) {
+        @panic("unsupported"); // TODO should be compile error, not panic
+    }
+    if (builtin.os.tag == .haiku) {
+        @panic("unsupported"); // TODO should be compile error, not panic
     }
 
     switch (errno(system.sysctlbyname(name, oldp, oldlenp, newp, newlen))) {
@@ -5081,6 +5065,9 @@ pub const RealPathError = error{
 
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
+
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 
     PathAlreadyExists,
 } || UnexpectedError;
@@ -5494,64 +5481,16 @@ pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
 }
 
 pub const SchedGetAffinityError = error{PermissionDenied} || UnexpectedError;
-pub const SchedSetAffinityError = error{ InvalidCpu, PermissionDenied } || UnexpectedError;
 
 pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
     var set: cpu_set_t = undefined;
-    if (builtin.os.tag == .linux) {
-        switch (errno(system.sched_getaffinity(pid, @sizeOf(cpu_set_t), &set))) {
-            .SUCCESS => return set,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            .SRCH => unreachable,
-            .PERM => return error.PermissionDenied,
-            else => |err| return unexpectedErrno(err),
-        }
-    } else if (builtin.os.tag == .freebsd) {
-        switch (errno(freebsd.cpuset_getaffinity(freebsd.CPU_LEVEL_WHICH, freebsd.CPU_WHICH_PID, pid, @sizeOf(cpu_set_t), &set))) {
-            .SUCCESS => return set,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            .SRCH => unreachable,
-            .EDEADLK => unreachable,
-            .PERM => return error.PermissionDenied,
-            else => |err| return unexpectedErrno(err),
-        }
-    } else {
-        @compileError("unsupported platform");
-    }
-}
-
-pub fn sched_setaffinity(pid: pid_t, cpus: []usize) SchedSetAffinityError!cpu_set_t {
-    var set: cpu_set_t = undefined;
-    if (builtin.os.tag == .linux) {
-        system.CPU_ZERO(&set);
-        for (cpus) |cpu| {
-            system.CPU_SET(cpu, &set);
-        }
-        switch (errno(system.sched_setaffinity(pid, @sizeOf(cpu_set_t), &set))) {
-            .SUCCESS => return set,
-            .FAULT => unreachable,
-            .SRCH => unreachable,
-            .INVAL => return error.InvalidCpu,
-            .PERM => return error.PermissionDenied,
-            else => |err| return unexpectedErrno(err),
-        }
-    } else if (builtin.os.tag == .freebsd) {
-        freebsd.CPU_ZERO(&set);
-        for (cpus) |cpu| {
-            freebsd.CPU_SET(cpu, &set);
-        }
-        switch (errno(freebsd.cpuset_setaffinity(freebsd.CPU_LEVEL_WHICH, freebsd.CPU_WHICH_PID, pid, @sizeOf(cpu_set_t), &set))) {
-            .SUCCESS => return set,
-            .FAULT => unreachable,
-            .SRCH => unreachable,
-            .INVAL => return error.InvalidCpu,
-            .PERM => return error.PermissionDenied,
-            else => |err| return unexpectedErrno(err),
-        }
-    } else {
-        @compileError("unsupported platform");
+    switch (errno(system.sched_getaffinity(pid, @sizeOf(cpu_set_t), &set))) {
+        .SUCCESS => return set,
+        .FAULT => unreachable,
+        .INVAL => unreachable,
+        .SRCH => unreachable,
+        .PERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -5695,7 +5634,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (builtin.os.tag == .linux or builtin.os.tag == .macos or builtin.os.tag == .freebsd) {
+    if (builtin.os.tag == .linux) {
         const uts = uname();
         const hostname = mem.sliceTo(&uts.nodename, 0);
         const result = name_buffer[0..hostname.len];

@@ -26,10 +26,13 @@ pub const Context = opaque {
     extern fn LLVMContextDispose(C: *Context) void;
 
     pub const createEnumAttribute = LLVMCreateEnumAttribute;
-    extern fn LLVMCreateEnumAttribute(*Context, KindID: c_uint, Val: u64) *Attribute;
+    extern fn LLVMCreateEnumAttribute(C: *Context, KindID: c_uint, Val: u64) *Attribute;
+
+    pub const createTypeAttribute = LLVMCreateTypeAttribute;
+    extern fn LLVMCreateTypeAttribute(C: *Context, KindID: c_uint, Type: *Type) *Attribute;
 
     pub const createStringAttribute = LLVMCreateStringAttribute;
-    extern fn LLVMCreateStringAttribute(*Context, Key: [*]const u8, Key_Len: c_uint, Value: [*]const u8, Value_Len: c_uint) *Attribute;
+    extern fn LLVMCreateStringAttribute(C: *Context, Key: [*]const u8, Key_Len: c_uint, Value: [*]const u8, Value_Len: c_uint) *Attribute;
 
     pub const pointerType = LLVMPointerTypeInContext;
     extern fn LLVMPointerTypeInContext(C: *Context, AddressSpace: c_uint) *Type;
@@ -40,20 +43,41 @@ pub const Context = opaque {
     pub const halfType = LLVMHalfTypeInContext;
     extern fn LLVMHalfTypeInContext(C: *Context) *Type;
 
+    pub const bfloatType = LLVMBFloatTypeInContext;
+    extern fn LLVMBFloatTypeInContext(C: *Context) *Type;
+
     pub const floatType = LLVMFloatTypeInContext;
     extern fn LLVMFloatTypeInContext(C: *Context) *Type;
 
     pub const doubleType = LLVMDoubleTypeInContext;
     extern fn LLVMDoubleTypeInContext(C: *Context) *Type;
 
-    pub const x86FP80Type = LLVMX86FP80TypeInContext;
-    extern fn LLVMX86FP80TypeInContext(C: *Context) *Type;
-
     pub const fp128Type = LLVMFP128TypeInContext;
     extern fn LLVMFP128TypeInContext(C: *Context) *Type;
 
+    pub const x86_fp80Type = LLVMX86FP80TypeInContext;
+    extern fn LLVMX86FP80TypeInContext(C: *Context) *Type;
+
+    pub const ppc_fp128Type = LLVMPPCFP128TypeInContext;
+    extern fn LLVMPPCFP128TypeInContext(C: *Context) *Type;
+
+    pub const x86_amxType = LLVMX86AMXTypeInContext;
+    extern fn LLVMX86AMXTypeInContext(C: *Context) *Type;
+
+    pub const x86_mmxType = LLVMX86MMXTypeInContext;
+    extern fn LLVMX86MMXTypeInContext(C: *Context) *Type;
+
     pub const voidType = LLVMVoidTypeInContext;
     extern fn LLVMVoidTypeInContext(C: *Context) *Type;
+
+    pub const labelType = LLVMLabelTypeInContext;
+    extern fn LLVMLabelTypeInContext(C: *Context) *Type;
+
+    pub const tokenType = LLVMTokenTypeInContext;
+    extern fn LLVMTokenTypeInContext(C: *Context) *Type;
+
+    pub const metadataType = LLVMMetadataTypeInContext;
+    extern fn LLVMMetadataTypeInContext(C: *Context) *Type;
 
     pub const structType = LLVMStructTypeInContext;
     extern fn LLVMStructTypeInContext(
@@ -69,17 +93,6 @@ pub const Context = opaque {
     pub const constString = LLVMConstStringInContext;
     extern fn LLVMConstStringInContext(C: *Context, Str: [*]const u8, Length: c_uint, DontNullTerminate: Bool) *Value;
 
-    pub const constStruct = LLVMConstStructInContext;
-    extern fn LLVMConstStructInContext(
-        C: *Context,
-        ConstantVals: [*]const *Value,
-        Count: c_uint,
-        Packed: Bool,
-    ) *Value;
-
-    pub const createBasicBlock = LLVMCreateBasicBlockInContext;
-    extern fn LLVMCreateBasicBlockInContext(C: *Context, Name: [*:0]const u8) *BasicBlock;
-
     pub const appendBasicBlock = LLVMAppendBasicBlockInContext;
     extern fn LLVMAppendBasicBlockInContext(C: *Context, Fn: *Value, Name: [*:0]const u8) *BasicBlock;
 
@@ -91,17 +104,17 @@ pub const Context = opaque {
 };
 
 pub const Value = opaque {
-    pub const addAttributeAtIndex = ZigLLVMAddAttributeAtIndex;
-    extern fn ZigLLVMAddAttributeAtIndex(*Value, Idx: AttributeIndex, A: *Attribute) void;
+    pub const addAttributeAtIndex = LLVMAddAttributeAtIndex;
+    extern fn LLVMAddAttributeAtIndex(F: *Value, Idx: AttributeIndex, A: *Attribute) void;
 
     pub const removeEnumAttributeAtIndex = LLVMRemoveEnumAttributeAtIndex;
     extern fn LLVMRemoveEnumAttributeAtIndex(F: *Value, Idx: AttributeIndex, KindID: c_uint) void;
 
+    pub const removeStringAttributeAtIndex = LLVMRemoveStringAttributeAtIndex;
+    extern fn LLVMRemoveStringAttributeAtIndex(F: *Value, Idx: AttributeIndex, K: [*]const u8, KLen: c_uint) void;
+
     pub const getFirstBasicBlock = LLVMGetFirstBasicBlock;
     extern fn LLVMGetFirstBasicBlock(Fn: *Value) ?*BasicBlock;
-
-    pub const appendExistingBasicBlock = LLVMAppendExistingBasicBlock;
-    extern fn LLVMAppendExistingBasicBlock(Fn: *Value, BB: *BasicBlock) void;
 
     pub const addIncoming = LLVMAddIncoming;
     extern fn LLVMAddIncoming(
@@ -110,12 +123,6 @@ pub const Value = opaque {
         IncomingBlocks: [*]const *BasicBlock,
         Count: c_uint,
     ) void;
-
-    pub const getNextInstruction = LLVMGetNextInstruction;
-    extern fn LLVMGetNextInstruction(Inst: *Value) ?*Value;
-
-    pub const typeOf = LLVMTypeOf;
-    extern fn LLVMTypeOf(Val: *Value) *Type;
 
     pub const setGlobalConstant = LLVMSetGlobalConstant;
     extern fn LLVMSetGlobalConstant(GlobalVar: *Value, IsConstant: Bool) void;
@@ -135,47 +142,131 @@ pub const Value = opaque {
     pub const setSection = LLVMSetSection;
     extern fn LLVMSetSection(Global: *Value, Section: [*:0]const u8) void;
 
-    pub const deleteGlobal = LLVMDeleteGlobal;
-    extern fn LLVMDeleteGlobal(GlobalVar: *Value) void;
+    pub const removeGlobalValue = ZigLLVMRemoveGlobalValue;
+    extern fn ZigLLVMRemoveGlobalValue(GlobalVal: *Value) void;
 
-    pub const getNextGlobalAlias = LLVMGetNextGlobalAlias;
-    extern fn LLVMGetNextGlobalAlias(GA: *Value) *Value;
+    pub const eraseGlobalValue = ZigLLVMEraseGlobalValue;
+    extern fn ZigLLVMEraseGlobalValue(GlobalVal: *Value) void;
 
-    pub const getAliasee = LLVMAliasGetAliasee;
-    extern fn LLVMAliasGetAliasee(Alias: *Value) *Value;
+    pub const deleteGlobalValue = ZigLLVMDeleteGlobalValue;
+    extern fn ZigLLVMDeleteGlobalValue(GlobalVal: *Value) void;
 
     pub const setAliasee = LLVMAliasSetAliasee;
     extern fn LLVMAliasSetAliasee(Alias: *Value, Aliasee: *Value) void;
 
-    pub const constBitCast = LLVMConstBitCast;
-    extern fn LLVMConstBitCast(ConstantVal: *Value, ToType: *Type) *Value;
+    pub const constAdd = LLVMConstAdd;
+    extern fn LLVMConstAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
 
-    pub const constIntToPtr = LLVMConstIntToPtr;
-    extern fn LLVMConstIntToPtr(ConstantVal: *Value, ToType: *Type) *Value;
+    pub const constNSWAdd = LLVMConstNSWAdd;
+    extern fn LLVMConstNSWAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
 
-    pub const constPtrToInt = LLVMConstPtrToInt;
-    extern fn LLVMConstPtrToInt(ConstantVal: *Value, ToType: *Type) *Value;
+    pub const constNUWAdd = LLVMConstNUWAdd;
+    extern fn LLVMConstNUWAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
 
-    pub const constShl = LLVMConstShl;
-    extern fn LLVMConstShl(LHSConstant: *Value, RHSConstant: *Value) *Value;
+    pub const constSub = LLVMConstSub;
+    extern fn LLVMConstSub(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNSWSub = LLVMConstNSWSub;
+    extern fn LLVMConstNSWSub(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNUWSub = LLVMConstNUWSub;
+    extern fn LLVMConstNUWSub(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constMul = LLVMConstMul;
+    extern fn LLVMConstMul(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNSWMul = LLVMConstNSWMul;
+    extern fn LLVMConstNSWMul(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constNUWMul = LLVMConstNUWMul;
+    extern fn LLVMConstNUWMul(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constAnd = LLVMConstAnd;
+    extern fn LLVMConstAnd(LHSConstant: *Value, RHSConstant: *Value) *Value;
 
     pub const constOr = LLVMConstOr;
     extern fn LLVMConstOr(LHSConstant: *Value, RHSConstant: *Value) *Value;
 
+    pub const constXor = LLVMConstXor;
+    extern fn LLVMConstXor(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constShl = LLVMConstShl;
+    extern fn LLVMConstShl(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constLShr = LLVMConstLShr;
+    extern fn LLVMConstLShr(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constAShr = LLVMConstAShr;
+    extern fn LLVMConstAShr(LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+    pub const constTrunc = LLVMConstTrunc;
+    extern fn LLVMConstTrunc(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constSExt = LLVMConstSExt;
+    extern fn LLVMConstSExt(ConstantVal: *Value, ToType: *Type) *Value;
+
     pub const constZExt = LLVMConstZExt;
     extern fn LLVMConstZExt(ConstantVal: *Value, ToType: *Type) *Value;
 
-    pub const constZExtOrBitCast = LLVMConstZExtOrBitCast;
-    extern fn LLVMConstZExtOrBitCast(ConstantVal: *Value, ToType: *Type) *Value;
+    pub const constFPTrunc = LLVMConstFPTrunc;
+    extern fn LLVMConstFPTrunc(ConstantVal: *Value, ToType: *Type) *Value;
 
-    pub const constNot = LLVMConstNot;
-    extern fn LLVMConstNot(ConstantVal: *Value) *Value;
+    pub const constFPExt = LLVMConstFPExt;
+    extern fn LLVMConstFPExt(ConstantVal: *Value, ToType: *Type) *Value;
 
-    pub const constAdd = LLVMConstAdd;
-    extern fn LLVMConstAdd(LHSConstant: *Value, RHSConstant: *Value) *Value;
+    pub const constUIToFP = LLVMConstUIToFP;
+    extern fn LLVMConstUIToFP(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constSIToFP = LLVMConstSIToFP;
+    extern fn LLVMConstSIToFP(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constFPToUI = LLVMConstFPToUI;
+    extern fn LLVMConstFPToUI(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constFPToSI = LLVMConstFPToSI;
+    extern fn LLVMConstFPToSI(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constPtrToInt = LLVMConstPtrToInt;
+    extern fn LLVMConstPtrToInt(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constIntToPtr = LLVMConstIntToPtr;
+    extern fn LLVMConstIntToPtr(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constBitCast = LLVMConstBitCast;
+    extern fn LLVMConstBitCast(ConstantVal: *Value, ToType: *Type) *Value;
 
     pub const constAddrSpaceCast = LLVMConstAddrSpaceCast;
     extern fn LLVMConstAddrSpaceCast(ConstantVal: *Value, ToType: *Type) *Value;
+
+    pub const constSelect = LLVMConstSelect;
+    extern fn LLVMConstSelect(
+        ConstantCondition: *Value,
+        ConstantIfTrue: *Value,
+        ConstantIfFalse: *Value,
+    ) *Value;
+
+    pub const constExtractElement = LLVMConstExtractElement;
+    extern fn LLVMConstExtractElement(VectorConstant: *Value, IndexConstant: *Value) *Value;
+
+    pub const constInsertElement = LLVMConstInsertElement;
+    extern fn LLVMConstInsertElement(
+        VectorConstant: *Value,
+        ElementValueConstant: *Value,
+        IndexConstant: *Value,
+    ) *Value;
+
+    pub const constShuffleVector = LLVMConstShuffleVector;
+    extern fn LLVMConstShuffleVector(
+        VectorAConstant: *Value,
+        VectorBConstant: *Value,
+        MaskConstant: *Value,
+    ) *Value;
+
+    pub const isConstant = LLVMIsConstant;
+    extern fn LLVMIsConstant(Val: *Value) Bool;
+
+    pub const blockAddress = LLVMBlockAddress;
+    extern fn LLVMBlockAddress(F: *Value, BB: *BasicBlock) *Value;
 
     pub const setWeak = LLVMSetWeak;
     extern fn LLVMSetWeak(CmpXchgInst: *Value, IsWeak: Bool) void;
@@ -189,41 +280,32 @@ pub const Value = opaque {
     pub const setAlignment = LLVMSetAlignment;
     extern fn LLVMSetAlignment(V: *Value, Bytes: c_uint) void;
 
-    pub const getFunctionCallConv = LLVMGetFunctionCallConv;
-    extern fn LLVMGetFunctionCallConv(Fn: *Value) CallConv;
-
     pub const setFunctionCallConv = LLVMSetFunctionCallConv;
     extern fn LLVMSetFunctionCallConv(Fn: *Value, CC: CallConv) void;
+
+    pub const setInstructionCallConv = LLVMSetInstructionCallConv;
+    extern fn LLVMSetInstructionCallConv(Instr: *Value, CC: CallConv) void;
+
+    pub const setTailCallKind = ZigLLVMSetTailCallKind;
+    extern fn ZigLLVMSetTailCallKind(CallInst: *Value, TailCallKind: TailCallKind) void;
+
+    pub const addCallSiteAttribute = LLVMAddCallSiteAttribute;
+    extern fn LLVMAddCallSiteAttribute(C: *Value, Idx: AttributeIndex, A: *Attribute) void;
 
     pub const fnSetSubprogram = ZigLLVMFnSetSubprogram;
     extern fn ZigLLVMFnSetSubprogram(f: *Value, subprogram: *DISubprogram) void;
 
-    pub const setValueName = LLVMSetValueName;
-    extern fn LLVMSetValueName(Val: *Value, Name: [*:0]const u8) void;
-
-    pub const setValueName2 = LLVMSetValueName2;
+    pub const setValueName = LLVMSetValueName2;
     extern fn LLVMSetValueName2(Val: *Value, Name: [*]const u8, NameLen: usize) void;
-
-    pub const getValueName = LLVMGetValueName;
-    extern fn LLVMGetValueName(Val: *Value) [*:0]const u8;
 
     pub const takeName = ZigLLVMTakeName;
     extern fn ZigLLVMTakeName(new_owner: *Value, victim: *Value) void;
 
-    pub const deleteFunction = LLVMDeleteFunction;
-    extern fn LLVMDeleteFunction(Fn: *Value) void;
-
-    pub const addSretAttr = ZigLLVMAddSretAttr;
-    extern fn ZigLLVMAddSretAttr(fn_ref: *Value, type_val: *Type) void;
-
-    pub const setCallSret = ZigLLVMSetCallSret;
-    extern fn ZigLLVMSetCallSret(Call: *Value, return_type: *Type) void;
-
     pub const getParam = LLVMGetParam;
     extern fn LLVMGetParam(Fn: *Value, Index: c_uint) *Value;
 
-    pub const setInitializer = LLVMSetInitializer;
-    extern fn LLVMSetInitializer(GlobalVar: *Value, ConstantVal: *Value) void;
+    pub const setInitializer = ZigLLVMSetInitializer;
+    extern fn ZigLLVMSetInitializer(GlobalVar: *Value, ConstantVal: ?*Value) void;
 
     pub const setDLLStorageClass = LLVMSetDLLStorageClass;
     extern fn LLVMSetDLLStorageClass(Global: *Value, Class: DLLStorageClass) void;
@@ -231,42 +313,19 @@ pub const Value = opaque {
     pub const addCase = LLVMAddCase;
     extern fn LLVMAddCase(Switch: *Value, OnVal: *Value, Dest: *BasicBlock) void;
 
-    pub inline fn isPoison(Val: *Value) bool {
-        return LLVMIsPoison(Val).toBool();
-    }
-    extern fn LLVMIsPoison(Val: *Value) Bool;
-
     pub const replaceAllUsesWith = LLVMReplaceAllUsesWith;
     extern fn LLVMReplaceAllUsesWith(OldVal: *Value, NewVal: *Value) void;
 
-    pub const globalGetValueType = LLVMGlobalGetValueType;
-    extern fn LLVMGlobalGetValueType(Global: *Value) *Type;
-
-    pub const getLinkage = LLVMGetLinkage;
-    extern fn LLVMGetLinkage(Global: *Value) Linkage;
-
-    pub const getUnnamedAddress = LLVMGetUnnamedAddress;
-    extern fn LLVMGetUnnamedAddress(Global: *Value) Bool;
-
-    pub const getAlignment = LLVMGetAlignment;
-    extern fn LLVMGetAlignment(V: *Value) c_uint;
-
-    pub const addFunctionAttr = ZigLLVMAddFunctionAttr;
-    extern fn ZigLLVMAddFunctionAttr(Fn: *Value, attr_name: [*:0]const u8, attr_value: [*:0]const u8) void;
-
-    pub const addByValAttr = ZigLLVMAddByValAttr;
-    extern fn ZigLLVMAddByValAttr(Fn: *Value, ArgNo: c_uint, type: *Type) void;
-
     pub const attachMetaData = ZigLLVMAttachMetaData;
     extern fn ZigLLVMAttachMetaData(GlobalVar: *Value, DIG: *DIGlobalVariableExpression) void;
+
+    pub const dump = LLVMDumpValue;
+    extern fn LLVMDumpValue(Val: *Value) void;
 };
 
 pub const Type = opaque {
     pub const constNull = LLVMConstNull;
     extern fn LLVMConstNull(Ty: *Type) *Value;
-
-    pub const constAllOnes = LLVMConstAllOnes;
-    extern fn LLVMConstAllOnes(Ty: *Type) *Value;
 
     pub const constInt = LLVMConstInt;
     extern fn LLVMConstInt(IntTy: *Type, N: c_ulonglong, SignExtend: Bool) *Value;
@@ -290,11 +349,17 @@ pub const Type = opaque {
     pub const getUndef = LLVMGetUndef;
     extern fn LLVMGetUndef(Ty: *Type) *Value;
 
+    pub const getPoison = LLVMGetPoison;
+    extern fn LLVMGetPoison(Ty: *Type) *Value;
+
     pub const arrayType = LLVMArrayType;
     extern fn LLVMArrayType(ElementType: *Type, ElementCount: c_uint) *Type;
 
     pub const vectorType = LLVMVectorType;
     extern fn LLVMVectorType(ElementType: *Type, ElementCount: c_uint) *Type;
+
+    pub const scalableVectorType = LLVMScalableVectorType;
+    extern fn LLVMScalableVectorType(ElementType: *Type, ElementCount: c_uint) *Type;
 
     pub const structSetBody = LLVMStructSetBody;
     extern fn LLVMStructSetBody(
@@ -304,23 +369,16 @@ pub const Type = opaque {
         Packed: Bool,
     ) void;
 
-    pub const structGetTypeAtIndex = LLVMStructGetTypeAtIndex;
-    extern fn LLVMStructGetTypeAtIndex(StructTy: *Type, i: c_uint) *Type;
-
-    pub const getTypeKind = LLVMGetTypeKind;
-    extern fn LLVMGetTypeKind(Ty: *Type) TypeKind;
-
-    pub const getElementType = LLVMGetElementType;
-    extern fn LLVMGetElementType(Ty: *Type) *Type;
-
-    pub const countStructElementTypes = LLVMCountStructElementTypes;
-    extern fn LLVMCountStructElementTypes(StructTy: *Type) c_uint;
-
-    pub const isOpaqueStruct = LLVMIsOpaqueStruct;
-    extern fn LLVMIsOpaqueStruct(StructTy: *Type) Bool;
-
     pub const isSized = LLVMTypeIsSized;
     extern fn LLVMTypeIsSized(Ty: *Type) Bool;
+
+    pub const constGEP = LLVMConstGEP2;
+    extern fn LLVMConstGEP2(
+        Ty: *Type,
+        ConstantVal: *Value,
+        ConstantIndices: [*]const *Value,
+        NumIndices: c_uint,
+    ) *Value;
 
     pub const constInBoundsGEP = LLVMConstInBoundsGEP2;
     extern fn LLVMConstInBoundsGEP2(
@@ -329,6 +387,9 @@ pub const Type = opaque {
         ConstantIndices: [*]const *Value,
         NumIndices: c_uint,
     ) *Value;
+
+    pub const dump = LLVMDumpType;
+    extern fn LLVMDumpType(Ty: *Type) void;
 };
 
 pub const Module = opaque {
@@ -353,38 +414,17 @@ pub const Module = opaque {
     pub const setModuleCodeModel = ZigLLVMSetModuleCodeModel;
     extern fn ZigLLVMSetModuleCodeModel(module: *Module, code_model: CodeModel) void;
 
-    pub const addFunction = LLVMAddFunction;
-    extern fn LLVMAddFunction(*Module, Name: [*:0]const u8, FunctionTy: *Type) *Value;
-
     pub const addFunctionInAddressSpace = ZigLLVMAddFunctionInAddressSpace;
     extern fn ZigLLVMAddFunctionInAddressSpace(*Module, Name: [*:0]const u8, FunctionTy: *Type, AddressSpace: c_uint) *Value;
-
-    pub const getNamedFunction = LLVMGetNamedFunction;
-    extern fn LLVMGetNamedFunction(*Module, Name: [*:0]const u8) ?*Value;
-
-    pub const getIntrinsicDeclaration = LLVMGetIntrinsicDeclaration;
-    extern fn LLVMGetIntrinsicDeclaration(Mod: *Module, ID: c_uint, ParamTypes: ?[*]const *Type, ParamCount: usize) *Value;
 
     pub const printToString = LLVMPrintModuleToString;
     extern fn LLVMPrintModuleToString(*Module) [*:0]const u8;
 
-    pub const addGlobal = LLVMAddGlobal;
-    extern fn LLVMAddGlobal(M: *Module, Ty: *Type, Name: [*:0]const u8) *Value;
-
     pub const addGlobalInAddressSpace = LLVMAddGlobalInAddressSpace;
     extern fn LLVMAddGlobalInAddressSpace(M: *Module, Ty: *Type, Name: [*:0]const u8, AddressSpace: c_uint) *Value;
 
-    pub const getNamedGlobal = LLVMGetNamedGlobal;
-    extern fn LLVMGetNamedGlobal(M: *Module, Name: [*:0]const u8) ?*Value;
-
     pub const dump = LLVMDumpModule;
     extern fn LLVMDumpModule(M: *Module) void;
-
-    pub const getFirstGlobalAlias = LLVMGetFirstGlobalAlias;
-    extern fn LLVMGetFirstGlobalAlias(M: *Module) *Value;
-
-    pub const getLastGlobalAlias = LLVMGetLastGlobalAlias;
-    extern fn LLVMGetLastGlobalAlias(M: *Module) *Value;
 
     pub const addAlias = LLVMAddAlias2;
     extern fn LLVMAddAlias2(
@@ -394,16 +434,6 @@ pub const Module = opaque {
         Aliasee: *Value,
         Name: [*:0]const u8,
     ) *Value;
-
-    pub const getNamedGlobalAlias = LLVMGetNamedGlobalAlias;
-    extern fn LLVMGetNamedGlobalAlias(
-        M: *Module,
-        /// Empirically, LLVM will call strlen() on `Name` and so it
-        /// must be both null terminated and also have `NameLen` set
-        /// to the size.
-        Name: [*:0]const u8,
-        NameLen: usize,
-    ) ?*Value;
 
     pub const setTarget = LLVMSetTarget;
     extern fn LLVMSetTarget(M: *Module, Triple: [*:0]const u8) void;
@@ -417,7 +447,7 @@ pub const Module = opaque {
     pub const createDIBuilder = ZigLLVMCreateDIBuilder;
     extern fn ZigLLVMCreateDIBuilder(module: *Module, allow_unresolved: bool) *DIBuilder;
 
-    pub const setModuleInlineAsm2 = LLVMSetModuleInlineAsm2;
+    pub const setModuleInlineAsm = LLVMSetModuleInlineAsm2;
     extern fn LLVMSetModuleInlineAsm2(M: *Module, Asm: [*]const u8, Len: usize) void;
 
     pub const printModuleToFile = LLVMPrintModuleToFile;
@@ -426,9 +456,6 @@ pub const Module = opaque {
     pub const writeBitcodeToFile = LLVMWriteBitcodeToFile;
     extern fn LLVMWriteBitcodeToFile(M: *Module, Path: [*:0]const u8) c_int;
 };
-
-pub const lookupIntrinsicID = LLVMLookupIntrinsicID;
-extern fn LLVMLookupIntrinsicID(Name: [*]const u8, NameLen: usize) c_uint;
 
 pub const disposeMessage = LLVMDisposeMessage;
 extern fn LLVMDisposeMessage(Message: [*:0]const u8) void;
@@ -439,14 +466,17 @@ pub const VerifierFailureAction = enum(c_int) {
     ReturnStatus,
 };
 
-pub const constNeg = LLVMConstNeg;
-extern fn LLVMConstNeg(ConstantVal: *Value) *Value;
-
 pub const constVector = LLVMConstVector;
 extern fn LLVMConstVector(
     ScalarConstantVals: [*]*Value,
     Size: c_uint,
 ) *Value;
+
+pub const constICmp = LLVMConstICmp;
+extern fn LLVMConstICmp(Predicate: IntPredicate, LHSConstant: *Value, RHSConstant: *Value) *Value;
+
+pub const constFCmp = LLVMConstFCmp;
+extern fn LLVMConstFCmp(Predicate: RealPredicate, LHSConstant: *Value, RHSConstant: *Value) *Value;
 
 pub const getEnumAttributeKindForName = LLVMGetEnumAttributeKindForName;
 extern fn LLVMGetEnumAttributeKindForName(Name: [*]const u8, SLen: usize) c_uint;
@@ -484,27 +514,13 @@ pub const Builder = opaque {
     extern fn LLVMPositionBuilder(
         Builder: *Builder,
         Block: *BasicBlock,
-        Instr: *Value,
+        Instr: ?*Value,
     ) void;
-
-    pub const positionBuilderAtEnd = LLVMPositionBuilderAtEnd;
-    extern fn LLVMPositionBuilderAtEnd(Builder: *Builder, Block: *BasicBlock) void;
-
-    pub const getInsertBlock = LLVMGetInsertBlock;
-    extern fn LLVMGetInsertBlock(Builder: *Builder) *BasicBlock;
 
     pub const buildZExt = LLVMBuildZExt;
     extern fn LLVMBuildZExt(
         *Builder,
         Value: *Value,
-        DestTy: *Type,
-        Name: [*:0]const u8,
-    ) *Value;
-
-    pub const buildZExtOrBitCast = LLVMBuildZExtOrBitCast;
-    extern fn LLVMBuildZExtOrBitCast(
-        *Builder,
-        Val: *Value,
         DestTy: *Type,
         Name: [*:0]const u8,
     ) *Value;
@@ -517,23 +533,13 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *Value;
 
-    pub const buildSExtOrBitCast = LLVMBuildSExtOrBitCast;
-    extern fn LLVMBuildSExtOrBitCast(
-        *Builder,
-        Val: *Value,
-        DestTy: *Type,
-        Name: [*:0]const u8,
-    ) *Value;
-
-    pub const buildCall = ZigLLVMBuildCall;
-    extern fn ZigLLVMBuildCall(
+    pub const buildCall = LLVMBuildCall2;
+    extern fn LLVMBuildCall2(
         *Builder,
         *Type,
         Fn: *Value,
         Args: [*]const *Value,
         NumArgs: c_uint,
-        CC: CallConv,
-        attr: CallAttr,
         Name: [*:0]const u8,
     ) *Value;
 
@@ -555,12 +561,6 @@ pub const Builder = opaque {
     pub const buildLoad = LLVMBuildLoad2;
     extern fn LLVMBuildLoad2(*Builder, Ty: *Type, PointerVal: *Value, Name: [*:0]const u8) *Value;
 
-    pub const buildNeg = LLVMBuildNeg;
-    extern fn LLVMBuildNeg(*Builder, V: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildNot = LLVMBuildNot;
-    extern fn LLVMBuildNot(*Builder, V: *Value, Name: [*:0]const u8) *Value;
-
     pub const buildFAdd = LLVMBuildFAdd;
     extern fn LLVMBuildFAdd(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
@@ -572,12 +572,6 @@ pub const Builder = opaque {
 
     pub const buildNUWAdd = LLVMBuildNUWAdd;
     extern fn LLVMBuildNUWAdd(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildSAddSat = ZigLLVMBuildSAddSat;
-    extern fn ZigLLVMBuildSAddSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildUAddSat = ZigLLVMBuildUAddSat;
-    extern fn ZigLLVMBuildUAddSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
     pub const buildFSub = LLVMBuildFSub;
     extern fn LLVMBuildFSub(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
@@ -594,12 +588,6 @@ pub const Builder = opaque {
     pub const buildNUWSub = LLVMBuildNUWSub;
     extern fn LLVMBuildNUWSub(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
-    pub const buildSSubSat = ZigLLVMBuildSSubSat;
-    extern fn ZigLLVMBuildSSubSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildUSubSat = ZigLLVMBuildUSubSat;
-    extern fn ZigLLVMBuildUSubSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
     pub const buildFMul = LLVMBuildFMul;
     extern fn LLVMBuildFMul(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
@@ -611,12 +599,6 @@ pub const Builder = opaque {
 
     pub const buildNUWMul = LLVMBuildNUWMul;
     extern fn LLVMBuildNUWMul(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildSMulFixSat = ZigLLVMBuildSMulFixSat;
-    extern fn ZigLLVMBuildSMulFixSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildUMulFixSat = ZigLLVMBuildUMulFixSat;
-    extern fn ZigLLVMBuildUMulFixSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
     pub const buildUDiv = LLVMBuildUDiv;
     extern fn LLVMBuildUDiv(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
@@ -660,23 +642,24 @@ pub const Builder = opaque {
     pub const buildNSWShl = ZigLLVMBuildNSWShl;
     extern fn ZigLLVMBuildNSWShl(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
-    pub const buildSShlSat = ZigLLVMBuildSShlSat;
-    extern fn ZigLLVMBuildSShlSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildUShlSat = ZigLLVMBuildUShlSat;
-    extern fn ZigLLVMBuildUShlSat(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
-
     pub const buildOr = LLVMBuildOr;
     extern fn LLVMBuildOr(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
     pub const buildXor = LLVMBuildXor;
     extern fn LLVMBuildXor(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
-    pub const buildIntCast2 = LLVMBuildIntCast2;
-    extern fn LLVMBuildIntCast2(*Builder, Val: *Value, DestTy: *Type, IsSigned: Bool, Name: [*:0]const u8) *Value;
-
     pub const buildBitCast = LLVMBuildBitCast;
     extern fn LLVMBuildBitCast(*Builder, Val: *Value, DestTy: *Type, Name: [*:0]const u8) *Value;
+
+    pub const buildGEP = LLVMBuildGEP2;
+    extern fn LLVMBuildGEP2(
+        B: *Builder,
+        Ty: *Type,
+        Pointer: *Value,
+        Indices: [*]const *Value,
+        NumIndices: c_uint,
+        Name: [*:0]const u8,
+    ) *Value;
 
     pub const buildInBoundsGEP = LLVMBuildInBoundsGEP2;
     extern fn LLVMBuildInBoundsGEP2(
@@ -731,14 +714,6 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *Value;
 
-    pub const buildVectorSplat = LLVMBuildVectorSplat;
-    extern fn LLVMBuildVectorSplat(
-        *Builder,
-        ElementCount: c_uint,
-        EltVal: *Value,
-        Name: [*:0]const u8,
-    ) *Value;
-
     pub const buildPtrToInt = LLVMBuildPtrToInt;
     extern fn LLVMBuildPtrToInt(
         *Builder,
@@ -752,15 +727,6 @@ pub const Builder = opaque {
         *Builder,
         Val: *Value,
         DestTy: *Type,
-        Name: [*:0]const u8,
-    ) *Value;
-
-    pub const buildStructGEP = LLVMBuildStructGEP2;
-    extern fn LLVMBuildStructGEP2(
-        B: *Builder,
-        Ty: *Type,
-        Pointer: *Value,
-        Idx: c_uint,
         Name: [*:0]const u8,
     ) *Value;
 
@@ -867,45 +833,6 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *Value;
 
-    pub const buildMemSet = ZigLLVMBuildMemSet;
-    extern fn ZigLLVMBuildMemSet(
-        B: *Builder,
-        Ptr: *Value,
-        Val: *Value,
-        Len: *Value,
-        Align: c_uint,
-        is_volatile: bool,
-    ) *Value;
-
-    pub const buildMemCpy = ZigLLVMBuildMemCpy;
-    extern fn ZigLLVMBuildMemCpy(
-        B: *Builder,
-        Dst: *Value,
-        DstAlign: c_uint,
-        Src: *Value,
-        SrcAlign: c_uint,
-        Size: *Value,
-        is_volatile: bool,
-    ) *Value;
-
-    pub const buildMaxNum = ZigLLVMBuildMaxNum;
-    extern fn ZigLLVMBuildMaxNum(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildMinNum = ZigLLVMBuildMinNum;
-    extern fn ZigLLVMBuildMinNum(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildUMax = ZigLLVMBuildUMax;
-    extern fn ZigLLVMBuildUMax(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildUMin = ZigLLVMBuildUMin;
-    extern fn ZigLLVMBuildUMin(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildSMax = ZigLLVMBuildSMax;
-    extern fn ZigLLVMBuildSMax(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
-    pub const buildSMin = ZigLLVMBuildSMin;
-    extern fn ZigLLVMBuildSMin(builder: *Builder, LHS: *Value, RHS: *Value, name: [*:0]const u8) *Value;
-
     pub const buildExactUDiv = LLVMBuildExactUDiv;
     extern fn LLVMBuildExactUDiv(*Builder, LHS: *Value, RHS: *Value, Name: [*:0]const u8) *Value;
 
@@ -926,39 +853,6 @@ pub const Builder = opaque {
 
     pub const buildShuffleVector = LLVMBuildShuffleVector;
     extern fn LLVMBuildShuffleVector(*Builder, V1: *Value, V2: *Value, Mask: *Value, Name: [*:0]const u8) *Value;
-
-    pub const buildAndReduce = ZigLLVMBuildAndReduce;
-    extern fn ZigLLVMBuildAndReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildOrReduce = ZigLLVMBuildOrReduce;
-    extern fn ZigLLVMBuildOrReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildXorReduce = ZigLLVMBuildXorReduce;
-    extern fn ZigLLVMBuildXorReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildIntMaxReduce = ZigLLVMBuildIntMaxReduce;
-    extern fn ZigLLVMBuildIntMaxReduce(B: *Builder, Val: *Value, is_signed: bool) *Value;
-
-    pub const buildIntMinReduce = ZigLLVMBuildIntMinReduce;
-    extern fn ZigLLVMBuildIntMinReduce(B: *Builder, Val: *Value, is_signed: bool) *Value;
-
-    pub const buildFPMaxReduce = ZigLLVMBuildFPMaxReduce;
-    extern fn ZigLLVMBuildFPMaxReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildFPMinReduce = ZigLLVMBuildFPMinReduce;
-    extern fn ZigLLVMBuildFPMinReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildAddReduce = ZigLLVMBuildAddReduce;
-    extern fn ZigLLVMBuildAddReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildMulReduce = ZigLLVMBuildMulReduce;
-    extern fn ZigLLVMBuildMulReduce(B: *Builder, Val: *Value) *Value;
-
-    pub const buildFPAddReduce = ZigLLVMBuildFPAddReduce;
-    extern fn ZigLLVMBuildFPAddReduce(B: *Builder, Acc: *Value, Val: *Value) *Value;
-
-    pub const buildFPMulReduce = ZigLLVMBuildFPMulReduce;
-    extern fn ZigLLVMBuildFPMulReduce(B: *Builder, Acc: *Value, Val: *Value) *Value;
 
     pub const setFastMath = ZigLLVMSetFastMath;
     extern fn ZigLLVMSetFastMath(B: *Builder, on_state: bool) void;
@@ -1019,9 +913,6 @@ pub const RealPredicate = enum(c_uint) {
 pub const BasicBlock = opaque {
     pub const deleteBasicBlock = LLVMDeleteBasicBlock;
     extern fn LLVMDeleteBasicBlock(BB: *BasicBlock) void;
-
-    pub const getFirstInstruction = LLVMGetFirstInstruction;
-    extern fn LLVMGetFirstInstruction(BB: *BasicBlock) ?*Value;
 };
 
 pub const TargetMachine = opaque {
@@ -1071,6 +962,9 @@ pub const TargetData = opaque {
 
     pub const abiSizeOfType = LLVMABISizeOfType;
     extern fn LLVMABISizeOfType(TD: *TargetData, Ty: *Type) c_ulonglong;
+
+    pub const stringRep = LLVMCopyStringRepOfTargetData;
+    extern fn LLVMCopyStringRepOfTargetData(TD: *TargetData) [*:0]const u8;
 };
 
 pub const CodeModel = enum(c_int) {
@@ -1205,7 +1099,6 @@ pub extern fn LLVMInitializeSystemZAsmPrinter() void;
 pub extern fn LLVMInitializeWebAssemblyAsmPrinter() void;
 pub extern fn LLVMInitializeX86AsmPrinter() void;
 pub extern fn LLVMInitializeXCoreAsmPrinter() void;
-pub extern fn LLVMInitializeXtensaAsmPrinter() void;
 pub extern fn LLVMInitializeM68kAsmPrinter() void;
 pub extern fn LLVMInitializeVEAsmPrinter() void;
 pub extern fn LLVMInitializeARCAsmPrinter() void;
@@ -1375,9 +1268,6 @@ extern fn ZigLLVMWriteImportLibrary(
     kill_at: bool,
 ) bool;
 
-pub const setCallElemTypeAttr = ZigLLVMSetCallElemTypeAttr;
-extern fn ZigLLVMSetCallElemTypeAttr(Call: *Value, arg_index: usize, return_type: *Type) void;
-
 pub const Linkage = enum(c_uint) {
     External,
     AvailableExternally,
@@ -1440,29 +1330,6 @@ pub const AtomicRMWBinOp = enum(c_int) {
     FMin,
 };
 
-pub const TypeKind = enum(c_int) {
-    Void,
-    Half,
-    Float,
-    Double,
-    X86_FP80,
-    FP128,
-    PPC_FP128,
-    Label,
-    Integer,
-    Function,
-    Struct,
-    Array,
-    Pointer,
-    Vector,
-    Metadata,
-    X86_MMX,
-    Token,
-    ScalableVector,
-    BFloat,
-    X86_AMX,
-};
-
 pub const CallConv = enum(c_uint) {
     C = 0,
     Fast = 8,
@@ -1516,6 +1383,13 @@ pub const CallAttr = enum(c_int) {
     NeverInline,
     AlwaysTail,
     AlwaysInline,
+};
+
+pub const TailCallKind = enum(c_uint) {
+    None,
+    Tail,
+    MustTail,
+    NoTail,
 };
 
 pub const DLLStorageClass = enum(c_uint) {
@@ -1588,6 +1462,13 @@ pub const address_space = struct {
         pub const constant_buffer_14: c_uint = 22;
         pub const constant_buffer_15: c_uint = 23;
     };
+
+    // See llvm/lib/Target/WebAssembly/Utils/WebAssemblyTypetilities.h
+    pub const wasm = struct {
+        pub const variable: c_uint = 1;
+        pub const externref: c_uint = 10;
+        pub const funcref: c_uint = 20;
+    };
 };
 
 pub const DIEnumerator = opaque {};
@@ -1605,9 +1486,6 @@ pub const DIGlobalVariable = opaque {
 pub const DIGlobalVariableExpression = opaque {
     pub const getVariable = ZigLLVMGlobalGetVariable;
     extern fn ZigLLVMGlobalGetVariable(global_variable: *DIGlobalVariableExpression) *DIGlobalVariable;
-
-    pub const getExpression = ZigLLVMGlobalGetExpression;
-    extern fn ZigLLVMGlobalGetExpression(global_variable: *DIGlobalVariableExpression) *DIGlobalExpression;
 };
 pub const DIType = opaque {
     pub const toScope = ZigLLVMTypeToScope;

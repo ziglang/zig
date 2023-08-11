@@ -421,7 +421,7 @@ test "bitcast nan float does modify signaling bit" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     // TODO: https://github.com/ziglang/zig/issues/14366
-    if (builtin.cpu.arch == .arm and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     // 16 bit
     const snan_f16_const = math.nan_f16;

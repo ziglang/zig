@@ -30,10 +30,10 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
 
     const absMask = signBit - 1;
     const qnanRep = @as(Z, @bitCast(std.math.nan(T))) | quietBit;
-    const infRep = @as(Z, @bitCast(std.math.inf(T)));
+    const infRep: Z = @bitCast(std.math.inf(T));
 
-    const aExponent = @as(u32, @truncate((@as(Z, @bitCast(a)) >> significandBits) & maxExponent));
-    const bExponent = @as(u32, @truncate((@as(Z, @bitCast(b)) >> significandBits) & maxExponent));
+    const aExponent: u32 = @truncate((@as(Z, @bitCast(a)) >> significandBits) & maxExponent);
+    const bExponent: u32 = @truncate((@as(Z, @bitCast(b)) >> significandBits) & maxExponent);
     const quotientSign: Z = (@as(Z, @bitCast(a)) ^ @as(Z, @bitCast(b))) & signBit;
 
     var aSignificand: Z = @as(Z, @bitCast(a)) & significandMask;
@@ -46,36 +46,36 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
         const bAbs: Z = @as(Z, @bitCast(b)) & absMask;
 
         // NaN / anything = qNaN
-        if (aAbs > infRep) return @as(T, @bitCast(@as(Z, @bitCast(a)) | quietBit));
+        if (aAbs > infRep) return @bitCast(@as(Z, @bitCast(a)) | quietBit);
         // anything / NaN = qNaN
-        if (bAbs > infRep) return @as(T, @bitCast(@as(Z, @bitCast(b)) | quietBit));
+        if (bAbs > infRep) return @bitCast(@as(Z, @bitCast(b)) | quietBit);
 
         if (aAbs == infRep) {
             // infinity / infinity = NaN
             if (bAbs == infRep) {
-                return @as(T, @bitCast(qnanRep));
+                return @bitCast(qnanRep);
             }
             // infinity / anything else = +/- infinity
             else {
-                return @as(T, @bitCast(aAbs | quotientSign));
+                return @bitCast(aAbs | quotientSign);
             }
         }
 
         // anything else / infinity = +/- 0
-        if (bAbs == infRep) return @as(T, @bitCast(quotientSign));
+        if (bAbs == infRep) return @bitCast(quotientSign);
 
         if (aAbs == 0) {
             // zero / zero = NaN
             if (bAbs == 0) {
-                return @as(T, @bitCast(qnanRep));
+                return @bitCast(qnanRep);
             }
             // zero / anything else = +/- zero
             else {
-                return @as(T, @bitCast(quotientSign));
+                return @bitCast(quotientSign);
             }
         }
         // anything else / zero = +/- infinity
-        if (bAbs == 0) return @as(T, @bitCast(infRep | quotientSign));
+        if (bAbs == 0) return @bitCast(infRep | quotientSign);
 
         // one or both of a or b is denormal, the other (if applicable) is a
         // normal number.  Renormalize one or both of a and b, and set scale to
@@ -89,7 +89,7 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
     // [1, 2.0) and get a Q64 approximate reciprocal using a small minimax
     // polynomial approximation: reciprocal = 3/4 + 1/sqrt(2) - b/2.  This
     // is accurate to about 3.5 binary digits.
-    const q63b = @as(u64, @intCast(bSignificand));
+    const q63b: u64 = @intCast(bSignificand);
     var recip64 = @as(u64, 0x7504f333F9DE6484) -% q63b;
     // 0x7504f333F9DE6484 / 2^64 + 1 = 3/4 + 1/sqrt(2)
 
@@ -100,16 +100,16 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
     // This doubles the number of correct binary digits in the approximation
     // with each iteration.
     var correction64: u64 = undefined;
-    correction64 = @as(u64, @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1));
-    recip64 = @as(u64, @truncate(@as(u128, recip64) *% correction64 >> 63));
-    correction64 = @as(u64, @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1));
-    recip64 = @as(u64, @truncate(@as(u128, recip64) *% correction64 >> 63));
-    correction64 = @as(u64, @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1));
-    recip64 = @as(u64, @truncate(@as(u128, recip64) *% correction64 >> 63));
-    correction64 = @as(u64, @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1));
-    recip64 = @as(u64, @truncate(@as(u128, recip64) *% correction64 >> 63));
-    correction64 = @as(u64, @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1));
-    recip64 = @as(u64, @truncate(@as(u128, recip64) *% correction64 >> 63));
+    correction64 = @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1);
+    recip64 = @truncate(@as(u128, recip64) *% correction64 >> 63);
+    correction64 = @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1);
+    recip64 = @truncate(@as(u128, recip64) *% correction64 >> 63);
+    correction64 = @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1);
+    recip64 = @truncate(@as(u128, recip64) *% correction64 >> 63);
+    correction64 = @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1);
+    recip64 = @truncate(@as(u128, recip64) *% correction64 >> 63);
+    correction64 = @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1);
+    recip64 = @truncate(@as(u128, recip64) *% correction64 >> 63);
 
     // The reciprocal may have overflowed to zero if the upper half of b is
     // exactly 1.0.  This would sabatoge the full-width final stage of the
@@ -128,8 +128,8 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
 
     correction = -%correction;
 
-    const cHi = @as(u64, @truncate(correction >> 64));
-    const cLo = @as(u64, @truncate(correction));
+    const cHi: u64 = @truncate(correction >> 64);
+    const cLo: u64 = @truncate(correction);
 
     var r64cH: u128 = undefined;
     var r64cL: u128 = undefined;

@@ -293,18 +293,18 @@ test "std.meta.declarations" {
     const E1 = enum {
         A,
 
-        fn a() void {}
+        pub fn a() void {}
     };
     const S1 = struct {
-        fn a() void {}
+        pub fn a() void {}
     };
     const U1 = union {
         a: u8,
 
-        fn a() void {}
+        pub fn a() void {}
     };
     const O1 = opaque {
-        fn a() void {}
+        pub fn a() void {}
     };
 
     const decls = comptime [_][]const Type.Declaration{
@@ -333,15 +333,15 @@ test "std.meta.declarationInfo" {
     const E1 = enum {
         A,
 
-        fn a() void {}
+        pub fn a() void {}
     };
     const S1 = struct {
-        fn a() void {}
+        pub fn a() void {}
     };
     const U1 = union {
         a: u8,
 
-        fn a() void {}
+        pub fn a() void {}
     };
 
     const infos = comptime [_]Type.Declaration{
@@ -352,7 +352,6 @@ test "std.meta.declarationInfo" {
 
     inline for (infos) |info| {
         try testing.expect(comptime mem.eql(u8, info.name, "a"));
-        try testing.expect(!info.is_pub);
     }
 }
 pub fn fields(comptime T: type) switch (@typeInfo(T)) {
@@ -597,7 +596,6 @@ fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
         if (expected_decls.len != actual_decls.len) return error.FailedTest;
         for (expected_decls, 0..) |expected_decl, i| {
             const actual_decl = actual_decls[i];
-            try testing.expectEqual(expected_decl.is_pub, actual_decl.is_pub);
             try testing.expectEqualStrings(expected_decl.name, actual_decl.name);
         }
     }
@@ -644,21 +642,21 @@ pub fn DeclEnum(comptime T: type) type {
 
 test "std.meta.DeclEnum" {
     const A = struct {
-        const a: u8 = 0;
+        pub const a: u8 = 0;
     };
     const B = union {
         foo: void,
 
-        const a: u8 = 0;
-        const b: void = {};
-        const c: f32 = 0;
+        pub const a: u8 = 0;
+        pub const b: void = {};
+        pub const c: f32 = 0;
     };
     const C = enum {
         bar,
 
-        const a: u8 = 0;
-        const b: void = {};
-        const c: f32 = 0;
+        pub const a: u8 = 0;
+        pub const b: void = {};
+        pub const c: f32 = 0;
     };
     try expectEqualEnum(enum { a }, DeclEnum(A));
     try expectEqualEnum(enum { a, b, c }, DeclEnum(B));

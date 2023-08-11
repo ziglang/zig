@@ -411,7 +411,7 @@ pub const Aegis128LMac = AegisMac(Aegis128L_256);
 /// concern, the AEGIS-128L variant should be preferred.
 /// AEGIS' large state, non-linearity and non-invertibility provides the
 /// following properties:
-/// - 256 bit security against forgery.
+/// - More than 128 bit security against forgery.
 /// - Recovering the secret key from the state would require ~2^256 attempts,
 ///   which is infeasible for any practical adversary.
 /// - It has a large security margin against internal collisions.

@@ -1,5 +1,12 @@
 // See C headers in
 // lib/libc/include/aarch64-macos.12-gnu/mach/arm/_structs.h
+// lib/libc/include/aarch64-macos.13-none/arm/_mcontext.h
+
+pub const mcontext_t = extern struct {
+    es: exception_state,
+    ss: thread_state,
+    ns: neon_state,
+};
 
 pub const exception_state = extern struct {
     far: u64, // Virtual Fault Address
@@ -15,6 +22,12 @@ pub const thread_state = extern struct {
     pc: u64, // Program counter
     cpsr: u32, // Current program status register
     __pad: u32,
+};
+
+pub const neon_state = extern struct {
+    q: [32]u128,
+    fpsr: u32,
+    fpcr: u32,
 };
 
 pub const EXC_TYPES_COUNT = 14;

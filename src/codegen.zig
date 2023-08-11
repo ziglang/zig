@@ -67,7 +67,7 @@ pub const DebugInfoOutput = union(enum) {
 pub fn generateFunction(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    func_index: Module.Fn.Index,
+    func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
@@ -294,7 +294,7 @@ pub fn generateSymbol(
                 const padding = math.cast(usize, padded_end - unpadded_end) orelse return error.Overflow;
 
                 if (padding > 0) {
-                    try code.writer().writeByteNTimes(0, padding);
+                    try code.appendNTimes(0, padding);
                 }
             }
 
@@ -307,7 +307,7 @@ pub fn generateSymbol(
                 const padding = math.cast(usize, padded_end - unpadded_end) orelse return error.Overflow;
 
                 if (padding > 0) {
-                    try code.writer().writeByteNTimes(0, padding);
+                    try code.appendNTimes(0, padding);
                 }
             }
         },
@@ -367,7 +367,7 @@ pub fn generateSymbol(
                         .fail => |em| return Result{ .fail = em },
                     }
                 } else {
-                    try code.writer().writeByteNTimes(0, abi_size);
+                    try code.appendNTimes(0, abi_size);
                 }
             } else {
                 const padding = abi_size - (math.cast(usize, payload_type.abiSize(mod)) orelse return error.Overflow) - 1;
@@ -382,7 +382,7 @@ pub fn generateSymbol(
                     }
                 }
                 try code.writer().writeByte(@intFromBool(payload_val != null));
-                try code.writer().writeByteNTimes(0, padding);
+                try code.appendNTimes(0, padding);
             }
         },
         .aggregate => |aggregate| switch (mod.intern_pool.indexToKey(typed_value.ty.toIntern())) {
@@ -433,7 +433,7 @@ pub fn generateSymbol(
                     error.DivisionByZero => unreachable,
                     else => |e| return e,
                 })) orelse return error.Overflow;
-                if (padding > 0) try code.writer().writeByteNTimes(0, padding);
+                if (padding > 0) try code.appendNTimes(0, padding);
             },
             .anon_struct_type => |tuple| {
                 const struct_begin = code.items.len;
@@ -465,7 +465,7 @@ pub fn generateSymbol(
                         return error.Overflow;
 
                     if (padding > 0) {
-                        try code.writer().writeByteNTimes(0, padding);
+                        try code.appendNTimes(0, padding);
                     }
                 }
             },
@@ -513,18 +513,26 @@ pub fn generateSymbol(
                     }
                 } else {
                     const struct_begin = code.items.len;
-                    for (struct_obj.fields.values(), 0..) |field, index| {
-                        const field_ty = field.ty;
+                    const fields = struct_obj.fields.values();
+
+                    var it = typed_value.ty.iterateStructOffsets(mod);
+
+                    while (it.next()) |field_offset| {
+                        const field_ty = fields[field_offset.field].ty;
+
                         if (!field_ty.hasRuntimeBits(mod)) continue;
 
                         const field_val = switch (mod.intern_pool.indexToKey(typed_value.val.toIntern()).aggregate.storage) {
                             .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
                                 .ty = field_ty.toIntern(),
-                                .storage = .{ .u64 = bytes[index] },
+                                .storage = .{ .u64 = bytes[field_offset.field] },
                             } }),
-                            .elems => |elems| elems[index],
+                            .elems => |elems| elems[field_offset.field],
                             .repeated_elem => |elem| elem,
                         };
+
+                        const padding = math.cast(usize, field_offset.offset - (code.items.len - struct_begin)) orelse return error.Overflow;
+                        if (padding > 0) try code.appendNTimes(0, padding);
 
                         switch (try generateSymbol(bin_file, src_loc, .{
                             .ty = field_ty,
@@ -533,16 +541,10 @@ pub fn generateSymbol(
                             .ok => {},
                             .fail => |em| return Result{ .fail = em },
                         }
-                        const unpadded_field_end = code.items.len - struct_begin;
-
-                        // Pad struct members if required
-                        const padded_field_end = typed_value.ty.structFieldOffset(index + 1, mod);
-                        const padding = math.cast(usize, padded_field_end - unpadded_field_end) orelse return error.Overflow;
-
-                        if (padding > 0) {
-                            try code.writer().writeByteNTimes(0, padding);
-                        }
                     }
+
+                    const padding = math.cast(usize, std.mem.alignForward(u64, it.offset, @max(it.big_align, 1)) - (code.items.len - struct_begin)) orelse return error.Overflow;
+                    if (padding > 0) try code.appendNTimes(0, padding);
                 }
             },
             else => unreachable,
@@ -573,7 +575,7 @@ pub fn generateSymbol(
             assert(union_ty.haveFieldTypes());
             const field_ty = union_ty.fields.values()[field_index].ty;
             if (!field_ty.hasRuntimeBits(mod)) {
-                try code.writer().writeByteNTimes(0xaa, math.cast(usize, layout.payload_size) orelse return error.Overflow);
+                try code.appendNTimes(0xaa, math.cast(usize, layout.payload_size) orelse return error.Overflow);
             } else {
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = field_ty,
@@ -585,7 +587,7 @@ pub fn generateSymbol(
 
                 const padding = math.cast(usize, layout.payload_size - field_ty.abiSize(mod)) orelse return error.Overflow;
                 if (padding > 0) {
-                    try code.writer().writeByteNTimes(0, padding);
+                    try code.appendNTimes(0, padding);
                 }
             }
 
@@ -599,7 +601,7 @@ pub fn generateSymbol(
                 }
 
                 if (layout.padding > 0) {
-                    try code.writer().writeByteNTimes(0, layout.padding);
+                    try code.appendNTimes(0, layout.padding);
                 }
             }
         },
@@ -734,7 +736,7 @@ fn lowerDeclRef(
     const decl = mod.declPtr(decl_index);
     const is_fn_body = decl.ty.zigTypeTag(mod) == .Fn;
     if (!is_fn_body and !decl.ty.hasRuntimeBits(mod)) {
-        try code.writer().writeByteNTimes(0xaa, @divExact(ptr_width, 8));
+        try code.appendNTimes(0xaa, @divExact(ptr_width, 8));
         return Result.ok;
     }
 

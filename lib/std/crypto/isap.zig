@@ -67,7 +67,7 @@ pub const IsapA128A = struct {
         var i: usize = 0;
         while (i < y.len * 8 - 1) : (i += 1) {
             const cur_byte_pos = i / 8;
-            const cur_bit_pos = @as(u3, @truncate(7 - (i % 8)));
+            const cur_bit_pos: u3 = @truncate(7 - (i % 8));
             const cur_bit = ((y[cur_byte_pos] >> cur_bit_pos) & 1) << 7;
             isap.st.addByte(cur_bit, 0);
             isap.st.permuteR(1);

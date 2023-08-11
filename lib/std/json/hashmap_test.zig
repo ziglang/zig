@@ -5,9 +5,12 @@ const ArrayHashMap = @import("hashmap.zig").ArrayHashMap;
 
 const parseFromSlice = @import("static.zig").parseFromSlice;
 const parseFromSliceLeaky = @import("static.zig").parseFromSliceLeaky;
+const parseFromTokenSource = @import("static.zig").parseFromTokenSource;
 const parseFromValue = @import("static.zig").parseFromValue;
 const stringifyAlloc = @import("stringify.zig").stringifyAlloc;
 const Value = @import("dynamic.zig").Value;
+
+const jsonReader = @import("./scanner.zig").reader;
 
 const T = struct {
     i: i32,
@@ -23,6 +26,31 @@ test "parse json hashmap" {
     ;
     const parsed = try parseFromSlice(ArrayHashMap(T), testing.allocator, doc, .{});
     defer parsed.deinit();
+
+    try testing.expectEqual(@as(usize, 2), parsed.value.map.count());
+    try testing.expectEqualStrings("d", parsed.value.map.get("abc").?.s);
+    try testing.expectEqual(@as(i32, 1), parsed.value.map.get("xyz").?.i);
+}
+
+test "parse json hashmap while streaming" {
+    const doc =
+        \\{
+        \\  "abc": {"i": 0, "s": "d"},
+        \\  "xyz": {"i": 1, "s": "w"}
+        \\}
+    ;
+    var stream = std.io.fixedBufferStream(doc);
+    var json_reader = jsonReader(testing.allocator, stream.reader());
+
+    var parsed = try parseFromTokenSource(
+        ArrayHashMap(T),
+        testing.allocator,
+        &json_reader,
+        .{},
+    );
+    defer parsed.deinit();
+    // Deinit our reader to invalidate its buffer
+    json_reader.deinit();
 
     try testing.expectEqual(@as(usize, 2), parsed.value.map.count());
     try testing.expectEqualStrings("d", parsed.value.map.get("abc").?.s);
@@ -101,11 +129,7 @@ test "stringify json hashmap whitespace" {
     try value.map.put(testing.allocator, "xyz", .{ .i = 1, .s = "w" });
 
     {
-        const doc = try stringifyAlloc(testing.allocator, value, .{
-            .whitespace = .{
-                .indent = .{ .space = 2 },
-            },
-        });
+        const doc = try stringifyAlloc(testing.allocator, value, .{ .whitespace = .indent_2 });
         defer testing.allocator.free(doc);
         try testing.expectEqualStrings(
             \\{

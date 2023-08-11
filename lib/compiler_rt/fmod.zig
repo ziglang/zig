@@ -22,7 +22,7 @@ comptime {
 
 pub fn __fmodh(x: f16, y: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(fmodf(x, y)));
+    return @floatCast(fmodf(x, y));
 }
 
 pub fn fmodf(x: f32, y: f32) callconv(.C) f32 {
@@ -46,12 +46,12 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
     const signBit = (@as(Z, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);
 
-    var aRep = @as(Z, @bitCast(a));
-    var bRep = @as(Z, @bitCast(b));
+    var aRep: Z = @bitCast(a);
+    var bRep: Z = @bitCast(b);
 
     const signA = aRep & signBit;
-    var expA = @as(i32, @intCast((@as(Z, @bitCast(a)) >> significandBits) & maxExponent));
-    var expB = @as(i32, @intCast((@as(Z, @bitCast(b)) >> significandBits) & maxExponent));
+    var expA: i32 = @intCast((@as(Z, @bitCast(a)) >> significandBits) & maxExponent);
+    var expB: i32 = @intCast((@as(Z, @bitCast(b)) >> significandBits) & maxExponent);
 
     // There are 3 cases where the answer is undefined, check for:
     //   - fmodx(val, 0)
@@ -123,11 +123,11 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
 
     // Combine the exponent with the sign and significand, normalize if happened to be denormalized
     if (expA < -fractionalBits) {
-        return @as(T, @bitCast(signA));
+        return @bitCast(signA);
     } else if (expA <= 0) {
-        return @as(T, @bitCast((lowA >> @as(math.Log2Int(u64), @intCast(1 - expA))) | signA));
+        return @bitCast((lowA >> @as(math.Log2Int(u64), @intCast(1 - expA))) | signA);
     } else {
-        return @as(T, @bitCast(lowA | (@as(Z, @as(u16, @intCast(expA))) << significandBits) | signA));
+        return @bitCast(lowA | (@as(Z, @as(u16, @intCast(expA))) << significandBits) | signA);
     }
 }
 
@@ -155,8 +155,8 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     };
 
     const signA = aPtr_u16[exp_and_sign_index] & 0x8000;
-    var expA = @as(i32, @intCast((aPtr_u16[exp_and_sign_index] & 0x7fff)));
-    var expB = @as(i32, @intCast((bPtr_u16[exp_and_sign_index] & 0x7fff)));
+    var expA: i32 = @intCast((aPtr_u16[exp_and_sign_index] & 0x7fff));
+    var expB: i32 = @intCast((bPtr_u16[exp_and_sign_index] & 0x7fff));
 
     // There are 3 cases where the answer is undefined, check for:
     //   - fmodq(val, 0)
@@ -270,10 +270,10 @@ inline fn generic_fmod(comptime T: type, x: T, y: T) T {
     const exp_bits = if (T == f32) 9 else 12;
     const bits_minus_1 = bits - 1;
     const mask = if (T == f32) 0xff else 0x7ff;
-    var ux = @as(uint, @bitCast(x));
-    var uy = @as(uint, @bitCast(y));
-    var ex = @as(i32, @intCast((ux >> digits) & mask));
-    var ey = @as(i32, @intCast((uy >> digits) & mask));
+    var ux: uint = @bitCast(x);
+    var uy: uint = @bitCast(y);
+    var ex: i32 = @intCast((ux >> digits) & mask);
+    var ey: i32 = @intCast((uy >> digits) & mask);
     const sx = if (T == f32) @as(u32, @intCast(ux & 0x80000000)) else @as(i32, @intCast(ux >> bits_minus_1));
     var i: uint = undefined;
 
@@ -343,7 +343,7 @@ inline fn generic_fmod(comptime T: type, x: T, y: T) T {
     } else {
         ux |= @as(uint, @intCast(sx)) << bits_minus_1;
     }
-    return @as(T, @bitCast(ux));
+    return @bitCast(ux);
 }
 
 test "fmodf" {

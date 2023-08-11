@@ -43,14 +43,15 @@ test Value {
 test writeStream {
     var out = ArrayList(u8).init(testing.allocator);
     defer out.deinit();
-    var write_stream = writeStream(out.writer(), 99);
+    var write_stream = writeStream(out.writer(), .{ .whitespace = .indent_2 });
+    defer write_stream.deinit();
     try write_stream.beginObject();
     try write_stream.objectField("foo");
-    try write_stream.emitNumber(123);
+    try write_stream.write(123);
     try write_stream.endObject();
     const expected =
         \\{
-        \\ "foo": 123
+        \\  "foo": 123
         \\}
     ;
     try testing.expectEqualSlices(u8, expected, out.items);
@@ -98,13 +99,16 @@ pub const ParseError = @import("json/static.zig").ParseError;
 pub const ParseFromValueError = @import("json/static.zig").ParseFromValueError;
 
 pub const StringifyOptions = @import("json/stringify.zig").StringifyOptions;
+pub const stringify = @import("json/stringify.zig").stringify;
+pub const stringifyMaxDepth = @import("json/stringify.zig").stringifyMaxDepth;
+pub const stringifyArbitraryDepth = @import("json/stringify.zig").stringifyArbitraryDepth;
+pub const stringifyAlloc = @import("json/stringify.zig").stringifyAlloc;
+pub const writeStream = @import("json/stringify.zig").writeStream;
+pub const writeStreamMaxDepth = @import("json/stringify.zig").writeStreamMaxDepth;
+pub const writeStreamArbitraryDepth = @import("json/stringify.zig").writeStreamArbitraryDepth;
+pub const WriteStream = @import("json/stringify.zig").WriteStream;
 pub const encodeJsonString = @import("json/stringify.zig").encodeJsonString;
 pub const encodeJsonStringChars = @import("json/stringify.zig").encodeJsonStringChars;
-pub const stringify = @import("json/stringify.zig").stringify;
-pub const stringifyAlloc = @import("json/stringify.zig").stringifyAlloc;
-
-pub const WriteStream = @import("json/write_stream.zig").WriteStream;
-pub const writeStream = @import("json/write_stream.zig").writeStream;
 
 // Deprecations
 pub const parse = @compileError("Deprecated; use parseFromSlice() or parseFromTokenSource() instead.");
@@ -117,9 +121,8 @@ pub const TokenStream = @compileError("Deprecated; use json.Scanner or json.Read
 test {
     _ = @import("json/test.zig");
     _ = @import("json/scanner.zig");
-    _ = @import("json/write_stream.zig");
     _ = @import("json/dynamic.zig");
-    _ = @import("json/hashmap_test.zig");
+    _ = @import("json/hashmap.zig");
     _ = @import("json/static.zig");
     _ = @import("json/stringify.zig");
     _ = @import("json/JSONTestSuite_test.zig");

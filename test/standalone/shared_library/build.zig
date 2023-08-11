@@ -19,7 +19,10 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
+    exe.addCSourceFile(.{
+        .file = .{ .path = "test.c" },
+        .flags = &[_][]const u8{"-std=c99"},
+    });
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");
 

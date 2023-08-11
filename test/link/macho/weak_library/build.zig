@@ -21,7 +21,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .target = target,
         .optimize = optimize,
     });
-    dylib.addCSourceFile("a.c", &.{});
+    dylib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     dylib.linkLibC();
     b.installArtifact(dylib);
 
@@ -30,21 +30,22 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .target = target,
         .optimize = optimize,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkLibC();
     exe.linkSystemLibraryWeak("a");
-    exe.addLibraryPathDirectorySource(dylib.getOutputDirectorySource());
-    exe.addRPathDirectorySource(dylib.getOutputDirectorySource());
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
 
     const check = exe.checkObject();
-    check.checkStart("cmd LOAD_WEAK_DYLIB");
-    check.checkNext("name @rpath/liba.dylib");
+    check.checkStart();
+    check.checkExact("cmd LOAD_WEAK_DYLIB");
+    check.checkExact("name @rpath/liba.dylib");
 
     check.checkInSymtab();
-    check.checkNext("(undefined) weak external _a (from liba)");
+    check.checkExact("(undefined) weak external _a (from liba)");
 
     check.checkInSymtab();
-    check.checkNext("(undefined) weak external _asStr (from liba)");
+    check.checkExact("(undefined) weak external _asStr (from liba)");
     test_step.dependOn(&check.step);
 
     const run = b.addRunArtifact(exe);
