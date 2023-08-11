@@ -209,7 +209,7 @@ fn Aegis128LGeneric(comptime tag_bits: u9) type {
                 acc |= (computed_tag[j] ^ tag[j]);
             }
             if (acc != 0) {
-                @memset(m, undefined);
+                @memset(m, 0);
                 return error.AuthenticationFailed;
             }
         }
@@ -390,7 +390,7 @@ fn Aegis256Generic(comptime tag_bits: u9) type {
                 acc |= (computed_tag[j] ^ tag[j]);
             }
             if (acc != 0) {
-                @memset(m, undefined);
+                @memset(m, 0);
                 return error.AuthenticationFailed;
             }
         }

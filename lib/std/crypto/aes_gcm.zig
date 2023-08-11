@@ -91,7 +91,7 @@ fn AesGcm(comptime Aes: anytype) type {
                 acc |= (computed_tag[p] ^ tag[p]);
             }
             if (acc != 0) {
-                @memset(m, undefined);
+                @memset(m, 0);
                 return error.AuthenticationFailed;
             }
 
