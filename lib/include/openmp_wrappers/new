@@ -13,7 +13,7 @@
 // which do not use nothrow_t are provided without the <new> header.
 #include_next <new>
 
-#if defined(__NVPTX__) && defined(_OPENMP)
+#if (defined(__NVPTX__) || defined(__AMDGPU__)) && defined(_OPENMP)
 
 #include <cstdlib>
 
