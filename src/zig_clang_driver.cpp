@@ -209,9 +209,6 @@ extern int cc1_main(ArrayRef<const char *> Argv, const char *Argv0,
                     void *MainAddr);
 extern int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0,
                       void *MainAddr);
-extern int cc1gen_reproducer_main(ArrayRef<const char *> Argv,
-                                  const char *Argv0, void *MainAddr,
-                                  const llvm::ToolContext &);
 
 static void insertTargetAndModeArgs(const ParsedClangName &NameParts,
                                     SmallVectorImpl<const char *> &ArgVector,
@@ -365,21 +362,19 @@ static int ExecuteCC1Tool(SmallVectorImpl<const char *> &ArgV,
     return cc1_main(ArrayRef(ArgV).slice(1), ArgV[0], GetExecutablePathVP);
   if (Tool == "-cc1as")
     return cc1as_main(ArrayRef(ArgV).slice(2), ArgV[0], GetExecutablePathVP);
-  if (Tool == "-cc1gen-reproducer")
-    return cc1gen_reproducer_main(ArrayRef(ArgV).slice(2), ArgV[0],
-                                  GetExecutablePathVP, ToolContext);
   // Reject unknown tools.
   llvm::errs() << "error: unknown integrated tool '" << Tool << "'. "
                << "Valid tools include '-cc1' and '-cc1as'.\n";
   return 1;
 }
 
-int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext) {
+static int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext) {
   noteBottomOfStack();
   llvm::setBugReportMsg("PLEASE submit a bug report to " BUG_REPORT_URL
                         " and include the crash backtrace, preprocessed "
                         "source, and associated run script.\n");
-  SmallVector<const char *, 256> Args(Argv, Argv + Argc);
+  size_t argv_offset = (strcmp(Argv[1], "-cc1") == 0 || strcmp(Argv[1], "-cc1as") == 0) ? 0 : 1;
+  SmallVector<const char *, 256> Args(Argv + argv_offset, Argv + Argc);
 
   if (llvm::sys::Process::FixupStandardFileDescriptors())
     return 1;
@@ -600,4 +595,9 @@ int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext) {
   // If we have multiple failing commands, we return the result of the first
   // failing command.
   return Res;
+}
+
+extern "C" int ZigClang_main(int, char **);
+int ZigClang_main(int argc, char **argv) {
+  return clang_main(argc, argv, {argv[0], nullptr, false});
 }
