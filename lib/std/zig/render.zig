@@ -1503,6 +1503,8 @@ fn renderBuiltinCall(
         try ais.writer().writeAll("@ptrFromInt");
     } else if (mem.eql(u8, slice, "@ptrToInt")) {
         try ais.writer().writeAll("@intFromPtr");
+    } else if (mem.eql(u8, slice, "@fabs")) {
+        try ais.writer().writeAll("@abs");
     } else {
         try renderToken(ais, tree, builtin_token, .none); // @name
     }
