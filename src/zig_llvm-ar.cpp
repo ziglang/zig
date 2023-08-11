@@ -1426,8 +1426,15 @@ static int ranlib_main(int argc, char **argv) {
   return 0;
 }
 
-int llvm_ar_main(int argc, char **argv, const llvm::ToolContext &) {
-  InitLLVM X(argc, argv);
+static int llvm_ar_main(int argc, char **argv, const llvm::ToolContext &) {
+  // ZIG PATCH: On Windows, InitLLVM calls GetCommandLineW(),
+  // and overwrites the args.  We don't want it to do that,
+  // and we also don't need the signal handlers it installs
+  // (we have our own already), so we just use llvm_shutdown_obj
+  // instead.
+  // InitLLVM X(argc, argv);
+  llvm::llvm_shutdown_obj X;
+
   ToolName = argv[0];
 
   llvm::InitializeAllTargetInfos();
@@ -1456,4 +1463,9 @@ int llvm_ar_main(int argc, char **argv, const llvm::ToolContext &) {
     return ar_main(argc, argv);
 
   fail("not ranlib, ar, lib or dlltool");
+}
+
+extern "C" int ZigLlvmAr_main(int, char **);
+int ZigLlvmAr_main(int argc, char **argv) {
+  return llvm_ar_main(argc, argv, {argv[0], nullptr, false});
 }
