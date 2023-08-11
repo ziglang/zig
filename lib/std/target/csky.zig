@@ -3079,7 +3079,7 @@ pub const cpu = struct {
             .btst16,
         }),
     };
-    pub const i805 = CpuModel{
+    pub const @"i805" = CpuModel{
         .name = "i805",
         .llvm_name = "i805",
         .features = featureSet(&[_]Feature{
