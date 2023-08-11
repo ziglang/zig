@@ -14,12 +14,12 @@ if(ZIG_USE_LLVM_CONFIG)
   while(1)
     unset(LLVM_CONFIG_EXE CACHE)
     find_program(LLVM_CONFIG_EXE
-        NAMES llvm-config-16 llvm-config-16.0 llvm-config160 llvm-config16 llvm-config NAMES_PER_DIR
+        NAMES llvm-config-17 llvm-config-17.0 llvm-config170 llvm-config17 llvm-config NAMES_PER_DIR
         PATHS
             "/mingw64/bin"
             "/c/msys64/mingw64/bin"
             "c:/msys64/mingw64/bin"
-            "C:/Libraries/llvm-16.0.0/bin")
+            "C:/Libraries/llvm-17.0.0/bin")
 
     if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
       if (NOT LLVM_CONFIG_ERROR_MESSAGES STREQUAL "")
@@ -37,9 +37,9 @@ if(ZIG_USE_LLVM_CONFIG)
       OUTPUT_STRIP_TRAILING_WHITESPACE)
 
     get_filename_component(LLVM_CONFIG_DIR "${LLVM_CONFIG_EXE}" DIRECTORY)
-    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 16 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 17 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 17)
+    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 17 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 18 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 18)
       # Save the error message, in case this is the last llvm-config we find
-      list(APPEND LLVM_CONFIG_ERROR_MESSAGES "expected LLVM 16.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+      list(APPEND LLVM_CONFIG_ERROR_MESSAGES "expected LLVM 17.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
 
       # Ignore this directory and try the search again
       list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
@@ -63,9 +63,9 @@ if(ZIG_USE_LLVM_CONFIG)
       if (LLVM_CONFIG_ERROR) 
         # Save the error message, in case this is the last llvm-config we find
         if (ZIG_SHARED_LLVM)
-          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 16.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
+          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 17.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
         else()
-          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 16.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
+          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 17.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
         endif()
 
         # Ignore this directory and try the search again

@@ -124,9 +124,9 @@ endif()
 
 set(ZIG_PIE off CACHE BOOL "produce a position independent zig executable")
 
-find_package(llvm 16)
-find_package(clang 16)
-find_package(lld 16)
+find_package(llvm 17)
+find_package(clang 17)
+find_package(lld 17)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)

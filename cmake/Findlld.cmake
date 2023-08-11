@@ -9,21 +9,21 @@
 find_path(LLD_INCLUDE_DIRS NAMES lld/Common/Driver.h
     HINTS ${LLVM_INCLUDE_DIRS}
     PATHS
-        /usr/lib/llvm-16/include
-        /usr/local/llvm160/include
-        /usr/local/llvm16/include
-        /usr/local/opt/llvm@16/include
-        /opt/homebrew/opt/llvm@16/include
+        /usr/lib/llvm-17/include
+        /usr/local/llvm170/include
+        /usr/local/llvm17/include
+        /usr/local/opt/llvm@17/include
+        /opt/homebrew/opt/llvm@17/include
         /mingw64/include)
 
-find_library(LLD_LIBRARY NAMES lld-16.0 lld160 lld NAMES_PER_DIR
+find_library(LLD_LIBRARY NAMES lld-17.0 lld170 lld NAMES_PER_DIR
     HINTS ${LLVM_LIBDIRS}
     PATHS
-        /usr/lib/llvm-16/lib
-        /usr/local/llvm160/lib
-        /usr/local/llvm16/lib
-        /usr/local/opt/llvm@16/lib
-        /opt/homebrew/opt/llvm@16/lib
+        /usr/lib/llvm-17/lib
+        /usr/local/llvm170/lib
+        /usr/local/llvm17/lib
+        /usr/local/opt/llvm@17/lib
+        /opt/homebrew/opt/llvm@17/lib
 )
 if(EXISTS ${LLD_LIBRARY})
     set(LLD_LIBRARIES ${LLD_LIBRARY})
@@ -34,11 +34,11 @@ else()
             HINTS ${LLVM_LIBDIRS}
             PATHS
                 ${LLD_LIBDIRS}
-                /usr/lib/llvm-16/lib
-                /usr/local/llvm160/lib
-                /usr/local/llvm16/lib
-                /usr/local/opt/llvm@16/lib
-                /opt/homebrew/opt/llvm@16/lib
+                /usr/lib/llvm-17/lib
+                /usr/local/llvm170/lib
+                /usr/local/llvm17/lib
+                /usr/local/opt/llvm@17/lib
+                /opt/homebrew/opt/llvm@17/lib
                 /mingw64/lib
                 /c/msys64/mingw64/lib
                 c:/msys64/mingw64/lib)
