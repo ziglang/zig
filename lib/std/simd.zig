@@ -299,7 +299,7 @@ test "vector shifting" {
 pub fn firstTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
     const len = vectorLength(@TypeOf(vec));
 
-    // FIXME: bit casting between bool vectors and ints differs in CBE
+    // FIXME: add other backends when they implement bit-casting the same way
     if (comptime builtin.cpu.arch.isX86() and builtin.zig_backend == .stage2_llvm) {
         // NOTE: if the semantics of bit casting bool vector to int
         // ever change or are formally specified, update this code
@@ -337,7 +337,7 @@ pub fn lastTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
     const len = vectorLength(@TypeOf(vec));
     const IndexInt = VectorIndex(@TypeOf(vec));
 
-    // FIXME: bit casting between bool vectors and ints differs in CBE
+    // FIXME: add other backends when they implement bit-casting the same way
     if (comptime builtin.cpu.arch.isX86() and builtin.zig_backend == .stage2_llvm) {
         // NOTE: if the semantics of bit casting bool vector to int
         // ever change or are formally specified, update this code
@@ -372,7 +372,7 @@ test "lastTrue" {
 pub fn countTrues(vec: anytype) VectorCount(@TypeOf(vec)) {
     const len = vectorLength(@TypeOf(vec));
 
-    // FIXME: bit casting between bool vectors and ints differs in CBE
+    // FIXME: add other backends when they implement bit-casting the same way
     if (comptime builtin.cpu.arch.isX86() and builtin.zig_backend == .stage2_llvm) {
         // NOTE: if the semantics of bit casting bool vector to int
         // ever change or are formally specified, update this code
