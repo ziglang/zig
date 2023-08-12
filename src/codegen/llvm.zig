@@ -421,8 +421,12 @@ const DataLayoutBuilder = struct {
                 if (idx != size) try writer.print(":{d}", .{idx});
             }
         }
-        if (self.target.cpu.arch.isArmOrThumb())
-            try writer.writeAll("-Fi8"); // for thumb interwork
+        if (self.target.cpu.arch.isArmOrThumb()) try writer.writeAll("-Fi8") // for thumb interwork
+        else if (self.target.cpu.arch == .powerpc64 and
+            self.target.os.tag != .freebsd and self.target.abi != .musl)
+            try writer.writeAll("-Fi64")
+        else if (self.target.cpu.arch.isPPC() or self.target.cpu.arch.isPPC64())
+            try writer.writeAll("-Fn32");
         if (self.target.cpu.arch != .hexagon) {
             if (self.target.cpu.arch == .arc or self.target.cpu.arch == .s390x)
                 try self.typeAlignment(.integer, 1, 8, 8, false, writer);
