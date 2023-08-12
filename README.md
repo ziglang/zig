@@ -34,9 +34,9 @@ At runtime, the executable searches up the file system for the lib/ directory,
 relative to itself:
 
 * lib/
-* zig/lib/
+* lib/zig/
 * ../lib/
-* ../zig/lib/
+* ../lib/zig/
 * (and so on)
 
 In other words, you can **unpack a release of Zig anywhere**, and then begin
