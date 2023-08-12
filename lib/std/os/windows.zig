@@ -170,7 +170,7 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
 }
 
 pub fn CreateEventEx(attributes: ?*SECURITY_ATTRIBUTES, name: []const u8, flags: DWORD, desired_access: DWORD) !HANDLE {
-    const nameW = try sliceToPrefixedFileW(name);
+    const nameW = try sliceToPrefixedFileW(null, name);
     return CreateEventExW(attributes, nameW.span().ptr, flags, desired_access);
 }
 
@@ -1007,8 +1007,8 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
 pub const MoveFileError = error{ FileNotFound, AccessDenied, Unexpected };
 
 pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) MoveFileError!void {
-    const old_path_w = try sliceToPrefixedFileW(old_path);
-    const new_path_w = try sliceToPrefixedFileW(new_path);
+    const old_path_w = try sliceToPrefixedFileW(null, old_path);
+    const new_path_w = try sliceToPrefixedFileW(null, new_path);
     return MoveFileExW(old_path_w.span().ptr, new_path_w.span().ptr, flags);
 }
 
@@ -1317,7 +1317,7 @@ pub const GetFileAttributesError = error{
 };
 
 pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
-    const filename_w = try sliceToPrefixedFileW(filename);
+    const filename_w = try sliceToPrefixedFileW(null, filename);
     return GetFileAttributesW(filename_w.span().ptr);
 }
 
@@ -2120,16 +2120,16 @@ pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
 
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
 /// to a null-terminated path.
-pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
-    return sliceToPrefixedFileW(mem.sliceTo(s, 0));
+pub fn cStrToPrefixedFileW(dir: ?HANDLE, s: [*:0]const u8) !PathSpace {
+    return sliceToPrefixedFileW(dir, mem.sliceTo(s, 0));
 }
 
 /// Same as `wToPrefixedFileW` but accepts a UTF-8 encoded path.
-pub fn sliceToPrefixedFileW(path: []const u8) !PathSpace {
+pub fn sliceToPrefixedFileW(dir: ?HANDLE, path: []const u8) !PathSpace {
     var temp_path: PathSpace = undefined;
     temp_path.len = try std.unicode.utf8ToUtf16Le(&temp_path.data, path);
     temp_path.data[temp_path.len] = 0;
-    return wToPrefixedFileW(temp_path.span());
+    return wToPrefixedFileW(dir, temp_path.span());
 }
 
 /// Converts the `path` to WTF16, null-terminated. If the path contains any
@@ -2139,11 +2139,11 @@ pub fn sliceToPrefixedFileW(path: []const u8) !PathSpace {
 /// Similar to RtlDosPathNameToNtPathName_U with a few differences:
 /// - Does not allocate on the heap.
 /// - Relative paths are kept as relative unless they contain too many ..
-///   components, in which case they are treated as drive-relative and resolved
-///   against the CWD.
+///   components, in which case they are resolved against the `dir` if it
+///   is non-null, or the CWD if it is null.
 /// - Special case device names like COM1, NUL, etc are not handled specially (TODO)
 /// - . and space are not stripped from the end of relative paths (potential TODO)
-pub fn wToPrefixedFileW(path: [:0]const u16) !PathSpace {
+pub fn wToPrefixedFileW(dir: ?HANDLE, path: [:0]const u16) !PathSpace {
     const nt_prefix = [_]u16{ '\\', '?', '?', '\\' };
     switch (getNamespacePrefix(u16, path)) {
         // TODO: Figure out a way to design an API that can avoid the copy for .nt,
@@ -2194,8 +2194,7 @@ pub fn wToPrefixedFileW(path: [:0]const u16) !PathSpace {
 
                     @memcpy(path_space.data[0..path.len], path);
                     // Try to normalize, but if we get too many parent directories,
-                    // then this is effectively a 'drive relative' path, so we need to
-                    // start over and use RtlGetFullPathName_U instead.
+                    // then we need to start over and use RtlGetFullPathName_U instead.
                     path_space.len = normalizePath(u16, path_space.data[0..path.len]) catch |err| switch (err) {
                         error.TooManyParentDirs => break :relative,
                     };
@@ -2224,8 +2223,37 @@ pub fn wToPrefixedFileW(path: [:0]const u16) !PathSpace {
                 else => nt_prefix.len,
             };
             const buf_len = @as(u32, @intCast(path_space.data.len - path_buf_offset));
+            const path_to_get: [:0]const u16 = path_to_get: {
+                // If dir is null, then we don't need to bother with GetFinalPathNameByHandle because
+                // RtlGetFullPathName_U will resolve relative paths against the CWD for us.
+                if (path_type != .relative or dir == null) {
+                    break :path_to_get path;
+                }
+                // We can also skip GetFinalPathNameByHandle if the handle matches
+                // the handle returned by fs.cwd()
+                if (dir.? == std.fs.cwd().fd) {
+                    break :path_to_get path;
+                }
+                // At this point, we know we have a relative path that had too many
+                // `..` components to be resolved by normalizePath, so we need to
+                // convert it into an absolute path and let RtlGetFullPathName_U
+                // canonicalize it. We do this by getting the path of the `dir`
+                // and appending the relative path to it.
+                var dir_path_buf: [PATH_MAX_WIDE:0]u16 = undefined;
+                const dir_path = try GetFinalPathNameByHandle(dir.?, .{}, &dir_path_buf);
+                if (dir_path.len + 1 + path.len > PATH_MAX_WIDE) {
+                    return error.NameTooLong;
+                }
+                // We don't have to worry about potentially doubling up path separators
+                // here since RtlGetFullPathName_U will handle canonicalizing it.
+                dir_path_buf[dir_path.len] = '\\';
+                @memcpy(dir_path_buf[dir_path.len + 1 ..][0..path.len], path);
+                const full_len = dir_path.len + 1 + path.len;
+                dir_path_buf[full_len] = 0;
+                break :path_to_get dir_path_buf[0..full_len :0];
+            };
             const path_byte_len = ntdll.RtlGetFullPathName_U(
-                path.ptr,
+                path_to_get.ptr,
                 buf_len * 2,
                 path_space.data[path_buf_offset..].ptr,
                 null,

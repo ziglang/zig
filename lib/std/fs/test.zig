@@ -101,6 +101,27 @@ test "openDir cwd parent .." {
     defer dir.close();
 }
 
+test "openDir non-cwd parent .." {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var subdir = try tmp.dir.makeOpenPath("subdir", .{});
+    defer subdir.close();
+
+    var dir = try subdir.openDir("..", .{});
+    defer dir.close();
+
+    const expected_path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    defer testing.allocator.free(expected_path);
+
+    const actual_path = try dir.realpathAlloc(testing.allocator, ".");
+    defer testing.allocator.free(actual_path);
+
+    try testing.expectEqualStrings(expected_path, actual_path);
+}
+
 test "readLinkAbsolute" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
