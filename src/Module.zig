@@ -4625,6 +4625,9 @@ pub fn importFile(
     if (!mem.endsWith(u8, import_string, ".zig")) {
         return error.PackageNotFound;
     }
+    if (std.fs.path.isAbsolute(import_string)) {
+        return error.ImportAbsolutePath;
+    }
     const gpa = mod.gpa;
 
     // The resolved path is used as the key in the import table, to detect if
@@ -4662,9 +4665,6 @@ pub fn importFile(
         {
             break :p try gpa.dupe(u8, resolved_path);
         }
-        if (std.fs.path.isAbsolute(resolved_path)) {
-            return error.ImportAbsolutePath;
-        }
         return error.ImportOutsidePkgPath;
     };
     errdefer gpa.free(sub_file_path);
@@ -4696,6 +4696,9 @@ pub fn importFile(
 }
 
 pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*EmbedFile {
+    if (std.fs.path.isAbsolute(import_string)) {
+        return error.ImportAbsolutePath;
+    }
     const gpa = mod.gpa;
 
     if (cur_file.pkg.table.get(import_string)) |pkg| {
@@ -4741,9 +4744,6 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
             !std.fs.path.isAbsolute(resolved_path))
         {
             break :p try gpa.dupe(u8, resolved_path);
-        }
-        if (std.fs.path.isAbsolute(resolved_path)) {
-            return error.ImportAbsolutePath;
         }
         return error.ImportOutsidePkgPath;
     };
