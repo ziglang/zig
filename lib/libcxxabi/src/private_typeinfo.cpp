@@ -41,6 +41,7 @@
 // Defining _LIBCXXABI_FORGIVING_DYNAMIC_CAST does not help since can_catch() calls
 // is_equal() with use_strcmp=false so the string names are not compared.
 
+#include <cstdint>
 #include <string.h>
 
 #ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
@@ -656,77 +657,138 @@ __dynamic_cast(const void *static_ptr, const __class_type_info *static_type,
     // Find out if we can use a giant short cut in the search
     if (is_equal(dynamic_type, dst_type, false))
     {
-        // Using giant short cut.  Add that information to info.
-        info.number_of_dst_type = 1;
-        // Do the  search
-        dynamic_type->search_above_dst(&info, dynamic_ptr, dynamic_ptr, public_path, false);
-#ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
-        // The following if should always be false because we should definitely
-        //   find (static_ptr, static_type), either on a public or private path
-        if (info.path_dst_ptr_to_static_ptr == unknown)
+        // We're downcasting from src_type to the complete object's dynamic
+        //   type. This is a really hot path that can be further optimized
+        //   with the `src2dst_offset` hint.
+        // In such a case, dynamic_ptr already gives the casting result if the
+        //   casting ever succeeds. All we have to do now is to check
+        //   static_ptr points to a public base sub-object of dynamic_ptr.
+
+        if (src2dst_offset >= 0)
         {
-            // We get here only if there is some kind of visibility problem
-            //   in client code.
-            static_assert(std::atomic<size_t>::is_always_lock_free, "");
-            static std::atomic<size_t> error_count(0);
-            size_t error_count_snapshot = error_count.fetch_add(1, std::memory_order_relaxed);
-            if ((error_count_snapshot & (error_count_snapshot-1)) == 0)
-                syslog(LOG_ERR, "dynamic_cast error 1: Both of the following type_info's "
-                        "should have public visibility. At least one of them is hidden. %s"
-                        ", %s.\n", static_type->name(), dynamic_type->name());
-            // Redo the search comparing type_info's using strcmp
-            info = {dst_type, static_ptr, static_type, src2dst_offset, 0};
-            info.number_of_dst_type = 1;
-            dynamic_type->search_above_dst(&info, dynamic_ptr, dynamic_ptr, public_path, true);
+            // The static type is a unique public non-virtual base type of
+            //   dst_type at offset `src2dst_offset` from the origin of dst.
+            // Note that there might be other non-public static_type bases. The
+            //   hint only guarantees that the public base is non-virtual and
+            //   unique. So we have to check whether static_ptr points to that
+            //   unique public base sub-object.
+            if (offset_to_derived == -src2dst_offset)
+                dst_ptr = dynamic_ptr;
         }
+        else if (src2dst_offset == -2)
+        {
+            // static_type is not a public base of dst_type.
+            dst_ptr = nullptr;
+        }
+        else
+        {
+            // If src2dst_offset == -3, then:
+            //   src_type is a multiple public base type but never a virtual
+            //   base type. We can't conclude that static_ptr points to those
+            //   public base sub-objects because there might be other non-
+            //   public static_type bases. The search is inevitable.
+
+            // Fallback to the slow path to check that static_type is a public
+            //   base type of dynamic_type.
+            // Using giant short cut.  Add that information to info.
+            info.number_of_dst_type = 1;
+            // Do the  search
+            dynamic_type->search_above_dst(&info, dynamic_ptr, dynamic_ptr, public_path, false);
+#ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
+            // The following if should always be false because we should
+            //   definitely find (static_ptr, static_type), either on a public
+            //   or private path
+            if (info.path_dst_ptr_to_static_ptr == unknown)
+            {
+                // We get here only if there is some kind of visibility problem
+                //   in client code.
+                static_assert(std::atomic<size_t>::is_always_lock_free, "");
+                static std::atomic<size_t> error_count(0);
+                size_t error_count_snapshot = error_count.fetch_add(1, std::memory_order_relaxed);
+                if ((error_count_snapshot & (error_count_snapshot-1)) == 0)
+                    syslog(LOG_ERR, "dynamic_cast error 1: Both of the following type_info's "
+                            "should have public visibility. At least one of them is hidden. %s"
+                            ", %s.\n", static_type->name(), dynamic_type->name());
+                // Redo the search comparing type_info's using strcmp
+                info = {dst_type, static_ptr, static_type, src2dst_offset, 0};
+                info.number_of_dst_type = 1;
+                dynamic_type->search_above_dst(&info, dynamic_ptr, dynamic_ptr, public_path, true);
+            }
 #endif // _LIBCXXABI_FORGIVING_DYNAMIC_CAST
-        // Query the search.
-        if (info.path_dst_ptr_to_static_ptr == public_path)
-            dst_ptr = dynamic_ptr;
+            // Query the search.
+            if (info.path_dst_ptr_to_static_ptr == public_path)
+                dst_ptr = dynamic_ptr;
+        }
     }
     else
     {
-        // Not using giant short cut.  Do the search
-        dynamic_type->search_below_dst(&info, dynamic_ptr, public_path, false);
- #ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
-        // The following if should always be false because we should definitely
-        //   find (static_ptr, static_type), either on a public or private path
-        if (info.path_dst_ptr_to_static_ptr == unknown &&
-            info.path_dynamic_ptr_to_static_ptr == unknown)
+        if (src2dst_offset >= 0)
         {
-            static_assert(std::atomic<size_t>::is_always_lock_free, "");
-            static std::atomic<size_t> error_count(0);
-            size_t error_count_snapshot = error_count.fetch_add(1, std::memory_order_relaxed);
-            if ((error_count_snapshot & (error_count_snapshot-1)) == 0)
-                syslog(LOG_ERR, "dynamic_cast error 2: One or more of the following type_info's "
-                                "has hidden visibility or is defined in more than one translation "
-                                "unit. They should all have public visibility. "
-                                "%s, %s, %s.\n", static_type->name(), dynamic_type->name(),
-                        dst_type->name());
-            // Redo the search comparing type_info's using strcmp
-            info = {dst_type, static_ptr, static_type, src2dst_offset, 0};
-            dynamic_type->search_below_dst(&info, dynamic_ptr, public_path, true);
+            // Optimize toward downcasting: dst_type has one unique public
+            //   static_type bases. Let's first try to do a downcast before
+            //   falling back to the slow path. The downcast succeeds if there
+            //   is at least one path regardless of visibility from
+            //   dynamic_type to dst_type.
+            const void* dst_ptr_to_static = reinterpret_cast<const char*>(static_ptr) - src2dst_offset;
+            if (reinterpret_cast<std::intptr_t>(dst_ptr_to_static) >= reinterpret_cast<std::intptr_t>(dynamic_ptr))
+            {
+                // Try to search a path from dynamic_type to dst_type.
+                __dynamic_cast_info dynamic_to_dst_info = {dynamic_type, dst_ptr_to_static, dst_type, src2dst_offset};
+                dynamic_to_dst_info.number_of_dst_type = 1;
+                dynamic_type->search_above_dst(&dynamic_to_dst_info, dynamic_ptr, dynamic_ptr, public_path, false);
+                if (dynamic_to_dst_info.path_dst_ptr_to_static_ptr != unknown) {
+                    // We have found at least one path from dynamic_ptr to
+                    //   dst_ptr. The downcast can succeed.
+                    dst_ptr = dst_ptr_to_static;
+                }
+            }
         }
-#endif // _LIBCXXABI_FORGIVING_DYNAMIC_CAST
-        // Query the search.
-        switch (info.number_to_static_ptr)
+
+        if (!dst_ptr)
         {
-        case 0:
-            if (info.number_to_dst_ptr == 1 &&
-                    info.path_dynamic_ptr_to_static_ptr == public_path &&
-                    info.path_dynamic_ptr_to_dst_ptr == public_path)
-                dst_ptr = info.dst_ptr_not_leading_to_static_ptr;
-            break;
-        case 1:
-            if (info.path_dst_ptr_to_static_ptr == public_path ||
-                   (
-                       info.number_to_dst_ptr == 0 &&
-                       info.path_dynamic_ptr_to_static_ptr == public_path &&
-                       info.path_dynamic_ptr_to_dst_ptr == public_path
-                   )
-               )
-                dst_ptr = info.dst_ptr_leading_to_static_ptr;
-            break;
+            // Not using giant short cut.  Do the search
+            dynamic_type->search_below_dst(&info, dynamic_ptr, public_path, false);
+#ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
+            // The following if should always be false because we should
+            //   definitely find (static_ptr, static_type), either on a public
+            //   or private path
+            if (info.path_dst_ptr_to_static_ptr == unknown &&
+                info.path_dynamic_ptr_to_static_ptr == unknown)
+            {
+                static_assert(std::atomic<size_t>::is_always_lock_free, "");
+                static std::atomic<size_t> error_count(0);
+                size_t error_count_snapshot = error_count.fetch_add(1, std::memory_order_relaxed);
+                if ((error_count_snapshot & (error_count_snapshot-1)) == 0)
+                    syslog(LOG_ERR, "dynamic_cast error 2: One or more of the following type_info's "
+                                    "has hidden visibility or is defined in more than one translation "
+                                    "unit. They should all have public visibility. "
+                                    "%s, %s, %s.\n", static_type->name(), dynamic_type->name(),
+                            dst_type->name());
+                // Redo the search comparing type_info's using strcmp
+                info = {dst_type, static_ptr, static_type, src2dst_offset, 0};
+                dynamic_type->search_below_dst(&info, dynamic_ptr, public_path, true);
+            }
+#endif // _LIBCXXABI_FORGIVING_DYNAMIC_CAST
+            // Query the search.
+            switch (info.number_to_static_ptr)
+            {
+            case 0:
+                if (info.number_to_dst_ptr == 1 &&
+                        info.path_dynamic_ptr_to_static_ptr == public_path &&
+                        info.path_dynamic_ptr_to_dst_ptr == public_path)
+                    dst_ptr = info.dst_ptr_not_leading_to_static_ptr;
+                break;
+            case 1:
+                if (info.path_dst_ptr_to_static_ptr == public_path ||
+                    (
+                        info.number_to_dst_ptr == 0 &&
+                        info.path_dynamic_ptr_to_static_ptr == public_path &&
+                        info.path_dynamic_ptr_to_dst_ptr == public_path
+                    )
+                )
+                    dst_ptr = info.dst_ptr_leading_to_static_ptr;
+                break;
+            }
         }
     }
     return const_cast<void*>(dst_ptr);
