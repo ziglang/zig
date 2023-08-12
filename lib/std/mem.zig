@@ -975,36 +975,41 @@ pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sen
     // and when there is no operating system, there is no memory
     // protection. It is therefore correct and entirely equivalent to
     // indexOfSentinelNaive to read past the sentinel.
-    const maybe_v_len = comptime simd.suggestVectorSize(Elem);
 
-    if (maybe_v_len == null or builtin.zig_backend != .stage2_llvm or maybe_v_len.? * @sizeOf(Elem) > mem.page_size) {
-        // The optimization is inapplicable because the system is not
-        // capable of SIMD, or the vector length would exceed the page
-        // size, or the LLVM backend is not used.
-        //
+    const v_len = comptime simd.suggestVectorSize(Elem) orelse return indexOfSentinelNaive(Elem, sentinel, ptr);
+
+    {
         // FIXME: Allow the native x86_64 backend once it supports vectors.
-        // NOTE: Ideally, one should fall back to a "SIMD" version
-        // using words if the system is not capable of SIMD, however,
-        // this is rare enough to ignore for now.
-        return indexOfSentinelNaive(Elem, sentinel, ptr);
-    }
+        const simd_allowed = comptime switch (builtin.zig_backend) {
+            .stage2_llvm, .stage2_c => true,
+            else => false,
+        };
+        const nb_bytes_at_a_time = comptime v_len * @sizeOf(Elem);
+        const optimization_allowed = comptime mem.page_size % nb_bytes_at_a_time == 0;
 
-    const v_len = maybe_v_len.?;
+        if (comptime !(simd_allowed and optimization_allowed)) {
+            // The optimization is inapplicable because SIMD is
+            // unavailable, or the page size is not a multiple of the SIMD size.
+            //
+            // NOTE: Ideally, one should fall back to a word-wise
+            // version if the system is not capable of SIMD, however,
+            // this is rare enough to ignore for now.
+            return indexOfSentinelNaive(Elem, sentinel, ptr);
+        }
+    }
 
     const V = @Vector(v_len, Elem);
 
     var i: usize = 0;
 
-    while (ptr[i] != sentinel) {
+    while (ptr[i] != sentinel) : (i += 1) {
         if (mem.isAligned(@intFromPtr(ptr + i), @alignOf(V))) break;
-        i += 1;
     } else return i;
 
     while (true) : (i += v_len) {
-        const v: V = ptr[i..][0..v_len].*;
-        if (simd.firstIndexOfValue(v, sentinel)) |index| {
-            return i + index;
-        }
+        const v_ptr: *const V = @ptrCast(@alignCast(ptr + i));
+        const index = simd.firstIndexOfValue(v_ptr.*, sentinel) orelse continue;
+        return i + index;
     }
 }
 
