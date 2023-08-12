@@ -12905,7 +12905,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
         },
         error.ImportAbsolutePath => {
-            return sema.fail(block, operand_src, "imports using absolute paths are not supported: '{s}'", .{name});
+            return sema.fail(block, operand_src, "embeds using absolute paths are not supported: '{s}'", .{name});
         },
         else => {
             // TODO: these errors are file system errors; make sure an update() will
