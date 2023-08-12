@@ -1873,12 +1873,13 @@ pub const AddrSpace = enum(u24) {
 
     // See llvm/lib/Target/AVR/AVR.h
     pub const avr = struct {
-        pub const flash: AddrSpace = @enumFromInt(1);
-        pub const flash1: AddrSpace = @enumFromInt(2);
-        pub const flash2: AddrSpace = @enumFromInt(3);
-        pub const flash3: AddrSpace = @enumFromInt(4);
-        pub const flash4: AddrSpace = @enumFromInt(5);
-        pub const flash5: AddrSpace = @enumFromInt(6);
+        pub const data: AddrSpace = @enumFromInt(0);
+        pub const program: AddrSpace = @enumFromInt(1);
+        pub const program1: AddrSpace = @enumFromInt(2);
+        pub const program2: AddrSpace = @enumFromInt(3);
+        pub const program3: AddrSpace = @enumFromInt(4);
+        pub const program4: AddrSpace = @enumFromInt(5);
+        pub const program5: AddrSpace = @enumFromInt(6);
     };
 
     // See llvm/lib/Target/NVPTX/NVPTX.h
@@ -1901,6 +1902,7 @@ pub const AddrSpace = enum(u24) {
         pub const private: AddrSpace = @enumFromInt(5);
         pub const constant_32bit: AddrSpace = @enumFromInt(6);
         pub const buffer_fat_pointer: AddrSpace = @enumFromInt(7);
+        pub const buffer_resource: AddrSpace = @enumFromInt(8);
         pub const param_d: AddrSpace = @enumFromInt(6);
         pub const param_i: AddrSpace = @enumFromInt(7);
         pub const constant_buffer_0: AddrSpace = @enumFromInt(8);
@@ -1921,7 +1923,7 @@ pub const AddrSpace = enum(u24) {
         pub const constant_buffer_15: AddrSpace = @enumFromInt(23);
     };
 
-    // See llvm/lib/Target/WebAssembly/Utils/WebAssemblyTypeUtilities.h
+    // See llvm/include/llvm/CodeGen/WasmAddressSpaces.h
     pub const wasm = struct {
         pub const variable: AddrSpace = @enumFromInt(1);
         pub const externref: AddrSpace = @enumFromInt(10);
