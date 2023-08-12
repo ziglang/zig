@@ -53,7 +53,7 @@ public:
     // locale operations:
     basic_string<char> name() const;
     bool operator==(const locale& other) const;
-    bool operator!=(const locale& other) const;
+    bool operator!=(const locale& other) const;                              // removed C++20
     template <class charT, class Traits, class Allocator>
       bool operator()(const basic_string<charT,Traits,Allocator>& s1,
                       const basic_string<charT,Traits,Allocator>& s2) const;
@@ -195,13 +195,14 @@ template <class charT> class messages_byname;
 #include <__algorithm/unwrap_iter.h>
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__debug>
 #include <__iterator/access.h>
 #include <__iterator/back_insert_iterator.h>
 #include <__iterator/istreambuf_iterator.h>
 #include <__iterator/ostreambuf_iterator.h>
 #include <__locale>
 #include <__memory/unique_ptr.h>
+#include <__type_traits/make_unsigned.h>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -223,9 +224,9 @@ template <class charT> class messages_byname;
 #endif
 
 #ifdef _LIBCPP_LOCALE__L_EXTENSIONS
-#include <__bsd_locale_defaults.h>
+#  include <__locale_dir/locale_base_api/bsd_locale_defaults.h>
 #else
-#include <__bsd_locale_fallbacks.h>
+#  include <__locale_dir/locale_base_api/bsd_locale_fallbacks.h>
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -245,7 +246,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #else
 #  define _LIBCPP_GET_C_LOCALE __cloc()
    // Get the C locale object
-   _LIBCPP_FUNC_VIS locale_t __cloc();
+   _LIBCPP_EXPORTED_FROM_ABI  locale_t __cloc();
 #define __cloc_defined
 #endif
 
@@ -377,7 +378,7 @@ __scan_keyword(_InputIterator& __b, _InputIterator __e,
     return __kb;
 }
 
-struct _LIBCPP_TYPE_VIS __num_get_base
+struct _LIBCPP_EXPORTED_FROM_ABI __num_get_base
 {
     static const int __num_get_buf_sz = 40;
 
@@ -385,8 +386,7 @@ struct _LIBCPP_TYPE_VIS __num_get_base
     static const char __src[33];
 };
 
-_LIBCPP_FUNC_VIS
-void __check_grouping(const string& __grouping, unsigned* __g, unsigned* __g_end,
+_LIBCPP_EXPORTED_FROM_ABI void __check_grouping(const string& __grouping, unsigned* __g, unsigned* __g_end,
                       ios_base::iostate& __err);
 
 template <class _CharT>
@@ -1126,7 +1126,7 @@ extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS num_get<char>;
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS num_get<wchar_t>;
 #endif
 
-struct _LIBCPP_TYPE_VIS __num_put_base
+struct _LIBCPP_EXPORTED_FROM_ABI __num_put_base
 {
 protected:
     static void __format_int(char* __fmt, const char* __len, bool __signd,
@@ -1464,12 +1464,7 @@ num_put<_CharT, _OutputIterator>::do_put(iter_type __s, ios_base& __iob,
         return do_put(__s, __iob, __fl, (unsigned long)__v);
     const numpunct<char_type>& __np = std::use_facet<numpunct<char_type> >(__iob.getloc());
     typedef typename numpunct<char_type>::string_type string_type;
-#ifdef _LIBCPP_ENABLE_DEBUG_MODE
-    string_type __tmp(__v ? __np.truename() : __np.falsename());
-    string_type __nm = _VSTD::move(__tmp);
-#else
     string_type __nm = __v ? __np.truename() : __np.falsename();
-#endif
     for (typename string_type::iterator __i = __nm.begin(); __i != __nm.end(); ++__i, ++__s)
         *__s = *__i;
     return __s;
@@ -1681,7 +1676,7 @@ __get_up_to_n_digits(_InputIterator& __b, _InputIterator __e,
     return __r;
 }
 
-class _LIBCPP_TYPE_VIS time_base
+class _LIBCPP_EXPORTED_FROM_ABI time_base
 {
 public:
     enum dateorder {no_order, dmy, mdy, ymd, ydm};
@@ -1705,22 +1700,22 @@ protected:
     ~__time_get_c_storage() {}
 };
 
-template <> _LIBCPP_FUNC_VIS const string* __time_get_c_storage<char>::__weeks() const;
-template <> _LIBCPP_FUNC_VIS const string* __time_get_c_storage<char>::__months() const;
-template <> _LIBCPP_FUNC_VIS const string* __time_get_c_storage<char>::__am_pm() const;
-template <> _LIBCPP_FUNC_VIS const string& __time_get_c_storage<char>::__c() const;
-template <> _LIBCPP_FUNC_VIS const string& __time_get_c_storage<char>::__r() const;
-template <> _LIBCPP_FUNC_VIS const string& __time_get_c_storage<char>::__x() const;
-template <> _LIBCPP_FUNC_VIS const string& __time_get_c_storage<char>::__X() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const string* __time_get_c_storage<char>::__weeks() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const string* __time_get_c_storage<char>::__months() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const string* __time_get_c_storage<char>::__am_pm() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const string& __time_get_c_storage<char>::__c() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const string& __time_get_c_storage<char>::__r() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const string& __time_get_c_storage<char>::__x() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const string& __time_get_c_storage<char>::__X() const;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-template <> _LIBCPP_FUNC_VIS const wstring* __time_get_c_storage<wchar_t>::__weeks() const;
-template <> _LIBCPP_FUNC_VIS const wstring* __time_get_c_storage<wchar_t>::__months() const;
-template <> _LIBCPP_FUNC_VIS const wstring* __time_get_c_storage<wchar_t>::__am_pm() const;
-template <> _LIBCPP_FUNC_VIS const wstring& __time_get_c_storage<wchar_t>::__c() const;
-template <> _LIBCPP_FUNC_VIS const wstring& __time_get_c_storage<wchar_t>::__r() const;
-template <> _LIBCPP_FUNC_VIS const wstring& __time_get_c_storage<wchar_t>::__x() const;
-template <> _LIBCPP_FUNC_VIS const wstring& __time_get_c_storage<wchar_t>::__X() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const wstring* __time_get_c_storage<wchar_t>::__weeks() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const wstring* __time_get_c_storage<wchar_t>::__months() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const wstring* __time_get_c_storage<wchar_t>::__am_pm() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const wstring& __time_get_c_storage<wchar_t>::__c() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const wstring& __time_get_c_storage<wchar_t>::__r() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const wstring& __time_get_c_storage<wchar_t>::__x() const;
+template <> _LIBCPP_EXPORTED_FROM_ABI const wstring& __time_get_c_storage<wchar_t>::__X() const;
 #endif
 
 template <class _CharT, class _InputIterator = istreambuf_iterator<_CharT> >
@@ -2337,7 +2332,7 @@ extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get<char>;
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get<wchar_t>;
 #endif
 
-class _LIBCPP_TYPE_VIS __time_get
+class _LIBCPP_EXPORTED_FROM_ABI __time_get
 {
 protected:
     locale_t __loc_;
@@ -2375,16 +2370,16 @@ private:
 };
 
 #define _LIBCPP_TIME_GET_STORAGE_EXPLICIT_INSTANTIATION(_CharT) \
-template <> _LIBCPP_FUNC_VIS time_base::dateorder __time_get_storage<_CharT>::__do_date_order() const; \
-template <> _LIBCPP_FUNC_VIS __time_get_storage<_CharT>::__time_get_storage(const char*); \
-template <> _LIBCPP_FUNC_VIS __time_get_storage<_CharT>::__time_get_storage(const string&); \
-template <> _LIBCPP_FUNC_VIS void __time_get_storage<_CharT>::init(const ctype<_CharT>&); \
-template <> _LIBCPP_FUNC_VIS __time_get_storage<_CharT>::string_type __time_get_storage<_CharT>::__analyze(char, const ctype<_CharT>&); \
-extern template _LIBCPP_FUNC_VIS time_base::dateorder __time_get_storage<_CharT>::__do_date_order() const; \
-extern template _LIBCPP_FUNC_VIS __time_get_storage<_CharT>::__time_get_storage(const char*); \
-extern template _LIBCPP_FUNC_VIS __time_get_storage<_CharT>::__time_get_storage(const string&); \
-extern template _LIBCPP_FUNC_VIS void __time_get_storage<_CharT>::init(const ctype<_CharT>&); \
-extern template _LIBCPP_FUNC_VIS __time_get_storage<_CharT>::string_type __time_get_storage<_CharT>::__analyze(char, const ctype<_CharT>&); \
+template <> _LIBCPP_EXPORTED_FROM_ABI time_base::dateorder __time_get_storage<_CharT>::__do_date_order() const; \
+template <> _LIBCPP_EXPORTED_FROM_ABI __time_get_storage<_CharT>::__time_get_storage(const char*); \
+template <> _LIBCPP_EXPORTED_FROM_ABI __time_get_storage<_CharT>::__time_get_storage(const string&); \
+template <> _LIBCPP_EXPORTED_FROM_ABI void __time_get_storage<_CharT>::init(const ctype<_CharT>&); \
+template <> _LIBCPP_EXPORTED_FROM_ABI __time_get_storage<_CharT>::string_type __time_get_storage<_CharT>::__analyze(char, const ctype<_CharT>&); \
+extern template _LIBCPP_EXPORTED_FROM_ABI time_base::dateorder __time_get_storage<_CharT>::__do_date_order() const; \
+extern template _LIBCPP_EXPORTED_FROM_ABI __time_get_storage<_CharT>::__time_get_storage(const char*); \
+extern template _LIBCPP_EXPORTED_FROM_ABI __time_get_storage<_CharT>::__time_get_storage(const string&); \
+extern template _LIBCPP_EXPORTED_FROM_ABI void __time_get_storage<_CharT>::init(const ctype<_CharT>&); \
+extern template _LIBCPP_EXPORTED_FROM_ABI __time_get_storage<_CharT>::string_type __time_get_storage<_CharT>::__analyze(char, const ctype<_CharT>&); \
 /**/
 
 _LIBCPP_TIME_GET_STORAGE_EXPLICIT_INSTANTIATION(char)
@@ -2432,7 +2427,7 @@ extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get_byname<char>;
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_get_byname<wchar_t>;
 #endif
 
-class _LIBCPP_TYPE_VIS __time_put
+class _LIBCPP_EXPORTED_FROM_ABI __time_put
 {
     locale_t __loc_;
 protected:
@@ -2572,7 +2567,7 @@ extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS time_put_byname<wchar_t>;
 
 // money_base
 
-class _LIBCPP_TYPE_VIS money_base
+class _LIBCPP_EXPORTED_FROM_ABI money_base
 {
 public:
     enum part {none, space, symbol, sign, value};
@@ -2686,14 +2681,14 @@ private:
     void init(const char*);
 };
 
-template<> _LIBCPP_FUNC_VIS void moneypunct_byname<char, false>::init(const char*);
-template<> _LIBCPP_FUNC_VIS void moneypunct_byname<char, true>::init(const char*);
+template<> _LIBCPP_EXPORTED_FROM_ABI void moneypunct_byname<char, false>::init(const char*);
+template<> _LIBCPP_EXPORTED_FROM_ABI void moneypunct_byname<char, true>::init(const char*);
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<char, false>;
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<char, true>;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-template<> _LIBCPP_FUNC_VIS void moneypunct_byname<wchar_t, false>::init(const char*);
-template<> _LIBCPP_FUNC_VIS void moneypunct_byname<wchar_t, true>::init(const char*);
+template<> _LIBCPP_EXPORTED_FROM_ABI void moneypunct_byname<wchar_t, false>::init(const char*);
+template<> _LIBCPP_EXPORTED_FROM_ABI void moneypunct_byname<wchar_t, true>::init(const char*);
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<wchar_t, false>;
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS moneypunct_byname<wchar_t, true>;
 #endif
@@ -2810,7 +2805,7 @@ template <class _CharT, class _InputIterator>
 locale::id
 money_get<_CharT, _InputIterator>::id;
 
-_LIBCPP_FUNC_VIS void __do_nothing(void*);
+_LIBCPP_EXPORTED_FROM_ABI void __do_nothing(void*);
 
 template <class _Tp>
 _LIBCPP_HIDE_FROM_ABI
@@ -3457,7 +3452,7 @@ extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS money_put<wchar_t>;
 
 // messages
 
-class _LIBCPP_TYPE_VIS messages_base
+class _LIBCPP_EXPORTED_FROM_ABI messages_base
 {
 public:
     typedef ptrdiff_t catalog;
@@ -3598,15 +3593,15 @@ extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS messages_byname<wchar_t>;
 #endif
 
 template<class _Codecvt, class _Elem = wchar_t,
-         class _Wide_alloc = allocator<_Elem>,
-         class _Byte_alloc = allocator<char> >
+         class _WideAlloc = allocator<_Elem>,
+         class _ByteAlloc = allocator<char> >
 class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 wstring_convert
 {
 public:
-    typedef basic_string<char, char_traits<char>, _Byte_alloc>   byte_string;
-    typedef basic_string<_Elem, char_traits<_Elem>, _Wide_alloc> wide_string;
-    typedef typename _Codecvt::state_type                        state_type;
-    typedef typename wide_string::traits_type::int_type          int_type;
+    typedef basic_string<char, char_traits<char>, _ByteAlloc>   byte_string;
+    typedef basic_string<_Elem, char_traits<_Elem>, _WideAlloc> wide_string;
+    typedef typename _Codecvt::state_type                       state_type;
+    typedef typename wide_string::traits_type::int_type         int_type;
 
 private:
     byte_string __byte_err_string_;
@@ -3625,19 +3620,19 @@ public:
     explicit wstring_convert(_Codecvt* __pcvt);
 #else
     _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_EXPLICIT_AFTER_CXX11
+    _LIBCPP_EXPLICIT_SINCE_CXX14
     wstring_convert(_Codecvt* __pcvt = new _Codecvt);
 #endif
 
     _LIBCPP_INLINE_VISIBILITY
     wstring_convert(_Codecvt* __pcvt, state_type __state);
-    _LIBCPP_EXPLICIT_AFTER_CXX11 wstring_convert(const byte_string& __byte_err,
+    _LIBCPP_EXPLICIT_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI wstring_convert(const byte_string& __byte_err,
                     const wide_string& __wide_err = wide_string());
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     wstring_convert(wstring_convert&& __wc);
 #endif
-    ~wstring_convert();
+    _LIBCPP_HIDE_FROM_ABI ~wstring_convert();
 
     _LIBCPP_INLINE_VISIBILITY
     wide_string from_bytes(char __byte)
@@ -3648,7 +3643,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     wide_string from_bytes(const byte_string& __str)
         {return from_bytes(__str.data(), __str.data() + __str.size());}
-    wide_string from_bytes(const char* __first, const char* __last);
+    _LIBCPP_HIDE_FROM_ABI wide_string from_bytes(const char* __first, const char* __last);
 
     _LIBCPP_INLINE_VISIBILITY
     byte_string to_bytes(_Elem __wchar)
@@ -3659,7 +3654,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     byte_string to_bytes(const wide_string& __wstr)
         {return to_bytes(__wstr.data(), __wstr.data() + __wstr.size());}
-    byte_string to_bytes(const _Elem* __first, const _Elem* __last);
+    _LIBCPP_HIDE_FROM_ABI byte_string to_bytes(const _Elem* __first, const _Elem* __last);
 
     _LIBCPP_INLINE_VISIBILITY
     size_t converted() const _NOEXCEPT {return __cvtcount_;}
@@ -3668,25 +3663,25 @@ public:
 };
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-template<class _Codecvt, class _Elem, class _Wide_alloc, class _Byte_alloc>
+template<class _Codecvt, class _Elem, class _WideAlloc, class _ByteAlloc>
 inline
-wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
+wstring_convert<_Codecvt, _Elem, _WideAlloc, _ByteAlloc>::
     wstring_convert(_Codecvt* __pcvt)
         : __cvtptr_(__pcvt), __cvtstate_(), __cvtcount_(0)
 {
 }
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
-template<class _Codecvt, class _Elem, class _Wide_alloc, class _Byte_alloc>
+template<class _Codecvt, class _Elem, class _WideAlloc, class _ByteAlloc>
 inline
-wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
+wstring_convert<_Codecvt, _Elem, _WideAlloc, _ByteAlloc>::
     wstring_convert(_Codecvt* __pcvt, state_type __state)
         : __cvtptr_(__pcvt), __cvtstate_(__state), __cvtcount_(0)
 {
 }
 
-template<class _Codecvt, class _Elem, class _Wide_alloc, class _Byte_alloc>
-wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
+template<class _Codecvt, class _Elem, class _WideAlloc, class _ByteAlloc>
+wstring_convert<_Codecvt, _Elem, _WideAlloc, _ByteAlloc>::
     wstring_convert(const byte_string& __byte_err, const wide_string& __wide_err)
         : __byte_err_string_(__byte_err), __wide_err_string_(__wide_err),
           __cvtstate_(), __cvtcount_(0)
@@ -3696,9 +3691,9 @@ wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
 
 #ifndef _LIBCPP_CXX03_LANG
 
-template<class _Codecvt, class _Elem, class _Wide_alloc, class _Byte_alloc>
+template<class _Codecvt, class _Elem, class _WideAlloc, class _ByteAlloc>
 inline
-wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
+wstring_convert<_Codecvt, _Elem, _WideAlloc, _ByteAlloc>::
     wstring_convert(wstring_convert&& __wc)
         : __byte_err_string_(_VSTD::move(__wc.__byte_err_string_)),
           __wide_err_string_(_VSTD::move(__wc.__wide_err_string_)),
@@ -3711,15 +3706,15 @@ wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
 #endif // _LIBCPP_CXX03_LANG
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-template<class _Codecvt, class _Elem, class _Wide_alloc, class _Byte_alloc>
-wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::~wstring_convert()
+template<class _Codecvt, class _Elem, class _WideAlloc, class _ByteAlloc>
+wstring_convert<_Codecvt, _Elem, _WideAlloc, _ByteAlloc>::~wstring_convert()
 {
     delete __cvtptr_;
 }
 
-template<class _Codecvt, class _Elem, class _Wide_alloc, class _Byte_alloc>
-typename wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::wide_string
-wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
+template<class _Codecvt, class _Elem, class _WideAlloc, class _ByteAlloc>
+typename wstring_convert<_Codecvt, _Elem, _WideAlloc, _ByteAlloc>::wide_string
+wstring_convert<_Codecvt, _Elem, _WideAlloc, _ByteAlloc>::
     from_bytes(const char* __frm, const char* __frm_end)
 {
 _LIBCPP_SUPPRESS_DEPRECATED_POP
@@ -3779,9 +3774,9 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
     return __wide_err_string_;
 }
 
-template<class _Codecvt, class _Elem, class _Wide_alloc, class _Byte_alloc>
-typename wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::byte_string
-wstring_convert<_Codecvt, _Elem, _Wide_alloc, _Byte_alloc>::
+template<class _Codecvt, class _Elem, class _WideAlloc, class _ByteAlloc>
+typename wstring_convert<_Codecvt, _Elem, _WideAlloc, _ByteAlloc>::byte_string
+wstring_convert<_Codecvt, _Elem, _WideAlloc, _ByteAlloc>::
     to_bytes(const _Elem* __frm, const _Elem* __frm_end)
 {
     __cvtcount_ = 0;
@@ -3902,18 +3897,18 @@ private:
 
 public:
 #ifndef _LIBCPP_CXX03_LANG
-    wbuffer_convert() : wbuffer_convert(nullptr) {}
-    explicit wbuffer_convert(streambuf* __bytebuf,
+    _LIBCPP_HIDE_FROM_ABI wbuffer_convert() : wbuffer_convert(nullptr) {}
+    explicit _LIBCPP_HIDE_FROM_ABI wbuffer_convert(streambuf* __bytebuf,
                              _Codecvt* __pcvt = new _Codecvt,
                              state_type __state = state_type());
 #else
-    _LIBCPP_EXPLICIT_AFTER_CXX11
+    _LIBCPP_EXPLICIT_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI
     wbuffer_convert(streambuf* __bytebuf = nullptr,
                     _Codecvt* __pcvt = new _Codecvt,
                     state_type __state = state_type());
 #endif
 
-    ~wbuffer_convert();
+    _LIBCPP_HIDE_FROM_ABI ~wbuffer_convert();
 
     _LIBCPP_INLINE_VISIBILITY
     streambuf* rdbuf() const {return __bufptr_;}
@@ -3929,21 +3924,21 @@ public:
     state_type state() const {return __st_;}
 
 protected:
-    virtual int_type underflow();
-    virtual int_type pbackfail(int_type __c = traits_type::eof());
-    virtual int_type overflow (int_type __c = traits_type::eof());
-    virtual basic_streambuf<char_type, traits_type>* setbuf(char_type* __s,
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL virtual int_type underflow();
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL virtual int_type pbackfail(int_type __c = traits_type::eof());
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL virtual int_type overflow (int_type __c = traits_type::eof());
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL virtual basic_streambuf<char_type, traits_type>* setbuf(char_type* __s,
                                                             streamsize __n);
-    virtual pos_type seekoff(off_type __off, ios_base::seekdir __way,
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL virtual pos_type seekoff(off_type __off, ios_base::seekdir __way,
                              ios_base::openmode __wch = ios_base::in | ios_base::out);
-    virtual pos_type seekpos(pos_type __sp,
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL virtual pos_type seekpos(pos_type __sp,
                              ios_base::openmode __wch = ios_base::in | ios_base::out);
-    virtual int sync();
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL virtual int sync();
 
 private:
-    bool __read_mode();
-    void __write_mode();
-    wbuffer_convert* __close();
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL bool __read_mode();
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL void __write_mode();
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL wbuffer_convert* __close();
 };
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
@@ -4009,8 +4004,8 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
         else
         {
              if (__extbufend_ != __extbufnext_) {
-                _LIBCPP_ASSERT(__extbufnext_ != nullptr, "underflow moving from nullptr");
-                _LIBCPP_ASSERT(__extbuf_ != nullptr, "underflow moving into nullptr");
+                _LIBCPP_ASSERT_UNCATEGORIZED(__extbufnext_ != nullptr, "underflow moving from nullptr");
+                _LIBCPP_ASSERT_UNCATEGORIZED(__extbuf_ != nullptr, "underflow moving into nullptr");
                 _VSTD::memmove(__extbuf_, __extbufnext_, __extbufend_ - __extbufnext_);
              }
             __extbufnext_ = __extbuf_ + (__extbufend_ - __extbufnext_);

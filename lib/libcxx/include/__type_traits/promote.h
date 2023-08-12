@@ -13,7 +13,6 @@
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_same.h>
 #include <__utility/declval.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -22,73 +21,69 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-struct __numeric_type
-{
-   static void __test(...);
-   static float __test(float);
-   static double __test(char);
-   static double __test(int);
-   static double __test(unsigned);
-   static double __test(long);
-   static double __test(unsigned long);
-   static double __test(long long);
-   static double __test(unsigned long long);
+struct __numeric_type {
+  static void __test(...);
+  static float __test(float);
+  static double __test(char);
+  static double __test(int);
+  static double __test(unsigned);
+  static double __test(long);
+  static double __test(unsigned long);
+  static double __test(long long);
+  static double __test(unsigned long long);
 #ifndef _LIBCPP_HAS_NO_INT128
-   static double __test(__int128_t);
-   static double __test(__uint128_t);
+  static double __test(__int128_t);
+  static double __test(__uint128_t);
 #endif
-   static double __test(double);
-   static long double __test(long double);
+  static double __test(double);
+  static long double __test(long double);
 
-   typedef decltype(__test(std::declval<_Tp>())) type;
-   static const bool value = _IsNotSame<type, void>::value;
+  typedef decltype(__test(std::declval<_Tp>())) type;
+  static const bool value = _IsNotSame<type, void>::value;
 };
 
 template <>
-struct __numeric_type<void>
-{
-   static const bool value = true;
+struct __numeric_type<void> {
+  static const bool value = true;
 };
 
-template <class _A1, class _A2 = void, class _A3 = void,
-          bool = __numeric_type<_A1>::value &&
-                 __numeric_type<_A2>::value &&
-                 __numeric_type<_A3>::value>
-class __promote_imp
-{
+template <class _A1,
+          class _A2 = void,
+          class _A3 = void,
+          bool      = __numeric_type<_A1>::value&& __numeric_type<_A2>::value&& __numeric_type<_A3>::value>
+class __promote_imp {
 public:
-    static const bool value = false;
+  static const bool value = false;
 };
 
 template <class _A1, class _A2, class _A3>
-class __promote_imp<_A1, _A2, _A3, true>
-{
+class __promote_imp<_A1, _A2, _A3, true> {
 private:
-    typedef typename __promote_imp<_A1>::type __type1;
-    typedef typename __promote_imp<_A2>::type __type2;
-    typedef typename __promote_imp<_A3>::type __type3;
+  typedef typename __promote_imp<_A1>::type __type1;
+  typedef typename __promote_imp<_A2>::type __type2;
+  typedef typename __promote_imp<_A3>::type __type3;
+
 public:
-    typedef decltype(__type1() + __type2() + __type3()) type;
-    static const bool value = true;
+  typedef decltype(__type1() + __type2() + __type3()) type;
+  static const bool value = true;
 };
 
 template <class _A1, class _A2>
-class __promote_imp<_A1, _A2, void, true>
-{
+class __promote_imp<_A1, _A2, void, true> {
 private:
-    typedef typename __promote_imp<_A1>::type __type1;
-    typedef typename __promote_imp<_A2>::type __type2;
+  typedef typename __promote_imp<_A1>::type __type1;
+  typedef typename __promote_imp<_A2>::type __type2;
+
 public:
-    typedef decltype(__type1() + __type2()) type;
-    static const bool value = true;
+  typedef decltype(__type1() + __type2()) type;
+  static const bool value = true;
 };
 
 template <class _A1>
-class __promote_imp<_A1, void, void, true>
-{
+class __promote_imp<_A1, void, void, true> {
 public:
-    typedef typename __numeric_type<_A1>::type type;
-    static const bool value = true;
+  typedef typename __numeric_type<_A1>::type type;
+  static const bool value = true;
 };
 
 template <class _A1, class _A2 = void, class _A3 = void>

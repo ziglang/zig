@@ -66,7 +66,7 @@ using ::max_align_t _LIBCPP_USING_IF_EXISTS;
 
 _LIBCPP_END_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 namespace std  // purposefully not versioned
 {
 enum class byte : unsigned char {};

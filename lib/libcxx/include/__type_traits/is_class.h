@@ -18,10 +18,10 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_class
-    : public integral_constant<bool, __is_class(_Tp)> {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_class : public integral_constant<bool, __is_class(_Tp)> {};
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_class_v = __is_class(_Tp);
 #endif

@@ -19,10 +19,11 @@
 #include <__iterator/iterator_traits.h>
 #include <__memory/pointer_traits.h>
 #include <__ranges/subrange.h>
+#include <__type_traits/decay.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
+#include <cstddef>
 #include <span>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -30,7 +31,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 namespace ranges::views {
 
@@ -75,7 +76,7 @@ inline namespace __cpo {
 
 } // namespace ranges::views
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

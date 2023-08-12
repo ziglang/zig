@@ -21,22 +21,24 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if __has_builtin(__is_const)
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_const : _BoolConstant<__is_const(_Tp)> { };
+struct _LIBCPP_TEMPLATE_VIS is_const : _BoolConstant<__is_const(_Tp)> {};
 
-#if _LIBCPP_STD_VER > 14
+#  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_const_v = __is_const(_Tp);
-#endif
+#  endif
 
 #else
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_const            : public false_type {};
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_const<_Tp const> : public true_type {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_const : public false_type {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_const<_Tp const> : public true_type {};
 
-#if _LIBCPP_STD_VER > 14
+#  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_const_v = is_const<_Tp>::value;
-#endif
+#  endif
 
 #endif // __has_builtin(__is_const)
 

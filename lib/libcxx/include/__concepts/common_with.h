@@ -23,27 +23,29 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 // [concept.common]
 
-template<class _Tp, class _Up>
+// clang-format off
+template <class _Tp, class _Up>
 concept common_with =
-  same_as<common_type_t<_Tp, _Up>, common_type_t<_Up, _Tp>> &&
-  requires {
-    static_cast<common_type_t<_Tp, _Up>>(std::declval<_Tp>());
-    static_cast<common_type_t<_Tp, _Up>>(std::declval<_Up>());
-  } &&
-  common_reference_with<
-    add_lvalue_reference_t<const _Tp>,
-    add_lvalue_reference_t<const _Up>> &&
-  common_reference_with<
-    add_lvalue_reference_t<common_type_t<_Tp, _Up>>,
-    common_reference_t<
-      add_lvalue_reference_t<const _Tp>,
-      add_lvalue_reference_t<const _Up>>>;
+    same_as<common_type_t<_Tp, _Up>, common_type_t<_Up, _Tp>> &&
+    requires {
+        static_cast<common_type_t<_Tp, _Up>>(std::declval<_Tp>());
+        static_cast<common_type_t<_Tp, _Up>>(std::declval<_Up>());
+    } &&
+    common_reference_with<
+        add_lvalue_reference_t<const _Tp>,
+        add_lvalue_reference_t<const _Up>> &&
+    common_reference_with<
+        add_lvalue_reference_t<common_type_t<_Tp, _Up>>,
+        common_reference_t<
+            add_lvalue_reference_t<const _Tp>,
+            add_lvalue_reference_t<const _Up>>>;
+// clang-format on
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

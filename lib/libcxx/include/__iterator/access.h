@@ -69,7 +69,7 @@ end(const _Cp& __c) -> decltype(__c.end())
     return __c.end();
 }
 
-#if _LIBCPP_STD_VER > 11
+#if _LIBCPP_STD_VER >= 14
 
 template <class _Cp>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14

@@ -12,10 +12,13 @@
 #include <__config>
 #include <__random/is_seed_sequence.h>
 #include <__random/log2.h>
+#include <__type_traits/conditional.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/is_convertible.h>
 #include <__utility/move.h>
+#include <cstddef>
 #include <iosfwd>
 #include <limits>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -161,7 +164,7 @@ public:
 private:
     _LIBCPP_INLINE_VISIBILITY
     result_type __eval(false_type);
-    result_type __eval(true_type);
+    _LIBCPP_HIDE_FROM_ABI result_type __eval(true_type);
 
     template <size_t __count>
         _LIBCPP_INLINE_VISIBILITY
@@ -196,7 +199,7 @@ template<class _Engine, size_t __w, class _UIntType>
 _UIntType
 independent_bits_engine<_Engine, __w, _UIntType>::__eval(true_type)
 {
-    result_type _Sp = 0;
+    result_type __sp = 0;
     for (size_t __k = 0; __k < __n0; ++__k)
     {
         _Engine_result_type __u;
@@ -204,7 +207,7 @@ independent_bits_engine<_Engine, __w, _UIntType>::__eval(true_type)
         {
             __u = __e_() - _Engine::min();
         } while (__u >= __y0);
-        _Sp = static_cast<result_type>(__lshift<__w0>(_Sp) + (__u & __mask0));
+        __sp = static_cast<result_type>(__lshift<__w0>(__sp) + (__u & __mask0));
     }
     for (size_t __k = __n0; __k < __n; ++__k)
     {
@@ -213,9 +216,9 @@ independent_bits_engine<_Engine, __w, _UIntType>::__eval(true_type)
         {
             __u = __e_() - _Engine::min();
         } while (__u >= __y1);
-        _Sp = static_cast<result_type>(__lshift<__w0+1>(_Sp) + (__u & __mask1));
+        __sp = static_cast<result_type>(__lshift<__w0+1>(__sp) + (__u & __mask1));
     }
-    return _Sp;
+    return __sp;
 }
 
 template<class _Eng, size_t _Wp, class _UInt>

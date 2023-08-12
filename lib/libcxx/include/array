@@ -77,15 +77,18 @@ template <class T, class... U>
 template <class T, size_t N>
   bool operator==(const array<T,N>& x, const array<T,N>& y);    // constexpr in C++20
 template <class T, size_t N>
-  bool operator!=(const array<T,N>& x, const array<T,N>& y);    // constexpr in C++20
+  bool operator!=(const array<T,N>& x, const array<T,N>& y);    // removed in C++20
 template <class T, size_t N>
-  bool operator<(const array<T,N>& x, const array<T,N>& y);     // constexpr in C++20
+  bool operator<(const array<T,N>& x, const array<T,N>& y);     // removed in C++20
 template <class T, size_t N>
-  bool operator>(const array<T,N>& x, const array<T,N>& y);     // constexpr in C++20
+  bool operator>(const array<T,N>& x, const array<T,N>& y);     // removed in C++20
 template <class T, size_t N>
-  bool operator<=(const array<T,N>& x, const array<T,N>& y);    // constexpr in C++20
+  bool operator<=(const array<T,N>& x, const array<T,N>& y);    // removed in C++20
 template <class T, size_t N>
-  bool operator>=(const array<T,N>& x, const array<T,N>& y);    // constexpr in C++20
+  bool operator>=(const array<T,N>& x, const array<T,N>& y);    // removed in C++20
+template<class T, size_t N>
+  constexpr synth-three-way-result<T>
+    operator<=>(const array<T, N>& x, const array<T, N>& y);    // since C++20
 
 template <class T, size_t N >
   void swap(array<T,N>& x, array<T,N>& y) noexcept(noexcept(x.swap(y))); // constexpr in C++20
@@ -111,16 +114,27 @@ template <size_t I, class T, size_t N> const T&& get(const array<T, N>&&) noexce
 #include <__algorithm/equal.h>
 #include <__algorithm/fill_n.h>
 #include <__algorithm/lexicographical_compare.h>
+#include <__algorithm/lexicographical_compare_three_way.h>
 #include <__algorithm/swap_ranges.h>
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__fwd/array.h>
 #include <__iterator/reverse_iterator.h>
-#include <__tuple_dir/sfinae_helpers.h>
+#include <__tuple/sfinae_helpers.h>
+#include <__type_traits/conditional.h>
+#include <__type_traits/is_array.h>
+#include <__type_traits/is_const.h>
+#include <__type_traits/is_constructible.h>
+#include <__type_traits/is_move_constructible.h>
+#include <__type_traits/is_nothrow_constructible.h>
+#include <__type_traits/is_nothrow_move_constructible.h>
+#include <__type_traits/is_same.h>
+#include <__type_traits/is_swappable.h>
+#include <__type_traits/remove_cv.h>
 #include <__utility/integer_sequence.h>
 #include <__utility/move.h>
 #include <__utility/unreachable.h>
 #include <stdexcept>
-#include <type_traits>
 #include <version>
 
 // standard-mandated includes
@@ -137,8 +151,8 @@ template <size_t I, class T, size_t N> const T&& get(const array<T, N>&&) noexce
 #include <initializer_list>
 
 // [tuple.helper]
-#include <__tuple_dir/tuple_element.h>
-#include <__tuple_dir/tuple_size.h>
+#include <__tuple/tuple_element.h>
+#include <__tuple/tuple_size.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -215,23 +229,23 @@ struct _LIBCPP_TEMPLATE_VIS array
     // element access:
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX17
     reference operator[](size_type __n) _NOEXCEPT {
-        _LIBCPP_ASSERT(__n < _Size, "out-of-bounds access in std::array<T, N>");
+        _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(__n < _Size, "out-of-bounds access in std::array<T, N>");
         return __elems_[__n];
     }
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
     const_reference operator[](size_type __n) const _NOEXCEPT {
-        _LIBCPP_ASSERT(__n < _Size, "out-of-bounds access in std::array<T, N>");
+        _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(__n < _Size, "out-of-bounds access in std::array<T, N>");
         return __elems_[__n];
     }
 
-    _LIBCPP_CONSTEXPR_SINCE_CXX17 reference at(size_type __n)
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 reference at(size_type __n)
     {
         if (__n >= _Size)
             __throw_out_of_range("array::at");
         return __elems_[__n];
     }
 
-    _LIBCPP_CONSTEXPR_SINCE_CXX14 const_reference at(size_type __n) const
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 const_reference at(size_type __n) const
     {
         if (__n >= _Size)
             __throw_out_of_range("array::at");
@@ -328,13 +342,13 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0>
     // element access:
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX17
     reference operator[](size_type) _NOEXCEPT {
-      _LIBCPP_ASSERT(false, "cannot call array<T, 0>::operator[] on a zero-sized array");
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(false, "cannot call array<T, 0>::operator[] on a zero-sized array");
       __libcpp_unreachable();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
     const_reference operator[](size_type) const _NOEXCEPT {
-      _LIBCPP_ASSERT(false, "cannot call array<T, 0>::operator[] on a zero-sized array");
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(false, "cannot call array<T, 0>::operator[] on a zero-sized array");
       __libcpp_unreachable();
     }
 
@@ -352,31 +366,31 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0>
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX17
     reference front() _NOEXCEPT {
-      _LIBCPP_ASSERT(false, "cannot call array<T, 0>::front() on a zero-sized array");
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(false, "cannot call array<T, 0>::front() on a zero-sized array");
       __libcpp_unreachable();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
     const_reference front() const _NOEXCEPT {
-      _LIBCPP_ASSERT(false, "cannot call array<T, 0>::front() on a zero-sized array");
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(false, "cannot call array<T, 0>::front() on a zero-sized array");
       __libcpp_unreachable();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX17
     reference back() _NOEXCEPT {
-      _LIBCPP_ASSERT(false, "cannot call array<T, 0>::back() on a zero-sized array");
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(false, "cannot call array<T, 0>::back() on a zero-sized array");
       __libcpp_unreachable();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
     const_reference back() const _NOEXCEPT {
-      _LIBCPP_ASSERT(false, "cannot call array<T, 0>::back() on a zero-sized array");
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(false, "cannot call array<T, 0>::back() on a zero-sized array");
       __libcpp_unreachable();
     }
 };
 
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template<class _Tp, class... _Args,
          class = enable_if_t<__all<_IsSame<_Tp, _Args>::value...>::value>
          >
@@ -392,46 +406,43 @@ operator==(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y)
     return _VSTD::equal(__x.begin(), __x.end(), __y.begin());
 }
 
+#if _LIBCPP_STD_VER <= 17
+
 template <class _Tp, size_t _Size>
-inline _LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-operator!=(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y)
-{
+inline _LIBCPP_HIDE_FROM_ABI bool operator!=(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y) {
     return !(__x == __y);
 }
 
 template <class _Tp, size_t _Size>
-inline _LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-operator<(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y)
-{
-    return _VSTD::lexicographical_compare(__x.begin(), __x.end(),
-                                          __y.begin(), __y.end());
+inline _LIBCPP_HIDE_FROM_ABI bool operator<(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y) {
+    return _VSTD::lexicographical_compare(__x.begin(), __x.end(), __y.begin(), __y.end());
 }
 
 template <class _Tp, size_t _Size>
-inline _LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-operator>(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y)
-{
+inline _LIBCPP_HIDE_FROM_ABI bool operator>(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y) {
     return __y < __x;
 }
 
 template <class _Tp, size_t _Size>
-inline _LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-operator<=(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y)
-{
+inline _LIBCPP_HIDE_FROM_ABI bool operator<=(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y) {
     return !(__y < __x);
 }
 
 template <class _Tp, size_t _Size>
-inline _LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-operator>=(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y)
-{
+inline _LIBCPP_HIDE_FROM_ABI bool operator>=(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y) {
     return !(__x < __y);
 }
+
+#else // _LIBCPP_STD_VER <= 17
+
+template <class _Tp, size_t _Size>
+_LIBCPP_HIDE_FROM_ABI constexpr __synth_three_way_result<_Tp>
+operator<=>(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y) {
+    return std::lexicographical_compare_three_way(
+        __x.begin(), __x.end(), __y.begin(), __y.end(), std::__synth_three_way<_Tp, _Tp>);
+}
+
+#endif // _LIBCPP_STD_VER <= 17
 
 template <class _Tp, size_t _Size>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
@@ -489,7 +500,7 @@ get(const array<_Tp, _Size>&& __a) _NOEXCEPT
     return _VSTD::move(__a.__elems_[_Ip]);
 }
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 template <typename _Tp, size_t _Size, size_t... _Index>
 _LIBCPP_INLINE_VISIBILITY constexpr array<remove_cv_t<_Tp>, _Size>
@@ -528,14 +539,16 @@ to_array(_Tp(&&__arr)[_Size]) noexcept(is_nothrow_move_constructible_v<_Tp>) {
                                        make_index_sequence<_Size>());
 }
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <algorithm>
 #  include <concepts>
+#  include <cstdlib>
 #  include <iterator>
+#  include <type_traits>
 #  include <utility>
 #endif
 

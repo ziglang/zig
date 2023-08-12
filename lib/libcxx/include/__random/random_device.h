@@ -23,7 +23,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if !defined(_LIBCPP_HAS_NO_RANDOM_DEVICE)
 
-class _LIBCPP_TYPE_VIS random_device
+class _LIBCPP_EXPORTED_FROM_ABI random_device
 {
 #ifdef _LIBCPP_USING_DEV_RANDOM
     int __f_;
@@ -58,7 +58,7 @@ public:
 
     // constructors
 #ifndef _LIBCPP_CXX03_LANG
-    random_device() : random_device("/dev/urandom") {}
+    _LIBCPP_HIDE_FROM_ABI random_device() : random_device("/dev/urandom") {}
     explicit random_device(const string& __token);
 #else
     explicit random_device(const string& __token = "/dev/urandom");

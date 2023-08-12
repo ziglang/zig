@@ -16,107 +16,126 @@
 // C++1z
 
 namespace std {
-  // 23.6.3, optional for object types
-  template <class T> class optional;
+  // [optional.optional], class template optional
+  template <class T>
+    class optional;
 
-  // 23.6.4, no-value state indicator
+  template<class T>
+    concept is-derived-from-optional = requires(const T& t) {       // exposition only
+      []<class U>(const optional<U>&){ }(t);
+    };
+
+  // [optional.nullopt], no-value state indicator
   struct nullopt_t{see below };
   inline constexpr nullopt_t nullopt(unspecified );
 
-  // 23.6.5, class bad_optional_access
+  // [optional.bad.access], class bad_optional_access
   class bad_optional_access;
 
-  // 23.6.6, relational operators
+  // [optional.relops], relational operators
   template <class T, class U>
-  constexpr bool operator==(const optional<T>&, const optional<U>&);
+    constexpr bool operator==(const optional<T>&, const optional<U>&);
   template <class T, class U>
-  constexpr bool operator!=(const optional<T>&, const optional<U>&);
+    constexpr bool operator!=(const optional<T>&, const optional<U>&);
   template <class T, class U>
-  constexpr bool operator<(const optional<T>&, const optional<U>&);
+    constexpr bool operator<(const optional<T>&, const optional<U>&);
   template <class T, class U>
-  constexpr bool operator>(const optional<T>&, const optional<U>&);
+    constexpr bool operator>(const optional<T>&, const optional<U>&);
   template <class T, class U>
-  constexpr bool operator<=(const optional<T>&, const optional<U>&);
+    constexpr bool operator<=(const optional<T>&, const optional<U>&);
   template <class T, class U>
-  constexpr bool operator>=(const optional<T>&, const optional<U>&);
+    constexpr bool operator>=(const optional<T>&, const optional<U>&);
+  template<class T, three_way_comparable_with<T> U>
+    constexpr compare_three_way_result_t<T, U>
+      operator<=>(const optional<T>&, const optional<U>&); // since C++20
 
-  // 23.6.7 comparison with nullopt
-  template <class T> constexpr bool operator==(const optional<T>&, nullopt_t) noexcept;
-  template <class T> constexpr bool operator==(nullopt_t, const optional<T>&) noexcept;
-  template <class T> constexpr bool operator!=(const optional<T>&, nullopt_t) noexcept;
-  template <class T> constexpr bool operator!=(nullopt_t, const optional<T>&) noexcept;
-  template <class T> constexpr bool operator<(const optional<T>&, nullopt_t) noexcept;
-  template <class T> constexpr bool operator<(nullopt_t, const optional<T>&) noexcept;
-  template <class T> constexpr bool operator<=(const optional<T>&, nullopt_t) noexcept;
-  template <class T> constexpr bool operator<=(nullopt_t, const optional<T>&) noexcept;
-  template <class T> constexpr bool operator>(const optional<T>&, nullopt_t) noexcept;
-  template <class T> constexpr bool operator>(nullopt_t, const optional<T>&) noexcept;
-  template <class T> constexpr bool operator>=(const optional<T>&, nullopt_t) noexcept;
-  template <class T> constexpr bool operator>=(nullopt_t, const optional<T>&) noexcept;
+  // [optional.nullops], comparison with nullopt
+  template<class T> constexpr bool operator==(const optional<T>&, nullopt_t) noexcept;
+  template<class T> constexpr bool operator==(nullopt_t, const optional<T>&) noexcept; // until C++17
+  template<class T> constexpr bool operator!=(const optional<T>&, nullopt_t) noexcept; // until C++17
+  template<class T> constexpr bool operator!=(nullopt_t, const optional<T>&) noexcept; // until C++17
+  template<class T> constexpr bool operator<(const optional<T>&, nullopt_t) noexcept;  // until C++17
+  template<class T> constexpr bool operator<(nullopt_t, const optional<T>&) noexcept;  // until C++17
+  template<class T> constexpr bool operator<=(const optional<T>&, nullopt_t) noexcept; // until C++17
+  template<class T> constexpr bool operator<=(nullopt_t, const optional<T>&) noexcept; // until C++17
+  template<class T> constexpr bool operator>(const optional<T>&, nullopt_t) noexcept;  // until C++17
+  template<class T> constexpr bool operator>(nullopt_t, const optional<T>&) noexcept;  // until C++17
+  template<class T> constexpr bool operator>=(const optional<T>&, nullopt_t) noexcept; // until C++17
+  template<class T> constexpr bool operator>=(nullopt_t, const optional<T>&) noexcept; // until C++17
+  template<class T>
+    constexpr strong_ordering operator<=>(const optional<T>&, nullopt_t) noexcept;     // since C++20
 
-  // 23.6.8, comparison with T
-  template <class T, class U> constexpr bool operator==(const optional<T>&, const U&);
-  template <class T, class U> constexpr bool operator==(const T&, const optional<U>&);
-  template <class T, class U> constexpr bool operator!=(const optional<T>&, const U&);
-  template <class T, class U> constexpr bool operator!=(const T&, const optional<U>&);
-  template <class T, class U> constexpr bool operator<(const optional<T>&, const U&);
-  template <class T, class U> constexpr bool operator<(const T&, const optional<U>&);
-  template <class T, class U> constexpr bool operator<=(const optional<T>&, const U&);
-  template <class T, class U> constexpr bool operator<=(const T&, const optional<U>&);
-  template <class T, class U> constexpr bool operator>(const optional<T>&, const U&);
-  template <class T, class U> constexpr bool operator>(const T&, const optional<U>&);
-  template <class T, class U> constexpr bool operator>=(const optional<T>&, const U&);
-  template <class T, class U> constexpr bool operator>=(const T&, const optional<U>&);
+  // [optional.comp.with.t], comparison with T
+  template<class T, class U> constexpr bool operator==(const optional<T>&, const U&);
+  template<class T, class U> constexpr bool operator==(const T&, const optional<U>&);
+  template<class T, class U> constexpr bool operator!=(const optional<T>&, const U&);
+  template<class T, class U> constexpr bool operator!=(const T&, const optional<U>&);
+  template<class T, class U> constexpr bool operator<(const optional<T>&, const U&);
+  template<class T, class U> constexpr bool operator<(const T&, const optional<U>&);
+  template<class T, class U> constexpr bool operator<=(const optional<T>&, const U&);
+  template<class T, class U> constexpr bool operator<=(const T&, const optional<U>&);
+  template<class T, class U> constexpr bool operator>(const optional<T>&, const U&);
+  template<class T, class U> constexpr bool operator>(const T&, const optional<U>&);
+  template<class T, class U> constexpr bool operator>=(const optional<T>&, const U&);
+  template<class T, class U> constexpr bool operator>=(const T&, const optional<U>&);
+  template<class T, class U>
+      requires (!is-derived-from-optional<U>) && three_way_comparable_with<T, U>
+    constexpr compare_three_way_result_t<T, U>
+      operator<=>(const optional<T>&, const U&);                                       // since C++20
 
-  // 23.6.9, specialized algorithms
-  template <class T> void swap(optional<T>&, optional<T>&) noexcept(see below ); // constexpr in C++20
-  template <class T> constexpr optional<see below > make_optional(T&&);
-  template <class T, class... Args>
+  // [optional.specalg], specialized algorithms
+  template<class T>
+    void swap(optional<T>&, optional<T>&) noexcept(see below ); // constexpr in C++20
+
+  template<class T>
+    constexpr optional<see below > make_optional(T&&);
+  template<class T, class... Args>
     constexpr optional<T> make_optional(Args&&... args);
-  template <class T, class U, class... Args>
+  template<class T, class U, class... Args>
     constexpr optional<T> make_optional(initializer_list<U> il, Args&&... args);
 
-  // 23.6.10, hash support
-  template <class T> struct hash;
-  template <class T> struct hash<optional<T>>;
+  // [optional.hash], hash support
+  template<class T> struct hash;
+  template<class T> struct hash<optional<T>>;
 
-  template <class T> class optional {
+  template<class T>
+  class optional {
   public:
     using value_type = T;
 
-    // 23.6.3.1, constructors
+    // [optional.ctor], constructors
     constexpr optional() noexcept;
     constexpr optional(nullopt_t) noexcept;
     constexpr optional(const optional &);
     constexpr optional(optional &&) noexcept(see below);
-    template <class... Args> constexpr explicit optional(in_place_t, Args &&...);
-    template <class U, class... Args>
+    template<class... Args>
+      constexpr explicit optional(in_place_t, Args &&...);
+    template<class U, class... Args>
       constexpr explicit optional(in_place_t, initializer_list<U>, Args &&...);
-    template <class U = T>
+    template<class U = T>
       constexpr explicit(see-below) optional(U &&);
-    template <class U>
-      explicit(see-below) optional(const optional<U> &);         // constexpr in C++20
-    template <class U>
-      explicit(see-below) optional(optional<U> &&);              // constexpr in C++20
+    template<class U>
+      explicit(see-below) optional(const optional<U> &);                          // constexpr in C++20
+    template<class U>
+      explicit(see-below) optional(optional<U> &&);                               // constexpr in C++20
 
-    // 23.6.3.2, destructor
+    // [optional.dtor], destructor
     ~optional(); // constexpr in C++20
 
-    // 23.6.3.3, assignment
-    optional &operator=(nullopt_t) noexcept;                     // constexpr in C++20
+    // [optional.assign], assignment
+    optional &operator=(nullopt_t) noexcept;                                      // constexpr in C++20
     constexpr optional &operator=(const optional &);
     constexpr optional &operator=(optional &&) noexcept(see below);
-    template <class U = T> optional &operator=(U &&);            // constexpr in C++20
-    template <class U> optional &operator=(const optional<U> &); // constexpr in C++20
-    template <class U> optional &operator=(optional<U> &&);      // constexpr in C++20
-    template <class... Args> T& emplace(Args &&...);             // constexpr in C++20
-    template <class U, class... Args>
-      T& emplace(initializer_list<U>, Args &&...);               // constexpr in C++20
+    template<class U = T> optional &operator=(U &&);                              // constexpr in C++20
+    template<class U> optional &operator=(const optional<U> &);                   // constexpr in C++20
+    template<class U> optional &operator=(optional<U> &&);                        // constexpr in C++20
+    template<class... Args> T& emplace(Args &&...);                               // constexpr in C++20
+    template<class U, class... Args> T& emplace(initializer_list<U>, Args &&...); // constexpr in C++20
 
-    // 23.6.3.4, swap
+    // [optional.swap], swap
     void swap(optional &) noexcept(see below ); // constexpr in C++20
 
-    // 23.6.3.5, observers
+    // [optional.observe], observers
     constexpr T const *operator->() const;
     constexpr T *operator->();
     constexpr T const &operator*() const &;
@@ -129,8 +148,8 @@ namespace std {
     constexpr T &value() &;
     constexpr T &&value() &&;
     constexpr const T &&value() const &&;
-    template <class U> constexpr T value_or(U &&) const &;
-    template <class U> constexpr T value_or(U &&) &&;
+    template<class U> constexpr T value_or(U &&) const &;
+    template<class U> constexpr T value_or(U &&) &&;
 
     // [optional.monadic], monadic operations
     template<class F> constexpr auto and_then(F&& f) &;         // since C++23
@@ -144,15 +163,15 @@ namespace std {
     template<class F> constexpr optional or_else(F&& f) &&;     // since C++23
     template<class F> constexpr optional or_else(F&& f) const&; // since C++23
 
-    // 23.6.3.6, modifiers
-    void reset() noexcept; // constexpr in C++20
+    // [optional.mod], modifiers
+    void reset() noexcept;                                      // constexpr in C++20
 
   private:
-    T *val; // exposition only
+    T *val;         // exposition only
   };
 
-template<class T>
-  optional(T) -> optional<T>;
+  template<class T>
+    optional(T) -> optional<T>;
 
 } // namespace std
 
@@ -160,21 +179,55 @@ template<class T>
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
+#include <__compare/compare_three_way_result.h>
+#include <__compare/three_way_comparable.h>
 #include <__concepts/invocable.h>
 #include <__config>
 #include <__functional/hash.h>
 #include <__functional/invoke.h>
+#include <__functional/reference_wrapper.h>
 #include <__functional/unary_function.h>
+#include <__memory/addressof.h>
 #include <__memory/construct_at.h>
-#include <__tuple_dir/sfinae_helpers.h>
+#include <__tuple/sfinae_helpers.h>
+#include <__type_traits/add_pointer.h>
+#include <__type_traits/conditional.h>
+#include <__type_traits/conjunction.h>
+#include <__type_traits/decay.h>
+#include <__type_traits/disjunction.h>
+#include <__type_traits/is_array.h>
+#include <__type_traits/is_assignable.h>
+#include <__type_traits/is_constructible.h>
+#include <__type_traits/is_convertible.h>
+#include <__type_traits/is_copy_assignable.h>
+#include <__type_traits/is_copy_constructible.h>
+#include <__type_traits/is_destructible.h>
+#include <__type_traits/is_move_assignable.h>
+#include <__type_traits/is_move_constructible.h>
+#include <__type_traits/is_nothrow_move_assignable.h>
+#include <__type_traits/is_nothrow_move_constructible.h>
+#include <__type_traits/is_object.h>
+#include <__type_traits/is_reference.h>
+#include <__type_traits/is_scalar.h>
+#include <__type_traits/is_swappable.h>
+#include <__type_traits/is_trivially_copy_assignable.h>
+#include <__type_traits/is_trivially_copy_constructible.h>
+#include <__type_traits/is_trivially_destructible.h>
+#include <__type_traits/is_trivially_move_assignable.h>
+#include <__type_traits/is_trivially_move_constructible.h>
+#include <__type_traits/negation.h>
+#include <__type_traits/remove_const.h>
+#include <__type_traits/remove_cvref.h>
+#include <__type_traits/remove_reference.h>
+#include <__utility/declval.h>
 #include <__utility/forward.h>
 #include <__utility/in_place.h>
 #include <__utility/move.h>
 #include <__utility/swap.h>
+#include <__verbose_abort>
 #include <initializer_list>
 #include <new>
 #include <stdexcept>
-#include <type_traits>
 #include <version>
 
 // standard-mandated includes
@@ -186,10 +239,13 @@ template<class T>
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 namespace std  // purposefully not using versioning namespace
 {
 
-class _LIBCPP_EXCEPTION_ABI _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS bad_optional_access
+class _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS bad_optional_access
     : public exception
 {
 public:
@@ -200,7 +256,7 @@ public:
 
 } // namespace std
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -208,16 +264,16 @@ _LIBCPP_NORETURN
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS
 void __throw_bad_optional_access() {
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
         throw bad_optional_access();
 #else
-        _VSTD::abort();
+    _LIBCPP_VERBOSE_ABORT("bad_optional_access was thrown in -fno-exceptions mode");
 #endif
 }
 
 struct nullopt_t
 {
-    struct __secret_tag { _LIBCPP_INLINE_VISIBILITY explicit __secret_tag() = default; };
+    struct __secret_tag { explicit __secret_tag() = default; };
     _LIBCPP_INLINE_VISIBILITY constexpr explicit nullopt_t(__secret_tag, __secret_tag) noexcept {}
 };
 
@@ -259,7 +315,7 @@ struct __optional_destruct_base<_Tp, false>
         :  __val_(_VSTD::forward<_Args>(__args)...),
            __engaged_(true) {}
 
-#if _LIBCPP_STD_VER > 20
+#if _LIBCPP_STD_VER >= 23
   template <class _Fp, class... _Args>
   _LIBCPP_HIDE_FROM_ABI
   constexpr __optional_destruct_base(__optional_construct_from_invoke_tag, _Fp&& __f, _Args&&... __args)
@@ -301,7 +357,7 @@ struct __optional_destruct_base<_Tp, true>
         :  __val_(_VSTD::forward<_Args>(__args)...),
            __engaged_(true) {}
 
-#if _LIBCPP_STD_VER > 20
+#if _LIBCPP_STD_VER >= 23
   template <class _Fp, class... _Args>
   _LIBCPP_HIDE_FROM_ABI
   constexpr __optional_destruct_base(__optional_construct_from_invoke_tag, _Fp&& __f, _Args&&... __args)
@@ -356,8 +412,8 @@ struct __optional_storage_base : __optional_destruct_base<_Tp>
     _LIBCPP_INLINE_VISIBILITY
     _LIBCPP_CONSTEXPR_SINCE_CXX20 void __construct(_Args&&... __args)
     {
-        _LIBCPP_ASSERT(!has_value(), "__construct called for engaged __optional_storage");
-#if _LIBCPP_STD_VER > 17
+        _LIBCPP_ASSERT_INTERNAL(!has_value(), "__construct called for engaged __optional_storage");
+#if _LIBCPP_STD_VER >= 20
         _VSTD::construct_at(_VSTD::addressof(this->__val_), _VSTD::forward<_Args>(__args)...);
 #else
         ::new ((void*)_VSTD::addressof(this->__val_)) value_type(_VSTD::forward<_Args>(__args)...);
@@ -403,7 +459,7 @@ struct __optional_storage_base<_Tp, true>
     __raw_type* __value_;
 
     template <class _Up>
-    static constexpr bool __can_bind_reference() {
+    static _LIBCPP_HIDE_FROM_ABI constexpr bool __can_bind_reference() {
         using _RawUp = __libcpp_remove_reference_t<_Up>;
         using _UpPtr = _RawUp*;
         using _RawTp = __libcpp_remove_reference_t<_Tp>;
@@ -451,7 +507,7 @@ struct __optional_storage_base<_Tp, true>
     _LIBCPP_INLINE_VISIBILITY
     _LIBCPP_CONSTEXPR_SINCE_CXX20 void __construct(_UArg&& __val)
     {
-        _LIBCPP_ASSERT(!has_value(), "__construct called for engaged __optional_storage");
+        _LIBCPP_ASSERT_INTERNAL(!has_value(), "__construct called for engaged __optional_storage");
         static_assert(__can_bind_reference<_UArg>(),
             "Attempted to construct a reference element in tuple from a "
             "possible temporary");
@@ -623,12 +679,20 @@ using __optional_sfinae_assign_base_t = __sfinae_assign_base<
 
 template<class _Tp>
 class optional;
+
+#if _LIBCPP_STD_VER >= 20
+
+template <class _Tp>
+concept __is_derived_from_optional = requires(const _Tp& __t) { []<class _Up>(const optional<_Up>&) {}(__t); };
+
+#  endif // _LIBCPP_STD_VER >= 20
+
 template <class _Tp>
 struct __is_std_optional : false_type {};
 template <class _Tp> struct __is_std_optional<optional<_Tp>> : true_type {};
 
 template <class _Tp>
-class optional
+class _LIBCPP_DECLSPEC_EMPTY_BASES optional
     : private __optional_move_assign_base<_Tp>
     , private __optional_sfinae_ctor_base_t<_Tp>
     , private __optional_sfinae_assign_base_t<_Tp>
@@ -653,13 +717,13 @@ private:
     // LWG2756: conditionally explicit conversion from _Up
     struct _CheckOptionalArgsConstructor {
       template <class _Up>
-      static constexpr bool __enable_implicit() {
+      _LIBCPP_HIDE_FROM_ABI static constexpr bool __enable_implicit() {
           return is_constructible_v<_Tp, _Up&&> &&
                  is_convertible_v<_Up&&, _Tp>;
       }
 
       template <class _Up>
-      static constexpr bool __enable_explicit() {
+      _LIBCPP_HIDE_FROM_ABI static constexpr bool __enable_explicit() {
           return is_constructible_v<_Tp, _Up&&> &&
                  !is_convertible_v<_Up&&, _Tp>;
       }
@@ -692,17 +756,17 @@ private:
           is_assignable<_Tp&, _Opt const&&>
       >;
       template <class _Up, class _QUp = _QualUp>
-      static constexpr bool __enable_implicit() {
+      _LIBCPP_HIDE_FROM_ABI static constexpr bool __enable_implicit() {
           return is_convertible<_QUp, _Tp>::value &&
               !__check_constructible_from_opt<_Up>::value;
       }
       template <class _Up, class _QUp = _QualUp>
-      static constexpr bool __enable_explicit() {
+      _LIBCPP_HIDE_FROM_ABI static constexpr bool __enable_explicit() {
           return !is_convertible<_QUp, _Tp>::value &&
               !__check_constructible_from_opt<_Up>::value;
       }
       template <class _Up, class _QUp = _QualUp>
-      static constexpr bool __enable_assign() {
+      _LIBCPP_HIDE_FROM_ABI static constexpr bool __enable_assign() {
           // Construction and assignability of _QUp to _Tp has already been
           // checked.
           return !__check_constructible_from_opt<_Up>::value &&
@@ -805,7 +869,7 @@ public:
         this->__construct_from(_VSTD::move(__v));
     }
 
-#if _LIBCPP_STD_VER > 20
+#if _LIBCPP_STD_VER >= 23
   template<class _Fp, class... _Args>
   _LIBCPP_HIDE_FROM_ABI
   constexpr explicit optional(__optional_construct_from_invoke_tag, _Fp&& __f, _Args&&... __args)
@@ -820,8 +884,8 @@ public:
         return *this;
     }
 
-    constexpr optional& operator=(const optional&) = default;
-    constexpr optional& operator=(optional&&) = default;
+    _LIBCPP_HIDE_FROM_ABI constexpr optional& operator=(const optional&) = default;
+    _LIBCPP_HIDE_FROM_ABI constexpr optional& operator=(optional&&) = default;
 
     // LWG2756
     template <class _Up = value_type,
@@ -932,7 +996,7 @@ public:
     add_pointer_t<value_type const>
     operator->() const
     {
-        _LIBCPP_ASSERT(this->has_value(), "optional operator-> called on a disengaged value");
+        _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(this->has_value(), "optional operator-> called on a disengaged value");
         return _VSTD::addressof(this->__get());
     }
 
@@ -941,7 +1005,7 @@ public:
     add_pointer_t<value_type>
     operator->()
     {
-        _LIBCPP_ASSERT(this->has_value(), "optional operator-> called on a disengaged value");
+        _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(this->has_value(), "optional operator-> called on a disengaged value");
         return _VSTD::addressof(this->__get());
     }
 
@@ -950,7 +1014,7 @@ public:
     const value_type&
     operator*() const& noexcept
     {
-        _LIBCPP_ASSERT(this->has_value(), "optional operator* called on a disengaged value");
+        _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(this->has_value(), "optional operator* called on a disengaged value");
         return this->__get();
     }
 
@@ -959,7 +1023,7 @@ public:
     value_type&
     operator*() & noexcept
     {
-        _LIBCPP_ASSERT(this->has_value(), "optional operator* called on a disengaged value");
+        _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(this->has_value(), "optional operator* called on a disengaged value");
         return this->__get();
     }
 
@@ -968,7 +1032,7 @@ public:
     value_type&&
     operator*() && noexcept
     {
-        _LIBCPP_ASSERT(this->has_value(), "optional operator* called on a disengaged value");
+        _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(this->has_value(), "optional operator* called on a disengaged value");
         return _VSTD::move(this->__get());
     }
 
@@ -977,7 +1041,7 @@ public:
     const value_type&&
     operator*() const&& noexcept
     {
-        _LIBCPP_ASSERT(this->has_value(), "optional operator* called on a disengaged value");
+        _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(this->has_value(), "optional operator* called on a disengaged value");
         return _VSTD::move(this->__get());
     }
 
@@ -1047,7 +1111,7 @@ public:
                                   static_cast<value_type>(_VSTD::forward<_Up>(__v));
     }
 
-#if _LIBCPP_STD_VER > 20
+#if _LIBCPP_STD_VER >= 23
   template<class _Func>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS
   constexpr auto and_then(_Func&& __f) & {
@@ -1171,7 +1235,7 @@ public:
       return _VSTD::move(*this);
     return _VSTD::forward<_Func>(__f)();
   }
-#endif // _LIBCPP_STD_VER > 20
+#endif // _LIBCPP_STD_VER >= 23
 
     using __base::reset;
 };
@@ -1278,6 +1342,18 @@ operator>=(const optional<_Tp>& __x, const optional<_Up>& __y)
     return *__x >= *__y;
 }
 
+#if _LIBCPP_STD_VER >= 20
+
+template <class _Tp, three_way_comparable_with<_Tp> _Up>
+_LIBCPP_HIDE_FROM_ABI constexpr compare_three_way_result_t<_Tp, _Up>
+operator<=>(const optional<_Tp>& __x, const optional<_Up>& __y) {
+    if (__x && __y)
+        return *__x <=> *__y;
+    return __x.has_value() <=> __y.has_value();
+}
+
+#endif // _LIBCPP_STD_VER >= 20
+
 // Comparisons with nullopt
 template <class _Tp>
 _LIBCPP_INLINE_VISIBILITY constexpr
@@ -1286,6 +1362,8 @@ operator==(const optional<_Tp>& __x, nullopt_t) noexcept
 {
     return !static_cast<bool>(__x);
 }
+
+#if _LIBCPP_STD_VER <= 17
 
 template <class _Tp>
 _LIBCPP_INLINE_VISIBILITY constexpr
@@ -1374,6 +1452,15 @@ operator>=(nullopt_t, const optional<_Tp>& __x) noexcept
 {
     return !static_cast<bool>(__x);
 }
+
+#else // _LIBCPP_STD_VER <= 17
+
+template <class _Tp>
+_LIBCPP_HIDE_FROM_ABI constexpr strong_ordering operator<=>(const optional<_Tp>& __x, nullopt_t) noexcept {
+    return __x.has_value() <=> false;
+}
+
+#endif // _LIBCPP_STD_VER <= 17
 
 // Comparisons with T
 template <class _Tp, class _Up>
@@ -1520,6 +1607,17 @@ operator>=(const _Tp& __v, const optional<_Up>& __x)
     return static_cast<bool>(__x) ? __v >= *__x : true;
 }
 
+#if _LIBCPP_STD_VER >= 20
+
+template <class _Tp, class _Up>
+  requires(!__is_derived_from_optional<_Up>) && three_way_comparable_with<_Tp, _Up>
+_LIBCPP_HIDE_FROM_ABI constexpr compare_three_way_result_t<_Tp, _Up>
+operator<=>(const optional<_Tp>& __x, const _Up& __v) {
+    return __x.has_value() ? *__x <=> __v : strong_ordering::less;
+}
+
+#endif // _LIBCPP_STD_VER >= 20
+
 
 template <class _Tp>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
@@ -1572,7 +1670,9 @@ struct _LIBCPP_TEMPLATE_VIS hash<
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
+
+_LIBCPP_POP_MACROS
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <atomic>
@@ -1583,6 +1683,7 @@ _LIBCPP_END_NAMESPACE_STD
 #  include <memory>
 #  include <ratio>
 #  include <tuple>
+#  include <type_traits>
 #  include <typeinfo>
 #  include <utility>
 #  include <variant>

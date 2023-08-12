@@ -44,6 +44,8 @@ public:
         forward_list(InputIterator first, InputIterator last);
     template <class InputIterator>
         forward_list(InputIterator first, InputIterator last, const allocator_type& a);
+    template<container-compatible-range<T> R>
+        forward_list(from_range_t, R&& rg, const Allocator& = Allocator()); // C++23
     forward_list(const forward_list& x);
     forward_list(const forward_list& x, const allocator_type& a);
     forward_list(forward_list&& x)
@@ -63,6 +65,8 @@ public:
 
     template <class InputIterator>
         void assign(InputIterator first, InputIterator last);
+    template<container-compatible-range<T> R>
+      void assign_range(R&& rg); // C++23
     void assign(size_type n, const value_type& v);
     void assign(initializer_list<value_type> il);
 
@@ -89,6 +93,8 @@ public:
     template <class... Args> reference emplace_front(Args&&... args);  // reference in C++17
     void push_front(const value_type& v);
     void push_front(value_type&& v);
+    template<container-compatible-range<T> R>
+      void prepend_range(R&& rg); // C++23
 
     void pop_front();
 
@@ -100,6 +106,8 @@ public:
     template <class InputIterator>
         iterator insert_after(const_iterator p,
                               InputIterator first, InputIterator last);
+    template<container-compatible-range<T> R>
+      iterator insert_range_after(const_iterator position, R&& rg); // C++23
     iterator insert_after(const_iterator p, initializer_list<value_type> il);
 
     iterator erase_after(const_iterator p);
@@ -140,29 +148,37 @@ template <class InputIterator, class Allocator = allocator<typename iterator_tra
     forward_list(InputIterator, InputIterator, Allocator = Allocator())
     -> forward_list<typename iterator_traits<InputIterator>::value_type, Allocator>;  // C++17
 
+template<ranges::input_range R, class Allocator = allocator<ranges::range_value_t<R>>>
+  forward_list(from_range_t, R&&, Allocator = Allocator())
+      -> forward_list<ranges::range_value_t<R>, Allocator>; // C++23
+
 template <class T, class Allocator>
     bool operator==(const forward_list<T, Allocator>& x,
                     const forward_list<T, Allocator>& y);
 
 template <class T, class Allocator>
     bool operator< (const forward_list<T, Allocator>& x,
-                    const forward_list<T, Allocator>& y);
+                    const forward_list<T, Allocator>& y); // removed in C++20
 
 template <class T, class Allocator>
     bool operator!=(const forward_list<T, Allocator>& x,
-                    const forward_list<T, Allocator>& y);
+                    const forward_list<T, Allocator>& y); // removed in C++20
 
 template <class T, class Allocator>
     bool operator> (const forward_list<T, Allocator>& x,
-                    const forward_list<T, Allocator>& y);
+                    const forward_list<T, Allocator>& y); // removed in C++20
 
 template <class T, class Allocator>
     bool operator>=(const forward_list<T, Allocator>& x,
-                    const forward_list<T, Allocator>& y);
+                    const forward_list<T, Allocator>& y); // removed in C++20
 
 template <class T, class Allocator>
     bool operator<=(const forward_list<T, Allocator>& x,
-                    const forward_list<T, Allocator>& y);
+                    const forward_list<T, Allocator>& y); // removed in C++20
+
+template<class T, class Allocator>
+    synth-three-way-result<T> operator<=>(const forward_list<T, Allocator>& x,
+                                          const forward_list<T, Allocator>& y); // since C++20
 
 template <class T, class Allocator>
     void swap(forward_list<T, Allocator>& x, forward_list<T, Allocator>& y)
@@ -181,14 +197,17 @@ template <class T, class Allocator, class Predicate>
 
 #include <__algorithm/comp.h>
 #include <__algorithm/lexicographical_compare.h>
+#include <__algorithm/lexicographical_compare_three_way.h>
 #include <__algorithm/min.h>
 #include <__assert> // all public C++ headers provide the assertion handler
+#include <__availability>
 #include <__config>
 #include <__iterator/distance.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/move_iterator.h>
 #include <__iterator/next.h>
 #include <__memory/addressof.h>
+#include <__memory/allocation_guard.h>
 #include <__memory/allocator.h>
 #include <__memory/allocator_destructor.h>
 #include <__memory/allocator_traits.h>
@@ -197,11 +216,22 @@ template <class T, class Allocator, class Predicate>
 #include <__memory/swap_allocator.h>
 #include <__memory/unique_ptr.h>
 #include <__memory_resource/polymorphic_allocator.h>
+#include <__ranges/access.h>
+#include <__ranges/concepts.h>
+#include <__ranges/container_compatible_range.h>
+#include <__ranges/from_range.h>
+#include <__type_traits/conditional.h>
 #include <__type_traits/is_allocator.h>
+#include <__type_traits/is_const.h>
+#include <__type_traits/is_nothrow_default_constructible.h>
+#include <__type_traits/is_nothrow_move_assignable.h>
+#include <__type_traits/is_nothrow_move_constructible.h>
+#include <__type_traits/is_pointer.h>
+#include <__type_traits/is_same.h>
+#include <__type_traits/type_identity.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
 #include <limits>
-#include <type_traits>
 #include <version>
 
 // standard-mandated includes
@@ -279,6 +309,7 @@ struct __forward_begin_node
     pointer __next_;
 
     _LIBCPP_INLINE_VISIBILITY __forward_begin_node() : __next_(nullptr) {}
+    _LIBCPP_INLINE_VISIBILITY explicit __forward_begin_node(pointer __n) : __next_(__n) {}
 
     _LIBCPP_INLINE_VISIBILITY
     __begin_node_pointer __next_as_begin() const {
@@ -294,8 +325,13 @@ struct _LIBCPP_STANDALONE_DEBUG __forward_list_node
     : public __begin_node_of<_Tp, _VoidPtr>
 {
     typedef _Tp value_type;
+    typedef __begin_node_of<_Tp, _VoidPtr> _Base;
+    typedef typename _Base::pointer _NodePtr;
 
     value_type __value_;
+
+    _LIBCPP_HIDE_FROM_ABI __forward_list_node() = default;
+    _LIBCPP_HIDE_FROM_ABI __forward_list_node(const value_type& __v, _NodePtr __next) : _Base(__next), __value_(__v) {}
 };
 
 
@@ -395,11 +431,11 @@ class _LIBCPP_TEMPLATE_VIS __forward_list_const_iterator
 
     __iter_node_pointer __ptr_;
 
-    __begin_node_pointer __get_begin() const {
+    _LIBCPP_HIDE_FROM_ABI __begin_node_pointer __get_begin() const {
         return static_cast<__begin_node_pointer>(
                 static_cast<__void_pointer>(__ptr_));
     }
-    __node_pointer __get_unsafe_node_pointer() const {
+    _LIBCPP_HIDE_FROM_ABI __node_pointer __get_unsafe_node_pointer() const {
         return static_cast<__node_pointer>(
                 static_cast<__void_pointer>(__ptr_));
     }
@@ -482,14 +518,6 @@ protected:
     typedef typename allocator_traits<__begin_node_allocator>::pointer
                                                       __begin_node_pointer;
 
-    static_assert((!is_same<allocator_type, __node_allocator>::value),
-                  "internal allocator type must differ from user-specified "
-                  "type; otherwise overload resolution breaks");
-
-    static_assert(is_same<allocator_type, __rebind_alloc<__node_traits, value_type> >::value,
-                  "[allocator.requirements] states that rebinding an allocator to the same type should result in the "
-                  "original allocator");
-
     __compressed_pair<__begin_node, __node_allocator> __before_begin_;
 
     _LIBCPP_INLINE_VISIBILITY
@@ -533,7 +561,7 @@ private:
     __forward_list_base& operator=(const __forward_list_base&);
 
 public:
-    ~__forward_list_base();
+    _LIBCPP_HIDE_FROM_ABI ~__forward_list_base();
 
 protected:
     _LIBCPP_INLINE_VISIBILITY
@@ -558,7 +586,7 @@ public:
                     __is_nothrow_swappable<__node_allocator>::value);
 #endif
 protected:
-    void clear() _NOEXCEPT;
+    _LIBCPP_HIDE_FROM_ABI void clear() _NOEXCEPT;
 
 private:
     _LIBCPP_INLINE_VISIBILITY
@@ -659,8 +687,16 @@ public:
     typedef _Tp    value_type;
     typedef _Alloc allocator_type;
 
-    static_assert((is_same<typename allocator_type::value_type, value_type>::value),
+    static_assert(is_same<value_type, typename allocator_type::value_type>::value,
                   "Allocator::value_type must be same type as value_type");
+
+    static_assert(is_same<allocator_type, __rebind_alloc<allocator_traits<allocator_type>, value_type> >::value,
+                  "[allocator.requirements] states that rebinding an allocator to the same type should result in the "
+                  "original allocator");
+
+    static_assert((!is_same<allocator_type, __node_allocator>::value),
+                  "internal allocator type must differ from user-specified "
+                  "type; otherwise overload resolution breaks");
 
     typedef value_type&                                                 reference;
     typedef const value_type&                                           const_reference;
@@ -671,7 +707,7 @@ public:
 
     typedef typename base::iterator       iterator;
     typedef typename base::const_iterator const_iterator;
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
     typedef size_type                                __remove_return_type;
 #else
     typedef void                                     __remove_return_type;
@@ -683,39 +719,48 @@ public:
         {} // = default;
     _LIBCPP_INLINE_VISIBILITY
     explicit forward_list(const allocator_type& __a);
-    explicit forward_list(size_type __n);
-#if _LIBCPP_STD_VER > 11
-    explicit forward_list(size_type __n, const allocator_type& __a);
+    _LIBCPP_HIDE_FROM_ABI explicit forward_list(size_type __n);
+#if _LIBCPP_STD_VER >= 14
+    _LIBCPP_HIDE_FROM_ABI explicit forward_list(size_type __n, const allocator_type& __a);
 #endif
-    forward_list(size_type __n, const value_type& __v);
+    _LIBCPP_HIDE_FROM_ABI forward_list(size_type __n, const value_type& __v);
 
     template <class = __enable_if_t<__is_allocator<_Alloc>::value> >
-    forward_list(size_type __n, const value_type& __v, const allocator_type& __a) : base(__a)
+    _LIBCPP_HIDE_FROM_ABI forward_list(size_type __n, const value_type& __v, const allocator_type& __a) : base(__a)
     {
         insert_after(cbefore_begin(), __n, __v);
     }
 
     template <class _InputIterator>
-        forward_list(_InputIterator __f, _InputIterator __l,
-                     __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>* = nullptr);
+    _LIBCPP_HIDE_FROM_ABI forward_list(_InputIterator __f, _InputIterator __l,
+                     __enable_if_t<__has_input_iterator_category<_InputIterator>::value>* = nullptr);
     template <class _InputIterator>
-        forward_list(_InputIterator __f, _InputIterator __l,
+    _LIBCPP_HIDE_FROM_ABI forward_list(_InputIterator __f, _InputIterator __l,
                      const allocator_type& __a,
-                     __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>* = nullptr);
-    forward_list(const forward_list& __x);
-    forward_list(const forward_list& __x, const __type_identity_t<allocator_type>& __a);
+                     __enable_if_t<__has_input_iterator_category<_InputIterator>::value>* = nullptr);
 
-    forward_list& operator=(const forward_list& __x);
+#if _LIBCPP_STD_VER >= 23
+    template <_ContainerCompatibleRange<_Tp> _Range>
+    _LIBCPP_HIDE_FROM_ABI forward_list(from_range_t, _Range&& __range,
+        const allocator_type& __a = allocator_type()) : base(__a) {
+      prepend_range(std::forward<_Range>(__range));
+    }
+#endif
+
+    _LIBCPP_HIDE_FROM_ABI forward_list(const forward_list& __x);
+    _LIBCPP_HIDE_FROM_ABI forward_list(const forward_list& __x, const __type_identity_t<allocator_type>& __a);
+
+    _LIBCPP_HIDE_FROM_ABI forward_list& operator=(const forward_list& __x);
 
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     forward_list(forward_list&& __x)
         _NOEXCEPT_(is_nothrow_move_constructible<base>::value)
         : base(_VSTD::move(__x)) {}
-    forward_list(forward_list&& __x, const __type_identity_t<allocator_type>& __a);
+    _LIBCPP_HIDE_FROM_ABI forward_list(forward_list&& __x, const __type_identity_t<allocator_type>& __a);
 
-    forward_list(initializer_list<value_type> __il);
-    forward_list(initializer_list<value_type> __il, const allocator_type& __a);
+    _LIBCPP_HIDE_FROM_ABI forward_list(initializer_list<value_type> __il);
+    _LIBCPP_HIDE_FROM_ABI forward_list(initializer_list<value_type> __il, const allocator_type& __a);
 
     _LIBCPP_INLINE_VISIBILITY
     forward_list& operator=(forward_list&& __x)
@@ -733,9 +778,18 @@ public:
     // ~forward_list() = default;
 
     template <class _InputIterator>
-    __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, void>
-        assign(_InputIterator __f, _InputIterator __l);
-    void assign(size_type __n, const value_type& __v);
+    __enable_if_t<__has_input_iterator_category<_InputIterator>::value, void>
+    _LIBCPP_HIDE_FROM_ABI assign(_InputIterator __f, _InputIterator __l);
+
+#if _LIBCPP_STD_VER >= 23
+    template <_ContainerCompatibleRange<_Tp> _Range>
+    _LIBCPP_HIDE_FROM_ABI
+    void assign_range(_Range&& __range) {
+      __assign_with_sentinel(ranges::begin(__range), ranges::end(__range));
+    }
+#endif
+
+    _LIBCPP_HIDE_FROM_ABI void assign(size_type __n, const value_type& __v);
 
     _LIBCPP_INLINE_VISIBILITY
     allocator_type get_allocator() const _NOEXCEPT
@@ -787,34 +841,56 @@ public:
     const_reference front() const {return base::__before_begin()->__next_->__value_;}
 
 #ifndef _LIBCPP_CXX03_LANG
-#if _LIBCPP_STD_VER > 14
-    template <class... _Args> reference emplace_front(_Args&&... __args);
+#if _LIBCPP_STD_VER >= 17
+    template <class... _Args>
+    _LIBCPP_HIDE_FROM_ABI reference emplace_front(_Args&&... __args);
 #else
-    template <class... _Args> void      emplace_front(_Args&&... __args);
+    template <class... _Args>
+    _LIBCPP_HIDE_FROM_ABI void      emplace_front(_Args&&... __args);
 #endif
-    void push_front(value_type&& __v);
+    _LIBCPP_HIDE_FROM_ABI void push_front(value_type&& __v);
 #endif // _LIBCPP_CXX03_LANG
-    void push_front(const value_type& __v);
+    _LIBCPP_HIDE_FROM_ABI void push_front(const value_type& __v);
 
-    void pop_front();
+#if _LIBCPP_STD_VER >= 23
+    template <_ContainerCompatibleRange<_Tp> _Range>
+    _LIBCPP_HIDE_FROM_ABI
+    void prepend_range(_Range&& __range) {
+      insert_range_after(cbefore_begin(), std::forward<_Range>(__range));
+    }
+#endif
+
+    _LIBCPP_HIDE_FROM_ABI void pop_front();
 
 #ifndef _LIBCPP_CXX03_LANG
     template <class... _Args>
-        iterator emplace_after(const_iterator __p, _Args&&... __args);
+    _LIBCPP_HIDE_FROM_ABI iterator emplace_after(const_iterator __p, _Args&&... __args);
 
-    iterator insert_after(const_iterator __p, value_type&& __v);
-    iterator insert_after(const_iterator __p, initializer_list<value_type> __il)
+    _LIBCPP_HIDE_FROM_ABI iterator insert_after(const_iterator __p, value_type&& __v);
+    _LIBCPP_HIDE_FROM_ABI iterator insert_after(const_iterator __p, initializer_list<value_type> __il)
         {return insert_after(__p, __il.begin(), __il.end());}
 #endif // _LIBCPP_CXX03_LANG
-    iterator insert_after(const_iterator __p, const value_type& __v);
-    iterator insert_after(const_iterator __p, size_type __n, const value_type& __v);
+    _LIBCPP_HIDE_FROM_ABI iterator insert_after(const_iterator __p, const value_type& __v);
+    _LIBCPP_HIDE_FROM_ABI iterator insert_after(const_iterator __p, size_type __n, const value_type& __v);
     template <class _InputIterator>
     _LIBCPP_INLINE_VISIBILITY
-    __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, iterator>
+    __enable_if_t<__has_input_iterator_category<_InputIterator>::value, iterator>
         insert_after(const_iterator __p, _InputIterator __f, _InputIterator __l);
 
-    iterator erase_after(const_iterator __p);
-    iterator erase_after(const_iterator __f, const_iterator __l);
+#if _LIBCPP_STD_VER >= 23
+    template <_ContainerCompatibleRange<_Tp> _Range>
+    _LIBCPP_HIDE_FROM_ABI
+    iterator insert_range_after(const_iterator __position, _Range&& __range) {
+      return __insert_after_with_sentinel(__position, ranges::begin(__range), ranges::end(__range));
+    }
+#endif
+
+    template <class _InputIterator, class _Sentinel>
+    _LIBCPP_HIDE_FROM_ABI
+    iterator __insert_after_with_sentinel(const_iterator __p, _InputIterator __f, _Sentinel __l);
+
+    _LIBCPP_HIDE_FROM_ABI iterator erase_after(const_iterator __p);
+    _LIBCPP_HIDE_FROM_ABI iterator erase_after(const_iterator __f, const_iterator __l);
 
     _LIBCPP_INLINE_VISIBILITY
     void swap(forward_list& __x)
@@ -826,8 +902,8 @@ public:
 #endif
         {base::swap(__x);}
 
-    void resize(size_type __n);
-    void resize(size_type __n, const value_type& __v);
+    _LIBCPP_HIDE_FROM_ABI void resize(size_type __n);
+    _LIBCPP_HIDE_FROM_ABI void resize(size_type __n, const value_type& __v);
     _LIBCPP_INLINE_VISIBILITY
     void clear() _NOEXCEPT {base::clear();}
 
@@ -838,46 +914,54 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     void splice_after(const_iterator __p, forward_list&& __x,
                       const_iterator __f, const_iterator __l);
-    void splice_after(const_iterator __p, forward_list& __x);
-    void splice_after(const_iterator __p, forward_list& __x, const_iterator __i);
-    void splice_after(const_iterator __p, forward_list& __x,
+    _LIBCPP_HIDE_FROM_ABI void splice_after(const_iterator __p, forward_list& __x);
+    _LIBCPP_HIDE_FROM_ABI void splice_after(const_iterator __p, forward_list& __x, const_iterator __i);
+    _LIBCPP_HIDE_FROM_ABI void splice_after(const_iterator __p, forward_list& __x,
                       const_iterator __f, const_iterator __l);
-    __remove_return_type remove(const value_type& __v);
-    template <class _Predicate> __remove_return_type remove_if(_Predicate __pred);
+    _LIBCPP_HIDE_FROM_ABI __remove_return_type remove(const value_type& __v);
+    template <class _Predicate>
+    _LIBCPP_HIDE_FROM_ABI __remove_return_type remove_if(_Predicate __pred);
     _LIBCPP_INLINE_VISIBILITY
     __remove_return_type unique() { return unique(__equal_to()); }
-    template <class _BinaryPredicate> __remove_return_type unique(_BinaryPredicate __binary_pred);
+    template <class _BinaryPredicate>
+    _LIBCPP_HIDE_FROM_ABI __remove_return_type unique(_BinaryPredicate __binary_pred);
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    void merge(forward_list&& __x) {merge(__x, __less<value_type>());}
+    void merge(forward_list&& __x) {merge(__x, __less<>());}
     template <class _Compare>
         _LIBCPP_INLINE_VISIBILITY
         void merge(forward_list&& __x, _Compare __comp)
         {merge(__x, _VSTD::move(__comp));}
 #endif // _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    void merge(forward_list& __x) {merge(__x, __less<value_type>());}
-    template <class _Compare> void merge(forward_list& __x, _Compare __comp);
+    void merge(forward_list& __x) {merge(__x, __less<>());}
+    template <class _Compare>
+    _LIBCPP_HIDE_FROM_ABI void merge(forward_list& __x, _Compare __comp);
     _LIBCPP_INLINE_VISIBILITY
-    void sort() {sort(__less<value_type>());}
+    void sort() {sort(__less<>());}
     template <class _Compare> _LIBCPP_INLINE_VISIBILITY void sort(_Compare __comp);
-    void reverse() _NOEXCEPT;
+    _LIBCPP_HIDE_FROM_ABI void reverse() _NOEXCEPT;
 
 private:
 
 #ifndef _LIBCPP_CXX03_LANG
-    void __move_assign(forward_list& __x, true_type)
+    _LIBCPP_HIDE_FROM_ABI void __move_assign(forward_list& __x, true_type)
         _NOEXCEPT_(is_nothrow_move_assignable<allocator_type>::value);
-    void __move_assign(forward_list& __x, false_type);
+    _LIBCPP_HIDE_FROM_ABI void __move_assign(forward_list& __x, false_type);
 #endif // _LIBCPP_CXX03_LANG
 
+    template <class _Iter, class _Sent>
+    _LIBCPP_HIDE_FROM_ABI
+    void __assign_with_sentinel(_Iter __f, _Sent __l);
+
     template <class _Compare>
-        static
+    static _LIBCPP_HIDE_FROM_ABI
         __node_pointer
         __merge(__node_pointer __f1, __node_pointer __f2, _Compare& __comp);
 
+    // TODO: Make this _LIBCPP_HIDE_FROM_ABI
     template <class _Compare>
-        static
+    static _LIBCPP_HIDDEN
         __node_pointer
         __sort(__node_pointer __f, difference_type __sz, _Compare& __comp);
 };
@@ -886,7 +970,7 @@ private:
 #if _LIBCPP_STD_VER >= 17
 template<class _InputIterator,
          class _Alloc = allocator<__iter_value_type<_InputIterator>>,
-         class = enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>,
+         class = enable_if_t<__has_input_iterator_category<_InputIterator>::value>,
          class = enable_if_t<__is_allocator<_Alloc>::value>
          >
 forward_list(_InputIterator, _InputIterator)
@@ -894,11 +978,20 @@ forward_list(_InputIterator, _InputIterator)
 
 template<class _InputIterator,
          class _Alloc,
-         class = enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>,
+         class = enable_if_t<__has_input_iterator_category<_InputIterator>::value>,
          class = enable_if_t<__is_allocator<_Alloc>::value>
          >
 forward_list(_InputIterator, _InputIterator, _Alloc)
   -> forward_list<__iter_value_type<_InputIterator>, _Alloc>;
+#endif
+
+#if _LIBCPP_STD_VER >= 23
+template <ranges::input_range _Range,
+          class _Alloc = allocator<ranges::range_value_t<_Range>>,
+          class = enable_if_t<__is_allocator<_Alloc>::value>
+          >
+forward_list(from_range_t, _Range&&, _Alloc = _Alloc())
+  -> forward_list<ranges::range_value_t<_Range>, _Alloc>;
 #endif
 
 template <class _Tp, class _Alloc>
@@ -927,7 +1020,7 @@ forward_list<_Tp, _Alloc>::forward_list(size_type __n)
     }
 }
 
-#if _LIBCPP_STD_VER > 11
+#if _LIBCPP_STD_VER >= 14
 template <class _Tp, class _Alloc>
 forward_list<_Tp, _Alloc>::forward_list(size_type __n,
                                         const allocator_type& __base_alloc)
@@ -959,7 +1052,7 @@ forward_list<_Tp, _Alloc>::forward_list(size_type __n, const value_type& __v)
 template <class _Tp, class _Alloc>
 template <class _InputIterator>
 forward_list<_Tp, _Alloc>::forward_list(_InputIterator __f, _InputIterator __l,
-                                        __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>*)
+                                        __enable_if_t<__has_input_iterator_category<_InputIterator>::value>*)
 {
     insert_after(cbefore_begin(), __f, __l);
 }
@@ -968,7 +1061,7 @@ template <class _Tp, class _Alloc>
 template <class _InputIterator>
 forward_list<_Tp, _Alloc>::forward_list(_InputIterator __f, _InputIterator __l,
                                         const allocator_type& __a,
-                                        __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>*)
+                                        __enable_if_t<__has_input_iterator_category<_InputIterator>::value>*)
     : base(__a)
 {
     insert_after(cbefore_begin(), __f, __l);
@@ -1078,16 +1171,23 @@ forward_list<_Tp, _Alloc>::operator=(initializer_list<value_type> __il)
 
 template <class _Tp, class _Alloc>
 template <class _InputIterator>
-__enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, void>
+__enable_if_t<__has_input_iterator_category<_InputIterator>::value, void>
 forward_list<_Tp, _Alloc>::assign(_InputIterator __f, _InputIterator __l)
 {
+  __assign_with_sentinel(__f, __l);
+}
+
+template <class _Tp, class _Alloc>
+template <class _Iter, class _Sent>
+_LIBCPP_HIDE_FROM_ABI
+void forward_list<_Tp, _Alloc>::__assign_with_sentinel(_Iter __f, _Sent __l) {
     iterator __i = before_begin();
     iterator __j = _VSTD::next(__i);
     iterator __e = end();
     for (; __j != __e && __f != __l; ++__i, (void) ++__j, ++__f)
         *__j = *__f;
     if (__j == __e)
-        insert_after(__i, __f, __l);
+        __insert_after_with_sentinel(__i, std::move(__f), std::move(__l));
     else
         erase_after(__i, __e);
 }
@@ -1119,7 +1219,7 @@ forward_list<_Tp, _Alloc>::assign(initializer_list<value_type> __il)
 
 template <class _Tp, class _Alloc>
 template <class... _Args>
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 typename forward_list<_Tp, _Alloc>::reference
 #else
 void
@@ -1133,7 +1233,7 @@ forward_list<_Tp, _Alloc>::emplace_front(_Args&&... __args)
                                   _VSTD::forward<_Args>(__args)...);
     __h->__next_ = base::__before_begin()->__next_;
     base::__before_begin()->__next_ = __h.release();
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
     return base::__before_begin()->__next_->__value_;
 #endif
 }
@@ -1228,26 +1328,33 @@ typename forward_list<_Tp, _Alloc>::iterator
 forward_list<_Tp, _Alloc>::insert_after(const_iterator __p, size_type __n,
                                         const value_type& __v)
 {
+    using _Guard = __allocation_guard<__node_allocator>;
+
     __begin_node_pointer __r = __p.__get_begin();
     if (__n > 0)
     {
         __node_allocator& __a = base::__alloc();
-        typedef __allocator_destructor<__node_allocator> _Dp;
-        unique_ptr<__node, _Dp> __h(__node_traits::allocate(__a, 1), _Dp(__a, 1));
-        __node_traits::construct(__a, _VSTD::addressof(__h->__value_), __v);
-        __node_pointer __first = __h.release();
+
+        __node_pointer __first = nullptr;
+        {
+          _Guard __h(__a, 1);
+          __node_traits::construct(__a, std::addressof(__h.__get()->__value_), __v);
+          __h.__get()->__next_ = nullptr;
+          __first = __h.__release_ptr();
+        }
         __node_pointer __last = __first;
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
         try
         {
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
             for (--__n; __n != 0; --__n, __last = __last->__next_)
             {
-                __h.reset(__node_traits::allocate(__a, 1));
-                __node_traits::construct(__a, _VSTD::addressof(__h->__value_), __v);
-                __last->__next_ = __h.release();
+                _Guard __h(__a, 1);
+                __node_traits::construct(__a, std::addressof(__h.__get()->__value_), __v);
+                __h.__get()->__next_ = nullptr;
+                __last->__next_ = __h.__release_ptr();
             }
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
         }
         catch (...)
         {
@@ -1260,7 +1367,7 @@ forward_list<_Tp, _Alloc>::insert_after(const_iterator __p, size_type __n,
             }
             throw;
         }
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
         __last->__next_ = __r->__next_;
         __r->__next_ = __first;
         __r = static_cast<__begin_node_pointer>(__last);
@@ -1270,30 +1377,45 @@ forward_list<_Tp, _Alloc>::insert_after(const_iterator __p, size_type __n,
 
 template <class _Tp, class _Alloc>
 template <class _InputIterator>
-__enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, typename forward_list<_Tp, _Alloc>::iterator>
+__enable_if_t<__has_input_iterator_category<_InputIterator>::value, typename forward_list<_Tp, _Alloc>::iterator>
 forward_list<_Tp, _Alloc>::insert_after(const_iterator __p,
                                         _InputIterator __f, _InputIterator __l)
 {
+  return __insert_after_with_sentinel(__p, std::move(__f), std::move(__l));
+}
+
+template <class _Tp, class _Alloc>
+template <class _InputIterator, class _Sentinel>
+_LIBCPP_HIDE_FROM_ABI
+typename forward_list<_Tp, _Alloc>::iterator
+forward_list<_Tp, _Alloc>::__insert_after_with_sentinel(const_iterator __p, _InputIterator __f, _Sentinel __l) {
+    using _Guard = __allocation_guard<__node_allocator>;
     __begin_node_pointer __r = __p.__get_begin();
+
     if (__f != __l)
     {
         __node_allocator& __a = base::__alloc();
-        typedef __allocator_destructor<__node_allocator> _Dp;
-        unique_ptr<__node, _Dp> __h(__node_traits::allocate(__a, 1), _Dp(__a, 1));
-        __node_traits::construct(__a, _VSTD::addressof(__h->__value_), *__f);
-        __node_pointer __first = __h.release();
+        __node_pointer __first = nullptr;
+        {
+          _Guard __h(__a, 1);
+          __node_traits::construct(__a, std::addressof(__h.__get()->__value_), *__f);
+          __h.__get()->__next_ = nullptr;
+          __first = __h.__release_ptr();
+        }
         __node_pointer __last = __first;
-#ifndef _LIBCPP_NO_EXCEPTIONS
+
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
         try
         {
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
             for (++__f; __f != __l; ++__f, ((void)(__last = __last->__next_)))
             {
-                __h.reset(__node_traits::allocate(__a, 1));
-                __node_traits::construct(__a, _VSTD::addressof(__h->__value_), *__f);
-                __last->__next_ = __h.release();
+                _Guard __h(__a, 1);
+                __node_traits::construct(__a, std::addressof(__h.__get()->__value_), *__f);
+                __h.__get()->__next_ = nullptr;
+                __last->__next_ = __h.__release_ptr();
             }
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
         }
         catch (...)
         {
@@ -1306,11 +1428,13 @@ forward_list<_Tp, _Alloc>::insert_after(const_iterator __p,
             }
             throw;
         }
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+
         __last->__next_ = __r->__next_;
         __r->__next_ = __first;
         __r = static_cast<__begin_node_pointer>(__last);
     }
+
     return iterator(__r);
 }
 
@@ -1711,6 +1835,8 @@ bool operator==(const forward_list<_Tp, _Alloc>& __x,
     return (__ix == __ex) == (__iy == __ey);
 }
 
+#if _LIBCPP_STD_VER <= 17
+
 template <class _Tp, class _Alloc>
 inline _LIBCPP_INLINE_VISIBILITY
 bool operator!=(const forward_list<_Tp, _Alloc>& __x,
@@ -1752,6 +1878,17 @@ bool operator<=(const forward_list<_Tp, _Alloc>& __x,
     return !(__y < __x);
 }
 
+#else // #if _LIBCPP_STD_VER <= 17
+
+template <class _Tp, class _Allocator>
+_LIBCPP_HIDE_FROM_ABI __synth_three_way_result<_Tp>
+operator<=>(const forward_list<_Tp, _Allocator>& __x, const forward_list<_Tp, _Allocator>& __y) {
+    return std::lexicographical_compare_three_way(
+        __x.begin(), __x.end(), __y.begin(), __y.end(), std::__synth_three_way<_Tp, _Tp>);
+}
+
+#endif // #if _LIBCPP_STD_VER <= 17
+
 template <class _Tp, class _Alloc>
 inline _LIBCPP_INLINE_VISIBILITY
 void
@@ -1761,7 +1898,7 @@ swap(forward_list<_Tp, _Alloc>& __x, forward_list<_Tp, _Alloc>& __y)
     __x.swap(__y);
 }
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 template <class _Tp, class _Allocator, class _Predicate>
 inline _LIBCPP_INLINE_VISIBILITY
     typename forward_list<_Tp, _Allocator>::size_type
@@ -1779,11 +1916,11 @@ inline _LIBCPP_INLINE_VISIBILITY
 
 _LIBCPP_END_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 _LIBCPP_BEGIN_NAMESPACE_STD
 namespace pmr {
 template <class _ValueT>
-using forward_list = std::forward_list<_ValueT, polymorphic_allocator<_ValueT>>;
+using forward_list _LIBCPP_AVAILABILITY_PMR = std::forward_list<_ValueT, polymorphic_allocator<_ValueT>>;
 } // namespace pmr
 _LIBCPP_END_NAMESPACE_STD
 #endif
@@ -1794,9 +1931,11 @@ _LIBCPP_POP_MACROS
 #  include <algorithm>
 #  include <atomic>
 #  include <concepts>
+#  include <cstdlib>
 #  include <functional>
 #  include <iosfwd>
 #  include <iterator>
+#  include <type_traits>
 #  include <typeinfo>
 #endif
 

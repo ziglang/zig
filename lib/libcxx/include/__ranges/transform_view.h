@@ -20,22 +20,28 @@
 #include <__config>
 #include <__functional/bind_back.h>
 #include <__functional/invoke.h>
+#include <__functional/perfect_forward.h>
 #include <__iterator/concepts.h>
 #include <__iterator/iterator_traits.h>
 #include <__memory/addressof.h>
 #include <__ranges/access.h>
 #include <__ranges/all.h>
 #include <__ranges/concepts.h>
-#include <__ranges/copyable_box.h>
 #include <__ranges/empty.h>
+#include <__ranges/movable_box.h>
 #include <__ranges/range_adaptor.h>
 #include <__ranges/size.h>
 #include <__ranges/view_interface.h>
+#include <__type_traits/conditional.h>
+#include <__type_traits/decay.h>
+#include <__type_traits/is_nothrow_constructible.h>
+#include <__type_traits/is_object.h>
+#include <__type_traits/is_reference.h>
 #include <__type_traits/maybe_const.h>
+#include <__type_traits/remove_cvref.h>
 #include <__utility/forward.h>
 #include <__utility/in_place.h>
 #include <__utility/move.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -43,7 +49,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 namespace ranges {
 
@@ -57,13 +63,17 @@ concept __transform_view_constraints =
   regular_invocable<_Fn&, range_reference_t<_View>> &&
   __can_reference<invoke_result_t<_Fn&, range_reference_t<_View>>>;
 
-template<input_range _View, copy_constructible _Fn>
+#  if _LIBCPP_STD_VER >= 23
+template <input_range _View, move_constructible _Fn>
+#  else
+template <input_range _View, copy_constructible _Fn>
+#  endif
   requires __transform_view_constraints<_View, _Fn>
 class transform_view : public view_interface<transform_view<_View, _Fn>> {
   template<bool> class __iterator;
   template<bool> class __sentinel;
 
-  _LIBCPP_NO_UNIQUE_ADDRESS __copyable_box<_Fn> __func_;
+  _LIBCPP_NO_UNIQUE_ADDRESS __movable_box<_Fn> __func_;
   _LIBCPP_NO_UNIQUE_ADDRESS _View __base_ = _View();
 
 public:
@@ -72,7 +82,7 @@ public:
     requires default_initializable<_View> && default_initializable<_Fn> = default;
 
   _LIBCPP_HIDE_FROM_ABI
-  constexpr transform_view(_View __base, _Fn __func)
+  constexpr _LIBCPP_EXPLICIT_SINCE_CXX23 transform_view(_View __base, _Fn __func)
     : __func_(std::in_place, std::move(__func)), __base_(std::move(__base)) {}
 
   _LIBCPP_HIDE_FROM_ABI
@@ -146,7 +156,7 @@ struct __transform_view_iterator_category_base<_View, _Fn> {
   using _Cat = typename iterator_traits<iterator_t<_View>>::iterator_category;
 
   using iterator_category = conditional_t<
-    is_lvalue_reference_v<invoke_result_t<_Fn&, range_reference_t<_View>>>,
+    is_reference_v<invoke_result_t<_Fn&, range_reference_t<_View>>>,
     conditional_t<
       derived_from<_Cat, contiguous_iterator_tag>,
       random_access_iterator_tag,
@@ -156,11 +166,14 @@ struct __transform_view_iterator_category_base<_View, _Fn> {
   >;
 };
 
-template<input_range _View, copy_constructible _Fn>
+#  if _LIBCPP_STD_VER >= 23
+template <input_range _View, move_constructible _Fn>
+#  else
+template <input_range _View, copy_constructible _Fn>
+#  endif
   requires __transform_view_constraints<_View, _Fn>
-template<bool _Const>
-class transform_view<_View, _Fn>::__iterator
-  : public __transform_view_iterator_category_base<_View, _Fn> {
+template <bool _Const>
+class transform_view<_View, _Fn>::__iterator : public __transform_view_iterator_category_base<_View, _Fn> {
 
   using _Parent = __maybe_const<_Const, transform_view>;
   using _Base = __maybe_const<_Const, _View>;
@@ -352,9 +365,13 @@ public:
   }
 };
 
-template<input_range _View, copy_constructible _Fn>
+#  if _LIBCPP_STD_VER >= 23
+template <input_range _View, move_constructible _Fn>
+#  else
+template <input_range _View, copy_constructible _Fn>
+#  endif
   requires __transform_view_constraints<_View, _Fn>
-template<bool _Const>
+template <bool _Const>
 class transform_view<_View, _Fn>::__sentinel {
   using _Parent = __maybe_const<_Const, transform_view>;
   using _Base = __maybe_const<_Const, _View>;
@@ -435,7 +452,7 @@ inline namespace __cpo {
 
 } // namespace ranges
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

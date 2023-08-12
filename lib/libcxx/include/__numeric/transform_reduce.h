@@ -20,13 +20,13 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template <class _InputIterator, class _Tp, class _BinaryOp, class _UnaryOp>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 _Tp transform_reduce(_InputIterator __first,
                                                                              _InputIterator __last, _Tp __init,
                                                                              _BinaryOp __b, _UnaryOp __u) {
   for (; __first != __last; ++__first)
-    __init = __b(__init, __u(*__first));
+    __init = __b(std::move(__init), __u(*__first));
   return __init;
 }
 
@@ -36,7 +36,7 @@ _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 _Tp transform_reduce(_In
                                                                              _InputIterator2 __first2, _Tp __init,
                                                                              _BinaryOp1 __b1, _BinaryOp2 __b2) {
   for (; __first1 != __last1; ++__first1, (void)++__first2)
-    __init = __b1(__init, __b2(*__first1, *__first2));
+    __init = __b1(std::move(__init), __b2(*__first1, *__first2));
   return __init;
 }
 

@@ -17,6 +17,6 @@
 #  pragma GCC system_header
 #endif
 
-#define _LIBCPP_AUTO_CAST(expr) static_cast<typename decay<decltype((expr))>::type>(expr)
+#define _LIBCPP_AUTO_CAST(expr) static_cast<::std::__decay_t<decltype((expr))> >(expr)
 
 #endif // _LIBCPP___UTILITY_AUTO_CAST_H

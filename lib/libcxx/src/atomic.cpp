@@ -9,10 +9,13 @@
 #include <__config>
 #ifndef _LIBCPP_HAS_NO_THREADS
 
+#include <__thread/timed_backoff_policy.h>
 #include <atomic>
 #include <climits>
 #include <functional>
 #include <thread>
+
+#include "include/apple_availability.h"
 
 #ifdef __linux__
 
@@ -77,20 +80,25 @@ static void __libcpp_platform_wake_by_address(__cxx_atomic_contention_t const vo
                  const_cast<__cxx_atomic_contention_t*>(__ptr), 0);
 }
 
-#elif defined(__FreeBSD__)
+#elif defined(__FreeBSD__) && __SIZEOF_LONG__ == 8
+/*
+ * Since __cxx_contention_t is int64_t even on 32bit FreeBSD
+ * platforms, we have to use umtx ops that work on the long type, and
+ * limit its use to architectures where long and int64_t are synonyms.
+ */
 
 static void __libcpp_platform_wait_on_address(__cxx_atomic_contention_t const volatile* __ptr,
                                               __cxx_contention_t __val)
 {
     _umtx_op(const_cast<__cxx_atomic_contention_t*>(__ptr),
-             UMTX_OP_WAIT_UINT_PRIVATE, __val, NULL, NULL);
+             UMTX_OP_WAIT, __val, NULL, NULL);
 }
 
 static void __libcpp_platform_wake_by_address(__cxx_atomic_contention_t const volatile* __ptr,
                                               bool __notify_one)
 {
     _umtx_op(const_cast<__cxx_atomic_contention_t*>(__ptr),
-             UMTX_OP_WAKE_PRIVATE, __notify_one ? 1 : INT_MAX, NULL, NULL);
+             UMTX_OP_WAKE, __notify_one ? 1 : INT_MAX, NULL, NULL);
 }
 
 #else // <- Add other operating systems here

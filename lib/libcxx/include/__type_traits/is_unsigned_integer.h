@@ -18,15 +18,17 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp> struct __libcpp_is_unsigned_integer : public false_type {};
-template <> struct __libcpp_is_unsigned_integer<unsigned char>      : public true_type {};
-template <> struct __libcpp_is_unsigned_integer<unsigned short>     : public true_type {};
-template <> struct __libcpp_is_unsigned_integer<unsigned int>       : public true_type {};
-template <> struct __libcpp_is_unsigned_integer<unsigned long>      : public true_type {};
-template <> struct __libcpp_is_unsigned_integer<unsigned long long> : public true_type {};
+// clang-format off
+template <class _Tp> struct __libcpp_is_unsigned_integer                     : public false_type {};
+template <>          struct __libcpp_is_unsigned_integer<unsigned char>      : public true_type {};
+template <>          struct __libcpp_is_unsigned_integer<unsigned short>     : public true_type {};
+template <>          struct __libcpp_is_unsigned_integer<unsigned int>       : public true_type {};
+template <>          struct __libcpp_is_unsigned_integer<unsigned long>      : public true_type {};
+template <>          struct __libcpp_is_unsigned_integer<unsigned long long> : public true_type {};
 #ifndef _LIBCPP_HAS_NO_INT128
-template <> struct __libcpp_is_unsigned_integer<__uint128_t>        : public true_type {};
+template <>          struct __libcpp_is_unsigned_integer<__uint128_t>        : public true_type {};
 #endif
+// clang-format on
 
 _LIBCPP_END_NAMESPACE_STD
 

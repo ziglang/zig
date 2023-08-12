@@ -23,7 +23,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 // default searcher
 template<class _ForwardIterator, class _BinaryPredicate = equal_to<>>
@@ -50,7 +50,7 @@ private:
 };
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(default_searcher);
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
 

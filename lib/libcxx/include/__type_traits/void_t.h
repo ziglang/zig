@@ -17,8 +17,9 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
-template <class...> using void_t = void;
+#if _LIBCPP_STD_VER >= 17
+template <class...>
+using void_t = void;
 #endif
 
 template <class...>

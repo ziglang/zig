@@ -19,7 +19,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 20
+#if _LIBCPP_STD_VER >= 23
 template <class _Pointer>
 struct allocation_result {
   _Pointer ptr;
@@ -55,7 +55,7 @@ __allocation_result<typename allocator_traits<_Alloc>::pointer> __allocate_at_le
   return {__alloc.allocate(__n), __n};
 }
 
-#endif // _LIBCPP_STD_VER > 20
+#endif // _LIBCPP_STD_VER >= 23
 
 _LIBCPP_END_NAMESPACE_STD
 

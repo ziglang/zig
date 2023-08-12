@@ -269,7 +269,7 @@ to_chars_result _Floating_to_chars_hex_precision(
     // * Print the leading hexit, then mask it away.
     {
         const uint32_t _Nibble = static_cast<uint32_t>(_Adjusted_mantissa >> _Adjusted_explicit_bits);
-        _LIBCPP_ASSERT(_Nibble < 3, "");
+        _LIBCPP_ASSERT_UNCATEGORIZED(_Nibble < 3, "");
         const char _Leading_hexit = static_cast<char>('0' + _Nibble);
 
         *_First++ = _Leading_hexit;
@@ -288,12 +288,12 @@ to_chars_result _Floating_to_chars_hex_precision(
         int32_t _Number_of_bits_remaining = _Adjusted_explicit_bits; // 24 for float, 52 for double
 
         for (;;) {
-            _LIBCPP_ASSERT(_Number_of_bits_remaining >= 4, "");
-            _LIBCPP_ASSERT(_Number_of_bits_remaining % 4 == 0, "");
+            _LIBCPP_ASSERT_UNCATEGORIZED(_Number_of_bits_remaining >= 4, "");
+            _LIBCPP_ASSERT_UNCATEGORIZED(_Number_of_bits_remaining % 4 == 0, "");
             _Number_of_bits_remaining -= 4;
 
             const uint32_t _Nibble = static_cast<uint32_t>(_Adjusted_mantissa >> _Number_of_bits_remaining);
-            _LIBCPP_ASSERT(_Nibble < 16, "");
+            _LIBCPP_ASSERT_UNCATEGORIZED(_Nibble < 16, "");
             const char _Hexit = __itoa::_Charconv_digits[_Nibble];
 
             *_First++ = _Hexit;
@@ -415,12 +415,12 @@ to_chars_result _Floating_to_chars_hex_shortest(
         // '0' hexits, the same condition works (as we print the final hexit and mask it away); we don't need to test
         // _Number_of_bits_remaining.
         do {
-            _LIBCPP_ASSERT(_Number_of_bits_remaining >= 4, "");
-            _LIBCPP_ASSERT(_Number_of_bits_remaining % 4 == 0, "");
+            _LIBCPP_ASSERT_UNCATEGORIZED(_Number_of_bits_remaining >= 4, "");
+            _LIBCPP_ASSERT_UNCATEGORIZED(_Number_of_bits_remaining % 4 == 0, "");
             _Number_of_bits_remaining -= 4;
 
             const uint32_t _Nibble = static_cast<uint32_t>(_Adjusted_mantissa >> _Number_of_bits_remaining);
-            _LIBCPP_ASSERT(_Nibble < 16, "");
+            _LIBCPP_ASSERT_UNCATEGORIZED(_Nibble < 16, "");
             const char _Hexit = __itoa::_Charconv_digits[_Nibble];
 
             if (_First == _Last) {
@@ -940,13 +940,13 @@ to_chars_result _Floating_to_chars_general_precision(
         _Effective_precision = _VSTD::min(_Precision - (_Scientific_exponent_X + 1), _Max_fixed_precision);
         const to_chars_result _Buf_result =
             _Floating_to_chars_fixed_precision(_Buffer, _VSTD::end(_Buffer), _Value, _Effective_precision);
-        _LIBCPP_ASSERT(_Buf_result.ec == errc{}, "");
+        _LIBCPP_ASSERT_UNCATEGORIZED(_Buf_result.ec == errc{}, "");
         _Significand_last = _Buf_result.ptr;
     } else {
         _Effective_precision = _VSTD::min(_Precision - 1, _Max_scientific_precision);
         const to_chars_result _Buf_result =
             _Floating_to_chars_scientific_precision(_Buffer, _VSTD::end(_Buffer), _Value, _Effective_precision);
-        _LIBCPP_ASSERT(_Buf_result.ec == errc{}, "");
+        _LIBCPP_ASSERT_UNCATEGORIZED(_Buf_result.ec == errc{}, "");
         _Significand_last = _VSTD::find(_Buffer, _Buf_result.ptr, 'e');
         _Exponent_first   = _Significand_last;
         _Exponent_last    = _Buf_result.ptr;
@@ -992,10 +992,10 @@ to_chars_result _Floating_to_chars(
     char* _First, char* const _Last, _Floating _Value, const chars_format _Fmt, const int _Precision) noexcept {
 
     if constexpr (_Overload == _Floating_to_chars_overload::_Plain) {
-        _LIBCPP_ASSERT(_Fmt == chars_format{}, ""); // plain overload must pass chars_format{} internally
+        _LIBCPP_ASSERT_UNCATEGORIZED(_Fmt == chars_format{}, ""); // plain overload must pass chars_format{} internally
     } else {
-        _LIBCPP_ASSERT(_Fmt == chars_format::general || _Fmt == chars_format::scientific || _Fmt == chars_format::fixed
-                         || _Fmt == chars_format::hex,
+        _LIBCPP_ASSERT_UNCATEGORIZED(_Fmt == chars_format::general || _Fmt == chars_format::scientific
+                         || _Fmt == chars_format::fixed || _Fmt == chars_format::hex,
             "invalid format in to_chars()");
     }
 

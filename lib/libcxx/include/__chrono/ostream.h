@@ -10,12 +10,16 @@
 #ifndef _LIBCPP___CHRONO_OSTREAM_H
 #define _LIBCPP___CHRONO_OSTREAM_H
 
+#include <__chrono/calendar.h>
 #include <__chrono/day.h>
 #include <__chrono/duration.h>
+#include <__chrono/file_clock.h>
+#include <__chrono/hh_mm_ss.h>
 #include <__chrono/month.h>
 #include <__chrono/month_weekday.h>
 #include <__chrono/monthday.h>
 #include <__chrono/statically_widen.h>
+#include <__chrono/system_clock.h>
 #include <__chrono/weekday.h>
 #include <__chrono/year.h>
 #include <__chrono/year_month.h>
@@ -33,9 +37,27 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_FORMAT)
+#if _LIBCPP_STD_VER >= 20
 
 namespace chrono {
+
+template <class _CharT, class _Traits, class _Duration>
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
+operator<<(basic_ostream<_CharT, _Traits>& __os, const sys_time<_Duration> __tp) {
+  return __os << std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L%F %T}"), __tp);
+}
+
+template <class _CharT, class _Traits, class _Duration>
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
+operator<<(basic_ostream<_CharT, _Traits>& __os, const file_time<_Duration> __tp) {
+  return __os << std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L%F %T}"), __tp);
+}
+
+template <class _CharT, class _Traits, class _Duration>
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
+operator<<(basic_ostream<_CharT, _Traits>& __os, const local_time<_Duration> __tp) {
+  return __os << sys_time<_Duration>{__tp.time_since_epoch()};
+}
 
 // Depending on the type the return is a const _CharT* or a basic_string<_CharT>
 template <class _CharT, class _Period>
@@ -92,7 +114,7 @@ _LIBCPP_HIDE_FROM_ABI auto __units_suffix() {
 }
 
 template <class _CharT, class _Traits, class _Rep, class _Period>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const duration<_Rep, _Period>& __d) {
   basic_ostringstream<_CharT, _Traits> __s;
   __s.flags(__os.flags());
@@ -103,21 +125,19 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const duration<_Rep, _Period>& 
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
-operator<<(basic_ostream<_CharT, _Traits>& __os, const day& __d) {
-  return __os
-      << (__d.ok()
-              ? std::format(_LIBCPP_STATICALLY_WIDEN(_CharT, "{:%d}"), __d)
-              // Note this error differs from the wording of the Standard. The
-              // Standard wording doesn't work well on AIX or Windows. There
-              // the formatted day seems to be either modulo 100 or completely
-              // omitted. Judging by the wording this is valid.
-              // TODO FMT Write a paper of file an LWG issue.
-              : std::format(_LIBCPP_STATICALLY_WIDEN(_CharT, "{:02} is not a valid day"), static_cast<unsigned>(__d)));
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>& operator<<(basic_ostream<_CharT, _Traits>& __os, const day& __d) {
+  return __os << (__d.ok() ? std::format(_LIBCPP_STATICALLY_WIDEN(_CharT, "{:%d}"), __d)
+                           // Note this error differs from the wording of the Standard. The
+                           // Standard wording doesn't work well on AIX or Windows. There
+                           // the formatted day seems to be either modulo 100 or completely
+                           // omitted. Judging by the wording this is valid.
+                           // TODO FMT Write a paper of file an LWG issue.
+                           : std::format(_LIBCPP_STATICALLY_WIDEN(_CharT, "{:02} is not a valid day"),
+                                         static_cast<unsigned>(__d)));
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const month& __m) {
   return __os << (__m.ok() ? std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L%b}"), __m)
                            : std::format(__os.getloc(),
@@ -126,14 +146,14 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const month& __m) {
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const year& __y) {
   return __os << (__y.ok() ? std::format(_LIBCPP_STATICALLY_WIDEN(_CharT, "{:%Y}"), __y)
                            : std::format(_LIBCPP_STATICALLY_WIDEN(_CharT, "{:%Y} is not a valid year"), __y));
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const weekday& __wd) {
   return __os << (__wd.ok() ? std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L%a}"), __wd)
                             : std::format(__os.getloc(), // TODO FMT Standard mandated locale isn't used.
@@ -142,7 +162,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const weekday& __wd) {
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const weekday_indexed& __wdi) {
   auto __i = __wdi.index();
   return __os << (__i >= 1 && __i <= 5
@@ -154,13 +174,13 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const weekday_indexed& __wdi) {
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const weekday_last& __wdl) {
   return __os << std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L}[last]"), __wdl.weekday());
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const month_day& __md) {
   // TODO FMT The Standard allows 30th of February to be printed.
   // It would be nice to show an error message instead.
@@ -168,47 +188,47 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const month_day& __md) {
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const month_day_last& __mdl) {
   return __os << std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L}/last"), __mdl.month());
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const month_weekday& __mwd) {
   return __os << std::format(
              __os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L}/{:L}"), __mwd.month(), __mwd.weekday_indexed());
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const month_weekday_last& __mwdl) {
   return __os << std::format(
              __os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L}/{:L}"), __mwdl.month(), __mwdl.weekday_last());
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const year_month& __ym) {
   return __os << std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{}/{:L}"), __ym.year(), __ym.month());
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const year_month_day& __ymd) {
   return __os << (__ymd.ok() ? std::format(_LIBCPP_STATICALLY_WIDEN(_CharT, "{:%F}"), __ymd)
                              : std::format(_LIBCPP_STATICALLY_WIDEN(_CharT, "{:%F} is not a valid date"), __ymd));
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const year_month_day_last& __ymdl) {
   return __os << std::format(
              __os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{}/{:L}"), __ymdl.year(), __ymdl.month_day_last());
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const year_month_weekday& __ymwd) {
   return __os << std::format(
              __os.getloc(),
@@ -219,7 +239,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const year_month_weekday& __ymw
 }
 
 template <class _CharT, class _Traits>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const year_month_weekday_last& __ymwdl) {
   return __os << std::format(
              __os.getloc(),
@@ -229,9 +249,15 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const year_month_weekday_last& 
              __ymwdl.weekday_last());
 }
 
+template <class _CharT, class _Traits, class _Duration>
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
+operator<<(basic_ostream<_CharT, _Traits>& __os, const hh_mm_ss<_Duration> __hms) {
+  return __os << std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L%T}"), __hms);
+}
+
 } // namespace chrono
 
-#endif //if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_FORMAT)
+#endif // if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 
