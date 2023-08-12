@@ -11359,7 +11359,10 @@ const GenZir = struct {
             parent_gz.instructions.items.len -= src - dst;
             as_scope.instructions_top = GenZir.unstacked_top;
             // as_scope now unstacked, can add new instructions to parent_gz
-            const casted_result = try parent_gz.addBin(.as, dest_type, result);
+            const casted_result = try parent_gz.addPlNode(.as_node, src_node, Zir.Inst.As{
+                .dest_type = dest_type,
+                .operand = result,
+            });
             return rvalue(parent_gz, ri, casted_result, src_node);
         } else {
             // implicitly move all as_scope instructions to parent_gz
