@@ -4930,6 +4930,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var reference_trace: ?u32 = null;
         var debug_compile_errors = false;
         var fetch_only = false;
+        const micros: u32 = @truncate(@as(u64, @bitCast(std.time.microTimestamp())));
+        var seed: []const u8 = try std.fmt.allocPrint(arena, "{}", .{micros});
 
         const argv_index_exe = child_argv.items.len;
         _ = try child_argv.addOne();
@@ -4944,6 +4946,9 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
         const argv_index_global_cache_dir = child_argv.items.len;
         _ = try child_argv.addOne();
+
+        try child_argv.appendSlice(&[_][]const u8{ "--seed", seed });
+        const argv_index_seed = child_argv.items.len - 1;
 
         {
             var i: usize = 0;
@@ -4993,6 +4998,11 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                         try child_argv.append(arg);
                         debug_compile_errors = true;
+                    } else if (mem.eql(u8, arg, "--seed")) {
+                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                        i += 1;
+                        child_argv.items[argv_index_seed] = args[i];
+                        continue;
                     }
                 }
                 try child_argv.append(arg);
