@@ -571,7 +571,28 @@ pub fn main() !void {
     // connection has been kept alive
     try testing.expect(client.connection_pool.free_len == 1);
 
-    { // issue 16282
+    { // Client.fetch()
+        var h = http.Headers{ .allocator = calloc };
+        defer h.deinit();
+
+        try h.append("content-type", "text/plain");
+
+        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content#fetch", .{port});
+        defer calloc.free(location);
+
+        log.info("{s}", .{location});
+        var res = try client.fetch(calloc, .{
+            .location = .{ .url = location },
+            .method = .POST,
+            .headers = h,
+            .payload = .{ .string = "Hello, World!\n" },
+        });
+        defer res.deinit();
+
+        try testing.expectEqualStrings("Hello, World!\n", res.body.?);
+    }
+
+    { // issue 16282 *** This test leaves the client in an invalid state, it must be last ***
         const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/get", .{port});
         defer calloc.free(location);
         const uri = try std.Uri.parse(location);
