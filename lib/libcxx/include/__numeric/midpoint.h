@@ -33,7 +33,7 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 template <class _Tp>
 _LIBCPP_INLINE_VISIBILITY constexpr
 enable_if_t<is_integral_v<_Tp> && !is_same_v<bool, _Tp> && !is_null_pointer_v<_Tp>, _Tp>
@@ -86,7 +86,7 @@ midpoint(_Fp __a, _Fp __b) noexcept
       __a/2 + __b/2;                                         // otherwise correctly rounded
 }
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -60,9 +60,7 @@ _OutputIterator
 merge(_InputIterator1 __first1, _InputIterator1 __last1,
       _InputIterator2 __first2, _InputIterator2 __last2, _OutputIterator __result)
 {
-    typedef typename iterator_traits<_InputIterator1>::value_type __v1;
-    typedef typename iterator_traits<_InputIterator2>::value_type __v2;
-    return _VSTD::merge(__first1, __last1, __first2, __last2, __result, __less<__v1, __v2>());
+    return _VSTD::merge(__first1, __last1, __first2, __last2, __result, __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

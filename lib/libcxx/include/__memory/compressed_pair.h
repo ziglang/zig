@@ -13,7 +13,7 @@
 #include <__config>
 #include <__fwd/get.h>
 #include <__fwd/tuple.h>
-#include <__tuple_dir/tuple_indices.h>
+#include <__tuple/tuple_indices.h>
 #include <__type_traits/decay.h>
 #include <__type_traits/dependent_type.h>
 #include <__type_traits/enable_if.h>
@@ -31,6 +31,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 // Tag used to default initialize one or both of the pair's elements.
@@ -46,7 +49,7 @@ struct __compressed_pair_elem {
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __compressed_pair_elem(__default_init_tag) {}
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __compressed_pair_elem(__value_init_tag) : __value_() {}
 
-  template <class _Up, class = __enable_if_t<!is_same<__compressed_pair_elem, typename decay<_Up>::type>::value> >
+  template <class _Up, class = __enable_if_t<!is_same<__compressed_pair_elem, __decay_t<_Up> >::value> >
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
   explicit __compressed_pair_elem(_Up&& __u) : __value_(std::forward<_Up>(__u)) {}
 
@@ -75,7 +78,7 @@ struct __compressed_pair_elem<_Tp, _Idx, true> : private _Tp {
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __compressed_pair_elem(__default_init_tag) {}
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __compressed_pair_elem(__value_init_tag) : __value_type() {}
 
-  template <class _Up, class = __enable_if_t<!is_same<__compressed_pair_elem, typename decay<_Up>::type>::value> >
+  template <class _Up, class = __enable_if_t<!is_same<__compressed_pair_elem, __decay_t<_Up> >::value> >
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
   explicit __compressed_pair_elem(_Up&& __u) : __value_type(std::forward<_Up>(__u)) {}
 
@@ -173,5 +176,7 @@ void swap(__compressed_pair<_T1, _T2>& __x, __compressed_pair<_T1, _T2>& __y)
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___MEMORY_COMPRESSED_PAIR_H

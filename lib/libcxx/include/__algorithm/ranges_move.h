@@ -23,7 +23,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -34,38 +34,36 @@ using move_result = in_out_result<_InIter, _OutIter>;
 
 namespace __move {
 struct __fn {
-
   template <class _InIter, class _Sent, class _OutIter>
-  _LIBCPP_HIDE_FROM_ABI constexpr static
-  move_result<_InIter, _OutIter> __move_impl(_InIter __first, _Sent __last, _OutIter __result) {
+  _LIBCPP_HIDE_FROM_ABI constexpr static move_result<_InIter, _OutIter>
+  __move_impl(_InIter __first, _Sent __last, _OutIter __result) {
     auto __ret = std::__move<_RangeAlgPolicy>(std::move(__first), std::move(__last), std::move(__result));
     return {std::move(__ret.first), std::move(__ret.second)};
   }
 
   template <input_iterator _InIter, sentinel_for<_InIter> _Sent, weakly_incrementable _OutIter>
     requires indirectly_movable<_InIter, _OutIter>
-  _LIBCPP_HIDE_FROM_ABI constexpr
-  move_result<_InIter, _OutIter> operator()(_InIter __first, _Sent __last, _OutIter __result) const {
+  _LIBCPP_HIDE_FROM_ABI constexpr move_result<_InIter, _OutIter>
+  operator()(_InIter __first, _Sent __last, _OutIter __result) const {
     return __move_impl(std::move(__first), std::move(__last), std::move(__result));
   }
 
   template <input_range _Range, weakly_incrementable _OutIter>
     requires indirectly_movable<iterator_t<_Range>, _OutIter>
-  _LIBCPP_HIDE_FROM_ABI constexpr
-  move_result<borrowed_iterator_t<_Range>, _OutIter> operator()(_Range&& __range, _OutIter __result) const {
+  _LIBCPP_HIDE_FROM_ABI constexpr move_result<borrowed_iterator_t<_Range>, _OutIter>
+  operator()(_Range&& __range, _OutIter __result) const {
     return __move_impl(ranges::begin(__range), ranges::end(__range), std::move(__result));
   }
-
 };
 } // namespace __move
 
 inline namespace __cpo {
-  inline constexpr auto move = __move::__fn{};
+inline constexpr auto move = __move::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___ALGORITHM_RANGES_MOVE_H

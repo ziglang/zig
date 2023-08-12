@@ -20,7 +20,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 struct unexpect_t {
-  _LIBCPP_HIDE_FROM_ABI explicit unexpect_t() = default;
+  explicit unexpect_t() = default;
 };
 
 inline constexpr unexpect_t unexpect{};

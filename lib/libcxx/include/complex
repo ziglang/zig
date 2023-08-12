@@ -148,12 +148,12 @@ template<class T> complex<T> operator/(const complex<T>&, const T&);          //
 template<class T> complex<T> operator/(const T&, const complex<T>&);          // constexpr in C++20
 template<class T> complex<T> operator+(const complex<T>&);                    // constexpr in C++20
 template<class T> complex<T> operator-(const complex<T>&);                    // constexpr in C++20
-template<class T> bool operator==(const complex<T>&, const complex<T>&); // constexpr in C++14
-template<class T> bool operator==(const complex<T>&, const T&); // constexpr in C++14
-template<class T> bool operator==(const T&, const complex<T>&); // constexpr in C++14
-template<class T> bool operator!=(const complex<T>&, const complex<T>&); // constexpr in C++14
-template<class T> bool operator!=(const complex<T>&, const T&); // constexpr in C++14
-template<class T> bool operator!=(const T&, const complex<T>&); // constexpr in C++14
+template<class T> bool operator==(const complex<T>&, const complex<T>&);      // constexpr in C++14
+template<class T> bool operator==(const complex<T>&, const T&);               // constexpr in C++14
+template<class T> bool operator==(const T&, const complex<T>&);               // constexpr in C++14, removed in C++20
+template<class T> bool operator!=(const complex<T>&, const complex<T>&);      // constexpr in C++14, removed in C++20
+template<class T> bool operator!=(const complex<T>&, const T&);               // constexpr in C++14, removed in C++20
+template<class T> bool operator!=(const T&, const complex<T>&);               // constexpr in C++14, removed in C++20
 
 template<class T, class charT, class traits>
   basic_istream<charT, traits>&
@@ -236,7 +236,6 @@ template<class T> complex<T> tanh (const complex<T>&);
 #include <cmath>
 #include <iosfwd>
 #include <stdexcept>
-#include <type_traits>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
@@ -828,6 +827,8 @@ operator==(const complex<_Tp>& __x, const _Tp& __y)
     return __x.real() == __y && __x.imag() == 0;
 }
 
+#if _LIBCPP_STD_VER <= 17
+
 template<class _Tp>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 bool
@@ -859,6 +860,8 @@ operator!=(const _Tp& __x, const complex<_Tp>& __y)
 {
     return !(__x == __y);
 }
+
+#endif
 
 // 26.3.7 values:
 
@@ -1522,7 +1525,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const complex<_Tp>& __x)
 }
 #endif // !_LIBCPP_HAS_NO_LOCALIZATION
 
-#if _LIBCPP_STD_VER > 11
+#if _LIBCPP_STD_VER >= 14
 // Literal suffix for complex number literals [complex.literals]
 inline namespace literals
 {
@@ -1564,5 +1567,9 @@ inline namespace literals
 #endif
 
 _LIBCPP_END_NAMESPACE_STD
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <type_traits>
+#endif
 
 #endif // _LIBCPP_COMPLEX

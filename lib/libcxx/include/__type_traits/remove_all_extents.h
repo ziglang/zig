@@ -27,19 +27,26 @@ struct remove_all_extents {
 template <class _Tp>
 using __remove_all_extents_t = __remove_all_extents(_Tp);
 #else
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_all_extents
-    {typedef _Tp type;};
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_all_extents<_Tp[]>
-    {typedef typename remove_all_extents<_Tp>::type type;};
-template <class _Tp, size_t _Np> struct _LIBCPP_TEMPLATE_VIS remove_all_extents<_Tp[_Np]>
-    {typedef typename remove_all_extents<_Tp>::type type;};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS remove_all_extents {
+  typedef _Tp type;
+};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS remove_all_extents<_Tp[]> {
+  typedef typename remove_all_extents<_Tp>::type type;
+};
+template <class _Tp, size_t _Np>
+struct _LIBCPP_TEMPLATE_VIS remove_all_extents<_Tp[_Np]> {
+  typedef typename remove_all_extents<_Tp>::type type;
+};
 
 template <class _Tp>
 using __remove_all_extents_t = typename remove_all_extents<_Tp>::type;
 #endif // __has_builtin(__remove_all_extents)
 
-#if _LIBCPP_STD_VER > 11
-template <class _Tp> using remove_all_extents_t = __remove_all_extents_t<_Tp>;
+#if _LIBCPP_STD_VER >= 14
+template <class _Tp>
+using remove_all_extents_t = __remove_all_extents_t<_Tp>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

@@ -301,10 +301,10 @@ template <class _CharT, class _Traits, class _MoneyT>
 _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t7<_MoneyT>& __x)
 {
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     try
     {
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
         typename basic_istream<_CharT, _Traits>::sentry __s(__is);
         if (__s)
         {
@@ -315,13 +315,13 @@ operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t7<_MoneyT>& __x)
             __mf.get(_Ip(__is), _Ip(), __x.__intl_, __is, __err, __x.__mon_);
             __is.setstate(__err);
         }
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     }
     catch (...)
     {
         __is.__set_badbit_and_consider_rethrow();
     }
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
     return __is;
 }
 
@@ -361,10 +361,10 @@ template <class _CharT, class _Traits, class _MoneyT>
 _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t8<_MoneyT>& __x)
 {
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     try
     {
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
         typename basic_ostream<_CharT, _Traits>::sentry __s(__os);
         if (__s)
         {
@@ -374,13 +374,13 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t8<_MoneyT>& __x)
             if (__mf.put(_Op(__os), __x.__intl_, __os, __os.fill(), __x.__mon_).failed())
                 __os.setstate(ios_base::badbit);
         }
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     }
     catch (...)
     {
         __os.__set_badbit_and_consider_rethrow();
     }
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
     return __os;
 }
 
@@ -420,10 +420,10 @@ template <class _CharT, class _Traits>
 _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t9<_CharT>& __x)
 {
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     try
     {
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
         typename basic_istream<_CharT, _Traits>::sentry __s(__is);
         if (__s)
         {
@@ -435,13 +435,13 @@ operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t9<_CharT>& __x)
                      __x.__fmt_, __x.__fmt_ + _Traits::length(__x.__fmt_));
             __is.setstate(__err);
         }
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     }
     catch (...)
     {
         __is.__set_badbit_and_consider_rethrow();
     }
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
     return __is;
 }
 
@@ -481,10 +481,10 @@ template <class _CharT, class _Traits>
 _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t10<_CharT>& __x)
 {
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     try
     {
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
         typename basic_ostream<_CharT, _Traits>::sentry __s(__os);
         if (__s)
         {
@@ -495,13 +495,13 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t10<_CharT>& __x)
                          __x.__fmt_, __x.__fmt_ + _Traits::length(__x.__fmt_)).failed())
                 __os.setstate(ios_base::badbit);
         }
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     }
     catch (...)
     {
         __os.__set_badbit_and_consider_rethrow();
     }
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
     return __os;
 }
 
@@ -512,8 +512,6 @@ put_time(const tm* __tm, const _CharT* __fmt)
 {
     return __iom_t10<_CharT>(__tm, __fmt);
 }
-
-#if _LIBCPP_STD_VER >= 11
 
 template <class _CharT, class _Traits>
 _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
@@ -622,9 +620,7 @@ __quoted(basic_string<_CharT, _Traits, _Allocator>& __s, _CharT __delim = _CharT
     return __quoted_proxy<_CharT, _Traits, _Allocator>(__s, __delim, __escape);
 }
 
-#endif // _LIBCPP_STD_VER >= 11
-
-#if _LIBCPP_STD_VER > 11
+#if _LIBCPP_STD_VER >= 14
 
 template <class _CharT>
 _LIBCPP_HIDE_FROM_ABI
@@ -656,7 +652,7 @@ auto quoted(basic_string_view<_CharT, _Traits> __sv, _CharT __delim = _CharT('"'
     return __quoted_output_proxy<_CharT, _Traits>(__sv.data(), __sv.data() + __sv.size(), __delim, __escape);
 }
 
-#endif // _LIBCPP_STD_VER > 11
+#endif // _LIBCPP_STD_VER >= 14
 
 _LIBCPP_END_NAMESPACE_STD
 

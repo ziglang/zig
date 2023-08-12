@@ -18,13 +18,11 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp, class ..._Args>
-struct _LIBCPP_TEMPLATE_VIS is_constructible
-    : public integral_constant<bool, __is_constructible(_Tp, _Args...)>
-{ };
+template <class _Tp, class... _Args>
+struct _LIBCPP_TEMPLATE_VIS is_constructible : public integral_constant<bool, __is_constructible(_Tp, _Args...)> {};
 
-#if _LIBCPP_STD_VER > 14
-template <class _Tp, class ..._Args>
+#if _LIBCPP_STD_VER >= 17
+template <class _Tp, class... _Args>
 inline constexpr bool is_constructible_v = __is_constructible(_Tp, _Args...);
 #endif
 

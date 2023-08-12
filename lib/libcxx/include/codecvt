@@ -78,7 +78,7 @@ template <class _Elem> class __codecvt_utf8;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf8<wchar_t>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf8<wchar_t>
     : public codecvt<wchar_t, char, mbstate_t>
 {
     unsigned long __maxcode_;
@@ -115,7 +115,7 @@ protected:
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf8<char16_t>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf8<char16_t>
     : public codecvt<char16_t, char, mbstate_t>
 {
     unsigned long __maxcode_;
@@ -149,7 +149,7 @@ protected:
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf8<char32_t>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf8<char32_t>
     : public codecvt<char32_t, char, mbstate_t>
 {
     unsigned long __maxcode_;
@@ -203,7 +203,7 @@ template <class _Elem, bool _LittleEndian> class __codecvt_utf16;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf16<wchar_t, false>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf16<wchar_t, false>
     : public codecvt<wchar_t, char, mbstate_t>
 {
     unsigned long __maxcode_;
@@ -239,7 +239,7 @@ protected:
 };
 
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf16<wchar_t, true>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf16<wchar_t, true>
     : public codecvt<wchar_t, char, mbstate_t>
 {
     unsigned long __maxcode_;
@@ -276,7 +276,7 @@ protected:
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf16<char16_t, false>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf16<char16_t, false>
     : public codecvt<char16_t, char, mbstate_t>
 {
     unsigned long __maxcode_;
@@ -310,7 +310,7 @@ protected:
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf16<char16_t, true>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf16<char16_t, true>
     : public codecvt<char16_t, char, mbstate_t>
 {
     unsigned long __maxcode_;
@@ -344,7 +344,7 @@ protected:
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf16<char32_t, false>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf16<char32_t, false>
     : public codecvt<char32_t, char, mbstate_t>
 {
     unsigned long __maxcode_;
@@ -378,7 +378,7 @@ protected:
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf16<char32_t, true>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf16<char32_t, true>
     : public codecvt<char32_t, char, mbstate_t>
 {
     unsigned long __maxcode_;
@@ -432,7 +432,7 @@ template <class _Elem> class __codecvt_utf8_utf16;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf8_utf16<wchar_t>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf8_utf16<wchar_t>
     : public codecvt<wchar_t, char, mbstate_t>
 {
     unsigned long __maxcode_;
@@ -469,7 +469,7 @@ protected:
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf8_utf16<char32_t>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf8_utf16<char32_t>
     : public codecvt<char32_t, char, mbstate_t>
 {
     unsigned long __maxcode_;
@@ -503,7 +503,7 @@ protected:
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-class _LIBCPP_TYPE_VIS __codecvt_utf8_utf16<char16_t>
+class _LIBCPP_EXPORTED_FROM_ABI __codecvt_utf8_utf16<char16_t>
     : public codecvt<char16_t, char, mbstate_t>
 {
     unsigned long __maxcode_;

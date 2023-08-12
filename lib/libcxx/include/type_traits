@@ -51,7 +51,7 @@ namespace std
     template <class T> struct is_arithmetic;
     template <class T> struct is_fundamental;
     template <class T> struct is_member_pointer;
-    template <class T> struct is_scoped_enum; // C++2b
+    template <class T> struct is_scoped_enum; // C++23
     template <class T> struct is_scalar;
     template <class T> struct is_object;
     template <class T> struct is_compound;
@@ -286,7 +286,7 @@ namespace std
       template <class T> inline constexpr bool is_member_pointer_v
         = is_member_pointer<T>::value;                                   // C++17
       template <class T> inline constexpr bool is_scoped_enum_v
-        = is_scoped_enum<T>::value;                                      // C++2b
+        = is_scoped_enum<T>::value;                                      // C++23
 
       // See C++14 20.10.4.3, type properties
       template <class T> inline constexpr bool is_const_v
@@ -418,7 +418,6 @@ namespace std
 */
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__functional/invoke.h>
 #include <__fwd/hash.h> // This is https://llvm.org/PR56938
 #include <__type_traits/add_const.h>
 #include <__type_traits/add_cv.h>
@@ -443,6 +442,7 @@ namespace std
 #include <__type_traits/has_unique_object_representation.h>
 #include <__type_traits/has_virtual_destructor.h>
 #include <__type_traits/integral_constant.h>
+#include <__type_traits/invoke.h>
 #include <__type_traits/is_abstract.h>
 #include <__type_traits/is_aggregate.h>
 #include <__type_traits/is_arithmetic.h>
@@ -532,6 +532,7 @@ namespace std
 #include <__type_traits/result_of.h>
 #include <__type_traits/type_identity.h>
 #include <__type_traits/underlying_type.h>
+#include <__type_traits/unwrap_ref.h>
 #include <__type_traits/void_t.h>
 #include <__utility/declval.h>
 #include <cstddef>

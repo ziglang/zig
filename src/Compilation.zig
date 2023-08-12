@@ -4289,6 +4289,9 @@ pub fn addCCArgs(
             try argv.append("-D_LIBCPP_HAS_NO_THREADS");
         }
 
+        // See the comment in libcxx.zig for more details about this.
+        try argv.append("-D_LIBCPP_PSTL_CPU_BACKEND_SERIAL");
+
         try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
             @intFromEnum(comp.libcxx_abi_version),
         }));

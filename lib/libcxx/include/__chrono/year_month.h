@@ -20,7 +20,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -31,7 +31,7 @@ class year_month {
     chrono::year  __y_;
     chrono::month __m_;
 public:
-    _LIBCPP_HIDE_FROM_ABI year_month() = default;
+    year_month() = default;
     _LIBCPP_HIDE_FROM_ABI constexpr year_month(const chrono::year& __yval, const chrono::month& __mval) noexcept
         : __y_{__yval}, __m_{__mval} {}
     _LIBCPP_HIDE_FROM_ABI inline constexpr chrono::year  year()  const noexcept { return __y_; }
@@ -96,6 +96,6 @@ year_month operator-(const year_month& __lhs, const years& __rhs) noexcept
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___CHRONO_YEAR_MONTH_H

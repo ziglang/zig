@@ -92,8 +92,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator set_union(
       std::move(__first2),
       std::move(__last2),
       std::move(__result),
-      __less<typename iterator_traits<_InputIterator1>::value_type,
-             typename iterator_traits<_InputIterator2>::value_type>());
+      __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

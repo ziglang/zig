@@ -21,30 +21,36 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 // [expos.only.func]
 
-_LIBCPP_HIDE_FROM_ABI inline constexpr auto __synth_three_way =
-  []<class _Tp, class _Up>(const _Tp& __t, const _Up& __u)
-    requires requires {
-      { __t < __u } -> __boolean_testable;
-      { __u < __t } -> __boolean_testable;
-    }
-  {
-    if constexpr (three_way_comparable_with<_Tp, _Up>) {
-      return __t <=> __u;
-    } else {
-      if (__t < __u) return weak_ordering::less;
-      if (__u < __t) return weak_ordering::greater;
-      return weak_ordering::equivalent;
-    }
-  };
+// TODO MODULES restore the lamba to match the Standard.
+// See https://github.com/llvm/llvm-project/issues/57222
+//_LIBCPP_HIDE_FROM_ABI inline constexpr auto __synth_three_way =
+//  []<class _Tp, class _Up>(const _Tp& __t, const _Up& __u)
+template <class _Tp, class _Up>
+_LIBCPP_HIDE_FROM_ABI constexpr auto __synth_three_way(const _Tp& __t, const _Up& __u)
+  requires requires {
+    { __t < __u } -> __boolean_testable;
+    { __u < __t } -> __boolean_testable;
+  }
+{
+  if constexpr (three_way_comparable_with<_Tp, _Up>) {
+    return __t <=> __u;
+  } else {
+    if (__t < __u)
+      return weak_ordering::less;
+    if (__u < __t)
+      return weak_ordering::greater;
+    return weak_ordering::equivalent;
+  }
+}
 
 template <class _Tp, class _Up = _Tp>
 using __synth_three_way_result = decltype(std::__synth_three_way(std::declval<_Tp&>(), std::declval<_Up&>()));
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

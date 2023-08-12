@@ -18,7 +18,7 @@
 
 #if !defined(_LIBCPP_HAS_NO_INT128)
 
-extern "C" __attribute__((no_sanitize("undefined"))) _LIBCPP_FUNC_VIS
+extern "C" __attribute__((no_sanitize("undefined"))) _LIBCPP_EXPORTED_FROM_ABI
 __int128_t __muloti4(__int128_t a, __int128_t b, int* overflow) {
   const int N = (int)(sizeof(__int128_t) * CHAR_BIT);
   const __int128_t MIN = (__int128_t)1 << (N - 1);

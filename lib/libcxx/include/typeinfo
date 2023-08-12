@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __LIBCPP_TYPEINFO
-#define __LIBCPP_TYPEINFO
+#ifndef _LIBCPP_TYPEINFO
+#define _LIBCPP_TYPEINFO
 
 /*
 
@@ -21,7 +21,7 @@ class type_info
 public:
     virtual ~type_info();
 
-    bool operator==(const type_info& rhs) const noexcept;
+    bool operator==(const type_info& rhs) const noexcept; // constexpr since C++23
     bool operator!=(const type_info& rhs) const noexcept; // removed in C++20
 
     bool before(const type_info& rhs) const noexcept;
@@ -59,11 +59,11 @@ public:
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__config>
+#include <__exception/exception.h>
+#include <__type_traits/is_constant_evaluated.h>
+#include <__verbose_abort>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
-#include <exception>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -79,7 +79,7 @@ namespace std  // purposefully not using versioning namespace
 
 #if defined(_LIBCPP_ABI_MICROSOFT)
 
-class _LIBCPP_EXCEPTION_ABI type_info
+class _LIBCPP_EXPORTED_FROM_ABI type_info
 {
     type_info& operator=(const type_info&);
     type_info(const type_info&);
@@ -104,8 +104,13 @@ public:
 
     size_t hash_code() const _NOEXCEPT;
 
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX23
     bool operator==(const type_info& __arg) const _NOEXCEPT {
+      // When evaluated in a constant expression, both type infos simply can't come
+      // from different translation units, so it is sufficient to compare their addresses.
+      if (__libcpp_is_constant_evaluated()) {
+        return this == &__arg;
+      }
       return __compare(__arg) == 0;
     }
 
@@ -294,7 +299,7 @@ struct __type_info_implementations {
      __impl;
 };
 
-class _LIBCPP_EXCEPTION_ABI type_info
+class _LIBCPP_EXPORTED_FROM_ABI type_info
 {
   type_info& operator=(const type_info&);
   type_info(const type_info&);
@@ -330,9 +335,14 @@ public:
       return __impl::__hash(__type_name);
     }
 
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX23
     bool operator==(const type_info& __arg) const _NOEXCEPT
     {
+      // When evaluated in a constant expression, both type infos simply can't come
+      // from different translation units, so it is sufficient to compare their addresses.
+      if (__libcpp_is_constant_evaluated()) {
+        return this == &__arg;
+      }
       return __impl::__eq(__type_name, __arg.__type_name);
     }
 
@@ -344,17 +354,17 @@ public:
 };
 #endif // defined(_LIBCPP_ABI_MICROSOFT)
 
-class _LIBCPP_EXCEPTION_ABI bad_cast
+class _LIBCPP_EXPORTED_FROM_ABI bad_cast
     : public exception
 {
  public:
   bad_cast() _NOEXCEPT;
-  bad_cast(const bad_cast&) _NOEXCEPT = default;
+  _LIBCPP_HIDE_FROM_ABI bad_cast(const bad_cast&) _NOEXCEPT = default;
   ~bad_cast() _NOEXCEPT override;
   const char* what() const _NOEXCEPT override;
 };
 
-class _LIBCPP_EXCEPTION_ABI bad_typeid
+class _LIBCPP_EXPORTED_FROM_ABI bad_typeid
     : public exception
 {
  public:
@@ -395,12 +405,18 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 _LIBCPP_NORETURN inline _LIBCPP_INLINE_VISIBILITY
 void __throw_bad_cast()
 {
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     throw bad_cast();
 #else
-    _VSTD::abort();
+    _LIBCPP_VERBOSE_ABORT("bad_cast was thrown in -fno-exceptions mode");
 #endif
 }
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // __LIBCPP_TYPEINFO
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <cstdlib>
+#  include <exception>
+#  include <type_traits>
+#endif
+
+#endif // _LIBCPP_TYPEINFO

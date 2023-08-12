@@ -41,19 +41,19 @@ public:
     public:
         typedef piecewise_linear_distribution distribution_type;
 
-        param_type();
+        _LIBCPP_HIDE_FROM_ABI param_type();
         template<class _InputIteratorB, class _InputIteratorW>
-            param_type(_InputIteratorB __f_b, _InputIteratorB __l_b,
+        _LIBCPP_HIDE_FROM_ABI param_type(_InputIteratorB __f_b, _InputIteratorB __l_b,
                        _InputIteratorW __f_w);
 #ifndef _LIBCPP_CXX03_LANG
         template<class _UnaryOperation>
-            param_type(initializer_list<result_type> __bl, _UnaryOperation __fw);
+        _LIBCPP_HIDE_FROM_ABI param_type(initializer_list<result_type> __bl, _UnaryOperation __fw);
 #endif // _LIBCPP_CXX03_LANG
         template<class _UnaryOperation>
-            param_type(size_t __nw, result_type __xmin, result_type __xmax,
+        _LIBCPP_HIDE_FROM_ABI param_type(size_t __nw, result_type __xmin, result_type __xmax,
                        _UnaryOperation __fw);
-        param_type(param_type const&) = default;
-        param_type & operator=(const param_type& __rhs);
+        _LIBCPP_HIDE_FROM_ABI param_type(param_type const&) = default;
+        _LIBCPP_HIDE_FROM_ABI param_type & operator=(const param_type& __rhs);
 
         _LIBCPP_INLINE_VISIBILITY
         vector<result_type> intervals() const {return __b_;}
@@ -68,7 +68,7 @@ public:
             {return !(__x == __y);}
 
     private:
-        void __init();
+        _LIBCPP_HIDE_FROM_ABI void __init();
 
         friend class piecewise_linear_distribution;
 
@@ -125,7 +125,8 @@ public:
         _LIBCPP_INLINE_VISIBILITY
         result_type operator()(_URNG& __g)
         {return (*this)(__g, __p_);}
-    template<class _URNG> result_type operator()(_URNG& __g, const param_type& __p);
+    template<class _URNG>
+    _LIBCPP_HIDE_FROM_ABI result_type operator()(_URNG& __g, const param_type& __p);
 
     // property functions
     _LIBCPP_INLINE_VISIBILITY
@@ -188,23 +189,23 @@ void
 piecewise_linear_distribution<_RealType>::param_type::__init()
 {
     __areas_.assign(__densities_.size() - 1, result_type());
-    result_type _Sp = 0;
+    result_type __sp = 0;
     for (size_t __i = 0; __i < __areas_.size(); ++__i)
     {
         __areas_[__i] = (__densities_[__i+1] + __densities_[__i]) *
                         (__b_[__i+1] - __b_[__i]) * .5;
-        _Sp += __areas_[__i];
+        __sp += __areas_[__i];
     }
     for (size_t __i = __areas_.size(); __i > 1;)
     {
         --__i;
-        __areas_[__i] = __areas_[__i-1] / _Sp;
+        __areas_[__i] = __areas_[__i-1] / __sp;
     }
     __areas_[0] = 0;
     for (size_t __i = 1; __i < __areas_.size(); ++__i)
         __areas_[__i] += __areas_[__i-1];
     for (size_t __i = 0; __i < __densities_.size(); ++__i)
-        __densities_[__i] /= _Sp;
+        __densities_[__i] /= __sp;
 }
 
 template<class _RealType>

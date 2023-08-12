@@ -52,9 +52,7 @@ bool
 lexicographical_compare(_InputIterator1 __first1, _InputIterator1 __last1,
                         _InputIterator2 __first2, _InputIterator2 __last2)
 {
-    return _VSTD::lexicographical_compare(__first1, __last1, __first2, __last2,
-                                         __less<typename iterator_traits<_InputIterator1>::value_type,
-                                                typename iterator_traits<_InputIterator2>::value_type>());
+    return _VSTD::lexicographical_compare(__first1, __last1, __first2, __last2, __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

@@ -19,6 +19,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+// clang-format off
 template <class _Tp> struct __libcpp_is_integral                     { enum { value = 0 }; };
 template <>          struct __libcpp_is_integral<bool>               { enum { value = 1 }; };
 template <>          struct __libcpp_is_integral<char>               { enum { value = 1 }; };
@@ -44,26 +45,27 @@ template <>          struct __libcpp_is_integral<unsigned long long> { enum { va
 template <>          struct __libcpp_is_integral<__int128_t>         { enum { value = 1 }; };
 template <>          struct __libcpp_is_integral<__uint128_t>        { enum { value = 1 }; };
 #endif
+// clang-format on
 
 #if __has_builtin(__is_integral)
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_integral : _BoolConstant<__is_integral(_Tp)> { };
+struct _LIBCPP_TEMPLATE_VIS is_integral : _BoolConstant<__is_integral(_Tp)> {};
 
-#if _LIBCPP_STD_VER > 14
+#  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_integral_v = __is_integral(_Tp);
-#endif
+#  endif
 
 #else
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_integral
-    : public _BoolConstant<__libcpp_is_integral<__remove_cv_t<_Tp> >::value> {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_integral : public _BoolConstant<__libcpp_is_integral<__remove_cv_t<_Tp> >::value> {};
 
-#if _LIBCPP_STD_VER > 14
+#  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_integral_v = is_integral<_Tp>::value;
-#endif
+#  endif
 
 #endif // __has_builtin(__is_integral)
 

@@ -18,7 +18,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_HIDE_FROM_ABI inline constexpr bool is_eq(partial_ordering __c) noexcept { return __c == 0; }
 _LIBCPP_HIDE_FROM_ABI inline constexpr bool is_neq(partial_ordering __c) noexcept { return __c != 0; }
@@ -27,7 +27,7 @@ _LIBCPP_HIDE_FROM_ABI inline constexpr bool is_lteq(partial_ordering __c) noexce
 _LIBCPP_HIDE_FROM_ABI inline constexpr bool is_gt(partial_ordering __c) noexcept { return __c > 0; }
 _LIBCPP_HIDE_FROM_ABI inline constexpr bool is_gteq(partial_ordering __c) noexcept { return __c >= 0; }
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

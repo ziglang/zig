@@ -52,7 +52,7 @@ public:
     public:
         typedef poisson_distribution distribution_type;
 
-        explicit param_type(double __mean = 1.0);
+        _LIBCPP_HIDE_FROM_ABI explicit param_type(double __mean = 1.0);
 
         _LIBCPP_INLINE_VISIBILITY
         double mean() const {return __mean_;}
@@ -93,7 +93,8 @@ public:
         _LIBCPP_INLINE_VISIBILITY
         result_type operator()(_URNG& __g)
         {return (*this)(__g, __p_);}
-    template<class _URNG> result_type operator()(_URNG& __g, const param_type& __p);
+    template<class _URNG>
+    _LIBCPP_HIDE_FROM_ABI result_type operator()(_URNG& __g, const param_type& __p);
 
     // property functions
     _LIBCPP_INLINE_VISIBILITY
@@ -144,12 +145,12 @@ poisson_distribution<_IntType>::param_type::param_type(double __mean)
         __d_ = 6 * __mean_ * __mean_;
         __l_ = _VSTD::trunc(__mean_ - 1.1484);
         __omega_ = .3989423 / __s_;
-        double __b1_ = .4166667E-1 / __mean_;
-        double __b2_ = .3 * __b1_ * __b1_;
-        __c3_ = .1428571 * __b1_ * __b2_;
-        __c2_ = __b2_ - 15. * __c3_;
-        __c1_ = __b1_ - 6. * __b2_ + 45. * __c3_;
-        __c0_ = 1. - __b1_ + 3. * __b2_ - 15. * __c3_;
+        double __b1 = .4166667E-1 / __mean_;
+        double __b2 = .3 * __b1 * __b1;
+        __c3_ = .1428571 * __b1 * __b2;
+        __c2_ = __b2 - 15. * __c3_;
+        __c1_ = __b1 - 6. * __b2 + 45. * __c3_;
+        __c0_ = 1. - __b1 + 3. * __b2 - 15. * __c3_;
         __c_ = .1069 / __mean_;
     }
 }

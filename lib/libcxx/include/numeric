@@ -158,6 +158,8 @@ template<class T>
 #include <__numeric/iota.h>
 #include <__numeric/midpoint.h>
 #include <__numeric/partial_sum.h>
+#include <__numeric/pstl_reduce.h>
+#include <__numeric/pstl_transform_reduce.h>
 #include <__numeric/reduce.h>
 #include <__numeric/transform_exclusive_scan.h>
 #include <__numeric/transform_inclusive_scan.h>
@@ -165,10 +167,6 @@ template<class T>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
-#endif
-
-#if defined(_LIBCPP_HAS_PARALLEL_ALGORITHMS) && _LIBCPP_STD_VER >= 17
-#   include <__pstl_numeric>
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20

@@ -31,6 +31,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 #if _LIBCPP_STD_VER >= 23
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -118,5 +121,7 @@ unexpected(_Err) -> unexpected<_Err>;
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP_STD_VER >= 23
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___EXPECTED_UNEXPECTED_H

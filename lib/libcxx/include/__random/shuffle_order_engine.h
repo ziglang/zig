@@ -12,10 +12,13 @@
 #include <__algorithm/equal.h>
 #include <__config>
 #include <__random/is_seed_sequence.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/integral_constant.h>
+#include <__type_traits/is_convertible.h>
 #include <__utility/move.h>
+#include <cstddef>
 #include <cstdint>
 #include <iosfwd>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -201,10 +204,10 @@ private:
         _LIBCPP_INLINE_VISIBILITY
         result_type __evalf()
         {
-            const double _Fp = __d == 0 ?
+            const double __fp = __d == 0 ?
                 __n / (2. * 0x8000000000000000ull) :
                 __n / (double)__d;
-            const size_t __j = static_cast<size_t>(_Fp * (__y_ - _Min));
+            const size_t __j = static_cast<size_t>(__fp * (__y_ - _Min));
             __y_ = __v_[__j];
             __v_[__j] = __e_();
             return __y_;
@@ -262,16 +265,16 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     typedef basic_istream<_CharT, _Traits> _Istream;
     __is.flags(_Istream::dec | _Istream::skipws);
     _Eng __e;
-    result_type _Vp[_Kp+1];
+    result_type __vp[_Kp+1];
     __is >> __e;
     for (size_t __i = 0; __i < _Kp+1; ++__i)
-        __is >> _Vp[__i];
+        __is >> __vp[__i];
     if (!__is.fail())
     {
         __x.__e_ = __e;
         for (size_t __i = 0; __i < _Kp; ++__i)
-            __x.__v_[__i] = _Vp[__i];
-        __x.__y_ = _Vp[_Kp];
+            __x.__v_[__i] = __vp[__i];
+        __x.__y_ = __vp[_Kp];
     }
     return __is;
 }

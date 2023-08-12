@@ -210,10 +210,12 @@ namespace std {
 #include <__compare/compare_three_way_result.h>
 #include <__compare/three_way_comparable.h>
 #include <__config>
+#include <__exception/exception.h>
 #include <__functional/hash.h>
 #include <__functional/invoke.h>
 #include <__functional/operations.h>
 #include <__functional/unary_function.h>
+#include <__memory/addressof.h>
 #include <__type_traits/add_const.h>
 #include <__type_traits/add_cv.h>
 #include <__type_traits/add_pointer.h>
@@ -231,12 +233,13 @@ namespace std {
 #include <__type_traits/remove_const.h>
 #include <__type_traits/type_identity.h>
 #include <__type_traits/void_t.h>
+#include <__utility/declval.h>
 #include <__utility/forward.h>
 #include <__utility/in_place.h>
 #include <__utility/move.h>
 #include <__utility/swap.h>
 #include <__variant/monostate.h>
-#include <exception>
+#include <__verbose_abort>
 #include <initializer_list>
 #include <limits>
 #include <new>
@@ -257,7 +260,7 @@ _LIBCPP_PUSH_MACROS
 
 namespace std { // explicitly not using versioning namespace
 
-class _LIBCPP_EXCEPTION_ABI _LIBCPP_AVAILABILITY_BAD_VARIANT_ACCESS bad_variant_access : public exception {
+class _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_AVAILABILITY_BAD_VARIANT_ACCESS bad_variant_access : public exception {
 public:
    const char* what() const _NOEXCEPT override;
 };
@@ -266,7 +269,7 @@ public:
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 // Light N-dimensional array of function pointers. Used in place of std::array to avoid
 // adding a dependency.
@@ -285,10 +288,10 @@ _LIBCPP_NORETURN
 inline _LIBCPP_HIDE_FROM_ABI
 _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS
 void __throw_bad_variant_access() {
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
         throw bad_variant_access();
 #else
-        _VSTD::abort();
+    _LIBCPP_VERBOSE_ABORT("bad_variant_access was thrown in -fno-exceptions mode");
 #endif
 }
 
@@ -547,7 +550,7 @@ private:
   }
 
   template <class _Fp, class... _Fs>
-  static constexpr void __std_visit_visitor_return_type_check() {
+  static _LIBCPP_HIDE_FROM_ABI constexpr void __std_visit_visitor_return_type_check() {
     static_assert(
         __all<is_same_v<_Fp, _Fs>...>::value,
         "`std::visit` requires the visitor to have a single return type.");
@@ -594,9 +597,9 @@ private:
   template <class _Fp, class _Vp, class... _Vs>
   _LIBCPP_HIDE_FROM_ABI
   static constexpr auto __make_fdiagonal() {
-    constexpr size_t _Np = __remove_cvref_t<_Vp>::__size();
-    static_assert(__all<(_Np == __remove_cvref_t<_Vs>::__size())...>::value);
-    return __make_fdiagonal_impl<_Fp, _Vp, _Vs...>(make_index_sequence<_Np>{});
+    constexpr size_t __np = __remove_cvref_t<_Vp>::__size();
+    static_assert(__all<(__np == __remove_cvref_t<_Vs>::__size())...>::value);
+    return __make_fdiagonal_impl<_Fp, _Vp, _Vs...>(make_index_sequence<__np>{});
   }
 
   template <class _Fp, class... _Vs, size_t... _Is>
@@ -660,7 +663,7 @@ struct __variant {
         _VSTD::forward<_Vs>(__vs)...);
   }
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
   template <class _Rp, class _Visitor, class... _Vs>
   _LIBCPP_HIDE_FROM_ABI
   static constexpr _Rp __visit_value(_Visitor&& __visitor,
@@ -673,7 +676,7 @@ struct __variant {
 
 private:
   template <class _Visitor, class... _Values>
-  static constexpr void __std_visit_exhaustive_visitor_check() {
+  static _LIBCPP_HIDE_FROM_ABI constexpr void __std_visit_exhaustive_visitor_check() {
     static_assert(is_invocable_v<_Visitor, _Values...>,
                   "`std::visit` requires the visitor to be exhaustive.");
   }
@@ -692,7 +695,7 @@ private:
     _Visitor&& __visitor;
   };
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
   template <class _Rp, class _Visitor>
   struct __value_visitor_return_type {
     template <class... _Alts>
@@ -721,7 +724,7 @@ private:
     return __value_visitor<_Visitor>{_VSTD::forward<_Visitor>(__visitor)};
   }
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
   template <class _Rp, class _Visitor>
   _LIBCPP_HIDE_FROM_ABI
   static constexpr auto __make_value_visitor(_Visitor&& __visitor) {
@@ -1034,10 +1037,10 @@ protected:
       __a.__value = _VSTD::forward<_Arg>(__arg);
     } else {
       struct {
-        void operator()(true_type) const {
+        _LIBCPP_HIDE_FROM_ABI void operator()(true_type) const {
           __this->__emplace<_Ip>(_VSTD::forward<_Arg>(__arg));
         }
-        void operator()(false_type) const {
+        _LIBCPP_HIDE_FROM_ABI void operator()(false_type) const {
           __this->__emplace<_Ip>(_Tp(_VSTD::forward<_Arg>(__arg)));
         }
         __assignment* __this;
@@ -1155,10 +1158,10 @@ class _LIBCPP_TEMPLATE_VIS __impl
 
 public:
   using __base_type::__base_type; // get in_place_index_t constructor & friends
-  __impl(__impl const&) = default;
-  __impl(__impl&&) = default;
-  __impl& operator=(__impl const&) = default;
-  __impl& operator=(__impl&&) = default;
+  _LIBCPP_HIDE_FROM_ABI __impl(__impl const&) = default;
+  _LIBCPP_HIDE_FROM_ABI __impl(__impl&&) = default;
+  _LIBCPP_HIDE_FROM_ABI __impl& operator=(__impl const&) = default;
+  _LIBCPP_HIDE_FROM_ABI __impl& operator=(__impl&&) = default;
 
   template <size_t _Ip, class _Arg>
   _LIBCPP_HIDE_FROM_ABI
@@ -1187,7 +1190,7 @@ public:
         _VSTD::swap(__lhs, __rhs);
       }
       __impl __tmp(_VSTD::move(*__rhs));
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
       if constexpr (__all<is_nothrow_move_constructible_v<_Types>...>::value) {
         this->__generic_construct(*__rhs, _VSTD::move(*__lhs));
       } else {
@@ -1271,7 +1274,7 @@ struct __all_overloads : _Bases... {
   using _Bases::operator()...;
 };
 
-template <class IdxSeq>
+template <class _IdxSeq>
 struct __make_overloads_imp;
 
 template <size_t ..._Idx>
@@ -1291,7 +1294,7 @@ using __best_match_t =
 } // namespace __variant_detail
 
 template <class... _Types>
-class _LIBCPP_TEMPLATE_VIS variant
+class _LIBCPP_TEMPLATE_VIS _LIBCPP_DECLSPEC_EMPTY_BASES variant
     : private __sfinae_ctor_base<
           __all<is_copy_constructible_v<_Types>...>::value,
           __all<is_move_constructible_v<_Types>...>::value>,
@@ -1323,8 +1326,8 @@ public:
   constexpr variant() noexcept(is_nothrow_default_constructible_v<__first_type>)
       : __impl_(in_place_index<0>) {}
 
-  constexpr variant(const variant&) = default;
-  constexpr variant(variant&&) = default;
+  _LIBCPP_HIDE_FROM_ABI constexpr variant(const variant&) = default;
+  _LIBCPP_HIDE_FROM_ABI constexpr variant(variant&&) = default;
 
   template <
       class _Arg,
@@ -1393,10 +1396,10 @@ public:
       is_nothrow_constructible_v<_Tp, initializer_list< _Up>&, _Args...>)
       : __impl_(in_place_index<_Ip>, __il, _VSTD::forward<_Args>(__args)...) {}
 
-  ~variant() = default;
+  _LIBCPP_HIDE_FROM_ABI ~variant() = default;
 
-  constexpr variant& operator=(const variant&) = default;
-  constexpr variant& operator=(variant&&) = default;
+  _LIBCPP_HIDE_FROM_ABI constexpr variant& operator=(const variant&) = default;
+  _LIBCPP_HIDE_FROM_ABI constexpr variant& operator=(variant&&) = default;
 
   template <
       class _Arg,
@@ -1652,7 +1655,7 @@ constexpr bool operator==(const variant<_Types...>& __lhs,
   return __variant::__visit_value_at(__lhs.index(), __convert_to_bool<equal_to<>>{}, __lhs, __rhs);
 }
 
-#  if _LIBCPP_STD_VER > 17
+#  if _LIBCPP_STD_VER >= 20
 
 template <class... _Types> requires (three_way_comparable<_Types> && ...)
 _LIBCPP_HIDE_FROM_ABI constexpr common_comparison_category_t<compare_three_way_result_t<_Types>...>
@@ -1671,7 +1674,7 @@ operator<=>(const variant<_Types...>& __lhs, const variant<_Types...>& __rhs) {
   return __variant::__visit_value_at(__lhs.index(), __three_way, __lhs, __rhs);
 }
 
-#  endif // _LIBCPP_STD_VER > 17
+#  endif // _LIBCPP_STD_VER >= 20
 
 template <class... _Types>
 _LIBCPP_HIDE_FROM_ABI
@@ -1757,7 +1760,7 @@ constexpr decltype(auto) visit(_Visitor&& __visitor, _Vs&&... __vs) {
                                   _VSTD::forward<_Vs>(__vs)...);
 }
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 template <
     class _Rp, class _Visitor, class... _Vs,
     typename = void_t<decltype(_VSTD::__as_variant(std::declval<_Vs>()))...> >
@@ -1824,13 +1827,14 @@ constexpr auto&& __unchecked_get(variant<_Types...>& __v) noexcept {
   return std::__unchecked_get<__find_exactly_one_t<_Tp, _Types...>::value>(__v);
 }
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <exception>
 #  include <type_traits>
 #  include <typeinfo>
 #  include <utility>

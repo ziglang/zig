@@ -47,9 +47,9 @@ private:
     _Tp __value_;
 public:
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR istream_iterator() : __in_stream_(nullptr), __value_() {}
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
     _LIBCPP_HIDE_FROM_ABI constexpr istream_iterator(default_sentinel_t) : istream_iterator() {}
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
     _LIBCPP_INLINE_VISIBILITY istream_iterator(istream_type& __s) : __in_stream_(_VSTD::addressof(__s))
         {
             if (!(*__in_stream_ >> __value_))
@@ -73,11 +73,11 @@ public:
     operator==(const istream_iterator<_Up, _CharU, _TraitsU, _DistanceU>& __x,
                const istream_iterator<_Up, _CharU, _TraitsU, _DistanceU>& __y);
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
     friend _LIBCPP_HIDE_FROM_ABI bool operator==(const istream_iterator& __i, default_sentinel_t) {
       return __i.__in_stream_ == nullptr;
     }
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 };
 
 template <class _Tp, class _CharT, class _Traits, class _Distance>

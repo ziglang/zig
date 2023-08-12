@@ -66,16 +66,15 @@ namespace pmr {
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__memory/allocator_traits.h>
+#include <__type_traits/aligned_storage.h>
 #include <__utility/move.h>
 #include <cstddef>
-#include <cstdlib>
 #include <experimental/__config>
 #include <experimental/__memory>
 #include <limits>
 #include <new>
 #include <stdexcept>
 #include <tuple>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -96,18 +95,18 @@ _LIBCPP_BEGIN_NAMESPACE_LFTS_PMR
 inline _LIBCPP_INLINE_VISIBILITY
 size_t __aligned_allocation_size(size_t __s, size_t __a) _NOEXCEPT
 {
-    _LIBCPP_ASSERT(__s + __a > __s, "aligned allocation size overflows");
+    _LIBCPP_ASSERT_UNCATEGORIZED(__s + __a > __s, "aligned allocation size overflows");
     return (__s + __a - 1) & ~(__a - 1);
 }
 
 // 8.5, memory.resource
-class _LIBCPP_DEPCREATED_MEMORY_RESOURCE("memory_resource") _LIBCPP_TYPE_VIS memory_resource
+class _LIBCPP_DEPCREATED_MEMORY_RESOURCE("memory_resource") _LIBCPP_EXPORTED_FROM_ABI memory_resource
 {
     static const size_t __max_align = _LIBCPP_ALIGNOF(max_align_t);
 
 // 8.5.2, memory.resource.public
 public:
-    virtual ~memory_resource() = default;
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL virtual ~memory_resource() = default;
 
     _LIBCPP_INLINE_VISIBILITY
     void* allocate(size_t __bytes, size_t __align = __max_align)
@@ -143,16 +142,16 @@ bool operator!=(memory_resource const & __lhs,
     return !(__lhs == __rhs);
 }
 
-_LIBCPP_DEPCREATED_MEMORY_RESOURCE("new_delete_resource()") _LIBCPP_FUNC_VIS
+_LIBCPP_DEPCREATED_MEMORY_RESOURCE("new_delete_resource()") _LIBCPP_EXPORTED_FROM_ABI
 memory_resource * new_delete_resource() _NOEXCEPT;
 
-_LIBCPP_DEPCREATED_MEMORY_RESOURCE("null_memory_resource()") _LIBCPP_FUNC_VIS
+_LIBCPP_DEPCREATED_MEMORY_RESOURCE("null_memory_resource()") _LIBCPP_EXPORTED_FROM_ABI
 memory_resource * null_memory_resource() _NOEXCEPT;
 
-_LIBCPP_DEPCREATED_MEMORY_RESOURCE("get_default_resource()") _LIBCPP_FUNC_VIS
+_LIBCPP_DEPCREATED_MEMORY_RESOURCE("get_default_resource()") _LIBCPP_EXPORTED_FROM_ABI
 memory_resource * get_default_resource() _NOEXCEPT;
 
-_LIBCPP_DEPCREATED_MEMORY_RESOURCE("set_default_resource()") _LIBCPP_FUNC_VIS
+_LIBCPP_DEPCREATED_MEMORY_RESOURCE("set_default_resource()") _LIBCPP_EXPORTED_FROM_ABI
 memory_resource * set_default_resource(memory_resource * __new_res) _NOEXCEPT;
 
 // 8.6, memory.polymorphic.allocator.class
@@ -175,7 +174,7 @@ public:
       : __res_(__r)
     {}
 
-    polymorphic_allocator(polymorphic_allocator const &) = default;
+    _LIBCPP_HIDE_FROM_ABI polymorphic_allocator(polymorphic_allocator const &) = default;
 
     template <class _Tp>
     _LIBCPP_INLINE_VISIBILITY
@@ -198,8 +197,8 @@ public:
 
     _LIBCPP_INLINE_VISIBILITY
     void deallocate(_ValueType * __p, size_t __n) _NOEXCEPT {
-        _LIBCPP_ASSERT(__n <= __max_size(),
-                       "deallocate called for size which exceeds max_size()");
+        _LIBCPP_ASSERT_UNCATEGORIZED(__n <= __max_size(),
+                                     "deallocate called for size which exceeds max_size()");
         __res_->deallocate(__p, __n * sizeof(_ValueType), _LIBCPP_ALIGNOF(_ValueType));
     }
 
@@ -363,9 +362,9 @@ class _LIBCPP_TEMPLATE_VIS __resource_adaptor_imp
 public:
     typedef _CharAlloc allocator_type;
 
-    __resource_adaptor_imp() = default;
-    __resource_adaptor_imp(__resource_adaptor_imp const &) = default;
-    __resource_adaptor_imp(__resource_adaptor_imp &&) = default;
+    _LIBCPP_HIDE_FROM_ABI __resource_adaptor_imp() = default;
+    _LIBCPP_HIDE_FROM_ABI __resource_adaptor_imp(__resource_adaptor_imp const &) = default;
+    _LIBCPP_HIDE_FROM_ABI __resource_adaptor_imp(__resource_adaptor_imp &&) = default;
 
     // 8.7.2, memory.resource.adaptor.ctor
 
@@ -379,7 +378,7 @@ public:
       : __alloc_(_VSTD::move(__a))
     {}
 
-    __resource_adaptor_imp &
+    _LIBCPP_HIDE_FROM_ABI __resource_adaptor_imp &
     operator=(__resource_adaptor_imp const &) = default;
 
     _LIBCPP_INLINE_VISIBILITY
@@ -388,7 +387,7 @@ public:
 
 // 8.7.3, memory.resource.adaptor.mem
 private:
-    void * do_allocate(size_t __bytes, size_t) override
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL void * do_allocate(size_t __bytes, size_t) override
     {
         if (__bytes > __max_size())
             __throw_bad_array_new_length();
@@ -396,15 +395,15 @@ private:
         return __alloc_.allocate(__s);
     }
 
-    void do_deallocate(void * __p, size_t __bytes, size_t) override
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL void do_deallocate(void * __p, size_t __bytes, size_t) override
     {
-        _LIBCPP_ASSERT(__bytes <= __max_size(),
+        _LIBCPP_ASSERT_UNCATEGORIZED(__bytes <= __max_size(),
             "do_deallocate called for size which exceeds the maximum allocation size");
         size_t __s = __aligned_allocation_size(__bytes, _MaxAlign) / _MaxAlign;
         __alloc_.deallocate((_ValueType*)__p, __s);
     }
 
-    bool do_is_equal(memory_resource const & __other) const _NOEXCEPT override {
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL bool do_is_equal(memory_resource const & __other) const _NOEXCEPT override {
         __resource_adaptor_imp const * __p
           = dynamic_cast<__resource_adaptor_imp const *>(&__other);
         return __p  ? __alloc_ == __p->__alloc_ : false;
@@ -432,11 +431,13 @@ _LIBCPP_POP_MACROS
 #  include <atomic>
 #  include <climits>
 #  include <concepts>
+#  include <cstdlib>
 #  include <cstring>
 #  include <ctime>
 #  include <iterator>
 #  include <memory>
 #  include <ratio>
+#  include <type_traits>
 #  include <variant>
 #endif
 

@@ -21,7 +21,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 template <class _Cont>
 _LIBCPP_INLINE_VISIBILITY
@@ -34,7 +34,7 @@ template <class _Tp, size_t _Sz>
 _LIBCPP_INLINE_VISIBILITY
 constexpr size_t size(const _Tp (&)[_Sz]) noexcept { return _Sz; }
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 template <class _Cont>
 _LIBCPP_INLINE_VISIBILITY
 constexpr auto ssize(const _Cont& __c)
@@ -52,7 +52,7 @@ constexpr ptrdiff_t ssize(const _Tp (&)[_Sz]) noexcept { return _Sz; }
 _LIBCPP_DIAGNOSTIC_POP
 #endif
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
 

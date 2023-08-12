@@ -35,10 +35,12 @@
 
 #ifdef __cplusplus
 
+// The attributes supported by clang are documented at https://clang.llvm.org/docs/AttributeReference.html
+
 // _LIBCPP_VERSION represents the version of libc++, which matches the version of LLVM.
-// Given a LLVM release LLVM XX.YY.ZZ (e.g. LLVM 16.0.1 == 16.00.01), _LIBCPP_VERSION is
+// Given a LLVM release LLVM XX.YY.ZZ (e.g. LLVM 17.0.1 == 17.00.01), _LIBCPP_VERSION is
 // defined to XXYYZZ.
-#  define _LIBCPP_VERSION 160001
+#  define _LIBCPP_VERSION 170000
 
 #  define _LIBCPP_CONCAT_IMPL(_X, _Y) _X##_Y
 #  define _LIBCPP_CONCAT(_X, _Y) _LIBCPP_CONCAT_IMPL(_X, _Y)
@@ -51,6 +53,7 @@
 #    define _LIBCPP_FREESTANDING
 #  endif
 
+// NOLINTBEGIN(libcpp-cpp-version-check)
 #  ifndef _LIBCPP_STD_VER
 #    if __cplusplus <= 201103L
 #      define _LIBCPP_STD_VER 11
@@ -60,11 +63,14 @@
 #      define _LIBCPP_STD_VER 17
 #    elif __cplusplus <= 202002L
 #      define _LIBCPP_STD_VER 20
+#    elif __cplusplus <= 202302L
+#      define _LIBCPP_STD_VER 23
 #    else
 // Expected release year of the next C++ standard
-#      define _LIBCPP_STD_VER 23
+#      define _LIBCPP_STD_VER 26
 #    endif
 #  endif // _LIBCPP_STD_VER
+// NOLINTEND(libcpp-cpp-version-check)
 
 #  if defined(__ELF__)
 #    define _LIBCPP_OBJECT_FORMAT_ELF 1
@@ -79,6 +85,8 @@
 #  else
 // ... add new file formats here ...
 #  endif
+
+// ABI {
 
 #  if _LIBCPP_ABI_VERSION >= 2
 // Change short string representation so that string data starts at offset 0,
@@ -165,6 +173,12 @@
 #    if defined(__FreeBSD__)
 #      define _LIBCPP_DEPRECATED_ABI_DISABLE_PAIR_TRIVIAL_COPY_CTOR
 #    endif
+// For XCOFF linkers, we have problems if we see a weak hidden version of a symbol
+// in user code (like you get with -fvisibility-inlines-hidden) and then a strong def
+// in the library, so we need to always rely on the library version.
+#    if defined(_AIX)
+#      define _LIBCPP_ABI_BAD_FUNCTION_CALL_KEY_FUNCTION
+#    endif
 #  endif
 
 #  if defined(_LIBCPP_BUILDING_LIBRARY) || _LIBCPP_ABI_VERSION >= 2
@@ -179,9 +193,137 @@
 #    define _LIBCPP_ABI_BAD_FUNCTION_CALL_KEY_FUNCTION
 #  endif
 
+// Changes the iterator type of select containers (see below) to a bounded iterator that keeps track of whether it's
+// within the bounds of the original container and asserts it on every dereference.
+//
+// ABI impact: changes the iterator type of the relevant containers.
+//
+// Supported containers:
+// - `span`;
+// - `string_view`;
+// - `array`.
+// #define _LIBCPP_ABI_BOUNDED_ITERATORS
+
+// } ABI
+
+// HARDENING {
+
+// TODO(hardening): remove this in LLVM 18.
+// This is for backward compatibility -- make enabling `_LIBCPP_ENABLE_ASSERTIONS` (which predates hardening modes)
+// equivalent to setting the hardened mode.
+#  ifdef _LIBCPP_ENABLE_ASSERTIONS
+#    warning "_LIBCPP_ENABLE_ASSERTIONS is deprecated, please use _LIBCPP_ENABLE_HARDENED_MODE instead."
+#    if _LIBCPP_ENABLE_ASSERTIONS != 0 && _LIBCPP_ENABLE_ASSERTIONS != 1
+#      error "_LIBCPP_ENABLE_ASSERTIONS must be set to 0 or 1"
+#    endif
+#    if _LIBCPP_ENABLE_ASSERTIONS
+#      define _LIBCPP_ENABLE_HARDENED_MODE 1
+#    endif
+#  endif
+
+// Enables the hardened mode which consists of all checks intended to be used in production. Hardened mode prioritizes
+// security-critical checks that can be done with relatively little overhead in constant time. Mutually exclusive with
+// `_LIBCPP_ENABLE_DEBUG_MODE`.
+//
+// #define _LIBCPP_ENABLE_HARDENED_MODE 1
+
+// Enables the debug mode which contains all the checks from the hardened mode and additionally more expensive checks
+// that may affect the complexity of algorithms. The debug mode is intended to be used for testing, not in production.
+// Mutually exclusive with `_LIBCPP_ENABLE_HARDENED_MODE`.
+//
+// #define _LIBCPP_ENABLE_DEBUG_MODE 1
+
+// Inside the library, assertions are categorized so they can be cherry-picked based on the chosen hardening mode. These
+// macros are only for internal use -- users should only pick one of the high-level hardening modes described above.
+//
+// - `_LIBCPP_ASSERT_VALID_INPUT_RANGE` -- checks that ranges (whether expressed as an iterator pair, an iterator and
+//   a sentinel, an iterator and a count, or a `std::range`) given as input to library functions are valid:
+//   - the sentinel is reachable from the begin iterator;
+//   - TODO(hardening): both iterators refer to the same container.
+//
+// - `_LIBCPP_ASSERT_VALID_ELEMENT_ACCESS` -- checks that any attempts to access a container element, whether through
+//   the container object or through an iterator, are valid and do not attempt to go out of bounds or otherwise access
+//   a non-existent element. For iterator checks to work, bounded iterators must be enabled in the ABI. Types like
+//   `optional` and `function` are considered one-element containers for the purposes of this check.
+//
+// - `_LIBCPP_ASSERT_NON_OVERLAPPING_RANGES` -- for functions that take several ranges as arguments, checks that the
+//   given ranges do not overlap.
+//
+// - `_LIBCPP_ASSERT_COMPATIBLE_ALLOCATOR` -- checks any operations that exchange nodes between containers to make sure
+//   the containers have compatible allocators.
+//
+// - `_LIBCPP_ASSERT_INTERNAL` -- checks that internal invariants of the library hold. These assertions don't depend on
+//   user input.
+//
+// - `_LIBCPP_ASSERT_UNCATEGORIZED` -- for assertions that haven't been properly classified yet.
+
+#  ifndef _LIBCPP_ENABLE_HARDENED_MODE
+#    define _LIBCPP_ENABLE_HARDENED_MODE _LIBCPP_ENABLE_HARDENED_MODE_DEFAULT
+#  endif
+#  if _LIBCPP_ENABLE_HARDENED_MODE != 0 && _LIBCPP_ENABLE_HARDENED_MODE != 1
+#    error "_LIBCPP_ENABLE_HARDENED_MODE must be set to 0 or 1."
+#  endif
+
+#  ifndef _LIBCPP_ENABLE_DEBUG_MODE
+#    define _LIBCPP_ENABLE_DEBUG_MODE _LIBCPP_ENABLE_DEBUG_MODE_DEFAULT
+#  endif
+#  if _LIBCPP_ENABLE_DEBUG_MODE != 0 && _LIBCPP_ENABLE_DEBUG_MODE != 1
+#    error "_LIBCPP_ENABLE_DEBUG_MODE must be set to 0 or 1."
+#  endif
+
+#  if _LIBCPP_ENABLE_HARDENED_MODE && _LIBCPP_ENABLE_DEBUG_MODE
+#    error "Only one of _LIBCPP_ENABLE_HARDENED_MODE and _LIBCPP_ENABLE_DEBUG_MODE can be enabled."
+#  endif
+
+// Hardened mode checks.
+
+// clang-format off
+#  if _LIBCPP_ENABLE_HARDENED_MODE
+
+// Enabled checks.
+#    define _LIBCPP_ASSERT_VALID_INPUT_RANGE(expression, message)        _LIBCPP_ASSERT(expression, message)
+#    define _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(expression, message)     _LIBCPP_ASSERT(expression, message)
+// Disabled checks.
+// Overlapping ranges will make algorithms produce incorrect results but don't directly lead to a security
+// vulnerability.
+#    define _LIBCPP_ASSERT_NON_OVERLAPPING_RANGES(expression, message)   _LIBCPP_ASSUME(expression)
+#    define _LIBCPP_ASSERT_COMPATIBLE_ALLOCATOR(expression, message)     _LIBCPP_ASSUME(expression)
+#    define _LIBCPP_ASSERT_INTERNAL(expression, message)                 _LIBCPP_ASSUME(expression)
+#    define _LIBCPP_ASSERT_UNCATEGORIZED(expression, message)            _LIBCPP_ASSUME(expression)
+
+// Debug mode checks.
+
+#  elif _LIBCPP_ENABLE_DEBUG_MODE
+
+// All checks enabled.
+#    define _LIBCPP_ASSERT_VALID_INPUT_RANGE(expression, message)         _LIBCPP_ASSERT(expression, message)
+#    define _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(expression, message)      _LIBCPP_ASSERT(expression, message)
+#    define _LIBCPP_ASSERT_NON_OVERLAPPING_RANGES(expression, message)    _LIBCPP_ASSERT(expression, message)
+#    define _LIBCPP_ASSERT_COMPATIBLE_ALLOCATOR(expression, message)      _LIBCPP_ASSERT(expression, message)
+#    define _LIBCPP_ASSERT_INTERNAL(expression, message)                  _LIBCPP_ASSERT(expression, message)
+#    define _LIBCPP_ASSERT_UNCATEGORIZED(expression, message)             _LIBCPP_ASSERT(expression, message)
+
+// Disable all checks if hardening is not enabled.
+
+#  else
+
+// All checks disabled.
+#    define _LIBCPP_ASSERT_VALID_INPUT_RANGE(expression, message)         _LIBCPP_ASSUME(expression)
+#    define _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(expression, message)      _LIBCPP_ASSUME(expression)
+#    define _LIBCPP_ASSERT_NON_OVERLAPPING_RANGES(expression, message)    _LIBCPP_ASSUME(expression)
+#    define _LIBCPP_ASSERT_COMPATIBLE_ALLOCATOR(expression, message)      _LIBCPP_ASSUME(expression)
+#    define _LIBCPP_ASSERT_INTERNAL(expression, message)                  _LIBCPP_ASSUME(expression)
+#    define _LIBCPP_ASSERT_UNCATEGORIZED(expression, message)             _LIBCPP_ASSUME(expression)
+
+#  endif // _LIBCPP_ENABLE_HARDENED_MODE
+// clang-format on
+
+// } HARDENING
+
 #  define _LIBCPP_TOSTRING2(x) #x
 #  define _LIBCPP_TOSTRING(x) _LIBCPP_TOSTRING2(x)
 
+// NOLINTNEXTLINE(libcpp-cpp-version-check)
 #  if __cplusplus < 201103L
 #    define _LIBCPP_CXX03_LANG
 #  endif
@@ -262,7 +404,11 @@
 // Incomplete features get their own specific disabling flags. This makes it
 // easier to grep for target specific flags once the feature is complete.
 #  if !defined(_LIBCPP_ENABLE_EXPERIMENTAL) && !defined(_LIBCPP_BUILDING_LIBRARY)
-#    define _LIBCPP_HAS_NO_INCOMPLETE_FORMAT
+#    define _LIBCPP_HAS_NO_INCOMPLETE_PSTL
+#  endif
+
+#  if !defined(_LIBCPP_ENABLE_EXPERIMENTAL) && !defined(_LIBCPP_BUILDING_LIBRARY)
+#    define _LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN
 #  endif
 
 // Need to detect which libc we're using if we're on Linux.
@@ -300,8 +446,8 @@
 #  endif   // __BYTE_ORDER__
 
 #  ifdef __FreeBSD__
-#    include <sys/endian.h>
 #    include <osreldate.h>
+#    include <sys/endian.h>
 #    if _BYTE_ORDER == _LITTLE_ENDIAN
 #      define _LIBCPP_LITTLE_ENDIAN
 #    else // _BYTE_ORDER == _LITTLE_ENDIAN
@@ -334,15 +480,6 @@
 #    endif
 #    define _LIBCPP_HAS_OPEN_WITH_WCHAR
 #  endif // defined(_WIN32)
-
-#  ifdef __sun__
-#    include <sys/isa_defs.h>
-#    ifdef _LITTLE_ENDIAN
-#      define _LIBCPP_LITTLE_ENDIAN
-#    else
-#      define _LIBCPP_BIG_ENDIAN
-#    endif
-#  endif // __sun__
 
 #  if defined(_AIX) && !defined(__64BIT__)
 // The size of wchar is 2 byte on 32-bit mode on AIX.
@@ -388,7 +525,7 @@
 //      When this option is used, the token passed to `std::random_device`'s
 //      constructor *must* be "/dev/urandom" -- anything else is an error.
 #  if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) ||                     \
-      defined(__DragonFly__) || defined(__sun__)
+      defined(__DragonFly__)
 #    define _LIBCPP_USING_ARC4_RANDOM
 #  elif defined(__wasi__) || defined(__EMSCRIPTEN__)
 #    define _LIBCPP_USING_GETENTROPY
@@ -449,15 +586,24 @@ typedef __char32_t char32_t;
 #  endif
 
 #  if !defined(__cpp_exceptions) || __cpp_exceptions < 199711L
-#    define _LIBCPP_NO_EXCEPTIONS
+#    define _LIBCPP_HAS_NO_EXCEPTIONS
 #  endif
 
 #  define _LIBCPP_PREFERRED_ALIGNOF(_Tp) __alignof(_Tp)
 
 #  if defined(_LIBCPP_COMPILER_CLANG_BASED)
 
-#    if defined(__APPLE__) && !defined(__i386__) && !defined(__x86_64__) && (!defined(__arm__) || __ARM_ARCH_7K__ >= 2)
-#      define _LIBCPP_ABI_ALTERNATE_STRING_LAYOUT
+#    if defined(__APPLE__)
+#      if defined(__i386__) || defined(__x86_64__)
+// use old string layout on x86_64 and i386
+#      elif defined(__arm__)
+// use old string layout on arm (which does not include aarch64/arm64), except on watch ABIs
+#        if defined(__ARM_ARCH_7K__) && __ARM_ARCH_7K__ >= 2
+#          define _LIBCPP_ABI_ALTERNATE_STRING_LAYOUT
+#        endif
+#      else
+#        define _LIBCPP_ABI_ALTERNATE_STRING_LAYOUT
+#      endif
 #    endif
 
 // Objective-C++ features (opt-in)
@@ -535,9 +681,6 @@ typedef __char32_t char32_t;
 #      define _LIBCPP_EXPORTED_FROM_ABI __declspec(dllimport)
 #    endif
 
-#    define _LIBCPP_TYPE_VIS _LIBCPP_DLL_VIS
-#    define _LIBCPP_FUNC_VIS _LIBCPP_DLL_VIS
-#    define _LIBCPP_EXCEPTION_ABI _LIBCPP_DLL_VIS
 #    define _LIBCPP_HIDDEN
 #    define _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS
 #    define _LIBCPP_TEMPLATE_VIS
@@ -553,11 +696,8 @@ typedef __char32_t char32_t;
 #    endif
 
 #    define _LIBCPP_HIDDEN _LIBCPP_VISIBILITY("hidden")
-#    define _LIBCPP_FUNC_VIS _LIBCPP_VISIBILITY("default")
-#    define _LIBCPP_TYPE_VIS _LIBCPP_VISIBILITY("default")
 #    define _LIBCPP_TEMPLATE_DATA_VIS _LIBCPP_VISIBILITY("default")
 #    define _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_VISIBILITY("default")
-#    define _LIBCPP_EXCEPTION_ABI _LIBCPP_VISIBILITY("default")
 #    define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS _LIBCPP_VISIBILITY("default")
 #    define _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS
 
@@ -666,7 +806,7 @@ typedef __char32_t char32_t;
 
 _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 
-#  if _LIBCPP_STD_VER > 14
+#  if _LIBCPP_STD_VER >= 17
 #    define _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM                                                                         \
        _LIBCPP_BEGIN_NAMESPACE_STD inline namespace __fs { namespace filesystem {
 #  else
@@ -683,14 +823,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_PREFERRED_OVERLOAD __attribute__((__enable_if__(true, "")))
 #  endif
 
-#  ifndef __SIZEOF_INT128__
+#  if !defined(__SIZEOF_INT128__) || defined(_MSC_VER)
 #    define _LIBCPP_HAS_NO_INT128
-#  endif
-
-#  ifndef __cpp_consteval
-#    define _LIBCPP_CONSTEVAL _LIBCPP_CONSTEXPR
-#  else
-#    define _LIBCPP_CONSTEVAL consteval
 #  endif
 
 #  if __has_attribute(__malloc__)
@@ -707,7 +841,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 
 #  ifdef _LIBCPP_CXX03_LANG
 #    define _LIBCPP_DECLARE_STRONG_ENUM(x)                                                                             \
-      struct _LIBCPP_TYPE_VIS x {                                                                                      \
+      struct _LIBCPP_EXPORTED_FROM_ABI x {                                                                             \
         enum __lx
 // clang-format off
 #    define _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(x)                                                                      \
@@ -723,8 +857,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(x)
 #  endif // _LIBCPP_CXX03_LANG
 
-#  if defined(__APPLE__) || defined(__FreeBSD__) || defined(_LIBCPP_MSVCRT_LIKE) || defined(__sun__) ||                \
-      defined(__NetBSD__)
+#  if defined(__APPLE__) || defined(__FreeBSD__) || defined(_LIBCPP_MSVCRT_LIKE) || defined(__NetBSD__)
 #    define _LIBCPP_LOCALE__L_EXTENSIONS 1
 #  endif
 
@@ -764,7 +897,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_HAS_DEFAULTRUNELOCALE
 #  endif
 
-#  if defined(__APPLE__) || defined(__FreeBSD__) || defined(__sun__)
+#  if defined(__APPLE__) || defined(__FreeBSD__)
 #    define _LIBCPP_WCTYPE_IS_MASK
 #  endif
 
@@ -777,10 +910,10 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 // Deprecations warnings are always enabled, except when users explicitly opt-out
 // by defining _LIBCPP_DISABLE_DEPRECATION_WARNINGS.
 #  if !defined(_LIBCPP_DISABLE_DEPRECATION_WARNINGS)
-#    if __has_attribute(deprecated)
-#      define _LIBCPP_DEPRECATED __attribute__((deprecated))
-#      define _LIBCPP_DEPRECATED_(m) __attribute__((deprecated(m)))
-#    elif _LIBCPP_STD_VER > 11
+#    if __has_attribute(__deprecated__)
+#      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+#      define _LIBCPP_DEPRECATED_(m) __attribute__((__deprecated__(m)))
+#    elif _LIBCPP_STD_VER >= 14
 #      define _LIBCPP_DEPRECATED [[deprecated]]
 #      define _LIBCPP_DEPRECATED_(m) [[deprecated(m)]]
 #    else
@@ -798,29 +931,29 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_DEPRECATED_IN_CXX11
 #  endif
 
-#  if _LIBCPP_STD_VER > 11
+#  if _LIBCPP_STD_VER >= 14
 #    define _LIBCPP_DEPRECATED_IN_CXX14 _LIBCPP_DEPRECATED
 #  else
 #    define _LIBCPP_DEPRECATED_IN_CXX14
 #  endif
 
-#  if _LIBCPP_STD_VER > 14
+#  if _LIBCPP_STD_VER >= 17
 #    define _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_DEPRECATED
 #  else
 #    define _LIBCPP_DEPRECATED_IN_CXX17
 #  endif
 
-#  if _LIBCPP_STD_VER > 17
+#  if _LIBCPP_STD_VER >= 20
 #    define _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_DEPRECATED
 #  else
 #    define _LIBCPP_DEPRECATED_IN_CXX20
 #  endif
 
-#if _LIBCPP_STD_VER >= 23
-#  define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
-#else
-#  define _LIBCPP_DEPRECATED_IN_CXX23
-#endif
+#  if _LIBCPP_STD_VER >= 23
+#    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+#  else
+#    define _LIBCPP_DEPRECATED_IN_CXX23
+#  endif
 
 #  if !defined(_LIBCPP_HAS_NO_CHAR8_T)
 #    define _LIBCPP_DEPRECATED_WITH_CHAR8_T _LIBCPP_DEPRECATED
@@ -840,37 +973,43 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #  endif
 
 #  if _LIBCPP_STD_VER <= 11
-#    define _LIBCPP_EXPLICIT_AFTER_CXX11
+#    define _LIBCPP_EXPLICIT_SINCE_CXX14
 #  else
-#    define _LIBCPP_EXPLICIT_AFTER_CXX11 explicit
+#    define _LIBCPP_EXPLICIT_SINCE_CXX14 explicit
 #  endif
 
-#  if _LIBCPP_STD_VER > 11
+#  if _LIBCPP_STD_VER >= 23
+#    define _LIBCPP_EXPLICIT_SINCE_CXX23 explicit
+#  else
+#    define _LIBCPP_EXPLICIT_SINCE_CXX23
+#  endif
+
+#  if _LIBCPP_STD_VER >= 14
 #    define _LIBCPP_CONSTEXPR_SINCE_CXX14 constexpr
 #  else
 #    define _LIBCPP_CONSTEXPR_SINCE_CXX14
 #  endif
 
-#  if _LIBCPP_STD_VER > 14
+#  if _LIBCPP_STD_VER >= 17
 #    define _LIBCPP_CONSTEXPR_SINCE_CXX17 constexpr
 #  else
 #    define _LIBCPP_CONSTEXPR_SINCE_CXX17
 #  endif
 
-#  if _LIBCPP_STD_VER > 17
+#  if _LIBCPP_STD_VER >= 20
 #    define _LIBCPP_CONSTEXPR_SINCE_CXX20 constexpr
 #  else
 #    define _LIBCPP_CONSTEXPR_SINCE_CXX20
 #  endif
 
-#  if _LIBCPP_STD_VER > 20
+#  if _LIBCPP_STD_VER >= 23
 #    define _LIBCPP_CONSTEXPR_SINCE_CXX23 constexpr
 #  else
 #    define _LIBCPP_CONSTEXPR_SINCE_CXX23
 #  endif
 
 #  if __has_cpp_attribute(nodiscard)
-#    define _LIBCPP_NODISCARD [[nodiscard]]
+#    define _LIBCPP_NODISCARD [[__nodiscard__]]
 #  else
 // We can't use GCC's [[gnu::warn_unused_result]] and
 // __attribute__((warn_unused_result)), because GCC does not silence them via
@@ -886,7 +1025,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_NODISCARD_EXT
 #  endif
 
-#  if _LIBCPP_STD_VER > 17 || !defined(_LIBCPP_DISABLE_NODISCARD_EXT)
+#  if _LIBCPP_STD_VER >= 20 || !defined(_LIBCPP_DISABLE_NODISCARD_EXT)
 #    define _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_NODISCARD
 #  else
 #    define _LIBCPP_NODISCARD_AFTER_CXX17
@@ -899,8 +1038,14 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #  endif
 
 #  ifndef _LIBCPP_HAS_NO_ASAN
-    extern "C" _LIBCPP_FUNC_VIS void
+    extern "C" _LIBCPP_EXPORTED_FROM_ABI void
     __sanitizer_annotate_contiguous_container(const void*, const void*, const void*, const void*);
+#    if _LIBCPP_CLANG_VER >= 1600
+extern "C" _LIBCPP_EXPORTED_FROM_ABI void __sanitizer_annotate_double_ended_contiguous_container(
+    const void*, const void*, const void*, const void*, const void*, const void*);
+extern "C" _LIBCPP_EXPORTED_FROM_ABI int
+__sanitizer_verify_double_ended_contiguous_container(const void*, const void*, const void*, const void*);
+#    endif
 #  endif
 
 // Try to find out if RTTI is disabled.
@@ -927,7 +1072,6 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
         defined(__linux__) ||                                                                                          \
         defined(__GNU__) ||                                                                                            \
         defined(__APPLE__) ||                                                                                          \
-        defined(__sun__) ||                                                                                            \
         defined(__MVS__) ||                                                                                            \
         defined(_AIX) ||                                                                                               \
         defined(__EMSCRIPTEN__)
@@ -1034,6 +1178,12 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
 #  endif
 
+#  if defined(__FreeBSD__) && defined(__clang__) && __has_attribute(__no_thread_safety_analysis__)
+#    define _LIBCPP_NO_THREAD_SAFETY_ANALYSIS __attribute__((__no_thread_safety_analysis__))
+#  else
+#    define _LIBCPP_NO_THREAD_SAFETY_ANALYSIS
+#  endif
+
 #  if defined(_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS)
 #    if defined(__clang__) && __has_attribute(acquire_capability)
 // Work around the attribute handling in clang.  When both __declspec and
@@ -1052,7 +1202,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_THREAD_SAFETY_ANNOTATION(x)
 #  endif
 
-#  if _LIBCPP_STD_VER > 17
+#  if _LIBCPP_STD_VER >= 20
 #    define _LIBCPP_CONSTINIT constinit
 #  elif __has_attribute(__require_constant_initialization__)
 #    define _LIBCPP_CONSTINIT __attribute__((__require_constant_initialization__))
@@ -1099,6 +1249,12 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_PREFERRED_NAME(x)
 #  endif
 
+#  if __has_attribute(__no_sanitize__)
+#    define _LIBCPP_NO_SANITIZE(...) __attribute__((__no_sanitize__(__VA_ARGS__)))
+#  else
+#    define _LIBCPP_NO_SANITIZE(...)
+#  endif
+
 // We often repeat things just for handling wide characters in the library.
 // When wide characters are disabled, it can be useful to have a quick way of
 // disabling it without having to resort to #if-#endif, which has a larger
@@ -1132,8 +1288,10 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS
 #  endif // _LIBCPP_ENABLE_CXX20_REMOVED_FEATURES
 
-#  define _LIBCPP_PUSH_MACROS _Pragma("push_macro(\"min\")") _Pragma("push_macro(\"max\")")
-#  define _LIBCPP_POP_MACROS _Pragma("pop_macro(\"min\")") _Pragma("pop_macro(\"max\")")
+// clang-format off
+#  define _LIBCPP_PUSH_MACROS _Pragma("push_macro(\"min\")") _Pragma("push_macro(\"max\")") _Pragma("push_macro(\"refresh()\")") _Pragma("push_macro(\"move(int, int)\")") _Pragma("push_macro(\"erase()\")")
+#  define _LIBCPP_POP_MACROS _Pragma("pop_macro(\"min\")") _Pragma("pop_macro(\"max\")") _Pragma("pop_macro(\"refresh()\")") _Pragma("pop_macro(\"move(int, int)\")") _Pragma("pop_macro(\"erase()\")")
+// clang-format on
 
 #  ifndef _LIBCPP_NO_AUTO_LINK
 #    if defined(_LIBCPP_ABI_MICROSOFT) && !defined(_LIBCPP_BUILDING_LIBRARY)
@@ -1189,7 +1347,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 // [[msvc::no_unique_address]], this should be preferred though.
 #    define _LIBCPP_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
 #  elif __has_cpp_attribute(no_unique_address)
-#    define _LIBCPP_NO_UNIQUE_ADDRESS [[no_unique_address]]
+#    define _LIBCPP_NO_UNIQUE_ADDRESS [[__no_unique_address__]]
 #  else
 #    define _LIBCPP_NO_UNIQUE_ADDRESS /* nothing */
 // Note that this can be replaced by #error as soon as clang-cl
@@ -1252,19 +1410,62 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 // macro is used to mark them as such, which suppresses the
 // '-Wctad-maybe-unsupported' compiler warning when CTAD is used in user code
 // with these classes.
-#if _LIBCPP_STD_VER >= 17
-#    define _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(_ClassName)                                                                \
-      template <class ..._Tag>                                                                                         \
-      _ClassName(typename _Tag::__allow_ctad...) -> _ClassName<_Tag...>
-#else
-#  define _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(_ClassName) static_assert(true, "")
-#endif
+#  if _LIBCPP_STD_VER >= 17
+#    ifdef _LIBCPP_COMPILER_CLANG_BASED
+#      define _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(_ClassName)                                                              \
+        template <class... _Tag>                                                                                       \
+        [[maybe_unused]] _ClassName(typename _Tag::__allow_ctad...)->_ClassName<_Tag...>
+#    else
+#      define _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(ClassName)                                                               \
+        template <class... _Tag>                                                                                       \
+        ClassName(typename _Tag::__allow_ctad...)->ClassName<_Tag...>
+#    endif
+#  else
+#    define _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(_ClassName) static_assert(true, "")
+#  endif
 
 // TODO(varconst): currently, there are bugs in Clang's intrinsics when handling Objective-C++ `id`, so don't use
 // compiler intrinsics in the Objective-C++ mode.
 #  ifdef __OBJC__
 #    define _LIBCPP_WORKAROUND_OBJCXX_COMPILER_INTRINSICS
 #  endif
+
+#  define _PSTL_PRAGMA(x) _Pragma(#x)
+
+// Enable SIMD for compilers that support OpenMP 4.0
+#  if (defined(_OPENMP) && _OPENMP >= 201307)
+
+#    define _PSTL_UDR_PRESENT
+#    define _PSTL_PRAGMA_SIMD _PSTL_PRAGMA(omp simd)
+#    define _PSTL_PRAGMA_DECLARE_SIMD _PSTL_PRAGMA(omp declare simd)
+#    define _PSTL_PRAGMA_SIMD_REDUCTION(PRM) _PSTL_PRAGMA(omp simd reduction(PRM))
+#    define _PSTL_PRAGMA_SIMD_SCAN(PRM) _PSTL_PRAGMA(omp simd reduction(inscan, PRM))
+#    define _PSTL_PRAGMA_SIMD_INCLUSIVE_SCAN(PRM) _PSTL_PRAGMA(omp scan inclusive(PRM))
+#    define _PSTL_PRAGMA_SIMD_EXCLUSIVE_SCAN(PRM) _PSTL_PRAGMA(omp scan exclusive(PRM))
+
+// Declaration of reduction functor, where
+// NAME - the name of the functor
+// OP - type of the callable object with the reduction operation
+// omp_in - refers to the local partial result
+// omp_out - refers to the final value of the combiner operator
+// omp_priv - refers to the private copy of the initial value
+// omp_orig - refers to the original variable to be reduced
+#    define _PSTL_PRAGMA_DECLARE_REDUCTION(NAME, OP)                                                                   \
+      _PSTL_PRAGMA(omp declare reduction(NAME:OP : omp_out(omp_in)) initializer(omp_priv = omp_orig))
+
+#  else // (defined(_OPENMP) && _OPENMP >= 201307)
+
+#    define _PSTL_PRAGMA_SIMD
+#    define _PSTL_PRAGMA_DECLARE_SIMD
+#    define _PSTL_PRAGMA_SIMD_REDUCTION(PRM)
+#    define _PSTL_PRAGMA_SIMD_SCAN(PRM)
+#    define _PSTL_PRAGMA_SIMD_INCLUSIVE_SCAN(PRM)
+#    define _PSTL_PRAGMA_SIMD_EXCLUSIVE_SCAN(PRM)
+#    define _PSTL_PRAGMA_DECLARE_REDUCTION(NAME, OP)
+
+#  endif // (defined(_OPENMP) && _OPENMP >= 201307)
+
+#  define _PSTL_USE_NONTEMPORAL_STORES_IF_ALLOWED
 
 #endif // __cplusplus
 

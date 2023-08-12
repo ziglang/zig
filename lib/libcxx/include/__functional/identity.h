@@ -11,6 +11,7 @@
 #define _LIBCPP___FUNCTIONAL_IDENTITY_H
 
 #include <__config>
+#include <__type_traits/integral_constant.h>
 #include <__utility/forward.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -19,27 +20,37 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+template <class _Tp>
+struct __is_identity : false_type {};
+
 struct __identity {
   template <class _Tp>
-  _LIBCPP_NODISCARD _LIBCPP_CONSTEXPR _Tp&& operator()(_Tp&& __t) const _NOEXCEPT {
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Tp&& operator()(_Tp&& __t) const _NOEXCEPT {
     return std::forward<_Tp>(__t);
   }
 
   using is_transparent = void;
 };
 
-#if _LIBCPP_STD_VER > 17
+template <>
+struct __is_identity<__identity> : true_type {};
+
+#if _LIBCPP_STD_VER >= 20
 
 struct identity {
     template<class _Tp>
-    _LIBCPP_NODISCARD_EXT constexpr _Tp&& operator()(_Tp&& __t) const noexcept
+    _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Tp&& operator()(_Tp&& __t) const noexcept
     {
         return _VSTD::forward<_Tp>(__t);
     }
 
     using is_transparent = void;
 };
-#endif // _LIBCPP_STD_VER > 17
+
+template <>
+struct __is_identity<identity> : true_type {};
+
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

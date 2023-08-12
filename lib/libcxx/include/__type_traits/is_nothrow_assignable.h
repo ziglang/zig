@@ -19,10 +19,10 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, class _Arg>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_assignable
-    : public integral_constant<bool, __is_nothrow_assignable(_Tp, _Arg)> {};
+struct _LIBCPP_TEMPLATE_VIS is_nothrow_assignable : public integral_constant<bool, __is_nothrow_assignable(_Tp, _Arg)> {
+};
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template <class _Tp, class _Arg>
 inline constexpr bool is_nothrow_assignable_v = __is_nothrow_assignable(_Tp, _Arg);
 #endif

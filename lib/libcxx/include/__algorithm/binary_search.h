@@ -37,8 +37,7 @@ _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 bool
 binary_search(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value)
 {
-    return std::binary_search(__first, __last, __value,
-                              __less<typename iterator_traits<_ForwardIterator>::value_type, _Tp>());
+    return std::binary_search(__first, __last, __value, __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

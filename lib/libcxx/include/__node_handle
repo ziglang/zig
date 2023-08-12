@@ -68,9 +68,12 @@ public:
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 // Specialized in __tree & __hash_table for their _NodeType.
 template <class _NodeType, class _Alloc>
@@ -146,7 +149,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     __basic_node_handle& operator=(__basic_node_handle&& __other)
     {
-        _LIBCPP_ASSERT(
+        _LIBCPP_ASSERT_COMPATIBLE_ALLOCATOR(
             __alloc_ == _VSTD::nullopt ||
             __alloc_traits::propagate_on_container_move_assignment::value ||
             __alloc_ == __other.__alloc_,
@@ -247,8 +250,10 @@ struct _LIBCPP_TEMPLATE_VIS __insert_return_type
     _NodeType node;
 };
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif  // _LIBCPP___NODE_HANDLE

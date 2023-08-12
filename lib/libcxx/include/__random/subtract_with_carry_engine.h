@@ -18,7 +18,6 @@
 #include <cstdint>
 #include <iosfwd>
 #include <limits>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -121,7 +120,7 @@ public:
             {__seed(__q, integral_constant<unsigned, 1 + (__w - 1) / 32>());}
 
     // generating functions
-    result_type operator()();
+    _LIBCPP_HIDE_FROM_ABI result_type operator()();
     _LIBCPP_INLINE_VISIBILITY
     void discard(unsigned long long __z) {for (; __z; --__z) operator()();}
 
@@ -155,12 +154,12 @@ public:
 
 private:
 
-    void seed(result_type __sd, integral_constant<unsigned, 1>);
-    void seed(result_type __sd, integral_constant<unsigned, 2>);
+    _LIBCPP_HIDE_FROM_ABI void seed(result_type __sd, integral_constant<unsigned, 1>);
+    _LIBCPP_HIDE_FROM_ABI void seed(result_type __sd, integral_constant<unsigned, 2>);
     template<class _Sseq>
-        void __seed(_Sseq& __q, integral_constant<unsigned, 1>);
+    _LIBCPP_HIDE_FROM_ABI void __seed(_Sseq& __q, integral_constant<unsigned, 1>);
     template<class _Sseq>
-        void __seed(_Sseq& __q, integral_constant<unsigned, 2>);
+    _LIBCPP_HIDE_FROM_ABI void __seed(_Sseq& __q, integral_constant<unsigned, 2>);
 };
 
 template<class _UIntType, size_t __w, size_t __s, size_t __r>

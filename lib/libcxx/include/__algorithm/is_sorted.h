@@ -36,7 +36,7 @@ _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 bool
 is_sorted(_ForwardIterator __first, _ForwardIterator __last)
 {
-    return _VSTD::is_sorted(__first, __last, __less<typename iterator_traits<_ForwardIterator>::value_type>());
+    return _VSTD::is_sorted(__first, __last, __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

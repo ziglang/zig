@@ -76,11 +76,11 @@ struct __move_backward_loop {
 
   template <class _InIter,
             class _OutIter,
-            __enable_if_t<__is_cpp17_random_access_iterator<_InIter>::value &&
+            __enable_if_t<__has_random_access_iterator_category<_InIter>::value &&
                               !__is_segmented_iterator<_InIter>::value && __is_segmented_iterator<_OutIter>::value,
                           int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_InIter, _OutIter>
-  operator()(_InIter __first, _InIter __last, _OutIter __result) {
+  operator()(_InIter __first, _InIter __last, _OutIter __result) const {
     using _Traits = __segmented_iterator_traits<_OutIter>;
     using _DiffT  = typename common_type<__iter_diff_t<_InIter>, __iter_diff_t<_OutIter> >::type;
 
