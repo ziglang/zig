@@ -6612,12 +6612,24 @@ pub fn enumValueFieldIndex(mod: *Module, ty: Type, field_index: u32) Allocator.E
     } })).toValue();
 }
 
+pub fn undefValue(mod: *Module, ty: Type) Allocator.Error!Value {
+    return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+}
+
+pub fn undefRef(mod: *Module, ty: Type) Allocator.Error!Air.Inst.Ref {
+    return Air.internedToRef((try mod.undefValue(ty)).toIntern());
+}
+
 pub fn intValue(mod: *Module, ty: Type, x: anytype) Allocator.Error!Value {
     if (std.math.cast(u64, x)) |casted| return intValue_u64(mod, ty, casted);
     if (std.math.cast(i64, x)) |casted| return intValue_i64(mod, ty, casted);
     var limbs_buffer: [4]usize = undefined;
     var big_int = BigIntMutable.init(&limbs_buffer, x);
     return intValue_big(mod, ty, big_int.toConst());
+}
+
+pub fn intRef(mod: *Module, ty: Type, x: anytype) Allocator.Error!Air.Inst.Ref {
+    return Air.internedToRef((try mod.intValue(ty, x)).toIntern());
 }
 
 pub fn intValue_big(mod: *Module, ty: Type, x: BigIntConst) Allocator.Error!Value {
