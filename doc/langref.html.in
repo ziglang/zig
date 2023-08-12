@@ -8360,7 +8360,7 @@ test "main" {
       with the file contents.
       </p>
       <p>
-      {#syntax#}path{#endsyntax#} is absolute or relative to the current file, just like {#syntax#}@import{#endsyntax#}.
+      {#syntax#}path{#endsyntax#} relative to the current file, just like {#syntax#}@import{#endsyntax#}.
       </p>
       {#see_also|@import#}
       {#header_close#}
