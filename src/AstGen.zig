@@ -5657,7 +5657,7 @@ fn finishThenElseBlock(
                 0;
 
             if (strat.elide_store_to_block_ptr_instructions) {
-                try setCondBrPayloadElideBlockStorePtr(condbr, cond, then_scope, then_break, else_scope, else_break, block_scope.rl_ptr);
+                try setCondBrPayloadElideBlockStorePtr(condbr, cond, then_scope, then_break, then_src_node, else_scope, else_break, else_src_node, block_scope.rl_ptr);
             } else {
                 try setCondBrPayload(condbr, cond, then_scope, then_break, else_scope, else_break);
             }
@@ -6082,8 +6082,10 @@ fn setCondBrPayloadElideBlockStorePtr(
     cond: Zir.Inst.Ref,
     then_scope: *GenZir,
     then_break: Zir.Inst.Index,
+    then_src_node: Ast.Node.Index,
     else_scope: *GenZir,
     else_break: Zir.Inst.Index,
+    else_src_node: Ast.Node.Index,
     block_ptr: Zir.Inst.Ref,
 ) !void {
     defer then_scope.unstack();
@@ -6097,7 +6099,8 @@ fn setCondBrPayloadElideBlockStorePtr(
     const else_body_len = astgen.countBodyLenAfterFixups(else_body) + @intFromBool(has_else_break);
     try astgen.extra.ensureUnusedCapacity(
         astgen.gpa,
-        @typeInfo(Zir.Inst.CondBr).Struct.fields.len + then_body_len + else_body_len,
+        @typeInfo(Zir.Inst.CondBr).Struct.fields.len + then_body_len + else_body_len +
+            @typeInfo(Zir.Inst.As).Struct.fields.len * 2,
     );
 
     const zir_tags = astgen.instructions.items(.tag);
@@ -6117,17 +6120,13 @@ fn setCondBrPayloadElideBlockStorePtr(
     // `store_to_block_ptr` instruction with an `as` instruction and repurpose
     // it as the break operand.
     // This corresponds to similar code in `labeledBlockExpr`.
+    var then_as_inst: Zir.Inst.Index = 0;
     for (then_body) |src_inst| {
         if (zir_tags[src_inst] == .store_to_block_ptr and
             zir_datas[src_inst].bin.lhs == block_ptr)
         {
             if (then_scope.rl_ty_inst != .none and has_then_break) {
-                zir_tags[src_inst] = .as;
-                zir_datas[src_inst].bin = .{
-                    .lhs = then_scope.rl_ty_inst,
-                    .rhs = zir_datas[then_break].@"break".operand,
-                };
-                zir_datas[then_break].@"break".operand = indexToRef(src_inst);
+                then_as_inst = src_inst;
             } else {
                 astgen.extra.items[then_body_len_index] -= 1;
                 continue;
@@ -6137,17 +6136,13 @@ fn setCondBrPayloadElideBlockStorePtr(
     }
     if (has_then_break) astgen.extra.appendAssumeCapacity(then_break);
 
+    var else_as_inst: Zir.Inst.Index = 0;
     for (else_body) |src_inst| {
         if (zir_tags[src_inst] == .store_to_block_ptr and
             zir_datas[src_inst].bin.lhs == block_ptr)
         {
             if (else_scope.rl_ty_inst != .none and has_else_break) {
-                zir_tags[src_inst] = .as;
-                zir_datas[src_inst].bin = .{
-                    .lhs = else_scope.rl_ty_inst,
-                    .rhs = zir_datas[else_break].@"break".operand,
-                };
-                zir_datas[else_break].@"break".operand = indexToRef(src_inst);
+                else_as_inst = src_inst;
             } else {
                 astgen.extra.items[else_body_len_index] -= 1;
                 continue;
@@ -6156,6 +6151,30 @@ fn setCondBrPayloadElideBlockStorePtr(
         appendPossiblyRefdBodyInst(astgen, &astgen.extra, src_inst);
     }
     if (has_else_break) astgen.extra.appendAssumeCapacity(else_break);
+
+    if (then_as_inst != 0) {
+        zir_tags[then_as_inst] = .as_node;
+        zir_datas[then_as_inst] = .{ .pl_node = .{
+            .src_node = then_scope.nodeIndexToRelative(then_src_node),
+            .payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.As{
+                .dest_type = then_scope.rl_ty_inst,
+                .operand = zir_datas[then_break].@"break".operand,
+            }),
+        } };
+        zir_datas[then_break].@"break".operand = indexToRef(then_as_inst);
+    }
+
+    if (else_as_inst != 0) {
+        zir_tags[else_as_inst] = .as_node;
+        zir_datas[else_as_inst] = .{ .pl_node = .{
+            .src_node = else_scope.nodeIndexToRelative(else_src_node),
+            .payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.As{
+                .dest_type = else_scope.rl_ty_inst,
+                .operand = zir_datas[else_break].@"break".operand,
+            }),
+        } };
+        zir_datas[else_break].@"break".operand = indexToRef(else_as_inst);
+    }
 }
 
 fn whileExpr(
