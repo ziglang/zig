@@ -7178,7 +7178,8 @@ fn switchExpr(
     try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.SwitchBlock).Struct.fields.len +
         @intFromBool(multi_cases_len != 0) +
         @intFromBool(any_has_tag_capture) +
-        payloads.items.len - case_table_end);
+        payloads.items.len - case_table_end +
+        (case_table_end - case_table_start) * @typeInfo(Zir.Inst.As).Struct.fields.len);
 
     const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.SwitchBlock{
         .operand = raw_operand,
@@ -7205,82 +7206,108 @@ fn switchExpr(
     zir_datas[switch_block].pl_node.payload_index = payload_index;
 
     const strat = ri.rl.strategy(&block_scope);
-    for (payloads.items[case_table_start..case_table_end], 0..) |start_index, i| {
-        var body_len_index = start_index;
-        var end_index = start_index;
-        const table_index = case_table_start + i;
-        if (table_index < scalar_case_table) {
-            end_index += 1;
-        } else if (table_index < multi_case_table) {
-            body_len_index += 1;
-            end_index += 2;
-        } else {
-            body_len_index += 2;
-            const items_len = payloads.items[start_index];
-            const ranges_len = payloads.items[start_index + 1];
-            end_index += 3 + items_len + 2 * ranges_len;
-        }
+    inline for (.{ .body, .breaks }) |pass| {
+        for (payloads.items[case_table_start..case_table_end], 0..) |start_index, i| {
+            var body_len_index = start_index;
+            var end_index = start_index;
+            const table_index = case_table_start + i;
+            if (table_index < scalar_case_table) {
+                end_index += 1;
+            } else if (table_index < multi_case_table) {
+                body_len_index += 1;
+                end_index += 2;
+            } else {
+                body_len_index += 2;
+                const items_len = payloads.items[start_index];
+                const ranges_len = payloads.items[start_index + 1];
+                end_index += 3 + items_len + 2 * ranges_len;
+            }
 
-        const body_len = @as(Zir.Inst.SwitchBlock.ProngInfo, @bitCast(payloads.items[body_len_index])).body_len;
-        end_index += body_len;
+            const prong_info: Zir.Inst.SwitchBlock.ProngInfo = @bitCast(payloads.items[body_len_index]);
+            end_index += prong_info.body_len;
 
-        switch (strat.tag) {
-            .break_operand => blk: {
-                // Switch expressions return `true` for `nodeMayNeedMemoryLocation` thus
-                // `elide_store_to_block_ptr_instructions` will either be true,
-                // or all prongs are noreturn.
-                if (!strat.elide_store_to_block_ptr_instructions)
-                    break :blk;
+            switch (strat.tag) {
+                .break_operand => blk: {
+                    // Switch expressions return `true` for `nodeMayNeedMemoryLocation` thus
+                    // `elide_store_to_block_ptr_instructions` will either be true,
+                    // or all prongs are noreturn.
+                    if (!strat.elide_store_to_block_ptr_instructions)
+                        break :blk;
 
-                // There will necessarily be a store_to_block_ptr for
-                // all prongs, except for prongs that ended with a noreturn instruction.
-                // Elide all the `store_to_block_ptr` instructions.
+                    // There will necessarily be a store_to_block_ptr for
+                    // all prongs, except for prongs that ended with a noreturn instruction.
+                    // Elide all the `store_to_block_ptr` instructions.
 
-                // The break instructions need to have their operands coerced if the
-                // switch's result location is a `ty`. In this case we overwrite the
-                // `store_to_block_ptr` instruction with an `as` instruction and repurpose
-                // it as the break operand.
-                if (body_len < 2)
-                    break :blk;
+                    // The break instructions need to have their operands coerced if the
+                    // switch's result location is a `ty`. In this case we overwrite the
+                    // `store_to_block_ptr` instruction with an `as` instruction and repurpose
+                    // it as the break operand.
+                    if (prong_info.body_len < 2)
+                        break :blk;
 
-                var store_index = end_index - 2;
-                while (true) : (store_index -= 1) switch (zir_tags[payloads.items[store_index]]) {
-                    .dbg_block_end, .dbg_block_begin, .dbg_stmt, .dbg_var_val, .dbg_var_ptr => {},
-                    else => break,
-                };
-                const store_inst = payloads.items[store_index];
-                if (zir_tags[store_inst] != .store_to_block_ptr or
-                    zir_datas[store_inst].bin.lhs != block_scope.rl_ptr)
-                    break :blk;
-                const break_inst = payloads.items[end_index - 1];
-                if (block_scope.rl_ty_inst != .none) {
-                    zir_tags[store_inst] = .as;
-                    zir_datas[store_inst].bin = .{
-                        .lhs = block_scope.rl_ty_inst,
-                        .rhs = zir_datas[break_inst].@"break".operand,
+                    var store_index = end_index - 2;
+                    while (true) : (store_index -= 1) switch (zir_tags[payloads.items[store_index]]) {
+                        .dbg_block_end, .dbg_block_begin, .dbg_stmt, .dbg_var_val, .dbg_var_ptr => {},
+                        else => break,
                     };
-                    zir_datas[break_inst].@"break".operand = indexToRef(store_inst);
-                } else {
-                    payloads.items[body_len_index] -= 1;
-                    astgen.extra.appendSliceAssumeCapacity(payloads.items[start_index .. end_index - 2]);
-                    astgen.extra.appendAssumeCapacity(break_inst);
-                    continue;
-                }
-            },
-            .break_void => {
-                assert(!strat.elide_store_to_block_ptr_instructions);
-                const last_inst = payloads.items[end_index - 1];
-                if (zir_tags[last_inst] == .@"break") {
-                    const break_data = &zir_datas[last_inst].@"break";
-                    const block_inst = astgen.extra.items[
-                        break_data.payload_index + std.meta.fieldIndex(Zir.Inst.Break, "block_inst").?
-                    ];
-                    if (block_inst == switch_block) break_data.operand = .void_value;
-                }
-            },
-        }
+                    const store_inst = payloads.items[store_index];
+                    if (zir_tags[store_inst] != .store_to_block_ptr or
+                        zir_datas[store_inst].bin.lhs != block_scope.rl_ptr)
+                        break :blk;
+                    const break_inst = payloads.items[end_index - 1];
+                    if (block_scope.rl_ty_inst != .none) {
+                        if (pass == .breaks) {
+                            const break_data = &zir_datas[break_inst].@"break";
+                            const break_src: i32 = @bitCast(astgen.extra.items[
+                                break_data.payload_index +
+                                    std.meta.fieldIndex(Zir.Inst.Break, "operand_src_node").?
+                            ]);
+                            if (break_src == Zir.Inst.Break.no_src_node) {
+                                zir_tags[store_inst] = .as;
+                                zir_datas[store_inst].bin = .{
+                                    .lhs = block_scope.rl_ty_inst,
+                                    .rhs = break_data.operand,
+                                };
+                            } else {
+                                zir_tags[store_inst] = .as_node;
+                                zir_datas[store_inst] = .{ .pl_node = .{
+                                    .src_node = break_src,
+                                    .payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.As{
+                                        .dest_type = block_scope.rl_ty_inst,
+                                        .operand = break_data.operand,
+                                    }),
+                                } };
+                            }
+                            break_data.operand = indexToRef(store_inst);
+                        }
+                    } else {
+                        if (pass == .body) {
+                            payloads.items[body_len_index] -= 1;
+                            astgen.extra.appendSliceAssumeCapacity(
+                                payloads.items[start_index .. end_index - 2],
+                            );
+                            astgen.extra.appendAssumeCapacity(break_inst);
+                        }
+                        continue;
+                    }
+                },
+                .break_void => if (pass == .breaks) {
+                    assert(!strat.elide_store_to_block_ptr_instructions);
+                    const last_inst = payloads.items[end_index - 1];
+                    if (zir_tags[last_inst] == .@"break") {
+                        const break_data = &zir_datas[last_inst].@"break";
+                        const block_inst = astgen.extra.items[
+                            break_data.payload_index +
+                                std.meta.fieldIndex(Zir.Inst.Break, "block_inst").?
+                        ];
+                        if (block_inst == switch_block) break_data.operand = .void_value;
+                    }
+                },
+            }
 
-        astgen.extra.appendSliceAssumeCapacity(payloads.items[start_index..end_index]);
+            if (pass == .body)
+                astgen.extra.appendSliceAssumeCapacity(payloads.items[start_index..end_index]);
+        }
     }
 
     const block_ref = indexToRef(switch_block);
