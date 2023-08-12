@@ -7181,7 +7181,6 @@ pub const Constant = enum(u32) {
         @"and",
         @"or",
         xor,
-        select,
         @"asm",
         @"asm sideeffect",
         @"asm alignstack",
@@ -7289,12 +7288,6 @@ pub const Constant = enum(u32) {
     };
 
     pub const Binary = extern struct {
-        lhs: Constant,
-        rhs: Constant,
-    };
-
-    pub const Select = extern struct {
-        cond: Constant,
         lhs: Constant,
         rhs: Constant,
     };
@@ -7430,7 +7423,6 @@ pub const Constant = enum(u32) {
                     .@"or",
                     .xor,
                     => builder.constantExtraData(Binary, item.data).lhs.typeOf(builder),
-                    .select => builder.constantExtraData(Select, item.data).lhs.typeOf(builder),
                     .@"asm",
                     .@"asm sideeffect",
                     .@"asm alignstack",
@@ -7816,15 +7808,6 @@ pub const Constant = enum(u32) {
                         const extra = data.builder.constantExtraData(Binary, item.data);
                         try writer.print("{s} ({%}, {%})", .{
                             @tagName(tag),
-                            extra.lhs.fmt(data.builder),
-                            extra.rhs.fmt(data.builder),
-                        });
-                    },
-                    .select => |tag| {
-                        const extra = data.builder.constantExtraData(Select, item.data);
-                        try writer.print("{s} ({%}, {%}, {%})", .{
-                            @tagName(tag),
-                            extra.cond.fmt(data.builder),
                             extra.lhs.fmt(data.builder),
                             extra.rhs.fmt(data.builder),
                         });
