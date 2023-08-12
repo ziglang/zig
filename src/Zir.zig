@@ -2347,8 +2347,8 @@ pub const Inst = struct {
     pub const Break = struct {
         pub const no_src_node = std.math.maxInt(i32);
 
-        block_inst: Index,
         operand_src_node: i32,
+        block_inst: Index,
     };
 
     /// Trailing:
