@@ -683,6 +683,8 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
         /// `npub`: Public nonce
         /// `k`: Private key
         /// Asserts `c.len == m.len`.
+        ///
+        /// Contents of `m` are undefined if an error is returned.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
 
