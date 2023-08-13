@@ -2629,14 +2629,16 @@ pub fn renameatW(
     };
     defer windows.CloseHandle(src_fd);
 
-    const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (MAX_PATH_BYTES - 1);
-    var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION)) = undefined;
-    const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path_w.len * 2;
-    if (struct_len > struct_buf_len) return error.NameTooLong;
+    var need_fallback = true;
+    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
+        const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) + (MAX_PATH_BYTES - 1);
+        var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION_EX)) = undefined;
+        const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) - 1 + new_path_w.len * 2;
+        if (struct_len > struct_buf_len) return error.NameTooLong;
 
-    const rename_info = @as(*windows.FILE_RENAME_INFORMATION, @ptrCast(&rename_info_buf));
+        const rename_info = @as(*windows.FILE_RENAME_INFORMATION_EX, @ptrCast(&rename_info_buf));
+        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
 
-    if (builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
         var flags: windows.ULONG = windows.FILE_RENAME_POSIX_SEMANTICS | windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE;
         if (ReplaceIfExists == windows.TRUE) flags |= windows.FILE_RENAME_REPLACE_IF_EXISTS;
         rename_info.* = .{
@@ -2645,47 +2647,61 @@ pub fn renameatW(
             .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
             .FileName = undefined,
         };
-    } else {
-        rename_info.* = .{
-            .Flags = ReplaceIfExists,
-            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
-            .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
-            .FileName = undefined,
-        };
-    }
-    @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
-
-    var io_status_block: windows.IO_STATUS_BLOCK = undefined;
-
-    const rc = if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
-        windows.ntdll.NtSetInformationFile(
+        @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
+        const rc = windows.ntdll.NtSetInformationFile(
             src_fd,
             &io_status_block,
             rename_info,
             @intCast(struct_len), // already checked for error.NameTooLong
             .FileRenameInformationEx,
         );
-    } else {
-        windows.ntdll.NtSetInformationFile(
+        switch (rc) {
+            .SUCCESS => return,
+            // INVALID_PARAMETER here means that the filesystem does not support FileRenameInformationEx
+            .INVALID_PARAMETER => {},
+            // For all other statuses, fall down to the switch below to handle them.
+            else => need_fallback = false,
+        }
+    }
+
+    if (need_fallback) {
+        const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (MAX_PATH_BYTES - 1);
+        var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION)) = undefined;
+        const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path_w.len * 2;
+        if (struct_len > struct_buf_len) return error.NameTooLong;
+
+        const rename_info = @as(*windows.FILE_RENAME_INFORMATION, @ptrCast(&rename_info_buf));
+        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+
+        rename_info.* = .{
+            .Flags = ReplaceIfExists,
+            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
+            .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
+            .FileName = undefined,
+        };
+        @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
+
+        const rc =
+            windows.ntdll.NtSetInformationFile(
             src_fd,
             &io_status_block,
             rename_info,
             @intCast(struct_len), // already checked for error.NameTooLong
             .FileRenameInformation,
         );
-    };
 
-    switch (rc) {
-        .SUCCESS => return,
-        .INVALID_HANDLE => unreachable,
-        .INVALID_PARAMETER => unreachable,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NOT_SAME_DEVICE => return error.RenameAcrossMountPoints,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        else => return windows.unexpectedStatus(rc),
+        switch (rc) {
+            .SUCCESS => {},
+            .INVALID_HANDLE => unreachable,
+            .INVALID_PARAMETER => unreachable,
+            .OBJECT_PATH_SYNTAX_BAD => unreachable,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NOT_SAME_DEVICE => return error.RenameAcrossMountPoints,
+            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+            else => return windows.unexpectedStatus(rc),
+        }
     }
 }
 

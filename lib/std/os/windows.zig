@@ -1009,6 +1009,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
             .FileDispositionInformationEx,
         );
         switch (rc) {
+            .SUCCESS => return,
             // INVALID_PARAMETER here means that the filesystem does not support FileDispositionInformationEx
             .INVALID_PARAMETER => {},
             // For all other statuses, fall down to the switch below to handle them.
@@ -2870,7 +2871,15 @@ pub const FILE_RENAME_FORCE_RESIZE_SOURCE_SR = 0x00000100;
 pub const FILE_RENAME_FORCE_RESIZE_SR = 0x00000180;
 
 pub const FILE_RENAME_INFORMATION = extern struct {
-    Flags: if (builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) ULONG else BOOLEAN,
+    Flags: BOOLEAN,
+    RootDirectory: ?HANDLE,
+    FileNameLength: ULONG,
+    FileName: [1]WCHAR,
+};
+
+// FileRenameInformationEx (since .win10_rs1)
+pub const FILE_RENAME_INFORMATION_EX = extern struct {
+    Flags: ULONG,
     RootDirectory: ?HANDLE,
     FileNameLength: ULONG,
     FileName: [1]WCHAR,
