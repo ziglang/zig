@@ -1238,7 +1238,26 @@ pub const Object = struct {
         if (options.asm_path == null and options.bin_path == null and
             options.post_ir_path == null and options.post_bc_path == null) return;
 
-        if (!self.builder.useLibLlvm()) unreachable; // caught in Compilation.Config.resolve
+        if (options.post_bc_path) |path| {
+            if (!self.builder.useLibLlvm()) {
+                var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
+                defer arena_allocator.deinit();
+                const arena = arena_allocator.allocator();
+
+                var file = try std.fs.cwd().createFileZ(path, .{});
+                defer file.close();
+                const bitcode = try self.builder.toBitcode(arena);
+
+                const ptr: [*]const u8 = @ptrCast(bitcode.ptr);
+                try file.writeAll(ptr[0..(bitcode.len * 4)]);
+                return;
+            }
+        }
+
+        if (!self.builder.useLibLlvm()) {
+            log.err("emitting without libllvm not implemented", .{});
+            return error.FailedToEmit;
+        }
 
         // Unfortunately, LLVM shits the bed when we ask for both binary and assembly.
         // So we call the entire pipeline multiple times if this is requested.
