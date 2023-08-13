@@ -259,6 +259,10 @@ pub const cosh = @import("math/cosh.zig").cosh;
 pub const tanh = @import("math/tanh.zig").tanh;
 pub const gcd = @import("math/gcd.zig").gcd;
 
+// TODO: This should not be part of the public API, but compiler-rt tests need
+//       access to it...
+pub const test_utils = @import("math/test.zig");
+
 /// Sine trigonometric function on a floating point number.
 /// Uses a dedicated hardware instruction when available.
 /// This is the same as calling the builtin @sin

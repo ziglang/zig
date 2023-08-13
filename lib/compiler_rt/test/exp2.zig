@@ -1,5 +1,6 @@
-const math = @import("../../math.zig");
-const test_utils = @import("../test.zig");
+const compiler_rt_exp2 = @import("../exp2.zig");
+const math = @import("std").math;
+const test_utils = math.test_utils;
 const Testcase = test_utils.Testcase;
 const runTests = test_utils.runTests;
 const floatFromBits = test_utils.floatFromBits;
@@ -7,10 +8,10 @@ const negInf = test_utils.negInf;
 const inf32 = math.inf(f32);
 const inf64 = math.inf(f64);
 
-const Tc32 = Testcase(math.exp2, "exp2", f32);
+const Tc32 = Testcase(compiler_rt_exp2.exp2f, "exp2", f32);
 const tc32 = Tc32.init;
 
-const Tc64 = Testcase(math.exp2, "exp2", f64);
+const Tc64 = Testcase(compiler_rt_exp2.exp2, "exp2", f64);
 const tc64 = Tc64.init;
 
 // in -> out

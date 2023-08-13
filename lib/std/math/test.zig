@@ -9,14 +9,9 @@ pub const log_level: std.log.Level = .info;
 
 // Include all tests.
 comptime {
-    _ = @import("test/exp.zig");
-    _ = @import("test/exp2.zig");
     _ = @import("test/expm1.zig");
     // TODO: The implementation seems to be broken...
     // _ = @import("test/expo2.zig");
-    _ = @import("test/ln.zig");
-    _ = @import("test/log2.zig");
-    _ = @import("test/log10.zig");
     _ = @import("test/log1p.zig");
 }
 

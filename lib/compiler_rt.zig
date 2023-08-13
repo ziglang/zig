@@ -235,3 +235,7 @@ comptime {
         _ = @import("compiler_rt/bcmp.zig");
     }
 }
+
+test {
+    _ = @import("compiler_rt/test.zig");
+}

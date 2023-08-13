@@ -169,7 +169,7 @@ pub fn logl(x: c_longdouble) callconv(.C) c_longdouble {
     }
 }
 
-test "ln32" {
+test "log32" {
     const epsilon = 0.000001;
 
     try testing.expect(math.approxEqAbs(f32, logf(0.2), -1.609438, epsilon));
@@ -180,7 +180,7 @@ test "ln32" {
     try testing.expect(math.approxEqAbs(f32, logf(123123.234375), 11.720941, epsilon));
 }
 
-test "ln64" {
+test "log64" {
     const epsilon = 0.000001;
 
     try testing.expect(math.approxEqAbs(f64, log(0.2), -1.609438, epsilon));
