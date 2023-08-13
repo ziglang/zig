@@ -412,12 +412,10 @@ pub const XSalsa20Poly1305 = struct {
         mac.update(c);
         var computed_tag: [tag_length]u8 = undefined;
         mac.final(&computed_tag);
-        var acc: u8 = 0;
-        for (computed_tag, 0..) |_, i| {
-            acc |= computed_tag[i] ^ tag[i];
-        }
-        if (acc != 0) {
-            utils.secureZero(u8, &computed_tag);
+
+        const verify = utils.timingSafeEql([tag_length]u8, computed_tag, tag);
+        utils.secureZero(u8, &computed_tag);
+        if (!verify) {
             @memset(m, undefined);
             return error.AuthenticationFailed;
         }

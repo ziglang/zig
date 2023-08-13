@@ -2,13 +2,14 @@
 
 const std = @import("../std.zig");
 const builtin = @import("builtin");
+const crypto = std.crypto;
 const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
 const testing = std.testing;
 const maxInt = math.maxInt;
-const Poly1305 = std.crypto.onetimeauth.Poly1305;
-const AuthenticationError = std.crypto.errors.AuthenticationError;
+const Poly1305 = crypto.onetimeauth.Poly1305;
+const AuthenticationError = crypto.errors.AuthenticationError;
 
 /// IETF-variant of the ChaCha20 stream cipher, as designed for TLS.
 pub const ChaCha20IETF = ChaChaIETF(20);
@@ -709,11 +710,9 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
             var computed_tag: [16]u8 = undefined;
             mac.final(computed_tag[0..]);
 
-            var acc: u8 = 0;
-            for (computed_tag, 0..) |_, i| {
-                acc |= computed_tag[i] ^ tag[i];
-            }
-            if (acc != 0) {
+            const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
+            crypto.utils.secureZero(u8, &computed_tag);
+            if (!verify) {
                 @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
