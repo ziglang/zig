@@ -1121,7 +1121,7 @@ pub const Attribute = union(Kind) {
                 => |kind| {
                     const field = comptime blk: {
                         @setEvalBranchQuota(10_000);
-                        inline for (@typeInfo(Attribute).Union.fields) |field| {
+                        for (@typeInfo(Attribute).Union.fields) |field| {
                             if (std.mem.eql(u8, field.name, @tagName(kind))) break :blk field;
                         }
                         unreachable;
@@ -12042,6 +12042,1476 @@ fn constantExtraData(self: *const Builder, comptime T: type, index: Constant.Ite
     return self.constantExtraDataTrail(T, index).data;
 }
 
+pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]const u32 {
+    const BitcodeWriter = bitcode_writer.BitcodeWriter(&.{ Type, FunctionAttributes });
+    var bitcode = BitcodeWriter.init(allocator, &.{
+        std.math.log2_int_ceil(usize, self.type_items.items.len - 1),
+        std.math.log2_int_ceil(usize, self.function_attributes_set.count() - 1),
+    });
+    errdefer bitcode.deinit();
+
+    // Write LLVM IR magic
+    try bitcode.writeBits(IR.MAGIC, 32);
+
+    var record = std.ArrayListUnmanaged(u64){};
+    defer record.deinit(self.gpa);
+
+    // IDENTIFICATION_BLOCK
+    {
+        const Identification = IR.Identification;
+        var identification_block = try bitcode.enterTopBlock(Identification);
+
+        const producer = try std.fmt.allocPrint(self.gpa, "zig {d}.{d}.{d}", .{
+            build_options.semver.major,
+            build_options.semver.minor,
+            build_options.semver.patch,
+        });
+        defer self.gpa.free(producer);
+
+        try identification_block.writeAbbrev(Identification.Version{ .string = producer });
+        try identification_block.writeAbbrev(Identification.Epoch{ .epoch = 0 });
+
+        try identification_block.end();
+    }
+
+    // MODULE_BLOCK
+    {
+        const Module = IR.Module;
+        var module_block = try bitcode.enterTopBlock(Module);
+
+        try module_block.writeAbbrev(Module.Version{});
+
+        if (self.target_triple.slice(self)) |triple| {
+            try module_block.writeAbbrev(Module.String{
+                .code = 2,
+                .string = triple,
+            });
+        }
+
+        if (self.data_layout.slice(self)) |data_layout| {
+            try module_block.writeAbbrev(Module.String{
+                .code = 3,
+                .string = data_layout,
+            });
+        }
+
+        if (self.source_filename.slice(self)) |source_filename| {
+            try module_block.writeAbbrev(Module.String{
+                .code = 16,
+                .string = source_filename,
+            });
+        }
+
+        if (self.module_asm.items.len != 0) {
+            try module_block.writeAbbrev(Module.String{
+                .code = 4,
+                .string = self.module_asm.items,
+            });
+        }
+
+        // TYPE_BLOCK
+        {
+            var type_block = try module_block.enterSubBlock(IR.Type);
+
+            try type_block.writeAbbrev(IR.Type.NumEntry{ .num = @intCast(self.type_items.items.len) });
+
+            for (self.type_items.items, 0..) |item, i| {
+                const ty: Type = @enumFromInt(i);
+
+                switch (item.tag) {
+                    .simple => try type_block.writeAbbrev(IR.Type.Simple{ .code = @truncate(item.data) }),
+                    .integer => try type_block.writeAbbrev(IR.Type.Integer{ .width = item.data }),
+                    .structure,
+                    .packed_structure,
+                    => |kind| {
+                        const is_packed = switch (kind) {
+                            .structure => false,
+                            .packed_structure => true,
+                            else => unreachable,
+                        };
+                        var extra = self.typeExtraDataTrail(Type.Structure, item.data);
+                        try type_block.writeAbbrev(IR.Type.StructAnon{
+                            .is_packed = is_packed,
+                            .types = extra.trail.next(extra.data.fields_len, Type, self),
+                        });
+                    },
+                    .named_structure => {
+                        const extra = self.typeExtraData(Type.NamedStructure, item.data);
+                        try type_block.writeAbbrev(IR.Type.StructName{
+                            .string = extra.id.slice(self).?,
+                        });
+
+                        const real_struct = self.type_items.items[@intFromEnum(extra.body)];
+                        const is_packed: bool = switch (real_struct.tag) {
+                            .structure => false,
+                            .packed_structure => true,
+                            else => unreachable,
+                        };
+
+                        var real_extra = self.typeExtraDataTrail(Type.Structure, real_struct.data);
+                        try type_block.writeAbbrev(IR.Type.StructNamed{
+                            .is_packed = is_packed,
+                            .types = real_extra.trail.next(real_extra.data.fields_len, Type, self),
+                        });
+                    },
+                    .array,
+                    .small_array,
+                    => try type_block.writeAbbrev(IR.Type.Array{
+                        .len = ty.aggregateLen(self),
+                        .child = ty.childType(self),
+                    }),
+                    .vector,
+                    .scalable_vector,
+                    => try type_block.writeAbbrev(IR.Type.Vector{
+                        .len = ty.aggregateLen(self),
+                        .child = ty.childType(self),
+                    }),
+                    .pointer => try type_block.writeAbbrev(IR.Type.Pointer{
+                        .addr_space = ty.pointerAddrSpace(self),
+                    }),
+                    .target => {
+                        var extra = self.typeExtraDataTrail(Type.Target, item.data);
+                        try type_block.writeAbbrev(IR.Type.StructName{
+                            .string = extra.data.name.slice(self).?,
+                        });
+
+                        const types = extra.trail.next(extra.data.types_len, Type, self);
+                        const ints = extra.trail.next(extra.data.ints_len, u32, self);
+
+                        try type_block.writeAbbrev(IR.Type.Target{
+                            .num_types = extra.data.types_len,
+                            .types = types,
+                            .ints = ints,
+                        });
+                    },
+                    .function, .vararg_function => |kind| {
+                        const is_vararg = switch (kind) {
+                            .function => false,
+                            .vararg_function => true,
+                            else => unreachable,
+                        };
+                        var extra = self.typeExtraDataTrail(Type.Function, item.data);
+                        try type_block.writeAbbrev(IR.Type.Function{
+                            .is_vararg = is_vararg,
+                            .return_type = extra.data.ret,
+                            .param_types = extra.trail.next(extra.data.params_len, Type, self),
+                        });
+                    },
+                }
+            }
+
+            try type_block.end();
+        }
+
+        var attributes_set: std.AutoArrayHashMapUnmanaged(struct {
+            attributes: Attributes,
+            index: u32,
+        }, void) = .{};
+        defer attributes_set.deinit(self.gpa);
+
+        // PARAMATTR_GROUP_BLOCK
+        {
+            const ParamattrGroup = IR.ParamattrGroup;
+
+            var paramattr_group_block = try module_block.enterSubBlock(ParamattrGroup);
+
+            for (self.function_attributes_set.keys()) |func_attributes| {
+                for (func_attributes.slice(self), 0..) |attributes, i| {
+                    const attributes_slice = attributes.slice(self);
+                    if (attributes_slice.len == 0) continue;
+
+                    const attr_gop = try attributes_set.getOrPut(self.gpa, .{
+                        .attributes = attributes,
+                        .index = @intCast(i),
+                    });
+
+                    if (attr_gop.found_existing) continue;
+
+                    record.clearRetainingCapacity();
+                    try record.ensureUnusedCapacity(self.gpa, 2);
+
+                    record.appendAssumeCapacity(attr_gop.index);
+                    record.appendAssumeCapacity(switch (i) {
+                        0 => 0xffffffff,
+                        else => i - 1,
+                    });
+
+                    for (attributes_slice) |attr_index| {
+                        const kind = attr_index.getKind(self);
+                        switch (attr_index.toAttribute(self)) {
+                            .zeroext,
+                            .signext,
+                            .inreg,
+                            .@"noalias",
+                            .nocapture,
+                            .nofree,
+                            .nest,
+                            .returned,
+                            .nonnull,
+                            .swiftself,
+                            .swiftasync,
+                            .swifterror,
+                            .immarg,
+                            .noundef,
+                            .allocalign,
+                            .allocptr,
+                            .readnone,
+                            .readonly,
+                            .writeonly,
+                            .alwaysinline,
+                            .builtin,
+                            .cold,
+                            .convergent,
+                            .disable_sanitizer_information,
+                            .fn_ret_thunk_extern,
+                            .hot,
+                            .inlinehint,
+                            .jumptable,
+                            .minsize,
+                            .naked,
+                            .nobuiltin,
+                            .nocallback,
+                            .noduplicate,
+                            .noimplicitfloat,
+                            .@"noinline",
+                            .nomerge,
+                            .nonlazybind,
+                            .noprofile,
+                            .skipprofile,
+                            .noredzone,
+                            .noreturn,
+                            .norecurse,
+                            .willreturn,
+                            .nosync,
+                            .nounwind,
+                            .nosanitize_bounds,
+                            .nosanitize_coverage,
+                            .null_pointer_is_valid,
+                            .optforfuzzing,
+                            .optnone,
+                            .optsize,
+                            .returns_twice,
+                            .safestack,
+                            .sanitize_address,
+                            .sanitize_memory,
+                            .sanitize_thread,
+                            .sanitize_hwaddress,
+                            .sanitize_memtag,
+                            .speculative_load_hardening,
+                            .speculatable,
+                            .ssp,
+                            .sspstrong,
+                            .sspreq,
+                            .strictfp,
+                            .nocf_check,
+                            .shadowcallstack,
+                            .mustprogress,
+                            .no_sanitize_address,
+                            .no_sanitize_hwaddress,
+                            .sanitize_address_dyninit,
+                            => {
+                                try record.ensureUnusedCapacity(self.gpa, 2);
+                                record.appendAssumeCapacity(0);
+                                record.appendAssumeCapacity(@intFromEnum(kind));
+                            },
+                            .byval,
+                            .byref,
+                            .preallocated,
+                            .inalloca,
+                            .sret,
+                            .elementtype,
+                            => |ty| {
+                                try record.ensureUnusedCapacity(self.gpa, 3);
+                                record.appendAssumeCapacity(6);
+                                record.appendAssumeCapacity(@intFromEnum(kind));
+                                record.appendAssumeCapacity(@intFromEnum(ty));
+                            },
+                            .@"align",
+                            .alignstack,
+                            => |alignment| {
+                                try record.ensureUnusedCapacity(self.gpa, 3);
+                                record.appendAssumeCapacity(1);
+                                record.appendAssumeCapacity(@intFromEnum(kind));
+                                record.appendAssumeCapacity(alignment.toByteUnits() orelse 0);
+                            },
+                            .dereferenceable,
+                            .dereferenceable_or_null,
+                            => |size| {
+                                try record.ensureUnusedCapacity(self.gpa, 3);
+                                record.appendAssumeCapacity(1);
+                                record.appendAssumeCapacity(@intFromEnum(kind));
+                                record.appendAssumeCapacity(size);
+                            },
+                            .nofpclass => |fpclass| {
+                                try record.ensureUnusedCapacity(self.gpa, 3);
+                                record.appendAssumeCapacity(1);
+                                record.appendAssumeCapacity(@intFromEnum(kind));
+                                record.appendAssumeCapacity(@as(u32, @bitCast(fpclass)));
+                            },
+                            .allockind => |allockind| {
+                                try record.ensureUnusedCapacity(self.gpa, 3);
+                                record.appendAssumeCapacity(1);
+                                record.appendAssumeCapacity(@intFromEnum(kind));
+                                record.appendAssumeCapacity(@as(u32, @bitCast(allockind)));
+                            },
+
+                            .allocsize => |allocsize| {
+                                try record.ensureUnusedCapacity(self.gpa, 3);
+                                record.appendAssumeCapacity(1);
+                                record.appendAssumeCapacity(@intFromEnum(kind));
+                                record.appendAssumeCapacity(@bitCast(allocsize.toLlvm()));
+                            },
+                            .memory => |memory| {
+                                try record.ensureUnusedCapacity(self.gpa, 3);
+                                record.appendAssumeCapacity(1);
+                                record.appendAssumeCapacity(@intFromEnum(kind));
+                                record.appendAssumeCapacity(@as(u32, @bitCast(memory)));
+                            },
+                            .uwtable => |uwtable| if (uwtable != .none) {
+                                try record.ensureUnusedCapacity(self.gpa, 3);
+                                record.appendAssumeCapacity(1);
+                                record.appendAssumeCapacity(@intFromEnum(kind));
+                                record.appendAssumeCapacity(@intFromEnum(uwtable));
+                            },
+                            .vscale_range => |vscale_range| {
+                                try record.ensureUnusedCapacity(self.gpa, 3);
+                                record.appendAssumeCapacity(1);
+                                record.appendAssumeCapacity(@intFromEnum(kind));
+                                record.appendAssumeCapacity(@bitCast(vscale_range.toLlvm()));
+                            },
+                            .string => |string_attr| {
+                                const string_attr_kind_slice = string_attr.kind.slice(self).?;
+                                const string_attr_value_slice = if (string_attr.value != .none)
+                                    string_attr.value.slice(self).?
+                                else
+                                    null;
+
+                                try record.ensureUnusedCapacity(
+                                    self.gpa,
+                                    2 + string_attr_kind_slice.len + if (string_attr_value_slice) |slice| slice.len + 1 else 0,
+                                );
+                                record.appendAssumeCapacity(if (string_attr.value == .none) 3 else 4);
+                                for (string_attr.kind.slice(self).?) |c| {
+                                    record.appendAssumeCapacity(c);
+                                }
+                                record.appendAssumeCapacity(0);
+                                if (string_attr_value_slice) |slice| {
+                                    for (slice) |c| {
+                                        record.appendAssumeCapacity(c);
+                                    }
+                                    record.appendAssumeCapacity(0);
+                                }
+                            },
+                            .none => unreachable,
+                        }
+                    }
+
+                    try paramattr_group_block.writeUnabbrev(3, record.items);
+                }
+            }
+
+            try paramattr_group_block.end();
+        }
+
+        // PARAMATTR_BLOCK
+        {
+            const Paramattr = IR.Paramattr;
+            var paramattr_block = try module_block.enterSubBlock(Paramattr);
+
+            for (self.function_attributes_set.keys()) |func_attributes| {
+                const func_attributes_slice = func_attributes.slice(self);
+                record.clearRetainingCapacity();
+                try record.ensureUnusedCapacity(self.gpa, func_attributes_slice.len);
+                for (func_attributes_slice, 0..) |attributes, i| {
+                    const attributes_slice = attributes.slice(self);
+                    if (attributes_slice.len == 0) continue;
+
+                    const group_index = attributes_set.getIndex(.{
+                        .attributes = attributes,
+                        .index = @intCast(i),
+                    }) orelse unreachable;
+                    record.appendAssumeCapacity(@intCast(group_index));
+                }
+
+                try paramattr_block.writeAbbrev(Paramattr.Entry{ .group_indices = record.items });
+            }
+
+            try paramattr_block.end();
+        }
+
+        var globals = std.AutoArrayHashMapUnmanaged(Global.Index, void){};
+        defer globals.deinit(self.gpa);
+        try globals.ensureUnusedCapacity(
+            self.gpa,
+            self.variables.items.len +
+                self.functions.items.len +
+                self.aliases.items.len,
+        );
+
+        for (self.variables.items) |variable| {
+            if (variable.global.getReplacement(self) != .none) continue;
+
+            globals.putAssumeCapacity(variable.global, {});
+        }
+
+        for (self.functions.items) |function| {
+            if (function.global.getReplacement(self) != .none) continue;
+
+            globals.putAssumeCapacity(function.global, {});
+        }
+
+        for (self.aliases.items) |alias| {
+            if (alias.global.getReplacement(self) != .none) continue;
+
+            globals.putAssumeCapacity(alias.global, {});
+        }
+
+        const ConstantAdapter = struct {
+            const ConstantAdapter = @This();
+            builder: *const Builder,
+            globals: *const std.AutoArrayHashMapUnmanaged(Global.Index, void),
+
+            pub fn get(adapter: @This(), param: anytype, comptime field_name: []const u8) @TypeOf(param) {
+                _ = field_name;
+                return switch (@TypeOf(param)) {
+                    Constant => @enumFromInt(adapter.getConstantIndex(param)),
+                    else => param,
+                };
+            }
+
+            pub fn getConstantIndex(adapter: ConstantAdapter, constant: Constant) u32 {
+                return switch (constant.unwrap()) {
+                    .constant => |c| c + adapter.numGlobals(),
+                    .global => |global| @intCast(adapter.globals.getIndex(global.unwrap(adapter.builder)).?),
+                };
+            }
+
+            pub fn numConstants(adapter: ConstantAdapter) u32 {
+                return @intCast(adapter.globals.count() + adapter.builder.constant_items.len);
+            }
+
+            pub fn numGlobals(adapter: ConstantAdapter) u32 {
+                return @intCast(adapter.globals.count());
+            }
+        };
+
+        const constant_adapter = ConstantAdapter{
+            .builder = self,
+            .globals = &globals,
+        };
+
+        // Globals
+        {
+            var section_map: std.AutoArrayHashMapUnmanaged(String, void) = .{};
+            defer section_map.deinit(self.gpa);
+            try section_map.ensureUnusedCapacity(self.gpa, globals.count());
+
+            for (self.variables.items) |variable| {
+                if (variable.global.getReplacement(self) != .none) continue;
+
+                const section = blk: {
+                    if (variable.section == .none) break :blk 0;
+                    const gop = section_map.getOrPutAssumeCapacity(variable.section);
+                    if (!gop.found_existing) {
+                        try module_block.writeAbbrev(Module.String{
+                            .code = 5,
+                            .string = variable.section.slice(self) orelse unreachable,
+                        });
+                    }
+                    break :blk gop.index + 1;
+                };
+
+                const initid = if (variable.init == .no_init)
+                    0
+                else
+                    (constant_adapter.getConstantIndex(variable.init) + 1);
+
+                const strtab = variable.global.strtab(self);
+
+                const global = variable.global.ptrConst(self);
+                try module_block.writeAbbrev(Module.Variable{
+                    .strtab_offset = strtab.offset,
+                    .strtab_size = strtab.size,
+                    .type_index = global.type,
+                    .is_const = .{
+                        .is_const = switch (variable.mutability) {
+                            .global => false,
+                            .constant => true,
+                        },
+                        .addr_space = global.addr_space,
+                    },
+                    .initid = initid,
+                    .linkage = global.linkage,
+                    .alignment = variable.alignment.toLlvm(),
+                    .section = section,
+                    .visibility = global.visibility,
+                    .thread_local = variable.thread_local,
+                    .unnamed_addr = global.unnamed_addr,
+                    .externally_initialized = global.externally_initialized,
+                    .dllstorageclass = global.dll_storage_class,
+                    .preemption = global.preemption,
+                });
+            }
+
+            for (self.functions.items) |func| {
+                if (func.global.getReplacement(self) != .none) continue;
+
+                const section = blk: {
+                    if (func.section == .none) break :blk 0;
+                    const gop = section_map.getOrPutAssumeCapacity(func.section);
+                    if (!gop.found_existing) {
+                        try module_block.writeAbbrev(Module.String{
+                            .code = 5,
+                            .string = func.section.slice(self) orelse unreachable,
+                        });
+                    }
+                    break :blk gop.index + 1;
+                };
+
+                const paramattr_index = if (self.function_attributes_set.getIndex(func.attributes)) |index|
+                    index + 1
+                else
+                    0;
+
+                const strtab = func.global.strtab(self);
+
+                const global = func.global.ptrConst(self);
+                try module_block.writeAbbrev(Module.Function{
+                    .strtab_offset = strtab.offset,
+                    .strtab_size = strtab.size,
+                    .type_index = global.type,
+                    .call_conv = func.call_conv,
+                    .is_proto = func.instructions.len == 0,
+                    .linkage = global.linkage,
+                    .paramattr = paramattr_index,
+                    .alignment = func.alignment.toLlvm(),
+                    .section = section,
+                    .visibility = global.visibility,
+                    .unnamed_addr = global.unnamed_addr,
+                    .dllstorageclass = global.dll_storage_class,
+                    .preemption = global.preemption,
+                    .addr_space = global.addr_space,
+                });
+            }
+
+            for (self.aliases.items) |alias| {
+                if (alias.global.getReplacement(self) != .none) continue;
+
+                const strtab = alias.global.strtab(self);
+
+                const global = alias.global.ptrConst(self);
+                try module_block.writeAbbrev(Module.Alias{
+                    .strtab_offset = strtab.offset,
+                    .strtab_size = strtab.size,
+                    .type_index = global.type,
+                    .addr_space = global.addr_space,
+                    .aliasee = constant_adapter.getConstantIndex(alias.aliasee),
+                    .linkage = global.linkage,
+                    .visibility = global.visibility,
+                    .thread_local = alias.thread_local,
+                    .unnamed_addr = global.unnamed_addr,
+                    .dllstorageclass = global.dll_storage_class,
+                    .preemption = global.preemption,
+                });
+            }
+        }
+
+        // CONSTANTS_BLOCK
+        {
+            const Constants = IR.Constants;
+            var constants_block = try module_block.enterSubBlock(Constants);
+
+            var current_type: Type = .none;
+            const tags = self.constant_items.items(.tag);
+            const datas = self.constant_items.items(.data);
+            for (0..self.constant_items.len) |index| {
+                record.clearRetainingCapacity();
+                const constant: Constant = @enumFromInt(index);
+                const constant_type = constant.typeOf(self);
+                if (constant_type != current_type) {
+                    try constants_block.writeAbbrev(Constants.SetType{ .type_id = constant_type });
+                    current_type = constant_type;
+                }
+                const data = datas[index];
+                switch (tags[index]) {
+                    .null,
+                    .zeroinitializer,
+                    .none,
+                    => try constants_block.writeAbbrev(Constants.Null{}),
+                    .undef => try constants_block.writeAbbrev(Constants.Undef{}),
+                    .poison => try constants_block.writeAbbrev(Constants.Poison{}),
+                    .positive_integer,
+                    .negative_integer,
+                    => |tag| {
+                        const extra: *align(@alignOf(std.math.big.Limb)) Constant.Integer =
+                            @ptrCast(self.constant_limbs.items[data..][0..Constant.Integer.limbs]);
+                        const limbs = self.constant_limbs
+                            .items[data + Constant.Integer.limbs ..][0..extra.limbs_len];
+                        const bigint = std.math.big.int.Const{
+                            .limbs = limbs,
+                            .positive = tag == .positive_integer,
+                        };
+
+                        const bit_count = extra.type.scalarBits(self);
+                        if (bit_count <= 64) {
+                            const val = bigint.to(i64) catch unreachable;
+                            const emit_val = if (tag == .positive_integer)
+                                @shlWithOverflow(val, 1)[0]
+                            else
+                                (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
+                            try constants_block.writeAbbrev(Constants.Integer{ .value = @bitCast(emit_val) });
+                        } else {
+                            const word_count = std.mem.alignForward(u24, bit_count, 64) / 64;
+                            try record.ensureUnusedCapacity(self.gpa, word_count);
+                            const buffer: [*]u8 = @ptrCast(record.items.ptr);
+                            bigint.writeTwosComplement(buffer[0..(word_count * 8)], .little);
+
+                            const signed_buffer: [*]i64 = @ptrCast(record.items.ptr);
+                            for (signed_buffer[0..word_count], 0..) |val, i| {
+                                signed_buffer[i] = if (val >= 0)
+                                    @shlWithOverflow(val, 1)[0]
+                                else
+                                    (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
+                            }
+
+                            try constants_block.writeUnabbrev(5, record.items.ptr[0..word_count]);
+                        }
+                    },
+                    .half,
+                    .bfloat,
+                    => try constants_block.writeAbbrev(Constants.Half{ .value = @truncate(data) }),
+                    .float => try constants_block.writeAbbrev(Constants.Float{ .value = data }),
+                    .double => {
+                        const extra = self.constantExtraData(Constant.Double, data);
+                        try constants_block.writeAbbrev(Constants.Double{
+                            .value = (@as(u64, extra.hi) << 32) | extra.lo,
+                        });
+                    },
+                    .x86_fp80 => {
+                        const extra = self.constantExtraData(Constant.Fp80, data);
+                        try constants_block.writeAbbrev(Constants.Fp80{
+                            .lo = @as(u64, extra.lo_hi) << 32 | @as(u64, extra.lo_lo),
+                            .hi = @intCast(extra.hi),
+                        });
+                    },
+                    .fp128,
+                    .ppc_fp128,
+                    => {
+                        const extra = self.constantExtraData(Constant.Fp128, data);
+                        try constants_block.writeAbbrev(Constants.Fp128{
+                            .lo = @as(u64, extra.lo_hi) << 32 | @as(u64, extra.lo_lo),
+                            .hi = @as(u64, extra.hi_hi) << 32 | @as(u64, extra.hi_lo),
+                        });
+                    },
+                    .array,
+                    .vector,
+                    .structure,
+                    .packed_structure,
+                    => {
+                        var extra = self.constantExtraDataTrail(Constant.Aggregate, data);
+                        const len: u32 = @intCast(extra.data.type.aggregateLen(self));
+                        const values = extra.trail.next(len, Constant, self);
+
+                        try constants_block.writeAbbrevAdapted(
+                            Constants.Aggregate{ .values = values },
+                            constant_adapter,
+                        );
+                    },
+                    .splat => {
+                        const ConstantsWriter = @TypeOf(constants_block);
+                        const extra = self.constantExtraData(Constant.Splat, data);
+                        const vector_len = extra.type.vectorLen(self);
+                        const c = constant_adapter.getConstantIndex(extra.value);
+
+                        try bitcode.writeBits(
+                            ConstantsWriter.abbrevId(Constants.Aggregate),
+                            ConstantsWriter.abbrev_len,
+                        );
+                        try bitcode.writeVBR(vector_len, 6);
+                        for (0..vector_len) |_| {
+                            try bitcode.writeBits(c, Constants.Aggregate.ops[1].array_fixed);
+                        }
+                    },
+                    .string,
+                    .string_null,
+                    => {
+                        const str: String = @enumFromInt(data);
+                        if (str == .none) {
+                            try constants_block.writeAbbrev(Constants.Null{});
+                        } else {
+                            const slice = str.slice(self) orelse unreachable;
+                            switch (tags[index]) {
+                                .string => try constants_block.writeAbbrev(Constants.String{ .string = slice }),
+                                .string_null => try constants_block.writeAbbrev(Constants.CString{ .string = slice }),
+                                else => unreachable,
+                            }
+                        }
+                    },
+                    .bitcast,
+                    .inttoptr,
+                    .ptrtoint,
+                    .fptosi,
+                    .fptoui,
+                    .sitofp,
+                    .uitofp,
+                    .addrspacecast,
+                    .fptrunc,
+                    .trunc,
+                    .fpext,
+                    .sext,
+                    .zext,
+                    => |tag| {
+                        const extra = self.constantExtraData(Constant.Cast, data);
+                        try constants_block.writeAbbrevAdapted(Constants.Cast{
+                            .type_index = extra.type,
+                            .val = extra.val,
+                            .opcode = tag.toCastOpcode(),
+                        }, constant_adapter);
+                    },
+                    .add,
+                    .@"add nsw",
+                    .@"add nuw",
+                    .sub,
+                    .@"sub nsw",
+                    .@"sub nuw",
+                    .mul,
+                    .@"mul nsw",
+                    .@"mul nuw",
+                    .shl,
+                    .lshr,
+                    .ashr,
+                    .@"and",
+                    .@"or",
+                    .xor,
+                    => |tag| {
+                        const extra = self.constantExtraData(Constant.Binary, data);
+                        try constants_block.writeAbbrevAdapted(Constants.Binary{
+                            .opcode = tag.toBinaryOpcode(),
+                            .lhs = extra.lhs,
+                            .rhs = extra.rhs,
+                        }, constant_adapter);
+                    },
+                    .icmp,
+                    .fcmp,
+                    => {
+                        const extra = self.constantExtraData(Constant.Compare, data);
+                        try constants_block.writeAbbrevAdapted(Constants.Cmp{
+                            .ty = extra.lhs.typeOf(self),
+                            .lhs = extra.lhs,
+                            .rhs = extra.rhs,
+                            .pred = extra.cond,
+                        }, constant_adapter);
+                    },
+                    .extractelement => {
+                        const extra = self.constantExtraData(Constant.ExtractElement, data);
+                        try constants_block.writeAbbrevAdapted(Constants.ExtractElement{
+                            .val_type = extra.val.typeOf(self),
+                            .val = extra.val,
+                            .index_type = extra.index.typeOf(self),
+                            .index = extra.index,
+                        }, constant_adapter);
+                    },
+                    .insertelement => {
+                        const extra = self.constantExtraData(Constant.InsertElement, data);
+                        try constants_block.writeAbbrevAdapted(Constants.InsertElement{
+                            .val = extra.val,
+                            .elem = extra.elem,
+                            .index_type = extra.index.typeOf(self),
+                            .index = extra.index,
+                        }, constant_adapter);
+                    },
+                    .shufflevector => {
+                        const extra = self.constantExtraData(Constant.ShuffleVector, data);
+                        const ty = constant.typeOf(self);
+                        const lhs_type = extra.lhs.typeOf(self);
+                        // Check if instruction is widening, truncating or not
+                        if (ty == lhs_type) {
+                            try constants_block.writeAbbrevAdapted(Constants.ShuffleVector{
+                                .lhs = extra.lhs,
+                                .rhs = extra.rhs,
+                                .mask = extra.mask,
+                            }, constant_adapter);
+                        } else {
+                            try constants_block.writeAbbrevAdapted(Constants.ShuffleVectorEx{
+                                .ty = ty,
+                                .lhs = extra.lhs,
+                                .rhs = extra.rhs,
+                                .mask = extra.mask,
+                            }, constant_adapter);
+                        }
+                    },
+                    .getelementptr,
+                    .@"getelementptr inbounds",
+                    => |tag| {
+                        var extra = self.constantExtraDataTrail(Constant.GetElementPtr, data);
+                        const indices = extra.trail.next(extra.data.info.indices_len, Constant, self);
+                        try record.ensureUnusedCapacity(self.gpa, 1 + 2 + 2 * indices.len);
+
+                        record.appendAssumeCapacity(@intFromEnum(extra.data.type));
+
+                        record.appendAssumeCapacity(@intFromEnum(extra.data.base.typeOf(self)));
+                        record.appendAssumeCapacity(constant_adapter.getConstantIndex(extra.data.base));
+
+                        for (indices) |i| {
+                            record.appendAssumeCapacity(@intFromEnum(i.typeOf(self)));
+                            record.appendAssumeCapacity(constant_adapter.getConstantIndex(i));
+                        }
+
+                        try constants_block.writeUnabbrev(switch (tag) {
+                            .getelementptr => 12,
+                            .@"getelementptr inbounds" => 20,
+                            else => unreachable,
+                        }, record.items);
+                    },
+                    .@"asm",
+                    .@"asm sideeffect",
+                    .@"asm alignstack",
+                    .@"asm sideeffect alignstack",
+                    .@"asm inteldialect",
+                    .@"asm sideeffect inteldialect",
+                    .@"asm alignstack inteldialect",
+                    .@"asm sideeffect alignstack inteldialect",
+                    .@"asm unwind",
+                    .@"asm sideeffect unwind",
+                    .@"asm alignstack unwind",
+                    .@"asm sideeffect alignstack unwind",
+                    .@"asm inteldialect unwind",
+                    .@"asm sideeffect inteldialect unwind",
+                    .@"asm alignstack inteldialect unwind",
+                    .@"asm sideeffect alignstack inteldialect unwind",
+                    => |tag| {
+                        const extra = self.constantExtraData(Constant.Assembly, data);
+
+                        const assembly_slice = extra.assembly.slice(self) orelse unreachable;
+                        const constraints_slice = extra.constraints.slice(self) orelse unreachable;
+
+                        try record.ensureUnusedCapacity(self.gpa, 4 + assembly_slice.len + constraints_slice.len);
+
+                        record.appendAssumeCapacity(@intFromEnum(extra.type));
+                        record.appendAssumeCapacity(switch (tag) {
+                            .@"asm" => 0,
+                            .@"asm sideeffect" => 0b0001,
+                            .@"asm sideeffect alignstack" => 0b0011,
+                            .@"asm sideeffect inteldialect" => 0b0101,
+                            .@"asm sideeffect alignstack inteldialect" => 0b0111,
+                            .@"asm sideeffect unwind" => 0b1001,
+                            .@"asm sideeffect alignstack unwind" => 0b1011,
+                            .@"asm sideeffect inteldialect unwind" => 0b1101,
+                            .@"asm sideeffect alignstack inteldialect unwind" => 0b1111,
+                            .@"asm alignstack" => 0b0010,
+                            .@"asm inteldialect" => 0b0100,
+                            .@"asm alignstack inteldialect" => 0b0110,
+                            .@"asm unwind" => 0b1000,
+                            .@"asm alignstack unwind" => 0b1010,
+                            .@"asm inteldialect unwind" => 0b1100,
+                            .@"asm alignstack inteldialect unwind" => 0b1110,
+                            else => unreachable,
+                        });
+
+                        record.appendAssumeCapacity(assembly_slice.len);
+                        for (assembly_slice) |c| record.appendAssumeCapacity(c);
+
+                        record.appendAssumeCapacity(constraints_slice.len);
+                        for (constraints_slice) |c| record.appendAssumeCapacity(c);
+
+                        try constants_block.writeUnabbrev(30, record.items);
+                    },
+                    .blockaddress => {
+                        const extra = self.constantExtraData(Constant.BlockAddress, data);
+                        try constants_block.writeAbbrev(Constants.BlockAddress{
+                            .type_id = extra.function.typeOf(self),
+                            .function = constant_adapter.getConstantIndex(extra.function.toConst(self)),
+                            .block = @intFromEnum(extra.block),
+                        });
+                    },
+                    .dso_local_equivalent,
+                    .no_cfi,
+                    => |tag| {
+                        const function: Function.Index = @enumFromInt(data);
+                        try constants_block.writeAbbrev(Constants.DsoLocalEquivalentOrNoCfi{
+                            .code = switch (tag) {
+                                .dso_local_equivalent => 27,
+                                .no_cfi => 29,
+                                else => unreachable,
+                            },
+                            .type_id = function.typeOf(self),
+                            .function = constant_adapter.getConstantIndex(function.toConst(self)),
+                        });
+                    },
+                }
+            }
+
+            try constants_block.end();
+        }
+
+        // FUNCTION_BLOCKS
+        {
+            const FunctionAdapter = struct {
+                constant_adapter: ConstantAdapter,
+                func: *const Function,
+                instruction_index: u32 = 0,
+
+                pub fn init(
+                    const_adapter: ConstantAdapter,
+                    func: *const Function,
+                ) @This() {
+                    return .{
+                        .constant_adapter = const_adapter,
+                        .func = func,
+                        .instruction_index = 0,
+                    };
+                }
+
+                pub fn get(adapter: @This(), value: anytype, comptime field_name: []const u8) @TypeOf(value) {
+                    _ = field_name;
+                    const Ty = @TypeOf(value);
+                    return switch (Ty) {
+                        Value => @enumFromInt(adapter.getOffsetValueIndex(value)),
+                        Constant => @enumFromInt(adapter.getOffsetConstantIndex(value)),
+                        FunctionAttributes => @enumFromInt(if (value == .none) 0 else (adapter.constant_adapter.builder.function_attributes_set.getIndex(value) orelse unreachable) + 1),
+                        else => value,
+                    };
+                }
+
+                pub fn getValueIndex(adapter: @This(), value: Value) u32 {
+                    return @intCast(switch (value.unwrap()) {
+                        .instruction => |instruction| instruction.valueIndex(adapter.func) + adapter.firstInstr(),
+                        .constant => |constant| adapter.constant_adapter.getConstantIndex(constant),
+                    });
+                }
+
+                pub fn getOffsetValueIndex(adapter: @This(), value: Value) u32 {
+                    return adapter.offset() - adapter.getValueIndex(value);
+                }
+
+                pub fn getOffsetValueSignedIndex(adapter: @This(), value: Value) i32 {
+                    const signed_offset: i32 = @intCast(adapter.offset());
+                    const signed_value: i32 = @intCast(adapter.getValueIndex(value));
+                    return signed_offset - signed_value;
+                }
+
+                pub fn getOffsetConstantIndex(adapter: @This(), constant: Constant) u32 {
+                    return adapter.offset() - adapter.constant_adapter.getConstantIndex(constant);
+                }
+
+                pub fn offset(adapter: @This()) u32 {
+                    return @as(
+                        Function.Instruction.Index,
+                        @enumFromInt(adapter.instruction_index),
+                    ).valueIndex(adapter.func) + adapter.firstInstr();
+                }
+
+                fn firstInstr(adapter: @This()) u32 {
+                    return adapter.constant_adapter.numConstants();
+                }
+
+                pub fn next(adapter: *@This()) void {
+                    adapter.instruction_index += 1;
+                }
+            };
+
+            for (self.functions.items, 0..) |func, func_index| {
+                const FunctionBlock = IR.FunctionBlock;
+                if (func.global.getReplacement(self) != .none) continue;
+
+                if (func.instructions.len == 0) continue;
+
+                var function_block = try module_block.enterSubBlock(FunctionBlock);
+
+                try function_block.writeAbbrev(FunctionBlock.DeclareBlocks{ .num_blocks = func.blocks.len });
+
+                var adapter = FunctionAdapter.init(constant_adapter, &func);
+
+                const tags = func.instructions.items(.tag);
+                const datas = func.instructions.items(.data);
+
+                var block_incoming_len: u32 = undefined;
+                for (0..func.instructions.len) |instr_index| {
+                    const tag = tags[instr_index];
+
+                    record.clearRetainingCapacity();
+
+                    switch (tag) {
+                        .block => block_incoming_len = datas[instr_index],
+                        .arg => {},
+                        .@"unreachable" => try function_block.writeAbbrev(FunctionBlock.Unreachable{}),
+                        .call,
+                        .@"musttail call",
+                        .@"notail call",
+                        .@"tail call",
+                        => |kind| {
+                            var extra = func.extraDataTrail(Function.Instruction.Call, datas[instr_index]);
+
+                            const call_conv = extra.data.info.call_conv;
+                            const args = extra.trail.next(extra.data.args_len, Value, &func);
+                            try function_block.writeAbbrevAdapted(FunctionBlock.Call{
+                                .attributes = extra.data.attributes,
+                                .call_type = switch (kind) {
+                                    .call => .{ .call_conv = call_conv },
+                                    .@"tail call" => .{ .tail = true, .call_conv = call_conv },
+                                    .@"musttail call" => .{ .must_tail = true, .call_conv = call_conv },
+                                    .@"notail call" => .{ .no_tail = true, .call_conv = call_conv },
+                                    else => unreachable,
+                                },
+                                .type_id = extra.data.ty,
+                                .callee = extra.data.callee,
+                                .args = args,
+                            }, adapter);
+                        },
+                        .@"call fast",
+                        .@"musttail call fast",
+                        .@"notail call fast",
+                        .@"tail call fast",
+                        => |kind| {
+                            var extra = func.extraDataTrail(Function.Instruction.Call, datas[instr_index]);
+
+                            const call_conv = extra.data.info.call_conv;
+                            const args = extra.trail.next(extra.data.args_len, Value, &func);
+                            try function_block.writeAbbrevAdapted(FunctionBlock.CallFast{
+                                .attributes = extra.data.attributes,
+                                .call_type = switch (kind) {
+                                    .call => .{ .call_conv = call_conv },
+                                    .@"tail call" => .{ .tail = true, .call_conv = call_conv },
+                                    .@"musttail call" => .{ .must_tail = true, .call_conv = call_conv },
+                                    .@"notail call" => .{ .no_tail = true, .call_conv = call_conv },
+                                    else => unreachable,
+                                },
+                                .fast_math = .{},
+                                .type_id = extra.data.ty,
+                                .callee = extra.data.callee,
+                                .args = args,
+                            }, adapter);
+                        },
+                        .add,
+                        .@"add nsw",
+                        .@"add nuw",
+                        .@"add nuw nsw",
+                        .@"and",
+                        .fadd,
+                        .fdiv,
+                        .fmul,
+                        .mul,
+                        .@"mul nsw",
+                        .@"mul nuw",
+                        .@"mul nuw nsw",
+                        .frem,
+                        .fsub,
+                        .sdiv,
+                        .@"sdiv exact",
+                        .sub,
+                        .@"sub nsw",
+                        .@"sub nuw",
+                        .@"sub nuw nsw",
+                        .udiv,
+                        .@"udiv exact",
+                        .xor,
+                        .shl,
+                        .@"shl nsw",
+                        .@"shl nuw",
+                        .@"shl nuw nsw",
+                        .lshr,
+                        .@"lshr exact",
+                        .@"or",
+                        .urem,
+                        .srem,
+                        .ashr,
+                        .@"ashr exact",
+                        => {
+                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.Binary{
+                                .opcode = tag.toBinaryOpcode(),
+                                .lhs = adapter.getOffsetValueIndex(extra.lhs),
+                                .rhs = adapter.getOffsetValueIndex(extra.rhs),
+                            });
+                        },
+                        .@"fadd fast",
+                        .@"fdiv fast",
+                        .@"fmul fast",
+                        .@"frem fast",
+                        .@"fsub fast",
+                        => {
+                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.BinaryFast{
+                                .opcode = tag.toBinaryOpcode(),
+                                .lhs = adapter.getOffsetValueIndex(extra.lhs),
+                                .rhs = adapter.getOffsetValueIndex(extra.rhs),
+                                .fast_math = .{},
+                            });
+                        },
+                        .alloca,
+                        .@"alloca inalloca",
+                        => |kind| {
+                            const extra = func.extraData(Function.Instruction.Alloca, datas[instr_index]);
+                            const alignment = extra.info.alignment.toLlvm();
+                            try function_block.writeAbbrev(FunctionBlock.Alloca{
+                                .inst_type = extra.type,
+                                .len_type = if (extra.len == .none) .i1 else extra.len.typeOf(@enumFromInt(func_index), self),
+                                .len_value = adapter.getValueIndex(if (extra.len == .none) Constant.true.toValue() else extra.len),
+                                .flags = .{
+                                    .align_lower = @truncate(alignment),
+                                    .inalloca = kind == .@"alloca inalloca",
+                                    .explicit_type = true,
+                                    .swift_error = false,
+                                    .align_upper = @truncate(alignment << 5),
+                                },
+                            });
+                        },
+                        .bitcast,
+                        .inttoptr,
+                        .ptrtoint,
+                        .fptosi,
+                        .fptoui,
+                        .sitofp,
+                        .uitofp,
+                        .addrspacecast,
+                        .fptrunc,
+                        .trunc,
+                        .fpext,
+                        .sext,
+                        .zext,
+                        => {
+                            const extra = func.extraData(Function.Instruction.Cast, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.Cast{
+                                .val = adapter.getOffsetValueIndex(extra.val),
+                                .type_index = extra.type,
+                                .opcode = tag.toCastOpcode(),
+                            });
+                        },
+                        .@"fcmp false",
+                        .@"fcmp oeq",
+                        .@"fcmp oge",
+                        .@"fcmp ogt",
+                        .@"fcmp ole",
+                        .@"fcmp olt",
+                        .@"fcmp one",
+                        .@"fcmp ord",
+                        .@"fcmp true",
+                        .@"fcmp ueq",
+                        .@"fcmp uge",
+                        .@"fcmp ugt",
+                        .@"fcmp ule",
+                        .@"fcmp ult",
+                        .@"fcmp une",
+                        .@"fcmp uno",
+                        .@"icmp eq",
+                        .@"icmp ne",
+                        .@"icmp sge",
+                        .@"icmp sgt",
+                        .@"icmp sle",
+                        .@"icmp slt",
+                        .@"icmp uge",
+                        .@"icmp ugt",
+                        .@"icmp ule",
+                        .@"icmp ult",
+                        => {
+                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.Cmp{
+                                .lhs = adapter.getOffsetValueIndex(extra.lhs),
+                                .rhs = adapter.getOffsetValueIndex(extra.rhs),
+                                .pred = tag.toCmpPredicate(),
+                            });
+                        },
+                        .@"fcmp fast false",
+                        .@"fcmp fast oeq",
+                        .@"fcmp fast oge",
+                        .@"fcmp fast ogt",
+                        .@"fcmp fast ole",
+                        .@"fcmp fast olt",
+                        .@"fcmp fast one",
+                        .@"fcmp fast ord",
+                        .@"fcmp fast true",
+                        .@"fcmp fast ueq",
+                        .@"fcmp fast uge",
+                        .@"fcmp fast ugt",
+                        .@"fcmp fast ule",
+                        .@"fcmp fast ult",
+                        .@"fcmp fast une",
+                        .@"fcmp fast uno",
+                        => {
+                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.CmpFast{
+                                .lhs = adapter.getOffsetValueIndex(extra.lhs),
+                                .rhs = adapter.getOffsetValueIndex(extra.rhs),
+                                .pred = tag.toCmpPredicate(),
+                                .fast_math = .{},
+                            });
+                        },
+                        .fneg => try function_block.writeAbbrev(FunctionBlock.FNeg{
+                            .val = adapter.getOffsetValueIndex(@enumFromInt(datas[instr_index])),
+                        }),
+                        .@"fneg fast" => try function_block.writeAbbrev(FunctionBlock.FNegFast{
+                            .val = adapter.getOffsetValueIndex(@enumFromInt(datas[instr_index])),
+                            .fast_math = .{},
+                        }),
+                        .extractvalue => {
+                            var extra = func.extraDataTrail(Function.Instruction.ExtractValue, datas[instr_index]);
+                            const indices = extra.trail.next(extra.data.indices_len, u32, &func);
+                            try function_block.writeAbbrev(FunctionBlock.ExtractValue{
+                                .val = adapter.getOffsetValueIndex(extra.data.val),
+                                .indices = indices,
+                            });
+                        },
+                        .insertvalue => {
+                            var extra = func.extraDataTrail(Function.Instruction.InsertValue, datas[instr_index]);
+                            const indices = extra.trail.next(extra.data.indices_len, u32, &func);
+                            try function_block.writeAbbrev(FunctionBlock.InsertValue{
+                                .val = adapter.getOffsetValueIndex(extra.data.val),
+                                .elem = adapter.getOffsetValueIndex(extra.data.elem),
+                                .indices = indices,
+                            });
+                        },
+                        .extractelement => {
+                            const extra = func.extraData(Function.Instruction.ExtractElement, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.ExtractElement{
+                                .val = adapter.getOffsetValueIndex(extra.val),
+                                .index = adapter.getOffsetValueIndex(extra.index),
+                            });
+                        },
+                        .insertelement => {
+                            const extra = func.extraData(Function.Instruction.InsertElement, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.InsertElement{
+                                .val = adapter.getOffsetValueIndex(extra.val),
+                                .elem = adapter.getOffsetValueIndex(extra.elem),
+                                .index = adapter.getOffsetValueIndex(extra.index),
+                            });
+                        },
+                        .select => {
+                            const extra = func.extraData(Function.Instruction.Select, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.Select{
+                                .lhs = adapter.getOffsetValueIndex(extra.lhs),
+                                .rhs = adapter.getOffsetValueIndex(extra.rhs),
+                                .cond = adapter.getOffsetValueIndex(extra.cond),
+                            });
+                        },
+                        .@"select fast" => {
+                            const extra = func.extraData(Function.Instruction.Select, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.SelectFast{
+                                .lhs = adapter.getOffsetValueIndex(extra.lhs),
+                                .rhs = adapter.getOffsetValueIndex(extra.rhs),
+                                .cond = adapter.getOffsetValueIndex(extra.cond),
+                                .fast_math = .{},
+                            });
+                        },
+                        .shufflevector => {
+                            const extra = func.extraData(Function.Instruction.ShuffleVector, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.ShuffleVector{
+                                .lhs = adapter.getOffsetValueIndex(extra.lhs),
+                                .rhs = adapter.getOffsetValueIndex(extra.rhs),
+                                .mask = adapter.getOffsetValueIndex(extra.mask),
+                            });
+                        },
+                        .getelementptr,
+                        .@"getelementptr inbounds",
+                        => {
+                            var extra = func.extraDataTrail(Function.Instruction.GetElementPtr, datas[instr_index]);
+                            const indices = extra.trail.next(extra.data.indices_len, Value, &func);
+                            try function_block.writeAbbrevAdapted(
+                                FunctionBlock.GetElementPtr{
+                                    .is_inbounds = tag == .@"getelementptr inbounds",
+                                    .type_index = extra.data.type,
+                                    .base = extra.data.base,
+                                    .indices = indices,
+                                },
+                                adapter,
+                            );
+                        },
+                        .load => {
+                            const extra = func.extraData(Function.Instruction.Load, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.Load{
+                                .ptr = adapter.getOffsetValueIndex(extra.ptr),
+                                .ty = extra.type,
+                                .alignment = extra.info.alignment.toLlvm(),
+                                .is_volatile = extra.info.access_kind == .@"volatile",
+                            });
+                        },
+                        .@"load atomic" => {
+                            const extra = func.extraData(Function.Instruction.Load, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.LoadAtomic{
+                                .ptr = adapter.getOffsetValueIndex(extra.ptr),
+                                .ty = extra.type,
+                                .alignment = extra.info.alignment.toLlvm(),
+                                .is_volatile = extra.info.access_kind == .@"volatile",
+                                .success_ordering = extra.info.success_ordering,
+                                .sync_scope = extra.info.sync_scope,
+                            });
+                        },
+                        .store => {
+                            const extra = func.extraData(Function.Instruction.Store, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.Store{
+                                .ptr = adapter.getOffsetValueIndex(extra.ptr),
+                                .val = adapter.getOffsetValueIndex(extra.val),
+                                .alignment = extra.info.alignment.toLlvm(),
+                                .is_volatile = extra.info.access_kind == .@"volatile",
+                            });
+                        },
+                        .@"store atomic" => {
+                            const extra = func.extraData(Function.Instruction.Store, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.StoreAtomic{
+                                .ptr = adapter.getOffsetValueIndex(extra.ptr),
+                                .val = adapter.getOffsetValueIndex(extra.val),
+                                .alignment = extra.info.alignment.toLlvm(),
+                                .is_volatile = extra.info.access_kind == .@"volatile",
+                                .success_ordering = extra.info.success_ordering,
+                                .sync_scope = extra.info.sync_scope,
+                            });
+                        },
+                        .br => {
+                            try function_block.writeAbbrev(FunctionBlock.BrUnconditional{
+                                .block = datas[instr_index],
+                            });
+                        },
+                        .br_cond => {
+                            const extra = func.extraData(Function.Instruction.BrCond, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.BrConditional{
+                                .then_block = @intFromEnum(extra.then),
+                                .else_block = @intFromEnum(extra.@"else"),
+                                .condition = adapter.getOffsetValueIndex(extra.cond),
+                            });
+                        },
+                        .@"switch" => {
+                            var extra = func.extraDataTrail(Function.Instruction.Switch, datas[instr_index]);
+
+                            try record.ensureUnusedCapacity(self.gpa, 3 + extra.data.cases_len * 2);
+
+                            // Conditional type
+                            record.appendAssumeCapacity(@intFromEnum(extra.data.val.typeOf(@enumFromInt(func_index), self)));
+
+                            // Conditional
+                            record.appendAssumeCapacity(adapter.getOffsetValueIndex(extra.data.val));
+
+                            // Default block
+                            record.appendAssumeCapacity(@intFromEnum(extra.data.default));
+
+                            const vals = extra.trail.next(extra.data.cases_len, Constant, &func);
+                            const blocks = extra.trail.next(extra.data.cases_len, Function.Block.Index, &func);
+                            for (vals, blocks) |val, block| {
+                                record.appendAssumeCapacity(adapter.constant_adapter.getConstantIndex(val));
+                                record.appendAssumeCapacity(@intFromEnum(block));
+                            }
+
+                            try function_block.writeUnabbrev(12, record.items);
+                        },
+                        .va_arg => {
+                            const extra = func.extraData(Function.Instruction.VaArg, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.VaArg{
+                                .list_type = extra.list.typeOf(@enumFromInt(func_index), self),
+                                .list = adapter.getOffsetValueIndex(extra.list),
+                                .type = extra.type,
+                            });
+                        },
+                        .phi,
+                        .@"phi fast",
+                        => |kind| {
+                            var extra = func.extraDataTrail(Function.Instruction.Phi, datas[instr_index]);
+                            const vals = extra.trail.next(block_incoming_len, Value, &func);
+                            const blocks = extra.trail.next(block_incoming_len, Function.Block.Index, &func);
+
+                            try record.ensureUnusedCapacity(
+                                self.gpa,
+                                1 + block_incoming_len * 2 + @intFromBool(kind == .@"phi fast"),
+                            );
+
+                            record.appendAssumeCapacity(@intFromEnum(extra.data.type));
+
+                            for (vals, blocks) |val, block| {
+                                const offset_value = adapter.getOffsetValueSignedIndex(val);
+                                const abs_value: u32 = @intCast(@abs(offset_value));
+                                const signed_vbr = if (offset_value > 0) abs_value << 1 else ((abs_value << 1) | 1);
+                                record.appendAssumeCapacity(signed_vbr);
+                                record.appendAssumeCapacity(@intFromEnum(block));
+                            }
+
+                            if (kind == .@"phi fast") record.appendAssumeCapacity(@as(u8, @bitCast(FastMath{})));
+
+                            try function_block.writeUnabbrev(16, record.items);
+                        },
+                        .ret => try function_block.writeAbbrev(FunctionBlock.Ret{
+                            .val = adapter.getOffsetValueIndex(@enumFromInt(datas[instr_index])),
+                        }),
+                        .@"ret void" => try function_block.writeAbbrev(FunctionBlock.RetVoid{}),
+                        .atomicrmw => {
+                            const extra = func.extraData(Function.Instruction.AtomicRmw, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.AtomicRmw{
+                                .ptr = adapter.getOffsetValueIndex(extra.ptr),
+                                .val = adapter.getOffsetValueIndex(extra.val),
+                                .operation = extra.info.atomic_rmw_operation,
+                                .is_volatile = extra.info.access_kind == .@"volatile",
+                                .success_ordering = extra.info.success_ordering,
+                                .sync_scope = extra.info.sync_scope,
+                                .alignment = extra.info.alignment.toLlvm(),
+                            });
+                        },
+                        .cmpxchg,
+                        .@"cmpxchg weak",
+                        => |kind| {
+                            const extra = func.extraData(Function.Instruction.CmpXchg, datas[instr_index]);
+
+                            try function_block.writeAbbrev(FunctionBlock.CmpXchg{
+                                .ptr = adapter.getOffsetValueIndex(extra.ptr),
+                                .cmp = adapter.getOffsetValueIndex(extra.cmp),
+                                .new = adapter.getOffsetValueIndex(extra.new),
+                                .is_volatile = extra.info.access_kind == .@"volatile",
+                                .success_ordering = extra.info.success_ordering,
+                                .sync_scope = extra.info.sync_scope,
+                                .failure_ordering = extra.info.failure_ordering,
+                                .is_weak = kind == .@"cmpxchg weak",
+                                .alignment = extra.info.alignment.toLlvm(),
+                            });
+                        },
+                        .fence => {
+                            const info: MemoryAccessInfo = @bitCast(datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.Fence{
+                                .ordering = info.success_ordering,
+                                .sync_scope = info.sync_scope,
+                            });
+                        },
+                    }
+
+                    adapter.next();
+                }
+
+                // VALUE_SYMTAB
+                if (!self.strip) {
+                    const ValueSymbolTable = IR.FunctionValueSymbolTable;
+
+                    var value_symtab_block = try function_block.enterSubBlock(ValueSymbolTable);
+
+                    for (func.blocks, 0..) |block, block_index| {
+                        const name = block.instruction.name(&func);
+
+                        if (name == .none or name == .empty) continue;
+
+                        try value_symtab_block.writeAbbrev(ValueSymbolTable.BlockEntry{
+                            .value_id = @intCast(block_index),
+                            .string = name.slice(self).?,
+                        });
+                    }
+
+                    // TODO: Emit non block entries if the builder ever starts assigning names to non blocks
+
+                    try value_symtab_block.end();
+                }
+
+                try function_block.end();
+            }
+        }
+
+        try module_block.end();
+    }
+
+    // STRTAB_BLOCK
+    {
+        const Strtab = IR.Strtab;
+        var strtab_block = try bitcode.enterTopBlock(Strtab);
+
+        try strtab_block.writeAbbrev(Strtab.Blob{ .blob = self.string_bytes.items });
+
+        try strtab_block.end();
+    }
+
+    return bitcode.toSlice();
+}
+
 const assert = std.debug.assert;
 const build_options = @import("build_options");
 const builtin = @import("builtin");
@@ -12051,6 +13521,9 @@ else
     @compileError("LLVM unavailable");
 const log = std.log.scoped(.llvm);
 const std = @import("std");
+
+const bitcode_writer = @import("bitcode_writer.zig");
+const IR = @import("IR.zig");
 
 const Allocator = std.mem.Allocator;
 const Builder = @This();
