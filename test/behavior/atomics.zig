@@ -150,7 +150,7 @@ test "cmpxchg on a global variable" {
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/10627
         return error.SkipZigTest;
     }
@@ -214,7 +214,7 @@ test "atomicrmw with floats" {
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/10627
         return error.SkipZigTest;
     }
@@ -314,7 +314,7 @@ test "atomicrmw with 128-bit ints" {
     if (builtin.zig_backend == .zsf_x86_64) return error.SkipZigTest; // TODO
 
     // TODO "ld.lld: undefined symbol: __sync_lock_test_and_set_16" on -mcpu x86_64
-    if (builtin.cpu.arch == .x86_64 and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86_64 and builtin.zig_backend == .zsf_llvm) return error.SkipZigTest;
 
     try testAtomicRmwInt128(.signed);
     try testAtomicRmwInt128(.unsigned);

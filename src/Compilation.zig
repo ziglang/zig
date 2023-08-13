@@ -5182,7 +5182,7 @@ pub fn dump_argv(argv: []const []const u8) void {
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
-    if (comp.bin_file.options.use_llvm) return .stage2_llvm;
+    if (comp.bin_file.options.use_llvm) return .zsf_llvm;
     const target = comp.bin_file.options.target;
     if (target.ofmt == .c) return .zsf_c;
     return switch (target.cpu.arch) {

@@ -669,36 +669,36 @@ pub const CompilerBackend = enum(u64) {
     other = 0,
     /// The reference implementation by Zig Software Foundation, using the
     /// LLVM backend.
-    stage2_llvm = 2,
+    zsf_llvm = 1,
     /// The reference implementation by Zig Software Foundation, using the
     /// backend that generates C source code.
     /// Note that one can observe whether the compilation will output C code
     /// directly with `object_format` value rather than the `compiler_backend` value.
-    zsf_c = 3,
+    zsf_c = 2,
     /// The reference implementation by Zig Software Foundation, using the
     /// WebAssembly backend.
-    zsf_wasm = 4,
+    zsf_wasm = 3,
     /// The reference implementation by Zig Software Foundation, using the
     /// arm backend.
-    zsf_arm = 5,
+    zsf_arm = 4,
     /// The reference implementation by Zig Software Foundation, using the
     /// x86_64 backend.
-    zsf_x86_64 = 6,
+    zsf_x86_64 = 5,
     /// The reference implementation by Zig Software Foundation, using the
     /// aarch64 backend.
-    zsf_aarch64 = 7,
+    zsf_aarch64 = 6,
     /// The reference implementation by Zig Software Foundation, using the
     /// x86 backend.
-    zsf_x86 = 8,
+    zsf_x86 = 7,
     /// The reference implementation by Zig Software Foundation, using the
     /// riscv64 backend.
-    zsf_riscv64 = 9,
+    zsf_riscv64 = 8,
     /// The reference implementation by Zig Software Foundation, using the
     /// sparc64 backend.
-    zsf_sparc64 = 10,
+    zsf_sparc64 = 9,
     /// The reference implementation by Zig Software Foundation, using the
     /// spirv backend.
-    zsf_spirv64 = 11,
+    zsf_spirv64 = 10,
 
     _,
 };

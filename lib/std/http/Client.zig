@@ -1042,7 +1042,7 @@ pub fn request(client: *Client, method: http.Method, uri: Uri, headers: http.Hea
 test {
     const builtin = @import("builtin");
     const native_endian = comptime builtin.cpu.arch.endian();
-    if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
+    if (builtin.zig_backend == .zsf_llvm and native_endian == .Big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;
     }

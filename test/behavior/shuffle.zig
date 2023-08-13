@@ -73,7 +73,7 @@ test "@shuffle bool 2" {
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm) {
+    if (builtin.zig_backend == .zsf_llvm) {
         // https://github.com/ziglang/zig/issues/3246
         return error.SkipZigTest;
     }

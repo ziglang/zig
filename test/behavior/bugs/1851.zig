@@ -9,11 +9,11 @@ test "allocation and looping over 3-byte integer" {
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .macos) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.os.tag == .macos) {
         return error.SkipZigTest; // TODO
     }
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .wasm32) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.cpu.arch == .wasm32) {
         return error.SkipZigTest; // TODO
     }
 

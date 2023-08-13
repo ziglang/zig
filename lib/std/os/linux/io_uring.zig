@@ -1909,7 +1909,7 @@ test "openat" {
     const path = "test_io_uring_openat";
 
     // Workaround for LLVM bug: https://github.com/ziglang/zig/issues/12014
-    const path_addr = if (builtin.zig_backend == .stage2_llvm) p: {
+    const path_addr = if (builtin.zig_backend == .zsf_llvm) p: {
         var workaround = path;
         break :p @intFromPtr(workaround);
     } else @intFromPtr(path);

@@ -2164,7 +2164,7 @@ test "big.int bitNotWrap more than two limbs" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     // LLVM: unexpected runtime library name: __umodei4
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.target.isWasm()) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_llvm and comptime builtin.target.isWasm()) return error.SkipZigTest; // TODO
 
     var a = try Managed.initSet(testing.allocator, maxInt(Limb));
     defer a.deinit();

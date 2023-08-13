@@ -262,7 +262,7 @@ test "tuple to vector" {
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.cpu.arch == .aarch64) {
         // Regressed with LLVM 14:
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
@@ -327,7 +327,7 @@ test "vector @splat" {
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and
+    if (builtin.zig_backend == .zsf_llvm and
         builtin.os.tag == .macos)
     {
         // LLVM 15 regression: https://github.com/ziglang/zig/issues/12827
@@ -532,7 +532,7 @@ test "vector division operators" {
     if (builtin.zig_backend == .zsf_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
@@ -796,7 +796,7 @@ test "vector reduce operation" {
 
             // LLVM 11 ERROR: Cannot select type
             // https://github.com/ziglang/zig/issues/7138
-            if (builtin.zig_backend != .stage2_llvm or builtin.target.cpu.arch != .aarch64) {
+            if (builtin.zig_backend != .zsf_llvm or builtin.target.cpu.arch != .aarch64) {
                 try testReduce(.Min, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, -386));
                 try testReduce(.Min, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 9));
             }
@@ -814,7 +814,7 @@ test "vector reduce operation" {
 
             // LLVM 11 ERROR: Cannot select type
             // https://github.com/ziglang/zig/issues/7138
-            if (builtin.zig_backend != .stage2_llvm or builtin.target.cpu.arch != .aarch64) {
+            if (builtin.zig_backend != .zsf_llvm or builtin.target.cpu.arch != .aarch64) {
                 try testReduce(.Max, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, 1234567));
                 try testReduce(.Max, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 99999));
             }
@@ -862,7 +862,7 @@ test "vector reduce operation" {
 
             // LLVM 11 ERROR: Cannot select type
             // https://github.com/ziglang/zig/issues/7138
-            if (builtin.zig_backend != .stage2_llvm) {
+            if (builtin.zig_backend != .zsf_llvm) {
                 try testReduce(.Min, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, @as(f16, -1.9));
                 try testReduce(.Min, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, @as(f32, -1.9));
                 try testReduce(.Min, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, @as(f64, -1.9));
@@ -1215,7 +1215,7 @@ test "byte vector initialized in inline function" {
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (comptime builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64 and
+    if (comptime builtin.zig_backend == .zsf_llvm and builtin.cpu.arch == .x86_64 and
         builtin.cpu.features.isEnabled(@intFromEnum(std.Target.x86.Feature.avx512f)))
     {
         // TODO https://github.com/ziglang/zig/issues/13279
@@ -1373,7 +1373,7 @@ test "store vector with memset" {
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_c) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage2_llvm) {
+    if (builtin.zig_backend == .zsf_llvm) {
         switch (builtin.target.cpu.arch) {
             .wasm32,
             .mips,

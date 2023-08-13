@@ -165,7 +165,7 @@ export fn derp() i32 {
 }
 
 test "rw constraint (x86_64)" {
-    if (builtin.target.cpu.arch != .x86_64 or builtin.zig_backend != .stage2_llvm)
+    if (builtin.target.cpu.arch != .x86_64 or builtin.zig_backend != .zsf_llvm)
         return error.SkipZigTest;
 
     var res: i32 = 5;

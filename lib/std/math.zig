@@ -524,7 +524,7 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shl" {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
@@ -568,7 +568,7 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shr" {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
@@ -613,7 +613,7 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
 }
 
 test "rotr" {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
@@ -657,7 +657,7 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
 }
 
 test "rotl" {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
@@ -1816,7 +1816,7 @@ fn testSign() !void {
 }
 
 test "sign" {
-    if (builtin.zig_backend == .stage2_llvm) {
+    if (builtin.zig_backend == .zsf_llvm) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }

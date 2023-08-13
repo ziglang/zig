@@ -1054,7 +1054,7 @@ test "namespace lookup ignores decl causing the lookup" {
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm) {
+    if (builtin.zig_backend == .zsf_llvm) {
         // regressed with LLVM 15
         // https://github.com/ziglang/zig/issues/12681
         return error.SkipZigTest;

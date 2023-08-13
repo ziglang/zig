@@ -445,7 +445,7 @@ test "@log2 with vectors" {
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
     // https://github.com/ziglang/zig/issues/13681
-    if (builtin.zig_backend == .stage2_llvm and
+    if (builtin.zig_backend == .zsf_llvm and
         builtin.cpu.arch == .aarch64 and
         builtin.os.tag == .windows) return error.SkipZigTest;
 
@@ -689,7 +689,7 @@ test "@floor f80" {
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/12602
         return error.SkipZigTest;
     }
@@ -787,7 +787,7 @@ test "@ceil f80" {
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/12602
         return error.SkipZigTest;
     }
@@ -884,7 +884,7 @@ test "@trunc f80" {
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/12602
         return error.SkipZigTest;
     }

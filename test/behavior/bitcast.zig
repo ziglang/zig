@@ -338,7 +338,7 @@ test "comptime @bitCast packed struct to int and back" {
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
+    if (builtin.zig_backend == .zsf_llvm and native_endian == .Big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;
     }
@@ -421,7 +421,7 @@ test "bitcast nan float does modify signaling bit" {
     if (builtin.zig_backend == .zsf_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
     // TODO: https://github.com/ziglang/zig/issues/14366
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     // 16 bit
     const snan_f16_const = math.nan_f16;

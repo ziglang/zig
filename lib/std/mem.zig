@@ -316,7 +316,7 @@ pub fn zeroes(comptime T: type) T {
 }
 
 test "zeroes" {
-    if (builtin.zig_backend == .stage2_llvm) {
+    if (builtin.zig_backend == .zsf_llvm) {
         // Regressed in LLVM 14:
         // https://github.com/llvm/llvm-project/issues/55522
         return error.SkipZigTest;

@@ -6,7 +6,7 @@ test "thread local variable" {
     if (builtin.zig_backend == .zsf_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm) switch (builtin.cpu.arch) {
+    if (builtin.zig_backend == .zsf_llvm) switch (builtin.cpu.arch) {
         .x86_64, .x86 => {},
         else => return error.SkipZigTest,
     }; // TODO
@@ -28,7 +28,7 @@ test "pointer to thread local array" {
     if (builtin.zig_backend == .zsf_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm) switch (builtin.cpu.arch) {
+    if (builtin.zig_backend == .zsf_llvm) switch (builtin.cpu.arch) {
         .x86_64, .x86 => {},
         else => return error.SkipZigTest,
     }; // TODO
@@ -46,7 +46,7 @@ test "reference a global threadlocal variable" {
     if (builtin.zig_backend == .zsf_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm) switch (builtin.cpu.arch) {
+    if (builtin.zig_backend == .zsf_llvm) switch (builtin.cpu.arch) {
         .x86_64, .x86 => {},
         else => return error.SkipZigTest,
     }; // TODO

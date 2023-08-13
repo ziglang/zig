@@ -173,7 +173,7 @@ test "@ctz vectors" {
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.cpu.arch == .aarch64) {
         // This regressed with LLVM 14:
         // https://github.com/ziglang/zig/issues/12013
         return error.SkipZigTest;
@@ -1314,7 +1314,7 @@ test "remainder division" {
     if (builtin.zig_backend == .zsf_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
+    if (builtin.zig_backend == .zsf_llvm and builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/12602
         return error.SkipZigTest;
     }

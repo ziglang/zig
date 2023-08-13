@@ -270,7 +270,7 @@ test "forced tail call" {
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm) {
+    if (builtin.zig_backend == .zsf_llvm) {
         // Only attempt this test on targets we know have tail call support in LLVM.
         if (builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) {
             return error.SkipZigTest;
@@ -304,7 +304,7 @@ test "inline call preserves tail call" {
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm) {
+    if (builtin.zig_backend == .zsf_llvm) {
         // Only attempt this test on targets we know have tail call support in LLVM.
         if (builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) {
             return error.SkipZigTest;

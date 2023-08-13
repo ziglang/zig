@@ -7,7 +7,7 @@ test {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
 
-    if (comptime builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.endian() == .Big) {
+    if (comptime builtin.zig_backend == .zsf_llvm and builtin.cpu.arch.endian() == .Big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;
     }
