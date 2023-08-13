@@ -564,7 +564,7 @@ test "packed struct with non-ABI-aligned field" {
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
@@ -824,7 +824,7 @@ test "non-packed struct with u128 entry in union" {
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     const U = union(enum) {
         Num: u128,
@@ -1638,7 +1638,7 @@ test "instantiate struct with comptime field" {
 }
 
 test "struct field pointer has correct alignment" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
@@ -1671,7 +1671,7 @@ test "struct field pointer has correct alignment" {
 }
 
 test "extern struct field pointer has correct alignment" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO

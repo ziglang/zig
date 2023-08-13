@@ -915,7 +915,7 @@ test "big.int mul multi-single" {
 }
 
 test "big.int mul multi-multi" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var op1: u256 = 0x998888efefefefefefefef;
     var op2: u256 = 0x333000abababababababab;
@@ -1036,7 +1036,7 @@ test "big.int mulWrap single-single signed" {
 }
 
 test "big.int mulWrap multi-multi unsigned" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var op1: u256 = 0x998888efefefefefefefef;
     var op2: u256 = 0x333000abababababababab;
@@ -1053,7 +1053,7 @@ test "big.int mulWrap multi-multi unsigned" {
 }
 
 test "big.int mulWrap multi-multi signed" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb) - 1);
     defer a.deinit();
@@ -1258,7 +1258,7 @@ test "big.int div q=0 alias" {
 }
 
 test "big.int div multi-multi q < r" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     const op1 = 0x1ffffffff0078f432;
     const op2 = 0x1ffffffff01000000;
@@ -1629,7 +1629,7 @@ test "big.int div floor positive close to zero" {
 }
 
 test "big.int div multi-multi with rem" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x8888999911110000ffffeeeeddddccccbbbbaaaa9999);
     defer a.deinit();
@@ -1647,7 +1647,7 @@ test "big.int div multi-multi with rem" {
 }
 
 test "big.int div multi-multi no rem" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x8888999911110000ffffeeeedb4fec200ee3a4286361);
     defer a.deinit();
@@ -1665,7 +1665,7 @@ test "big.int div multi-multi no rem" {
 }
 
 test "big.int div multi-multi (2 branch)" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x866666665555555588888887777777761111111111111111);
     defer a.deinit();
@@ -1683,7 +1683,7 @@ test "big.int div multi-multi (2 branch)" {
 }
 
 test "big.int div multi-multi (3.1/3.3 branch)" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x11111111111111111111111111111111111111111111111111111111111111);
     defer a.deinit();
@@ -1701,7 +1701,7 @@ test "big.int div multi-multi (3.1/3.3 branch)" {
 }
 
 test "big.int div multi-single zero-limb trailing" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x60000000000000000000000000000000000000000000000000000000000000000);
     defer a.deinit();
@@ -1721,7 +1721,7 @@ test "big.int div multi-single zero-limb trailing" {
 }
 
 test "big.int div multi-multi zero-limb trailing (with rem)" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x86666666555555558888888777777776111111111111111100000000000000000000000000000000);
     defer a.deinit();
@@ -1742,7 +1742,7 @@ test "big.int div multi-multi zero-limb trailing (with rem)" {
 }
 
 test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-limb count > divisor zero-limb count" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x8666666655555555888888877777777611111111111111110000000000000000);
     defer a.deinit();
@@ -1763,7 +1763,7 @@ test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-li
 }
 
 test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-limb count < divisor zero-limb count" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x86666666555555558888888777777776111111111111111100000000000000000000000000000000);
     defer a.deinit();
@@ -2159,7 +2159,7 @@ test "big.int bitNotWrap signed multi" {
 test "big.int bitNotWrap more than two limbs" {
     // This test requires int sizes greater than 128 bits.
     if (builtin.zig_backend == .zsf_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest; // TODO
@@ -2518,7 +2518,7 @@ test "big.int gcd non-one large" {
 }
 
 test "big.int gcd large multi-limb result" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x12345678123456781234567812345678123456781234567812345678);
     defer a.deinit();

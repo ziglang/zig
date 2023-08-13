@@ -200,7 +200,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
 
             if (!@inComptime()) {
                 switch (builtin.cpu.arch) {
-                    .aarch64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.aarch64.featureSetHas(builtin.cpu.features, .sha2)) {
+                    .aarch64 => if (builtin.zig_backend != .zsf_c and comptime std.Target.aarch64.featureSetHas(builtin.cpu.features, .sha2)) {
                         var x: v4u32 = d.s[0..4].*;
                         var y: v4u32 = d.s[4..8].*;
                         const s_v = @as(*[16]v4u32, @ptrCast(&s));
@@ -238,7 +238,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                         return;
                     },
                     // C backend doesn't currently support passing vectors to inline asm.
-                    .x86_64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sha, .avx2 })) {
+                    .x86_64 => if (builtin.zig_backend != .zsf_c and comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sha, .avx2 })) {
                         var x: v4u32 = [_]u32{ d.s[5], d.s[4], d.s[1], d.s[0] };
                         var y: v4u32 = [_]u32{ d.s[7], d.s[6], d.s[3], d.s[2] };
                         const s_v = @as(*[16]v4u32, @ptrCast(&s));

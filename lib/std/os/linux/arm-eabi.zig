@@ -105,7 +105,7 @@ pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *
 
 pub fn restore() callconv(.Naked) noreturn {
     switch (@import("builtin").zig_backend) {
-        .stage2_c => asm volatile (
+        .zsf_c => asm volatile (
             \\ mov r7, %[number]
             \\ svc #0
             :
@@ -123,7 +123,7 @@ pub fn restore() callconv(.Naked) noreturn {
 
 pub fn restore_rt() callconv(.Naked) noreturn {
     switch (@import("builtin").zig_backend) {
-        .stage2_c => asm volatile (
+        .zsf_c => asm volatile (
             \\ mov r7, %[number]
             \\ svc #0
             :

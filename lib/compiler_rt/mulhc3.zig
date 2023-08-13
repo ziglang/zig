@@ -4,7 +4,7 @@ const mulc3 = @import("./mulc3.zig");
 pub const panic = common.panic;
 
 comptime {
-    if (@import("builtin").zig_backend != .stage2_c) {
+    if (@import("builtin").zig_backend != .zsf_c) {
         @export(__mulhc3, .{ .name = "__mulhc3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }

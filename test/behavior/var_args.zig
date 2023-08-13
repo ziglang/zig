@@ -132,7 +132,7 @@ test "simple variadic function" {
         }
     };
 
-    if (builtin.zig_backend != .stage2_c) {
+    if (builtin.zig_backend != .zsf_c) {
         // pre C23 doesn't support varargs without a preceding runtime arg.
         try std.testing.expectEqual(@as(c_int, 0), S.simple(@as(c_int, 0)));
         try std.testing.expectEqual(@as(c_int, 1024), S.simple(@as(c_int, 1024)));

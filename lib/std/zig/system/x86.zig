@@ -539,7 +539,7 @@ fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
     var ecx: u32 = undefined;
     var edx: u32 = undefined;
 
-    if (builtin.zig_backend == .stage2_c) {
+    if (builtin.zig_backend == .zsf_c) {
         zig_x86_cpuid(leaf_id, subid, &eax, &ebx, &ecx, &edx);
     } else {
         asm volatile ("cpuid"
@@ -561,7 +561,7 @@ extern fn zig_x86_get_xcr0() callconv(.C) u32;
 
 // Read control register 0 (XCR0). Used to detect features such as AVX.
 fn getXCR0() u32 {
-    if (builtin.zig_backend == .stage2_c) {
+    if (builtin.zig_backend == .zsf_c) {
         return zig_x86_get_xcr0();
     }
 

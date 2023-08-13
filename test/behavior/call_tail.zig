@@ -45,7 +45,7 @@ test "arguments pointed to on stack into tailcall" {
         else => {},
     }
     if (builtin.zig_backend == .zsf_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     var data = [_]u64{ 1, 6, 2, 7, 1, 9, 3 };
     base = @intFromPtr(&data);

@@ -248,7 +248,7 @@ test {
     if (builtin.zig_backend != .zsf_arm and
         builtin.zig_backend != .zsf_x86_64 and
         builtin.zig_backend != .zsf_aarch64 and
-        builtin.zig_backend != .stage2_c and
+        builtin.zig_backend != .zsf_c and
         builtin.zig_backend != .zsf_spirv64)
     {
         _ = @import("behavior/bugs/13063.zig");

@@ -198,7 +198,7 @@ test "alignment and size of structs with 128-bit fields" {
 
         else => return error.SkipZigTest,
     };
-    const min_struct_align = if (builtin.zig_backend == .stage2_c) 16 else 0;
+    const min_struct_align = if (builtin.zig_backend == .zsf_c) 16 else 0;
     comptime {
         assert(@alignOf(A) == @max(expected.a_align, min_struct_align));
         assert(@sizeOf(A) == expected.a_size);
@@ -550,7 +550,7 @@ test "align(N) on functions" {
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
 
     // This is not supported on MSVC
-    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) {
+    if (builtin.zig_backend == .zsf_c and builtin.os.tag == .windows) {
         return error.SkipZigTest;
     }
 
@@ -599,7 +599,7 @@ test "sub-aligned pointer field access" {
     if (builtin.zig_backend == .zsf_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .zsf_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .zsf_c) return error.SkipZigTest;
 
     // Originally reported at https://github.com/ziglang/zig/issues/14904
 

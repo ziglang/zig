@@ -1876,7 +1876,7 @@ extern fn zig_x86_64_windows_teb() callconv(.C) *anyopaque;
 pub fn teb() *TEB {
     return switch (native_arch) {
         .x86 => blk: {
-            if (builtin.zig_backend == .stage2_c) {
+            if (builtin.zig_backend == .zsf_c) {
                 break :blk @ptrCast(@alignCast(zig_x86_windows_teb()));
             } else {
                 break :blk asm volatile (
@@ -1886,7 +1886,7 @@ pub fn teb() *TEB {
             }
         },
         .x86_64 => blk: {
-            if (builtin.zig_backend == .stage2_c) {
+            if (builtin.zig_backend == .zsf_c) {
                 break :blk @ptrCast(@alignCast(zig_x86_64_windows_teb()));
             } else {
                 break :blk asm volatile (

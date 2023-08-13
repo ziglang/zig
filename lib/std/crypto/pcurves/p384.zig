@@ -478,7 +478,7 @@ pub const AffineCoordinates = struct {
 };
 
 test {
-    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+    if (@import("builtin").zig_backend == .zsf_c) return error.SkipZigTest;
 
     _ = @import("tests/p384.zig");
 }
