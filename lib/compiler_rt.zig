@@ -236,3 +236,7 @@ comptime {
         _ = @import("compiler_rt/ssp.zig");
     }
 }
+
+test {
+    _ = @import("compiler_rt/test.zig");
+}

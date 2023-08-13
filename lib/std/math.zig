@@ -255,6 +255,8 @@ pub const atan = @import("math/atan.zig").atan;
 pub const atan2 = @import("math/atan2.zig").atan2;
 pub const hypot = @import("math/hypot.zig").hypot;
 pub const expm1 = @import("math/expm1.zig").expm1;
+// TODO: Currently broken, add this in when fixed.
+// pub const expo2 = @import("math/expo2.zig").expo2;
 pub const ilogb = @import("math/ilogb.zig").ilogb;
 pub const log = @import("math/log.zig").log;
 pub const log2 = @import("math/log2.zig").log2;
@@ -271,6 +273,10 @@ pub const tanh = @import("math/tanh.zig").tanh;
 pub const gcd = @import("math/gcd.zig").gcd;
 pub const gamma = @import("math/gamma.zig").gamma;
 pub const lgamma = @import("math/gamma.zig").lgamma;
+
+// TODO: This should not be part of the public API, but compiler-rt tests need
+//       access to it...
+pub const test_utils = @import("math/test.zig");
 
 /// Sine trigonometric function on a floating point number.
 /// Uses a dedicated hardware instruction when available.
@@ -401,6 +407,8 @@ test {
     _ = Complex;
 
     _ = big;
+
+    _ = @import("math/test.zig");
 }
 
 /// Given two types, returns the smallest one which is capable of holding the
