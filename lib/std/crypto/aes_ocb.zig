@@ -234,6 +234,7 @@ fn AesOcb(comptime Aes: anytype) type {
             const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
             crypto.utils.secureZero(u8, &computed_tag);
             if (!verify) {
+                @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
         }

@@ -714,6 +714,7 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
                 acc |= computedTag[i] ^ tag[i];
             }
             if (acc != 0) {
+                @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
             ChaChaIETF(rounds_nb).xor(m[0..c.len], c, 1, k, npub);

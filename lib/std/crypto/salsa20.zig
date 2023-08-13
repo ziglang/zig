@@ -418,6 +418,7 @@ pub const XSalsa20Poly1305 = struct {
         }
         if (acc != 0) {
             utils.secureZero(u8, &computedTag);
+            @memset(m, undefined);
             return error.AuthenticationFailed;
         }
         @memcpy(m[0..mlen0], block0[32..][0..mlen0]);

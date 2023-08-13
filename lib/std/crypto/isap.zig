@@ -152,6 +152,7 @@ pub const IsapA128A = struct {
         const res = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
         crypto.utils.secureZero(u8, &computed_tag);
         if (!res) {
+            @memset(m, undefined);
             return error.AuthenticationFailed;
         }
         xor(m, c, npub, key);
