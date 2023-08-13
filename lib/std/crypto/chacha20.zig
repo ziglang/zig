@@ -676,12 +676,13 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
             mac.final(tag);
         }
 
-        /// m: message: output buffer should be of size c.len
-        /// c: ciphertext
-        /// tag: authentication tag
-        /// ad: Associated Data
-        /// npub: public nonce
-        /// k: private key
+        /// `m`: Message
+        /// `c`: Ciphertext
+        /// `tag`: Authentication tag
+        /// `ad`: Associated Data
+        /// `npub`: Public nonce
+        /// `k`: Private key
+        /// Asserts `c.len == m.len`.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
 

@@ -170,12 +170,13 @@ fn Aegis128LGeneric(comptime tag_bits: u9) type {
             tag.* = state.mac(tag_bits, ad.len, m.len);
         }
 
-        /// m: message: output buffer should be of size c.len
-        /// c: ciphertext
-        /// tag: authentication tag
-        /// ad: Associated Data
-        /// npub: public nonce
-        /// k: private key
+        /// `m`: Message
+        /// `c`: Ciphertext
+        /// `tag`: Authentication tag
+        /// `ad`: Associated Data
+        /// `npub`: Public nonce
+        /// `k`: Private key
+        /// Asserts `c.len == m.len`.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
             var state = State128L.init(key, npub);
@@ -350,12 +351,13 @@ fn Aegis256Generic(comptime tag_bits: u9) type {
             tag.* = state.mac(tag_bits, ad.len, m.len);
         }
 
-        /// m: message: output buffer should be of size c.len
-        /// c: ciphertext
-        /// tag: authentication tag
-        /// ad: Associated Data
-        /// npub: public nonce
-        /// k: private key
+        /// `m`: Message
+        /// `c`: Ciphertext
+        /// `tag`: Authentication tag
+        /// `ad`: Associated Data
+        /// `npub`: Public nonce
+        /// `k`: Private key
+        /// Asserts `c.len == m.len`.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
             var state = State256.init(key, npub);

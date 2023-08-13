@@ -168,12 +168,13 @@ fn AesOcb(comptime Aes: anytype) type {
             tag.* = xorBlocks(e, hash(aes_enc_ctx, &lx, ad));
         }
 
-        /// m: message: output buffer should be of size c.len
-        /// c: ciphertext
-        /// tag: authentication tag
-        /// ad: Associated Data
-        /// npub: public nonce
-        /// k: secret key
+        /// `m`: Message
+        /// `c`: Ciphertext
+        /// `tag`: Authentication tag
+        /// `ad`: Associated Data
+        /// `npub`: Public nonce
+        /// `k`: Private key
+        /// Asserts `c.len == m.len`.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
 
