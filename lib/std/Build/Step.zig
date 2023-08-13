@@ -231,13 +231,9 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 }
 
 /// For debugging purposes, prints identifying information about this Step.
-pub fn dump(step: *Step) void {
-    std.debug.getStderrMutex().lock();
-    defer std.debug.getStderrMutex().unlock();
-
-    const stderr = std.io.getStdErr();
-    const w = stderr.writer();
-    const tty_config = std.io.tty.detectConfig(stderr);
+pub fn dump(step: *Step, file: std.fs.File) void {
+    const w = file.writer();
+    const tty_config = std.io.tty.detectConfig(file);
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
             @errorName(err),
@@ -248,7 +244,7 @@ pub fn dump(step: *Step) void {
     if (step.getStackTrace()) |stack_trace| {
         w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
         std.debug.writeStackTrace(stack_trace, w, ally, debug_info, tty_config) catch |err| {
-            stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
+            w.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
             return;
         };
     } else {

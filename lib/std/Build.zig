@@ -1768,49 +1768,21 @@ pub fn dumpBadGetPathHelp(
     });
 
     const tty_config = std.io.tty.detectConfig(stderr);
-    if (s.getStackTrace()) |stack_trace| {
+    tty_config.setColor(w, .red) catch {};
+    try stderr.writeAll("    The step was created by this stack trace:\n");
+    tty_config.setColor(w, .reset) catch {};
+
+    s.dump(stderr);
+    if (asking_step) |as| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writeAll("    The step was created by this stack trace:\n");
+        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         tty_config.setColor(w, .reset) catch {};
 
-        const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-            try w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
-            return;
-        };
-        const ally = debug_info.allocator;
-
-        std.debug.writeStackTrace(stack_trace, w, ally, debug_info, tty_config) catch |err| {
-            try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
-            return;
-        };
-        if (asking_step) |as| {
-            tty_config.setColor(w, .red) catch {};
-            try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
-            tty_config.setColor(w, .reset) catch {};
-
-            if (as.getStackTrace()) |as_stack_trace| {
-                std.debug.writeStackTrace(as_stack_trace, w, ally, debug_info, tty_config) catch |err| {
-                    try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
-                    return;
-                };
-            } else {
-                const field = "debug_stack_frames_count";
-                comptime assert(@hasField(Build, field));
-                tty_config.setColor(w, .yellow) catch {};
-                try stderr.writer().print("no stack trace collected for this step, see std.Build." ++ field ++ "\n", .{});
-                tty_config.setColor(w, .reset) catch {};
-            }
-        }
-        tty_config.setColor(w, .red) catch {};
-        try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
-        tty_config.setColor(w, .reset) catch {};
-    } else {
-        const field = "debug_stack_frames_count";
-        comptime assert(@hasField(Build, field));
-        tty_config.setColor(w, .yellow) catch {};
-        try stderr.writer().print("no stack trace collected for this step, see std.Build." ++ field ++ "\n", .{});
-        tty_config.setColor(w, .reset) catch {};
+        as.dump(stderr);
     }
+    tty_config.setColor(w, .red) catch {};
+    try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
+    tty_config.setColor(w, .reset) catch {};
 }
 
 /// Allocates a new string for assigning a value to a named macro.
