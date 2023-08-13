@@ -246,7 +246,7 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
 /// mismatching will fail to run.
 ///
 /// Therefore, this function works the same regardless of whether the compiler binary is
-/// dynamically or statically linked. It inspects `/usr/bin/env` as an ELF file to find the
+/// dynamically or statically linked. It inspects files from default list of paths (`/usr/bin/env` and equivalent on Termux) as an ELF file to find the
 /// answer to these questions, or if there is a shebang line, then it chases the referenced
 /// file recursively. If that does not provide the answer, then the function falls back to
 /// defaults.
@@ -307,68 +307,61 @@ fn detectAbiAndDynamicLinker(
     }
     const ld_info_list = ld_info_list_buffer[0..ld_info_list_len];
 
-    // Best case scenario: the executable is dynamically linked, and we can iterate
-    // over our own shared objects and find a dynamic linker.
-    const elf_file = blk: {
-        // This block looks for a shebang line in /usr/bin/env,
-        // if it finds one, then instead of using /usr/bin/env as the ELF file to examine, it uses the file it references instead,
+    // Since /usr/bin/env is hard-coded into the shebang line of many portable scripts, it's a
+    // reasonably reliable path to start with.
+    const zig_examined_elf_files = std.fmt.comptimePrint("/usr/bin/env{[sep]}/data/data/com.termux/files/usr/bin/env", .{ .sep = fs.path.delimiter });
+    var examined_elf_file_names_iterator = mem.tokenizeScalar(u8, zig_examined_elf_files, fs.path.delimiter);
+
+    // #! (2) + 255 (max length of remaining "shebang line" since Linux 5.1, see `man execve(2)`)
+    var buffer: [257]u8 = undefined;
+    const cwd = fs.cwd();
+
+    const elf_file: fs.File = iterate: while (examined_elf_file_names_iterator.next()) |starting_point| {
+        var examined_file_path = starting_point;
+        // This block looks for a shebang line in `examined_file_path`,
+        // if it finds one, then instead of using `examined_file_path` as the ELF file to examine, it uses the file it references instead,
         // doing the same logic recursively in case it finds another shebang line.
+        const chased_elf_file: fs.File = chase: while (true) {
+            const examined_file = cwd.openFile(examined_file_path, .{ .mode = .read_only }) catch |err| switch (err) {
+                error.InvalidUtf8, error.BadPathName, error.NetworkNotFound => unreachable, // Windows-only
+                error.PathAlreadyExists, error.NoSpaceLeft => unreachable, // We do not create a file
+                error.FileBusy => unreachable, // We do not request write access or use O_TRUNC flag
 
-        // Since /usr/bin/env is hard-coded into the shebang line of many portable scripts, it's a
-        // reasonably reliable path to start with.
-        var file_name: []const u8 = "/usr/bin/env";
-        // #! (2) + 255 (max length of shebang line since Linux 5.1) + \n (1)
-        var buffer: [258]u8 = undefined;
-        while (true) {
-            const file = fs.openFileAbsolute(file_name, .{}) catch |err| switch (err) {
-                error.NoSpaceLeft => unreachable,
-                error.NameTooLong => unreachable,
-                error.PathAlreadyExists => unreachable,
-                error.SharingViolation => unreachable,
-                error.InvalidUtf8 => unreachable,
-                error.BadPathName => unreachable,
-                error.PipeBusy => unreachable,
-                error.FileLocksNotSupported => unreachable,
-                error.WouldBlock => unreachable,
-                error.FileBusy => unreachable, // opened without write permissions
-
-                error.IsDir,
-                error.NotDir,
-                error.InvalidHandle,
-                error.AccessDenied,
-                error.NoDevice,
-                error.FileNotFound,
-                error.NetworkNotFound,
-                error.FileTooBig,
-                error.Unexpected,
-                => |e| {
-                    std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
-                    return defaultAbiAndDynamicLinker(cpu, os, cross_target);
-                },
-
-                else => |e| return e,
+                else => continue :iterate,
             };
-            errdefer file.close();
+            var is_elf_file = false;
+            defer if (!is_elf_file) examined_file.close();
 
-            const len = preadMin(file, &buffer, 0, buffer.len) catch |err| switch (err) {
-                error.UnexpectedEndOfFile,
-                error.UnableToReadElfFile,
-                => break :blk file,
-
-                else => |e| return e,
+            const len = examined_file.preadAll(buffer[0..], 0) catch |err| switch (err) {
+                error.NetNameDeleted => unreachable, // Windows-only
+                else => continue :iterate,
             };
-            const newline = mem.indexOfScalar(u8, buffer[0..len], '\n') orelse break :blk file;
-            const line = buffer[0..newline];
-            if (!mem.startsWith(u8, line, "#!")) break :blk file;
-            var it = mem.tokenizeScalar(u8, line[2..], ' ');
-            file_name = it.next() orelse return defaultAbiAndDynamicLinker(cpu, os, cross_target);
-            file.close();
-        }
-    };
+            // Shortest working "shebang line" is "#!e" (3)
+            // (assuming relative path to cwd in shebang is allowed on this system)
+            // std.elf.MAGIC.len is 4
+            // If it is smaller than 3, it is definitely not ELF file and
+            // not shell script with shebang line.
+            if (len < 3) continue :iterate; // Too short for a ELF file or shell script with "shebang line"
+            if (mem.startsWith(u8, buffer[0..], elf.MAGIC)) // It is likely ELF file!
+            {
+                is_elf_file = true;
+                break :chase examined_file;
+            }
+            if (!mem.startsWith(u8, buffer[0..], "#!")) continue :iterate; // Not a ELF file, not a shell script with "shebang line", invalid duck.
+
+            // We detected shebang, now parse entire line.
+            const first_line_end = mem.indexOfScalar(u8, buffer[0..], '\n') orelse buffer.len;
+            const first_line = buffer[0..first_line_end];
+
+            const interpreter_and_arguments = mem.trim(u8, first_line[2..], std.ascii.whitespace[0..]); // Skip "#!" and trim whitespace at both ends of line (it is possible to have blank space right after "#!")
+            const interpreter_end = mem.indexOfScalar(u8, interpreter_and_arguments, ' ') orelse interpreter_and_arguments.len; // blank space possibly used for separation of interpreter and arguments
+            const interpreter_path = interpreter_and_arguments[0..interpreter_end]; // another file which **might** be ELF file or shell script with "shebang line"
+            examined_file_path = interpreter_path; // move to examining this interpreter instead of starting point
+        } else continue :iterate; // This path was not suitable as a starting point, move to the next path
+        break :iterate chased_elf_file; // TODO should it be only first suitable ELF file or a list of suitable files?
+    } else return defaultAbiAndDynamicLinker(cpu, os, cross_target);
     defer elf_file.close();
 
-    // If Zig is statically linked, such as via distributed binary static builds, the above
-    // trick (block self_exe) won't work. The next thing we fall back to is the same thing, but for elf_file.
     // TODO: inline this function and combine the buffer we already read above to find
     // the possible shebang line with the buffer we use for the ELF header.
     return abiAndDynamicLinkerFromFile(elf_file, cpu, os, ld_info_list, cross_target) catch |err| switch (err) {
@@ -620,7 +613,7 @@ pub fn abiAndDynamicLinkerFromFile(
     _ = try preadMin(file, &hdr_buf, 0, hdr_buf.len);
     const hdr32 = @as(*elf.Elf32_Ehdr, @ptrCast(&hdr_buf));
     const hdr64 = @as(*elf.Elf64_Ehdr, @ptrCast(&hdr_buf));
-    if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
+
     const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
         elf.ELFDATA2LSB => .Little,
         elf.ELFDATA2MSB => .Big,
@@ -915,7 +908,7 @@ fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
     return i;
 }
 
-fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, cross_target: CrossTarget) !NativeTargetInfo {
+fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, cross_target: CrossTarget) NativeTargetInfo {
     const target: Target = .{
         .cpu = cpu,
         .os = os,
