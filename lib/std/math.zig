@@ -243,6 +243,8 @@ pub const atan = @import("math/atan.zig").atan;
 pub const atan2 = @import("math/atan2.zig").atan2;
 pub const hypot = @import("math/hypot.zig").hypot;
 pub const expm1 = @import("math/expm1.zig").expm1;
+// TODO: Currently broken, add this in when fixed.
+// pub const expo2 = @import("math/expo2.zig").expo2;
 pub const ilogb = @import("math/ilogb.zig").ilogb;
 pub const log = @import("math/log.zig").log;
 pub const log2 = @import("math/log2.zig").log2;
@@ -411,6 +413,8 @@ test {
     _ = Complex;
 
     _ = big;
+
+    _ = @import("math/test.zig");
 }
 
 /// Given two types, returns the smallest one which is capable of holding the

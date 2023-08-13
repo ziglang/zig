@@ -57,7 +57,7 @@ pub fn exp2f(x: f32) callconv(.C) f32 {
                 math.doNotOptimizeAway(-0x1.0p-149 / x);
             }
             // x <= -150
-            if (u >= 0x3160000) {
+            if (u >= 0xC3160000) {
                 return 0;
             }
         }
@@ -101,7 +101,7 @@ pub fn exp2(x: f64) callconv(.C) f64 {
 
     // TODO: This should be handled beneath.
     if (math.isNan(x)) {
-        return math.nan(f64);
+        return x;
     }
 
     // |x| >= 1022 or nan
@@ -476,14 +476,4 @@ test "exp2_64" {
     try expect(math.approxEqAbs(f64, exp2(1.5), 2.828427, epsilon));
     try expect(math.approxEqAbs(f64, exp2(-1), 0.5, epsilon));
     try expect(math.approxEqAbs(f64, exp2(-0x1.a05cc754481d1p-2), 0x1.824056efc687cp-1, epsilon));
-}
-
-test "exp2_32.special" {
-    try expect(math.isPositiveInf(exp2f(math.inf(f32))));
-    try expect(math.isNan(exp2f(math.nan(f32))));
-}
-
-test "exp2_64.special" {
-    try expect(math.isPositiveInf(exp2(math.inf(f64))));
-    try expect(math.isNan(exp2(math.nan(f64))));
 }

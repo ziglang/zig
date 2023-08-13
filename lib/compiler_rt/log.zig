@@ -38,6 +38,11 @@ pub fn logf(x_: f32) callconv(.C) f32 {
     const Lg3: f32 = 0x91e9ee.0p-25;
     const Lg4: f32 = 0xf89e26.0p-26;
 
+    // TODO: This should be handled beneath.
+    if (math.isNan(x_)) {
+        return x_;
+    }
+
     var x = x_;
     var ix: u32 = @bitCast(x);
     var k: i32 = 0;
@@ -93,6 +98,11 @@ pub fn log(x_: f64) callconv(.C) f64 {
     const Lg6: f64 = 1.531383769920937332e-01;
     const Lg7: f64 = 1.479819860511658591e-01;
 
+    // TODO: This should be handled beneath.
+    if (math.isNan(x_)) {
+        return x_;
+    }
+
     var x = x_;
     var ix: u64 = @bitCast(x);
     var hx: u32 = @intCast(ix >> 32);
@@ -110,8 +120,8 @@ pub fn log(x_: f64) callconv(.C) f64 {
 
         // subnormal, scale x
         k -= 54;
-        x *= 0x1.0p54;
-        hx = @intCast(@as(u64, @bitCast(ix)) >> 32);
+        x *= 0x1p54;
+        hx = @intCast(@as(u64, @bitCast(x)) >> 32);
     } else if (hx >= 0x7FF00000) {
         return x;
     } else if (hx == 0x3FF00000 and ix << 32 == 0) {
@@ -179,18 +189,4 @@ test "ln64" {
     try testing.expect(math.approxEqAbs(f64, log(37.45), 3.623007, epsilon));
     try testing.expect(math.approxEqAbs(f64, log(89.123), 4.490017, epsilon));
     try testing.expect(math.approxEqAbs(f64, log(123123.234375), 11.720941, epsilon));
-}
-
-test "ln32.special" {
-    try testing.expect(math.isPositiveInf(logf(math.inf(f32))));
-    try testing.expect(math.isNegativeInf(logf(0.0)));
-    try testing.expect(math.isNan(logf(-1.0)));
-    try testing.expect(math.isNan(logf(math.nan(f32))));
-}
-
-test "ln64.special" {
-    try testing.expect(math.isPositiveInf(log(math.inf(f64))));
-    try testing.expect(math.isNegativeInf(log(0.0)));
-    try testing.expect(math.isNan(log(-1.0)));
-    try testing.expect(math.isNan(log(math.nan(f64))));
 }
