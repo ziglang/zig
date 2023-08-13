@@ -393,6 +393,13 @@ test "bitcast vector to integer and back" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64 and
+        comptime std.Target.x86.featureSetHas(builtin.cpu.features, .avx512f))
+    {
+        // https://github.com/ziglang/zig/issues/16797
+        return error.SkipZigTest;
+    }
+
     const arr: [16]bool = [_]bool{ true, false } ++ [_]bool{true} ** 14;
     var x: @Vector(16, bool) = @splat(true);
     x[1] = false;
