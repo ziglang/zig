@@ -410,14 +410,14 @@ pub const XSalsa20Poly1305 = struct {
         var mac = Poly1305.init(block0[0..32]);
         mac.update(ad);
         mac.update(c);
-        var computedTag: [tag_length]u8 = undefined;
-        mac.final(&computedTag);
+        var computed_tag: [tag_length]u8 = undefined;
+        mac.final(&computed_tag);
         var acc: u8 = 0;
-        for (computedTag, 0..) |_, i| {
-            acc |= computedTag[i] ^ tag[i];
+        for (computed_tag, 0..) |_, i| {
+            acc |= computed_tag[i] ^ tag[i];
         }
         if (acc != 0) {
-            utils.secureZero(u8, &computedTag);
+            utils.secureZero(u8, &computed_tag);
             @memset(m, undefined);
             return error.AuthenticationFailed;
         }

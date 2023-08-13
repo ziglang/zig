@@ -706,12 +706,12 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
             mem.writeIntLittle(u64, lens[0..8], ad.len);
             mem.writeIntLittle(u64, lens[8..16], c.len);
             mac.update(lens[0..]);
-            var computedTag: [16]u8 = undefined;
-            mac.final(computedTag[0..]);
+            var computed_tag: [16]u8 = undefined;
+            mac.final(computed_tag[0..]);
 
             var acc: u8 = 0;
-            for (computedTag, 0..) |_, i| {
-                acc |= computedTag[i] ^ tag[i];
+            for (computed_tag, 0..) |_, i| {
+                acc |= computed_tag[i] ^ tag[i];
             }
             if (acc != 0) {
                 @memset(m, undefined);
