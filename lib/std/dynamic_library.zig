@@ -317,12 +317,12 @@ pub const WindowsDynLib = struct {
     dll: windows.HMODULE,
 
     pub fn open(path: []const u8) !WindowsDynLib {
-        const path_w = try windows.sliceToPrefixedFileW(path);
+        const path_w = try windows.sliceToPrefixedFileW(null, path);
         return openW(path_w.span().ptr);
     }
 
     pub fn openZ(path_c: [*:0]const u8) !WindowsDynLib {
-        const path_w = try windows.cStrToPrefixedFileW(path_c);
+        const path_w = try windows.cStrToPrefixedFileW(null, path_c);
         return openW(path_w.span().ptr);
     }
 
