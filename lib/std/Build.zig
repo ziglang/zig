@@ -1928,6 +1928,51 @@ pub const LazyPath = union(enum) {
             .generated => |gen| .{ .generated = gen },
         };
     }
+
+    /// Returns a `LazyPath` that points to the directory name of the current `LazyPath`.
+    pub fn dirname(path: LazyPath) LazyPath {
+        const ComputeStep = struct {
+            step: Step,
+            input: LazyPath,
+            output: GeneratedFile,
+
+            fn make(comp_step: *Step, progress: *std.Progress.Node) !void {
+                _ = progress;
+
+                const self = @fieldParentPtr(@This(), "step", comp_step);
+
+                const realpath = self.input.getPath2(comp_step.owner, comp_step);
+
+                self.output.path = resolve(realpath);
+            }
+
+            fn resolve(realpath: []const u8) []const u8 {
+                return std.fs.path.dirname(realpath) orelse if (std.fs.path.isAbsolute(realpath)) "/" else ".";
+            }
+        };
+
+        switch (path) {
+            .cwd_relative => |value| return LazyPath{ .cwd_relative = ComputeStep.resolve(value) },
+            .path => |value| return LazyPath{ .path = ComputeStep.resolve(value) },
+
+            .generated => |ptr| {
+                const child = ptr.step.owner.allocator.create(ComputeStep) catch @panic("oom");
+                child.* = ComputeStep{
+                    .input = path,
+                    .output = .{ .step = &child.step },
+                    .step = Step.init(.{
+                        .id = .custom,
+                        .name = "dirname",
+                        .owner = ptr.step.owner,
+                        .makeFn = ComputeStep.make,
+                        .first_ret_addr = @returnAddress(),
+                    }),
+                };
+                path.addStepDependencies(&child.step);
+                return LazyPath{ .generated = &child.output };
+            },
+        }
+    }
 };
 
 /// In this function the stderr mutex has already been locked.
