@@ -682,7 +682,6 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
         /// ad: Associated Data
         /// npub: public nonce
         /// k: private key
-        /// NOTE: the check of the authentication tag is currently not done in constant time
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
 
