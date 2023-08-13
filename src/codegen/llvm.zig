@@ -1210,6 +1210,18 @@ pub const Object = struct {
         if (emit_asm_path == null and emit_bin_path == null and
             emit_llvm_ir_path == null and emit_llvm_bc_path == null) return;
 
+        if (emit_llvm_bc_path) |path| {
+            if (!self.builder.useLibLlvm()) {
+                var file = try std.fs.cwd().createFileZ(path, .{});
+                defer file.close();
+                const bitcode = try self.builder.toBitcode(arena);
+
+                const ptr: [*]const u8 = @ptrCast(bitcode.ptr);
+                try file.writeAll(ptr[0..(bitcode.len * 4)]);
+                return;
+            }
+        }
+
         if (!self.builder.useLibLlvm()) {
             log.err("emitting without libllvm not implemented", .{});
             return error.FailedToEmit;
