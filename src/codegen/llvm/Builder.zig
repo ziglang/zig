@@ -11799,6 +11799,652 @@ fn constantExtraData(self: *const Builder, comptime T: type, index: Constant.Ite
     return self.constantExtraDataTrail(T, index).data;
 }
 
+pub fn toBitcode(self: *Builder, allocator: Allocator) Bitcode.Error![]const u32 {
+    var bitcode = Bitcode.init(allocator);
+    errdefer bitcode.deinit();
+
+    // Write LLVM IR magic
+    try bitcode.writeBits(IR.MAGIC, 32);
+
+    // IDENTIFICATION_BLOCK
+    {
+        const Identification = IR.Identification;
+        var identification_block = try bitcode.enterTopBlock(Identification);
+
+        try identification_block.writeAbbrev(Identification.Version{ .string = "LLVM16.0.6" });
+        try identification_block.writeAbbrev(Identification.Epoch{ .epoch = 0 });
+
+        try identification_block.end();
+    }
+
+    // MODULE_BLOCK
+    {
+        const Module = IR.Module;
+        var module_block = try bitcode.enterTopBlock(Module);
+
+        try module_block.writeAbbrev(Module.Version{});
+
+        if (self.target_triple.slice(self)) |triple| {
+            try module_block.writeAbbrev(Module.String{
+                .code = 2,
+                .string = triple,
+            });
+        }
+
+        if (self.data_layout.slice(self)) |data_layout| {
+            try module_block.writeAbbrev(Module.String{
+                .code = 3,
+                .string = data_layout,
+            });
+        }
+
+        if (self.source_filename.slice(self)) |source_filename| {
+            try module_block.writeAbbrev(Module.String{
+                .code = 16,
+                .string = source_filename,
+            });
+        }
+
+        if (self.module_asm.items.len != 0) {
+            try module_block.writeAbbrev(Module.String{
+                .code = 4,
+                .string = self.module_asm.items,
+            });
+        }
+
+        // TYPE_BLOCK
+        {
+            var type_block = try module_block.enterSubBlock(IR.Type);
+
+            try type_block.writeAbbrev(IR.Type.NumEntry{ .num = @intCast(self.type_items.items.len) });
+
+            for (self.type_items.items, 0..) |item, i| {
+                const ty: Type = @enumFromInt(i);
+
+                switch (item.tag) {
+                    .simple => try type_block.writeAbbrev(IR.Type.Simple{ .code = @truncate(item.data) }),
+                    .integer => try type_block.writeAbbrev(IR.Type.Integer{ .width = item.data }),
+                    .structure,
+                    .packed_structure,
+                    => |kind| {
+                        const is_packed = switch (kind) {
+                            .structure => false,
+                            .packed_structure => true,
+                            else => unreachable,
+                        };
+                        var extra = self.typeExtraDataTrail(Type.Structure, item.data);
+                        try type_block.writeAbbrev(IR.Type.StructAnon{
+                            .is_packed = is_packed,
+                            .types = extra.trail.next(extra.data.fields_len, Type, self),
+                        });
+                    },
+                    .named_structure => {
+                        const extra = self.typeExtraData(Type.NamedStructure, item.data);
+                        try type_block.writeAbbrev(IR.Type.StructName{
+                            .string = extra.id.slice(self).?,
+                        });
+
+                        const real_struct = self.type_items.items[@intFromEnum(extra.body)];
+                        const is_packed: bool = switch (real_struct.tag) {
+                            .structure => false,
+                            .packed_structure => true,
+                            else => unreachable,
+                        };
+
+                        var real_extra = self.typeExtraDataTrail(Type.Structure, real_struct.data);
+                        try type_block.writeAbbrev(IR.Type.StructNamed{
+                            .is_packed = is_packed,
+                            .types = real_extra.trail.next(real_extra.data.fields_len, Type, self),
+                        });
+                    },
+                    .array,
+                    .small_array,
+                    => try type_block.writeAbbrev(IR.Type.Array{
+                        .len = ty.aggregateLen(self),
+                        .child = ty.childType(self),
+                    }),
+                    .vector,
+                    .scalable_vector,
+                    => try type_block.writeAbbrev(IR.Type.Vector{
+                        .len = ty.aggregateLen(self),
+                        .child = ty.childType(self),
+                    }),
+                    .pointer => try type_block.writeAbbrev(IR.Type.Pointer{
+                        .addr_space = ty.pointerAddrSpace(self),
+                    }),
+                    .target => {
+                        var extra = self.typeExtraDataTrail(Type.Target, item.data);
+                        try type_block.writeAbbrev(IR.Type.StructName{
+                            .string = extra.data.name.slice(self).?,
+                        });
+
+                        const types = extra.trail.next(extra.data.types_len, Type, self);
+                        const ints = extra.trail.next(extra.data.ints_len, u32, self);
+
+                        try type_block.writeAbbrev(IR.Type.Target{
+                            .num_types = extra.data.types_len,
+                            .types = types,
+                            .ints = ints,
+                        });
+                    },
+                    .function, .vararg_function => |kind| {
+                        const is_vararg = switch (kind) {
+                            .function => false,
+                            .vararg_function => true,
+                            else => unreachable,
+                        };
+                        var extra = self.typeExtraDataTrail(Type.Function, item.data);
+                        try type_block.writeAbbrev(IR.Type.Function{
+                            .is_vararg = is_vararg,
+                            .return_type = extra.data.ret,
+                            .param_types = extra.trail.next(extra.data.params_len, Type, self),
+                        });
+                    },
+                }
+            }
+
+            try type_block.end();
+        }
+
+        var func_attributes_set: std.AutoArrayHashMapUnmanaged(FunctionAttributes, void) = .{};
+        defer func_attributes_set.deinit(self.gpa);
+
+        var attributes_set: std.AutoArrayHashMapUnmanaged(struct {
+            attributes: Attributes,
+            index: u32,
+        }, void) = .{};
+        defer attributes_set.deinit(self.gpa);
+
+        // PARAMATTR_GROUP_BLOCK
+        {
+            const ParamattrGroup = IR.ParamattrGroup;
+
+            var paramattr_group_block = try module_block.enterSubBlock(ParamattrGroup);
+
+            var values: std.ArrayListUnmanaged(u64) = .{};
+            defer values.deinit(self.gpa);
+
+            for (self.functions.items) |func| {
+                if (func.global.getReplacement(self) != .none) continue;
+
+                if (func.attributes == .none) continue;
+
+                const func_gop = try func_attributes_set.getOrPut(self.gpa, func.attributes);
+                if (func_gop.found_existing) continue;
+
+                for (func.attributes.slice(self), 0..) |attributes, i| {
+                    const attributes_slice = attributes.slice(self);
+                    if (attributes_slice.len == 0) continue;
+
+                    const attr_gop = try attributes_set.getOrPut(self.gpa, .{
+                        .attributes = attributes,
+                        .index = @intCast(i),
+                    });
+
+                    if (attr_gop.found_existing) continue;
+
+                    try values.append(self.gpa, attr_gop.index);
+                    try values.append(self.gpa, switch (i) {
+                        0 => 0xffffffff,
+                        else => i - 1,
+                    });
+
+                    for (attributes_slice) |attr_index| {
+                        const kind = attr_index.getKind(self);
+                        switch (attr_index.toAttribute(self)) {
+                            .zeroext,
+                            .signext,
+                            .inreg,
+                            .@"noalias",
+                            .nocapture,
+                            .nofree,
+                            .nest,
+                            .returned,
+                            .nonnull,
+                            .swiftself,
+                            .swiftasync,
+                            .swifterror,
+                            .immarg,
+                            .noundef,
+                            .allocalign,
+                            .allocptr,
+                            .readnone,
+                            .readonly,
+                            .writeonly,
+                            .alwaysinline,
+                            .builtin,
+                            .cold,
+                            .convergent,
+                            .disable_sanitizer_information,
+                            .fn_ret_thunk_extern,
+                            .hot,
+                            .inlinehint,
+                            .jumptable,
+                            .minsize,
+                            .naked,
+                            .nobuiltin,
+                            .nocallback,
+                            .noduplicate,
+                            .noimplicitfloat,
+                            .@"noinline",
+                            .nomerge,
+                            .nonlazybind,
+                            .noprofile,
+                            .skipprofile,
+                            .noredzone,
+                            .noreturn,
+                            .norecurse,
+                            .willreturn,
+                            .nosync,
+                            .nounwind,
+                            .nosanitize_bounds,
+                            .nosanitize_coverage,
+                            .null_pointer_is_valid,
+                            .optforfuzzing,
+                            .optnone,
+                            .optsize,
+                            .returns_twice,
+                            .safestack,
+                            .sanitize_address,
+                            .sanitize_memory,
+                            .sanitize_thread,
+                            .sanitize_hwaddress,
+                            .sanitize_memtag,
+                            .speculative_load_hardening,
+                            .speculatable,
+                            .ssp,
+                            .sspstrong,
+                            .sspreq,
+                            .strictfp,
+                            .nocf_check,
+                            .shadowcallstack,
+                            .mustprogress,
+                            .no_sanitize_address,
+                            .no_sanitize_hwaddress,
+                            .sanitize_address_dyninit,
+                            => {
+                                try values.append(self.gpa, 0);
+                                try values.append(self.gpa, @intFromEnum(kind));
+                            },
+                            .byval,
+                            .byref,
+                            .preallocated,
+                            .inalloca,
+                            .sret,
+                            .elementtype,
+                            => |ty| {
+                                try values.append(self.gpa, 6);
+                                try values.append(self.gpa, @intFromEnum(kind));
+                                try values.append(self.gpa, @intFromEnum(ty));
+                            },
+                            .@"align",
+                            .alignstack,
+                            => |alignment| {
+                                try values.append(self.gpa, 1);
+                                try values.append(self.gpa, @intFromEnum(kind));
+                                try values.append(self.gpa, alignment.toLlvm());
+                            },
+                            .dereferenceable,
+                            .dereferenceable_or_null,
+                            => |size| {
+                                try values.append(self.gpa, 1);
+                                try values.append(self.gpa, @intFromEnum(kind));
+                                try values.append(self.gpa, size);
+                            },
+                            .nofpclass => |fpclass| {
+                                try values.append(self.gpa, 1);
+                                try values.append(self.gpa, @intFromEnum(kind));
+                                try values.append(self.gpa, @as(u32, @bitCast(fpclass)));
+                            },
+                            .allockind => |allockind| {
+                                try values.append(self.gpa, 1);
+                                try values.append(self.gpa, @intFromEnum(kind));
+                                try values.append(self.gpa, @as(u32, @bitCast(allockind)));
+                            },
+
+                            .allocsize => |allocsize| {
+                                try values.append(self.gpa, 1);
+                                try values.append(self.gpa, @intFromEnum(kind));
+                                try values.append(self.gpa, @bitCast(allocsize.toLlvm()));
+                            },
+                            .memory => |memory| {
+                                try values.append(self.gpa, 1);
+                                try values.append(self.gpa, @intFromEnum(kind));
+                                try values.append(self.gpa, @as(u32, @bitCast(memory)));
+                            },
+                            .uwtable => |uwtable| if (uwtable != .none) {
+                                try values.append(self.gpa, 1);
+                                try values.append(self.gpa, @intFromEnum(kind));
+                                try values.append(self.gpa, @intFromEnum(uwtable));
+                            },
+                            .vscale_range => |vscale_range| {
+                                try values.append(self.gpa, 1);
+                                try values.append(self.gpa, @intFromEnum(kind));
+                                try values.append(self.gpa, @bitCast(vscale_range.toLlvm()));
+                            },
+                            .string => |string_attr| {
+                                try values.append(self.gpa, if (string_attr.value == .none) 3 else 4);
+                                for (string_attr.kind.slice(self).?) |c| {
+                                    try values.append(self.gpa, c);
+                                }
+                                try values.append(self.gpa, 0);
+                                if (string_attr.value != .none) {
+                                    for (string_attr.value.slice(self).?) |c| {
+                                        try values.append(self.gpa, c);
+                                    }
+                                    try values.append(self.gpa, 0);
+                                }
+                            },
+                            .none => unreachable,
+                        }
+                    }
+
+                    try paramattr_group_block.writeUnabbrev(3, values.items);
+                    values.clearRetainingCapacity();
+                }
+            }
+
+            try paramattr_group_block.end();
+        }
+
+        // PARAMATTR_BLOCK
+        {
+            const Paramattr = IR.Paramattr;
+            var paramattr_block = try module_block.enterSubBlock(Paramattr);
+
+            var groups: std.ArrayListUnmanaged(u32) = .{};
+            defer groups.deinit(self.gpa);
+
+            for (func_attributes_set.keys()) |func_attributes| {
+                for (func_attributes.slice(self), 0..) |attributes, i| {
+                    const attributes_slice = attributes.slice(self);
+                    if (attributes_slice.len == 0) continue;
+
+                    const group_index = attributes_set.getIndex(.{
+                        .attributes = attributes,
+                        .index = @intCast(i),
+                    }) orelse unreachable;
+                    try groups.append(self.gpa, @intCast(group_index));
+                }
+
+                try paramattr_block.writeAbbrev(Paramattr.Entry{ .group_indices = groups.items });
+                groups.clearRetainingCapacity();
+            }
+
+            try paramattr_block.end();
+        }
+
+        var globals_set: std.AutoArrayHashMapUnmanaged(Global.Index, void) = .{};
+        defer globals_set.deinit(self.gpa);
+        try globals_set.ensureUnusedCapacity(
+            self.gpa,
+            self.variables.items.len + self.functions.items.len + self.aliases.items.len,
+        );
+
+        for (self.variables.items) |variable| {
+            if (variable.global.getReplacement(self) != .none) continue;
+
+            _ = globals_set.getOrPutAssumeCapacity(variable.global);
+        }
+
+        for (self.functions.items) |function| {
+            if (function.global.getReplacement(self) != .none) continue;
+
+            _ = globals_set.getOrPutAssumeCapacity(function.global);
+        }
+
+        for (self.aliases.items) |alias| {
+            if (alias.global.getReplacement(self) != .none) continue;
+
+            _ = globals_set.getOrPutAssumeCapacity(alias.global);
+        }
+
+        // Globals
+        {
+            var section_map: std.AutoArrayHashMapUnmanaged(String, void) = .{};
+            defer section_map.deinit(self.gpa);
+            try section_map.ensureUnusedCapacity(self.gpa, globals_set.count());
+
+            var global_var_index: usize = 0;
+            for (self.variables.items) |variable| {
+                if (variable.global.getReplacement(self) != .none) continue;
+
+                const section = blk: {
+                    if (variable.section == .none) break :blk 0;
+                    const gop = section_map.getOrPutAssumeCapacity(variable.section);
+                    if (!gop.found_existing) {
+                        try module_block.writeAbbrev(Module.String{
+                            .code = 5,
+                            .string = variable.section.slice(self) orelse unreachable,
+                        });
+                    }
+                    break :blk gop.index + 1;
+                };
+
+                const initid = if (variable.init == .no_init) 0 else switch (variable.init.unwrap()) {
+                    .constant => |constant| constant + globals_set.count(),
+                    .global => |global| (globals_set.getIndex(global) orelse unreachable) + 1,
+                };
+
+                const strtab = variable.global.strtab(self);
+
+                const global = variable.global.ptrConst(self);
+                try module_block.writeAbbrev(Module.Variable{
+                    .strtab_offset = strtab.offset,
+                    .strtab_size = strtab.size,
+                    .type_index = global.type,
+                    .is_const = .{
+                        .is_const = switch (variable.mutability) {
+                            .global => false,
+                            .constant => true,
+                        },
+                        .addr_space = global.addr_space,
+                    },
+                    .initid = @intCast(initid),
+                    .linkage = global.linkage,
+                    .alignment = variable.alignment.toLlvm(),
+                    .section = section,
+                    .visibility = global.visibility,
+                    .thread_local = variable.thread_local,
+                    .unnamed_addr = global.unnamed_addr,
+                    .externally_initialized = global.externally_initialized,
+                    .dllstorageclass = global.dll_storage_class,
+                    .preemption = global.preemption,
+                });
+
+                global_var_index += 1;
+            }
+
+            for (self.functions.items) |func| {
+                if (func.global.getReplacement(self) != .none) continue;
+
+                const section = blk: {
+                    if (func.section == .none) break :blk 0;
+                    const gop = section_map.getOrPutAssumeCapacity(func.section);
+                    if (!gop.found_existing) {
+                        try module_block.writeAbbrev(Module.String{
+                            .code = 5,
+                            .string = func.section.slice(self) orelse unreachable,
+                        });
+                    }
+                    break :blk gop.index + 1;
+                };
+
+                const paramattr_index = if (func_attributes_set.getIndex(func.attributes)) |index| index + 1 else 0;
+
+                const strtab = func.global.strtab(self);
+
+                const global = func.global.ptrConst(self);
+                try module_block.writeAbbrev(Module.Function{
+                    .strtab_offset = strtab.offset,
+                    .strtab_size = strtab.size,
+                    .type_index = global.type,
+                    .call_conv = func.call_conv,
+                    .is_proto = true, // TODO: func.instructions.len == 0,
+                    .linkage = global.linkage,
+                    .paramattr = paramattr_index,
+                    .alignment = func.alignment.toLlvm(),
+                    .section = section,
+                    .visibility = global.visibility,
+                    .unnamed_addr = global.unnamed_addr,
+                    .dllstorageclass = global.dll_storage_class,
+                    .preemption = global.preemption,
+                    .addr_space = global.addr_space,
+                });
+            }
+
+            for (self.aliases.items) |alias| {
+                if (alias.global.getReplacement(self) != .none) continue;
+
+                const strtab = alias.global.strtab(self);
+
+                const global = alias.global.ptrConst(self);
+                try module_block.writeAbbrev(Module.Alias{
+                    .strtab_offset = strtab.offset,
+                    .strtab_size = strtab.size,
+                    .type_index = global.type,
+                    .addr_space = global.addr_space,
+                    .aliasee = 0, // TODO
+                    .linkage = global.linkage,
+                    .visibility = global.visibility,
+                    .thread_local = alias.thread_local,
+                    .unnamed_addr = global.unnamed_addr,
+                    .dllstorageclass = global.dll_storage_class,
+                    .preemption = global.preemption,
+                });
+            }
+        }
+
+        // CONSTANTS_BLOCK
+        {
+            const Constants = IR.Constants;
+            var constants_block = try module_block.enterSubBlock(Constants);
+
+            var current_type: Type = .none;
+            const tags = self.constant_items.items(.tag);
+            const datas = self.constant_items.items(.data);
+            for (1..self.constant_items.len) |index| {
+                const constant: Constant = @enumFromInt(index);
+                const constant_type = constant.typeOf(self);
+                if (constant_type != current_type) {
+                    try constants_block.writeAbbrev(Constants.SetType{ .type_id = constant_type });
+                    current_type = constant_type;
+                }
+                const data = datas[index];
+                switch (tags[index]) {
+                    .null,
+                    .zeroinitializer,
+                    => try constants_block.writeAbbrev(Constants.Null{}),
+                    .undef => try constants_block.writeAbbrev(Constants.Undef{}),
+                    .poison => try constants_block.writeAbbrev(Constants.Poison{}),
+                    .positive_integer,
+                    .negative_integer,
+                    => |tag| {
+                        const extra: *align(@alignOf(std.math.big.Limb)) Constant.Integer =
+                            @ptrCast(self.constant_limbs.items[data..][0..Constant.Integer.limbs]);
+                        const limbs = self.constant_limbs
+                            .items[data + Constant.Integer.limbs ..][0..extra.limbs_len];
+                        const bigint = std.math.big.int.Const{
+                            .limbs = limbs,
+                            .positive = tag == .positive_integer,
+                        };
+                        const buffer = try self.gpa.alloc(usize, extra.limbs_len);
+                        defer self.gpa.free(buffer);
+                        @memset(buffer, 0);
+
+                        bigint.writePackedTwosComplement(
+                            @as([*]u8, @ptrCast(buffer))[0..(buffer.len * @sizeOf(usize))],
+                            0,
+                            @bitSizeOf(usize),
+                            .Little,
+                        );
+
+                        if (limbs.len == 1) {
+                            var limb = limbs[0];
+                            limb <<= 1;
+                            limb |= if (tag == .positive_integer) 0 else 1;
+                            try constants_block.writeAbbrev(Constants.Integer{ .value = limb });
+                        } else {
+                            unreachable;
+                        }
+                    },
+                    .half,
+                    .bfloat,
+                    => try constants_block.writeAbbrev(Constants.Half{ .value = @truncate(data) }),
+                    .float => try constants_block.writeAbbrev(Constants.Float{ .value = data }),
+                    .double => {
+                        const extra = self.constantExtraData(Constant.Double, data);
+                        try constants_block.writeAbbrev(Constants.Double{ .value = (@as(u64, extra.hi) << 32) | extra.lo });
+                    },
+                    .array,
+                    .vector,
+                    .structure,
+                    .packed_structure,
+                    => {
+                        var extra = self.constantExtraDataTrail(Constant.Aggregate, data);
+                        const len: u32 = @intCast(extra.data.type.aggregateLen(self));
+                        const values = extra.trail.next(len, Constant, self);
+
+                        const Adapter = struct {
+                            set: *const std.AutoArrayHashMapUnmanaged(Global.Index, void),
+                            current_index: u32,
+
+                            pub fn get(adapter: @This(), param: Constant, comptime field_name: []const u8) Constant {
+                                comptime std.debug.assert(std.mem.eql(u8, field_name, "values"));
+                                return switch (param.unwrap()) {
+                                    .constant => |c| @enumFromInt(if (c > adapter.current_index) 0 else (c + adapter.set.count() - 1)),
+                                    .global => |global| @enumFromInt(adapter.set.getIndex(global) orelse unreachable),
+                                };
+                            }
+                        };
+
+                        try constants_block.writeAbbrevAdapted(
+                            Constants.Aggregate{ .values = values },
+                            Adapter{
+                                .set = &globals_set,
+                                .current_index = @intCast(index),
+                            },
+                        );
+                    },
+                    .string,
+                    .string_null,
+                    => {
+                        const str: String = @enumFromInt(data);
+                        if (str == .none) {
+                            try constants_block.writeAbbrev(Constants.Null{});
+                        } else {
+                            const slice = str.slice(self) orelse unreachable;
+                            switch (tags[index]) {
+                                .string => try constants_block.writeAbbrev(Constants.String{ .string = slice }),
+                                .string_null => try constants_block.writeAbbrev(Constants.CString{ .string = slice }),
+                                else => unreachable,
+                            }
+                        }
+                    },
+                    .none => unreachable,
+                    else => try constants_block.writeAbbrev(Constants.Undef{}),
+                }
+            }
+
+            try constants_block.end();
+        }
+
+        try module_block.end();
+    }
+
+    // STRTAB_BLOCK
+    {
+        const Strtab = IR.Strtab;
+        var strtab_block = try bitcode.enterTopBlock(Strtab);
+
+        try strtab_block.writeAbbrev(Strtab.Blob{ .blob = self.string_bytes.items });
+
+        try strtab_block.end();
+    }
+
+    return bitcode.toSlice();
+}
+
 const assert = std.debug.assert;
 const build_options = @import("build_options");
 const builtin = @import("builtin");
@@ -11808,6 +12454,9 @@ else
     @compileError("LLVM unavailable");
 const log = std.log.scoped(.llvm);
 const std = @import("std");
+
+const Bitcode = @import("Bitcode.zig");
+const IR = @import("IR.zig");
 
 const Allocator = std.mem.Allocator;
 const Builder = @This();
