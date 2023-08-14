@@ -112,11 +112,11 @@ pub fn log10(x_: f64) callconv(.C) f64 {
     if (hx < 0x00100000 or hx >> 31 != 0) {
         // log(+-0) = -inf
         if (ix << 1 == 0) {
-            return -math.inf(f32);
+            return -math.inf(f64);
         }
         // log(-#) = nan
         if (hx >> 31 != 0) {
-            return math.nan(f32);
+            return math.nan(f64);
         }
 
         // subnormal, scale x

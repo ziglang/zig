@@ -97,6 +97,24 @@ pub inline fn inf(comptime T: type) T {
     return reconstructFloat(T, floatExponentMax(T) + 1, mantissaOne(T));
 }
 
+/// Returns the canonical quiet NaN representation for floating point type T.
+pub inline fn nan(comptime T: type) T {
+    return reconstructFloat(
+        T,
+        floatExponentMax(T) + 1,
+        mantissaOne(T) | 1 << (floatFractionalBits(T) - 1),
+    );
+}
+
+/// Returns a signalling NaN representation for floating point type T.
+pub inline fn snan(comptime T: type) T {
+    return reconstructFloat(
+        T,
+        floatExponentMax(T) + 1,
+        mantissaOne(T) | 1 << (floatFractionalBits(T) - 2),
+    );
+}
+
 test "float bits" {
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         // (1 +) for the sign bit, since it is separate from the other bits
