@@ -7176,3 +7176,33 @@ fn unwrapCoercedFunc(ip: *const InternPool, i: Index) Index {
         else => unreachable,
     };
 }
+
+/// Having resolved a builtin type to a real struct/union/enum (which is now at `resolverd_index`),
+/// make `want_index` refer to this type instead. This invalidates `resolved_index`, so must be
+/// called only when it is guaranteed that no reference to `resolved_index` exists.
+pub fn resolveBuiltinType(ip: *InternPool, want_index: Index, resolved_index: Index) void {
+    assert(@intFromEnum(want_index) >= @intFromEnum(Index.first_type));
+    assert(@intFromEnum(want_index) <= @intFromEnum(Index.last_type));
+
+    // Make sure the type isn't already resolved!
+    assert(ip.indexToKey(want_index) == .simple_type);
+
+    // Make sure it's the same kind of type
+    assert((ip.zigTypeTagOrPoison(want_index) catch unreachable) ==
+        (ip.zigTypeTagOrPoison(resolved_index) catch unreachable));
+
+    // Copy the data
+    const item = ip.items.get(@intFromEnum(resolved_index));
+    ip.items.set(@intFromEnum(want_index), item);
+
+    if (std.debug.runtime_safety) {
+        // Make the value unreachable - this is a weird value which will make (incorrect) existing
+        // references easier to spot
+        ip.items.set(@intFromEnum(resolved_index), .{
+            .tag = .simple_value,
+            .data = @intFromEnum(SimpleValue.@"unreachable"),
+        });
+    } else {
+        // TODO: add the index to a free-list for reuse
+    }
+}
