@@ -58,7 +58,7 @@ fn AesGcm(comptime Aes: anytype) type {
         /// `m`: Message
         /// `c`: Ciphertext
         /// `tag`: Authentication tag
-        /// `ad`: Associated Data
+        /// `ad`: Associated data
         /// `npub`: Public nonce
         /// `k`: Private key
         /// Asserts `c.len == m.len`.

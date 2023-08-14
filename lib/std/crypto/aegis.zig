@@ -173,7 +173,7 @@ fn Aegis128LGeneric(comptime tag_bits: u9) type {
         /// `m`: Message
         /// `c`: Ciphertext
         /// `tag`: Authentication tag
-        /// `ad`: Associated Data
+        /// `ad`: Associated data
         /// `npub`: Public nonce
         /// `k`: Private key
         /// Asserts `c.len == m.len`.
@@ -356,7 +356,7 @@ fn Aegis256Generic(comptime tag_bits: u9) type {
         /// `m`: Message
         /// `c`: Ciphertext
         /// `tag`: Authentication tag
-        /// `ad`: Associated Data
+        /// `ad`: Associated data
         /// `npub`: Public nonce
         /// `k`: Private key
         /// Asserts `c.len == m.len`.
