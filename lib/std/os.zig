@@ -747,7 +747,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .SUCCESS => return @as(usize, @intCast(rc)),
             .INTR => continue,
             .INVAL => unreachable,
-            .FAULT => error.BadAddress,
+            .FAULT => return error.BadAddress,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
             .IO => return error.InputOutput,
