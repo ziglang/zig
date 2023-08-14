@@ -1829,11 +1829,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     for (self.framework_dirs.items) |directory_source| {
-        const path = directory_source.getPath(b);
-        try zig_args.append("-iframework");
-        try zig_args.append(path);
         try zig_args.append("-F");
-        try zig_args.append(path);
+        try zig_args.append(directory_source.getPath2(b, step));
     }
 
     {
