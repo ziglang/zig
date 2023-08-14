@@ -96,22 +96,15 @@ pub fn SinglyLinkedList(comptime T: type) type {
         /// Returns:
         ///     true if removal was successful, false otherwise.
         pub fn remove(list: *Self, node: *Node) bool {
-            if (list.first == null) {
-                return false;
-            }
             if (list.first == node) {
                 list.first = node.next;
             } else {
-                var current_elm = list.first.?;
-                while ((current_elm.next != null) and (current_elm.next != node)) {
-                    current_elm = current_elm.next.?;
-                }
-                if (current_elm.next == null) {
-                    return false;
+                var current_elm = list.first orelse return false;
+                while (current_elm.next != node) {
+                    current_elm = current_elm.next orelse return false;
                 }
                 current_elm.next = node.next;
             }
-
             return true;
         }
 
@@ -346,10 +339,9 @@ pub fn TailQueue(comptime T: type) type {
                 var iter: usize = 0;
                 var current_front_elm = list.first.?;
                 var current_back_elm = list.last.?;
-                while ((iter < (list.len >> 1)) and (current_front_elm != node) and (current_back_elm != node)) {
+                while ((iter < (list.len >> 1)) and (current_front_elm != node) and (current_back_elm != node)) : (iter += 1) {
                     current_front_elm = current_front_elm.next.?;
                     current_back_elm = current_back_elm.prev.?;
-                    iter += 1;
                 }
                 if (current_front_elm == node) {
                     current_front_elm.prev.?.next = node.next;
