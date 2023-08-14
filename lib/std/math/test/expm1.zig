@@ -47,7 +47,7 @@ test "math.expm1_32() sanity" {
 }
 
 test "math.expm1_32() special" {
-    const cases = comptime test_utils.genTests(Tc32, special_tests) ++ test_utils.nanTests(Tc32);
+    const cases = comptime test_utils.genTests(Tc32, special_tests) ++ test_utils.qnanTests(Tc32);
     try runTests(cases);
 }
 
@@ -90,7 +90,7 @@ test "math.expm1_64() sanity" {
 }
 
 test "math.expm1_64() special" {
-    const cases = comptime test_utils.genTests(Tc64, special_tests) ++ test_utils.nanTests(Tc64);
+    const cases = comptime test_utils.genTests(Tc64, special_tests) ++ test_utils.qnanTests(Tc64);
     try runTests(cases);
 }
 

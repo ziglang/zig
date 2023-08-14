@@ -2,7 +2,6 @@ const std = @import("../std.zig");
 const print = std.debug.print;
 const meta = std.meta;
 const math = std.math;
-const nan = math.nan;
 
 // Change to '.info' to enable verbose output.
 pub const log_level: std.log.Level = .warn;
@@ -145,23 +144,24 @@ pub fn genTests(comptime T: type, comptime testcases: anytype) []const T {
     return out_tests;
 }
 
-/// A comptime slice of NaN testcases, applicable to all functions.
+/// A comptime slice of qNaN testcases, applicable to all functions.
 ///
 /// The input type should be an instance of 'Testcase'.
-pub fn nanTests(comptime T: type) []const T {
-    // NaNs should always be unchanged when passed through.
+pub fn qnanTests(comptime T: type) []const T {
+    // Quiet NaNs should always be unchanged when passed through.
+    // These are all quiet NaNs (with the uppermost bit of the mantissa set).
+    // Zig does not yet properly support signalling NaNs (see std.math.isSignalNan()).
+    // Negative NaNs are somewhat meaningless, so not tested.
     switch (T.bits) {
         32 => return &.{
-            T.init(nan(T.F), nan(T.F)),
-            T.init(-nan(T.F), -nan(T.F)),
-            T.init(floatFromBits(T.F, 0x7ff01234), floatFromBits(T.F, 0x7ff01234)),
-            T.init(floatFromBits(T.F, 0xfff01234), floatFromBits(T.F, 0xfff01234)),
+            T.init(math.nan(T.F), math.nan(T.F)),
+            T.init(floatFromBits(T.F, 0x7fc01234), floatFromBits(T.F, 0x7fc01234)),
+            T.init(floatFromBits(T.F, 0x7fff0000), floatFromBits(T.F, 0x7fff0000)),
         },
         64 => return &.{
-            T.init(nan(T.F), nan(T.F)),
-            T.init(-nan(T.F), -nan(T.F)),
-            T.init(floatFromBits(T.F, 0x7ff0123400000000), floatFromBits(T.F, 0x7ff0123400000000)),
-            T.init(floatFromBits(T.F, 0xfff0123400000000), floatFromBits(T.F, 0xfff0123400000000)),
+            T.init(math.nan(T.F), math.nan(T.F)),
+            T.init(floatFromBits(T.F, 0x7ff8000000001234), floatFromBits(T.F, 0x7ff8000000001234)),
+            T.init(floatFromBits(T.F, 0x7ffff00000000000), floatFromBits(T.F, 0x7ffff00000000000)),
         },
         else => @compileError("Not yet implemented for " ++ @typeName(T.F)),
     }

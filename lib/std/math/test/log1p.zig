@@ -4,8 +4,8 @@ const Testcase = test_utils.Testcase;
 const runTests = test_utils.runTests;
 const floatFromBits = test_utils.floatFromBits;
 const negInf = test_utils.negInf;
-const nan32 = math.nan_f32;
-const nan64 = math.nan_f64;
+const nan32 = math.nan(f32);
+const nan64 = math.nan(f64);
 
 const Tc32 = Testcase(math.log1p, "log1p", f32);
 const tc32 = Tc32.init;
@@ -50,7 +50,7 @@ test "math.log1p_32() sanity" {
 }
 
 test "math.log1p_32() special" {
-    const cases = comptime test_utils.genTests(Tc32, special_tests) ++ test_utils.nanTests(Tc32);
+    const cases = comptime test_utils.genTests(Tc32, special_tests) ++ test_utils.qnanTests(Tc32);
     try runTests(cases);
 }
 
@@ -88,7 +88,7 @@ test "math.log1p_64() sanity" {
 }
 
 test "math.log1p_64() special" {
-    const cases = comptime test_utils.genTests(Tc64, special_tests) ++ test_utils.nanTests(Tc64);
+    const cases = comptime test_utils.genTests(Tc64, special_tests) ++ test_utils.qnanTests(Tc64);
     try runTests(cases);
 }
 
