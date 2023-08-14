@@ -92,13 +92,19 @@ pub fn SinglyLinkedList(comptime T: type) type {
         ///
         /// Arguments:
         ///     node: Pointer to the node to be removed.
-        pub fn remove(list: *Self, node: *Node) void {
+        pub fn remove(list: *Self, node: *Node) !void {
+            if (list.first == null) {
+                return error.EmptyList;
+            }
             if (list.first == node) {
                 list.first = node.next;
             } else {
                 var current_elm = list.first.?;
-                while (current_elm.next != node) {
+                while ((current_elm.next != null) and (current_elm.next != node)) {
                     current_elm = current_elm.next.?;
+                }
+                if (current_elm.next == null) {
+                    return error.TargetNodeNotInList;
                 }
                 current_elm.next = node.next;
             }
@@ -157,7 +163,7 @@ test "basic SinglyLinkedList test" {
     }
 
     _ = list.popFirst(); // {2, 3, 4, 5}
-    _ = list.remove(&five); // {2, 3, 4}
+    _ = try list.remove(&five); // {2, 3, 4}
     _ = two.removeNext(); // {2, 4}
 
     try testing.expect(list.first.?.data == 2);
@@ -169,6 +175,29 @@ test "basic SinglyLinkedList test" {
     try testing.expect(list.first.?.data == 4);
     try testing.expect(list.first.?.next.?.data == 2);
     try testing.expect(list.first.?.next.?.next == null);
+}
+
+test "attempt to remove non-existent node from SinglyLinkedList" {
+    const L = SinglyLinkedList(u32);
+    var list = L{};
+
+    var one = L.Node{ .data = 1 };
+    list.prepend(&one);
+
+    try std.testing.expectEqual(@as(usize, 1), list.len());
+
+    var non_existent_node = L.Node{ .data = 1 };
+    try testing.expectError(error.TargetNodeNotInList, list.remove(&non_existent_node));
+
+    try std.testing.expectEqual(@as(usize, 1), list.len());
+}
+
+test "attempt to remove from an empty SinglyLinkedList" {
+    const L = SinglyLinkedList(u32);
+    var list = L{};
+
+    var non_existent_node = L.Node{ .data = 1 };
+    try testing.expectError(error.EmptyList, list.remove(&non_existent_node));
 }
 
 /// A tail queue is headed by a pair of pointers, one to the head of the
