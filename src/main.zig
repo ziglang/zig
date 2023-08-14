@@ -1156,12 +1156,16 @@ fn buildOutputType(
                         try clang_argv.append(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-I")) {
                         try cssan.addIncludePath(.I, arg, args_iter.nextOrFatal(), false);
-                    } else if (mem.eql(u8, arg, "-isystem") or mem.eql(u8, arg, "-iwithsysroot")) {
+                    } else if (mem.eql(u8, arg, "-isystem")) {
                         try cssan.addIncludePath(.isystem, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.eql(u8, arg, "-iwithsysroot")) {
+                        try cssan.addIncludePath(.iwithsysroot, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-idirafter")) {
                         try cssan.addIncludePath(.idirafter, arg, args_iter.nextOrFatal(), false);
-                    } else if (mem.eql(u8, arg, "-iframework") or mem.eql(u8, arg, "-iframeworkwithsysroot")) {
+                    } else if (mem.eql(u8, arg, "-iframework")) {
                         try cssan.addIncludePath(.iframework, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.eql(u8, arg, "-iframeworkwithsysroot")) {
+                        try cssan.addIncludePath(.iframeworkwithsysroot, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "--version")) {
                         const next_arg = args_iter.nextOrFatal();
                         version = std.SemanticVersion.parse(next_arg) catch |err| {
@@ -6191,6 +6195,11 @@ const ClangSearchSanitizer = struct {
                 if (m.idirafter) std.log.warn(wtxt, .{ dir, "isystem", "idirafter" });
                 if (m.iframework) std.log.warn(wtxt, .{ dir, "isystem", "iframework" });
             },
+            .iwithsysroot => {
+                if (m.iwithsysroot) return;
+                m.iwithsysroot = true;
+                if (m.iframeworkwithsysroot) std.log.warn(wtxt, .{ dir, "iwithsysroot", "iframeworkwithsysroot" });
+            },
             .idirafter => {
                 if (m.idirafter) return;
                 m.idirafter = true;
@@ -6205,18 +6214,25 @@ const ClangSearchSanitizer = struct {
                 if (m.isystem) std.log.warn(wtxt, .{ dir, "iframework", "isystem" });
                 if (m.idirafter) std.log.warn(wtxt, .{ dir, "iframework", "idirafter" });
             },
+            .iframeworkwithsysroot => {
+                if (m.iframeworkwithsysroot) return;
+                m.iframeworkwithsysroot = true;
+                if (m.iwithsysroot) std.log.warn(wtxt, .{ dir, "iframeworkwithsysroot", "iwithsysroot" });
+            },
         }
         try self.argv.append(arg);
         if (!joined) try self.argv.append(dir);
     }
 
-    const Group = enum { I, isystem, idirafter, iframework };
+    const Group = enum { I, isystem, iwithsysroot, idirafter, iframework, iframeworkwithsysroot };
 
     const Membership = packed struct {
         I: bool = false,
         isystem: bool = false,
+        iwithsysroot: bool = false,
         idirafter: bool = false,
         iframework: bool = false,
+        iframeworkwithsysroot: bool = false,
     };
 };
 
