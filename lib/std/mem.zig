@@ -976,7 +976,7 @@ pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sen
     // protection. It is therefore correct and entirely equivalent to
     // indexOfSentinelNaive to read past the sentinel.
 
-    const v_len = comptime simd.suggestVectorSize(Elem) orelse return indexOfSentinelNaive(Elem, sentinel, ptr);
+    const v_len = (comptime simd.suggestVectorSize(Elem)) orelse return indexOfSentinelNaive(Elem, sentinel, ptr);
 
     {
         // FIXME: Allow the native x86_64 backend once it supports vectors.
