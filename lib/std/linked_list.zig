@@ -92,9 +92,11 @@ pub fn SinglyLinkedList(comptime T: type) type {
         ///
         /// Arguments:
         ///     node: Pointer to the node to be removed.
-        pub fn remove(list: *Self, node: *Node) !void {
+        /// Returns:
+        ///     true if removal was successful, false otherwise.
+        pub fn remove(list: *Self, node: *Node) bool {
             if (list.first == null) {
-                return error.EmptyList;
+                return false;
             }
             if (list.first == node) {
                 list.first = node.next;
@@ -104,10 +106,12 @@ pub fn SinglyLinkedList(comptime T: type) type {
                     current_elm = current_elm.next.?;
                 }
                 if (current_elm.next == null) {
-                    return error.TargetNodeNotInList;
+                    return false;
                 }
                 current_elm.next = node.next;
             }
+
+            return true;
         }
 
         /// Remove and return the first node in the list.
@@ -163,7 +167,7 @@ test "basic SinglyLinkedList test" {
     }
 
     _ = list.popFirst(); // {2, 3, 4, 5}
-    _ = try list.remove(&five); // {2, 3, 4}
+    _ = list.remove(&five); // {2, 3, 4}
     _ = two.removeNext(); // {2, 4}
 
     try testing.expect(list.first.?.data == 2);
@@ -187,7 +191,7 @@ test "attempt to remove non-existent node from SinglyLinkedList" {
     try std.testing.expectEqual(@as(usize, 1), list.len());
 
     var non_existent_node = L.Node{ .data = 1 };
-    try testing.expectError(error.TargetNodeNotInList, list.remove(&non_existent_node));
+    try testing.expect(list.remove(&non_existent_node) == false);
 
     try std.testing.expectEqual(@as(usize, 1), list.len());
 }
@@ -197,7 +201,7 @@ test "attempt to remove from an empty SinglyLinkedList" {
     var list = L{};
 
     var non_existent_node = L.Node{ .data = 1 };
-    try testing.expectError(error.EmptyList, list.remove(&non_existent_node));
+    try testing.expect(list.remove(&non_existent_node) == false);
 }
 
 /// A tail queue is headed by a pair of pointers, one to the head of the
