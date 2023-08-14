@@ -44,8 +44,8 @@ test "@max on vectors" {
             var y = @max(c, d);
             try expect(mem.eql(f32, &@as([4]f32, y), &[4]f32{ 0, 0.42, -0.64, 7.8 }));
 
-            var e: @Vector(2, f32) = [2]f32{ 0, std.math.qnan_f32 };
-            var f: @Vector(2, f32) = [2]f32{ std.math.qnan_f32, 0 };
+            var e: @Vector(2, f32) = [2]f32{ 0, std.math.nan(f32) };
+            var f: @Vector(2, f32) = [2]f32{ std.math.nan(f32), 0 };
             var z = @max(e, f);
             try expect(mem.eql(f32, &@as([2]f32, z), &[2]f32{ 0, 0 }));
         }
@@ -93,8 +93,8 @@ test "@min for vectors" {
             var y = @min(c, d);
             try expect(mem.eql(f32, &@as([4]f32, y), &[4]f32{ -0.23, 0.4, -2.4, 0.9 }));
 
-            var e: @Vector(2, f32) = [2]f32{ 0, std.math.qnan_f32 };
-            var f: @Vector(2, f32) = [2]f32{ std.math.qnan_f32, 0 };
+            var e: @Vector(2, f32) = [2]f32{ 0, std.math.nan(f32) };
+            var f: @Vector(2, f32) = [2]f32{ std.math.nan(f32), 0 };
             var z = @max(e, f);
             try expect(mem.eql(f32, &@as([2]f32, z), &[2]f32{ 0, 0 }));
         }

@@ -20,6 +20,7 @@ test "math.isNan" {
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         try expect(isNan(math.nan(T)));
         try expect(isNan(-math.nan(T)));
+        try expect(isNan(math.snan(T)));
         try expect(!isNan(@as(T, 1.0)));
         try expect(!isNan(@as(T, math.inf(T))));
     }
@@ -27,6 +28,7 @@ test "math.isNan" {
 
 test "math.isSignalNan" {
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
+        try expect(isSignalNan(math.snan(T)));
         try expect(!isSignalNan(math.nan(T)));
         try expect(!isSignalNan(@as(T, 1.0)));
         try expect(!isSignalNan(math.inf(T)));

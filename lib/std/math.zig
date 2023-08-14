@@ -48,6 +48,7 @@ pub const floatMax = @import("math/float.zig").floatMax;
 pub const floatEps = @import("math/float.zig").floatEps;
 pub const inf = @import("math/float.zig").inf;
 pub const nan = @import("math/float.zig").nan;
+pub const snan = @import("math/float.zig").snan;
 
 pub const f16_true_min = @compileError("Deprecated: use `floatTrueMin(f16)` instead");
 pub const f32_true_min = @compileError("Deprecated: use `floatTrueMin(f32)` instead");
@@ -105,7 +106,6 @@ pub const qnan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
 pub const qnan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
 pub const qnan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
 pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
-pub const snan = @compileError("Deprecated: use `nan` instead");
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
