@@ -687,6 +687,10 @@ pub const ReadError = error{
     /// In WASI, this error occurs when the file descriptor does
     /// not hold the required rights to read from it.
     AccessDenied,
+
+    /// An invalid pointer was detected.
+    /// https://www.gnu.org/software/libc/manual/html_node/Error-Codes.html#index-EFAULT
+    BadAddress,
 } || UnexpectedError;
 
 /// Returns the number of bytes that were read, which can be less than
@@ -743,7 +747,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .SUCCESS => return @as(usize, @intCast(rc)),
             .INTR => continue,
             .INVAL => unreachable,
-            .FAULT => unreachable,
+            .FAULT => error.BadAddress,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
             .IO => return error.InputOutput,
