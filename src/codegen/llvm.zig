@@ -10710,6 +10710,17 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                             return o.builder.structType(.normal, &.{ .i64, .i64 });
                         },
                         .byval => return o.lowerType(return_type),
+                        .fields => {
+                            var types_len: usize = 0;
+                            var types: [8]Builder.Type = undefined;
+                            for (0..return_type.structFieldCount(mod)) |field_index| {
+                                const field_ty = return_type.structFieldType(field_index, mod);
+                                if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                types[types_len] = try o.lowerType(field_ty);
+                                types_len += 1;
+                            }
+                            return o.builder.structType(.normal, types[0..types_len]);
+                        },
                     }
                 },
                 // TODO investigate C ABI for other architectures
@@ -10923,14 +10934,24 @@ const ParamTypeIterator = struct {
                     .riscv32, .riscv64 => {
                         it.zig_index += 1;
                         it.llvm_index += 1;
-                        if (ty.toIntern() == .f16_type) {
-                            return .as_u16;
-                        }
+                        if (ty.toIntern() == .f16_type and
+                            !std.Target.riscv.featureSetHas(target.cpu.features, .d)) return .as_u16;
                         switch (riscv_c_abi.classifyType(ty, mod)) {
                             .memory => return .byref_mut,
                             .byval => return .byval,
                             .integer => return .abi_sized_int,
                             .double_integer => return Lowering{ .i64_array = 2 },
+                            .fields => {
+                                it.types_len = 0;
+                                for (0..ty.structFieldCount(mod)) |field_index| {
+                                    const field_ty = ty.structFieldType(field_index, mod);
+                                    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                    it.types_buffer[it.types_len] = try it.object.lowerType(field_ty);
+                                    it.types_len += 1;
+                                }
+                                it.llvm_index += it.types_len - 1;
+                                return .multiple_llvm_types;
+                            },
                         }
                     },
                     // TODO investigate C ABI for other architectures
