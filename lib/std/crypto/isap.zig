@@ -147,11 +147,21 @@ pub const IsapA128A = struct {
         tag.* = mac(c, ad, npub, key);
     }
 
+    /// `m`: Message
+    /// `c`: Ciphertext
+    /// `tag`: Authentication tag
+    /// `ad`: Associated data
+    /// `npub`: Public nonce
+    /// `k`: Private key
+    /// Asserts `c.len == m.len`.
+    ///
+    /// Contents of `m` are undefined if an error is returned.
     pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) AuthenticationError!void {
         var computed_tag = mac(c, ad, npub, key);
-        const res = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
-        crypto.utils.secureZero(u8, &computed_tag);
-        if (!res) {
+        const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
+        if (!verify) {
+            crypto.utils.secureZero(u8, &computed_tag);
+            @memset(m, undefined);
             return error.AuthenticationFailed;
         }
         xor(m, c, npub, key);
