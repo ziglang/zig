@@ -452,6 +452,7 @@ pub const VirtualMachine = struct {
 
     /// Return a slice backed by the row's non-CFA columns
     pub fn rowColumns(self: VirtualMachine, row: Row) []Column {
+        if (row.columns.len == 0) return &.{};
         return self.columns.items[row.columns.start..][0..row.columns.len];
     }
 
