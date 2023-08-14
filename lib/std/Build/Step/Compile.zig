@@ -1772,27 +1772,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 try zig_args.append(include_path.getPath(b));
             },
             .path_system => |include_path| {
-                if (b.sysroot != null) {
-                    try zig_args.append("-iwithsysroot");
-                } else {
-                    try zig_args.append("-isystem");
-                }
-
-                const resolved_include_path = include_path.getPath(b);
-
-                const common_include_path = if (builtin.os.tag == .windows and b.sysroot != null and fs.path.isAbsolute(resolved_include_path)) blk: {
-                    // We need to check for disk designator and strip it out from dir path so
-                    // that zig/clang can concat resolved_include_path with sysroot.
-                    const disk_designator = fs.path.diskDesignatorWindows(resolved_include_path);
-
-                    if (mem.indexOf(u8, resolved_include_path, disk_designator)) |where| {
-                        break :blk resolved_include_path[where + disk_designator.len ..];
-                    }
-
-                    break :blk resolved_include_path;
-                } else resolved_include_path;
-
-                try zig_args.append(common_include_path);
+                try zig_args.append("-isystem");
+                try zig_args.append(include_path.getPath(b));
             },
             .other_step => |other| {
                 if (other.generated_h) |header| {
@@ -1848,14 +1829,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     for (self.framework_dirs.items) |directory_source| {
-        if (b.sysroot != null) {
-            try zig_args.append("-iframeworkwithsysroot");
-        } else {
-            try zig_args.append("-iframework");
-        }
-        try zig_args.append(directory_source.getPath2(b, step));
+        const path = directory_source.getPath(b);
+        try zig_args.append("-iframework");
+        try zig_args.append(path);
         try zig_args.append("-F");
-        try zig_args.append(directory_source.getPath2(b, step));
+        try zig_args.append(path);
     }
 
     {
