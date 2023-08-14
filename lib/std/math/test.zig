@@ -86,6 +86,12 @@ pub fn Testcase(
                     "FAILURE: expected {s}({x})->{x}, got {x} ({d}-bit)\n",
                     .{ name, tc.input, tc.exp_output, output, bits },
                 );
+                print(
+                    "         expected {s}(0x{X:0>" ++ hex_bits_fmt_size ++ "})->" ++
+                        "0x{X:0>" ++ hex_bits_fmt_size ++ "}, " ++
+                        "got 0x{X:0>" ++ hex_bits_fmt_size ++ "}\n",
+                    .{ name, input_bits, exp_output_bits, output_bits },
+                );
                 return error.TestExpectedEqual;
             }
         }
