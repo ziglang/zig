@@ -3253,22 +3253,19 @@ pub const Object = struct {
                 },
                 .simple_type => unreachable,
                 .struct_type => |struct_type| {
-                    const gop = try o.type_map.getOrPut(o.gpa, t.toIntern());
-                    if (gop.found_existing) return gop.value_ptr.*;
+                    if (o.type_map.get(t.toIntern())) |value| return value;
 
                     const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                     if (struct_obj.layout == .Packed) {
                         assert(struct_obj.haveLayout());
                         const int_ty = try o.lowerType(struct_obj.backing_int_ty);
-                        gop.value_ptr.* = int_ty;
+                        try o.type_map.put(o.gpa, t.toIntern(), int_ty);
                         return int_ty;
                     }
 
                     const name = try o.builder.string(ip.stringToSlice(
                         try struct_obj.getFullyQualifiedName(mod),
                     ));
-                    const ty = try o.builder.opaqueType(name);
-                    gop.value_ptr.* = ty; // must be done before any recursive calls
 
                     assert(struct_obj.haveFieldTypes());
 
@@ -3309,6 +3306,9 @@ pub const Object = struct {
                             try o.builder.arrayType(padding_len, .i8),
                         );
                     }
+
+                    const ty = try o.builder.opaqueType(name);
+                    try o.type_map.put(o.gpa, t.toIntern(), ty);
 
                     try o.builder.namedTypeSetBody(
                         ty,
@@ -3354,29 +3354,26 @@ pub const Object = struct {
                     return o.builder.structType(.normal, llvm_field_types.items);
                 },
                 .union_type => |union_type| {
-                    const gop = try o.type_map.getOrPut(o.gpa, t.toIntern());
-                    if (gop.found_existing) return gop.value_ptr.*;
+                    if (o.type_map.get(t.toIntern())) |value| return value;
 
                     const union_obj = ip.loadUnionType(union_type);
                     const layout = mod.getUnionLayout(union_obj);
 
                     if (union_obj.flagsPtr(ip).layout == .Packed) {
                         const int_ty = try o.builder.intType(@intCast(t.bitSize(mod)));
-                        gop.value_ptr.* = int_ty;
+                        try o.type_map.put(o.gpa, t.toIntern(), int_ty);
                         return int_ty;
                     }
 
                     if (layout.payload_size == 0) {
                         const enum_tag_ty = try o.lowerType(union_obj.enum_tag_ty.toType());
-                        gop.value_ptr.* = enum_tag_ty;
+                        try o.type_map.put(o.gpa, t.toIntern(), enum_tag_ty);
                         return enum_tag_ty;
                     }
 
                     const name = try o.builder.string(ip.stringToSlice(
                         try mod.declPtr(union_obj.decl).getFullyQualifiedName(mod),
                     ));
-                    const ty = try o.builder.opaqueType(name);
-                    gop.value_ptr.* = ty; // must be done before any recursive calls
 
                     const aligned_field_ty = union_obj.field_types.get(ip)[layout.most_aligned_field].toType();
                     const aligned_field_llvm_ty = try o.lowerType(aligned_field_ty);
@@ -3396,6 +3393,9 @@ pub const Object = struct {
                     };
 
                     if (layout.tag_size == 0) {
+                        const ty = try o.builder.opaqueType(name);
+                        try o.type_map.put(o.gpa, t.toIntern(), ty);
+
                         try o.builder.namedTypeSetBody(
                             ty,
                             try o.builder.structType(.normal, &.{payload_ty}),
@@ -3420,6 +3420,9 @@ pub const Object = struct {
                         llvm_fields[llvm_fields_len] = try o.builder.arrayType(layout.padding, .i8);
                         llvm_fields_len += 1;
                     }
+
+                    const ty = try o.builder.opaqueType(name);
+                    try o.type_map.put(o.gpa, t.toIntern(), ty);
 
                     try o.builder.namedTypeSetBody(
                         ty,
