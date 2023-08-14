@@ -778,20 +778,11 @@ pub const Manifest = struct {
 
         var it: DepTokenizer = .{ .bytes = dep_file_contents };
 
-        // Skip first token: target.
-        switch (it.next() orelse return) { // Empty dep file OK.
-            .target, .target_must_resolve, .prereq => {},
-            else => |err| {
-                try err.printError(error_buf.writer());
-                log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
-                return error.InvalidDepFile;
-            },
-        }
-        // Process 0+ preqreqs.
-        // Clang is invoked in single-source mode so we never get more targets.
         while (true) {
             switch (it.next() orelse return) {
-                .target, .target_must_resolve => return,
+                // We don't care about targets, we only want the prereqs
+                // Clang is invoked in single-source mode but other programs may not
+                .target, .target_must_resolve => {},
                 .prereq => |file_path| try self.addFilePost(file_path),
                 else => |err| {
                     try err.printError(error_buf.writer());
