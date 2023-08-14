@@ -10708,10 +10708,10 @@ fn ppc_fp128ConstAssumeCapacity(self: *Builder, val: [2]f64) Constant {
             }),
         });
         if (self.useLibLlvm()) {
-            const llvm_limbs: *const [2]u64 = @ptrCast(&val);
+            const llvm_limbs: [2]u64 = @bitCast(val);
             self.llvm.constants.appendAssumeCapacity(
                 Type.i128.toLlvm(self)
-                    .constIntOfArbitraryPrecision(@intCast(llvm_limbs.len), llvm_limbs)
+                    .constIntOfArbitraryPrecision(@intCast(llvm_limbs.len), &llvm_limbs)
                     .constBitCast(Type.ppc_fp128.toLlvm(self)),
             );
         }
