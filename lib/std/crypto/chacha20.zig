@@ -713,8 +713,8 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
             mac.final(computed_tag[0..]);
 
             const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
-            crypto.utils.secureZero(u8, &computed_tag);
             if (!verify) {
+                crypto.utils.secureZero(u8, &computed_tag);
                 @memset(m, undefined);
                 return error.AuthenticationFailed;
             }

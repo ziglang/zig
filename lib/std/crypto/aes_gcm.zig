@@ -96,8 +96,8 @@ fn AesGcm(comptime Aes: anytype) type {
             }
 
             const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
-            crypto.utils.secureZero(u8, &computed_tag);
             if (!verify) {
+                crypto.utils.secureZero(u8, &computed_tag);
                 @memset(m, undefined);
                 return error.AuthenticationFailed;
             }

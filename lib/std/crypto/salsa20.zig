@@ -417,8 +417,8 @@ pub const XSalsa20Poly1305 = struct {
         mac.final(&computed_tag);
 
         const verify = utils.timingSafeEql([tag_length]u8, computed_tag, tag);
-        utils.secureZero(u8, &computed_tag);
         if (!verify) {
+            utils.secureZero(u8, &computed_tag);
             @memset(m, undefined);
             return error.AuthenticationFailed;
         }

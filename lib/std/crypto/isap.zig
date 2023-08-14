@@ -159,8 +159,8 @@ pub const IsapA128A = struct {
     pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) AuthenticationError!void {
         var computed_tag = mac(c, ad, npub, key);
         const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
-        crypto.utils.secureZero(u8, &computed_tag);
         if (!verify) {
+            crypto.utils.secureZero(u8, &computed_tag);
             @memset(m, undefined);
             return error.AuthenticationFailed;
         }
