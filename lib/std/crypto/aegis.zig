@@ -211,7 +211,7 @@ fn Aegis128LGeneric(comptime tag_bits: u9) type {
             const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
             crypto.utils.secureZero(u8, &computed_tag);
             if (!verify) {
-                @memset(m, 0);
+                @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
         }
@@ -393,7 +393,7 @@ fn Aegis256Generic(comptime tag_bits: u9) type {
             const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
             crypto.utils.secureZero(u8, &computed_tag);
             if (!verify) {
-                @memset(m, 0);
+                @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
         }
