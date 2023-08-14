@@ -89,6 +89,7 @@ pub fn SinglyLinkedList(comptime T: type) type {
         }
 
         /// Remove a node from the list.
+        /// This operation is O(N).
         ///
         /// Arguments:
         ///     node: Pointer to the node to be removed.
@@ -323,28 +324,47 @@ pub fn TailQueue(comptime T: type) type {
         }
 
         /// Remove a node from the list.
+        /// This operation is O(N).
         ///
         /// Arguments:
         ///     node: Pointer to the node to be removed.
-        pub fn remove(list: *Self, node: *Node) void {
-            if (node.prev) |prev_node| {
-                // Intermediate node.
-                prev_node.next = node.next;
-            } else {
-                // First element of the list.
-                list.first = node.next;
+        /// Returns:
+        ///     true if removal was successful, false otherwise.
+        pub fn remove(list: *Self, node: *Node) bool {
+            if (list.first == null) {
+                return false;
             }
 
-            if (node.next) |next_node| {
-                // Intermediate node.
-                next_node.prev = node.prev;
-            } else {
-                // Last element of the list.
+            if (list.len == 1 and list.first == node) {
+                list.first = node.next;
                 list.last = node.prev;
+            } else if (list.first == node) {
+                list.first = node.next;
+            } else if (list.last == node) {
+                list.last = node.prev;
+            } else {
+                var iter: usize = 0;
+                var current_front_elm = list.first.?;
+                var current_back_elm = list.last.?;
+                while ((iter < (list.len >> 1)) and (current_front_elm != node) and (current_back_elm != node)) {
+                    current_front_elm = current_front_elm.next.?;
+                    current_back_elm = current_back_elm.prev.?;
+                    iter += 1;
+                }
+                if (current_front_elm == node) {
+                    current_front_elm.prev.?.next = node.next;
+                    current_front_elm.next.?.prev = node.prev;
+                } else if (current_back_elm == node) {
+                    current_back_elm.prev.?.next = node.next;
+                    current_back_elm.next.?.prev = node.prev;
+                } else {
+                    return false;
+                }
             }
 
             list.len -= 1;
             assert(list.len == 0 or (list.first != null and list.last != null));
+            return true;
         }
 
         /// Remove and return the last node in the list.
@@ -353,7 +373,7 @@ pub fn TailQueue(comptime T: type) type {
         ///     A pointer to the last node in the list.
         pub fn pop(list: *Self) ?*Node {
             const last = list.last orelse return null;
-            list.remove(last);
+            _ = list.remove(last);
             return last;
         }
 
@@ -363,7 +383,7 @@ pub fn TailQueue(comptime T: type) type {
         ///     A pointer to the first node in the list.
         pub fn popFirst(list: *Self) ?*Node {
             const first = list.first orelse return null;
-            list.remove(first);
+            _ = list.remove(first);
             return first;
         }
     };
@@ -407,7 +427,7 @@ test "basic TailQueue test" {
 
     _ = list.popFirst(); // {2, 3, 4, 5}
     _ = list.pop(); // {2, 3, 4}
-    list.remove(&three); // {2, 4}
+    _ = list.remove(&three); // {2, 4}
 
     try testing.expect(list.first.?.data == 2);
     try testing.expect(list.last.?.data == 4);
@@ -481,4 +501,27 @@ test "TailQueue concatenation" {
             index += 1;
         }
     }
+}
+
+test "attempt to remove non-existent node from TailQueue" {
+    const L = TailQueue(u32);
+    var list = L{};
+
+    var one = L.Node{ .data = 1 };
+    list.prepend(&one);
+
+    try std.testing.expectEqual(@as(usize, 1), list.len);
+
+    var non_existent_node = L.Node{ .data = 1 };
+    try testing.expect(list.remove(&non_existent_node) == false);
+
+    try std.testing.expectEqual(@as(usize, 1), list.len);
+}
+
+test "attempt to remove from an empty TailQueue" {
+    const L = TailQueue(u32);
+    var list = L{};
+
+    var non_existent_node = L.Node{ .data = 1 };
+    try testing.expect(list.remove(&non_existent_node) == false);
 }

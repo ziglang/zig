@@ -68,7 +68,7 @@ pub const ConnectionPool = struct {
 
     /// Acquires an existing connection from the connection pool. This function is not threadsafe.
     pub fn acquireUnsafe(pool: *ConnectionPool, node: *Node) void {
-        pool.free.remove(node);
+        _ = pool.free.remove(node);
         pool.free_len -= 1;
 
         pool.used.append(node);
