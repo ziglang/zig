@@ -93,7 +93,7 @@ pub const pthread_rwlock_t = extern struct {
     wblocked_first: ?*u8 = null,
     wblocked_last: ?*u8 = null,
     nreaders: c_uint = 0,
-    owner: std.c.pthread_t = null,
+    owner: ?std.c.pthread_t = null,
     private: ?*anyopaque = null,
 };
 
