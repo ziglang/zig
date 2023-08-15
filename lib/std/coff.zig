@@ -1101,12 +1101,13 @@ pub const Coff = struct {
         return coff;
     }
 
-    pub fn getPdbPath(self: *Coff, buffer: []u8) !usize {
+    pub fn getPdbPath(self: *Coff, buffer: []u8) !?usize {
         assert(self.is_image);
 
         const data_dirs = self.getDataDirectories();
-        const debug_dir = data_dirs[@intFromEnum(DirectoryEntry.DEBUG)];
+        if (@intFromEnum(DirectoryEntry.DEBUG) >= data_dirs.len) return null;
 
+        const debug_dir = data_dirs[@intFromEnum(DirectoryEntry.DEBUG)];
         var stream = std.io.fixedBufferStream(self.data);
         const reader = stream.reader();
 
@@ -1126,14 +1127,14 @@ pub const Coff = struct {
         // It can be in any section.
         const debug_dir_entry_count = debug_dir.size / @sizeOf(DebugDirectoryEntry);
         var i: u32 = 0;
-        blk: while (i < debug_dir_entry_count) : (i += 1) {
+        while (i < debug_dir_entry_count) : (i += 1) {
             const debug_dir_entry = try reader.readStruct(DebugDirectoryEntry);
             if (debug_dir_entry.type == .CODEVIEW) {
                 const dir_offset = if (self.is_loaded) debug_dir_entry.address_of_raw_data else debug_dir_entry.pointer_to_raw_data;
                 try stream.seekTo(dir_offset);
-                break :blk;
+                break;
             }
-        }
+        } else return null;
 
         var cv_signature: [4]u8 = undefined; // CodeView signature
         try reader.readNoEof(cv_signature[0..]);

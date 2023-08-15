@@ -1024,12 +1024,8 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
             di.dwarf = dwarf;
         }
 
-        // Only used by the pdb path
-        di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(allocator);
-        errdefer allocator.free(di.coff_section_headers);
-
         var path_buf: [windows.MAX_PATH]u8 = undefined;
-        const len = try coff_obj.getPdbPath(path_buf[0..]);
+        const len = try coff_obj.getPdbPath(path_buf[0..]) orelse return di;
         const raw_path = path_buf[0..len];
 
         const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
@@ -1038,8 +1034,6 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
         di.pdb = pdb.Pdb.init(allocator, path) catch |err| switch (err) {
             error.FileNotFound, error.IsDir => {
                 if (di.dwarf == null) return error.MissingDebugInfo;
-                allocator.free(di.coff_section_headers);
-                di.coff_section_headers = undefined;
                 return di;
             },
             else => return err,
@@ -1049,6 +1043,10 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
 
         if (!mem.eql(u8, &coff_obj.guid, &di.pdb.?.guid) or coff_obj.age != di.pdb.?.age)
             return error.InvalidDebugInfo;
+
+        // Only used by the pdb path
+        di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(allocator);
+        errdefer allocator.free(di.coff_section_headers);
 
         return di;
     }
