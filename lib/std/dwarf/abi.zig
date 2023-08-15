@@ -229,7 +229,7 @@ pub fn regBytes(
             else => error.UnimplementedOs,
         },
         .x86_64 => switch (builtin.os.tag) {
-            .linux, .netbsd, .solaris => switch (reg_number) {
+            .linux, .solaris => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RAX]),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RDX]),
                 2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RCX]),
