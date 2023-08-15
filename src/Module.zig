@@ -770,9 +770,8 @@ pub const Decl = struct {
 
     /// Gets the namespace that this Decl creates by being a struct, union,
     /// enum, or opaque.
-    /// Only returns it if the Decl is the owner.
-    pub fn getOwnedInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
-        if (!decl.owns_tv) return .none;
+    pub fn getInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
+        if (!decl.has_tv) return .none;
         return switch (decl.val.ip_index) {
             .empty_struct_type => .none,
             .none => .none,
@@ -786,9 +785,20 @@ pub const Decl = struct {
         };
     }
 
-    /// Same as `getInnerNamespaceIndex` but additionally obtains the pointer.
+    /// Like `getInnerNamespaceIndex`, but only returns it if the Decl is the owner.
+    pub fn getOwnedInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
+        if (!decl.owns_tv) return .none;
+        return decl.getInnerNamespaceIndex(mod);
+    }
+
+    /// Same as `getOwnedInnerNamespaceIndex` but additionally obtains the pointer.
     pub fn getOwnedInnerNamespace(decl: Decl, mod: *Module) ?*Namespace {
         return mod.namespacePtrUnwrap(decl.getOwnedInnerNamespaceIndex(mod));
+    }
+
+    /// Same as `getInnerNamespaceIndex` but additionally obtains the pointer.
+    pub fn getInnerNamespace(decl: Decl, mod: *Module) ?*Namespace {
+        return mod.namespacePtrUnwrap(decl.getInnerNamespaceIndex(mod));
     }
 
     pub fn dump(decl: *Decl) void {
@@ -4283,6 +4293,40 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const zir = decl.getFileScope(mod).zir;
     const zir_datas = zir.instructions.items(.data);
 
+    // TODO: figure out how this works under incremental changes to builtin.zig!
+    const builtin_type_target_index: InternPool.Index = blk: {
+        const std_mod = mod.main_pkg.table.get("std").?;
+        if (decl.getFileScope(mod).pkg != std_mod) break :blk .none;
+        // We're in the std module.
+        const std_file = (try mod.importPkg(std_mod)).file;
+        const std_decl = mod.declPtr(std_file.root_decl.unwrap().?);
+        const std_namespace = std_decl.getInnerNamespace(mod).?;
+        const builtin_str = try mod.intern_pool.getOrPutString(gpa, "builtin");
+        const builtin_decl = mod.declPtr(std_namespace.decls.getKeyAdapted(builtin_str, DeclAdapter{ .mod = mod }) orelse break :blk .none);
+        const builtin_namespace = builtin_decl.getInnerNamespaceIndex(mod).unwrap() orelse break :blk .none;
+        if (decl.src_namespace != builtin_namespace) break :blk .none;
+        // We're in builtin.zig. This could be a builtin we need to add to a specific InternPool index.
+        const decl_name = mod.intern_pool.stringToSlice(decl.name);
+        for ([_]struct { []const u8, InternPool.Index }{
+            .{ "AtomicOrder", .atomic_order_type },
+            .{ "AtomicRmwOp", .atomic_rmw_op_type },
+            .{ "CallingConvention", .calling_convention_type },
+            .{ "AddressSpace", .address_space_type },
+            .{ "FloatMode", .float_mode_type },
+            .{ "ReduceOp", .reduce_op_type },
+            .{ "CallModifier", .call_modifier_type },
+            .{ "PrefetchOptions", .prefetch_options_type },
+            .{ "ExportOptions", .export_options_type },
+            .{ "ExternOptions", .extern_options_type },
+            .{ "Type", .type_info_type },
+        }) |pair| {
+            if (std.mem.eql(u8, decl_name, pair[0])) {
+                break :blk pair[1];
+            }
+        }
+        break :blk .none;
+    };
+
     decl.analysis = .in_progress;
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
@@ -4304,6 +4348,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
         .comptime_mutable_decls = &comptime_mutable_decls,
+        .builtin_type_target_index = builtin_type_target_index,
     };
     defer sema.deinit();
 
@@ -4340,6 +4385,8 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = zir.extra[extra.end..][0..extra.data.body_len];
     const result_ref = (try sema.analyzeBodyBreak(&block_scope, body)).?.operand;
+    // We'll do some other bits with the Sema. Clear the type target index just in case they analyze any type.
+    sema.builtin_type_target_index = .none;
     try wip_captures.finalize();
     for (comptime_mutable_decls.items) |ct_decl_index| {
         const ct_decl = mod.declPtr(ct_decl_index);
