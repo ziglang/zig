@@ -136,22 +136,16 @@ pub const Random = struct {
     pub fn uintLessThan(r: Random, comptime T: type, less_than: T) T {
         comptime assert(@typeInfo(T).Int.signedness == .unsigned);
         const bits = @typeInfo(T).Int.bits;
-        comptime assert(bits <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
-        // Small is typically u32
-        const small_bits = @divTrunc(bits + 31, 32) * 32;
-        const Small = std.meta.Int(.unsigned, small_bits);
-        // Large is typically u64
-        const Large = std.meta.Int(.unsigned, small_bits * 2);
 
         // adapted from:
         //   http://www.pcg-random.org/posts/bounded-rands.html
         //   "Lemire's (with an extra tweak from me)"
-        var x: Small = r.int(Small);
-        var m: Large = @as(Large, x) * @as(Large, less_than);
-        var l: Small = @as(Small, @truncate(m));
+        var x = r.int(T);
+        var m = math.mulWide(T, x, less_than);
+        var l: T = @truncate(m);
         if (l < less_than) {
-            var t: Small = -%less_than;
+            var t = -%less_than;
 
             if (t >= less_than) {
                 t -= less_than;
@@ -160,12 +154,12 @@ pub const Random = struct {
                 }
             }
             while (l < t) {
-                x = r.int(Small);
-                m = @as(Large, x) * @as(Large, less_than);
-                l = @as(Small, @truncate(m));
+                x = r.int(T);
+                m = math.mulWide(T, x, less_than);
+                l = @truncate(m);
             }
         }
-        return @as(T, @intCast(m >> small_bits));
+        return @intCast(m >> bits);
     }
 
     /// Constant-time implementation off `uintAtMost`.
