@@ -1059,6 +1059,8 @@ pub const CoffError = error{
 // Official documentation of the format: https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
 pub const Coff = struct {
     data: []const u8,
+    // Set if `data` is backed by the image as loaded by the loader
+    is_loaded: bool,
     is_image: bool,
     coff_header_offset: usize,
 
@@ -1066,7 +1068,7 @@ pub const Coff = struct {
     age: u32 = undefined,
 
     // The lifetime of `data` must be longer than the lifetime of the returned Coff
-    pub fn init(data: []const u8) !Coff {
+    pub fn init(data: []const u8, is_loaded: bool) !Coff {
         const pe_pointer_offset = 0x3C;
         const pe_magic = "PE\x00\x00";
 
@@ -1082,6 +1084,7 @@ pub const Coff = struct {
         var coff = @This(){
             .data = data,
             .is_image = is_image,
+            .is_loaded = is_loaded,
             .coff_header_offset = coff_header_offset,
         };
 
@@ -1106,7 +1109,18 @@ pub const Coff = struct {
 
         var stream = std.io.fixedBufferStream(self.data);
         const reader = stream.reader();
-        try stream.seekTo(debug_dir.virtual_address);
+
+        if (self.is_loaded) {
+            try stream.seekTo(debug_dir.virtual_address);
+        } else {
+            // Find what section the debug_dir is in, in order to convert the RVA to a file offset
+            for (self.getSectionHeaders()) |*sect| {
+                if (debug_dir.virtual_address >= sect.virtual_address and debug_dir.virtual_address < sect.virtual_address + sect.virtual_size) {
+                    try stream.seekTo(sect.pointer_to_raw_data + (debug_dir.virtual_address - sect.virtual_address));
+                    break;
+                }
+            } else return error.InvalidDebugDirectory;
+        }
 
         // Find the correct DebugDirectoryEntry, and where its data is stored.
         // It can be in any section.
@@ -1115,7 +1129,8 @@ pub const Coff = struct {
         blk: while (i < debug_dir_entry_count) : (i += 1) {
             const debug_dir_entry = try reader.readStruct(DebugDirectoryEntry);
             if (debug_dir_entry.type == .CODEVIEW) {
-                try stream.seekTo(debug_dir_entry.address_of_raw_data);
+                const dir_offset = if (self.is_loaded) debug_dir_entry.address_of_raw_data else debug_dir_entry.pointer_to_raw_data;
+                try stream.seekTo(dir_offset);
                 break :blk;
             }
         }
@@ -1256,7 +1271,8 @@ pub const Coff = struct {
     }
 
     pub fn getSectionData(self: *const Coff, sec: *align(1) const SectionHeader) []const u8 {
-        return self.data[sec.pointer_to_raw_data..][0..sec.virtual_size];
+        const offset = if (self.is_loaded) sec.virtual_address else sec.pointer_to_raw_data;
+        return self.data[offset..][0..sec.virtual_size];
     }
 
     pub fn getSectionDataAlloc(self: *const Coff, sec: *align(1) const SectionHeader, allocator: mem.Allocator) ![]u8 {
