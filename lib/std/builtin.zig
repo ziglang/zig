@@ -726,166 +726,258 @@ pub const panic: PanicFn = if (@hasDecl(root, "panic"))
 else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
     root.os.panic
 else
-    default_panic;
+    default.panic;
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const PanicSentinelMismatchFn = @TypeOf(default.panicSentinelMismatch);
 
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
-    @setCold(true);
+pub const panicSentinelMismatch: PanicSentinelMismatchFn = if (@hasDecl(root, "panicSentinelMismatch"))
+    root.panicSentinelMismatch
+else
+    default.panicSentinelMismatch;
 
-    // For backends that cannot handle the language features depended on by the
-    // default panic handler, we have a simpler panic handler:
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_arm or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_x86_64 or
-        builtin.zig_backend == .stage2_x86 or
-        builtin.zig_backend == .stage2_riscv64 or
-        builtin.zig_backend == .stage2_sparc64 or
-        builtin.zig_backend == .stage2_spirv64)
-    {
-        while (true) {
-            @breakpoint();
-        }
-    }
-    switch (builtin.os.tag) {
-        .freestanding => {
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const PanicUnwrapErrorFn = @TypeOf(default.panicUnwrapError);
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const panicUnwrapError: PanicUnwrapErrorFn = if (@hasDecl(root, "panicUnwrapError"))
+    root.panicUnwrapError
+else
+    default.panicUnwrapError;
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const PanicOutOfBoundsFn = @TypeOf(default.panicOutOfBounds);
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const panicOutOfBounds: PanicOutOfBoundsFn = if (@hasDecl(root, "panicOutOfBounds"))
+    root.panicOutOfBounds
+else
+    default.panicOutOfBounds;
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const StartGreaterThanEndFn = @TypeOf(default.panicStartGreaterThanEnd);
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const panicStartGreaterThanEnd: StartGreaterThanEndFn = if (@hasDecl(root, "panicStartGreaterThanEnd"))
+    root.panicStartGreaterThanEnd
+else
+    default.panicStartGreaterThanEnd;
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const InactiveUnionFieldFn = @TypeOf(default.panicInactiveUnionField);
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const panicInactiveUnionField: InactiveUnionFieldFn = if (@hasDecl(root, "panicInactiveUnionField"))
+    root.panicInactiveUnionField
+else
+    default.panicInactiveUnionField;
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const checkNonScalarSentinel = if (@hasDecl(root, "checkNonScalarSentinel"))
+    root.checkNonScalarSentinel
+else
+    default.checkNonScalarSentinel;
+
+/// This namespace is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const panic_messages = if (@hasDecl(root, "panic_messages"))
+    root.panic_messages
+else
+    default.panic_messages;
+
+pub const default_panic = default.panic;
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const ReturnErrorFn = @TypeOf(default.returnError);
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const returnError: ReturnErrorFn = if (@hasDecl(root, "returnError"))
+    root.returnError
+else
+    default.returnError;
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const AddErrRetTraceAddrFn = @TypeOf(default.addErrRetTraceAddr);
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const addErrRetTraceAddr: AddErrRetTraceAddrFn = if (@hasDecl(root, "addErrRetTraceAddr"))
+    root.addErrRetTraceAddr
+else
+    default.addErrRetTraceAddr;
+
+const default = struct {
+    /// This function is used by the Zig language code generation and
+    /// therefore must be kept in sync with the compiler implementation.
+    fn panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
+        @setCold(true);
+
+        // For backends that cannot handle the language features depended on by the
+        // default panic handler, we have a simpler panic handler:
+        if (builtin.zig_backend == .stage2_wasm or
+            builtin.zig_backend == .stage2_arm or
+            builtin.zig_backend == .stage2_aarch64 or
+            builtin.zig_backend == .stage2_x86_64 or
+            builtin.zig_backend == .stage2_x86 or
+            builtin.zig_backend == .stage2_riscv64 or
+            builtin.zig_backend == .stage2_sparc64 or
+            builtin.zig_backend == .stage2_spirv64)
+        {
             while (true) {
                 @breakpoint();
             }
-        },
-        .wasi => {
-            std.debug.print("{s}", .{msg});
-            std.os.abort();
-        },
-        .uefi => {
-            const uefi = std.os.uefi;
-
-            const ExitData = struct {
-                pub fn create_exit_data(exit_msg: []const u8, exit_size: *usize) ![*:0]u16 {
-                    // Need boot services for pool allocation
-                    if (uefi.system_table.boot_services == null) {
-                        return error.BootServicesUnavailable;
-                    }
-
-                    // ExitData buffer must be allocated using boot_services.allocatePool
-                    var utf16: []u16 = try uefi.raw_pool_allocator.alloc(u16, 256);
-                    errdefer uefi.raw_pool_allocator.free(utf16);
-
-                    if (exit_msg.len > 255) {
-                        return error.MessageTooLong;
-                    }
-
-                    var fmt: [256]u8 = undefined;
-                    var slice = try std.fmt.bufPrint(&fmt, "\r\nerr: {s}\r\n", .{exit_msg});
-
-                    var len = try std.unicode.utf8ToUtf16Le(utf16, slice);
-
-                    utf16[len] = 0;
-
-                    exit_size.* = 256;
-
-                    return @as([*:0]u16, @ptrCast(utf16.ptr));
+        }
+        switch (builtin.os.tag) {
+            .freestanding => {
+                while (true) {
+                    @breakpoint();
                 }
-            };
+            },
+            .wasi => {
+                std.debug.print("{s}", .{msg});
+                std.os.abort();
+            },
+            .uefi => {
+                const uefi = std.os.uefi;
 
-            var exit_size: usize = 0;
-            var exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
+                const ExitData = struct {
+                    pub fn create_exit_data(exit_msg: []const u8, exit_size: *usize) ![*:0]u16 {
+                        // Need boot services for pool allocation
+                        if (uefi.system_table.boot_services == null) {
+                            return error.BootServicesUnavailable;
+                        }
 
-            if (exit_data) |data| {
-                if (uefi.system_table.std_err) |out| {
-                    _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.red);
-                    _ = out.outputString(data);
-                    _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.white);
+                        // ExitData buffer must be allocated using boot_services.allocatePool
+                        var utf16: []u16 = try uefi.raw_pool_allocator.alloc(u16, 256);
+                        errdefer uefi.raw_pool_allocator.free(utf16);
+
+                        if (exit_msg.len > 255) {
+                            return error.MessageTooLong;
+                        }
+
+                        var fmt: [256]u8 = undefined;
+                        var slice = try std.fmt.bufPrint(&fmt, "\r\nerr: {s}\r\n", .{exit_msg});
+
+                        var len = try std.unicode.utf8ToUtf16Le(utf16, slice);
+
+                        utf16[len] = 0;
+
+                        exit_size.* = 256;
+
+                        return @as([*:0]u16, @ptrCast(utf16.ptr));
+                    }
+                };
+
+                var exit_size: usize = 0;
+                var exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
+
+                if (exit_data) |data| {
+                    if (uefi.system_table.std_err) |out| {
+                        _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.red);
+                        _ = out.outputString(data);
+                        _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.white);
+                    }
                 }
-            }
 
-            if (uefi.system_table.boot_services) |bs| {
-                _ = bs.exit(uefi.handle, .Aborted, exit_size, exit_data);
-            }
+                if (uefi.system_table.boot_services) |bs| {
+                    _ = bs.exit(uefi.handle, .Aborted, exit_size, exit_data);
+                }
 
-            // Didn't have boot_services, just fallback to whatever.
-            std.os.abort();
-        },
-        .cuda, .amdhsa => std.os.abort(),
-        else => {
-            const first_trace_addr = ret_addr orelse @returnAddress();
-            std.debug.panicImpl(error_return_trace, first_trace_addr, msg);
-        },
+                // Didn't have boot_services, just fallback to whatever.
+                std.os.abort();
+            },
+            .cuda, .amdhsa => std.os.abort(),
+            else => {
+                const first_trace_addr = ret_addr orelse @returnAddress();
+                std.debug.panicImpl(error_return_trace, first_trace_addr, msg);
+            },
+        }
     }
-}
 
-pub fn checkNonScalarSentinel(expected: anytype, actual: @TypeOf(expected)) void {
-    if (!std.meta.eql(expected, actual)) {
-        panicSentinelMismatch(expected, actual);
+    fn checkNonScalarSentinel(expected: anytype, actual: @TypeOf(expected)) void {
+        if (!std.meta.eql(expected, actual)) {
+            default.panicSentinelMismatch(expected, actual);
+        }
     }
-}
 
-pub fn panicSentinelMismatch(expected: anytype, actual: @TypeOf(expected)) noreturn {
-    @setCold(true);
-    std.debug.panicExtra(null, @returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{ expected, actual });
-}
+    fn panicSentinelMismatch(expected: anytype, actual: @TypeOf(expected)) noreturn {
+        @setCold(true);
+        std.debug.panicExtra(null, @returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{ expected, actual });
+    }
 
-pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
-    @setCold(true);
-    std.debug.panicExtra(st, @returnAddress(), "attempt to unwrap error: {s}", .{@errorName(err)});
-}
+    fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
+        @setCold(true);
+        std.debug.panicExtra(st, @returnAddress(), "attempt to unwrap error: {s}", .{@errorName(err)});
+    }
 
-pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
-    @setCold(true);
-    std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
-}
+    fn panicOutOfBounds(index: usize, len: usize) noreturn {
+        @setCold(true);
+        std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
+    }
 
-pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
-    @setCold(true);
-    std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
-}
+    fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
+        @setCold(true);
+        std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
+    }
 
-pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
-    @setCold(true);
-    std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
-}
+    fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
+        @setCold(true);
+        std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
+    }
 
-pub const panic_messages = struct {
-    pub const unreach = "reached unreachable code";
-    pub const unwrap_null = "attempt to use null value";
-    pub const cast_to_null = "cast causes pointer to be null";
-    pub const incorrect_alignment = "incorrect alignment";
-    pub const invalid_error_code = "invalid error code";
-    pub const cast_truncated_data = "integer cast truncated bits";
-    pub const negative_to_unsigned = "attempt to cast negative value to unsigned integer";
-    pub const integer_overflow = "integer overflow";
-    pub const shl_overflow = "left shift overflowed bits";
-    pub const shr_overflow = "right shift overflowed bits";
-    pub const divide_by_zero = "division by zero";
-    pub const exact_division_remainder = "exact division produced remainder";
-    pub const inactive_union_field = "access of inactive union field";
-    pub const integer_part_out_of_bounds = "integer part of floating point value out of bounds";
-    pub const corrupt_switch = "switch on corrupt value";
-    pub const shift_rhs_too_big = "shift amount is greater than the type size";
-    pub const invalid_enum_value = "invalid enum value";
-    pub const sentinel_mismatch = "sentinel mismatch";
-    pub const unwrap_error = "attempt to unwrap error";
-    pub const index_out_of_bounds = "index out of bounds";
-    pub const start_index_greater_than_end = "start index is larger than end index";
-    pub const for_len_mismatch = "for loop over objects with non-equal lengths";
-    pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
-    pub const memcpy_alias = "@memcpy arguments alias";
-    pub const noreturn_returned = "'noreturn' function returned";
+    const panic_messages = struct {
+        pub const unreach = "reached unreachable code";
+        pub const unwrap_null = "attempt to use null value";
+        pub const cast_to_null = "cast causes pointer to be null";
+        pub const incorrect_alignment = "incorrect alignment";
+        pub const invalid_error_code = "invalid error code";
+        pub const cast_truncated_data = "integer cast truncated bits";
+        pub const negative_to_unsigned = "attempt to cast negative value to unsigned integer";
+        pub const integer_overflow = "integer overflow";
+        pub const shl_overflow = "left shift overflowed bits";
+        pub const shr_overflow = "right shift overflowed bits";
+        pub const divide_by_zero = "division by zero";
+        pub const exact_division_remainder = "exact division produced remainder";
+        pub const inactive_union_field = "access of inactive union field";
+        pub const integer_part_out_of_bounds = "integer part of floating point value out of bounds";
+        pub const corrupt_switch = "switch on corrupt value";
+        pub const shift_rhs_too_big = "shift amount is greater than the type size";
+        pub const invalid_enum_value = "invalid enum value";
+        pub const sentinel_mismatch = "sentinel mismatch";
+        pub const unwrap_error = "attempt to unwrap error";
+        pub const index_out_of_bounds = "index out of bounds";
+        pub const start_index_greater_than_end = "start index is larger than end index";
+        pub const for_len_mismatch = "for loop over objects with non-equal lengths";
+        pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
+        pub const memcpy_alias = "@memcpy arguments alias";
+        pub const noreturn_returned = "'noreturn' function returned";
+    };
+
+    noinline fn returnError(st: *StackTrace) void {
+        default.addErrRetTraceAddr(st, @returnAddress());
+    }
+
+    inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
+        if (st.index < st.instruction_addresses.len) {
+            st.instruction_addresses[st.index] = addr;
+        }
+        st.index +%= 1;
+    }
 };
-
-pub noinline fn returnError(st: *StackTrace) void {
-    @setCold(true);
-    @setRuntimeSafety(false);
-    addErrRetTraceAddr(st, @returnAddress());
-}
-
-pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
-    if (st.index < st.instruction_addresses.len)
-        st.instruction_addresses[st.index] = addr;
-
-    st.index += 1;
-}
-
 const std = @import("std.zig");
 const root = @import("root");
