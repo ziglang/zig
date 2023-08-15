@@ -121,14 +121,8 @@ pub const Random = struct {
     /// The results of this function may be biased.
     pub fn uintLessThanBiased(r: Random, comptime T: type, less_than: T) T {
         comptime assert(@typeInfo(T).Int.signedness == .unsigned);
-        const bits = @typeInfo(T).Int.bits;
-        comptime assert(bits <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
-        if (bits <= 32) {
-            return @as(T, @intCast(limitRangeBiased(u32, r.int(u32), less_than)));
-        } else {
-            return @as(T, @intCast(limitRangeBiased(u64, r.int(u64), less_than)));
-        }
+        return limitRangeBiased(T, r.int(T), less_than);
     }
 
     /// Returns an evenly distributed random unsigned integer `0 <= i < less_than`.
@@ -438,13 +432,12 @@ pub const Random = struct {
 pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
     comptime assert(@typeInfo(T).Int.signedness == .unsigned);
     const bits = @typeInfo(T).Int.bits;
-    const T2 = std.meta.Int(.unsigned, bits * 2);
 
     // adapted from:
     //   http://www.pcg-random.org/posts/bounded-rands.html
     //   "Integer Multiplication (Biased)"
-    var m: T2 = @as(T2, random_int) * @as(T2, less_than);
-    return @as(T, @intCast(m >> bits));
+    const m = math.mulWide(T, random_int, less_than);
+    return @intCast(m >> bits);
 }
 
 // Generator to extend 64-bit seed values into longer sequences.
