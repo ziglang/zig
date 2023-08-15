@@ -236,6 +236,7 @@ const string_test_cases = .{
     .{ "\\u000a", "\n" },
     .{ "𝄞", "\u{1D11E}" },
     .{ "\\uD834\\uDD1E", "\u{1D11E}" },
+    .{ "\\uD87F\\uDFFE", "\u{2FFFE}" },
     .{ "\\uff20", "＠" },
 };
 
