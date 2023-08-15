@@ -124,7 +124,7 @@ pub fn cmdObjCopy(
     };
 
     const mode = mode: {
-        if (out_fmt != .elf or !only_keep_debug)
+        if (out_fmt != .elf or only_keep_debug)
             break :mode fs.File.default_mode;
         if (in_file.stat()) |stat|
             break :mode stat.mode
