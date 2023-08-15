@@ -102,7 +102,10 @@ test "openDir cwd parent .." {
 }
 
 test "openDir non-cwd parent .." {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    switch (builtin.os.tag) {
+        .wasi, .netbsd, .openbsd => return error.SkipZigTest,
+        else => {},
+    }
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
