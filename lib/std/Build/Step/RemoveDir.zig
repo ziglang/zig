@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const fs = std.fs;
 const Step = std.Build.Step;
 const RemoveDir = @This();

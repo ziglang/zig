@@ -221,7 +221,7 @@ pub extern "kernel32" fn GetFullPathNameW(
     nBufferLength: u32,
     lpBuffer: [*]u16,
     lpFilePart: ?*?[*:0]u16,
-) callconv(@import("std").os.windows.WINAPI) u32;
+) callconv(@import("../../std.zig").os.windows.WINAPI) u32;
 
 pub extern "kernel32" fn GetOverlappedResult(hFile: HANDLE, lpOverlapped: *OVERLAPPED, lpNumberOfBytesTransferred: *DWORD, bWait: BOOL) callconv(WINAPI) BOOL;
 

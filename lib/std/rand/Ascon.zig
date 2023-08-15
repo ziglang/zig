@@ -8,7 +8,7 @@
 //! - A Robust and Sponge-Like PRNG with Improved Efficiency https://eprint.iacr.org/2016/886.pdf
 //! - Ascon https://ascon.iaik.tugraz.at/files/asconv12-nist.pdf
 
-const std = @import("std");
+const std = @import("../std.zig");
 const mem = std.mem;
 const Random = std.rand.Random;
 const Self = @This();

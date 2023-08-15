@@ -1,5 +1,5 @@
 //! Greatest common divisor (https://mathworld.wolfram.com/GreatestCommonDivisor.html)
-const std = @import("std");
+const std = @import("../std.zig");
 const expectEqual = std.testing.expectEqual;
 
 /// Returns the greatest common divisor (GCD) of two unsigned integers (a and b) which are not both zero.

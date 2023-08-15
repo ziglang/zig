@@ -2,7 +2,7 @@
 //! takes up 12 bytes of memory since u3's alignment is 1. PackedArray(u3, 12) only
 //! takes up 4 bytes of memory.
 
-const std = @import("std");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 const debug = std.debug;
 const testing = std.testing;

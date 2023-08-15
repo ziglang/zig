@@ -2,7 +2,7 @@
 //! Fastest engine of pracrand and smallest footprint.
 //! See http://pracrand.sourceforge.net/
 
-const std = @import("std");
+const std = @import("../std.zig");
 const Random = std.rand.Random;
 const math = std.math;
 const Sfc64 = @This();

@@ -3,7 +3,7 @@
 //! by the standard library; this namespace is not intended to be exposed
 //! directly to standard library users.
 
-const std = @import("std");
+const std = @import("../std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
 const os = std.os;

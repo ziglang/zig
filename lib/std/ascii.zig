@@ -8,7 +8,7 @@
 //!
 //! See also: https://en.wikipedia.org/wiki/ASCII#Character_set
 
-const std = @import("std");
+const std = @import("std.zig");
 
 /// The C0 control codes of the ASCII encoding.
 ///

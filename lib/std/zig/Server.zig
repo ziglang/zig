@@ -294,7 +294,7 @@ const InMessage = std.zig.Client.Message;
 
 const Server = @This();
 const builtin = @import("builtin");
-const std = @import("std");
+const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const native_endian = builtin.target.cpu.arch.endian();

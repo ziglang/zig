@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const io = std.io;

@@ -1,4 +1,4 @@
-const uefi = @import("std").os.uefi;
+const uefi = @import("../../../std.zig").os.uefi;
 const Guid = uefi.Guid;
 
 /// EDID information for an active video output device

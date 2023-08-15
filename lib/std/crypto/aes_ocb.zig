@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const builtin = @import("builtin");
 const crypto = std.crypto;
 const aes = crypto.core.aes;

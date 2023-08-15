@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 
 /// Set of primitive type and value names.
 /// Does not include `_` or integer type names.

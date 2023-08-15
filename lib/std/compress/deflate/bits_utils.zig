@@ -1,4 +1,4 @@
-const math = @import("std").math;
+const math = @import("../../std.zig").math;
 
 // Reverse bit-by-bit a N-bit code.
 pub fn bitReverse(comptime T: type, value: T, N: usize) T {
@@ -7,7 +7,7 @@ pub fn bitReverse(comptime T: type, value: T, N: usize) T {
 }
 
 test "bitReverse" {
-    const std = @import("std");
+    const std = @import("../../std.zig");
 
     const ReverseBitsTest = struct {
         in: u16,

@@ -92,7 +92,7 @@
 //! Large objects are allocated directly using the backing allocator and their metadata is stored
 //! in a `std.HashMap` using the backing allocator.
 
-const std = @import("std");
+const std = @import("../std.zig");
 const builtin = @import("builtin");
 const log = std.log.scoped(.gpa);
 const math = std.math;

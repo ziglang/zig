@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../../std.zig");
 const uefi = std.os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;

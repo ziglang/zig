@@ -3,7 +3,7 @@
 //! References:
 //! - Fast-key-erasure random-number generators https://blog.cr.yp.to/20170723-random.html
 
-const std = @import("std");
+const std = @import("../std.zig");
 const mem = std.mem;
 const Random = std.rand.Random;
 const Self = @This();

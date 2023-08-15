@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const builtin = @import("builtin");
 const Step = std.Build.Step;
 const fs = std.fs;

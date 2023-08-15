@@ -1,7 +1,7 @@
 // FIFO of fixed size items
 // Usually used for e.g. byte buffers
 
-const std = @import("std");
+const std = @import("std.zig");
 const math = std.math;
 const mem = std.mem;
 const Allocator = mem.Allocator;

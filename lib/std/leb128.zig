@@ -1,5 +1,5 @@
 const builtin = @import("builtin");
-const std = @import("std");
+const std = @import("std.zig");
 const testing = std.testing;
 
 /// Read a single unsigned LEB128 value from the given reader as type T,

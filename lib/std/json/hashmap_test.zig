@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const testing = std.testing;
 
 const ArrayHashMap = @import("hashmap.zig").ArrayHashMap;

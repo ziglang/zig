@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const math = std.math;
 const common = @import("common.zig");
 const FloatInfo = @import("FloatInfo.zig");

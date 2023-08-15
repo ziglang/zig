@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const fmt = std.fmt;
 
 const EncodingError = std.crypto.errors.EncodingError;

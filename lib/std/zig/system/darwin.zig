@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const Target = std.Target;

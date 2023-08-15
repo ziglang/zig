@@ -302,7 +302,7 @@ fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, stderr: anytype, indent: usi
     }
 }
 
-const std = @import("std");
+const std = @import("../std.zig");
 const ErrorBundle = @This();
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;

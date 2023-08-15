@@ -1,4 +1,4 @@
-const testing = @import("std").testing;
+const testing = @import("../../std.zig").testing;
 
 const high_bit = 1 << @typeInfo(usize).Int.bits - 1;
 

@@ -2,7 +2,7 @@
 // https://github.com/golang/crypto/blob/master/scrypt/scrypt.go
 // https://github.com/Tarsnap/scrypt
 
-const std = @import("std");
+const std = @import("../std.zig");
 const crypto = std.crypto;
 const fmt = std.fmt;
 const io = std.io;

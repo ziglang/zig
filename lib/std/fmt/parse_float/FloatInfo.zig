@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const Self = @This();
 
 // Minimum exponent that for a fast path case, or `-⌊(MANTISSA_EXPLICIT_BITS+1)/log2(5)⌋`

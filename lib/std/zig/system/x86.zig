@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const builtin = @import("builtin");
 const Target = std.Target;
 const CrossTarget = std.zig.CrossTarget;

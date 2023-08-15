@@ -1,7 +1,7 @@
 //! This step has two modes:
 //! * Modify mode: directly modify source files, formatting them in place.
 //! * Check mode: fail the step if a non-conforming file is found.
-const std = @import("std");
+const std = @import("../../std.zig");
 const Step = std.Build.Step;
 const Fmt = @This();
 

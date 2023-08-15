@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const mem = std.mem;
 
 /// Print the string as a Zig identifier escaping it with @"" syntax if needed.

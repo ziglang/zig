@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const time = std.time;
 const unicode = std.unicode;
 

@@ -5,5 +5,5 @@ pub usingnamespace @import("tables/system_table.zig");
 pub usingnamespace @import("tables/table_header.zig");
 
 test {
-    @import("std").testing.refAllDeclsRecursive(@This());
+    @import("../../std.zig").testing.refAllDeclsRecursive(@This());
 }

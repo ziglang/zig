@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const debug = std.debug;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;

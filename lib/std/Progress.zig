@@ -6,7 +6,7 @@
 //! * `refresh_rate_ms`
 //! * `initial_delay_ms`
 
-const std = @import("std");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 const windows = std.os.windows;
 const testing = std.testing;

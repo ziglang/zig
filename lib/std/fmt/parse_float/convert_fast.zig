@@ -8,7 +8,7 @@
 //! There is an exception: disguised fast-path cases, where we can shift
 //! powers-of-10 from the exponent to the significant digits.
 
-const std = @import("std");
+const std = @import("../../std.zig");
 const math = std.math;
 const common = @import("common.zig");
 const FloatInfo = @import("FloatInfo.zig");

@@ -16,7 +16,7 @@
 //!
 //! https://datatracker.ietf.org/doc/draft-irtf-cfrg-aegis-aead/
 
-const std = @import("std");
+const std = @import("../std.zig");
 const crypto = std.crypto;
 const mem = std.mem;
 const assert = std.debug.assert;

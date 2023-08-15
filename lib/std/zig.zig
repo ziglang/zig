@@ -202,5 +202,5 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
 }
 
 test {
-    @import("std").testing.refAllDecls(@This());
+    @import("std.zig").testing.refAllDecls(@This());
 }

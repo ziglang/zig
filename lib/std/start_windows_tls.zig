@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 
 export var _tls_index: u32 = std.os.windows.TLS_OUT_OF_INDEXES;

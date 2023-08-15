@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const expect = std.testing.expect;
 
 /// Returns a * FLT_RADIX ^ exp.

@@ -4,7 +4,7 @@ index: usize = 0,
 bytes: []const u8,
 state: State = .lhs,
 
-const std = @import("std");
+const std = @import("../../std.zig");
 const testing = std.testing;
 const assert = std.debug.assert;
 

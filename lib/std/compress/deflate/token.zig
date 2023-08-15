@@ -98,6 +98,6 @@ pub fn offsetCode(off: u32) u32 {
 }
 
 test {
-    const std = @import("std");
+    const std = @import("../../std.zig");
     try std.testing.expectEqual(@as(Token, 3_401_581_099), matchToken(555, 555));
 }

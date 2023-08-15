@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 const OutputTooLongError = std.crypto.errors.OutputTooLongError;

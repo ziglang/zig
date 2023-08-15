@@ -2,7 +2,7 @@
 // * typenames -- https://github.com/WebAssembly/WASI/blob/master/phases/snapshot/witx/typenames.witx
 // * module -- https://github.com/WebAssembly/WASI/blob/master/phases/snapshot/witx/wasi_snapshot_preview1.witx
 const builtin = @import("builtin");
-const std = @import("std");
+const std = @import("../std.zig");
 const assert = std.debug.assert;
 
 comptime {

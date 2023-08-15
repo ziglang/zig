@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const crypto = std.crypto;
 const math = std.math;
 const mem = std.mem;

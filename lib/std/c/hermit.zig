@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const maxInt = std.math.maxInt;
 
 pub const pthread_mutex_t = extern struct {

@@ -9,8 +9,8 @@
 //! therefore should not be assumed to be suitable for use cases involving
 //! separate reader and writer threads.
 
-const Allocator = @import("std").mem.Allocator;
-const assert = @import("std").debug.assert;
+const Allocator = @import("std.zig").mem.Allocator;
+const assert = @import("std.zig").debug.assert;
 
 const RingBuffer = @This();
 

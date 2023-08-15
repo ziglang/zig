@@ -1,5 +1,5 @@
 const builtin = @import("builtin");
-const std = @import("std");
+const std = @import("../std.zig");
 const crypto = std.crypto;
 const fmt = std.fmt;
 const io = std.io;

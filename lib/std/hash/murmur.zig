@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const builtin = @import("builtin");
 const testing = std.testing;
 const native_endian = builtin.target.cpu.arch.endian();

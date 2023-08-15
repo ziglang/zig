@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const block = @import("xz/block.zig");
 const Allocator = std.mem.Allocator;
 const Crc32 = std.hash.Crc32;

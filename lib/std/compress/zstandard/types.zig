@@ -396,6 +396,6 @@ pub const compressed_block = struct {
 };
 
 test {
-    const testing = @import("std").testing;
+    const testing = @import("../../std.zig").testing;
     testing.refAllDeclsRecursive(@This());
 }

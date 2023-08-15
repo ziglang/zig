@@ -6178,7 +6178,7 @@ test "ampersand" {
     , &.{});
 }
 
-const std = @import("std");
+const std = @import("../std.zig");
 const mem = std.mem;
 const print = std.debug.print;
 const io = std.io;

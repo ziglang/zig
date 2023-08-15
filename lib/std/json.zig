@@ -9,8 +9,8 @@
 //! The low-level `writeStream` emits syntax-conformant JSON tokens to a `std.io.Writer`.
 //! The high-level `stringify` serializes a Zig or `Value` type into JSON.
 
-const testing = @import("std").testing;
-const ArrayList = @import("std").ArrayList;
+const testing = @import("std.zig").testing;
+const ArrayList = @import("std.zig").ArrayList;
 
 test Scanner {
     var scanner = Scanner.initCompleteInput(testing.allocator, "{\"foo\": 123}\n");

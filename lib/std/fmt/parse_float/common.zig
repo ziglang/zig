@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 
 /// A custom N-bit floating point type, representing `f * 2^e`.
 /// e is biased, so it be directly shifted into the exponent bits.

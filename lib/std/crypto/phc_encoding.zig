@@ -1,6 +1,6 @@
 // https://github.com/P-H-C/phc-string-format
 
-const std = @import("std");
+const std = @import("../std.zig");
 const fmt = std.fmt;
 const io = std.io;
 const mem = std.mem;

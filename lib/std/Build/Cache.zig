@@ -73,7 +73,7 @@ prefixes_len: usize = 0,
 pub const DepTokenizer = @import("Cache/DepTokenizer.zig");
 
 const Cache = @This();
-const std = @import("std");
+const std = @import("../std.zig");
 const builtin = @import("builtin");
 const crypto = std.crypto;
 const fs = std.fs;

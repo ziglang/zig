@@ -28,7 +28,7 @@
 // * This low-level implementation allows duplicate object keys,
 //   and key/value pairs are emitted in the order they appear in the input.
 
-const std = @import("std");
+const std = @import("../std.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;

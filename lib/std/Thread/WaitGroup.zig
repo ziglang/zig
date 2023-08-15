@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const Atomic = std.atomic.Atomic;
 const assert = std.debug.assert;
 const WaitGroup = @This();

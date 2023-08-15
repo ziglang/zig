@@ -2,7 +2,7 @@
 //!
 //! PRNG
 
-const std = @import("std");
+const std = @import("../std.zig");
 const Random = std.rand.Random;
 const math = std.math;
 const Xoshiro256 = @This();

@@ -1,4 +1,4 @@
-const uefi = @import("std").os.uefi;
+const uefi = @import("../../../std.zig").os.uefi;
 const BootServices = uefi.tables.BootServices;
 const ConfigurationTable = uefi.tables.ConfigurationTable;
 const Handle = uefi.Handle;

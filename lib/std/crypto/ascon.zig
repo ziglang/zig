@@ -7,7 +7,7 @@
 //!
 //! It is not meant to be used directly, but as a building block for symmetric cryptography.
 
-const std = @import("std");
+const std = @import("../std.zig");
 const builtin = std.builtin;
 const debug = std.debug;
 const mem = std.mem;

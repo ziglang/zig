@@ -1,6 +1,6 @@
 //! A wrapper over a byte-slice, providing useful methods for parsing string floating point values.
 
-const std = @import("std");
+const std = @import("../../std.zig");
 const FloatStream = @This();
 const common = @import("common.zig");
 

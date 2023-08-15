@@ -2,7 +2,7 @@
 
 const BitStack = @This();
 
-const std = @import("std");
+const std = @import("std.zig");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 

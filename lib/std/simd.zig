@@ -3,7 +3,7 @@
 //! multiple elements at once.
 //! Please be aware that some functions are known to not work on MIPS.
 
-const std = @import("std");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 
 pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?usize {

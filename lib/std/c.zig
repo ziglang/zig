@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 const c = @This();
 const page_size = std.mem.page_size;

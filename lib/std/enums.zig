@@ -1,6 +1,6 @@
 //! This module contains utilities and data structures for working with enums.
 
-const std = @import("std");
+const std = @import("std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
 const EnumField = std.builtin.Type.EnumField;

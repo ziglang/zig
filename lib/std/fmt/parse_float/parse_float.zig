@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const parse = @import("parse.zig");
 const convertFast = @import("convert_fast.zig").convertFast;
 const convertEiselLemire = @import("convert_eisel_lemire.zig").convertEiselLemire;

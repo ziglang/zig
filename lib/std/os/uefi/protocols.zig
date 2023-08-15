@@ -46,5 +46,5 @@ pub usingnamespace @import("protocols/hii_popup_protocol.zig");
 
 test {
     @setEvalBranchQuota(2000);
-    @import("std").testing.refAllDeclsRecursive(@This());
+    @import("../../std.zig").testing.refAllDeclsRecursive(@This());
 }

@@ -5,7 +5,7 @@
 //!
 //! Parts of that code was ported from the BSD-licensed crypto/internal/bigmod/nat.go file in the Go language, itself inspired from BearSSL.
 
-const std = @import("std");
+const std = @import("../std.zig");
 const builtin = std.builtin;
 const crypto = std.crypto;
 const math = std.math;

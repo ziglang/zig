@@ -2,7 +2,7 @@ pub const parseFloat = @import("parse_float/parse_float.zig").parseFloat;
 pub const ParseFloatError = @import("parse_float/parse_float.zig").ParseFloatError;
 
 const builtin = @import("builtin");
-const std = @import("std");
+const std = @import("../std.zig");
 const math = std.math;
 const testing = std.testing;
 const expect = testing.expect;

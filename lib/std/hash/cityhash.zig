@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 
 inline fn offsetPtr(ptr: [*]const u8, offset: usize) [*]const u8 {
     // ptr + offset doesn't work at comptime so we need this instead.

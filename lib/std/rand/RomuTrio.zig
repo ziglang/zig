@@ -2,7 +2,7 @@
 // Reference paper:   http://arxiv.org/abs/2002.11331
 // Beware: this PRNG is trivially predictable. While fast, it should *never* be used for cryptographic purposes.
 
-const std = @import("std");
+const std = @import("../std.zig");
 const Random = std.rand.Random;
 const math = std.math;
 const RomuTrio = @This();

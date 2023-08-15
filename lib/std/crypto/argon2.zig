@@ -2,7 +2,7 @@
 // https://github.com/golang/crypto/tree/master/argon2
 // https://github.com/P-H-C/phc-winner-argon2
 
-const std = @import("std");
+const std = @import("../std.zig");
 const builtin = @import("builtin");
 
 const blake2 = crypto.hash.blake2;

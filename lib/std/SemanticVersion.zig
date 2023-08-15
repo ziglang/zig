@@ -2,7 +2,7 @@
 //!
 //! See: https://semver.org
 
-const std = @import("std");
+const std = @import("std.zig");
 const Version = @This();
 
 major: usize,

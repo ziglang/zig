@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const RingBuffer = std.RingBuffer;
 

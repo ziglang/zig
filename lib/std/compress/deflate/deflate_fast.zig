@@ -1,7 +1,7 @@
 // This encoding algorithm, which prioritizes speed over output size, is
 // based on Snappy's LZ77-style encoder: github.com/golang/snappy
 
-const std = @import("std");
+const std = @import("../../std.zig");
 const math = std.math;
 const mem = std.mem;
 

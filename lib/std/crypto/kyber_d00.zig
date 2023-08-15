@@ -102,7 +102,7 @@
 //   can just have a pointer in the private key to the public key, but
 //   how do we do this elegantly in Zig?
 
-const std = @import("std");
+const std = @import("../std.zig");
 const builtin = @import("builtin");
 
 const testing = std.testing;

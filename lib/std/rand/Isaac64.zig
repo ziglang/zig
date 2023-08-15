@@ -3,7 +3,7 @@
 //! Follows the general idea of the implementation from here with a few shortcuts.
 //! https://doc.rust-lang.org/rand/src/rand/prng/isaac64.rs.html
 
-const std = @import("std");
+const std = @import("../std.zig");
 const Random = std.rand.Random;
 const mem = std.mem;
 const Isaac64 = @This();
