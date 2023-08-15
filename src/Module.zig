@@ -148,6 +148,13 @@ stage1_flags: packed struct {
 
 job_queued_update_builtin_zig: bool = true,
 
+/// This is set to true when the root source file is within the lib/std directory.
+/// When this is true, the 'file exists in multiple packages' error is supressed
+/// for this module to allow for `zig test` to be run directly on files within the
+/// standard library. This is a (possibly temporary) workaround.
+/// See https://github.com/ziglang/zig/issues/14504
+main_path_in_std: bool,
+
 compile_log_text: ArrayListUnmanaged(u8) = .{},
 
 emit_h: ?*GlobalEmitH,
@@ -1680,7 +1687,7 @@ pub const File = struct {
             .import => |loc| loc.file_scope.pkg,
             .root => |pkg| pkg,
         };
-        if (pkg != file.pkg) file.multi_pkg = true;
+        if (pkg != file.pkg and !mod.main_path_in_std) file.multi_pkg = true;
     }
 
     /// Mark this file and every file referenced by it as multi_pkg and report an

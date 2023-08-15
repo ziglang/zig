@@ -1194,6 +1194,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             );
             errdefer builtin_pkg.destroy(gpa);
 
+            const main_path = try std.fs.path.resolve(arena, &[_][]const u8{
+                main_pkg.root_src_directory.path orelse ".",
+                main_pkg.root_src_path,
+            });
+            defer arena.free(main_path);
+
             // When you're testing std, the main module is std. In that case, we'll just set the std
             // module to the main one, since avoiding the errors caused by duplicating it is more
             // effort than it's worth.
@@ -1204,11 +1210,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                     "std.zig",
                 });
                 defer arena.free(std_path);
-                const main_path = try std.fs.path.resolve(arena, &[_][]const u8{
-                    main_pkg.root_src_directory.path orelse ".",
-                    main_pkg.root_src_path,
-                });
-                defer arena.free(main_path);
                 break :m mem.eql(u8, main_path, std_path);
             };
 
@@ -1223,6 +1224,20 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 );
 
             errdefer if (!main_pkg_is_std) std_pkg.destroy(gpa);
+
+            // Determine if the main package's root src is within lib/std, so that
+            // it can be used to suppress 'file exists in multiple packages' when running
+            // `zig test` on a (non-`std.zig`) file within the standard library.
+            // This is a (possibly temporary) workaround.
+            // See https://github.com/ziglang/zig/issues/14504
+            const main_path_in_std = !main_pkg_is_std and m: {
+                const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
+                    options.zig_lib_directory.path orelse ".",
+                    "std",
+                });
+                defer arena.free(std_path);
+                break :m mem.startsWith(u8, main_path, std_path);
+            };
 
             const root_pkg = if (options.is_test) root_pkg: {
                 const test_pkg = if (options.test_runner_path) |test_runner| test_pkg: {
@@ -1299,6 +1314,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .gpa = gpa,
                 .comp = comp,
                 .main_pkg = main_pkg,
+                .main_path_in_std = main_path_in_std,
                 .root_pkg = root_pkg,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .global_zir_cache = global_zir_cache,
