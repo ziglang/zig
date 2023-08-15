@@ -2674,9 +2674,13 @@ fn buildOutputType(
     // After this point, external_system_libs is used instead of system_libs.
 
     // Trigger native system library path detection if necessary.
-    if (sysroot == null and cross_target.isNativeOs() and cross_target.isNativeAbi() and
-        (external_system_libs.len != 0 or want_native_include_dirs))
-    {
+    const want_native_paths = blk: {
+        if (sysroot != null) break :blk false;
+        if (builtin.target.os.tag == .macos and cross_target.isDarwin()) break :blk true;
+        break :blk cross_target.isNativeOs() and cross_target.isNativeAbi() and
+            (external_system_libs.len != 0 or want_native_include_dirs);
+    };
+    if (want_native_paths) {
         const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
             fatal("unable to detect native system paths: {s}", .{@errorName(err)});
         };

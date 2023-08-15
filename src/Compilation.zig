@@ -4881,7 +4881,7 @@ fn detectLibCIncludeDirs(
 
     // If linking system libraries and targeting the native abi, default to
     // using the system libc installation.
-    if (is_native_abi and !target.isMinGW()) {
+    if ((is_native_abi and !target.isMinGW()) or (builtin.target.os.tag == .macos and target.isDarwin())) {
         const libc = try arena.create(LibCInstallation);
         libc.* = LibCInstallation.findNative(.{ .allocator = arena, .target = target }) catch |err| switch (err) {
             error.CCompilerExitCode,
