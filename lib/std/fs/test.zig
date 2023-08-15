@@ -300,7 +300,7 @@ test "readLinkAbsolute" {
 fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void {
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const given = try fs.readLinkAbsolute(symlink_path, buffer[0..]);
-    try testing.expect(mem.eql(u8, target_path, given));
+    try testing.expectEqualStrings(target_path, given);
 }
 
 test "Dir.Iterator" {
@@ -328,7 +328,7 @@ test "Dir.Iterator" {
         try entries.append(.{ .name = name, .kind = entry.kind });
     }
 
-    try testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
+    try testing.expectEqual(@as(usize, 2), entries.items.len); // note that the Iterator skips '.' and '..'
     try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .file }));
     try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .directory }));
 }
@@ -395,7 +395,7 @@ test "Dir.Iterator twice" {
             try entries.append(.{ .name = name, .kind = entry.kind });
         }
 
-        try testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
+        try testing.expectEqual(@as(usize, 2), entries.items.len); // note that the Iterator skips '.' and '..'
         try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .file }));
         try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .directory }));
     }
@@ -429,7 +429,7 @@ test "Dir.Iterator reset" {
             try entries.append(.{ .name = name, .kind = entry.kind });
         }
 
-        try testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
+        try testing.expectEqual(@as(usize, 2), entries.items.len); // note that the Iterator skips '.' and '..'
         try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .file }));
         try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .directory }));
 
@@ -542,7 +542,7 @@ test "readAllAlloc" {
 
     const buf1 = try file.readToEndAlloc(testing.allocator, 1024);
     defer testing.allocator.free(buf1);
-    try testing.expect(buf1.len == 0);
+    try testing.expectEqual(@as(usize, 0), buf1.len);
 
     const write_buf: []const u8 = "this is a test.\nthis is a test.\nthis is a test.\nthis is a test.\n";
     try file.writeAll(write_buf);
@@ -552,14 +552,14 @@ test "readAllAlloc" {
     const buf2 = try file.readToEndAlloc(testing.allocator, 1024);
     defer testing.allocator.free(buf2);
     try testing.expectEqual(write_buf.len, buf2.len);
-    try testing.expect(std.mem.eql(u8, write_buf, buf2));
+    try testing.expectEqualStrings(write_buf, buf2);
     try file.seekTo(0);
 
     // max_bytes == file_size
     const buf3 = try file.readToEndAlloc(testing.allocator, write_buf.len);
     defer testing.allocator.free(buf3);
     try testing.expectEqual(write_buf.len, buf3.len);
-    try testing.expect(std.mem.eql(u8, write_buf, buf3));
+    try testing.expectEqualStrings(write_buf, buf3);
     try file.seekTo(0);
 
     // max_bytes < file_size
@@ -586,7 +586,7 @@ test "directory operations on files" {
             // ensure the file still exists and is a file as a sanity check
             file = try ctx.dir.openFile(test_file_name, .{});
             const stat = try file.stat();
-            try testing.expect(stat.kind == .file);
+            try testing.expectEqual(File.Kind.file, stat.kind);
             file.close();
         }
     }.impl);
@@ -839,7 +839,7 @@ test "renameAbsolute" {
     try testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(test_file_name, .{}));
     file = try tmp_dir.dir.openFile(renamed_test_file_name, .{});
     const stat = try file.stat();
-    try testing.expect(stat.kind == .file);
+    try testing.expectEqual(File.Kind.file, stat.kind);
     file.close();
 
     // Renaming directories
@@ -1109,7 +1109,7 @@ test "sendfile" {
         .header_count = 2,
     });
     const amt = try dest_file.preadAll(&written_buf, 0);
-    try testing.expect(mem.eql(u8, written_buf[0..amt], "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
+    try testing.expectEqualStrings("header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n", written_buf[0..amt]);
 }
 
 test "copyRangeAll" {
@@ -1135,7 +1135,7 @@ test "copyRangeAll" {
     _ = try src_file.copyRangeAll(0, dest_file, 0, data.len);
 
     const amt = try dest_file.preadAll(&written_buf, 0);
-    try testing.expect(mem.eql(u8, written_buf[0..amt], data));
+    try testing.expectEqualStrings(data, written_buf[0..amt]);
 }
 
 test "copyFile" {
@@ -1185,7 +1185,7 @@ test "AtomicFile" {
             }
             const content = try ctx.dir.readFileAlloc(testing.allocator, test_out_file, 9999);
             defer testing.allocator.free(content);
-            try testing.expect(mem.eql(u8, content, test_content));
+            try testing.expectEqualStrings(test_content, content);
 
             try ctx.dir.deleteFile(test_out_file);
         }
@@ -1486,17 +1486,17 @@ test "chmod" {
 
     const file = try tmp.dir.createFile("test_file", .{ .mode = 0o600 });
     defer file.close();
-    try testing.expect((try file.stat()).mode & 0o7777 == 0o600);
+    try testing.expectEqual(@as(File.Mode, 0o600), (try file.stat()).mode & 0o7777);
 
     try file.chmod(0o644);
-    try testing.expect((try file.stat()).mode & 0o7777 == 0o644);
+    try testing.expectEqual(@as(File.Mode, 0o644), (try file.stat()).mode & 0o7777);
 
     try tmp.dir.makeDir("test_dir");
     var iterable_dir = try tmp.dir.openIterableDir("test_dir", .{});
     defer iterable_dir.close();
 
     try iterable_dir.chmod(0o700);
-    try testing.expect((try iterable_dir.dir.stat()).mode & 0o7777 == 0o700);
+    try testing.expectEqual(@as(File.Mode, 0o700), (try iterable_dir.dir.stat()).mode & 0o7777);
 }
 
 test "chown" {
@@ -1525,8 +1525,8 @@ test "File.Metadata" {
     defer file.close();
 
     const metadata = try file.metadata();
-    try testing.expect(metadata.kind() == .file);
-    try testing.expect(metadata.size() == 0);
+    try testing.expectEqual(File.Kind.file, metadata.kind());
+    try testing.expectEqual(@as(u64, 0), metadata.size());
     _ = metadata.accessed();
     _ = metadata.modified();
     _ = metadata.created();
