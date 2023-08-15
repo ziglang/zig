@@ -77,6 +77,8 @@ max_stdio_size: usize = 10 * 1024 * 1024,
 captured_stdout: ?*Output = null,
 captured_stderr: ?*Output = null,
 
+dep_output_file: ?*Output = null,
+
 has_side_effects: bool = false,
 
 pub const StdIn = union(enum) {
@@ -238,6 +240,33 @@ pub fn addPrefixedDirectoryArg(self: *Run, prefix: []const u8, directory_source:
     };
     self.argv.append(.{ .directory_source = prefixed_directory_source }) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
+}
+
+/// Add a path argument to a dep file (.d) for the child process to write its
+/// discovered additional dependencies.
+/// Only one dep file argument is allowed by instance.
+pub fn addDepFileOutputArg(self: *Run, basename: []const u8) std.Build.LazyPath {
+    return self.addPrefixedDepFileOutputArg("", basename);
+}
+
+/// Add a prefixed path argument to a dep file (.d) for the child process to
+/// write its discovered additional dependencies.
+/// Only one dep file argument is allowed by instance.
+pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []const u8) void {
+    assert(self.dep_output_file == null);
+
+    const b = self.step.owner;
+
+    const dep_file = b.allocator.create(Output) catch @panic("OOM");
+    dep_file.* = .{
+        .prefix = b.dupe(prefix),
+        .basename = b.dupe(basename),
+        .generated_file = .{ .step = &self.step },
+    };
+
+    self.dep_output_file = dep_file;
+
+    self.argv.append(.{ .output = dep_file }) catch @panic("OOM");
 }
 
 pub fn addArg(self: *Run, arg: []const u8) void {
@@ -558,6 +587,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     try runCommand(self, argv_list.items, has_side_effects, &digest, prog_node);
+
+    if (self.dep_output_file) |dep_output_file|
+        try man.addDepFilePost(std.fs.cwd(), dep_output_file.generated_file.getPath());
 
     try step.writeManifest(&man);
 }

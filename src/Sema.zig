@@ -25208,7 +25208,7 @@ fn panicWithMsg(sema: *Sema, block: *Block, src: LazySrcLoc, msg_inst: Air.Inst.
     try sema.prepareSimplePanic(block);
 
     const panic_func = mod.funcInfo(mod.panic_func_index);
-    const panic_fn = try sema.analyzeDeclVal(block, .unneeded, panic_func.owner_decl);
+    const panic_fn = try sema.analyzeDeclVal(block, src, panic_func.owner_decl);
     const null_stack_trace = Air.internedToRef(mod.null_stack_trace);
 
     const opt_usize_ty = try mod.optionalType(.usize_type);
@@ -30708,7 +30708,15 @@ fn addReferencedBy(
     src: LazySrcLoc,
     decl_index: Decl.Index,
 ) !void {
-    if (sema.mod.comp.reference_trace == @as(u32, 0)) return;
+    if (sema.mod.comp.reference_trace == 0) return;
+    if (src == .unneeded) {
+        // We can't use NeededSourceLocation, since sites handling that assume it means a compile
+        // error. Our long-term strategy here is to gradually transition from NeededSourceLocation
+        // into having more LazySrcLoc tags. In the meantime, let release compilers just ignore this
+        // reference (a slightly-incomplete error is better than a crash!), but trigger a panic in
+        // debug so we can fix this case.
+        if (std.debug.runtime_safety) unreachable else return;
+    }
     try sema.mod.reference_table.put(sema.gpa, decl_index, .{
         .referencer = block.src_decl,
         .src = src,
