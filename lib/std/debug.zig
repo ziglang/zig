@@ -1228,7 +1228,7 @@ pub fn readElfDebugInfo(
                 }
 
                 var cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-                const cwd_path = fs.cwd().realpath("", &cwd_buf) catch break :blk;
+                const cwd_path = os.realpath(".", &cwd_buf) catch break :blk;
 
                 // <global debug directory>/<absolute folder of current binary>/<gnu_debuglink>
                 for (global_debug_directories) |global_directory| {
