@@ -619,10 +619,10 @@ pub const Response = struct {
         }
     }
 
-    pub fn writeAll(req: *Response, bytes: []const u8) WriteError!void {
+    pub fn writeAll(res: *Response, bytes: []const u8) WriteError!void {
         var index: usize = 0;
         while (index < bytes.len) {
-            index += try write(req, bytes[index..]);
+            index += try write(res, bytes[index..]);
         }
     }
 
