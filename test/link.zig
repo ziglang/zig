@@ -157,6 +157,10 @@ pub const cases = [_]Case{
         .import = @import("link/macho/pagezero/build.zig"),
     },
     .{
+        .build_root = "test/link/macho/reexports",
+        .import = @import("link/macho/reexports/build.zig"),
+    },
+    .{
         .build_root = "test/link/macho/search_strategy",
         .import = @import("link/macho/search_strategy/build.zig"),
     },

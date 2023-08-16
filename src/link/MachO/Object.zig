@@ -718,7 +718,7 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
     }
 
     try self.eh_frame_relocs_lookup.ensureTotalCapacity(gpa, record_count);
-    try self.eh_frame_records_lookup.ensureTotalCapacity(gpa, record_count);
+    try self.eh_frame_records_lookup.ensureUnusedCapacity(gpa, record_count);
 
     it.reset();
 
@@ -768,11 +768,28 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
                     else => unreachable,
                 }
             };
-            log.debug("FDE at offset {x} tracks {s}", .{ offset, zld.getSymbolName(target) });
             if (target.getFile() != object_id) {
+                log.debug("FDE at offset {x} marked DEAD", .{offset});
                 self.eh_frame_relocs_lookup.getPtr(offset).?.dead = true;
             } else {
-                self.eh_frame_records_lookup.putAssumeCapacityNoClobber(target, offset);
+                // You would think that we are done but turns out that the compilers may use
+                // whichever symbol alias they want for a target symbol. This in particular
+                // very problematic when using Zig's @export feature to re-export symbols under
+                // additional names. For that reason, we need to ensure we record aliases here
+                // too so that we can tie them with their matching unwind records and vice versa.
+                const aliases = self.getSymbolAliases(target.sym_index);
+                var i: u32 = 0;
+                while (i < aliases.len) : (i += 1) {
+                    const actual_target = SymbolWithLoc{
+                        .sym_index = i + aliases.start,
+                        .file = target.file,
+                    };
+                    log.debug("FDE at offset {x} tracks {s}", .{
+                        offset,
+                        zld.getSymbolName(actual_target),
+                    });
+                    try self.eh_frame_records_lookup.putNoClobber(gpa, actual_target, offset);
+                }
             }
         }
     }
@@ -803,7 +820,7 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
 
     const unwind_records = self.getUnwindRecords();
 
-    try self.unwind_records_lookup.ensureTotalCapacity(gpa, @as(u32, @intCast(unwind_records.len)));
+    try self.unwind_records_lookup.ensureUnusedCapacity(gpa, @as(u32, @intCast(unwind_records.len)));
 
     const needs_eh_frame = for (unwind_records) |record| {
         if (UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) break true;
@@ -839,11 +856,28 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
             .code = mem.asBytes(&record),
             .base_offset = @as(i32, @intCast(offset)),
         });
-        log.debug("unwind record {d} tracks {s}", .{ record_id, zld.getSymbolName(target) });
         if (target.getFile() != object_id) {
+            log.debug("unwind record {d} marked DEAD", .{record_id});
             self.unwind_relocs_lookup[record_id].dead = true;
         } else {
-            self.unwind_records_lookup.putAssumeCapacityNoClobber(target, @as(u32, @intCast(record_id)));
+            // You would think that we are done but turns out that the compilers may use
+            // whichever symbol alias they want for a target symbol. This in particular
+            // very problematic when using Zig's @export feature to re-export symbols under
+            // additional names. For that reason, we need to ensure we record aliases here
+            // too so that we can tie them with their matching unwind records and vice versa.
+            const aliases = self.getSymbolAliases(target.sym_index);
+            var i: u32 = 0;
+            while (i < aliases.len) : (i += 1) {
+                const actual_target = SymbolWithLoc{
+                    .sym_index = i + aliases.start,
+                    .file = target.file,
+                };
+                log.debug("unwind record {d} tracks {s}", .{
+                    record_id,
+                    zld.getSymbolName(actual_target),
+                });
+                try self.unwind_records_lookup.putNoClobber(gpa, actual_target, @intCast(record_id));
+            }
         }
     }
 }
@@ -991,6 +1025,18 @@ pub fn getSymbolName(self: Object, index: u32) []const u8 {
     return strtab[start..][0 .. len - 1 :0];
 }
 
+fn getSymbolAliases(self: Object, index: u32) Entry {
+    const addr = self.source_address_lookup[index];
+    var start = index;
+    while (start > 0 and
+        self.source_address_lookup[start - 1] == addr) : (start -= 1)
+    {}
+    const end: u32 = for (self.source_address_lookup[start..], start..) |saddr, i| {
+        if (saddr != addr) break @as(u32, @intCast(i));
+    } else @as(u32, @intCast(self.source_address_lookup.len));
+    return .{ .start = start, .len = end - start };
+}
+
 pub fn getSymbolByAddress(self: Object, addr: u64, sect_hint: ?u8) u32 {
     // Find containing atom
     const Predicate = struct {
@@ -1012,11 +1058,8 @@ pub fn getSymbolByAddress(self: Object, addr: u64, sect_hint: ?u8) u32 {
             if (target_sym_index > 0) {
                 // Hone in on the most senior alias of the target symbol.
                 // See SymbolAtIndex.lessThan for more context.
-                var start = target_sym_index - 1;
-                while (start > 0 and
-                    self.source_address_lookup[lookup.start..][start - 1] == addr) : (start -= 1)
-                {}
-                return @as(u32, @intCast(lookup.start + start));
+                const aliases = self.getSymbolAliases(@intCast(lookup.start + target_sym_index - 1));
+                return aliases.start;
             }
         }
         return self.getSectionAliasSymbolIndex(sect_id);
