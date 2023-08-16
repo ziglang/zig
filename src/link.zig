@@ -285,7 +285,7 @@ pub const Options = struct {
 
 pub const HashStyle = enum { sysv, gnu, both };
 
-pub const CompressDebugSections = enum { none, zlib };
+pub const CompressDebugSections = enum { none, zlib, zstd };
 
 pub const File = struct {
     tag: Tag,
