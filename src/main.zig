@@ -1163,9 +1163,13 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-idirafter")) {
                         try cssan.addIncludePath(.idirafter, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-iframework")) {
-                        try cssan.addIncludePath(.iframework, arg, args_iter.nextOrFatal(), false);
+                        const path = args_iter.nextOrFatal();
+                        try cssan.addIncludePath(.iframework, arg, path, false);
+                        try framework_dirs.append(path); // Forward to the backend as -F
                     } else if (mem.eql(u8, arg, "-iframeworkwithsysroot")) {
-                        try cssan.addIncludePath(.iframeworkwithsysroot, arg, args_iter.nextOrFatal(), false);
+                        const path = args_iter.nextOrFatal();
+                        try cssan.addIncludePath(.iframeworkwithsysroot, arg, path, false);
+                        try framework_dirs.append(path); // Forward to the backend as -F
                     } else if (mem.eql(u8, arg, "--version")) {
                         const next_arg = args_iter.nextOrFatal();
                         version = std.SemanticVersion.parse(next_arg) catch |err| {
