@@ -965,6 +965,7 @@ fn buildFlexibleArrayFn(
     field_decl: *const clang.FieldDecl,
 ) TypeError!Node {
     const field_qt = field_decl.getType();
+    const field_qt_canon = qualTypeCanon(field_qt);
 
     const u8_type = try Tag.type.create(c.arena, "u8");
     const self_param_name = "self";
@@ -979,7 +980,7 @@ fn buildFlexibleArrayFn(
         .is_noalias = false,
     };
 
-    const array_type = @as(*const clang.ArrayType, @ptrCast(field_qt.getTypePtr()));
+    const array_type = @as(*const clang.ArrayType, @ptrCast(field_qt_canon));
     const element_qt = array_type.getElementType();
     const element_type = try transQualType(c, scope, element_qt, field_decl.getLocation());
 
