@@ -539,6 +539,7 @@ const usage_build_generic =
     \\  --compress-debug-sections=[e]  Debug section compression settings
     \\      none                       No compression
     \\      zlib                       Compression with deflate/inflate
+    \\      zstd                       Compression with zstandard
     \\  --gc-sections                  Force removal of functions and data that are unreachable by the entry point or exported symbols
     \\  --no-gc-sections               Don't force removal of unreachable functions and data
     \\  --sort-section=[value]         Sort wildcard section patterns by 'name' or 'alignment'
@@ -1110,7 +1111,7 @@ fn buildOutputType(
                     } else if (mem.startsWith(u8, arg, "--compress-debug-sections=")) {
                         const param = arg["--compress-debug-sections=".len..];
                         linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, param) orelse {
-                            fatal("expected --compress-debug-sections=[none|zlib], found '{s}'", .{param});
+                            fatal("expected --compress-debug-sections=[none|zlib|zstd], found '{s}'", .{param});
                         };
                     } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
                         linker_compress_debug_sections = link.CompressDebugSections.zlib;
@@ -1986,7 +1987,7 @@ fn buildOutputType(
                             linker_compress_debug_sections = .zlib;
                         } else {
                             linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, it.only_arg) orelse {
-                                fatal("expected [none|zlib] after --compress-debug-sections, found '{s}'", .{it.only_arg});
+                                fatal("expected [none|zlib|zstd] after --compress-debug-sections, found '{s}'", .{it.only_arg});
                             };
                         }
                     },
@@ -2139,7 +2140,7 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
                     const arg1 = linker_args_it.nextOrFatal();
                     linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, arg1) orelse {
-                        fatal("expected [none|zlib] after --compress-debug-sections, found '{s}'", .{arg1});
+                        fatal("expected [none|zlib|zstd] after --compress-debug-sections, found '{s}'", .{arg1});
                     };
                 } else if (mem.startsWith(u8, arg, "-z")) {
                     var z_arg = arg[2..];

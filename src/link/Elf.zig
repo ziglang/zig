@@ -2230,6 +2230,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         switch (self.base.options.compress_debug_sections) {
             .none => {},
             .zlib => try argv.append("--compress-debug-sections=zlib"),
+            .zstd => try argv.append("--compress-debug-sections=zstd"),
         }
 
         if (self.base.options.bind_global_refs_locally) {

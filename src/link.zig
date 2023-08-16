@@ -281,7 +281,7 @@ pub const Options = struct {
 
 pub const HashStyle = enum { sysv, gnu, both };
 
-pub const CompressDebugSections = enum { none, zlib };
+pub const CompressDebugSections = enum { none, zlib, zstd };
 
 /// The filesystem layout of darwin SDK elements.
 pub const DarwinSdkLayout = enum {
