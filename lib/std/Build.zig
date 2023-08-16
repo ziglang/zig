@@ -414,7 +414,12 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                 }) catch @panic("OOM");
                 user_input_options.put("cpu", .{
                     .name = "cpu",
-                    .value = .{ .scalar = serializeCpu(allocator, v.getCpu()) catch unreachable },
+                    .value = .{
+                        .scalar = if (v.isNativeCpu())
+                            "native"
+                        else
+                            serializeCpu(allocator, v.getCpu()) catch unreachable,
+                    },
                     .used = false,
                 }) catch @panic("OOM");
             },
