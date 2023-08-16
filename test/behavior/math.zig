@@ -417,6 +417,11 @@ test "division" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
+        // https://github.com/ziglang/zig/issues/16846
+        return error.SkipZigTest;
+    }
+
     try testDivision();
     try comptime testDivision();
 }
@@ -590,6 +595,11 @@ fn negateWrap(comptime T: type, x: T) T {
 test "unsigned 64-bit division" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
+        // https://github.com/ziglang/zig/issues/16846
+        return error.SkipZigTest;
+    }
 
     try test_u64_div();
     try comptime test_u64_div();
@@ -1351,6 +1361,13 @@ test "float remainder division using @rem" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
+    if (builtin.zig_backend == .stage2_llvm and
+        (builtin.cpu.arch == .powerpc64le or builtin.cpu.arch == .aarch64))
+    {
+        // https://github.com/ziglang/zig/issues/16844
+        return error.SkipZigTest;
+    }
+
     try comptime frem(f16);
     try comptime frem(f32);
     try comptime frem(f64);
@@ -1393,6 +1410,13 @@ test "float modulo division using @mod" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_llvm and
+        (builtin.cpu.arch == .powerpc64le or builtin.cpu.arch == .aarch64))
+    {
+        // https://github.com/ziglang/zig/issues/16844
+        return error.SkipZigTest;
+    }
 
     try comptime fmod(f16);
     try comptime fmod(f32);
@@ -1459,6 +1483,13 @@ test "@round f80" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_llvm and
+        (builtin.cpu.arch == .powerpc64le or builtin.cpu.arch == .aarch64))
+    {
+        // https://github.com/ziglang/zig/issues/16844
+        return error.SkipZigTest;
+    }
+
     try testRound(f80, 12.0);
     try comptime testRound(f80, 12.0);
 }
@@ -1471,6 +1502,13 @@ test "@round f128" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_llvm and
+        (builtin.cpu.arch == .powerpc64le or builtin.cpu.arch == .aarch64))
+    {
+        // https://github.com/ziglang/zig/issues/16844
+        return error.SkipZigTest;
+    }
 
     try testRound(f128, 12.0);
     try comptime testRound(f128, 12.0);

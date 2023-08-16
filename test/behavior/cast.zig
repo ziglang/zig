@@ -1155,6 +1155,11 @@ fn foobar(func: PFN_void) !void {
 }
 
 test "cast function with an opaque parameter" {
+    if (builtin.zig_backend == .stage2_c) {
+        // https://github.com/ziglang/zig/issues/16845
+        return error.SkipZigTest;
+    }
+
     const Container = struct {
         const Ctx = opaque {};
         ctx: *Ctx,

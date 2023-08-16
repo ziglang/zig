@@ -104,6 +104,13 @@ test "vector float operators" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_llvm and
+        (builtin.cpu.arch == .powerpc64le or builtin.cpu.arch == .aarch64))
+    {
+        // https://github.com/ziglang/zig/issues/16844
+        return error.SkipZigTest;
+    }
+
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         const S = struct {
             fn doTheTest() !void {

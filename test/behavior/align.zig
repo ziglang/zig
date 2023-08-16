@@ -546,11 +546,15 @@ test "align(N) on functions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    // This is not supported on MSVC
+    if (builtin.zig_backend == .stage2_c) {
+        // https://github.com/ziglang/zig/issues/16845
+        return error.SkipZigTest;
+    }
+
     if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) {
+        // This is not supported on MSVC.
         return error.SkipZigTest;
     }
 
