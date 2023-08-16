@@ -3085,6 +3085,74 @@ fn walkInstruction(
                 .expr = .{ .call = call_slot_index },
             };
         },
+        .field_call => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.FieldCall, pl_node.payload_index);
+
+            const obj_ptr = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.obj_ptr,
+                need_type,
+                call_ctx,
+            );
+
+            var field_call = try self.arena.alloc(DocData.Expr, 2);
+            field_call[0] = obj_ptr.expr;
+            field_call[1] = .{ .declName = file.zir.nullTerminatedString(extra.data.field_name_start) };
+
+            try self.tryResolveRefPath(file, inst_index, field_call);
+            if (field_call[1] == .declName and obj_ptr.typeRef != null) {
+                field_call[0] = obj_ptr.typeRef.?;
+                field_call[1] = .{ .declName = file.zir.nullTerminatedString(extra.data.field_name_start) };
+                try self.tryResolveRefPath(file, inst_index, field_call);
+                field_call[0] = obj_ptr.expr;
+            }
+
+            const args_len = extra.data.flags.args_len;
+            var args = try self.arena.alloc(DocData.Expr, args_len);
+            const body = file.zir.extra[extra.end..];
+
+            var i: usize = 0;
+            while (i < args_len) : (i += 1) {
+                const arg_end = file.zir.extra[extra.end + i];
+                const break_index = body[arg_end - 1];
+                const ref = data[break_index].@"break".operand;
+                // TODO: consider toggling need_type to true if we ever want
+                //       to show discrepancies between the types of provided
+                //       arguments and the types declared in the function
+                //       signature for its parameters.
+                const wr = try self.walkRef(
+                    file,
+                    parent_scope,
+                    parent_src,
+                    ref,
+                    false,
+                    &.{
+                        .inst = inst_index,
+                        .prev = call_ctx,
+                    },
+                );
+                args[i] = wr.expr;
+            }
+
+            const cte_slot_index = self.comptime_exprs.items.len;
+            try self.comptime_exprs.append(self.arena, .{
+                .code = "field call",
+            });
+
+            const call_slot_index = self.calls.items.len;
+            try self.calls.append(self.arena, .{
+                .func = .{ .refPath = field_call },
+                .args = args,
+                .ret = .{ .comptimeExpr = cte_slot_index },
+            });
+
+            return DocData.WalkResult{
+                .expr = .{ .call = call_slot_index },
+            };
+        },
         .func, .func_inferred => {
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{ .Unanalyzed = .{} });
