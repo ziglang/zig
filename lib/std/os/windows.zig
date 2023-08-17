@@ -2343,25 +2343,26 @@ pub const NamespacePrefix = enum {
     nt,
 };
 
+/// If `T` is `u16`, then `path` should be encoded as UTF-16LE.
 pub fn getNamespacePrefix(comptime T: type, path: []const T) NamespacePrefix {
     if (path.len < 4) return .none;
-    var all_backslash = switch (path[0]) {
+    var all_backslash = switch (mem.littleToNative(T, path[0])) {
         '\\' => true,
         '/' => false,
         else => return .none,
     };
-    all_backslash = all_backslash and switch (path[3]) {
+    all_backslash = all_backslash and switch (mem.littleToNative(T, path[3])) {
         '\\' => true,
         '/' => false,
         else => return .none,
     };
-    switch (path[1]) {
-        '?' => if (path[2] == '?' and all_backslash) return .nt else return .none,
+    switch (mem.littleToNative(T, path[1])) {
+        '?' => if (mem.littleToNative(T, path[2]) == '?' and all_backslash) return .nt else return .none,
         '\\' => {},
         '/' => all_backslash = false,
         else => return .none,
     }
-    return switch (path[2]) {
+    return switch (mem.littleToNative(T, path[2])) {
         '?' => if (all_backslash) .verbatim else .fake_verbatim,
         '.' => .local_device,
         else => .none,
@@ -2396,6 +2397,7 @@ pub const UnprefixedPathType = enum {
 
 /// Get the path type of a path that is known to not have any namespace prefixes
 /// (`\\?\`, `\\.\`, `\??\`).
+/// If `T` is `u16`, then `path` should be encoded as UTF-16LE.
 pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathType {
     if (path.len < 1) return .relative;
 
@@ -2404,18 +2406,18 @@ pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathTy
     }
 
     const windows_path = std.fs.path.PathType.windows;
-    if (windows_path.isSep(T, path[0])) {
+    if (windows_path.isSep(T, mem.littleToNative(T, path[0]))) {
         // \x
-        if (path.len < 2 or !windows_path.isSep(T, path[1])) return .rooted;
+        if (path.len < 2 or !windows_path.isSep(T, mem.littleToNative(T, path[1]))) return .rooted;
         // exactly \\. or \\? with nothing trailing
-        if (path.len == 3 and (path[2] == '.' or path[2] == '?')) return .root_local_device;
+        if (path.len == 3 and (mem.littleToNative(T, path[2]) == '.' or mem.littleToNative(T, path[2]) == '?')) return .root_local_device;
         // \\x
         return .unc_absolute;
     } else {
         // x
-        if (path.len < 2 or path[1] != ':') return .relative;
+        if (path.len < 2 or mem.littleToNative(T, path[1]) != ':') return .relative;
         // x:\
-        if (path.len > 2 and windows_path.isSep(T, path[2])) return .drive_absolute;
+        if (path.len > 2 and windows_path.isSep(T, mem.littleToNative(T, path[2]))) return .drive_absolute;
         // x:
         return .drive_relative;
     }
@@ -2448,6 +2450,8 @@ test getUnprefixedPathType {
 ///
 /// Functionality is based on the ReactOS test cases found here:
 /// https://github.com/reactos/reactos/blob/master/modules/rostests/apitests/ntdll/RtlNtPathNameToDosPathName.c
+///
+/// `path` should be encoded as UTF-16LE.
 pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
     if (path.len > PATH_MAX_WIDE) return error.NameTooLong;
 
@@ -2463,9 +2467,11 @@ pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
             //       it's unlikely to matter since most/all paths passed into this
             //       function will have come from the OS meaning it should have
             //       the 'canonical' uppercase UNC.
-            const is_unc = after_prefix.len >= 4 and std.mem.eql(u16, after_prefix[0..3], std.unicode.utf8ToUtf16LeStringLiteral("UNC")) and std.fs.path.PathType.windows.isSep(u16, after_prefix[3]);
+            const is_unc = after_prefix.len >= 4 and
+                std.mem.eql(u16, after_prefix[0..3], std.unicode.utf8ToUtf16LeStringLiteral("UNC")) and
+                std.fs.path.PathType.windows.isSep(u16, std.mem.littleToNative(u16, after_prefix[3]));
             if (is_unc) {
-                path_space.data[0] = '\\';
+                path_space.data[0] = comptime std.mem.nativeToLittle(u16, '\\');
                 dest_index += 1;
                 // We want to include the last `\` of `\??\UNC\`
                 after_prefix = path[7..];
