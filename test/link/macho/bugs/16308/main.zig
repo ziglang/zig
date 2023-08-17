@@ -1,0 +1,1 @@
+fn abc() void {}

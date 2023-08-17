@@ -318,6 +318,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
 
             const opcode = try stream.reader().readByte();
             if (options.call_frame_context and !isOpcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
+            const operand = try readOperand(stream, opcode, context);
             switch (opcode) {
 
                 // 2.5.1.1: Literal Encodings
@@ -333,10 +334,10 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.const8s,
                 OP.constu,
                 OP.consts,
-                => try self.stack.append(allocator, .{ .generic = (try readOperand(stream, opcode, context)).?.generic }),
+                => try self.stack.append(allocator, .{ .generic = operand.?.generic }),
 
                 OP.const_type => {
-                    const const_type = (try readOperand(stream, opcode, context)).?.const_type;
+                    const const_type = operand.?.const_type;
                     try self.stack.append(allocator, .{ .const_type = .{
                         .type_offset = const_type.type_offset,
                         .value_bytes = const_type.value_bytes,
@@ -348,7 +349,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 => {
                     if (context.compile_unit == null) return error.IncompleteExpressionContext;
                     if (context.debug_addr == null) return error.IncompleteExpressionContext;
-                    const debug_addr_index = (try readOperand(stream, opcode, context)).?.generic;
+                    const debug_addr_index = operand.?.generic;
                     const offset = context.compile_unit.?.addr_base + debug_addr_index;
                     if (offset >= context.debug_addr.?.len) return error.InvalidExpression;
                     const value = mem.readIntSliceNative(usize, context.debug_addr.?[offset..][0..@sizeOf(usize)]);
@@ -360,7 +361,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     if (context.compile_unit == null) return error.IncompleteExpressionContext;
                     if (context.compile_unit.?.frame_base == null) return error.IncompleteExpressionContext;
 
-                    const offset: i64 = @intCast((try readOperand(stream, opcode, context)).?.generic);
+                    const offset: i64 = @intCast(operand.?.generic);
                     _ = offset;
 
                     switch (context.compile_unit.?.frame_base.?.*) {
@@ -384,7 +385,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 => {
                     if (context.thread_context == null) return error.IncompleteExpressionContext;
 
-                    const base_register = (try readOperand(stream, opcode, context)).?.base_register;
+                    const base_register = operand.?.base_register;
                     var value: i64 = @intCast(mem.readIntSliceNative(usize, try abi.regBytes(
                         context.thread_context.?,
                         base_register.base_register,
@@ -394,7 +395,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     try self.stack.append(allocator, .{ .generic = @intCast(value) });
                 },
                 OP.regval_type => {
-                    const register_type = (try readOperand(stream, opcode, context)).?.register_type;
+                    const register_type = operand.?.register_type;
                     const value = mem.readIntSliceNative(usize, try abi.regBytes(
                         context.thread_context.?,
                         register_type.register,
@@ -418,7 +419,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     _ = self.stack.pop();
                 },
                 OP.pick, OP.over => {
-                    const stack_index = if (opcode == OP.over) 1 else (try readOperand(stream, opcode, context)).?.generic;
+                    const stack_index = if (opcode == OP.over) 1 else operand.?.generic;
                     if (stack_index >= self.stack.items.len) return error.InvalidExpression;
                     try self.stack.append(allocator, self.stack.items[self.stack.items.len - 1 - stack_index]);
                 },
@@ -459,8 +460,6 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     _ = addr_space_identifier;
 
                     if (context.isValidMemory) |isValidMemory| if (!isValidMemory(addr)) return error.InvalidExpression;
-
-                    const operand = try readOperand(stream, opcode, context);
                     const size = switch (opcode) {
                         OP.deref,
                         OP.xderef,
@@ -594,7 +593,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.plus_uconst => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const constant = (try readOperand(stream, opcode, context)).?.generic;
+                    const constant = operand.?.generic;
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = try std.math.add(addr_type, try self.stack.items[self.stack.items.len - 1].asIntegral(), constant),
                     };
@@ -663,7 +662,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     }
                 },
                 OP.skip, OP.bra => {
-                    const branch_offset = (try readOperand(stream, opcode, context)).?.branch_offset;
+                    const branch_offset = operand.?.branch_offset;
                     const condition = if (opcode == OP.bra) blk: {
                         if (self.stack.items.len == 0) return error.InvalidExpression;
                         break :blk try self.stack.pop().asIntegral() != 0;
@@ -683,7 +682,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.call4,
                 OP.call_ref,
                 => {
-                    const debug_info_offset = (try readOperand(stream, opcode, context)).?.generic;
+                    const debug_info_offset = operand.?.generic;
                     _ = debug_info_offset;
 
                     // TODO: Load a DIE entry at debug_info_offset in a .debug_info section (the spec says that it
@@ -696,7 +695,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 // 2.5.1.6: Type Conversions
                 OP.convert => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const type_offset = (try readOperand(stream, opcode, context)).?.generic;
+                    const type_offset = operand.?.generic;
 
                     // TODO: Load the DW_TAG_base_type entries in context.compile_unit and verify both types are the same size
                     const value = self.stack.items[self.stack.items.len - 1];
@@ -710,7 +709,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.reinterpret => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
-                    const type_offset = (try readOperand(stream, opcode, context)).?.generic;
+                    const type_offset = operand.?.generic;
 
                     // TODO: Load the DW_TAG_base_type entries in context.compile_unit and verify both types are the same size
                     const value = self.stack.items[self.stack.items.len - 1];
@@ -745,7 +744,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 // 2.5.1.7: Special Operations
                 OP.nop => {},
                 OP.entry_value => {
-                    const block = (try readOperand(stream, opcode, context)).?.block;
+                    const block = operand.?.block;
                     if (block.len == 0) return error.InvalidSubExpression;
 
                     // TODO: The spec states that this sub-expression needs to observe the state (ie. registers)

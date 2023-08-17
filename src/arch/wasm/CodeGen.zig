@@ -3675,8 +3675,9 @@ fn airStructFieldPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const extra = func.air.extraData(Air.StructField, ty_pl.payload);
 
     const struct_ptr = try func.resolveInst(extra.data.struct_operand);
-    const struct_ty = func.typeOf(extra.data.struct_operand).childType(mod);
-    const result = try func.structFieldPtr(inst, extra.data.struct_operand, struct_ptr, struct_ty, extra.data.field_index);
+    const struct_ptr_ty = func.typeOf(extra.data.struct_operand);
+    const struct_ty = struct_ptr_ty.childType(mod);
+    const result = try func.structFieldPtr(inst, extra.data.struct_operand, struct_ptr, struct_ptr_ty, struct_ty, extra.data.field_index);
     func.finishAir(inst, result, &.{extra.data.struct_operand});
 }
 
@@ -3684,9 +3685,10 @@ fn airStructFieldPtrIndex(func: *CodeGen, inst: Air.Inst.Index, index: u32) Inne
     const mod = func.bin_file.base.options.module.?;
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
     const struct_ptr = try func.resolveInst(ty_op.operand);
-    const struct_ty = func.typeOf(ty_op.operand).childType(mod);
+    const struct_ptr_ty = func.typeOf(ty_op.operand);
+    const struct_ty = struct_ptr_ty.childType(mod);
 
-    const result = try func.structFieldPtr(inst, ty_op.operand, struct_ptr, struct_ty, index);
+    const result = try func.structFieldPtr(inst, ty_op.operand, struct_ptr, struct_ptr_ty, struct_ty, index);
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
@@ -3695,18 +3697,21 @@ fn structFieldPtr(
     inst: Air.Inst.Index,
     ref: Air.Inst.Ref,
     struct_ptr: WValue,
+    struct_ptr_ty: Type,
     struct_ty: Type,
     index: u32,
 ) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
     const result_ty = func.typeOfIndex(inst);
+    const struct_ptr_ty_info = struct_ptr_ty.ptrInfo(mod);
+
     const offset = switch (struct_ty.containerLayout(mod)) {
         .Packed => switch (struct_ty.zigTypeTag(mod)) {
             .Struct => offset: {
                 if (result_ty.ptrInfo(mod).packed_offset.host_size != 0) {
                     break :offset @as(u32, 0);
                 }
-                break :offset struct_ty.packedStructFieldByteOffset(index, mod);
+                break :offset struct_ty.packedStructFieldByteOffset(index, mod) + @divExact(struct_ptr_ty_info.packed_offset.bit_offset, 8);
             },
             .Union => 0,
             else => unreachable,

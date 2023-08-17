@@ -62,7 +62,6 @@ pub const simple_cases = [_]SimpleCase{
 
     // Ensure the development tools are buildable. Alphabetically sorted.
     // No need to build `tools/spirv/grammar.zig`.
-    .{ .src_path = "tools/extract-grammar.zig" },
     .{ .src_path = "tools/gen_outline_atomics.zig" },
     .{ .src_path = "tools/gen_spirv_spec.zig" },
     .{ .src_path = "tools/gen_stubs.zig" },
@@ -152,6 +151,10 @@ pub const build_cases = [_]BuildCase{
     //    .import = @import("standalone/issue_12588/build.zig"),
     //},
     .{
+        .build_root = "test/standalone/child_process",
+        .import = @import("standalone/child_process/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/embed_generated_file",
         .import = @import("standalone/embed_generated_file/build.zig"),
     },
@@ -237,6 +240,10 @@ pub const build_cases = [_]BuildCase{
     .{
         .build_root = "test/standalone/coff_dwarf",
         .import = @import("standalone/coff_dwarf/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/compiler_rt_panic",
+        .import = @import("standalone/compiler_rt_panic/build.zig"),
     },
 };
 

@@ -26,7 +26,7 @@ gpa: Allocator,
 /// List of all unwind records gathered from all objects and sorted
 /// by source function address.
 records: std.ArrayListUnmanaged(macho.compact_unwind_entry) = .{},
-records_lookup: std.AutoHashMapUnmanaged(AtomIndex, RecordIndex) = .{},
+records_lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, RecordIndex) = .{},
 
 /// List of all personalities referenced by either unwind info entries
 /// or __eh_frame entries.
@@ -211,23 +211,22 @@ pub fn scanRelocs(zld: *Zld) !void {
     for (zld.objects.items, 0..) |*object, object_id| {
         const unwind_records = object.getUnwindRecords();
         for (object.exec_atoms.items) |atom_index| {
-            const record_id = object.unwind_records_lookup.get(atom_index) orelse continue;
-            if (object.unwind_relocs_lookup[record_id].dead) continue;
-            const record = unwind_records[record_id];
-            if (!UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
-                if (getPersonalityFunctionReloc(
-                    zld,
-                    @as(u32, @intCast(object_id)),
-                    record_id,
-                )) |rel| {
-                    // Personality function; add GOT pointer.
-                    const target = Atom.parseRelocTarget(zld, .{
-                        .object_id = @as(u32, @intCast(object_id)),
-                        .rel = rel,
-                        .code = mem.asBytes(&record),
-                        .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
-                    });
-                    try Atom.addGotEntry(zld, target);
+            var inner_syms_it = Atom.getInnerSymbolsIterator(zld, atom_index);
+            while (inner_syms_it.next()) |sym| {
+                const record_id = object.unwind_records_lookup.get(sym) orelse continue;
+                if (object.unwind_relocs_lookup[record_id].dead) continue;
+                const record = unwind_records[record_id];
+                if (!UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
+                    if (getPersonalityFunctionReloc(zld, @as(u32, @intCast(object_id)), record_id)) |rel| {
+                        // Personality function; add GOT pointer.
+                        const target = Atom.parseRelocTarget(zld, .{
+                            .object_id = @as(u32, @intCast(object_id)),
+                            .rel = rel,
+                            .code = mem.asBytes(&record),
+                            .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
+                        });
+                        try Atom.addGotEntry(zld, target);
+                    }
                 }
             }
         }
@@ -242,8 +241,8 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
     var records = std.ArrayList(macho.compact_unwind_entry).init(info.gpa);
     defer records.deinit();
 
-    var atom_indexes = std.ArrayList(AtomIndex).init(info.gpa);
-    defer atom_indexes.deinit();
+    var sym_indexes = std.ArrayList(SymbolWithLoc).init(info.gpa);
+    defer sym_indexes.deinit();
 
     // TODO handle dead stripping
     for (zld.objects.items, 0..) |*object, object_id| {
@@ -253,80 +252,101 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
         // Contents of unwind records does not have to cover all symbol in executable section
         // so we need insert them ourselves.
         try records.ensureUnusedCapacity(object.exec_atoms.items.len);
-        try atom_indexes.ensureUnusedCapacity(object.exec_atoms.items.len);
+        try sym_indexes.ensureUnusedCapacity(object.exec_atoms.items.len);
 
         for (object.exec_atoms.items) |atom_index| {
-            var record = if (object.unwind_records_lookup.get(atom_index)) |record_id| blk: {
-                if (object.unwind_relocs_lookup[record_id].dead) continue;
-                var record = unwind_records[record_id];
+            var inner_syms_it = Atom.getInnerSymbolsIterator(zld, atom_index);
+            var prev_symbol: ?SymbolWithLoc = null;
+            while (inner_syms_it.next()) |symbol| {
+                var record = if (object.unwind_records_lookup.get(symbol)) |record_id| blk: {
+                    if (object.unwind_relocs_lookup[record_id].dead) continue;
+                    var record = unwind_records[record_id];
 
-                if (UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
-                    try info.collectPersonalityFromDwarf(zld, @as(u32, @intCast(object_id)), atom_index, &record);
-                } else {
-                    if (getPersonalityFunctionReloc(
-                        zld,
-                        @as(u32, @intCast(object_id)),
-                        record_id,
-                    )) |rel| {
-                        const target = Atom.parseRelocTarget(zld, .{
-                            .object_id = @as(u32, @intCast(object_id)),
-                            .rel = rel,
-                            .code = mem.asBytes(&record),
-                            .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
-                        });
-                        const personality_index = info.getPersonalityFunction(target) orelse inner: {
-                            const personality_index = info.personalities_count;
-                            info.personalities[personality_index] = target;
-                            info.personalities_count += 1;
-                            break :inner personality_index;
-                        };
+                    if (UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
+                        try info.collectPersonalityFromDwarf(zld, @as(u32, @intCast(object_id)), symbol, &record);
+                    } else {
+                        if (getPersonalityFunctionReloc(
+                            zld,
+                            @as(u32, @intCast(object_id)),
+                            record_id,
+                        )) |rel| {
+                            const target = Atom.parseRelocTarget(zld, .{
+                                .object_id = @as(u32, @intCast(object_id)),
+                                .rel = rel,
+                                .code = mem.asBytes(&record),
+                                .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
+                            });
+                            const personality_index = info.getPersonalityFunction(target) orelse inner: {
+                                const personality_index = info.personalities_count;
+                                info.personalities[personality_index] = target;
+                                info.personalities_count += 1;
+                                break :inner personality_index;
+                            };
 
-                        record.personalityFunction = personality_index + 1;
-                        UnwindEncoding.setPersonalityIndex(&record.compactUnwindEncoding, personality_index + 1);
-                    }
-
-                    if (getLsdaReloc(zld, @as(u32, @intCast(object_id)), record_id)) |rel| {
-                        const target = Atom.parseRelocTarget(zld, .{
-                            .object_id = @as(u32, @intCast(object_id)),
-                            .rel = rel,
-                            .code = mem.asBytes(&record),
-                            .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
-                        });
-                        record.lsda = @as(u64, @bitCast(target));
-                    }
-                }
-                break :blk record;
-            } else blk: {
-                const atom = zld.getAtom(atom_index);
-                const sym = zld.getSymbol(atom.getSymbolWithLoc());
-                if (sym.n_desc == N_DEAD) continue;
-
-                if (!object.hasUnwindRecords()) {
-                    if (object.eh_frame_records_lookup.get(atom_index)) |fde_offset| {
-                        if (object.eh_frame_relocs_lookup.get(fde_offset).?.dead) continue;
-                        var record = nullRecord();
-                        try info.collectPersonalityFromDwarf(zld, @as(u32, @intCast(object_id)), atom_index, &record);
-                        switch (cpu_arch) {
-                            .aarch64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_ARM64_MODE.DWARF),
-                            .x86_64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_X86_64_MODE.DWARF),
-                            else => unreachable,
+                            record.personalityFunction = personality_index + 1;
+                            UnwindEncoding.setPersonalityIndex(&record.compactUnwindEncoding, personality_index + 1);
                         }
-                        break :blk record;
+
+                        if (getLsdaReloc(zld, @as(u32, @intCast(object_id)), record_id)) |rel| {
+                            const target = Atom.parseRelocTarget(zld, .{
+                                .object_id = @as(u32, @intCast(object_id)),
+                                .rel = rel,
+                                .code = mem.asBytes(&record),
+                                .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
+                            });
+                            record.lsda = @as(u64, @bitCast(target));
+                        }
                     }
-                }
+                    break :blk record;
+                } else blk: {
+                    const sym = zld.getSymbol(symbol);
+                    if (sym.n_desc == N_DEAD) continue;
+                    if (prev_symbol) |prev_sym| {
+                        const prev_addr = object.getSourceSymbol(prev_sym.sym_index).?.n_value;
+                        const curr_addr = object.getSourceSymbol(symbol.sym_index).?.n_value;
+                        if (prev_addr == curr_addr) continue;
+                    }
 
-                break :blk nullRecord();
-            };
+                    if (!object.hasUnwindRecords()) {
+                        if (object.eh_frame_records_lookup.get(symbol)) |fde_offset| {
+                            if (object.eh_frame_relocs_lookup.get(fde_offset).?.dead) continue;
+                            var record = nullRecord();
+                            try info.collectPersonalityFromDwarf(zld, @as(u32, @intCast(object_id)), symbol, &record);
+                            switch (cpu_arch) {
+                                .aarch64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_ARM64_MODE.DWARF),
+                                .x86_64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_X86_64_MODE.DWARF),
+                                else => unreachable,
+                            }
+                            break :blk record;
+                        }
+                    }
 
-            const atom = zld.getAtom(atom_index);
-            const sym_loc = atom.getSymbolWithLoc();
-            const sym = zld.getSymbol(sym_loc);
-            assert(sym.n_desc != N_DEAD);
-            record.rangeStart = sym.n_value;
-            record.rangeLength = @as(u32, @intCast(atom.size));
+                    break :blk nullRecord();
+                };
 
-            records.appendAssumeCapacity(record);
-            atom_indexes.appendAssumeCapacity(atom_index);
+                const atom = zld.getAtom(atom_index);
+                const sym = zld.getSymbol(symbol);
+                assert(sym.n_desc != N_DEAD);
+                const size = if (inner_syms_it.next()) |next_sym| blk: {
+                    // All this trouble to account for symbol aliases.
+                    // TODO I think that remodelling the linker so that a Symbol references an Atom
+                    // is the way to go, kinda like we do for ELF. We might also want to perhaps tag
+                    // symbol aliases somehow so that they are excluded from everything except relocation
+                    // resolution.
+                    defer inner_syms_it.pos -= 1;
+                    const curr_addr = object.getSourceSymbol(symbol.sym_index).?.n_value;
+                    const next_addr = object.getSourceSymbol(next_sym.sym_index).?.n_value;
+                    if (next_addr > curr_addr) break :blk next_addr - curr_addr;
+                    break :blk zld.getSymbol(atom.getSymbolWithLoc()).n_value + atom.size - sym.n_value;
+                } else zld.getSymbol(atom.getSymbolWithLoc()).n_value + atom.size - sym.n_value;
+                record.rangeStart = sym.n_value;
+                record.rangeLength = @as(u32, @intCast(size));
+
+                try records.append(record);
+                try sym_indexes.append(symbol);
+
+                prev_symbol = symbol;
+            }
         }
     }
 
@@ -339,7 +359,7 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
 
     // Fold records
     try info.records.ensureTotalCapacity(info.gpa, records.items.len);
-    try info.records_lookup.ensureTotalCapacity(info.gpa, @as(u32, @intCast(atom_indexes.items.len)));
+    try info.records_lookup.ensureTotalCapacity(info.gpa, @as(u32, @intCast(sym_indexes.items.len)));
 
     var maybe_prev: ?macho.compact_unwind_entry = null;
     for (records.items, 0..) |record, i| {
@@ -365,7 +385,7 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
                 break :blk record_id;
             }
         };
-        info.records_lookup.putAssumeCapacityNoClobber(atom_indexes.items[i], record_id);
+        info.records_lookup.putAssumeCapacityNoClobber(sym_indexes.items[i], record_id);
     }
 
     // Calculate common encodings
@@ -501,12 +521,12 @@ fn collectPersonalityFromDwarf(
     info: *UnwindInfo,
     zld: *Zld,
     object_id: u32,
-    atom_index: u32,
+    sym_loc: SymbolWithLoc,
     record: *macho.compact_unwind_entry,
 ) !void {
     const object = &zld.objects.items[object_id];
     var it = object.getEhFrameRecordsIterator();
-    const fde_offset = object.eh_frame_records_lookup.get(atom_index).?;
+    const fde_offset = object.eh_frame_records_lookup.get(sym_loc).?;
     it.seekTo(fde_offset);
     const fde = (try it.next()).?;
     const cie_ptr = fde.getCiePointerSource(object_id, zld, fde_offset);

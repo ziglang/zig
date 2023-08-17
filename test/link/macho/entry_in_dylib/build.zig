@@ -18,7 +18,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });
-    lib.addCSourceFile("bootstrap.c", &.{});
+    lib.addCSourceFile(.{ .file = .{ .path = "bootstrap.c" }, .flags = &.{} });
     lib.linkLibC();
     lib.linker_allow_shlib_undefined = true;
 
@@ -27,7 +27,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });
-    exe.addCSourceFile("main.c", &.{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkLibrary(lib);
     exe.linkLibC();
     exe.entry_symbol_name = "_bootstrap";

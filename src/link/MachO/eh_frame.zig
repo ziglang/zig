@@ -24,19 +24,22 @@ pub fn scanRelocs(zld: *Zld) !void {
         var it = object.getEhFrameRecordsIterator();
 
         for (object.exec_atoms.items) |atom_index| {
-            const fde_offset = object.eh_frame_records_lookup.get(atom_index) orelse continue;
-            if (object.eh_frame_relocs_lookup.get(fde_offset).?.dead) continue;
-            it.seekTo(fde_offset);
-            const fde = (try it.next()).?;
+            var inner_syms_it = Atom.getInnerSymbolsIterator(zld, atom_index);
+            while (inner_syms_it.next()) |sym| {
+                const fde_offset = object.eh_frame_records_lookup.get(sym) orelse continue;
+                if (object.eh_frame_relocs_lookup.get(fde_offset).?.dead) continue;
+                it.seekTo(fde_offset);
+                const fde = (try it.next()).?;
 
-            const cie_ptr = fde.getCiePointerSource(@intCast(object_id), zld, fde_offset);
-            const cie_offset = fde_offset + 4 - cie_ptr;
+                const cie_ptr = fde.getCiePointerSource(@intCast(object_id), zld, fde_offset);
+                const cie_offset = fde_offset + 4 - cie_ptr;
 
-            if (!cies.contains(cie_offset)) {
-                try cies.putNoClobber(cie_offset, {});
-                it.seekTo(cie_offset);
-                const cie = (try it.next()).?;
-                try cie.scanRelocs(zld, @as(u32, @intCast(object_id)), cie_offset);
+                if (!cies.contains(cie_offset)) {
+                    try cies.putNoClobber(cie_offset, {});
+                    it.seekTo(cie_offset);
+                    const cie = (try it.next()).?;
+                    try cie.scanRelocs(zld, @as(u32, @intCast(object_id)), cie_offset);
+                }
             }
         }
     }
@@ -59,35 +62,38 @@ pub fn calcSectionSize(zld: *Zld, unwind_info: *const UnwindInfo) !void {
         var eh_it = object.getEhFrameRecordsIterator();
 
         for (object.exec_atoms.items) |atom_index| {
-            const fde_record_offset = object.eh_frame_records_lookup.get(atom_index) orelse continue;
-            if (object.eh_frame_relocs_lookup.get(fde_record_offset).?.dead) continue;
+            var inner_syms_it = Atom.getInnerSymbolsIterator(zld, atom_index);
+            while (inner_syms_it.next()) |sym| {
+                const fde_record_offset = object.eh_frame_records_lookup.get(sym) orelse continue;
+                if (object.eh_frame_relocs_lookup.get(fde_record_offset).?.dead) continue;
 
-            const record_id = unwind_info.records_lookup.get(atom_index) orelse continue;
-            const record = unwind_info.records.items[record_id];
+                const record_id = unwind_info.records_lookup.get(sym) orelse continue;
+                const record = unwind_info.records.items[record_id];
 
-            // TODO skip this check if no __compact_unwind is present
-            const is_dwarf = UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch);
-            if (!is_dwarf) continue;
+                // TODO skip this check if no __compact_unwind is present
+                const is_dwarf = UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch);
+                if (!is_dwarf) continue;
 
-            eh_it.seekTo(fde_record_offset);
-            const source_fde_record = (try eh_it.next()).?;
+                eh_it.seekTo(fde_record_offset);
+                const source_fde_record = (try eh_it.next()).?;
 
-            const cie_ptr = source_fde_record.getCiePointerSource(@intCast(object_id), zld, fde_record_offset);
-            const cie_offset = fde_record_offset + 4 - cie_ptr;
+                const cie_ptr = source_fde_record.getCiePointerSource(@intCast(object_id), zld, fde_record_offset);
+                const cie_offset = fde_record_offset + 4 - cie_ptr;
 
-            const gop = try cies.getOrPut(cie_offset);
-            if (!gop.found_existing) {
-                eh_it.seekTo(cie_offset);
-                const source_cie_record = (try eh_it.next()).?;
-                gop.value_ptr.* = size;
-                size += source_cie_record.getSize();
+                const gop = try cies.getOrPut(cie_offset);
+                if (!gop.found_existing) {
+                    eh_it.seekTo(cie_offset);
+                    const source_cie_record = (try eh_it.next()).?;
+                    gop.value_ptr.* = size;
+                    size += source_cie_record.getSize();
+                }
+
+                size += source_fde_record.getSize();
             }
-
-            size += source_fde_record.getSize();
         }
-    }
 
-    sect.size = size;
+        sect.size = size;
+    }
 }
 
 pub fn write(zld: *Zld, unwind_info: *UnwindInfo) !void {
@@ -118,97 +124,99 @@ pub fn write(zld: *Zld, unwind_info: *UnwindInfo) !void {
         var eh_it = object.getEhFrameRecordsIterator();
 
         for (object.exec_atoms.items) |atom_index| {
-            const fde_record_offset = object.eh_frame_records_lookup.get(atom_index) orelse continue;
-            if (object.eh_frame_relocs_lookup.get(fde_record_offset).?.dead) continue;
+            var inner_syms_it = Atom.getInnerSymbolsIterator(zld, atom_index);
+            while (inner_syms_it.next()) |target| {
+                const fde_record_offset = object.eh_frame_records_lookup.get(target) orelse continue;
+                if (object.eh_frame_relocs_lookup.get(fde_record_offset).?.dead) continue;
 
-            const record_id = unwind_info.records_lookup.get(atom_index) orelse continue;
-            const record = &unwind_info.records.items[record_id];
+                const record_id = unwind_info.records_lookup.get(target) orelse continue;
+                const record = &unwind_info.records.items[record_id];
 
-            // TODO skip this check if no __compact_unwind is present
-            const is_dwarf = UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch);
-            if (!is_dwarf) continue;
+                // TODO skip this check if no __compact_unwind is present
+                const is_dwarf = UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch);
+                if (!is_dwarf) continue;
 
-            eh_it.seekTo(fde_record_offset);
-            const source_fde_record = (try eh_it.next()).?;
+                eh_it.seekTo(fde_record_offset);
+                const source_fde_record = (try eh_it.next()).?;
 
-            const cie_ptr = source_fde_record.getCiePointerSource(@intCast(object_id), zld, fde_record_offset);
-            const cie_offset = fde_record_offset + 4 - cie_ptr;
+                const cie_ptr = source_fde_record.getCiePointerSource(@intCast(object_id), zld, fde_record_offset);
+                const cie_offset = fde_record_offset + 4 - cie_ptr;
 
-            const gop = try cies.getOrPut(cie_offset);
-            if (!gop.found_existing) {
-                eh_it.seekTo(cie_offset);
-                const source_cie_record = (try eh_it.next()).?;
-                var cie_record = try source_cie_record.toOwned(gpa);
-                try cie_record.relocate(zld, @as(u32, @intCast(object_id)), .{
-                    .source_offset = cie_offset,
+                const gop = try cies.getOrPut(cie_offset);
+                if (!gop.found_existing) {
+                    eh_it.seekTo(cie_offset);
+                    const source_cie_record = (try eh_it.next()).?;
+                    var cie_record = try source_cie_record.toOwned(gpa);
+                    try cie_record.relocate(zld, @as(u32, @intCast(object_id)), .{
+                        .source_offset = cie_offset,
+                        .out_offset = eh_frame_offset,
+                        .sect_addr = sect.addr,
+                    });
+                    eh_records.putAssumeCapacityNoClobber(eh_frame_offset, cie_record);
+                    gop.value_ptr.* = eh_frame_offset;
+                    eh_frame_offset += cie_record.getSize();
+                }
+
+                var fde_record = try source_fde_record.toOwned(gpa);
+                try fde_record.relocate(zld, @as(u32, @intCast(object_id)), .{
+                    .source_offset = fde_record_offset,
                     .out_offset = eh_frame_offset,
                     .sect_addr = sect.addr,
                 });
-                eh_records.putAssumeCapacityNoClobber(eh_frame_offset, cie_record);
-                gop.value_ptr.* = eh_frame_offset;
-                eh_frame_offset += cie_record.getSize();
-            }
+                fde_record.setCiePointer(eh_frame_offset + 4 - gop.value_ptr.*);
 
-            var fde_record = try source_fde_record.toOwned(gpa);
-            try fde_record.relocate(zld, @as(u32, @intCast(object_id)), .{
-                .source_offset = fde_record_offset,
-                .out_offset = eh_frame_offset,
-                .sect_addr = sect.addr,
-            });
-            fde_record.setCiePointer(eh_frame_offset + 4 - gop.value_ptr.*);
-
-            switch (cpu_arch) {
-                .aarch64 => {}, // relocs take care of LSDA pointers
-                .x86_64 => {
-                    // We need to relocate target symbol address ourselves.
-                    const atom = zld.getAtom(atom_index);
-                    const atom_sym = zld.getSymbol(atom.getSymbolWithLoc());
-                    try fde_record.setTargetSymbolAddress(atom_sym.n_value, .{
-                        .base_addr = sect.addr,
-                        .base_offset = eh_frame_offset,
-                    });
-
-                    // We need to parse LSDA pointer and relocate ourselves.
-                    const cie_record = eh_records.get(
-                        eh_frame_offset + 4 - fde_record.getCiePointer(),
-                    ).?;
-                    const eh_frame_sect = object.getSourceSection(object.eh_frame_sect_id.?);
-                    const source_lsda_ptr = try fde_record.getLsdaPointer(cie_record, .{
-                        .base_addr = eh_frame_sect.addr,
-                        .base_offset = fde_record_offset,
-                    });
-                    if (source_lsda_ptr) |ptr| {
-                        const sym_index = object.getSymbolByAddress(ptr, null);
-                        const sym = object.symtab[sym_index];
-                        try fde_record.setLsdaPointer(cie_record, sym.n_value, .{
+                switch (cpu_arch) {
+                    .aarch64 => {}, // relocs take care of LSDA pointers
+                    .x86_64 => {
+                        // We need to relocate target symbol address ourselves.
+                        const atom_sym = zld.getSymbol(target);
+                        try fde_record.setTargetSymbolAddress(atom_sym.n_value, .{
                             .base_addr = sect.addr,
                             .base_offset = eh_frame_offset,
                         });
-                    }
-                },
-                else => unreachable,
+
+                        // We need to parse LSDA pointer and relocate ourselves.
+                        const cie_record = eh_records.get(
+                            eh_frame_offset + 4 - fde_record.getCiePointer(),
+                        ).?;
+                        const eh_frame_sect = object.getSourceSection(object.eh_frame_sect_id.?);
+                        const source_lsda_ptr = try fde_record.getLsdaPointer(cie_record, .{
+                            .base_addr = eh_frame_sect.addr,
+                            .base_offset = fde_record_offset,
+                        });
+                        if (source_lsda_ptr) |ptr| {
+                            const sym_index = object.getSymbolByAddress(ptr, null);
+                            const sym = object.symtab[sym_index];
+                            try fde_record.setLsdaPointer(cie_record, sym.n_value, .{
+                                .base_addr = sect.addr,
+                                .base_offset = eh_frame_offset,
+                            });
+                        }
+                    },
+                    else => unreachable,
+                }
+
+                eh_records.putAssumeCapacityNoClobber(eh_frame_offset, fde_record);
+
+                UnwindInfo.UnwindEncoding.setDwarfSectionOffset(
+                    &record.compactUnwindEncoding,
+                    cpu_arch,
+                    @as(u24, @intCast(eh_frame_offset)),
+                );
+
+                const cie_record = eh_records.get(
+                    eh_frame_offset + 4 - fde_record.getCiePointer(),
+                ).?;
+                const lsda_ptr = try fde_record.getLsdaPointer(cie_record, .{
+                    .base_addr = sect.addr,
+                    .base_offset = eh_frame_offset,
+                });
+                if (lsda_ptr) |ptr| {
+                    record.lsda = ptr - seg.vmaddr;
+                }
+
+                eh_frame_offset += fde_record.getSize();
             }
-
-            eh_records.putAssumeCapacityNoClobber(eh_frame_offset, fde_record);
-
-            UnwindInfo.UnwindEncoding.setDwarfSectionOffset(
-                &record.compactUnwindEncoding,
-                cpu_arch,
-                @as(u24, @intCast(eh_frame_offset)),
-            );
-
-            const cie_record = eh_records.get(
-                eh_frame_offset + 4 - fde_record.getCiePointer(),
-            ).?;
-            const lsda_ptr = try fde_record.getLsdaPointer(cie_record, .{
-                .base_addr = sect.addr,
-                .base_offset = eh_frame_offset,
-            });
-            if (lsda_ptr) |ptr| {
-                record.lsda = ptr - seg.vmaddr;
-            }
-
-            eh_frame_offset += fde_record.getSize();
         }
     }
 

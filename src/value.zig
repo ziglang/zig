@@ -8,7 +8,6 @@ const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
 const Module = @import("Module.zig");
-const Air = @import("Air.zig");
 const TypedValue = @import("TypedValue.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
@@ -483,10 +482,10 @@ pub const Value = struct {
     }
 
     pub fn getFunction(val: Value, mod: *Module) ?InternPool.Key.Func {
-        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+        return if (val.ip_index != .none) switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .func => |x| x,
             else => null,
-        };
+        } else null;
     }
 
     pub fn getExternFunc(val: Value, mod: *Module) ?InternPool.Key.ExternFunc {
@@ -3832,7 +3831,7 @@ pub const Value = struct {
 
     /// If the value is represented in-memory as a series of bytes that all
     /// have the same value, return that byte value, otherwise null.
-    pub fn hasRepeatedByteRepr(val: Value, ty: Type, mod: *Module) !?Value {
+    pub fn hasRepeatedByteRepr(val: Value, ty: Type, mod: *Module) !?u8 {
         const abi_size = std.math.cast(usize, ty.abiSize(mod)) orelse return null;
         assert(abi_size >= 1);
         const byte_buffer = try mod.gpa.alloc(u8, abi_size);
@@ -3853,7 +3852,7 @@ pub const Value = struct {
         for (byte_buffer[1..]) |byte| {
             if (byte != first_byte) return null;
         }
-        return try mod.intValue(Type.u8, first_byte);
+        return first_byte;
     }
 
     pub fn isGenericPoison(val: Value) bool {

@@ -3,13 +3,24 @@ const std = @import("../std.zig");
 const os = std.os;
 const mem = std.mem;
 
-pub fn isSupportedArch(arch: std.Target.Cpu.Arch) bool {
-    return switch (arch) {
-        .x86,
-        .x86_64,
-        .arm,
-        .aarch64,
-        => true,
+pub fn supportsUnwinding(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .x86 => switch (target.os.tag) {
+            .linux, .netbsd, .solaris => true,
+            else => false,
+        },
+        .x86_64 => switch (target.os.tag) {
+            .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris => true,
+            else => false,
+        },
+        .arm => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .aarch64 => switch (target.os.tag) {
+            .linux, .netbsd, .freebsd, .macos, .ios => true,
+            else => false,
+        },
         else => false,
     };
 }
@@ -281,7 +292,7 @@ pub fn regBytes(
                 // TODO: Extract xmm state from sc_fpstate?
                 else => error.InvalidRegister,
             },
-            .macos => switch (reg_number) {
+            .macos, .ios => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.ss.rax),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.ss.rdx),
                 2 => mem.asBytes(&ucontext_ptr.mcontext.ss.rcx),
@@ -327,7 +338,7 @@ pub fn regBytes(
             else => error.UnimplementedOs,
         },
         .aarch64 => switch (builtin.os.tag) {
-            .macos => switch (reg_number) {
+            .macos, .ios => switch (reg_number) {
                 0...28 => mem.asBytes(&ucontext_ptr.mcontext.ss.regs[reg_number]),
                 29 => mem.asBytes(&ucontext_ptr.mcontext.ss.fp),
                 30 => mem.asBytes(&ucontext_ptr.mcontext.ss.lr),

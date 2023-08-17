@@ -108,7 +108,7 @@ pub const TranslateCContext = struct {
         }
 
         const translate_c = b.addTranslateC(.{
-            .source_file = write_src.files.items[0].getFileSource(),
+            .source_file = write_src.files.items[0].getPath(),
             .target = case.target,
             .optimize = .Debug,
         });

@@ -4138,23 +4138,24 @@ test "bytesAsSlice preserves pointer attributes" {
     try testing.expectEqual(in.alignment, out.alignment);
 }
 
-fn SliceAsBytesReturnType(comptime sliceType: type) type {
-    if (!trait.isSlice(sliceType) and !trait.isPtrTo(.Array)(sliceType)) {
-        @compileError("expected []T or *[_]T, passed " ++ @typeName(sliceType));
+fn SliceAsBytesReturnType(comptime Slice: type) type {
+    if (!trait.isSlice(Slice) and !trait.isPtrTo(.Array)(Slice)) {
+        @compileError("expected []T or *[_]T, passed " ++ @typeName(Slice));
     }
 
-    return CopyPtrAttrs(sliceType, .Slice, u8);
+    return CopyPtrAttrs(Slice, .Slice, u8);
 }
 
 /// Given a slice, returns a slice of the underlying bytes, preserving pointer attributes.
 pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
     const Slice = @TypeOf(slice);
 
+    // a slice of zero-bit values always occupies zero bytes
+    if (@sizeOf(meta.Elem(Slice)) == 0) return &[0]u8{};
+
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (slice.len == 0 and comptime meta.sentinel(Slice) == null) {
-        return &[0]u8{};
-    }
+    if (slice.len == 0 and comptime meta.sentinel(Slice) == null) return &[0]u8{};
 
     const cast_target = CopyPtrAttrs(Slice, .Many, u8);
 
@@ -4174,6 +4175,12 @@ test "sliceAsBytes" {
 test "sliceAsBytes with sentinel slice" {
     const empty_string: [:0]const u8 = "";
     const bytes = sliceAsBytes(empty_string);
+    try testing.expect(bytes.len == 0);
+}
+
+test "sliceAsBytes with zero-bit element type" {
+    const lots_of_nothing = [1]void{{}} ** 10_000;
+    const bytes = sliceAsBytes(&lots_of_nothing);
     try testing.expect(bytes.len == 0);
 }
 

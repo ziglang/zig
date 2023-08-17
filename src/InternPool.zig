@@ -594,6 +594,13 @@ pub const Key = union(enum) {
         /// In the case of a generic function, this type will potentially have fewer parameters
         /// than the generic owner's type, because the comptime parameters will be deleted.
         ty: Index,
+        /// If this is a function body that has been coerced to a different type, for example
+        /// ```
+        /// fn f2() !void {}
+        /// const f: fn()anyerror!void = f2;
+        /// ```
+        /// then it contains the original type of the function body.
+        uncoerced_ty: Index,
         /// Index into extra array of the `FuncAnalysis` corresponding to this function.
         /// Used for mutating that data.
         analysis_extra_index: u32,
@@ -990,11 +997,15 @@ pub const Key = union(enum) {
                 // otherwise we would get false negatives for interning generic
                 // function instances which have inferred error sets.
 
-                if (func.generic_owner == .none and func.resolved_error_set_extra_index == 0)
-                    return Hash.hash(seed, asBytes(&func.owner_decl) ++ asBytes(&func.ty));
+                if (func.generic_owner == .none and func.resolved_error_set_extra_index == 0) {
+                    const bytes = asBytes(&func.owner_decl) ++ asBytes(&func.ty) ++
+                        [1]u8{@intFromBool(func.uncoerced_ty == func.ty)};
+                    return Hash.hash(seed, bytes);
+                }
 
                 var hasher = Hash.init(seed);
                 std.hash.autoHash(&hasher, func.generic_owner);
+                std.hash.autoHash(&hasher, func.uncoerced_ty == func.ty);
                 for (func.comptime_args.get(ip)) |arg| std.hash.autoHash(&hasher, arg);
                 if (func.resolved_error_set_extra_index == 0) {
                     std.hash.autoHash(&hasher, func.ty);
@@ -1120,6 +1131,12 @@ pub const Key = union(enum) {
                         a_info.comptime_args.get(ip),
                         b_info.comptime_args.get(ip),
                     )) return false;
+                }
+
+                if ((a_info.ty == a_info.uncoerced_ty) !=
+                    (b_info.ty == b_info.uncoerced_ty))
+                {
+                    return false;
                 }
 
                 if (a_info.ty == b_info.ty)
@@ -3371,6 +3388,7 @@ fn extraFuncDecl(ip: *const InternPool, extra_index: u32) Key.Func {
     const func_decl = ip.extraDataTrail(P, extra_index);
     return .{
         .ty = func_decl.data.ty,
+        .uncoerced_ty = func_decl.data.ty,
         .analysis_extra_index = extra_index + std.meta.fieldIndex(P, "analysis").?,
         .zir_body_inst_extra_index = extra_index + std.meta.fieldIndex(P, "zir_body_inst").?,
         .resolved_error_set_extra_index = if (func_decl.data.analysis.inferred_error_set) func_decl.end else 0,
@@ -3392,6 +3410,7 @@ fn extraFuncInstance(ip: *const InternPool, extra_index: u32) Key.Func {
     const func_decl = ip.funcDeclInfo(fi.data.generic_owner);
     return .{
         .ty = fi.data.ty,
+        .uncoerced_ty = fi.data.ty,
         .analysis_extra_index = extra_index + std.meta.fieldIndex(P, "analysis").?,
         .zir_body_inst_extra_index = func_decl.zir_body_inst_extra_index,
         .resolved_error_set_extra_index = if (fi.data.analysis.inferred_error_set) fi.end else 0,
@@ -4800,6 +4819,8 @@ pub fn getFuncInstanceIes(
     assert(arg.bare_return_type != .none);
     for (arg.param_types) |param_type| assert(param_type != .none);
 
+    const generic_owner = unwrapCoercedFunc(ip, arg.generic_owner);
+
     // The strategy here is to add the function decl unconditionally, then to
     // ask if it already exists, and if so, revert the lengths of the mutated
     // arrays. This is similar to what `getOrPutTrailingString` does.
@@ -4835,7 +4856,7 @@ pub fn getFuncInstanceIes(
         .owner_decl = undefined,
         .ty = func_ty,
         .branch_quota = 0,
-        .generic_owner = arg.generic_owner,
+        .generic_owner = generic_owner,
     });
     ip.extra.appendAssumeCapacity(@intFromEnum(Index.none)); // resolved error set
     ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.comptime_args));
@@ -4908,7 +4929,7 @@ pub fn getFuncInstanceIes(
     return finishFuncInstance(
         ip,
         gpa,
-        arg.generic_owner,
+        generic_owner,
         func_index,
         func_extra_index,
         arg.generation,
@@ -6245,6 +6266,59 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
     try bw.flush();
 }
 
+pub fn dumpGenericInstances(ip: *const InternPool, allocator: Allocator) void {
+    ip.dumpGenericInstancesFallible(allocator) catch return;
+}
+
+pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator) anyerror!void {
+    var arena_allocator = std.heap.ArenaAllocator.init(allocator);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
+    const w = bw.writer();
+
+    var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayListUnmanaged(Index)) = .{};
+    const datas = ip.items.items(.data);
+    for (ip.items.items(.tag), 0..) |tag, i| {
+        if (tag != .func_instance) continue;
+        const info = ip.extraData(Tag.FuncInstance, datas[i]);
+
+        const gop = try instances.getOrPut(arena, info.generic_owner);
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+
+        try gop.value_ptr.append(arena, @enumFromInt(i));
+    }
+
+    const SortContext = struct {
+        values: []std.ArrayListUnmanaged(Index),
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            return ctx.values[a_index].items.len > ctx.values[b_index].items.len;
+        }
+    };
+
+    instances.sort(SortContext{ .values = instances.values() });
+    var it = instances.iterator();
+    while (it.next()) |entry| {
+        const generic_fn_owner_decl = ip.declPtrConst(ip.funcDeclOwner(entry.key_ptr.*));
+        try w.print("{} ({}): \n", .{ generic_fn_owner_decl.name.fmt(ip), entry.value_ptr.items.len });
+        for (entry.value_ptr.items) |index| {
+            const func = ip.extraFuncInstance(datas[@intFromEnum(index)]);
+            const owner_decl = ip.declPtrConst(func.owner_decl);
+            try w.print("  {}: (", .{owner_decl.name.fmt(ip)});
+            for (func.comptime_args.get(ip)) |arg| {
+                if (arg != .none) {
+                    const key = ip.indexToKey(arg);
+                    try w.print(" {} ", .{key});
+                }
+            }
+            try w.writeAll(")\n");
+        }
+    }
+
+    try bw.flush();
+}
+
 pub fn structPtr(ip: *InternPool, index: Module.Struct.Index) *Module.Struct {
     return ip.allocated_structs.at(@intFromEnum(index));
 }
@@ -6266,6 +6340,10 @@ pub fn unionPtrConst(ip: *const InternPool, index: Module.Union.Index) *const Mo
 }
 
 pub fn declPtr(ip: *InternPool, index: Module.Decl.Index) *Module.Decl {
+    return ip.allocated_decls.at(@intFromEnum(index));
+}
+
+pub fn declPtrConst(ip: *const InternPool, index: Module.Decl.Index) *const Module.Decl {
     return ip.allocated_decls.at(@intFromEnum(index));
 }
 
@@ -7050,6 +7128,17 @@ pub fn funcIesResolved(ip: *const InternPool, func_index: Index) *Index {
     const extra_index = switch (tags[@intFromEnum(func_index)]) {
         .func_decl => func_start + @typeInfo(Tag.FuncDecl).Struct.fields.len,
         .func_instance => func_start + @typeInfo(Tag.FuncInstance).Struct.fields.len,
+        .func_coerced => i: {
+            const uncoerced_func_index: Index = @enumFromInt(ip.extra.items[
+                func_start + std.meta.fieldIndex(Tag.FuncCoerced, "func").?
+            ]);
+            const uncoerced_func_start = datas[@intFromEnum(uncoerced_func_index)];
+            break :i switch (tags[@intFromEnum(uncoerced_func_index)]) {
+                .func_decl => uncoerced_func_start + @typeInfo(Tag.FuncDecl).Struct.fields.len,
+                .func_instance => uncoerced_func_start + @typeInfo(Tag.FuncInstance).Struct.fields.len,
+                else => unreachable,
+            };
+        },
         else => unreachable,
     };
     return @ptrCast(&ip.extra.items[extra_index]);
@@ -7086,4 +7175,34 @@ fn unwrapCoercedFunc(ip: *const InternPool, i: Index) Index {
         .func_instance, .func_decl => i,
         else => unreachable,
     };
+}
+
+/// Having resolved a builtin type to a real struct/union/enum (which is now at `resolverd_index`),
+/// make `want_index` refer to this type instead. This invalidates `resolved_index`, so must be
+/// called only when it is guaranteed that no reference to `resolved_index` exists.
+pub fn resolveBuiltinType(ip: *InternPool, want_index: Index, resolved_index: Index) void {
+    assert(@intFromEnum(want_index) >= @intFromEnum(Index.first_type));
+    assert(@intFromEnum(want_index) <= @intFromEnum(Index.last_type));
+
+    // Make sure the type isn't already resolved!
+    assert(ip.indexToKey(want_index) == .simple_type);
+
+    // Make sure it's the same kind of type
+    assert((ip.zigTypeTagOrPoison(want_index) catch unreachable) ==
+        (ip.zigTypeTagOrPoison(resolved_index) catch unreachable));
+
+    // Copy the data
+    const item = ip.items.get(@intFromEnum(resolved_index));
+    ip.items.set(@intFromEnum(want_index), item);
+
+    if (std.debug.runtime_safety) {
+        // Make the value unreachable - this is a weird value which will make (incorrect) existing
+        // references easier to spot
+        ip.items.set(@intFromEnum(resolved_index), .{
+            .tag = .simple_value,
+            .data = @intFromEnum(SimpleValue.@"unreachable"),
+        });
+    } else {
+        // TODO: add the index to a free-list for reuse
+    }
 }

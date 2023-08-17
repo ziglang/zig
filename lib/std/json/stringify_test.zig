@@ -126,6 +126,7 @@ test "stringify basic types" {
     try testStringify("4.2e+01", 42.0, .{});
     try testStringify("42", @as(u8, 42), .{});
     try testStringify("42", @as(u128, 42), .{});
+    try testStringify("9999999999999999", 9999999999999999, .{});
     try testStringify("4.2e+01", @as(f32, 42), .{});
     try testStringify("4.2e+01", @as(f64, 42), .{});
     try testStringify("\"ItBroke\"", @as(anyerror, error.ItBroke), .{});
@@ -169,6 +170,11 @@ test "stringify enums" {
     };
     try testStringify("\"foo\"", E.foo, .{});
     try testStringify("\"bar\"", E.bar, .{});
+}
+
+test "stringify enum literals" {
+    try testStringify("\"foo\"", .foo, .{});
+    try testStringify("\"bar\"", .bar, .{});
 }
 
 test "stringify tagged unions" {
@@ -402,7 +408,7 @@ test "comptime stringify" {
     }, .{}, 8) catch unreachable;
 }
 
-test "writePreformatted" {
+test "print" {
     var out_buf: [1024]u8 = undefined;
     var slice_stream = std.io.fixedBufferStream(&out_buf);
     const out = slice_stream.writer();
@@ -412,11 +418,11 @@ test "writePreformatted" {
 
     try w.beginObject();
     try w.objectField("a");
-    try w.writePreformatted("[  ]");
+    try w.print("[  ]", .{});
     try w.objectField("b");
     try w.beginArray();
-    try w.writePreformatted("[[]] ");
-    try w.writePreformatted("  {}");
+    try w.print("[{s}] ", .{"[]"});
+    try w.print("  {}", .{12345});
     try w.endArray();
     try w.endObject();
 
@@ -426,9 +432,14 @@ test "writePreformatted" {
         \\  "a": [  ],
         \\  "b": [
         \\    [[]] ,
-        \\      {}
+        \\      12345
         \\  ]
         \\}
     ;
     try std.testing.expectEqualStrings(expected, result);
+}
+
+test "nonportable numbers" {
+    try testStringify("9999999999999999", 9999999999999999, .{});
+    try testStringify("\"9999999999999999\"", 9999999999999999, .{ .emit_nonportable_numbers_as_strings = true });
 }

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.5)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
@@ -35,7 +35,7 @@ project(zig C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 11)
+set(ZIG_VERSION_MINOR 12)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
@@ -81,6 +81,8 @@ message(STATUS "Configuring zig version ${RESOLVED_ZIG_VERSION}")
 set(ZIG_NO_LIB off CACHE BOOL
     "Disable copying lib/ files to install prefix during the build phase")
 
+# This used to do something and it may or may not do something in the future.
+# Right now it does nothing.
 set(ZIG_NO_LANGREF off CACHE BOOL
     "Disable copying of langref to the install prefix during the build phase")
 
@@ -191,8 +193,6 @@ set(ZIG_CPP_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_clang_driver.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_clang_cc1_main.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_clang_cc1as_main.cpp"
-    # https://github.com/ziglang/zig/issues/6363
-    "${CMAKE_SOURCE_DIR}/src/windows_sdk.cpp"
 )
 # Needed because we use cmake, not the zig build system, to build zig2.o.
 set(ZIG_STAGE2_SOURCES
@@ -273,7 +273,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/math/frexp.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/isinf.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/isnan.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/math/ln.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log10.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log2.zig"
@@ -691,7 +690,9 @@ target_link_libraries(zigcpp LINK_PUBLIC
 )
 
 string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" ZIG_HOST_TARGET_ARCH)
-if(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^i[3-9]86$")
+  set(ZIG_HOST_TARGET_ARCH "x86")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
   set(ZIG_HOST_TARGET_ARCH "x86_64")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "arm64")
   set(ZIG_HOST_TARGET_ARCH "aarch64")
@@ -700,18 +701,33 @@ elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7l")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7b")
   set(ZIG_HOST_TARGET_ARCH "armeb")
 endif()
-if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(eb)?$")
+string(REGEX REPLACE "^((arm|thumb)(hf?)?)el$" "\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(hf?)?(eb)?$")
   include(CheckSymbolExists)
   check_symbol_exists(__thumb__ "" ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
   if(ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
     string(REGEX REPLACE "^arm" "thumb" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
   endif()
 endif()
+string(REGEX REPLACE "^ppc((64)?(le)?)$" "powerpc\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
+
 string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
 if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
   set(ZIG_HOST_TARGET_OS "macos")
 endif()
-set(ZIG_HOST_TARGET_TRIPLE "${ZIG_HOST_TARGET_ARCH}-${ZIG_HOST_TARGET_OS}" CACHE STRING "Host zig target triple.")
+
+if(MSVC)
+  set(ZIG_HOST_TARGET_ABI "-msvc")
+elseif(MINGW)
+  set(ZIG_HOST_TARGET_ABI "-gnu")
+elseif(ZIG_HOST_TARGET_ARCH MATCHES "^(arm|thumb)hf?(eb)?$")
+  string(REGEX REPLACE "^(arm|thumb)hf?((eb)?)$" "\\1\\2" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
+  set(ZIG_HOST_TARGET_ABI "-eabihf")
+else()
+  set(ZIG_HOST_TARGET_ABI "")
+endif()
+
+set(ZIG_HOST_TARGET_TRIPLE "${ZIG_HOST_TARGET_ARCH}-${ZIG_HOST_TARGET_OS}${ZIG_HOST_TARGET_ABI}" CACHE STRING "Host zig target triple.")
 
 if(MSVC)
   set(ZIG_WASM2C_COMPILE_FLAGS "")
@@ -724,6 +740,8 @@ else()
   set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-stack-protector")
   if(APPLE)
     set(ZIG2_LINK_FLAGS "-Wl,-stack_size,0x10000000")
+  elseif(MINGW)
+    set(ZIG2_LINK_FLAGS "-Wl,--stack,0x10000000")
   else()
     set(ZIG2_LINK_FLAGS "-Wl,-z,stack-size=0x10000000")
   endif()
@@ -752,6 +770,9 @@ if(MSVC)
   target_link_options(zig1 PRIVATE /STACK:0x10000000)
 else()
   target_link_libraries(zig1 LINK_PUBLIC m)
+  if(MINGW)
+    target_link_options(zig1 PRIVATE -Wl,--stack,0x10000000)
+  endif()
 endif()
 
 set(BUILD_ZIG2_ARGS
@@ -828,11 +849,6 @@ if(ZIG_NO_LIB)
 else()
   set(ZIG_NO_LIB_ARG "")
 endif()
-if(ZIG_NO_LANGREF)
-  set(ZIG_NO_LANGREF_ARG "-Dno-langref")
-else()
-  set(ZIG_NO_LANGREF_ARG "")
-endif()
 if(ZIG_SINGLE_THREADED)
   set(ZIG_SINGLE_THREADED_ARG "-Dsingle-threaded")
 else()
@@ -850,6 +866,10 @@ else()
   set(ZIG_PIE_ARG "")
 endif()
 
+# -Dno-langref is currently hardcoded because building the langref takes too damn long
+# -Dno-autodocs is currently hardcoded because the C backend generates a miscompilation
+#   that prevents it from working.
+# To obtain these two forms of documentation, run zig build against stage3 rather than stage2.
 set(ZIG_BUILD_ARGS
   --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
   "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
@@ -857,7 +877,8 @@ set(ZIG_BUILD_ARGS
   ${ZIG_RELEASE_ARG}
   ${ZIG_STATIC_ARG}
   ${ZIG_NO_LIB_ARG}
-  ${ZIG_NO_LANGREF_ARG}
+  "-Dno-langref"
+  "-Dno-autodocs"
   ${ZIG_SINGLE_THREADED_ARG}
   ${ZIG_PIE_ARG}
   "-Dtarget=${ZIG_TARGET_TRIPLE}"

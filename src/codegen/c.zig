@@ -30,7 +30,7 @@ pub const CValue = union(enum) {
     /// Address of a local.
     local_ref: LocalIndex,
     /// A constant instruction, to be rendered inline.
-    constant: Air.Inst.Ref,
+    constant: InternPool.Index,
     /// Index into the parameters
     arg: usize,
     /// The array field of a parameter
@@ -302,7 +302,7 @@ pub const Function = struct {
             try f.object.dg.renderValue(writer, ty, val, .StaticInitializer);
             try writer.writeAll(";\n ");
             break :result decl_c_value;
-        } else .{ .constant = ref };
+        } else .{ .constant = val.toIntern() };
 
         gop.value_ptr.* = result;
         return result;
@@ -352,57 +352,63 @@ pub const Function = struct {
 
     fn writeCValue(f: *Function, w: anytype, c_value: CValue, location: ValueRenderLocation) !void {
         switch (c_value) {
-            .constant => |inst| {
-                const mod = f.object.dg.module;
-                const ty = f.typeOf(inst);
-                const val = (try f.air.value(inst, mod)).?;
-                return f.object.dg.renderValue(w, ty, val, location);
-            },
-            .undef => |ty| return f.object.dg.renderValue(w, ty, Value.undef, location),
-            else => return f.object.dg.writeCValue(w, c_value),
+            .constant => |val| try f.object.dg.renderValue(
+                w,
+                f.object.dg.module.intern_pool.typeOf(val).toType(),
+                val.toValue(),
+                location,
+            ),
+            .undef => |ty| try f.object.dg.renderValue(w, ty, Value.undef, location),
+            else => try f.object.dg.writeCValue(w, c_value),
         }
     }
 
     fn writeCValueDeref(f: *Function, w: anytype, c_value: CValue) !void {
         switch (c_value) {
-            .constant => |inst| {
-                const mod = f.object.dg.module;
-                const ty = f.typeOf(inst);
-                const val = (try f.air.value(inst, mod)).?;
+            .constant => |val| {
                 try w.writeAll("(*");
-                try f.object.dg.renderValue(w, ty, val, .Other);
-                return w.writeByte(')');
+                try f.object.dg.renderValue(
+                    w,
+                    f.object.dg.module.intern_pool.typeOf(val).toType(),
+                    val.toValue(),
+                    .Other,
+                );
+                try w.writeByte(')');
             },
-            else => return f.object.dg.writeCValueDeref(w, c_value),
+            else => try f.object.dg.writeCValueDeref(w, c_value),
         }
     }
 
     fn writeCValueMember(f: *Function, w: anytype, c_value: CValue, member: CValue) !void {
         switch (c_value) {
-            .constant => |inst| {
-                const mod = f.object.dg.module;
-                const ty = f.typeOf(inst);
-                const val = (try f.air.value(inst, mod)).?;
-                try f.object.dg.renderValue(w, ty, val, .Other);
+            .constant => |val| {
+                try f.object.dg.renderValue(
+                    w,
+                    f.object.dg.module.intern_pool.typeOf(val).toType(),
+                    val.toValue(),
+                    .Other,
+                );
                 try w.writeByte('.');
-                return f.writeCValue(w, member, .Other);
+                try f.writeCValue(w, member, .Other);
             },
-            else => return f.object.dg.writeCValueMember(w, c_value, member),
+            else => try f.object.dg.writeCValueMember(w, c_value, member),
         }
     }
 
     fn writeCValueDerefMember(f: *Function, w: anytype, c_value: CValue, member: CValue) !void {
         switch (c_value) {
-            .constant => |inst| {
-                const mod = f.object.dg.module;
-                const ty = f.typeOf(inst);
-                const val = (try f.air.value(inst, mod)).?;
+            .constant => |val| {
                 try w.writeByte('(');
-                try f.object.dg.renderValue(w, ty, val, .Other);
+                try f.object.dg.renderValue(
+                    w,
+                    f.object.dg.module.intern_pool.typeOf(val).toType(),
+                    val.toValue(),
+                    .Other,
+                );
                 try w.writeAll(")->");
-                return f.writeCValue(w, member, .Other);
+                try f.writeCValue(w, member, .Other);
             },
-            else => return f.object.dg.writeCValueDerefMember(w, c_value, member),
+            else => try f.object.dg.writeCValueDerefMember(w, c_value, member),
         }
     }
 
@@ -661,7 +667,7 @@ pub const DeclGen = struct {
                     try dg.renderCType(writer, ptr_cty);
                     try writer.writeByte(')');
                 }
-                switch (fieldLocation(base_ty, ptr_ty, @as(u32, @intCast(field.index)), mod)) {
+                switch (fieldLocation(ptr_base_ty, ptr_ty, @as(u32, @intCast(field.index)), mod)) {
                     .begin => try dg.renderParentPtr(writer, field.base, location),
                     .field => |name| {
                         try writer.writeAll("&(");
@@ -2829,7 +2835,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
             .arg      => try airArg(f, inst),
 
-            .trap       => try airTrap(f.object.writer()),
+            .trap       => try airTrap(f, f.object.writer()),
             .breakpoint => try airBreakpoint(f.object.writer()),
             .ret_addr   => try airRetAddr(f, inst),
             .frame_addr => try airFrameAddress(f, inst),
@@ -4585,7 +4591,11 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !Loca
     };
 }
 
-fn airTrap(writer: anytype) !CValue {
+fn airTrap(f: *Function, writer: anytype) !CValue {
+    const mod = f.object.dg.module;
+    // Not even allowed to call trap in a naked function.
+    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention(mod) == .Naked) return .none;
+
     try writer.writeAll("zig_trap();\n");
     return .none;
 }
@@ -4763,11 +4773,22 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     return .none;
 }
 
-fn asmInputNeedsLocal(constraint: []const u8, value: CValue) bool {
+fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool {
+    const target = f.object.dg.module.getTarget();
     return switch (constraint[0]) {
         '{' => true,
         'i', 'r' => false,
-        else => value == .constant,
+        'I' => !target.cpu.arch.isArmOrThumb(),
+        else => switch (value) {
+            .constant => |val| switch (f.object.dg.module.intern_pool.indexToKey(val)) {
+                .ptr => |ptr| switch (ptr.addr) {
+                    .decl => false,
+                    else => true,
+                },
+                else => true,
+            },
+            else => false,
+        },
     };
 }
 
@@ -4848,7 +4869,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
             const is_reg = constraint[0] == '{';
             const input_val = try f.resolveInst(input);
-            if (asmInputNeedsLocal(constraint, input_val)) {
+            if (asmInputNeedsLocal(f, constraint, input_val)) {
                 const input_ty = f.typeOf(input);
                 if (is_reg) try writer.writeAll("register ");
                 const alignment = 0;
@@ -4969,7 +4990,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             const is_reg = constraint[0] == '{';
             const input_val = try f.resolveInst(input);
             try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "r" else constraint, null)});
-            try f.writeCValue(writer, if (asmInputNeedsLocal(constraint, input_val)) local: {
+            try f.writeCValue(writer, if (asmInputNeedsLocal(f, constraint, input_val)) local: {
                 const input_local = .{ .local = locals_index };
                 locals_index += 1;
                 break :local input_local;
@@ -5187,7 +5208,7 @@ fn airOptionalPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn fieldLocation(
-    container_ty: Type,
+    container_ptr_ty: Type,
     field_ptr_ty: Type,
     field_index: u32,
     mod: *Module,
@@ -5198,6 +5219,7 @@ fn fieldLocation(
     end: void,
 } {
     const ip = &mod.intern_pool;
+    const container_ty = container_ptr_ty.childType(mod);
     return switch (container_ty.zigTypeTag(mod)) {
         .Struct => switch (container_ty.containerLayout(mod)) {
             .Auto, .Extern => for (field_index..container_ty.structFieldCount(mod)) |next_field_index| {
@@ -5211,7 +5233,7 @@ fn fieldLocation(
                     .{ .identifier = ip.stringToSlice(container_ty.structFieldName(next_field_index, mod)) } };
             } else if (container_ty.hasRuntimeBitsIgnoreComptime(mod)) .end else .begin,
             .Packed => if (field_ptr_ty.ptrInfo(mod).packed_offset.host_size == 0)
-                .{ .byte_offset = container_ty.packedStructFieldByteOffset(field_index, mod) }
+                .{ .byte_offset = container_ty.packedStructFieldByteOffset(field_index, mod) + @divExact(container_ptr_ty.ptrInfo(mod).packed_offset.bit_offset, 8) }
             else
                 .begin,
         },
@@ -5282,7 +5304,7 @@ fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.renderType(writer, container_ptr_ty);
     try writer.writeByte(')');
 
-    switch (fieldLocation(container_ty, field_ptr_ty, extra.field_index, mod)) {
+    switch (fieldLocation(container_ptr_ty, field_ptr_ty, extra.field_index, mod)) {
         .begin => try f.writeCValue(writer, field_ptr_val, .Initializer),
         .field => |field| {
             const u8_ptr_ty = try mod.adjustPtrTypeChild(field_ptr_ty, Type.u8);
@@ -5339,7 +5361,7 @@ fn fieldPtr(
     try f.renderType(writer, field_ptr_ty);
     try writer.writeByte(')');
 
-    switch (fieldLocation(container_ty, field_ptr_ty, field_index, mod)) {
+    switch (fieldLocation(container_ptr_ty, field_ptr_ty, field_index, mod)) {
         .begin => try f.writeCValue(writer, container_ptr_val, .Initializer),
         .field => |field| {
             try writer.writeByte('&');

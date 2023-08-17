@@ -294,124 +294,131 @@ fn markUnwindRecords(zld: *Zld, object_id: u32, alive: *AtomTable) !void {
     const unwind_records = object.getUnwindRecords();
 
     for (object.exec_atoms.items) |atom_index| {
-        if (!object.hasUnwindRecords()) {
-            if (object.eh_frame_records_lookup.get(atom_index)) |fde_offset| {
-                const ptr = object.eh_frame_relocs_lookup.getPtr(fde_offset).?;
-                if (ptr.dead) continue; // already marked
-                if (!alive.contains(atom_index)) {
-                    // Mark dead and continue.
-                    ptr.dead = true;
-                } else {
-                    // Mark references live and continue.
-                    try markEhFrameRecord(zld, object_id, atom_index, alive);
-                }
-                continue;
-            }
-        }
+        var inner_syms_it = Atom.getInnerSymbolsIterator(zld, atom_index);
 
-        const record_id = object.unwind_records_lookup.get(atom_index) orelse continue;
-        if (object.unwind_relocs_lookup[record_id].dead) continue; // already marked, nothing to do
-        if (!alive.contains(atom_index)) {
-            // Mark the record dead and continue.
-            object.unwind_relocs_lookup[record_id].dead = true;
-            if (object.eh_frame_records_lookup.get(atom_index)) |fde_offset| {
-                object.eh_frame_relocs_lookup.getPtr(fde_offset).?.dead = true;
+        if (!object.hasUnwindRecords()) {
+            if (alive.contains(atom_index)) {
+                // Mark references live and continue.
+                try markEhFrameRecords(zld, object_id, atom_index, alive);
+            } else {
+                while (inner_syms_it.next()) |sym| {
+                    if (object.eh_frame_records_lookup.get(sym)) |fde_offset| {
+                        // Mark dead and continue.
+                        object.eh_frame_relocs_lookup.getPtr(fde_offset).?.dead = true;
+                    }
+                }
             }
             continue;
         }
 
-        const record = unwind_records[record_id];
-        if (UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
-            try markEhFrameRecord(zld, object_id, atom_index, alive);
-        } else {
-            if (UnwindInfo.getPersonalityFunctionReloc(zld, object_id, record_id)) |rel| {
-                const target = Atom.parseRelocTarget(zld, .{
-                    .object_id = object_id,
-                    .rel = rel,
-                    .code = mem.asBytes(&record),
-                    .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
-                });
-                const target_sym = zld.getSymbol(target);
-                if (!target_sym.undf()) {
+        while (inner_syms_it.next()) |sym| {
+            const record_id = object.unwind_records_lookup.get(sym) orelse continue;
+            if (object.unwind_relocs_lookup[record_id].dead) continue; // already marked, nothing to do
+            if (!alive.contains(atom_index)) {
+                // Mark the record dead and continue.
+                object.unwind_relocs_lookup[record_id].dead = true;
+                if (object.eh_frame_records_lookup.get(sym)) |fde_offset| {
+                    object.eh_frame_relocs_lookup.getPtr(fde_offset).?.dead = true;
+                }
+                continue;
+            }
+
+            const record = unwind_records[record_id];
+            if (UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
+                try markEhFrameRecords(zld, object_id, atom_index, alive);
+            } else {
+                if (UnwindInfo.getPersonalityFunctionReloc(zld, object_id, record_id)) |rel| {
+                    const target = Atom.parseRelocTarget(zld, .{
+                        .object_id = object_id,
+                        .rel = rel,
+                        .code = mem.asBytes(&record),
+                        .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
+                    });
+                    const target_sym = zld.getSymbol(target);
+                    if (!target_sym.undf()) {
+                        const target_object = zld.objects.items[target.getFile().?];
+                        const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index).?;
+                        markLive(zld, target_atom_index, alive);
+                    }
+                }
+
+                if (UnwindInfo.getLsdaReloc(zld, object_id, record_id)) |rel| {
+                    const target = Atom.parseRelocTarget(zld, .{
+                        .object_id = object_id,
+                        .rel = rel,
+                        .code = mem.asBytes(&record),
+                        .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
+                    });
                     const target_object = zld.objects.items[target.getFile().?];
                     const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index).?;
                     markLive(zld, target_atom_index, alive);
                 }
             }
-
-            if (UnwindInfo.getLsdaReloc(zld, object_id, record_id)) |rel| {
-                const target = Atom.parseRelocTarget(zld, .{
-                    .object_id = object_id,
-                    .rel = rel,
-                    .code = mem.asBytes(&record),
-                    .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
-                });
-                const target_object = zld.objects.items[target.getFile().?];
-                const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index).?;
-                markLive(zld, target_atom_index, alive);
-            }
         }
     }
 }
 
-fn markEhFrameRecord(zld: *Zld, object_id: u32, atom_index: AtomIndex, alive: *AtomTable) !void {
+fn markEhFrameRecords(zld: *Zld, object_id: u32, atom_index: AtomIndex, alive: *AtomTable) !void {
     const cpu_arch = zld.options.target.cpu.arch;
     const object = &zld.objects.items[object_id];
     var it = object.getEhFrameRecordsIterator();
+    var inner_syms_it = Atom.getInnerSymbolsIterator(zld, atom_index);
 
-    const fde_offset = object.eh_frame_records_lookup.get(atom_index).?;
-    it.seekTo(fde_offset);
-    const fde = (try it.next()).?;
+    while (inner_syms_it.next()) |sym| {
+        const fde_offset = object.eh_frame_records_lookup.get(sym) orelse continue; // Continue in case we hit a temp symbol alias
+        it.seekTo(fde_offset);
+        const fde = (try it.next()).?;
 
-    const cie_ptr = fde.getCiePointerSource(object_id, zld, fde_offset);
-    const cie_offset = fde_offset + 4 - cie_ptr;
-    it.seekTo(cie_offset);
-    const cie = (try it.next()).?;
+        const cie_ptr = fde.getCiePointerSource(object_id, zld, fde_offset);
+        const cie_offset = fde_offset + 4 - cie_ptr;
+        it.seekTo(cie_offset);
+        const cie = (try it.next()).?;
 
-    switch (cpu_arch) {
-        .aarch64 => {
-            // Mark FDE references which should include any referenced LSDA record
-            const relocs = eh_frame.getRelocs(zld, object_id, fde_offset);
-            for (relocs) |rel| {
-                const target = Atom.parseRelocTarget(zld, .{
-                    .object_id = object_id,
-                    .rel = rel,
-                    .code = fde.data,
-                    .base_offset = @as(i32, @intCast(fde_offset)) + 4,
+        switch (cpu_arch) {
+            .aarch64 => {
+                // Mark FDE references which should include any referenced LSDA record
+                const relocs = eh_frame.getRelocs(zld, object_id, fde_offset);
+                for (relocs) |rel| {
+                    const target = Atom.parseRelocTarget(zld, .{
+                        .object_id = object_id,
+                        .rel = rel,
+                        .code = fde.data,
+                        .base_offset = @as(i32, @intCast(fde_offset)) + 4,
+                    });
+                    const target_sym = zld.getSymbol(target);
+                    if (!target_sym.undf()) blk: {
+                        const target_object = zld.objects.items[target.getFile().?];
+                        const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index) orelse
+                            break :blk;
+                        markLive(zld, target_atom_index, alive);
+                    }
+                }
+            },
+            .x86_64 => {
+                const sect = object.getSourceSection(object.eh_frame_sect_id.?);
+                const lsda_ptr = try fde.getLsdaPointer(cie, .{
+                    .base_addr = sect.addr,
+                    .base_offset = fde_offset,
                 });
-                const target_sym = zld.getSymbol(target);
-                if (!target_sym.undf()) blk: {
-                    const target_object = zld.objects.items[target.getFile().?];
-                    const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index) orelse
-                        break :blk;
+                if (lsda_ptr) |lsda_address| {
+                    // Mark LSDA record as live
+                    const sym_index = object.getSymbolByAddress(lsda_address, null);
+                    const target_atom_index = object.getAtomIndexForSymbol(sym_index).?;
                     markLive(zld, target_atom_index, alive);
                 }
-            }
-        },
-        .x86_64 => {
-            const sect = object.getSourceSection(object.eh_frame_sect_id.?);
-            const lsda_ptr = try fde.getLsdaPointer(cie, .{
-                .base_addr = sect.addr,
-                .base_offset = fde_offset,
-            });
-            if (lsda_ptr) |lsda_address| {
-                // Mark LSDA record as live
-                const sym_index = object.getSymbolByAddress(lsda_address, null);
-                const target_atom_index = object.getAtomIndexForSymbol(sym_index).?;
+            },
+            else => unreachable,
+        }
+
+        // Mark CIE references which should include any referenced personalities
+        // that are defined locally.
+        if (cie.getPersonalityPointerReloc(zld, object_id, cie_offset)) |target| {
+            const target_sym = zld.getSymbol(target);
+            if (!target_sym.undf()) {
+                const target_object = zld.objects.items[target.getFile().?];
+                const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index).?;
                 markLive(zld, target_atom_index, alive);
             }
-        },
-        else => unreachable,
-    }
-
-    // Mark CIE references which should include any referenced personalities
-    // that are defined locally.
-    if (cie.getPersonalityPointerReloc(zld, object_id, cie_offset)) |target| {
-        const target_sym = zld.getSymbol(target);
-        if (!target_sym.undf()) {
-            const target_object = zld.objects.items[target.getFile().?];
-            const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index).?;
-            markLive(zld, target_atom_index, alive);
         }
     }
 }
@@ -458,8 +465,8 @@ fn prune(zld: *Zld, alive: AtomTable) void {
                     section.last_atom_index = prev_index;
                 } else {
                     assert(section.header.size == 0);
-                    section.first_atom_index = undefined;
-                    section.last_atom_index = undefined;
+                    section.first_atom_index = 0;
+                    section.last_atom_index = 0;
                 }
             }
 

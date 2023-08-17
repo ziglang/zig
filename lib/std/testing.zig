@@ -394,7 +394,11 @@ fn SliceDiffer(comptime T: type) type {
                 var full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
                 if (diff) try self.ttyconf.setColor(writer, .red);
-                try writer.print("[{}]: {any}\n", .{ full_index, value });
+                if (@typeInfo(T) == .Pointer) {
+                    try writer.print("[{}]{*}: {any}\n", .{ full_index, value, value });
+                } else {
+                    try writer.print("[{}]: {any}\n", .{ full_index, value });
+                }
                 if (diff) try self.ttyconf.setColor(writer, .reset);
             }
         }
@@ -1122,7 +1126,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
 pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
     inline for (comptime std.meta.declarations(T)) |decl| {
-        if (decl.is_pub) _ = &@field(T, decl.name);
+        _ = &@field(T, decl.name);
     }
 }
 
@@ -1131,14 +1135,12 @@ pub fn refAllDecls(comptime T: type) void {
 pub fn refAllDeclsRecursive(comptime T: type) void {
     if (!builtin.is_test) return;
     inline for (comptime std.meta.declarations(T)) |decl| {
-        if (decl.is_pub) {
-            if (@TypeOf(@field(T, decl.name)) == type) {
-                switch (@typeInfo(@field(T, decl.name))) {
-                    .Struct, .Enum, .Union, .Opaque => refAllDeclsRecursive(@field(T, decl.name)),
-                    else => {},
-                }
+        if (@TypeOf(@field(T, decl.name)) == type) {
+            switch (@typeInfo(@field(T, decl.name))) {
+                .Struct, .Enum, .Union, .Opaque => refAllDeclsRecursive(@field(T, decl.name)),
+                else => {},
             }
-            _ = &@field(T, decl.name);
         }
+        _ = &@field(T, decl.name);
     }
 }

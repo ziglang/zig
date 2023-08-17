@@ -638,7 +638,7 @@ fn montReduce(x: i32) i16 {
     // Note that x q' might be as big as 2³² and could overflow the int32
     // multiplication in the last line.  However for any int32s a and b,
     // we have int32(int64(a)*int64(b)) = int32(a*b) and so the result is ok.
-    const m = @as(i16, @truncate(@as(i32, @truncate(x *% qInv))));
+    const m: i16 = @truncate(@as(i32, @truncate(x *% qInv)));
 
     // Note that x - m q is divisible by R; indeed modulo R we have
     //
@@ -652,7 +652,7 @@ fn montReduce(x: i32) i16 {
     // and as both 2¹⁵ q ≤ m q, x < 2¹⁵ q, we have
     // 2¹⁶ q ≤ x - m q < 2¹⁶ and so q ≤ (x - m q) / R < q as desired.
     const yR = x - @as(i32, m) * @as(i32, Q);
-    return @as(i16, @bitCast(@as(u16, @truncate(@as(u32, @bitCast(yR)) >> 16))));
+    return @bitCast(@as(u16, @truncate(@as(u32, @bitCast(yR)) >> 16)));
 }
 
 test "Test montReduce" {

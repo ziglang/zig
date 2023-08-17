@@ -360,7 +360,7 @@ pub const StringTable = struct {
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
     assert(options.target.ofmt == .wasm);
 
-    if (build_options.have_llvm and options.use_llvm and options.use_lld) {
+    if (options.use_llvm and options.use_lld) {
         return createEmpty(allocator, options);
     }
 
@@ -522,8 +522,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
         .name = undefined,
     };
 
-    const use_llvm = build_options.have_llvm and options.use_llvm;
-    if (use_llvm) {
+    if (options.use_llvm) {
         wasm.llvm_object = try LlvmObject.create(gpa, options);
     }
     return wasm;
@@ -1273,9 +1272,7 @@ fn checkUndefinedSymbols(wasm: *const Wasm) !void {
 
 pub fn deinit(wasm: *Wasm) void {
     const gpa = wasm.base.allocator;
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| llvm_object.destroy(gpa);
-    }
+    if (wasm.llvm_object) |llvm_object| llvm_object.destroy(gpa);
 
     for (wasm.func_types.items) |*func_type| {
         func_type.deinit(gpa);
@@ -1354,9 +1351,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: 
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
-    }
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -1422,9 +1417,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
-    }
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -1708,9 +1701,9 @@ pub fn updateDeclExports(
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
-    }
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
+
+    if (wasm.base.options.emit == null) return;
 
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
@@ -1809,9 +1802,7 @@ pub fn updateDeclExports(
 }
 
 pub fn freeDecl(wasm: *Wasm, decl_index: Module.Decl.Index) void {
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-    }
+    if (wasm.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     const mod = wasm.base.options.module.?;
     const decl = mod.declPtr(decl_index);
     const atom_index = wasm.decls.get(decl_index).?;
@@ -3135,17 +3126,15 @@ fn resetState(wasm: *Wasm) void {
 
 pub fn flush(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (wasm.base.options.emit == null) {
-        if (build_options.have_llvm) {
-            if (wasm.llvm_object) |llvm_object| {
-                return try llvm_object.flushModule(comp, prog_node);
-            }
+        if (wasm.llvm_object) |llvm_object| {
+            return try llvm_object.flushModule(comp, prog_node);
         }
         return;
     }
 
     if (build_options.have_llvm and wasm.base.options.use_lld) {
         return wasm.linkWithLLD(comp, prog_node);
-    } else if (build_options.have_llvm and wasm.base.options.use_llvm and !wasm.base.options.use_lld) {
+    } else if (wasm.base.options.use_llvm and !wasm.base.options.use_lld) {
         return wasm.linkWithZld(comp, prog_node);
     } else {
         return wasm.flushModule(comp, prog_node);
@@ -3363,10 +3352,8 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp, prog_node);
-        }
+    if (wasm.llvm_object) |llvm_object| {
+        return try llvm_object.flushModule(comp, prog_node);
     }
 
     var sub_prog_node = prog_node.start("Wasm Flush", 0);

@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = target,
     });
-    lib.addCSourceFile("shared_lib.c", &.{"-gdwarf"});
+    lib.addCSourceFile(.{ .file = .{ .path = "shared_lib.c" }, .flags = &.{"-gdwarf"} });
     lib.linkLibC();
     exe.linkLibrary(lib);
 

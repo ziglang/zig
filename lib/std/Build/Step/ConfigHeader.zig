@@ -6,16 +6,19 @@ const Allocator = std.mem.Allocator;
 pub const Style = union(enum) {
     /// The configure format supported by autotools. It uses `#undef foo` to
     /// mark lines that can be substituted with different values.
-    autoconf: std.Build.FileSource,
+    autoconf: std.Build.LazyPath,
     /// The configure format supported by CMake. It uses `@@FOO@@` and
     /// `#cmakedefine` for template substitution.
-    cmake: std.Build.FileSource,
+    cmake: std.Build.LazyPath,
     /// Instead of starting with an input file, start with nothing.
     blank,
     /// Start with nothing, like blank, and output a nasm .asm file.
     nasm,
 
-    pub fn getFileSource(style: Style) ?std.Build.FileSource {
+    /// deprecated: use `getPath`
+    pub const getFileSource = getPath;
+
+    pub fn getPath(style: Style) ?std.Build.LazyPath {
         switch (style) {
             .autoconf, .cmake => |s| return s,
             .blank, .nasm => return null,
@@ -54,7 +57,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 
     var include_path: []const u8 = "config.h";
 
-    if (options.style.getFileSource()) |s| switch (s) {
+    if (options.style.getPath()) |s| switch (s) {
         .path => |p| {
             const basename = std.fs.path.basename(p);
             if (std.mem.endsWith(u8, basename, ".h.in")) {
@@ -68,7 +71,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
         include_path = p;
     }
 
-    const name = if (options.style.getFileSource()) |s|
+    const name = if (options.style.getPath()) |s|
         owner.fmt("configure {s} header {s} to {s}", .{
             @tagName(options.style), s.getDisplayName(), include_path,
         })
@@ -98,7 +101,10 @@ pub fn addValues(self: *ConfigHeader, values: anytype) void {
     return addValuesInner(self, values) catch @panic("OOM");
 }
 
-pub fn getFileSource(self: *ConfigHeader) std.Build.FileSource {
+/// deprecated: use `getOutput`
+pub const getFileSource = getOutput;
+
+pub fn getOutput(self: *ConfigHeader) std.Build.LazyPath {
     return .{ .generated = &self.output_file };
 }
 
@@ -540,9 +546,9 @@ fn replace_variables(
                     allocator.free(content_buf);
                     content_buf = buf;
                 },
-                .string => |string| {
-                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ beginline, string, endline });
-                    last_index = start_index + string.len + 1;
+                .string, .ident => |x| {
+                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ beginline, x, endline });
+                    last_index = start_index + x.len + 1;
 
                     allocator.free(content_buf);
                     content_buf = buf;

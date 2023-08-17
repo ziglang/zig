@@ -770,9 +770,8 @@ pub const Decl = struct {
 
     /// Gets the namespace that this Decl creates by being a struct, union,
     /// enum, or opaque.
-    /// Only returns it if the Decl is the owner.
-    pub fn getOwnedInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
-        if (!decl.owns_tv) return .none;
+    pub fn getInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
+        if (!decl.has_tv) return .none;
         return switch (decl.val.ip_index) {
             .empty_struct_type => .none,
             .none => .none,
@@ -786,9 +785,20 @@ pub const Decl = struct {
         };
     }
 
-    /// Same as `getInnerNamespaceIndex` but additionally obtains the pointer.
+    /// Like `getInnerNamespaceIndex`, but only returns it if the Decl is the owner.
+    pub fn getOwnedInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
+        if (!decl.owns_tv) return .none;
+        return decl.getInnerNamespaceIndex(mod);
+    }
+
+    /// Same as `getOwnedInnerNamespaceIndex` but additionally obtains the pointer.
     pub fn getOwnedInnerNamespace(decl: Decl, mod: *Module) ?*Namespace {
         return mod.namespacePtrUnwrap(decl.getOwnedInnerNamespaceIndex(mod));
+    }
+
+    /// Same as `getInnerNamespaceIndex` but additionally obtains the pointer.
+    pub fn getInnerNamespace(decl: Decl, mod: *Module) ?*Namespace {
+        return mod.namespacePtrUnwrap(decl.getInnerNamespaceIndex(mod));
     }
 
     pub fn dump(decl: *Decl) void {
@@ -2133,10 +2143,40 @@ pub const SrcLoc = struct {
             .call_arg => |call_arg| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(call_arg.call_node_offset);
-                var buf: [1]Ast.Node.Index = undefined;
-                const call_full = tree.fullCall(&buf, node).?;
-                const src_node = call_full.ast.params[call_arg.arg_index];
-                return nodeToSpan(tree, src_node);
+                var buf: [2]Ast.Node.Index = undefined;
+                const call_full = tree.fullCall(buf[0..1], node) orelse {
+                    const node_tags = tree.nodes.items(.tag);
+                    assert(node_tags[node] == .builtin_call);
+                    const call_args_node = tree.extra_data[tree.nodes.items(.data)[node].rhs - 1];
+                    switch (node_tags[call_args_node]) {
+                        .array_init_one,
+                        .array_init_one_comma,
+                        .array_init_dot_two,
+                        .array_init_dot_two_comma,
+                        .array_init_dot,
+                        .array_init_dot_comma,
+                        .array_init,
+                        .array_init_comma,
+                        => {
+                            const full = tree.fullArrayInit(&buf, call_args_node).?.ast.elements;
+                            return nodeToSpan(tree, full[call_arg.arg_index]);
+                        },
+                        .struct_init_one,
+                        .struct_init_one_comma,
+                        .struct_init_dot_two,
+                        .struct_init_dot_two_comma,
+                        .struct_init_dot,
+                        .struct_init_dot_comma,
+                        .struct_init,
+                        .struct_init_comma,
+                        => {
+                            const full = tree.fullStructInit(&buf, call_args_node).?.ast.fields;
+                            return nodeToSpan(tree, full[call_arg.arg_index]);
+                        },
+                        else => return nodeToSpan(tree, call_args_node),
+                    }
+                };
+                return nodeToSpan(tree, call_full.ast.params[call_arg.arg_index]);
             },
             .fn_proto_param => |fn_proto_param| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -4186,6 +4226,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
             .owner_decl = new_decl,
             .owner_decl_index = new_decl_index,
             .func_index = .none,
+            .func_is_naked = false,
             .fn_ret_ty = Type.void,
             .fn_ret_ty_ies = null,
             .owner_func_index = .none,
@@ -4252,6 +4293,40 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const zir = decl.getFileScope(mod).zir;
     const zir_datas = zir.instructions.items(.data);
 
+    // TODO: figure out how this works under incremental changes to builtin.zig!
+    const builtin_type_target_index: InternPool.Index = blk: {
+        const std_mod = mod.main_pkg.table.get("std").?;
+        if (decl.getFileScope(mod).pkg != std_mod) break :blk .none;
+        // We're in the std module.
+        const std_file = (try mod.importPkg(std_mod)).file;
+        const std_decl = mod.declPtr(std_file.root_decl.unwrap().?);
+        const std_namespace = std_decl.getInnerNamespace(mod).?;
+        const builtin_str = try mod.intern_pool.getOrPutString(gpa, "builtin");
+        const builtin_decl = mod.declPtr(std_namespace.decls.getKeyAdapted(builtin_str, DeclAdapter{ .mod = mod }) orelse break :blk .none);
+        const builtin_namespace = builtin_decl.getInnerNamespaceIndex(mod).unwrap() orelse break :blk .none;
+        if (decl.src_namespace != builtin_namespace) break :blk .none;
+        // We're in builtin.zig. This could be a builtin we need to add to a specific InternPool index.
+        const decl_name = mod.intern_pool.stringToSlice(decl.name);
+        for ([_]struct { []const u8, InternPool.Index }{
+            .{ "AtomicOrder", .atomic_order_type },
+            .{ "AtomicRmwOp", .atomic_rmw_op_type },
+            .{ "CallingConvention", .calling_convention_type },
+            .{ "AddressSpace", .address_space_type },
+            .{ "FloatMode", .float_mode_type },
+            .{ "ReduceOp", .reduce_op_type },
+            .{ "CallModifier", .call_modifier_type },
+            .{ "PrefetchOptions", .prefetch_options_type },
+            .{ "ExportOptions", .export_options_type },
+            .{ "ExternOptions", .extern_options_type },
+            .{ "Type", .type_info_type },
+        }) |pair| {
+            if (std.mem.eql(u8, decl_name, pair[0])) {
+                break :blk pair[1];
+            }
+        }
+        break :blk .none;
+    };
+
     decl.analysis = .in_progress;
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
@@ -4268,10 +4343,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         .owner_decl = decl,
         .owner_decl_index = decl_index,
         .func_index = .none,
+        .func_is_naked = false,
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
         .comptime_mutable_decls = &comptime_mutable_decls,
+        .builtin_type_target_index = builtin_type_target_index,
     };
     defer sema.deinit();
 
@@ -4308,6 +4385,8 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = zir.extra[extra.end..][0..extra.data.body_len];
     const result_ref = (try sema.analyzeBodyBreak(&block_scope, body)).?.operand;
+    // We'll do some other bits with the Sema. Clear the type target index just in case they analyze any type.
+    sema.builtin_type_target_index = .none;
     try wip_captures.finalize();
     for (comptime_mutable_decls.items) |ct_decl_index| {
         const ct_decl = mod.declPtr(ct_decl_index);
@@ -5213,6 +5292,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .owner_decl = decl,
         .owner_decl_index = decl_index,
         .func_index = func_index,
+        .func_is_naked = fn_ty_info.cc == .Naked,
         .fn_ret_ty = fn_ty_info.return_type.toType(),
         .fn_ret_ty_ies = null,
         .owner_func_index = func_index,
@@ -5607,7 +5687,7 @@ pub fn getTarget(mod: Module) Target {
     return mod.comp.bin_file.options.target;
 }
 
-pub fn optimizeMode(mod: Module) std.builtin.Mode {
+pub fn optimizeMode(mod: Module) std.builtin.OptimizeMode {
     return mod.comp.bin_file.options.optimize_mode;
 }
 
@@ -5903,41 +5983,6 @@ pub fn paramSrc(
         }
     }
     unreachable;
-}
-
-pub fn argSrc(
-    mod: *Module,
-    call_node_offset: i32,
-    decl: *Decl,
-    start_arg_i: usize,
-    bound_arg_src: ?LazySrcLoc,
-) LazySrcLoc {
-    @setCold(true);
-    const gpa = mod.gpa;
-    if (start_arg_i == 0 and bound_arg_src != null) return bound_arg_src.?;
-    const arg_i = start_arg_i - @intFromBool(bound_arg_src != null);
-    const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
-        // In this case we emit a warning + a less precise source location.
-        log.warn("unable to load {s}: {s}", .{
-            decl.getFileScope(mod).sub_file_path, @errorName(err),
-        });
-        return LazySrcLoc.nodeOffset(0);
-    };
-    const node_tags = tree.nodes.items(.tag);
-    const node = decl.relativeToNodeIndex(call_node_offset);
-    var args: [1]Ast.Node.Index = undefined;
-    const full = switch (node_tags[node]) {
-        .call_one, .call_one_comma, .async_call_one, .async_call_one_comma => tree.callOne(&args, node),
-        .call, .call_comma, .async_call, .async_call_comma => tree.callFull(node),
-        .builtin_call => {
-            const node_datas = tree.nodes.items(.data);
-            const call_args_node = tree.extra_data[node_datas[node].rhs - 1];
-            const call_args_offset = decl.nodeIndexToRelative(call_args_node);
-            return mod.initSrc(call_args_offset, decl, arg_i);
-        },
-        else => unreachable,
-    };
-    return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full.ast.params[arg_i]));
 }
 
 pub fn initSrc(
@@ -6614,12 +6659,24 @@ pub fn enumValueFieldIndex(mod: *Module, ty: Type, field_index: u32) Allocator.E
     } })).toValue();
 }
 
+pub fn undefValue(mod: *Module, ty: Type) Allocator.Error!Value {
+    return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+}
+
+pub fn undefRef(mod: *Module, ty: Type) Allocator.Error!Air.Inst.Ref {
+    return Air.internedToRef((try mod.undefValue(ty)).toIntern());
+}
+
 pub fn intValue(mod: *Module, ty: Type, x: anytype) Allocator.Error!Value {
     if (std.math.cast(u64, x)) |casted| return intValue_u64(mod, ty, casted);
     if (std.math.cast(i64, x)) |casted| return intValue_i64(mod, ty, casted);
     var limbs_buffer: [4]usize = undefined;
     var big_int = BigIntMutable.init(&limbs_buffer, x);
     return intValue_big(mod, ty, big_int.toConst());
+}
+
+pub fn intRef(mod: *Module, ty: Type, x: anytype) Allocator.Error!Air.Inst.Ref {
+    return Air.internedToRef((try mod.intValue(ty, x)).toIntern());
 }
 
 pub fn intValue_big(mod: *Module, ty: Type, x: BigIntConst) Allocator.Error!Value {

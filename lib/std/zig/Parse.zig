@@ -3818,7 +3818,7 @@ fn parseIf(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !No
     });
     _ = try p.parsePayload();
     const else_expr = try bodyParseFn(p);
-    assert(then_expr != 0);
+    assert(else_expr != 0);
 
     return p.addNode(.{
         .tag = .@"if",

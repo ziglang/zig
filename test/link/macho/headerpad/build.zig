@@ -113,7 +113,7 @@ fn simpleExe(
         .name = name,
         .optimize = optimize,
     });
-    exe.addCSourceFile("main.c", &.{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkLibC();
     exe.linkFramework("CoreFoundation");
     exe.linkFramework("Foundation");

@@ -901,3 +901,28 @@ test "json parse allocate when streaming" {
     try testing.expectEqualSlices(u8, parsed.not_const, "non const string");
     try testing.expectEqualSlices(u8, parsed.is_const, "const string");
 }
+
+test "parse at comptime" {
+    const doc =
+        \\{
+        \\    "vals": {
+        \\        "testing": 1,
+        \\        "production": 42
+        \\    },
+        \\    "uptime": 9999
+        \\}
+    ;
+    const Config = struct {
+        vals: struct { testing: u8, production: u8 },
+        uptime: u64,
+    };
+    const config = comptime x: {
+        var buf: [32]u8 = undefined;
+        var fba = std.heap.FixedBufferAllocator.init(&buf);
+        const res = parseFromSliceLeaky(Config, fba.allocator(), doc, .{});
+        // Assert no error can occur since we are
+        // parsing this JSON at comptime!
+        break :x res catch unreachable;
+    };
+    comptime testing.expectEqual(@as(u64, 9999), config.uptime) catch unreachable;
+}

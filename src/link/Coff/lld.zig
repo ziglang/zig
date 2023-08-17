@@ -88,7 +88,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 }
             }
         }
-        link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
+        try link.hashAddSystemLibs(&man, self.base.options.system_libs);
         man.hash.addListOfBytes(self.base.options.force_undefined_symbols.keys());
         man.hash.addOptional(self.base.options.subsystem);
         man.hash.add(self.base.options.is_test);
@@ -405,6 +405,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                         try argv.append(try comp.get_libc_crt_file(arena, "mingw32.lib"));
                         try argv.append(try comp.get_libc_crt_file(arena, "mingwex.lib"));
                         try argv.append(try comp.get_libc_crt_file(arena, "msvcrt-os.lib"));
+                        try argv.append(try comp.get_libc_crt_file(arena, "uuid.lib"));
 
                         for (mingw.always_link_libs) |name| {
                             if (!self.base.options.system_libs.contains(name)) {

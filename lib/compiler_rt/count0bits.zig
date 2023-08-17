@@ -49,7 +49,7 @@ inline fn clzXi2(comptime T: type, a: T) i32 {
             x = y;
         }
     }
-    return @as(i32, @intCast(n - @as(T, @bitCast(x))));
+    return @intCast(n - @as(T, @bitCast(x)));
 }
 
 fn __clzsi2_thumb1() callconv(.Naked) void {
@@ -187,7 +187,7 @@ inline fn ctzXi2(comptime T: type, a: T) i32 {
             x = x >> shift;
         }
     }
-    return @as(i32, @intCast(n - @as(T, @bitCast((x & 1)))));
+    return @intCast(n - @as(T, @bitCast((x & 1))));
 }
 
 pub fn __ctzsi2(a: i32) callconv(.C) i32 {
@@ -224,7 +224,7 @@ inline fn ffsXi2(comptime T: type, a: T) i32 {
         }
     }
     // return ctz + 1
-    return @as(i32, @intCast(n - @as(T, @bitCast((x & 1))))) + @as(i32, 1);
+    return @as(i32, @intCast(n - @as(T, @bitCast((x & 1))))) + 1;
 }
 
 pub fn __ffssi2(a: i32) callconv(.C) i32 {

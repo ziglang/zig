@@ -58,11 +58,6 @@ const Rebase = @import("MachO/dyld_info/Rebase.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
-pub const SearchStrategy = enum {
-    paths_first,
-    dylibs_first,
-};
-
 /// Mode of operation of the linker.
 pub const Mode = enum {
     /// Incremental mode will preallocate segments/sections and is compatible with
@@ -427,7 +422,6 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     const cpu_arch = options.target.cpu.arch;
     const page_size: u16 = if (cpu_arch == .aarch64) 0x4000 else 0x1000;
-    const use_llvm = build_options.have_llvm and options.use_llvm;
 
     const self = try gpa.create(MachO);
     errdefer gpa.destroy(self);
@@ -440,13 +434,13 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
             .file = null,
         },
         .page_size = page_size,
-        .mode = if (use_llvm or options.module == null or options.cache_mode == .whole)
+        .mode = if (options.use_llvm or options.module == null or options.cache_mode == .whole)
             .zld
         else
             .incremental,
     };
 
-    if (use_llvm) {
+    if (options.use_llvm) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
 
@@ -457,10 +451,8 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
 
 pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (self.base.options.emit == null) {
-        if (build_options.have_llvm) {
-            if (self.llvm_object) |llvm_object| {
-                try llvm_object.flushModule(comp, prog_node);
-            }
+        if (self.llvm_object) |llvm_object| {
+            try llvm_object.flushModule(comp, prog_node);
         }
         return;
     }
@@ -484,10 +476,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp, prog_node);
-        }
+    if (self.llvm_object) |llvm_object| {
+        return try llvm_object.flushModule(comp, prog_node);
     }
 
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
@@ -834,39 +824,50 @@ pub fn resolveLibSystem(
     out_libs: anytype,
 ) !void {
     // If we were given the sysroot, try to look there first for libSystem.B.{dylib, tbd}.
-    var libsystem_available = false;
-    if (syslibroot != null) blk: {
-        // Try stub file first. If we hit it, then we're done as the stub file
-        // re-exports every single symbol definition.
-        for (search_dirs) |dir| {
-            if (try resolveLib(arena, dir, "System", ".tbd")) |full_path| {
-                try out_libs.put(full_path, .{ .needed = true });
-                libsystem_available = true;
-                break :blk;
-            }
+    if (syslibroot) |root| {
+        const full_dir_path = try std.fs.path.join(arena, &.{ root, "usr", "lib" });
+        if (try resolveLibSystemInDirs(arena, &.{full_dir_path}, out_libs)) return;
+    }
+
+    // Next, try input search dirs if we are linking on a custom host such as Nix.
+    if (try resolveLibSystemInDirs(arena, search_dirs, out_libs)) return;
+
+    // As a fallback, try linking against Zig shipped stub.
+    const libsystem_name = try std.fmt.allocPrint(arena, "libSystem.{d}.tbd", .{
+        target.os.version_range.semver.min.major,
+    });
+    const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        "libc", "darwin", libsystem_name,
+    });
+    try out_libs.put(full_path, .{
+        .needed = true,
+        .weak = false,
+        .path = full_path,
+    });
+}
+
+fn resolveLibSystemInDirs(arena: Allocator, dirs: []const []const u8, out_libs: anytype) !bool {
+    // Try stub file first. If we hit it, then we're done as the stub file
+    // re-exports every single symbol definition.
+    for (dirs) |dir| {
+        if (try resolveLib(arena, dir, "System", ".tbd")) |full_path| {
+            try out_libs.put(full_path, .{ .needed = true, .weak = false, .path = full_path });
+            return true;
         }
-        // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
-        // doesn't export libc.dylib which we'll need to resolve subsequently also.
-        for (search_dirs) |dir| {
-            if (try resolveLib(arena, dir, "System", ".dylib")) |libsystem_path| {
-                if (try resolveLib(arena, dir, "c", ".dylib")) |libc_path| {
-                    try out_libs.put(libsystem_path, .{ .needed = true });
-                    try out_libs.put(libc_path, .{ .needed = true });
-                    libsystem_available = true;
-                    break :blk;
-                }
+    }
+    // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
+    // doesn't export libc.dylib which we'll need to resolve subsequently also.
+    for (dirs) |dir| {
+        if (try resolveLib(arena, dir, "System", ".dylib")) |libsystem_path| {
+            if (try resolveLib(arena, dir, "c", ".dylib")) |libc_path| {
+                try out_libs.put(libsystem_path, .{ .needed = true, .weak = false, .path = libsystem_path });
+                try out_libs.put(libc_path, .{ .needed = true, .weak = false, .path = libc_path });
+                return true;
             }
         }
     }
-    if (!libsystem_available) {
-        const libsystem_name = try std.fmt.allocPrint(arena, "libSystem.{d}.tbd", .{
-            target.os.version_range.semver.min.major,
-        });
-        const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-            "libc", "darwin", libsystem_name,
-        });
-        try out_libs.put(full_path, .{ .needed = true });
-    }
+
+    return false;
 }
 
 pub fn resolveSearchDir(
@@ -1616,9 +1617,7 @@ fn resolveSymbolsInDylibs(self: *MachO, actions: *std.ArrayList(ResolveAction)) 
 pub fn deinit(self: *MachO) void {
     const gpa = self.base.allocator;
 
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
-    }
+    if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
 
     if (self.d_sym) |*d_sym| {
         d_sym.deinit();
@@ -1849,9 +1848,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1973,9 +1970,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2381,10 +2376,10 @@ pub fn updateDeclExports(
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object|
-            return llvm_object.updateDeclExports(mod, decl_index, exports);
-    }
+    if (self.llvm_object) |llvm_object|
+        return llvm_object.updateDeclExports(mod, decl_index, exports);
+
+    if (self.base.options.emit == null) return;
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -2534,9 +2529,7 @@ fn freeUnnamedConsts(self: *MachO, decl_index: Module.Decl.Index) void {
 }
 
 pub fn freeDecl(self: *MachO, decl_index: Module.Decl.Index) void {
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
 
@@ -3227,6 +3220,7 @@ fn writeDyldInfoData(self: *MachO) !void {
 
     var trie: Trie = .{};
     defer trie.deinit(gpa);
+    try trie.init(gpa);
     try self.collectExportData(&trie);
 
     const link_seg = self.getLinkeditSegmentPtr();

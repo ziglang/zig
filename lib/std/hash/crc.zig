@@ -142,7 +142,7 @@ pub fn Crc32WithPoly(comptime poly: Polynomial) type {
                 var crc = tables[0][i];
                 var j: usize = 1;
                 while (j < 8) : (j += 1) {
-                    const index = @as(u8, @truncate(crc));
+                    const index: u8 = @truncate(crc);
                     crc = tables[0][index] ^ (crc >> 8);
                     tables[j][i] = crc;
                 }

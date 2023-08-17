@@ -21,7 +21,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    dylib.addCSourceFile("a.c", &.{});
+    dylib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     dylib.linkLibC();
 
     const check_dylib = dylib.checkObject();
@@ -39,10 +39,10 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &.{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkSystemLibrary("a");
-    exe.addLibraryPathDirectorySource(dylib.getOutputDirectorySource());
-    exe.addRPathDirectorySource(dylib.getOutputDirectorySource());
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
     exe.linkLibC();
 
     const check_exe = exe.checkObject();
@@ -55,7 +55,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     check_exe.checkStart();
     check_exe.checkExact("cmd RPATH");
-    check_exe.checkExactFileSource("path", dylib.getOutputDirectorySource());
+    check_exe.checkExactPath("path", dylib.getOutputDirectorySource());
     test_step.dependOn(&check_exe.step);
 
     const run = b.addRunArtifact(exe);

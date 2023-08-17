@@ -121,21 +121,9 @@ pub const pthread_attr_t = extern struct {
 };
 
 pub const sem_t = ?*opaque {};
-pub const cpuset_t = opaque {};
-pub const cpuid_t = c_ulong;
 
 pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8, arg: ?*anyopaque) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
-pub extern "c" fn pthread_setaffinity_np(thread: std.c.pthread_t, size: usize, set: ?*cpuset_t) c_int;
-pub extern "c" fn pthread_getaffinity_np(thread: std.c.pthread_t, size: usize, set: ?*cpuset_t) c_int;
-
-pub extern "c" fn cpuset_create() ?*cpuset_t;
-pub extern "c" fn cpuset_destroy(set: ?*cpuset_t) void;
-pub extern "c" fn cpuset_zero(set: ?*cpuset_t) void;
-pub extern "c" fn cpuset_set(cpu: cpuid_t, set: ?*cpuset_t) c_int;
-pub extern "c" fn cpuset_clr(cpu: cpuid_t, set: ?*cpuset_t) c_int;
-pub extern "c" fn cpuset_isset(cpu: cpuid_t, set: ?*const cpuset_t) c_int;
-pub extern "c" fn cpuset_size(set: ?*cpuset_t) usize;
 
 pub const blkcnt_t = i64;
 pub const blksize_t = i32;
@@ -253,48 +241,48 @@ pub const EAI_MAX = 15;
 
 pub const msghdr = extern struct {
     /// optional address
-    name: ?*sockaddr,
+    msg_name: ?*sockaddr,
 
     /// size of address
-    namelen: socklen_t,
+    msg_namelen: socklen_t,
 
     /// scatter/gather array
-    iov: [*]iovec,
+    msg_iov: [*]iovec,
 
     /// # elements in msg_iov
-    iovlen: i32,
+    msg_iovlen: i32,
 
     /// ancillary data
-    control: ?*anyopaque,
+    msg_control: ?*anyopaque,
 
     /// ancillary data buffer len
-    controllen: socklen_t,
+    msg_controllen: socklen_t,
 
     /// flags on received message
-    flags: i32,
+    msg_flags: i32,
 };
 
 pub const msghdr_const = extern struct {
     /// optional address
-    name: ?*const sockaddr,
+    msg_name: ?*const sockaddr,
 
     /// size of address
-    namelen: socklen_t,
+    msg_namelen: socklen_t,
 
     /// scatter/gather array
-    iov: [*]const iovec_const,
+    msg_iov: [*]const iovec_const,
 
     /// # elements in msg_iov
-    iovlen: i32,
+    msg_iovlen: i32,
 
     /// ancillary data
-    control: ?*const anyopaque,
+    msg_control: ?*const anyopaque,
 
     /// ancillary data buffer len
-    controllen: socklen_t,
+    msg_controllen: socklen_t,
 
     /// flags on received message
-    flags: i32,
+    msg_flags: i32,
 };
 
 /// The stat structure used by libc.
@@ -485,11 +473,6 @@ pub const AF = struct {
     pub const MAX = 37;
 };
 
-pub const accept_filter_arg = extern struct {
-    af_name: [16]u8,
-    af_args: [240]u8,
-};
-
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
 
@@ -579,12 +562,6 @@ pub const PROT = struct {
     pub const READ = 1;
     pub const WRITE = 2;
     pub const EXEC = 4;
-    pub fn MPROTECT(flag: u32) u32 {
-        return flag << 3;
-    }
-    pub fn MPROTECT_EXTRACT(flag: u32) u32 {
-        return (flag >> 3) & 0x7;
-    }
 };
 
 pub const CLOCK = struct {
@@ -614,27 +591,6 @@ pub const MAP = struct {
     pub const ANON = 0x1000;
     pub const ANONYMOUS = ANON;
     pub const STACK = 0x2000;
-
-    pub const ALIGNMENT_SHIFT = 24;
-    pub fn ALIGNED(n: u32) u32 {
-        return n << ALIGNMENT_SHIFT;
-    }
-    pub const ALIGNMENT_64KB = MAP.ALIGNED(0xff);
-    pub const ALIGNMENT_16MB = MAP.ALIGNED(16);
-    pub const ALIGNMENT_4GB = MAP.ALIGNED(32);
-    pub const ALIGNMENT_1TB = MAP.ALIGNED(40);
-    pub const ALIGNMENT_256TB = MAP.ALIGNED(48);
-    pub const ALIGNMENT_64PB = MAP.ALIGNED(56);
-};
-
-pub const MADV = struct {
-    pub const NORMAL = 0;
-    pub const RANDOM = 1;
-    pub const SEQUENTIAL = 2;
-    pub const WILLNEED = 3;
-    pub const DONTNEED = 4;
-    pub const SPACEAVAIL = 5;
-    pub const FREE = 6;
 };
 
 pub const MSF = struct {
@@ -1665,79 +1621,3 @@ pub const POLL = struct {
     pub const HUP = 0x0010;
     pub const NVAL = 0x0020;
 };
-
-pub const SIGEV = struct {
-    pub const NONE = 0;
-    pub const SIGNAL = 1;
-    pub const THREAD = 2;
-};
-
-pub const sigval = extern union {
-    int: c_int,
-    ptr: ?*anyopaque,
-};
-
-pub const sigevent = extern struct {
-    sigev_notify: c_int,
-    sigev_signo: c_int,
-    sigev_value: sigval,
-    sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
-    sigev_notify_attributes: ?*pthread_attr_t,
-};
-
-pub const PTRACE = struct {
-    pub const FORK = 0x0001;
-    pub const VFORK = 0x0002;
-    pub const VFORK_DONE = 0x0004;
-    pub const LWP_CREATE = 0x0008;
-    pub const LWP_EXIT = 0x0010;
-    pub const POSIX_SPAWN = 0x0020;
-};
-
-pub const PT = struct {
-    pub const TRACE_ME = 0;
-    pub const READ_I = 1;
-    pub const READ_D = 2;
-    pub const WRITE_I = 4;
-    pub const WRITE_D = 5;
-    pub const CONTINUE = 7;
-    pub const KILL = 8;
-    pub const ATTACH = 9;
-    pub const DETACH = 10;
-    pub const IO = 11;
-    pub const DUMPCORE = 11;
-    pub const LWPINFO = 12;
-};
-
-pub const ptrace_event = extern struct {
-    set_event: c_int,
-};
-
-pub const ptrace_state = extern struct {
-    report_event: c_int,
-    _option: extern union {
-        other_pid: pid_t,
-        lwp: lwpid_t,
-    },
-};
-
-pub const ptrace_io_desc = extern struct {
-    op: c_int,
-    offs: ?*anyopaque,
-    addr: ?*anyopaque,
-    len: usize,
-};
-
-pub const PIOD = struct {
-    pub const READ_D = 1;
-    pub const WRITE_D = 2;
-    pub const READ_I = 3;
-    pub const WRITE_I = 4;
-};
-
-pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: ?*anyopaque, data: c_int) c_int;
-
-/// TODO refines if necessary
-pub const PTHREAD_STACK_MIN = 16 * 1024;
-
-pub const timer_t = *opaque {};

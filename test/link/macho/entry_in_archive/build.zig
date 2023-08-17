@@ -18,7 +18,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });
-    lib.addCSourceFile("main.c", &.{});
+    lib.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     lib.linkLibC();
 
     const exe = b.addExecutable(.{

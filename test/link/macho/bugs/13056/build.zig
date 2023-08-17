@@ -16,20 +16,20 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
     const target_info = std.zig.system.NativeTargetInfo.detect(target) catch unreachable;
-    const sdk = std.zig.system.darwin.getDarwinSDK(b.allocator, target_info.target) orelse
+    const sdk = std.zig.system.darwin.getSdk(b.allocator, target_info.target) orelse
         @panic("macOS SDK is required to run the test");
 
     const exe = b.addExecutable(.{
         .name = "test",
         .optimize = optimize,
     });
-    exe.addSystemIncludePath(std.fs.path.join(b.allocator, &.{ sdk.path, "/usr/include" }) catch unreachable);
-    exe.addIncludePath(std.fs.path.join(b.allocator, &.{ sdk.path, "/usr/include/c++/v1" }) catch unreachable);
-    exe.addCSourceFile("test.cpp", &.{
+    exe.addSystemIncludePath(.{ .path = b.pathJoin(&.{ sdk.path, "/usr/include" }) });
+    exe.addIncludePath(.{ .path = b.pathJoin(&.{ sdk.path, "/usr/include/c++/v1" }) });
+    exe.addCSourceFile(.{ .file = .{ .path = "test.cpp" }, .flags = &.{
         "-nostdlib++",
         "-nostdinc++",
-    });
-    exe.addObjectFile(std.fs.path.join(b.allocator, &.{ sdk.path, "/usr/lib/libc++.tbd" }) catch unreachable);
+    } });
+    exe.addObjectFile(.{ .path = b.pathJoin(&.{ sdk.path, "/usr/lib/libc++.tbd" }) });
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.expectStdErrEqual("x: 5\n");

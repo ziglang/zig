@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const is_x86_64_linux = builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux;
 
@@ -163,6 +164,19 @@ export fn derp() i32 {
     return 1234;
 }
 
+test "rw constraint (x86_64)" {
+    if (builtin.target.cpu.arch != .x86_64 or builtin.zig_backend != .stage2_llvm)
+        return error.SkipZigTest;
+
+    var res: i32 = 5;
+    asm ("addl %[b], %[a]"
+        : [a] "+r" (res),
+        : [b] "r" (@as(i32, 13)),
+        : "flags"
+    );
+    try expectEqual(@as(i32, 18), res);
+}
+
 test "asm modifiers (AArch64)" {
     if (builtin.target.cpu.arch != .aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -174,5 +188,5 @@ test "asm modifiers (AArch64)" {
         : [ret] "=r" (-> u32),
         : [in] "r" (x),
     );
-    try expect(double == 2 * x);
+    try expectEqual(2 * x, double);
 }

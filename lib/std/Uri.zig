@@ -443,7 +443,7 @@ fn isPathChar(c: u8) bool {
 }
 
 fn isQueryChar(c: u8) bool {
-    return isPathChar(c) or c == '?';
+    return isPathChar(c) or c == '?' or c == '%';
 }
 
 fn isQuerySeparator(c: u8) bool {
@@ -671,4 +671,14 @@ test "URI unescaping" {
     defer std.testing.allocator.free(actual);
 
     try std.testing.expectEqualSlices(u8, expected, actual);
+}
+
+test "URI query escaping" {
+    const address = "https://objects.githubusercontent.com/?response-content-type=application%2Foctet-stream";
+    const parsed = try Uri.parse(address);
+
+    // format the URI to escape it
+    const formatted_uri = try std.fmt.allocPrint(std.testing.allocator, "{}", .{parsed});
+    defer std.testing.allocator.free(formatted_uri);
+    try std.testing.expectEqualStrings("/?response-content-type=application%2Foctet-stream", formatted_uri);
 }

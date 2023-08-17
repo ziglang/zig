@@ -1692,3 +1692,24 @@ test "packed union field pointer has correct alignment" {
     try expectEqual(@as(u20, 456), bp.*);
     try expectEqual(@as(u20, 789), cp.*);
 }
+
+test "union with 128 bit integer" {
+    const ValueTag = enum { int, other };
+
+    const Value3 = union(ValueTag) {
+        int: i128,
+        other: bool,
+    };
+    var values: [2]Value3 = undefined;
+    values[0] = .{ .int = 3 };
+    values[1] = .{ .int = 4 };
+
+    var ok: usize = 0;
+
+    for (values) |val| {
+        switch (val) {
+            .int => ok += 1,
+            else => return error.TestFailed,
+        }
+    }
+}

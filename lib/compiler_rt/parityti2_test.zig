@@ -3,7 +3,7 @@ const parity = @import("parity.zig");
 const testing = std.testing;
 
 fn parityti2Naive(a: i128) i32 {
-    var x = @as(u128, @bitCast(a));
+    var x: u128 = @bitCast(a);
     var has_parity: bool = false;
     while (x > 0) {
         has_parity = !has_parity;

@@ -1528,11 +1528,13 @@ pub fn refToInterned(ref: Inst.Ref) ?InternPool.Index {
 }
 
 pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
-    assert(@intFromEnum(ip_index) >> 31 == 0);
     return switch (ip_index) {
         .var_args_param_type => .var_args_param_type,
         .none => .none,
-        else => @enumFromInt(@as(u31, @intCast(@intFromEnum(ip_index)))),
+        else => {
+            assert(@intFromEnum(ip_index) >> 31 == 0);
+            return @enumFromInt(@as(u31, @intCast(@intFromEnum(ip_index))));
+        },
     };
 }
 
@@ -1783,7 +1785,14 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .work_group_id,
         => false,
 
-        .assembly => @as(u1, @truncate(air.extraData(Air.Asm, data.ty_pl.payload).data.flags >> 31)) != 0,
+        .assembly => {
+            var extra = air.extraData(Air.Asm, data.ty_pl.payload);
+            const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
+            return is_volatile or if (extra.data.outputs_len == 1)
+                @as(Air.Inst.Ref, @enumFromInt(air.extra[extra.end])) != .none
+            else
+                extra.data.outputs_len > 1;
+        },
         .load => air.typeOf(data.ty_op.operand, ip).isVolatilePtrIp(ip),
         .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs, ip).isVolatilePtrIp(ip),
         .atomic_load => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtrIp(ip),

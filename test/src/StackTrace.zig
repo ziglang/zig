@@ -75,7 +75,7 @@ fn addExpect(
     const write_src = b.addWriteFile("source.zig", source);
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = write_src.files.items[0].getFileSource(),
+        .root_source_file = write_src.files.items[0].getPath(),
         .optimize = optimize_mode,
         .target = .{},
     });
@@ -88,7 +88,7 @@ fn addExpect(
 
     const check_run = b.addRunArtifact(self.check_exe);
     check_run.setName(annotated_case_name);
-    check_run.addFileSourceArg(run.captureStdErr());
+    check_run.addFileArg(run.captureStdErr());
     check_run.addArgs(&.{
         @tagName(optimize_mode),
     });

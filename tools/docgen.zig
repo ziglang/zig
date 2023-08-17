@@ -64,7 +64,9 @@ pub fn main() !void {
                 }
             } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
                 if (args_it.next()) |param| {
-                    opt_zig_lib_dir = param;
+                    // Convert relative to absolute because this will be passed
+                    // to a child process with a different cwd.
+                    opt_zig_lib_dir = try fs.realpathAlloc(allocator, param);
                 } else {
                     fatal("expected parameter after --zig-lib-dir", .{});
                 }
@@ -321,7 +323,7 @@ const Code = struct {
     name: []const u8,
     source_token: Token,
     just_check_syntax: bool,
-    mode: std.builtin.Mode,
+    mode: std.builtin.OptimizeMode,
     link_objects: []const []const u8,
     target_str: ?[]const u8,
     link_libc: bool,
@@ -587,7 +589,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {s}", .{code_kind_str});
                     }
 
-                    var mode: std.builtin.Mode = .Debug;
+                    var mode: std.builtin.OptimizeMode = .Debug;
                     var link_objects = std.ArrayList([]const u8).init(allocator);
                     defer link_objects.deinit();
                     var target_str: ?[]const u8 = null;

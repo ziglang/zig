@@ -2,12 +2,10 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
 const os = std.os;
-const assert = std.debug.assert;
 const testing = std.testing;
 const elf = std.elf;
 const windows = std.os.windows;
 const system = std.os.system;
-const maxInt = std.math.maxInt;
 
 pub const DynLib = switch (builtin.os.tag) {
     .linux => if (builtin.link_libc) DlDynlib else ElfDynLib,
@@ -319,12 +317,12 @@ pub const WindowsDynLib = struct {
     dll: windows.HMODULE,
 
     pub fn open(path: []const u8) !WindowsDynLib {
-        const path_w = try windows.sliceToPrefixedFileW(path);
+        const path_w = try windows.sliceToPrefixedFileW(null, path);
         return openW(path_w.span().ptr);
     }
 
     pub fn openZ(path_c: [*:0]const u8) !WindowsDynLib {
-        const path_w = try windows.cStrToPrefixedFileW(path_c);
+        const path_w = try windows.cStrToPrefixedFileW(null, path_c);
         return openW(path_w.span().ptr);
     }
 

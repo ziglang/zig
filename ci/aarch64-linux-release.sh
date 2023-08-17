@@ -72,7 +72,7 @@ stage3-release/bin/zig build test docs \
 
 # Look for HTML errors.
 # TODO: move this to a build.zig flag (-Denable-tidy)
-tidy --drop-empty-elements no -qe "zig-out/doc/langref.html"
+tidy --drop-empty-elements no -qe "../zig-out/doc/langref.html"
 
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-release/bin/zig build update-zig1

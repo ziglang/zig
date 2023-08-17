@@ -218,7 +218,7 @@ inline fn sincos_generic(comptime F: type, x: F, r_sin: *F, r_cos: *F) void {
     const bits = @typeInfo(F).Float.bits;
     const I = std.meta.Int(.unsigned, bits);
     const ix = @as(I, @bitCast(x)) & (math.maxInt(I) >> 1);
-    const se = @as(u16, @truncate(ix >> (bits - 16)));
+    const se: u16 = @truncate(ix >> (bits - 16));
 
     if (se == 0x7fff) {
         const result = x - x;

@@ -55,11 +55,11 @@ fn atanh_32(x: f32) f32 {
 }
 
 fn atanh_64(x: f64) f64 {
-    const u = @as(u64, @bitCast(x));
+    const u: u64 = @bitCast(x);
     const e = (u >> 52) & 0x7FF;
     const s = u >> 63;
 
-    var y = @as(f64, @bitCast(u & (maxInt(u64) >> 1))); // |x|
+    var y: f64 = @bitCast(u & (maxInt(u64) >> 1)); // |x|
 
     if (y == 1.0) {
         return math.copysign(math.inf(f64), x);

@@ -206,7 +206,7 @@ pub const Edwards25519 = struct {
         var q = Edwards25519.identityElement;
         var pos: usize = 252;
         while (true) : (pos -= 4) {
-            const slot = @as(u4, @truncate((s[pos >> 3] >> @as(u3, @truncate(pos)))));
+            const slot: u4 = @truncate((s[pos >> 3] >> @as(u3, @truncate(pos))));
             if (vartime) {
                 if (slot != 0) {
                     q = q.add(pc[slot]);

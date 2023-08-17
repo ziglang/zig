@@ -74,8 +74,9 @@ pub const Case = struct {
     /// In order to be able to run e.g. Execution updates, this must be set
     /// to Executable.
     output_mode: std.builtin.OutputMode,
-    optimize_mode: std.builtin.Mode = .Debug,
+    optimize_mode: std.builtin.OptimizeMode = .Debug,
     updates: std.ArrayList(Update),
+    emit_bin: bool = true,
     emit_h: bool = false,
     is_test: bool = false,
     expect_exact: bool = false,
@@ -172,6 +173,19 @@ pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target: CrossTarget) *Cas
         .output_mode = .Exe,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
         .link_libc = true,
+    }) catch @panic("out of memory");
+    return &ctx.cases.items[ctx.cases.items.len - 1];
+}
+
+pub fn noEmitUsingLlvmBackend(ctx: *Cases, name: []const u8, target: CrossTarget) *Case {
+    ctx.cases.append(Case{
+        .name = name,
+        .target = target,
+        .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+        .output_mode = .Obj,
+        .emit_bin = false,
+        .deps = std.ArrayList(DepModule).init(ctx.arena),
+        .backend = .llvm,
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
@@ -504,12 +518,12 @@ pub fn lowerToBuildSteps(
         }
 
         const writefiles = b.addWriteFiles();
-        var file_sources = std.StringHashMap(std.Build.FileSource).init(b.allocator);
+        var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
         defer file_sources.deinit();
         for (update.files.items) |file| {
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
-        const root_source_file = writefiles.files.items[0].getFileSource();
+        const root_source_file = writefiles.files.items[0].getPath();
 
         const artifact = if (case.is_test) b.addTest(.{
             .root_source_file = root_source_file,
@@ -561,7 +575,7 @@ pub fn lowerToBuildSteps(
                 parent_step.dependOn(&artifact.step);
             },
             .CompareObjectFile => |expected_output| {
-                const check = b.addCheckFile(artifact.getOutputSource(), .{
+                const check = b.addCheckFile(artifact.getEmittedBin(), .{
                     .expected_exact = expected_output,
                 });
 
@@ -1510,7 +1524,7 @@ fn runOneCase(
                         }
                     } else switch (host.getExternalExecutor(target_info, .{ .link_libc = case.link_libc })) {
                         .native => {
-                            if (case.backend == .stage2 and case.target.getCpuArch() == .arm) {
+                            if (case.backend == .stage2 and case.target.getCpuArch().isArmOrThumb()) {
                                 // https://github.com/ziglang/zig/issues/13623
                                 continue :update; // Pass test.
                             }

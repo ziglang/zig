@@ -797,3 +797,22 @@ test "inline switch range that includes the maximum value of the switched type" 
         }
     }
 }
+
+test "nested break ignores switch conditions and breaks instead" {
+    const S = struct {
+        fn register_to_address(ident: []const u8) !u8 {
+            const reg: u8 = if (std.mem.eql(u8, ident, "zero")) 0x00 else blk: {
+                break :blk switch (ident[0]) {
+                    0x61 => (try std.fmt.parseInt(u8, ident[1..], 0)) + 1,
+                    0x66 => (try std.fmt.parseInt(u8, ident[1..], 0)) + 1,
+                    else => {
+                        break :blk 0xFF;
+                    },
+                };
+            };
+            return reg;
+        }
+    };
+    // Originally reported at https://github.com/ziglang/zig/issues/10196
+    try expect(0x01 == try S.register_to_address("a0"));
+}

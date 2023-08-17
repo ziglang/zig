@@ -428,7 +428,7 @@ test "packed struct 24bits" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .wasm32) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch == .arm) return error.SkipZigTest; // TODO
+    if (comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -824,6 +824,7 @@ test "non-packed struct with u128 entry in union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     const U = union(enum) {
         Num: u128,
@@ -944,7 +945,7 @@ test "comptime struct field" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch == .arm) return error.SkipZigTest; // TODO
+    if (comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest; // TODO
 
     const T = struct {
         a: i32,
@@ -1722,4 +1723,43 @@ test "packed struct field in anonymous struct" {
 }
 fn countFields(v: anytype) usize {
     return @typeInfo(@TypeOf(v)).Struct.fields.len;
+}
+
+test "struct init with no result pointer sets field result types" {
+    const S = struct {
+        // A function parameter has a result type, but no result pointer.
+        fn f(s: struct { x: u32 }) u32 {
+            return s.x;
+        }
+    };
+
+    const x: u64 = 123;
+    const y = S.f(.{ .x = @intCast(x) });
+
+    try expect(y == x);
+}
+
+test "runtime side-effects in comptime-known struct init" {
+    var side_effects: u4 = 0;
+    const S = struct { a: u4, b: u4, c: u4, d: u4 };
+    const init = S{
+        .d = blk: {
+            side_effects += 8;
+            break :blk 8;
+        },
+        .c = blk: {
+            side_effects += 4;
+            break :blk 4;
+        },
+        .b = blk: {
+            side_effects += 2;
+            break :blk 2;
+        },
+        .a = blk: {
+            side_effects += 1;
+            break :blk 1;
+        },
+    };
+    try expectEqual(S{ .a = 1, .b = 2, .c = 4, .d = 8 }, init);
+    try expectEqual(@as(u4, std.math.maxInt(u4)), side_effects);
 }

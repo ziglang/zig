@@ -2065,7 +2065,7 @@ pub const Type = struct {
     pub fn errorSetIsEmpty(ty: Type, mod: *Module) bool {
         const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
-            .anyerror_type => false,
+            .anyerror_type, .adhoc_inferred_error_set_type => false,
             else => switch (ip.indexToKey(ty.toIntern())) {
                 .error_set_type => |error_set_type| error_set_type.names.len == 0,
                 .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
@@ -2084,6 +2084,7 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
             .anyerror_type => true,
+            .adhoc_inferred_error_set_type => false,
             else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .inferred_error_set_type => |i| ip.funcIesResolved(i).* == .anyerror_type,
                 else => false,
@@ -2663,10 +2664,10 @@ pub const Type = struct {
                 .int_type => false,
                 .ptr_type => |ptr_type| {
                     const child_ty = ptr_type.child.toType();
-                    if (child_ty.zigTypeTag(mod) == .Fn) {
-                        return false;
-                    } else {
-                        return child_ty.comptimeOnly(mod);
+                    switch (child_ty.zigTypeTag(mod)) {
+                        .Fn => return mod.typeToFunc(child_ty).?.is_generic,
+                        .Opaque => return false,
+                        else => return child_ty.comptimeOnly(mod),
                     }
                 },
                 .anyframe_type => |child| {
@@ -2703,7 +2704,6 @@ pub const Type = struct {
                     .c_longlong,
                     .c_ulonglong,
                     .c_longdouble,
-                    .anyopaque,
                     .bool,
                     .void,
                     .anyerror,
@@ -2722,6 +2722,7 @@ pub const Type = struct {
                     .extern_options,
                     => false,
 
+                    .anyopaque,
                     .type,
                     .comptime_int,
                     .comptime_float,
@@ -2768,7 +2769,7 @@ pub const Type = struct {
                     }
                 },
 
-                .opaque_type => false,
+                .opaque_type => true,
 
                 .enum_type => |enum_type| enum_type.tag_ty.toType().comptimeOnly(mod),
 
@@ -3038,6 +3039,7 @@ pub const Type = struct {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                assert(struct_obj.haveFieldTypes());
                 return struct_obj.fields.values()[index].ty;
             },
             .union_type => |union_type| {

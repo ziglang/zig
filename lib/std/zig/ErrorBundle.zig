@@ -265,7 +265,6 @@ fn renderErrorMessageToWriter(
                     );
                 }
             }
-            try stderr.writeByte('\n');
             try ttyconf.setColor(stderr, .reset);
         }
     } else {

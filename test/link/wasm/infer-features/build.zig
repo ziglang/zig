@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
             .os_tag = .freestanding,
         },
     });
-    c_obj.addCSourceFile("foo.c", &.{});
+    c_obj.addCSourceFile(.{ .file = .{ .path = "foo.c" }, .flags = &.{} });
 
     // Wasm library that doesn't have any features specified. This will
     // infer its featureset from other linked object files.
