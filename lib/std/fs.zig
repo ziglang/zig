@@ -1949,7 +1949,13 @@ pub const Dir = struct {
             return self.symLinkWasi(target_path, sym_link_path, flags);
         }
         if (builtin.os.tag == .windows) {
-            const target_path_w = try os.windows.sliceToPrefixedFileW(self.fd, target_path);
+            // Target path does not use sliceToPrefixedFileW because certain paths
+            // are handled differently when creating a symlink than they would be
+            // when converting to an NT namespaced path. CreateSymbolicLink in
+            // symLinkW will handle the necessary conversion.
+            var target_path_w: os.windows.PathSpace = undefined;
+            target_path_w.len = try std.unicode.utf8ToUtf16Le(&target_path_w.data, target_path);
+            target_path_w.data[target_path_w.len] = 0;
             const sym_link_path_w = try os.windows.sliceToPrefixedFileW(self.fd, sym_link_path);
             return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
         }
@@ -1987,7 +1993,10 @@ pub const Dir = struct {
     /// are null-terminated, WTF16 encoded.
     pub fn symLinkW(
         self: Dir,
-        target_path_w: []const u16,
+        /// WTF-16, does not need to be NT-prefixed. The NT-prefixing
+        /// of this path is handled by CreateSymbolicLink.
+        target_path_w: [:0]const u16,
+        /// WTF-16, must be NT-prefixed or relative
         sym_link_path_w: []const u16,
         flags: SymLinkFlags,
     ) !void {

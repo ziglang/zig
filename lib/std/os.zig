@@ -5169,11 +5169,30 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
     return getFdPath(h_file, out_buffer);
 }
 
+pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
+    return switch (os.tag) {
+        // zig fmt: off
+        .windows,
+        .macos, .ios, .watchos, .tvos,
+        .linux,
+        .solaris,
+        .freebsd,
+        => true,
+        // zig fmt: on
+        .dragonfly => os.version_range.semver.max.order(.{ .major = 6, .minor = 0, .patch = 0 }) != .lt,
+        .netbsd => os.version_range.semver.max.order(.{ .major = 10, .minor = 0, .patch = 0 }) != .lt,
+        else => false,
+    };
+}
+
 /// Return canonical path of handle `fd`.
 /// This function is very host-specific and is not universally supported by all hosts.
 /// For example, while it generally works on Linux, macOS, FreeBSD or Windows, it is
 /// unsupported on WASI.
 pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+    if (!comptime isGetFdPathSupportedOnTarget(builtin.os)) {
+        @compileError("querying for canonical path of a handle is unsupported on this host");
+    }
     switch (builtin.os.tag) {
         .windows => {
             var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
@@ -5276,9 +5295,6 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             }
         },
         .dragonfly => {
-            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 6, .minor = 0, .patch = 0 }) == .lt) {
-                @compileError("querying for canonical path of a handle is unsupported on this host");
-            }
             @memset(out_buffer[0..MAX_PATH_BYTES], 0);
             switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
@@ -5290,9 +5306,6 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             return out_buffer[0..len];
         },
         .netbsd => {
-            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 10, .minor = 0, .patch = 0 }) == .lt) {
-                @compileError("querying for canonical path of a handle is unsupported on this host");
-            }
             @memset(out_buffer[0..MAX_PATH_BYTES], 0);
             switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
@@ -5306,7 +5319,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             const len = mem.indexOfScalar(u8, out_buffer[0..], @as(u8, 0)) orelse MAX_PATH_BYTES;
             return out_buffer[0..len];
         },
-        else => @compileError("querying for canonical path of a handle is unsupported on this host"),
+        else => unreachable, // made unreachable by isGetFdPathSupportedOnTarget above
     }
 }
 
