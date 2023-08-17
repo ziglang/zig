@@ -2434,11 +2434,11 @@ pub const Type = struct {
     /// resolves field types rather than asserting they are already resolved.
     pub fn onePossibleValue(starting_type: Type, mod: *Module) !?Value {
         var ty = starting_type;
-
+        const ip = &mod.intern_pool;
         while (true) switch (ty.toIntern()) {
             .empty_struct_type => return Value.empty_struct,
 
-            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| {
                     if (int_type.bits == 0) {
                         return try mod.intValue(ty, 0);
@@ -2619,7 +2619,7 @@ pub const Type = struct {
                                     } });
                                     return only.toValue();
                                 } else {
-                                    return enum_type.values[0].toValue();
+                                    return enum_type.values.get(ip)[0].toValue();
                                 }
                             },
                             else => return null,
@@ -2967,7 +2967,8 @@ pub const Type = struct {
     }
 
     pub fn enumFields(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
-        return mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names;
+        const ip = &mod.intern_pool;
+        return ip.indexToKey(ty.toIntern()).enum_type.names.get(ip);
     }
 
     pub fn enumFieldCount(ty: Type, mod: *Module) usize {
@@ -2975,7 +2976,8 @@ pub const Type = struct {
     }
 
     pub fn enumFieldName(ty: Type, field_index: usize, mod: *Module) InternPool.NullTerminatedString {
-        return mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names[field_index];
+        const ip = &mod.intern_pool;
+        return ip.indexToKey(ty.toIntern()).enum_type.names.get(ip)[field_index];
     }
 
     pub fn enumFieldIndex(ty: Type, field_name: InternPool.NullTerminatedString, mod: *Module) ?u32 {

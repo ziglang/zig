@@ -238,7 +238,7 @@ pub fn print(
                 }
                 const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
                 if (enum_type.tagValueIndex(ip, val.toIntern())) |tag_index| {
-                    try writer.print(".{i}", .{enum_type.names[tag_index].fmt(ip)});
+                    try writer.print(".{i}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
                     return;
                 }
                 try writer.writeAll("@enumFromInt(");
