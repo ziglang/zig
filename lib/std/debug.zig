@@ -168,6 +168,7 @@ pub fn relocateContext(context: *ThreadContext) void {
 }
 
 pub const have_getcontext = @hasDecl(os.system, "getcontext") and
+    builtin.os.tag != .openbsd and
     (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
     .x86,
     .x86_64,
