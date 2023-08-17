@@ -93,11 +93,11 @@ pub const Value = union(enum) {
                 stack.items[stack.items.len - 1] == .array or
                 (stack.items[stack.items.len - 2] == .object and stack.items[stack.items.len - 1] == .string));
 
-            switch (try source.nextAlloc(allocator, .alloc_if_needed)) {
-                inline .string, .allocated_string => |s| {
+            switch (try source.nextAlloc(allocator, .alloc_always)) {
+                .allocated_string => |s| {
                     return try handleCompleteValue(&stack, allocator, source, Value{ .string = s }) orelse continue;
                 },
-                inline .number, .allocated_number => |slice| {
+                .allocated_number => |slice| {
                     return try handleCompleteValue(&stack, allocator, source, Value.parseFromNumberSlice(slice)) orelse continue;
                 },
 
@@ -106,9 +106,9 @@ pub const Value = union(enum) {
                 .false => return try handleCompleteValue(&stack, allocator, source, Value{ .bool = false }) orelse continue,
 
                 .object_begin => {
-                    switch (try source.nextAlloc(allocator, .alloc_if_needed)) {
+                    switch (try source.nextAlloc(allocator, .alloc_always)) {
                         .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = ObjectMap.init(allocator) }) orelse continue,
-                        inline .string, .allocated_string => |key| {
+                        .allocated_string => |key| {
                             try stack.appendSlice(&[_]Value{
                                 Value{ .object = ObjectMap.init(allocator) },
                                 Value{ .string = key },
@@ -152,7 +152,7 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, val
 
                 // This is an invalid state to leave the stack in,
                 // so we have to process the next token before we return.
-                switch (try source.nextAlloc(allocator, .alloc_if_needed)) {
+                switch (try source.nextAlloc(allocator, .alloc_always)) {
                     .object_end => {
                         // This object is complete.
                         value = stack.pop();
@@ -160,7 +160,7 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, val
                         if (stack.items.len == 0) return value;
                         continue;
                     },
-                    inline .string, .allocated_string => |next_key| {
+                    .allocated_string => |next_key| {
                         // We've got another key.
                         try stack.append(Value{ .string = next_key });
                         // stack: [..., .object, .string]
