@@ -15,6 +15,7 @@ const parseFromValueLeaky = @import("static.zig").parseFromValueLeaky;
 const ParseOptions = @import("static.zig").ParseOptions;
 
 const jsonReader = @import("scanner.zig").reader;
+const JsonReader = @import("scanner.zig").Reader;
 
 test "json.parser.dynamic" {
     const s =
@@ -287,4 +288,43 @@ test "polymorphic parsing" {
 
     try testing.expect(tree.div.color == .blue);
     try testing.expectEqualStrings("Cancel", tree.div.children[1].button.caption);
+}
+
+test "long object value" {
+    const value = "01234567890123456789";
+    const doc = "{\"key\":\"" ++ value ++ "\"}";
+    var fbs = std.io.fixedBufferStream(doc);
+    var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
+    defer reader.deinit();
+    var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
+    defer parsed.deinit();
+
+    try testing.expectEqualStrings(value, parsed.value.object.get("key").?.string);
+}
+
+test "many object keys" {
+    const doc =
+        \\{
+        \\  "k1": "v1",
+        \\  "k2": "v2",
+        \\  "k3": "v3",
+        \\  "k4": "v4",
+        \\  "k5": "v5"
+        \\}
+    ;
+    var fbs = std.io.fixedBufferStream(doc);
+    var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
+    defer reader.deinit();
+    var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
+    defer parsed.deinit();
+
+    try testing.expectEqualStrings("v1", parsed.value.object.get("k1").?.string);
+    try testing.expectEqualStrings("v2", parsed.value.object.get("k2").?.string);
+    try testing.expectEqualStrings("v3", parsed.value.object.get("k3").?.string);
+    try testing.expectEqualStrings("v4", parsed.value.object.get("k4").?.string);
+    try testing.expectEqualStrings("v5", parsed.value.object.get("k5").?.string);
+}
+
+fn smallBufferJsonReader(allocator: Allocator, io_reader: anytype) JsonReader(16, @TypeOf(io_reader)) {
+    return JsonReader(16, @TypeOf(io_reader)).init(allocator, io_reader);
 }
