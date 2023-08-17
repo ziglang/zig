@@ -34,6 +34,10 @@ pub const pthread_attr_t = extern struct { // copied from freebsd
     __align: c_long,
 };
 
+pub const pthread_rwlock_t = extern struct {
+    ptr: ?*anyopaque = null,
+};
+
 pub const sem_t = ?*opaque {};
 
 pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8) E;
@@ -54,6 +58,56 @@ pub const uid_t = u32;
 pub const gid_t = u32;
 pub const time_t = isize;
 pub const suseconds_t = c_long;
+
+pub const ucontext_t = extern struct {
+    sigmask: sigset_t,
+    mcontext: mcontext_t,
+    link: ?*ucontext_t,
+    stack: stack_t,
+    cofunc: ?*fn (?*ucontext_t, ?*anyopaque) void,
+    arg: ?*void,
+    _spare: [4]c_int,
+};
+
+pub const mcontext_t = extern struct {
+    onstack: register_t, // XXX - sigcontext compat.
+    rdi: register_t,
+    rsi: register_t,
+    rdx: register_t,
+    rcx: register_t,
+    r8: register_t,
+    r9: register_t,
+    rax: register_t,
+    rbx: register_t,
+    rbp: register_t,
+    r10: register_t,
+    r11: register_t,
+    r12: register_t,
+    r13: register_t,
+    r14: register_t,
+    r15: register_t,
+    xflags: register_t,
+    trapno: register_t,
+    addr: register_t,
+    flags: register_t,
+    err: register_t,
+    rip: register_t,
+    cs: register_t,
+    rflags: register_t,
+    rsp: register_t, // machine state
+    ss: register_t,
+
+    len: c_uint, // sizeof(mcontext_t)
+    fpformat: c_uint,
+    ownedfp: c_uint,
+    reserved: c_uint,
+    unused: [8]c_uint,
+
+    // NOTE! 64-byte aligned as of here. Also must match savefpu structure.
+    fpregs: [256]c_int align(64),
+};
+
+pub const register_t = isize;
 
 pub const E = enum(u16) {
     /// No error occurred.
