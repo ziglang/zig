@@ -426,7 +426,7 @@ pub const Value = struct {
                     // Assume it is already an integer and return it directly.
                     .simple_type, .int_type => val,
                     .enum_type => |enum_type| if (enum_type.values.len != 0)
-                        enum_type.values[field_index].toValue()
+                        enum_type.values.get(ip)[field_index].toValue()
                     else // Field index and integer values are the same.
                         mod.intValue(enum_type.tag_ty.toType(), field_index),
                     else => unreachable,

@@ -1909,12 +1909,12 @@ pub const Object = struct {
                 const int_info = ty.intInfo(mod);
                 assert(int_info.bits != 0);
 
-                for (enum_type.names, 0..) |field_name_ip, i| {
+                for (enum_type.names.get(ip), 0..) |field_name_ip, i| {
                     const field_name_z = ip.stringToSlice(field_name_ip);
 
                     var bigint_space: Value.BigIntSpace = undefined;
                     const bigint = if (enum_type.values.len != 0)
-                        enum_type.values[i].toValue().toBigInt(&bigint_space, mod)
+                        enum_type.values.get(ip)[i].toValue().toBigInt(&bigint_space, mod)
                     else
                         std.math.big.int.Mutable.init(&bigint_space.limbs, i).toConst();
 
@@ -9206,7 +9206,8 @@ pub const FuncGen = struct {
     fn getEnumTagNameFunction(self: *FuncGen, enum_ty: Type) !Builder.Function.Index {
         const o = self.dg.object;
         const mod = o.module;
-        const enum_type = mod.intern_pool.indexToKey(enum_ty.toIntern()).enum_type;
+        const ip = &mod.intern_pool;
+        const enum_type = ip.indexToKey(enum_ty.toIntern()).enum_type;
 
         // TODO: detect when the type changes and re-emit this function.
         const gop = try o.decl_map.getOrPut(o.gpa, enum_type.decl);
@@ -9218,7 +9219,7 @@ pub const FuncGen = struct {
         const fqn = try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod);
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(ret_ty, &.{try o.lowerType(enum_type.tag_ty.toType())}, .normal),
-            try o.builder.fmt("__zig_tag_name_{}", .{fqn.fmt(&mod.intern_pool)}),
+            try o.builder.fmt("__zig_tag_name_{}", .{fqn.fmt(ip)}),
             toLlvmAddressSpace(.generic, mod.getTarget()),
         );
 
@@ -9241,8 +9242,8 @@ pub const FuncGen = struct {
             try wip.@"switch"(tag_int_value, bad_value_block, @intCast(enum_type.names.len));
         defer wip_switch.finish(&wip);
 
-        for (enum_type.names, 0..) |name, field_index| {
-            const name_string = try o.builder.string(mod.intern_pool.stringToSlice(name));
+        for (enum_type.names.get(ip), 0..) |name, field_index| {
+            const name_string = try o.builder.string(ip.stringToSlice(name));
             const name_init = try o.builder.stringNullConst(name_string);
             const name_variable_index =
                 try o.builder.addVariable(.empty, name_init.typeOf(&o.builder), .default);

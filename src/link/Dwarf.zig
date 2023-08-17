@@ -388,9 +388,10 @@ pub const DeclState = struct {
                 try ty.print(dbg_info_buffer.writer(), mod);
                 try dbg_info_buffer.append(0);
 
-                const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
-                for (enum_type.names, 0..) |field_name_index, field_i| {
-                    const field_name = mod.intern_pool.stringToSlice(field_name_index);
+                const ip = &mod.intern_pool;
+                const enum_type = ip.indexToKey(ty.ip_index).enum_type;
+                for (enum_type.names.get(ip), 0..) |field_name_index, field_i| {
+                    const field_name = ip.stringToSlice(field_name_index);
                     // DW.AT.enumerator
                     try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2 + @sizeOf(u64));
                     dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.enum_variant));
@@ -400,7 +401,7 @@ pub const DeclState = struct {
                     // DW.AT.const_value, DW.FORM.data8
                     const value: u64 = value: {
                         if (enum_type.values.len == 0) break :value field_i; // auto-numbered
-                        const value = enum_type.values[field_i];
+                        const value = enum_type.values.get(ip)[field_i];
                         // TODO do not assume a 64bit enum value - could be bigger.
                         // See https://github.com/ziglang/zig/issues/645
                         const field_int_val = try value.toValue().intFromEnum(ty, mod);
