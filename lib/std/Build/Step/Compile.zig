@@ -42,7 +42,6 @@ unwind_tables: ?bool,
 compress_debug_sections: enum { none, zlib } = .none,
 lib_paths: ArrayList(LazyPath),
 rpaths: ArrayList(LazyPath),
-framework_dirs: ArrayList(FrameworkDir),
 frameworks: StringHashMap(FrameworkLinkInfo),
 verbose_link: bool,
 verbose_cc: bool,
@@ -261,13 +260,10 @@ const FrameworkLinkInfo = struct {
 pub const IncludeDir = union(enum) {
     path: LazyPath,
     path_system: LazyPath,
+    framework_path: LazyPath,
+    framework_path_system: LazyPath,
     other_step: *Compile,
     config_header_step: *Step.ConfigHeader,
-};
-
-pub const FrameworkDir = union(enum) {
-    path: LazyPath,
-    path_system: LazyPath,
 };
 
 pub const Options = struct {
@@ -447,7 +443,6 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .c_macros = ArrayList([]const u8).init(owner.allocator),
         .lib_paths = ArrayList(LazyPath).init(owner.allocator),
         .rpaths = ArrayList(LazyPath).init(owner.allocator),
-        .framework_dirs = ArrayList(FrameworkDir).init(owner.allocator),
         .installed_headers = ArrayList(*Step).init(owner.allocator),
         .c_std = std.Build.CStd.C99,
         .zig_lib_dir = null,
@@ -1057,14 +1052,13 @@ pub fn addRPath(self: *Compile, directory_source: LazyPath) void {
 
 pub fn addSystemFrameworkPath(self: *Compile, directory_source: LazyPath) void {
     const b = self.step.owner;
-    self.framework_dirs.append(FrameworkDir{ .path_system = directory_source.dupe(b) }) catch
-        @panic("OOM");
+    self.include_dirs.append(IncludeDir{ .framework_path_system = directory_source.dupe(b) }) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
 pub fn addFrameworkPath(self: *Compile, directory_source: LazyPath) void {
     const b = self.step.owner;
-    self.framework_dirs.append(FrameworkDir{ .path = directory_source.dupe(b) }) catch @panic("OOM");
+    self.include_dirs.append(IncludeDir{ .framework_path = directory_source.dupe(b) }) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
@@ -1787,6 +1781,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 try zig_args.append("-isystem");
                 try zig_args.append(include_path.getPath(b));
             },
+            .framework_path => |include_path| {
+                try zig_args.append("-F");
+                try zig_args.append(include_path.getPath2(b, step));
+            },
+            .framework_path_system => |include_path| {
+                try zig_args.append("-iframework");
+                try zig_args.append(include_path.getPath2(b, step));
+            },
             .other_step => |other| {
                 if (other.generated_h) |header| {
                     try zig_args.append("-isystem");
@@ -1838,19 +1840,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         };
 
         zig_args.appendAssumeCapacity(rpath.getPath2(b, step));
-    }
-
-    for (self.framework_dirs.items) |framework_dir| {
-        switch (framework_dir) {
-            .path => |p| {
-                try zig_args.append("-F");
-                try zig_args.append(p.getPath2(b, step));
-            },
-            .path_system => |p| {
-                try zig_args.append("-iframework");
-                try zig_args.append(p.getPath2(b, step));
-            },
-        }
     }
 
     {
