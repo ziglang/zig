@@ -11896,9 +11896,9 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}callconv{#endsyntax#}</pre>
           </th>
           <td>
-            The {#syntax#}callconv{#endsyntax#} keyword.
+            {#syntax#}callconv{#endsyntax#} can be used to specify the calling convention in a function type.
             <ul>
-              <li>TODO add documentation for callconv</li>
+              <li>See also {#link|Functions#}</li>
             </ul>
           </td>
         </tr>
