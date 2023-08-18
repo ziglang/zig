@@ -50,15 +50,15 @@ const PathType = enum {
             .unc => return struct {
                 fn transform(allocator: mem.Allocator, dir: Dir, relative_path: []const u8) TransformError![]const u8 {
                     // Any drive absolute path (C:\foo) can be converted into a UNC path by
-                    // using 'localhost' as the server name and '<drive letter>$' as the share name.
+                    // using '127.0.0.1' as the server name and '<drive letter>$' as the share name.
                     var fd_path_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
                     const dir_path = try os.getFdPath(dir.fd, &fd_path_buf);
                     const windows_path_type = std.os.windows.getUnprefixedPathType(u8, dir_path);
                     switch (windows_path_type) {
                         .unc_absolute => return fs.path.join(allocator, &.{ dir_path, relative_path }),
                         .drive_absolute => {
-                            // `C:\<...>` -> `\\localhost\C$\<...>`
-                            const prepended = "\\\\localhost\\";
+                            // `C:\<...>` -> `\\127.0.0.1\C$\<...>`
+                            const prepended = "\\\\127.0.0.1\\";
                             var path = try fs.path.join(allocator, &.{ prepended, dir_path, relative_path });
                             path[prepended.len + 1] = '$';
                             return path;
@@ -117,7 +117,7 @@ fn testWithAllSupportedPathTypes(test_func: anytype) !void {
         defer ctx.deinit();
 
         test_func(&ctx) catch |err| {
-            std.debug.print("path type: {s}\n", .{enum_field.name});
+            std.debug.print("{s}, path type: {s}\n", .{ @errorName(err), enum_field.name });
             return err;
         };
     }
