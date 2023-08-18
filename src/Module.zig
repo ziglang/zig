@@ -6661,7 +6661,7 @@ pub fn enumValueFieldIndex(mod: *Module, ty: Type, field_index: u32) Allocator.E
 
     return (try ip.get(gpa, .{ .enum_tag = .{
         .ty = ty.toIntern(),
-        .int = enum_type.values[field_index],
+        .int = enum_type.values.get(ip)[field_index],
     } })).toValue();
 }
 

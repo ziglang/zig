@@ -17176,14 +17176,14 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             for (enum_field_vals, 0..) |*field_val, i| {
                 const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
                 const value_val = if (enum_type.values.len > 0)
-                    try mod.intern_pool.getCoerced(gpa, enum_type.values[i], .comptime_int_type)
+                    try mod.intern_pool.getCoerced(gpa, enum_type.values.get(ip)[i], .comptime_int_type)
                 else
                     try mod.intern(.{ .int = .{
                         .ty = .comptime_int_type,
                         .storage = .{ .u64 = @as(u64, @intCast(i)) },
                     } });
                 // TODO: write something like getCoercedInts to avoid needing to dupe
-                const name = try sema.arena.dupe(u8, ip.stringToSlice(enum_type.names[i]));
+                const name = try sema.arena.dupe(u8, ip.stringToSlice(enum_type.names.get(ip)[i]));
                 const name_val = v: {
                     var anon_decl = try block.startAnonDecl();
                     defer anon_decl.deinit();
@@ -20607,7 +20607,7 @@ fn zirReify(
                         errdefer msg.destroy(gpa);
 
                         const enum_ty = union_obj.tag_ty;
-                        for (tag_info.names, 0..) |field_name, field_index| {
+                        for (tag_info.names.get(ip), 0..) |field_name, field_index| {
                             if (explicit_tags_seen[field_index]) continue;
                             try sema.addFieldErrNote(enum_ty, field_index, msg, "field '{}' missing, declared here", .{
                                 field_name.fmt(ip),
@@ -35426,7 +35426,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 errdefer msg.destroy(sema.gpa);
 
                 const enum_ty = union_obj.tag_ty;
-                for (tag_info.names, 0..) |field_name, field_index| {
+                for (tag_info.names.get(ip), 0..) |field_name, field_index| {
                     if (explicit_tags_seen[field_index]) continue;
                     try sema.addFieldErrNote(enum_ty, field_index, msg, "field '{}' missing, declared here", .{
                         field_name.fmt(ip),
@@ -35458,12 +35458,13 @@ fn generateUnionTagTypeNumbered(
 ) !Type {
     const mod = sema.mod;
     const gpa = sema.gpa;
+    const ip = &mod.intern_pool;
 
     const src_decl = mod.declPtr(block.src_decl);
     const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
     errdefer mod.destroyDecl(new_decl_index);
     const fqn = try union_obj.getFullyQualifiedName(mod);
-    const name = try mod.intern_pool.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(&mod.intern_pool)});
+    const name = try ip.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(ip)});
     try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, .{
         .ty = Type.noreturn,
         .val = Value.@"unreachable",
@@ -35475,17 +35476,17 @@ fn generateUnionTagTypeNumbered(
     new_decl.owns_tv = true;
     new_decl.name_fully_qualified = true;
 
-    const enum_ty = try mod.intern(.{ .enum_type = .{
+    const enum_ty = try ip.getEnum(gpa, .{
         .decl = new_decl_index,
         .namespace = .none,
         .tag_ty = if (enum_field_vals.len == 0)
             (try mod.intType(.unsigned, 0)).toIntern()
         else
-            mod.intern_pool.typeOf(enum_field_vals[0]),
+            ip.typeOf(enum_field_vals[0]),
         .names = enum_field_names,
         .values = enum_field_vals,
         .tag_mode = .explicit,
-    } });
+    });
 
     new_decl.ty = Type.type;
     new_decl.val = enum_ty.toValue();
@@ -35501,6 +35502,7 @@ fn generateUnionTagTypeSimple(
     maybe_union_obj: ?*Module.Union,
 ) !Type {
     const mod = sema.mod;
+    const ip = &mod.intern_pool;
     const gpa = sema.gpa;
 
     const new_decl_index = new_decl_index: {
@@ -35514,7 +35516,7 @@ fn generateUnionTagTypeSimple(
         const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
         errdefer mod.destroyDecl(new_decl_index);
         const fqn = try union_obj.getFullyQualifiedName(mod);
-        const name = try mod.intern_pool.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(&mod.intern_pool)});
+        const name = try ip.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(ip)});
         try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, .{
             .ty = Type.noreturn,
             .val = Value.@"unreachable",
@@ -35524,7 +35526,7 @@ fn generateUnionTagTypeSimple(
     };
     errdefer mod.abortAnonDecl(new_decl_index);
 
-    const enum_ty = try mod.intern(.{ .enum_type = .{
+    const enum_ty = try ip.getEnum(gpa, .{
         .decl = new_decl_index,
         .namespace = .none,
         .tag_ty = if (enum_field_names.len == 0)
@@ -35534,7 +35536,7 @@ fn generateUnionTagTypeSimple(
         .names = enum_field_names,
         .values = &.{},
         .tag_mode = .auto,
-    } });
+    });
 
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
@@ -35631,6 +35633,7 @@ fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {
 /// TODO assert the return value matches `ty.onePossibleValue`
 pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
     const mod = sema.mod;
+    const ip = &mod.intern_pool;
     return switch (ty.toIntern()) {
         .u0_type,
         .i0_type,
@@ -35724,7 +35727,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .none,
         => unreachable,
 
-        _ => switch (mod.intern_pool.items.items(.tag)[@intFromEnum(ty.toIntern())]) {
+        _ => switch (ip.items.items(.tag)[@intFromEnum(ty.toIntern())]) {
             .type_int_signed, // i0 handled above
             .type_int_unsigned, // u0 handled above
             .type_pointer,
@@ -35807,7 +35810,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .type_union_tagged,
             .type_union_untagged,
             .type_union_safety,
-            => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            => switch (ip.indexToKey(ty.toIntern())) {
                 inline .array_type, .vector_type => |seq_type, seq_tag| {
                     const has_sentinel = seq_tag == .array_type and seq_type.sentinel != .none;
                     if (seq_type.len + @intFromBool(has_sentinel) == 0) return (try mod.intern(.{ .aggregate = .{
@@ -35936,7 +35939,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                                     .storage = .{ .u64 = 0 },
                                 } })
                             else
-                                enum_type.values[0]).toValue(), ty),
+                                enum_type.values.get(ip)[0]).toValue(), ty),
                             else => return null,
                         }
                     },

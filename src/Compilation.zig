@@ -5175,10 +5175,13 @@ pub fn lockAndParseLldStderr(comp: *Compilation, comptime prefix: []const u8, st
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
+    std.debug.getStderrMutex().lock();
+    defer std.debug.getStderrMutex().unlock();
+    const stderr = std.io.getStdErr().writer();
     for (argv[0 .. argv.len - 1]) |arg| {
-        std.debug.print("{s} ", .{arg});
+        nosuspend stderr.print("{s} ", .{arg}) catch return;
     }
-    std.debug.print("{s}\n", .{argv[argv.len - 1]});
+    nosuspend stderr.print("{s}\n", .{argv[argv.len - 1]}) catch {};
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {

@@ -5537,9 +5537,8 @@ fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) ![]const u8 {
 fn addGuide(self: *Autodoc, file: *File, guide_path: []const u8, section: *Section) !void {
     if (guide_path.len == 0) return error.MissingAutodocGuideName;
 
-    const cur_mod_dir_path = file.pkg.root_src_directory.path orelse ".";
     const resolved_path = try std.fs.path.resolve(self.arena, &[_][]const u8{
-        cur_mod_dir_path, file.sub_file_path, "..", guide_path,
+        file.sub_file_path, "..", guide_path,
     });
 
     var guide_file = try file.pkg.root_src_directory.handle.openFile(resolved_path, .{});
