@@ -1898,6 +1898,16 @@ pub const LoadCommandIterator = struct {
             const data = lc.data[rpath_lc.path..];
             return mem.sliceTo(data, 0);
         }
+
+        /// Asserts LoadCommand is of type build_version_command.
+        pub fn getBuildVersionTools(lc: LoadCommand) []const build_tool_version {
+            const build_lc = lc.cast(build_version_command).?;
+            const ntools = build_lc.ntools;
+            if (ntools == 0) return &[0]build_tool_version{};
+            const data = lc.data[@sizeOf(build_version_command)..];
+            const tools = @as([*]const build_tool_version, @ptrCast(@alignCast(&data[0])))[0..ntools];
+            return tools;
+        }
     };
 
     pub fn next(it: *LoadCommandIterator) ?LoadCommand {
