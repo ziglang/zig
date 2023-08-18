@@ -711,18 +711,6 @@ test "@floor f80" {
         return error.SkipZigTest;
     }
 
-    if (builtin.zig_backend == .stage2_llvm and
-        (builtin.cpu.arch == .powerpc64le or builtin.cpu.arch == .aarch64))
-    {
-        // https://github.com/ziglang/zig/issues/16844
-        return error.SkipZigTest;
-    }
-
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
-        // https://github.com/ziglang/zig/issues/16846
-        return error.SkipZigTest;
-    }
-
     try testFloorLegacy(f80, 12.0);
     try comptime testFloorLegacy(f80, 12.0);
 }
@@ -733,13 +721,6 @@ test "@floor f128" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm and
-        (builtin.cpu.arch == .powerpc64le or builtin.cpu.arch == .aarch64))
-    {
-        // https://github.com/ziglang/zig/issues/16844
-        return error.SkipZigTest;
-    }
 
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isARM()) {
         // https://github.com/ziglang/zig/issues/16848
@@ -831,13 +812,6 @@ test "@ceil f80" {
         return error.SkipZigTest;
     }
 
-    if (builtin.zig_backend == .stage2_llvm and
-        (builtin.cpu.arch == .powerpc64le or builtin.cpu.arch == .aarch64))
-    {
-        // https://github.com/ziglang/zig/issues/16844
-        return error.SkipZigTest;
-    }
-
     try testCeilLegacy(f80, 12.0);
     try comptime testCeilLegacy(f80, 12.0);
 }
@@ -848,13 +822,6 @@ test "@ceil f128" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm and
-        (builtin.cpu.arch == .powerpc64le or builtin.cpu.arch == .aarch64))
-    {
-        // https://github.com/ziglang/zig/issues/16844
-        return error.SkipZigTest;
-    }
 
     try testCeilLegacy(f128, 12.0);
     try comptime testCeilLegacy(f128, 12.0);
@@ -961,13 +928,6 @@ test "@trunc f128" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm and
-        (builtin.cpu.arch == .powerpc64le or builtin.cpu.arch == .aarch64))
-    {
-        // https://github.com/ziglang/zig/issues/16844
-        return error.SkipZigTest;
-    }
 
     try testTruncLegacy(f128, 12.0);
     try comptime testTruncLegacy(f128, 12.0);
