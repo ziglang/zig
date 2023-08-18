@@ -1,4 +1,5 @@
 const common = @import("./common.zig");
+const addf3 = @import("./addf3.zig").addf3;
 
 pub const panic = common.panic;
 
@@ -11,11 +12,14 @@ comptime {
 }
 
 fn __subdf3(a: f64, b: f64) callconv(.C) f64 {
-    const neg_b = @as(f64, @bitCast(@as(u64, @bitCast(b)) ^ (@as(u64, 1) << 63)));
-    return a + neg_b;
+    return sub(a, b);
 }
 
 fn __aeabi_dsub(a: f64, b: f64) callconv(.AAPCS) f64 {
+    return sub(a, b);
+}
+
+inline fn sub(a: f64, b: f64) f64 {
     const neg_b = @as(f64, @bitCast(@as(u64, @bitCast(b)) ^ (@as(u64, 1) << 63)));
-    return a + neg_b;
+    return addf3(f64, a, neg_b);
 }
