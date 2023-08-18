@@ -3551,38 +3551,38 @@ pub const cpu_count_t = std.meta.Int(.unsigned, std.math.log2(CPU_SETSIZE));
 /// if n-th bit is 1, the n-th cpu is in the cpu_set, otherwise it is not
 const cpu_shift = std.math.log2(@sizeOf(usize));
 const cpu_shift_t = std.meta.Int(.unsigned, cpu_shift);
-inline fn cpu_elt(cpu: cpu_count_t) usize {
+inline fn cpu_elt(cpu: usize) usize {
     // M is 2^k, so n / M <=> n >> k
     return cpu >> cpu_shift;
 }
-inline fn cpu_mask(cpu: cpu_count_t) usize {
+inline fn cpu_mask(cpu: usize) usize {
     // M is 2^k, so n % M <=> n & (M - 1)
-    var x: cpu_shift_t = cpu & (@sizeOf(usize) - 1);
-    return 1 << x;
+    var x: cpu_shift_t = @intCast(cpu);
+    return 1 << (x & (@sizeOf(usize) - 1));
 }
 
 pub fn CPU_ZERO(set: *cpu_set_t) void {
-     @memset(set, 0);
- }
+    @memset(set, 0);
+}
 
- pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
-     if (cpu >= CPU_SETSIZE) {
-         return;
-     }
-     (set.*)[cpu_elt(cpu)] |= cpu_mask(cpu);
- }
- pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
-     if (cpu >= CPU_SETSIZE) {
-         return;
-     }
-     (set.*)[cpu_elt(cpu)] &= ~cpu_mask(cpu);
- }
- pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
-     if (cpu >= CPU_SETSIZE) {
-         return false;
-     }
-     return set[cpu_elt(cpu)] & cpu_mask(cpu) != 0;
- }
+pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
+    if (cpu >= CPU_SETSIZE) {
+        return;
+    }
+    (set.*)[cpu_elt(cpu)] |= cpu_mask(cpu);
+}
+pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
+    if (cpu >= CPU_SETSIZE) {
+        return;
+    }
+    (set.*)[cpu_elt(cpu)] &= ~cpu_mask(cpu);
+}
+pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
+    if (cpu >= CPU_SETSIZE) {
+        return false;
+    }
+    return set[cpu_elt(cpu)] & cpu_mask(cpu) != 0;
+}
 
 pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     var sum: cpu_count_t = 0;
@@ -3592,30 +3592,30 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     return sum;
 }
 
- pub fn CPU_AND(destset: *cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
-     for (destset, srcset1, srcset2) |*dst, a, b| {
-         dst.* = a & b;
-     }
- }
- pub fn CPU_OR(destset: *cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
-     for (destset, srcset1, srcset2) |*dst, a, b| {
-         dst.* = a | b;
-     }
- }
- pub fn CPU_XOR(destset: *cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
-     for (destset, srcset1, srcset2) |*dst, a, b| {
-         dst.* = a ^ b;
-     }
- }
+pub fn CPU_AND(destset: *cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
+    for (destset, srcset1, srcset2) |*dst, a, b| {
+        dst.* = a & b;
+    }
+}
+pub fn CPU_OR(destset: *cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
+    for (destset, srcset1, srcset2) |*dst, a, b| {
+        dst.* = a | b;
+    }
+}
+pub fn CPU_XOR(destset: *cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
+    for (destset, srcset1, srcset2) |*dst, a, b| {
+        dst.* = a ^ b;
+    }
+}
 
- pub fn CPU_EQUAL(srcset1: cpu_set_t, srcset2: cpu_set_t) bool {
-     for (srcset1, srcset2) |a, b| {
-         if (a != b) {
-             return false;
-         }
-     }
-     return true;
- }
+pub fn CPU_EQUAL(srcset1: cpu_set_t, srcset2: cpu_set_t) bool {
+    for (srcset1, srcset2) |a, b| {
+        if (a != b) {
+            return false;
+        }
+    }
+    return true;
+}
 
 pub const MINSIGSTKSZ = switch (native_arch) {
     .x86, .x86_64, .arm, .mipsel => 2048,
