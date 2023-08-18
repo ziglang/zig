@@ -145,7 +145,6 @@ const Writer = struct {
         switch (tag) {
             .as,
             .store,
-            .store_to_block_ptr,
             .store_to_inferred_ptr,
             => try self.writeBin(stream, inst),
 

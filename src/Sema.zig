@@ -1346,11 +1346,6 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
-            .store_to_block_ptr => {
-                try sema.zirStoreToBlockPtr(block, inst);
-                i += 1;
-                continue;
-            },
             .store_to_inferred_ptr => {
                 try sema.zirStoreToInferredPtr(block, inst);
                 i += 1;
@@ -5267,35 +5262,6 @@ fn addDeclaredHereNote(sema: *Sema, parent: *Module.ErrorMsg, decl_ty: Type) !vo
         else => unreachable,
     };
     try mod.errNoteNonLazy(src_loc, parent, "{s} declared here", .{category});
-}
-
-fn zirStoreToBlockPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const ptr = sema.inst_map.get(Zir.refToIndex(bin_inst.lhs).?) orelse {
-        // This is an elided instruction, but AstGen was unable to omit it.
-        return;
-    };
-    const operand = try sema.resolveInst(bin_inst.rhs);
-    const src: LazySrcLoc = sema.src;
-    blk: {
-        const ptr_inst = Air.refToIndex(ptr) orelse break :blk;
-        switch (sema.air_instructions.items(.tag)[ptr_inst]) {
-            .inferred_alloc_comptime => {
-                const iac = &sema.air_instructions.items(.data)[ptr_inst].inferred_alloc_comptime;
-                return sema.storeToInferredAllocComptime(block, src, operand, iac);
-            },
-            .inferred_alloc => {
-                const ia = sema.unresolved_inferred_allocs.getPtr(ptr_inst).?;
-                return sema.storeToInferredAlloc(block, ptr, operand, ia);
-            },
-            else => break :blk,
-        }
-    }
-
-    return sema.storePtr(block, src, ptr, operand);
 }
 
 fn zirStoreToInferredPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
