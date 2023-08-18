@@ -858,7 +858,6 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .src,
         .This,
         .return_address,
-        .frame_address,
         .error_return_trace,
         .frame,
         .breakpoint,
@@ -867,6 +866,9 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .trap,
         .c_va_start,
         => return false,
+        // TODO: this is a workaround for llvm/llvm-project#68409
+        // Zig tracking issue: #16876
+        .frame_address => return true,
         // These builtins take a single argument with a known result type, but do not consume their
         // result pointer.
         .size_of,
