@@ -103,10 +103,6 @@ llvm_object: ?*LlvmObject = null,
 /// Debug symbols bundle (or dSym).
 d_sym: ?DebugSymbols = null,
 
-/// Page size is dependent on the target cpu architecture.
-/// For x86_64 that's 4KB, whereas for aarch64, that's 16KB.
-page_size: u16,
-
 mode: Mode,
 
 dyld_info_cmd: macho.dyld_info_command = .{},
@@ -396,7 +392,6 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
             .allocator = allocator,
             .dwarf = link.File.Dwarf.init(allocator, &self.base, options.target),
             .file = d_sym_file,
-            .page_size = self.page_size,
         };
     }
 
@@ -413,16 +408,13 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     try self.populateMissingMetadata();
 
     if (self.d_sym) |*d_sym| {
-        try d_sym.populateMissingMetadata();
+        try d_sym.populateMissingMetadata(self);
     }
 
     return self;
 }
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
-    const cpu_arch = options.target.cpu.arch;
-    const page_size: u16 = if (cpu_arch == .aarch64) 0x4000 else 0x1000;
-
     const self = try gpa.create(MachO);
     errdefer gpa.destroy(self);
 
@@ -433,7 +425,6 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
             .allocator = gpa,
             .file = null,
         },
-        .page_size = page_size,
         .mode = if (options.use_llvm or options.module == null or options.cache_mode == .whole)
             .zld
         else
@@ -698,7 +689,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         // written out to the file.
         // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
         // where the code signature goes into.
-        var codesig = CodeSignature.init(self.page_size);
+        var codesig = CodeSignature.init(getPageSize(self.base.options.target.cpu.arch));
         codesig.code_directory.ident = self.base.options.emit.?.sub_path;
         if (self.base.options.entitlements) |path| {
             try codesig.addEntitlements(self.base.allocator, path);
@@ -2526,7 +2517,7 @@ fn populateMissingMetadata(self: *MachO) !void {
         // The first __TEXT segment is immovable and covers MachO header and load commands.
         self.header_segment_cmd_index = @as(u8, @intCast(self.segments.items.len));
         const ideal_size = @max(self.base.options.headerpad_size orelse 0, default_headerpad_size);
-        const needed_size = mem.alignForward(u64, padToIdeal(ideal_size), self.page_size);
+        const needed_size = mem.alignForward(u64, padToIdeal(ideal_size), getPageSize(self.base.options.target.cpu.arch));
 
         log.debug("found __TEXT segment (header-only) free space 0x{x} to 0x{x}", .{ 0, needed_size });
 
@@ -2663,7 +2654,8 @@ fn populateMissingMetadata(self: *MachO) !void {
 
 fn calcPagezeroSize(self: *MachO) u64 {
     const pagezero_vmsize = self.base.options.pagezero_size orelse default_pagezero_vmsize;
-    const aligned_pagezero_vmsize = mem.alignBackward(u64, pagezero_vmsize, self.page_size);
+    const page_size = getPageSize(self.base.options.target.cpu.arch);
+    const aligned_pagezero_vmsize = mem.alignBackward(u64, pagezero_vmsize, page_size);
     if (self.base.options.output_mode == .Lib) return 0;
     if (aligned_pagezero_vmsize == 0) return 0;
     if (aligned_pagezero_vmsize != pagezero_vmsize) {
@@ -2681,17 +2673,18 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
     reserved2: u32 = 0,
 }) !u8 {
     const gpa = self.base.allocator;
+    const page_size = getPageSize(self.base.options.target.cpu.arch);
     // In incremental context, we create one section per segment pairing. This way,
     // we can move the segment in raw file as we please.
     const segment_id = @as(u8, @intCast(self.segments.items.len));
     const section_id = @as(u8, @intCast(self.sections.slice().len));
     const vmaddr = blk: {
         const prev_segment = self.segments.items[segment_id - 1];
-        break :blk mem.alignForward(u64, prev_segment.vmaddr + prev_segment.vmsize, self.page_size);
+        break :blk mem.alignForward(u64, prev_segment.vmaddr + prev_segment.vmsize, page_size);
     };
     // We commit more memory than needed upfront so that we don't have to reallocate too soon.
-    const vmsize = mem.alignForward(u64, opts.size, self.page_size);
-    const off = self.findFreeSpace(opts.size, self.page_size);
+    const vmsize = mem.alignForward(u64, opts.size, page_size);
+    const off = self.findFreeSpace(opts.size, page_size);
 
     log.debug("found {s},{s} free space 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         segname,
@@ -2740,9 +2733,10 @@ fn growSection(self: *MachO, sect_id: u8, needed_size: u64) !void {
     const segment = &self.segments.items[segment_index];
     const maybe_last_atom_index = self.sections.items(.last_atom_index)[sect_id];
     const sect_capacity = self.allocatedSize(header.offset);
+    const page_size = getPageSize(self.base.options.target.cpu.arch);
 
     if (needed_size > sect_capacity) {
-        const new_offset = self.findFreeSpace(needed_size, self.page_size);
+        const new_offset = self.findFreeSpace(needed_size, page_size);
         const current_size = if (maybe_last_atom_index) |last_atom_index| blk: {
             const last_atom = self.getAtom(last_atom_index);
             const sym = last_atom.getSymbol(self);
@@ -2774,16 +2768,17 @@ fn growSection(self: *MachO, sect_id: u8, needed_size: u64) !void {
     }
 
     header.size = needed_size;
-    segment.filesize = mem.alignForward(u64, needed_size, self.page_size);
-    segment.vmsize = mem.alignForward(u64, needed_size, self.page_size);
+    segment.filesize = mem.alignForward(u64, needed_size, page_size);
+    segment.vmsize = mem.alignForward(u64, needed_size, page_size);
 }
 
 fn growSectionVirtualMemory(self: *MachO, sect_id: u8, needed_size: u64) !void {
+    const page_size = getPageSize(self.base.options.target.cpu.arch);
     const header = &self.sections.items(.header)[sect_id];
     const segment = self.getSegmentPtr(sect_id);
     const increased_size = padToIdeal(needed_size);
     const old_aligned_end = segment.vmaddr + segment.vmsize;
-    const new_aligned_end = segment.vmaddr + mem.alignForward(u64, increased_size, self.page_size);
+    const new_aligned_end = segment.vmaddr + mem.alignForward(u64, increased_size, page_size);
     const diff = new_aligned_end - old_aligned_end;
     log.debug("shifting every segment after {s},{s} in virtual memory by {x}", .{
         header.segName(),
@@ -2955,6 +2950,7 @@ fn writeSegmentHeaders(self: *MachO, writer: anytype) !void {
 }
 
 fn writeLinkeditSegmentData(self: *MachO) !void {
+    const page_size = getPageSize(self.base.options.target.cpu.arch);
     const seg = self.getLinkeditSegmentPtr();
     seg.filesize = 0;
     seg.vmsize = 0;
@@ -2962,17 +2958,17 @@ fn writeLinkeditSegmentData(self: *MachO) !void {
     for (self.segments.items, 0..) |segment, id| {
         if (self.linkedit_segment_cmd_index.? == @as(u8, @intCast(id))) continue;
         if (seg.vmaddr < segment.vmaddr + segment.vmsize) {
-            seg.vmaddr = mem.alignForward(u64, segment.vmaddr + segment.vmsize, self.page_size);
+            seg.vmaddr = mem.alignForward(u64, segment.vmaddr + segment.vmsize, page_size);
         }
         if (seg.fileoff < segment.fileoff + segment.filesize) {
-            seg.fileoff = mem.alignForward(u64, segment.fileoff + segment.filesize, self.page_size);
+            seg.fileoff = mem.alignForward(u64, segment.fileoff + segment.filesize, page_size);
         }
     }
 
     try self.writeDyldInfoData();
     try self.writeSymtabs();
 
-    seg.vmsize = mem.alignForward(u64, seg.filesize, self.page_size);
+    seg.vmsize = mem.alignForward(u64, seg.filesize, page_size);
 }
 
 fn collectRebaseDataFromTableSection(self: *MachO, sect_id: u8, rebase: *Rebase, table: anytype) !void {
@@ -3456,7 +3452,7 @@ fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
     const offset = mem.alignForward(u64, seg.fileoff + seg.filesize, 16);
     const needed_size = code_sig.estimateSize(offset);
     seg.filesize = offset + needed_size - seg.fileoff;
-    seg.vmsize = mem.alignForward(u64, seg.filesize, self.page_size);
+    seg.vmsize = mem.alignForward(u64, seg.filesize, getPageSize(self.base.options.target.cpu.arch));
     log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
     // Pad out the space. We need to do this to calculate valid hashes for everything in the file
     // except for code signature data.
@@ -3779,6 +3775,14 @@ pub fn getEntryPoint(self: MachO) error{MissingMainEntrypoint}!SymbolWithLoc {
 pub fn getDebugSymbols(self: *MachO) ?*DebugSymbols {
     if (self.d_sym == null) return null;
     return &self.d_sym.?;
+}
+
+pub inline fn getPageSize(cpu_arch: std.Target.Cpu.Arch) u16 {
+    return switch (cpu_arch) {
+        .aarch64 => 0x4000,
+        .x86_64 => 0x1000,
+        else => unreachable,
+    };
 }
 
 pub fn findFirst(comptime T: type, haystack: []align(1) const T, start: usize, predicate: anytype) usize {

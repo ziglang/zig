@@ -42,7 +42,6 @@ const Rebase = @import("dyld_info/Rebase.zig");
 pub const Zld = struct {
     gpa: Allocator,
     file: fs.File,
-    page_size: u16,
     options: *const link.Options,
 
     dyld_info_cmd: macho.dyld_info_command = .{},
@@ -1208,7 +1207,8 @@ pub const Zld = struct {
 
     fn createSegments(self: *Zld) !void {
         const pagezero_vmsize = self.options.pagezero_size orelse MachO.default_pagezero_vmsize;
-        const aligned_pagezero_vmsize = mem.alignBackward(u64, pagezero_vmsize, self.page_size);
+        const page_size = MachO.getPageSize(self.options.target.cpu.arch);
+        const aligned_pagezero_vmsize = mem.alignBackward(u64, pagezero_vmsize, page_size);
         if (self.options.output_mode != .Lib and aligned_pagezero_vmsize > 0) {
             if (aligned_pagezero_vmsize != pagezero_vmsize) {
                 log.warn("requested __PAGEZERO size (0x{x}) is not page aligned", .{pagezero_vmsize});
@@ -1635,8 +1635,9 @@ pub const Zld = struct {
             segment.vmsize = start;
         }
 
-        segment.filesize = mem.alignForward(u64, segment.filesize, self.page_size);
-        segment.vmsize = mem.alignForward(u64, segment.vmsize, self.page_size);
+        const page_size = MachO.getPageSize(self.options.target.cpu.arch);
+        segment.filesize = mem.alignForward(u64, segment.filesize, page_size);
+        segment.vmsize = mem.alignForward(u64, segment.vmsize, page_size);
     }
 
     const InitSectionOpts = struct {
@@ -1746,7 +1747,7 @@ pub const Zld = struct {
         try self.writeSymtabs();
 
         const seg = self.getLinkeditSegmentPtr();
-        seg.vmsize = mem.alignForward(u64, seg.filesize, self.page_size);
+        seg.vmsize = mem.alignForward(u64, seg.filesize, MachO.getPageSize(self.options.target.cpu.arch));
     }
 
     fn collectRebaseDataFromContainer(
@@ -2630,7 +2631,7 @@ pub const Zld = struct {
         const offset = mem.alignForward(u64, seg.fileoff + seg.filesize, 16);
         const needed_size = code_sig.estimateSize(offset);
         seg.filesize = offset + needed_size - seg.fileoff;
-        seg.vmsize = mem.alignForward(u64, seg.filesize, self.page_size);
+        seg.vmsize = mem.alignForward(u64, seg.filesize, MachO.getPageSize(self.options.target.cpu.arch));
         log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
         // Pad out the space. We need to do this to calculate valid hashes for everything in the file
         // except for code signature data.
@@ -3491,7 +3492,6 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
     } else {
-        const page_size = macho_file.page_size;
         const sub_path = options.emit.?.sub_path;
 
         const file = try directory.handle.createFile(sub_path, .{
@@ -3504,7 +3504,6 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         var zld = Zld{
             .gpa = gpa,
             .file = file,
-            .page_size = macho_file.page_size,
             .options = options,
         };
         defer zld.deinit();
@@ -3818,7 +3817,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             // written out to the file.
             // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
             // where the code signature goes into.
-            var codesig = CodeSignature.init(page_size);
+            var codesig = CodeSignature.init(MachO.getPageSize(zld.options.target.cpu.arch));
             codesig.code_directory.ident = fs.path.basename(full_out_path);
             if (options.entitlements) |path| {
                 try codesig.addEntitlements(zld.gpa, path);
