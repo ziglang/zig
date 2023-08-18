@@ -29,7 +29,7 @@ pub fn sqrtf(x: f32) callconv(.C) f32 {
     var ix: i32 = @as(i32, @bitCast(x));
 
     if ((ix & 0x7F800000) == 0x7F800000) {
-        return x * x + x; // sqrt(nan) = nan, sqrt(+inf) = +inf, sqrt(-inf) = snan
+        return x * x + x; // sqrt(nan) = nan, sqrt(+inf) = +inf, sqrt(-inf) = nan
     }
 
     // zero
@@ -38,7 +38,7 @@ pub fn sqrtf(x: f32) callconv(.C) f32 {
             return x; // sqrt (+-0) = +-0
         }
         if (ix < 0) {
-            return math.snan(f32);
+            return math.nan(f32);
         }
     }
 
@@ -119,9 +119,9 @@ pub fn sqrt(x: f64) callconv(.C) f64 {
     if (x == 0.0) {
         return x;
     }
-    // sqrt(-ve) = snan
+    // sqrt(-ve) = nan
     if (ix0 & sign != 0) {
-        return math.snan(f64);
+        return math.nan(f64);
     }
 
     // normalize x

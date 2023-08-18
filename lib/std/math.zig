@@ -47,6 +47,8 @@ pub const floatMin = @import("math/float.zig").floatMin;
 pub const floatMax = @import("math/float.zig").floatMax;
 pub const floatEps = @import("math/float.zig").floatEps;
 pub const inf = @import("math/float.zig").inf;
+pub const nan = @import("math/float.zig").nan;
+pub const snan = @import("math/float.zig").snan;
 
 pub const f16_true_min = @compileError("Deprecated: use `floatTrueMin(f16)` instead");
 pub const f32_true_min = @compileError("Deprecated: use `floatTrueMin(f32)` instead");
@@ -73,46 +75,37 @@ pub const f32_toint = @compileError("Deprecated: use `1.0 / floatEps(f32)` inste
 pub const f64_toint = @compileError("Deprecated: use `1.0 / floatEps(f64)` instead");
 pub const f80_toint = @compileError("Deprecated: use `1.0 / floatEps(f80)` instead");
 pub const f128_toint = @compileError("Deprecated: use `1.0 / floatEps(f128)` instead");
-pub const inf_u16 = @compileError("Deprecated: use `@bitCast(u16, inf(f16))` instead");
+pub const inf_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(inf(f16)))` instead");
 pub const inf_f16 = @compileError("Deprecated: use `inf(f16)` instead");
-pub const inf_u32 = @compileError("Deprecated: use `@bitCast(u32, inf(f32))` instead");
+pub const inf_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(inf(f32)))` instead");
 pub const inf_f32 = @compileError("Deprecated: use `inf(f32)` instead");
-pub const inf_u64 = @compileError("Deprecated: use `@bitCast(u64, inf(f64))` instead");
+pub const inf_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(inf(f64)))` instead");
 pub const inf_f64 = @compileError("Deprecated: use `inf(f64)` instead");
+pub const inf_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(inf(f80)))` instead");
 pub const inf_f80 = @compileError("Deprecated: use `inf(f80)` instead");
-pub const inf_u128 = @compileError("Deprecated: use `@bitCast(u128, inf(f128))` instead");
+pub const inf_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(inf(f128)))` instead");
 pub const inf_f128 = @compileError("Deprecated: use `inf(f128)` instead");
+pub const nan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
+pub const nan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
+pub const nan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
+pub const nan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
+pub const nan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
+pub const nan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
+pub const nan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
+pub const nan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
+pub const nan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
+pub const nan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
+pub const qnan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
+pub const qnan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
+pub const qnan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
+pub const qnan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
+pub const qnan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
+pub const qnan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
+pub const qnan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
+pub const qnan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
+pub const qnan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
+pub const qnan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
 pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
-
-pub const nan_u16 = @as(u16, 0x7C01);
-pub const nan_f16 = @as(f16, @bitCast(nan_u16));
-
-pub const qnan_u16 = @as(u16, 0x7E00);
-pub const qnan_f16 = @as(f16, @bitCast(qnan_u16));
-
-pub const nan_u32 = @as(u32, 0x7F800001);
-pub const nan_f32 = @as(f32, @bitCast(nan_u32));
-
-pub const qnan_u32 = @as(u32, 0x7FC00000);
-pub const qnan_f32 = @as(f32, @bitCast(qnan_u32));
-
-pub const nan_u64 = @as(u64, 0x7FF << 52) | 1;
-pub const nan_f64 = @as(f64, @bitCast(nan_u64));
-
-pub const qnan_u64 = @as(u64, 0x7ff8000000000000);
-pub const qnan_f64 = @as(f64, @bitCast(qnan_u64));
-
-pub const nan_f80 = make_f80(F80{ .fraction = 0xA000000000000000, .exp = 0x7fff });
-pub const qnan_f80 = make_f80(F80{ .fraction = 0xC000000000000000, .exp = 0x7fff });
-
-pub const nan_u128 = @as(u128, 0x7fff0000000000000000000000000001);
-pub const nan_f128 = @as(f128, @bitCast(nan_u128));
-
-pub const qnan_u128 = @as(u128, 0x7fff8000000000000000000000000000);
-pub const qnan_f128 = @as(f128, @bitCast(qnan_u128));
-
-pub const nan = @import("math/nan.zig").nan;
-pub const snan = @import("math/nan.zig").snan;
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
@@ -336,37 +329,8 @@ test {
     _ = floatMax;
     _ = floatEps;
     _ = inf;
-
-    _ = nan_u16;
-    _ = nan_f16;
-
-    _ = qnan_u16;
-    _ = qnan_f16;
-
-    _ = nan_u32;
-    _ = nan_f32;
-
-    _ = qnan_u32;
-    _ = qnan_f32;
-
-    _ = nan_u64;
-    _ = nan_f64;
-
-    _ = qnan_u64;
-    _ = qnan_f64;
-
-    _ = nan_f80;
-    _ = qnan_f80;
-
-    _ = nan_u128;
-    _ = nan_f128;
-
-    _ = qnan_u128;
-    _ = qnan_f128;
-
     _ = nan;
     _ = snan;
-
     _ = isNan;
     _ = isSignalNan;
     _ = frexp;
