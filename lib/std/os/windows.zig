@@ -803,6 +803,7 @@ pub fn CreateSymbolicLink(
 
 pub const ReadLinkError = error{
     FileNotFound,
+    NetworkNotFound,
     AccessDenied,
     Unexpected,
     NameTooLong,
@@ -850,9 +851,8 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .NO_MEDIA_IN_DEVICE => return error.FileNotFound,
-        // TODO: Should BAD_NETWORK_* be translated to a different error?
-        .BAD_NETWORK_PATH => return error.FileNotFound, // \\server was not found
-        .BAD_NETWORK_NAME => return error.FileNotFound, // \\server was found but \\server\share wasn't
+        .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
+        .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
         .INVALID_PARAMETER => unreachable,
         .SHARING_VIOLATION => return error.AccessDenied,
         .ACCESS_DENIED => return error.AccessDenied,
