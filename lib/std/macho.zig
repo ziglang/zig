@@ -787,7 +787,7 @@ pub const section_64 = extern struct {
     }
 
     pub fn @"type"(sect: section_64) u8 {
-        return @truncate(u8, sect.flags & 0xff);
+        return @as(u8, @truncate(sect.flags & 0xff));
     }
 
     pub fn attrs(sect: section_64) u32 {
@@ -1870,7 +1870,7 @@ pub const LoadCommandIterator = struct {
 
         pub fn cast(lc: LoadCommand, comptime Cmd: type) ?Cmd {
             if (lc.data.len < @sizeOf(Cmd)) return null;
-            return @ptrCast(*const Cmd, @alignCast(@alignOf(Cmd), &lc.data[0])).*;
+            return @as(*const Cmd, @ptrCast(@alignCast(&lc.data[0]))).*;
         }
 
         /// Asserts LoadCommand is of type segment_command_64.
@@ -1878,9 +1878,9 @@ pub const LoadCommandIterator = struct {
             const segment_lc = lc.cast(segment_command_64).?;
             if (segment_lc.nsects == 0) return &[0]section_64{};
             const data = lc.data[@sizeOf(segment_command_64)..];
-            const sections = @ptrCast(
+            const sections = @as(
                 [*]const section_64,
-                @alignCast(@alignOf(section_64), &data[0]),
+                @ptrCast(@alignCast(&data[0])),
             )[0..segment_lc.nsects];
             return sections;
         }
@@ -1903,16 +1903,16 @@ pub const LoadCommandIterator = struct {
     pub fn next(it: *LoadCommandIterator) ?LoadCommand {
         if (it.index >= it.ncmds) return null;
 
-        const hdr = @ptrCast(
+        const hdr = @as(
             *const load_command,
-            @alignCast(@alignOf(load_command), &it.buffer[0]),
+            @ptrCast(@alignCast(&it.buffer[0])),
         ).*;
         const cmd = LoadCommand{
             .hdr = hdr,
             .data = it.buffer[0..hdr.cmdsize],
         };
 
-        it.buffer = @alignCast(@alignOf(u64), it.buffer[hdr.cmdsize..]);
+        it.buffer = @alignCast(it.buffer[hdr.cmdsize..]);
         it.index += 1;
 
         return cmd;
@@ -2064,3 +2064,64 @@ pub const UNWIND_ARM64_FRAME_D14_D15_PAIR: u32 = 0x00000800;
 
 pub const UNWIND_ARM64_FRAMELESS_STACK_SIZE_MASK: u32 = 0x00FFF000;
 pub const UNWIND_ARM64_DWARF_SECTION_OFFSET: u32 = 0x00FFFFFF;
+
+pub const CompactUnwindEncoding = packed struct(u32) {
+    value: packed union {
+        x86_64: packed union {
+            frame: packed struct(u24) {
+                reg4: u3,
+                reg3: u3,
+                reg2: u3,
+                reg1: u3,
+                reg0: u3,
+                unused: u1 = 0,
+                frame_offset: u8,
+            },
+            frameless: packed struct(u24) {
+                stack_reg_permutation: u10,
+                stack_reg_count: u3,
+                stack: packed union {
+                    direct: packed struct(u11) {
+                        _: u3,
+                        stack_size: u8,
+                    },
+                    indirect: packed struct(u11) {
+                        stack_adjust: u3,
+                        sub_offset: u8,
+                    },
+                },
+            },
+            dwarf: u24,
+        },
+        arm64: packed union {
+            frame: packed struct(u24) {
+                x_reg_pairs: packed struct(u5) {
+                    x19_x20: u1,
+                    x21_x22: u1,
+                    x23_x24: u1,
+                    x25_x26: u1,
+                    x27_x28: u1,
+                },
+                d_reg_pairs: packed struct(u4) {
+                    d8_d9: u1,
+                    d10_d11: u1,
+                    d12_d13: u1,
+                    d14_d15: u1,
+                },
+                _: u15,
+            },
+            frameless: packed struct(u24) {
+                _: u12 = 0,
+                stack_size: u12,
+            },
+            dwarf: u24,
+        },
+    },
+    mode: packed union {
+        x86_64: UNWIND_X86_64_MODE,
+        arm64: UNWIND_ARM64_MODE,
+    },
+    personality_index: u2,
+    has_lsda: u1,
+    start: u1,
+};

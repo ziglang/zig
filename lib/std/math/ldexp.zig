@@ -16,53 +16,53 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
     const max_biased_exponent = 2 * math.floatExponentMax(T);
     const mantissa_mask = @as(TBits, (1 << mantissa_bits) - 1);
 
-    const repr = @bitCast(TBits, x);
+    const repr = @as(TBits, @bitCast(x));
     const sign_bit = repr & (1 << (exponent_bits + mantissa_bits));
 
     if (math.isNan(x) or !math.isFinite(x))
         return x;
 
-    var exponent: i32 = @intCast(i32, (repr << 1) >> (mantissa_bits + 1));
+    var exponent: i32 = @as(i32, @intCast((repr << 1) >> (mantissa_bits + 1)));
     if (exponent == 0)
-        exponent += (@as(i32, exponent_bits) + @boolToInt(T == f80)) - @clz(repr << 1);
+        exponent += (@as(i32, exponent_bits) + @intFromBool(T == f80)) - @clz(repr << 1);
 
     if (n >= 0) {
         if (n > max_biased_exponent - exponent) {
             // Overflow. Return +/- inf
-            return @bitCast(T, @bitCast(TBits, math.inf(T)) | sign_bit);
+            return @as(T, @bitCast(@as(TBits, @bitCast(math.inf(T))) | sign_bit));
         } else if (exponent + n <= 0) {
             // Result is subnormal
-            return @bitCast(T, (repr << @intCast(Log2Int(TBits), n)) | sign_bit);
+            return @as(T, @bitCast((repr << @as(Log2Int(TBits), @intCast(n))) | sign_bit));
         } else if (exponent <= 0) {
             // Result is normal, but needs shifting
-            var result = @intCast(TBits, n + exponent) << mantissa_bits;
-            result |= (repr << @intCast(Log2Int(TBits), 1 - exponent)) & mantissa_mask;
-            return @bitCast(T, result | sign_bit);
+            var result = @as(TBits, @intCast(n + exponent)) << mantissa_bits;
+            result |= (repr << @as(Log2Int(TBits), @intCast(1 - exponent))) & mantissa_mask;
+            return @as(T, @bitCast(result | sign_bit));
         }
 
         // Result needs no shifting
-        return @bitCast(T, repr + (@intCast(TBits, n) << mantissa_bits));
+        return @as(T, @bitCast(repr + (@as(TBits, @intCast(n)) << mantissa_bits)));
     } else {
         if (n <= -exponent) {
             if (n < -(mantissa_bits + exponent))
-                return @bitCast(T, sign_bit); // Severe underflow. Return +/- 0
+                return @as(T, @bitCast(sign_bit)); // Severe underflow. Return +/- 0
 
             // Result underflowed, we need to shift and round
-            const shift = @intCast(Log2Int(TBits), math.min(-n, -(exponent + n) + 1));
+            const shift = @as(Log2Int(TBits), @intCast(@min(-n, -(exponent + n) + 1)));
             const exact_tie: bool = @ctz(repr) == shift - 1;
             var result = repr & mantissa_mask;
 
             if (T != f80) // Include integer bit
-                result |= @as(TBits, @boolToInt(exponent > 0)) << fractional_bits;
-            result = @intCast(TBits, (result >> (shift - 1)));
+                result |= @as(TBits, @intFromBool(exponent > 0)) << fractional_bits;
+            result = @as(TBits, @intCast((result >> (shift - 1))));
 
             // Round result, including round-to-even for exact ties
-            result = ((result + 1) >> 1) & ~@as(TBits, @boolToInt(exact_tie));
-            return @bitCast(T, result | sign_bit);
+            result = ((result + 1) >> 1) & ~@as(TBits, @intFromBool(exact_tie));
+            return @as(T, @bitCast(result | sign_bit));
         }
 
         // Result is exact, and needs no shifting
-        return @bitCast(T, repr - (@intCast(TBits, -n) << mantissa_bits));
+        return @as(T, @bitCast(repr - (@as(TBits, @intCast(-n)) << mantissa_bits)));
     }
 }
 
@@ -105,8 +105,8 @@ test "math.ldexp" {
         // Multiplications might flush the denormals to zero, esp. at
         // runtime, so we manually construct the constants here instead.
         const Z = std.meta.Int(.unsigned, @bitSizeOf(T));
-        const EightTimesTrueMin = @bitCast(T, @as(Z, 8));
-        const TwoTimesTrueMin = @bitCast(T, @as(Z, 2));
+        const EightTimesTrueMin = @as(T, @bitCast(@as(Z, 8)));
+        const TwoTimesTrueMin = @as(T, @bitCast(@as(Z, 2)));
 
         // subnormals -> subnormals
         try expect(ldexp(math.floatTrueMin(T), 3) == EightTimesTrueMin);

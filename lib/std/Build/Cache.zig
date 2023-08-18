@@ -128,7 +128,7 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
             const sub_path = try gpa.dupe(u8, resolved_path[p.len + 1 ..]);
             gpa.free(resolved_path);
             return PrefixedPath{
-                .prefix = @intCast(u8, i),
+                .prefix = @as(u8, @intCast(i)),
                 .sub_path = sub_path,
             };
         }
@@ -212,7 +212,7 @@ pub const HashHelper = struct {
     /// Convert the input value into bytes and record it as a dependency of the process being cached.
     pub fn add(hh: *HashHelper, x: anytype) void {
         switch (@TypeOf(x)) {
-            std.builtin.Version => {
+            std.SemanticVersion => {
                 hh.add(x.major);
                 hh.add(x.minor);
                 hh.add(x.patch);
@@ -653,7 +653,7 @@ pub const Manifest = struct {
                 return error.FileTooBig;
             }
 
-            const contents = try self.cache.gpa.alloc(u8, @intCast(usize, ch_file.stat.size));
+            const contents = try self.cache.gpa.alloc(u8, @as(usize, @intCast(ch_file.stat.size)));
             errdefer self.cache.gpa.free(contents);
 
             // Hash while reading from disk, to keep the contents in the cpu cache while
@@ -778,20 +778,11 @@ pub const Manifest = struct {
 
         var it: DepTokenizer = .{ .bytes = dep_file_contents };
 
-        // Skip first token: target.
-        switch (it.next() orelse return) { // Empty dep file OK.
-            .target, .target_must_resolve, .prereq => {},
-            else => |err| {
-                try err.printError(error_buf.writer());
-                log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
-                return error.InvalidDepFile;
-            },
-        }
-        // Process 0+ preqreqs.
-        // Clang is invoked in single-source mode so we never get more targets.
         while (true) {
             switch (it.next() orelse return) {
-                .target, .target_must_resolve => return,
+                // We don't care about targets, we only want the prereqs
+                // Clang is invoked in single-source mode but other programs may not
+                .target, .target_must_resolve => {},
                 .prereq => |file_path| try self.addFilePost(file_path),
                 else => |err| {
                     try err.printError(error_buf.writer());

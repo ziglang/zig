@@ -232,7 +232,7 @@ pub const Status = enum(u10) {
     };
 
     pub fn class(self: Status) Class {
-        return switch (@enumToInt(self)) {
+        return switch (@intFromEnum(self)) {
             100...199 => .informational,
             200...299 => .success,
             300...399 => .redirect,
@@ -274,5 +274,6 @@ const std = @import("std.zig");
 test {
     _ = Client;
     _ = Method;
+    _ = Server;
     _ = Status;
 }

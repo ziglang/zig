@@ -18,7 +18,7 @@ const U = union(E) {
 };
 pub fn main() !void {
     var a: U = undefined;
-    @ptrCast(*align(@alignOf(U)) u32, &a).* = 0xFFFF_FFFF;
+    @as(*align(@alignOf(U)) u32, @ptrCast(&a)).* = 0xFFFF_FFFF;
     switch (a) {
         .one => @panic("one"),
         else => @panic("else"),

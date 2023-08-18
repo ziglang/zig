@@ -18,7 +18,7 @@ comptime {
 /// "These functions return a value greater than or equal to zero if neither
 /// argument is NaN, and a is greater than or equal to b."
 pub fn __gesf2(a: f32, b: f32) callconv(.C) i32 {
-    return @enumToInt(comparef.cmpf2(f32, comparef.GE, a, b));
+    return @intFromEnum(comparef.cmpf2(f32, comparef.GE, a, b));
 }
 
 /// "These functions return a value greater than zero if neither argument is NaN,
@@ -28,9 +28,9 @@ pub fn __gtsf2(a: f32, b: f32) callconv(.C) i32 {
 }
 
 fn __aeabi_fcmpge(a: f32, b: f32) callconv(.AAPCS) i32 {
-    return @boolToInt(comparef.cmpf2(f32, comparef.GE, a, b) != .Less);
+    return @intFromBool(comparef.cmpf2(f32, comparef.GE, a, b) != .Less);
 }
 
 fn __aeabi_fcmpgt(a: f32, b: f32) callconv(.AAPCS) i32 {
-    return @boolToInt(comparef.cmpf2(f32, comparef.LE, a, b) == .Greater);
+    return @intFromBool(comparef.cmpf2(f32, comparef.LE, a, b) == .Greater);
 }

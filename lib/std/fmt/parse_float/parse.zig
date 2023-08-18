@@ -21,7 +21,7 @@ fn parse8Digits(v_: u64) u64 {
     v = (v * 10) + (v >> 8); // will not overflow, fits in 63 bits
     const v1 = (v & mask) *% mul1;
     const v2 = ((v >> 16) & mask) *% mul2;
-    return @as(u64, @truncate(u32, (v1 +% v2) >> 32));
+    return @as(u64, @as(u32, @truncate((v1 +% v2) >> 32)));
 }
 
 /// Parse digits until a non-digit character is found.
@@ -106,7 +106,7 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
     var mantissa: MantissaT = 0;
     tryParseDigits(MantissaT, stream, &mantissa, info.base);
     var int_end = stream.offsetTrue();
-    var n_digits = @intCast(isize, stream.offsetTrue());
+    var n_digits = @as(isize, @intCast(stream.offsetTrue()));
     // the base being 16 implies a 0x prefix, which shouldn't be included in the digit count
     if (info.base == 16) n_digits -= 2;
 
@@ -117,8 +117,8 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
         const marker = stream.offsetTrue();
         tryParseDigits(MantissaT, stream, &mantissa, info.base);
         const n_after_dot = stream.offsetTrue() - marker;
-        exponent = -@intCast(i64, n_after_dot);
-        n_digits += @intCast(isize, n_after_dot);
+        exponent = -@as(i64, @intCast(n_after_dot));
+        n_digits += @as(isize, @intCast(n_after_dot));
     }
 
     // adjust required shift to offset mantissa for base-16 (2^4)
@@ -163,7 +163,7 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
         // '0' = '.' + 2
         const next = stream.firstUnchecked();
         if (next != '_') {
-            n_digits -= @intCast(isize, next -| ('0' - 1));
+            n_digits -= @as(isize, @intCast(next -| ('0' - 1)));
         } else {
             stream.underscore_count += 1;
         }
@@ -179,7 +179,7 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
         exponent = blk: {
             if (mantissa >= min_n_digit_int(MantissaT, info.max_mantissa_digits)) {
                 // big int
-                break :blk @intCast(i64, int_end) - @intCast(i64, stream.offsetTrue());
+                break :blk @as(i64, @intCast(int_end)) - @as(i64, @intCast(stream.offsetTrue()));
             } else {
                 // the next byte must be present and be '.'
                 // We know this is true because we had more than 19
@@ -190,7 +190,7 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
                 stream.advance(1);
                 var marker = stream.offsetTrue();
                 tryParseNDigits(MantissaT, stream, &mantissa, info.base, info.max_mantissa_digits);
-                break :blk @intCast(i64, marker) - @intCast(i64, stream.offsetTrue());
+                break :blk @as(i64, @intCast(marker)) - @as(i64, @intCast(stream.offsetTrue()));
             }
         };
         // add back the explicit part

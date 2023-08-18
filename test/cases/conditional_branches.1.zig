@@ -15,7 +15,7 @@ fn foo(x: bool) void {
 
 fn print() void {
     const str = "Hello, World!\n";
-    _ = write(1, @ptrToInt(str.ptr), ptr.len);
+    _ = write(1, @intFromPtr(str.ptr), ptr.len);
 }
 
 // run

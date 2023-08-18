@@ -5,15 +5,11 @@ const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
 
-const status_t = i32;
-
 extern "c" fn _errnop() *c_int;
 
 pub const _errno = _errnop;
 
-pub extern "c" fn find_directory(which: directory_which, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) status_t;
-
-pub extern "c" fn find_path(codePointer: *const u8, baseDirectory: path_base_directory, subPath: [*:0]const u8, pathBuffer: [*:0]u8, bufferSize: usize) status_t;
+pub extern "c" fn find_directory(which: c_int, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) u64;
 
 pub extern "c" fn find_thread(thread_name: ?*anyopaque) i32;
 
@@ -414,7 +410,7 @@ pub const CLOCK = struct {
 
 pub const MAP = struct {
     /// mmap() error return code
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     /// changes are seen by others
     pub const SHARED = 0x01;
     /// changes are only seen by caller
@@ -443,7 +439,7 @@ pub const W = struct {
     pub const NOWAIT = 0x20;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, s & 0xff);
+        return @as(u8, @intCast(s & 0xff));
     }
 
     pub fn TERMSIG(s: u32) u32 {
@@ -481,9 +477,9 @@ pub const SA = struct {
 };
 
 pub const SIG = struct {
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
 
     pub const HUP = 1;
     pub const INT = 2;
@@ -1024,13 +1020,6 @@ pub const directory_which = enum(c_int) {
     _,
 };
 
-// TODO fill out if needed
-pub const path_base_directory = enum(c_int) {
-    B_FIND_PATH_IMAGE_PATH = 1000,
-};
-
-pub const B_APP_IMAGE_SYMBOL = null;
-
 pub const cc_t = u8;
 pub const speed_t = u8;
 pub const tcflag_t = u32;
@@ -1049,25 +1038,3 @@ pub const termios = extern struct {
 };
 
 pub const MSG_NOSIGNAL = 0x0800;
-
-pub const SIGEV = struct {
-    pub const NONE = 0;
-    pub const SIGNAL = 1;
-    pub const THREAD = 2;
-};
-
-pub const sigval = extern union {
-    int: c_int,
-    ptr: ?*anyopaque,
-};
-
-pub const sigevent = extern struct {
-    sigev_notify: c_int,
-    sigev_signo: c_int,
-    sigev_value: sigval,
-    sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
-    sigev_notify_attributes: ?*pthread_attr_t,
-};
-
-/// TODO refines if necessary
-pub const PTHREAD_STACK_MIN = 2 * 4096;

@@ -37,8 +37,9 @@ const Hint = enum {
 
 /// Unstable in-place sort. O(n) best case, O(n*log(n)) worst case and average case.
 /// O(log(n)) memory (no allocator required).
-///
-/// Sorts in ascending order with respect to the given `lessThan` function.
+/// `context` must have methods `swap` and `lessThan`,
+/// which each take 2 `usize` parameters indicating the index of an item.
+/// Sorts in ascending order with respect to `lessThan`.
 pub fn pdqContext(a: usize, b: usize, context: anytype) void {
     // slices of up to this length get sorted using insertion sort.
     const max_insertion = 24;
@@ -251,7 +252,7 @@ fn breakPatterns(a: usize, b: usize, context: anytype) void {
     const len = b - a;
     if (len < 8) return;
 
-    var rand = @intCast(u64, len);
+    var rand = @as(u64, @intCast(len));
     const modulus = math.ceilPowerOfTwoAssert(u64, len);
 
     var i = a + (len / 4) * 2 - 1;
@@ -261,7 +262,7 @@ fn breakPatterns(a: usize, b: usize, context: anytype) void {
         rand ^= rand >> 7;
         rand ^= rand << 17;
 
-        var other = @intCast(usize, rand & (modulus - 1));
+        var other = @as(usize, @intCast(rand & (modulus - 1)));
         if (other >= len) other -= len;
         context.swap(i, a + other);
     }

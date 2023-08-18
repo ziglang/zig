@@ -60,7 +60,7 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime ReaderType: type)
             var out_buffer = @as(Buf, 0);
 
             if (self.bit_count > 0) {
-                const n = if (self.bit_count >= bits) @intCast(u3, bits) else self.bit_count;
+                const n = if (self.bit_count >= bits) @as(u3, @intCast(bits)) else self.bit_count;
                 const shift = u7_bit_count - n;
                 switch (endian) {
                     .Big => {
@@ -88,45 +88,45 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime ReaderType: type)
             while (out_bits.* < bits) {
                 const n = bits - out_bits.*;
                 const next_byte = self.forward_reader.readByte() catch |err| switch (err) {
-                    error.EndOfStream => return @intCast(U, out_buffer),
+                    error.EndOfStream => return @as(U, @intCast(out_buffer)),
                     else => |e| return e,
                 };
 
                 switch (endian) {
                     .Big => {
                         if (n >= u8_bit_count) {
-                            out_buffer <<= @intCast(u3, u8_bit_count - 1);
+                            out_buffer <<= @as(u3, @intCast(u8_bit_count - 1));
                             out_buffer <<= 1;
                             out_buffer |= @as(Buf, next_byte);
                             out_bits.* += u8_bit_count;
                             continue;
                         }
 
-                        const shift = @intCast(u3, u8_bit_count - n);
-                        out_buffer <<= @intCast(BufShift, n);
+                        const shift = @as(u3, @intCast(u8_bit_count - n));
+                        out_buffer <<= @as(BufShift, @intCast(n));
                         out_buffer |= @as(Buf, next_byte >> shift);
                         out_bits.* += n;
-                        self.bit_buffer = @truncate(u7, next_byte << @intCast(u3, n - 1));
+                        self.bit_buffer = @as(u7, @truncate(next_byte << @as(u3, @intCast(n - 1))));
                         self.bit_count = shift;
                     },
                     .Little => {
                         if (n >= u8_bit_count) {
-                            out_buffer |= @as(Buf, next_byte) << @intCast(BufShift, out_bits.*);
+                            out_buffer |= @as(Buf, next_byte) << @as(BufShift, @intCast(out_bits.*));
                             out_bits.* += u8_bit_count;
                             continue;
                         }
 
-                        const shift = @intCast(u3, u8_bit_count - n);
+                        const shift = @as(u3, @intCast(u8_bit_count - n));
                         const value = (next_byte << shift) >> shift;
-                        out_buffer |= @as(Buf, value) << @intCast(BufShift, out_bits.*);
+                        out_buffer |= @as(Buf, value) << @as(BufShift, @intCast(out_bits.*));
                         out_bits.* += n;
-                        self.bit_buffer = @truncate(u7, next_byte >> @intCast(u3, n));
+                        self.bit_buffer = @as(u7, @truncate(next_byte >> @as(u3, @intCast(n))));
                         self.bit_count = shift;
                     },
                 }
             }
 
-            return @intCast(U, out_buffer);
+            return @as(U, @intCast(out_buffer));
         }
 
         pub fn alignToByte(self: *Self) void {
@@ -143,7 +143,7 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime ReaderType: type)
                     b.* = try self.readBits(u8, u8_bit_count, &out_bits);
                     out_bits_total += out_bits;
                 }
-                const incomplete_byte = @boolToInt(out_bits_total % u8_bit_count > 0);
+                const incomplete_byte = @intFromBool(out_bits_total % u8_bit_count > 0);
                 return (out_bits_total / u8_bit_count) + incomplete_byte;
             }
 

@@ -19,11 +19,13 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         const exe = createScenario(b, optimize, "no-dead-strip");
 
         const check = exe.checkObject();
-        check.checkStart("cmd LOAD_DYLIB");
-        check.checkNext("name {*}Cocoa");
+        check.checkStart();
+        check.checkExact("cmd LOAD_DYLIB");
+        check.checkContains("Cocoa");
 
-        check.checkStart("cmd LOAD_DYLIB");
-        check.checkNext("name {*}libobjc{*}.dylib");
+        check.checkStart();
+        check.checkExact("cmd LOAD_DYLIB");
+        check.checkContains("libobjc");
 
         test_step.dependOn(&check.step);
 
@@ -37,7 +39,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         exe.dead_strip_dylibs = true;
 
         const run_cmd = b.addRunArtifact(exe);
-        run_cmd.expectExitCode(@bitCast(u8, @as(i8, -2))); // should fail
+        run_cmd.expectExitCode(@as(u8, @bitCast(@as(i8, -2)))); // should fail
         test_step.dependOn(&run_cmd.step);
     }
 }
@@ -51,7 +53,7 @@ fn createScenario(
         .name = name,
         .optimize = optimize,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkLibC();
     exe.linkFramework("Cocoa");
     return exe;

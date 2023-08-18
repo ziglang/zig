@@ -27,9 +27,9 @@ pub fn __parityti2(a: i128) callconv(.C) i32 {
 
 inline fn parityXi2(comptime T: type, a: T) i32 {
     var x = switch (@bitSizeOf(T)) {
-        32 => @bitCast(u32, a),
-        64 => @bitCast(u64, a),
-        128 => @bitCast(u128, a),
+        32 => @as(u32, @bitCast(a)),
+        64 => @as(u64, @bitCast(a)),
+        128 => @as(u128, @bitCast(a)),
         else => unreachable,
     };
     // Bit Twiddling Hacks: Compute parity in parallel
@@ -39,7 +39,7 @@ inline fn parityXi2(comptime T: type, a: T) i32 {
         shift = shift >> 1;
     }
     x &= 0xf;
-    return (@intCast(u16, 0x6996) >> @intCast(u4, x)) & 1; // optimization for >>2 and >>1
+    return (@as(u16, @intCast(0x6996)) >> @as(u4, @intCast(x))) & 1; // optimization for >>2 and >>1
 }
 
 test {

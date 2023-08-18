@@ -47,6 +47,8 @@ pub const floatMin = @import("math/float.zig").floatMin;
 pub const floatMax = @import("math/float.zig").floatMax;
 pub const floatEps = @import("math/float.zig").floatEps;
 pub const inf = @import("math/float.zig").inf;
+pub const nan = @import("math/float.zig").nan;
+pub const snan = @import("math/float.zig").snan;
 
 pub const f16_true_min = @compileError("Deprecated: use `floatTrueMin(f16)` instead");
 pub const f32_true_min = @compileError("Deprecated: use `floatTrueMin(f32)` instead");
@@ -73,46 +75,37 @@ pub const f32_toint = @compileError("Deprecated: use `1.0 / floatEps(f32)` inste
 pub const f64_toint = @compileError("Deprecated: use `1.0 / floatEps(f64)` instead");
 pub const f80_toint = @compileError("Deprecated: use `1.0 / floatEps(f80)` instead");
 pub const f128_toint = @compileError("Deprecated: use `1.0 / floatEps(f128)` instead");
-pub const inf_u16 = @compileError("Deprecated: use `@bitCast(u16, inf(f16))` instead");
+pub const inf_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(inf(f16)))` instead");
 pub const inf_f16 = @compileError("Deprecated: use `inf(f16)` instead");
-pub const inf_u32 = @compileError("Deprecated: use `@bitCast(u32, inf(f32))` instead");
+pub const inf_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(inf(f32)))` instead");
 pub const inf_f32 = @compileError("Deprecated: use `inf(f32)` instead");
-pub const inf_u64 = @compileError("Deprecated: use `@bitCast(u64, inf(f64))` instead");
+pub const inf_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(inf(f64)))` instead");
 pub const inf_f64 = @compileError("Deprecated: use `inf(f64)` instead");
+pub const inf_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(inf(f80)))` instead");
 pub const inf_f80 = @compileError("Deprecated: use `inf(f80)` instead");
-pub const inf_u128 = @compileError("Deprecated: use `@bitCast(u128, inf(f128))` instead");
+pub const inf_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(inf(f128)))` instead");
 pub const inf_f128 = @compileError("Deprecated: use `inf(f128)` instead");
+pub const nan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
+pub const nan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
+pub const nan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
+pub const nan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
+pub const nan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
+pub const nan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
+pub const nan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
+pub const nan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
+pub const nan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
+pub const nan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
+pub const qnan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
+pub const qnan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
+pub const qnan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
+pub const qnan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
+pub const qnan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
+pub const qnan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
+pub const qnan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
+pub const qnan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
+pub const qnan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
+pub const qnan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
 pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
-
-pub const nan_u16 = @as(u16, 0x7C01);
-pub const nan_f16 = @bitCast(f16, nan_u16);
-
-pub const qnan_u16 = @as(u16, 0x7E00);
-pub const qnan_f16 = @bitCast(f16, qnan_u16);
-
-pub const nan_u32 = @as(u32, 0x7F800001);
-pub const nan_f32 = @bitCast(f32, nan_u32);
-
-pub const qnan_u32 = @as(u32, 0x7FC00000);
-pub const qnan_f32 = @bitCast(f32, qnan_u32);
-
-pub const nan_u64 = @as(u64, 0x7FF << 52) | 1;
-pub const nan_f64 = @bitCast(f64, nan_u64);
-
-pub const qnan_u64 = @as(u64, 0x7ff8000000000000);
-pub const qnan_f64 = @bitCast(f64, qnan_u64);
-
-pub const nan_f80 = make_f80(F80{ .fraction = 0xA000000000000000, .exp = 0x7fff });
-pub const qnan_f80 = make_f80(F80{ .fraction = 0xC000000000000000, .exp = 0x7fff });
-
-pub const nan_u128 = @as(u128, 0x7fff0000000000000000000000000001);
-pub const nan_f128 = @bitCast(f128, nan_u128);
-
-pub const qnan_u128 = @as(u128, 0x7fff8000000000000000000000000000);
-pub const qnan_f128 = @bitCast(f128, qnan_u128);
-
-pub const nan = @import("math/nan.zig").nan;
-pub const snan = @import("math/nan.zig").snan;
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
@@ -165,7 +158,7 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     if (isNan(x) or isNan(y))
         return false;
 
-    return @fabs(x - y) <= max(@fabs(x), @fabs(y)) * tolerance;
+    return @fabs(x - y) <= @max(@fabs(x), @fabs(y)) * tolerance;
 }
 
 test "approxEqAbs and approxEqRel" {
@@ -244,7 +237,6 @@ pub const atan2 = @import("math/atan2.zig").atan2;
 pub const hypot = @import("math/hypot.zig").hypot;
 pub const expm1 = @import("math/expm1.zig").expm1;
 pub const ilogb = @import("math/ilogb.zig").ilogb;
-pub const ln = @import("math/ln.zig").ln;
 pub const log = @import("math/log.zig").log;
 pub const log2 = @import("math/log2.zig").log2;
 pub const log10 = @import("math/log10.zig").log10;
@@ -337,37 +329,8 @@ test {
     _ = floatMax;
     _ = floatEps;
     _ = inf;
-
-    _ = nan_u16;
-    _ = nan_f16;
-
-    _ = qnan_u16;
-    _ = qnan_f16;
-
-    _ = nan_u32;
-    _ = nan_f32;
-
-    _ = qnan_u32;
-    _ = qnan_f32;
-
-    _ = nan_u64;
-    _ = nan_f64;
-
-    _ = qnan_u64;
-    _ = qnan_f64;
-
-    _ = nan_f80;
-    _ = qnan_f80;
-
-    _ = nan_u128;
-    _ = nan_f128;
-
-    _ = qnan_u128;
-    _ = qnan_f128;
-
     _ = nan;
     _ = snan;
-
     _ = isNan;
     _ = isSignalNan;
     _ = frexp;
@@ -395,7 +358,6 @@ test {
     _ = hypot;
     _ = expm1;
     _ = ilogb;
-    _ = ln;
     _ = log;
     _ = log2;
     _ = log10;
@@ -434,104 +396,16 @@ pub fn Min(comptime A: type, comptime B: type) type {
     return @TypeOf(@as(A, 0) + @as(B, 0));
 }
 
-/// Returns the smaller number. When one parameter's type's full range
-/// fits in the other, the return type is the smaller type.
-pub fn min(x: anytype, y: anytype) Min(@TypeOf(x), @TypeOf(y)) {
-    const Result = Min(@TypeOf(x), @TypeOf(y));
-    if (x < y) {
-        // TODO Zig should allow this as an implicit cast because x is
-        // immutable and in this scope it is known to fit in the
-        // return type.
-        switch (@typeInfo(Result)) {
-            .Int => return @intCast(Result, x),
-            else => return x,
-        }
-    } else {
-        // TODO Zig should allow this as an implicit cast because y is
-        // immutable and in this scope it is known to fit in the
-        // return type.
-        switch (@typeInfo(Result)) {
-            .Int => return @intCast(Result, y),
-            else => return y,
-        }
-    }
-}
-
-test "min" {
-    try testing.expect(min(@as(i32, -1), @as(i32, 2)) == -1);
-    {
-        var a: u16 = 999;
-        var b: u32 = 10;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == u16);
-        try testing.expect(result == 10);
-    }
-    {
-        var a: f64 = 10.34;
-        var b: f32 = 999.12;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == f64);
-        try testing.expect(result == 10.34);
-    }
-    {
-        var a: i8 = -127;
-        var b: i16 = -200;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == i16);
-        try testing.expect(result == -200);
-    }
-    {
-        const a = 10.34;
-        var b: f32 = 999.12;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == f32);
-        try testing.expect(result == 10.34);
-    }
-}
-
-/// Finds the minimum of three numbers.
-pub fn min3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
-    return min(x, min(y, z));
-}
-
-test "min3" {
-    try testing.expect(min3(@as(i32, 0), @as(i32, 1), @as(i32, 2)) == 0);
-    try testing.expect(min3(@as(i32, 0), @as(i32, 2), @as(i32, 1)) == 0);
-    try testing.expect(min3(@as(i32, 1), @as(i32, 0), @as(i32, 2)) == 0);
-    try testing.expect(min3(@as(i32, 1), @as(i32, 2), @as(i32, 0)) == 0);
-    try testing.expect(min3(@as(i32, 2), @as(i32, 0), @as(i32, 1)) == 0);
-    try testing.expect(min3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 0);
-}
-
-/// Returns the maximum of two numbers. Return type is the one with the
-/// larger range.
-pub fn max(x: anytype, y: anytype) @TypeOf(x, y) {
-    return if (x > y) x else y;
-}
-
-test "max" {
-    try testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
-    try testing.expect(max(@as(i32, 2), @as(i32, -1)) == 2);
-}
-
-/// Finds the maximum of three numbers.
-pub fn max3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
-    return max(x, max(y, z));
-}
-
-test "max3" {
-    try testing.expect(max3(@as(i32, 0), @as(i32, 1), @as(i32, 2)) == 2);
-    try testing.expect(max3(@as(i32, 0), @as(i32, 2), @as(i32, 1)) == 2);
-    try testing.expect(max3(@as(i32, 1), @as(i32, 0), @as(i32, 2)) == 2);
-    try testing.expect(max3(@as(i32, 1), @as(i32, 2), @as(i32, 0)) == 2);
-    try testing.expect(max3(@as(i32, 2), @as(i32, 0), @as(i32, 1)) == 2);
-    try testing.expect(max3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 2);
-}
+pub const min = @compileError("deprecated; use @min instead");
+pub const max = @compileError("deprecated; use @max instead");
+pub const min3 = @compileError("deprecated; use @min instead");
+pub const max3 = @compileError("deprecated; use @max instead");
+pub const ln = @compileError("deprecated; use @log instead");
 
 /// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
     assert(lower <= upper);
-    return max(lower, min(val, upper));
+    return @max(lower, @min(val, upper));
 }
 test "clamp" {
     // Within range
@@ -596,11 +470,11 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
         if (@typeInfo(T) == .Vector) {
             const C = @typeInfo(T).Vector.child;
             const len = @typeInfo(T).Vector.len;
-            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(len, @as(C, 0));
-            break :blk @splat(len, @intCast(Log2Int(C), abs_shift_amt));
+            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(0);
+            break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
         } else {
             if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0;
-            break :blk @intCast(Log2Int(T), abs_shift_amt);
+            break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
         }
     };
 
@@ -640,11 +514,11 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
         if (@typeInfo(T) == .Vector) {
             const C = @typeInfo(T).Vector.child;
             const len = @typeInfo(T).Vector.len;
-            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(len, @as(C, 0));
-            break :blk @splat(len, @intCast(Log2Int(C), abs_shift_amt));
+            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(0);
+            break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
         } else {
             if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0;
-            break :blk @intCast(Log2Int(T), abs_shift_amt);
+            break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
         }
     };
 
@@ -685,15 +559,15 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
-        const ar = @intCast(Log2Int(C), @mod(r, @typeInfo(C).Int.bits));
-        return (x >> @splat(@typeInfo(T).Vector.len, ar)) | (x << @splat(@typeInfo(T).Vector.len, 1 + ~ar));
+        const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
+        return (x >> @splat(ar)) | (x << @splat(1 + ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
         if (T == u0) return 0;
 
         if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
-            const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
+            const ar = @as(Log2Int(T), @intCast(@mod(r, @typeInfo(T).Int.bits)));
             return x >> ar | x << (1 +% ~ar);
         } else {
             const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -729,15 +603,15 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
-        const ar = @intCast(Log2Int(C), @mod(r, @typeInfo(C).Int.bits));
-        return (x << @splat(@typeInfo(T).Vector.len, ar)) | (x >> @splat(@typeInfo(T).Vector.len, 1 +% ~ar));
+        const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
+        return (x << @splat(ar)) | (x >> @splat(1 +% ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
         if (T == u0) return 0;
 
         if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
-            const ar = @intCast(Log2Int(T), @mod(r, @typeInfo(T).Int.bits));
+            const ar = @as(Log2Int(T), @intCast(@mod(r, @typeInfo(T).Int.bits)));
             return x << ar | x >> 1 +% ~ar;
         } else {
             const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -795,7 +669,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
         return u0;
     }
     const signedness: std.builtin.Signedness = if (from < 0) .signed else .unsigned;
-    const largest_positive_integer = max(if (from < 0) (-from) - 1 else from, to); // two's complement
+    const largest_positive_integer = @max(if (from < 0) (-from) - 1 else from, to); // two's complement
     const base = log2(largest_positive_integer);
     const upper = (1 << base) - 1;
     var magnitude_bits = if (upper >= largest_positive_integer) base else base + 1;
@@ -883,10 +757,10 @@ pub fn absInt(x: anytype) !@TypeOf(x) {
             switch (@typeInfo(vinfo.child)) {
                 .Int => |info| {
                     comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
-                    if (@reduce(.Or, x == @splat(vinfo.len, @as(vinfo.child, minInt(vinfo.child))))) {
+                    if (@reduce(.Or, x == @as(T, @splat(minInt(vinfo.child))))) {
                         return error.Overflow;
                     }
-                    const zero = @splat(vinfo.len, @as(vinfo.child, 0));
+                    const zero: T = @splat(0);
                     break :blk @select(vinfo.child, x > zero, x, -x);
                 },
                 else => @compileError("Expected vector of ints, found " ++ @typeName(T)),
@@ -1118,9 +992,9 @@ pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
             if (int_info.signedness == .unsigned) return x;
             const Uint = std.meta.Int(.unsigned, int_info.bits);
             if (x < 0) {
-                return ~@bitCast(Uint, x +% -1);
+                return ~@as(Uint, @bitCast(x +% -1));
             } else {
-                return @intCast(Uint, x);
+                return @as(Uint, @intCast(x));
             }
         },
         else => unreachable,
@@ -1145,7 +1019,7 @@ pub fn negateCast(x: anytype) !std.meta.Int(.signed, @bitSizeOf(@TypeOf(x))) {
 
     if (x == -minInt(int)) return minInt(int);
 
-    return -@intCast(int, x);
+    return -@as(int, @intCast(x));
 }
 
 test "negateCast" {
@@ -1169,7 +1043,7 @@ pub fn cast(comptime T: type, x: anytype) ?T {
     } else if ((is_comptime or minInt(@TypeOf(x)) < minInt(T)) and x < minInt(T)) {
         return null;
     } else {
-        return @intCast(T, x);
+        return @as(T, @intCast(x));
     }
 }
 
@@ -1191,18 +1065,37 @@ test "cast" {
 
 pub const AlignCastError = error{UnalignedMemory};
 
+fn AlignCastResult(comptime alignment: u29, comptime Ptr: type) type {
+    var ptr_info = @typeInfo(Ptr);
+    ptr_info.Pointer.alignment = alignment;
+    return @Type(ptr_info);
+}
+
 /// Align cast a pointer but return an error if it's the wrong alignment
-pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!@TypeOf(@alignCast(alignment, ptr)) {
-    const addr = @ptrToInt(ptr);
+pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!AlignCastResult(alignment, @TypeOf(ptr)) {
+    const addr = @intFromPtr(ptr);
     if (addr % alignment != 0) {
         return error.UnalignedMemory;
     }
-    return @alignCast(alignment, ptr);
+    return @alignCast(ptr);
 }
 
-pub fn isPowerOfTwo(v: anytype) bool {
-    assert(v != 0);
-    return (v & (v - 1)) == 0;
+/// Asserts `int > 0`.
+pub fn isPowerOfTwo(int: anytype) bool {
+    assert(int > 0);
+    return (int & (int - 1)) == 0;
+}
+
+test isPowerOfTwo {
+    try testing.expect(isPowerOfTwo(@as(u8, 1)));
+    try testing.expect(isPowerOfTwo(2));
+    try testing.expect(!isPowerOfTwo(@as(i16, 3)));
+    try testing.expect(isPowerOfTwo(4));
+    try testing.expect(!isPowerOfTwo(@as(u32, 31)));
+    try testing.expect(isPowerOfTwo(32));
+    try testing.expect(!isPowerOfTwo(@as(i64, 63)));
+    try testing.expect(isPowerOfTwo(128));
+    try testing.expect(isPowerOfTwo(@as(u128, 256)));
 }
 
 /// Aligns the given integer type bit width to a width divisible by 8.
@@ -1248,7 +1141,7 @@ pub inline fn floor(value: anytype) @TypeOf(value) {
 pub fn floorPowerOfTwo(comptime T: type, value: T) T {
     const uT = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
     if (value <= 0) return 0;
-    return @as(T, 1) << log2_int(uT, @intCast(uT, value));
+    return @as(T, 1) << log2_int(uT, @as(uT, @intCast(value)));
 }
 
 test "floorPowerOfTwo" {
@@ -1287,7 +1180,7 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(@typeInfo(
     assert(value != 0);
     const PromotedType = std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits + 1);
     const ShiftType = std.math.Log2Int(PromotedType);
-    return @as(PromotedType, 1) << @intCast(ShiftType, @typeInfo(T).Int.bits - @clz(value - 1));
+    return @as(PromotedType, 1) << @as(ShiftType, @intCast(@typeInfo(T).Int.bits - @clz(value - 1)));
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
@@ -1303,7 +1196,7 @@ pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     if (overflowBit & x != 0) {
         return error.Overflow;
     }
-    return @intCast(T, x);
+    return @as(T, @intCast(x));
 }
 
 /// Returns the next power of two (if the value is not already a power
@@ -1353,7 +1246,7 @@ pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
     if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
         @compileError("log2_int requires an unsigned integer, found " ++ @typeName(T));
     assert(x != 0);
-    return @intCast(Log2Int(T), @typeInfo(T).Int.bits - 1 - @clz(x));
+    return @as(Log2Int(T), @intCast(@typeInfo(T).Int.bits - 1 - @clz(x)));
 }
 
 /// Return the log base 2 of integer value x, rounding up to the
@@ -1387,8 +1280,8 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
     switch (@typeInfo(T)) {
         .Float => {
             switch (@typeInfo(@TypeOf(value))) {
-                .Int => return @intToFloat(T, value),
-                .Float => return @floatCast(T, value),
+                .Int => return @as(T, @floatFromInt(value)),
+                .Float => return @as(T, @floatCast(value)),
                 .ComptimeInt => return @as(T, value),
                 .ComptimeFloat => return @as(T, value),
                 else => @compileError("bad type"),
@@ -1402,7 +1295,7 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
                     } else if (value <= minInt(T)) {
                         return @as(T, minInt(T));
                     } else {
-                        return @intCast(T, value);
+                        return @as(T, @intCast(value));
                     }
                 },
                 .Float, .ComptimeFloat => {
@@ -1411,7 +1304,7 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
                     } else if (value <= minInt(T)) {
                         return @as(T, minInt(T));
                     } else {
-                        return @floatToInt(T, value);
+                        return @as(T, @intFromFloat(value));
                     }
                 },
                 else => @compileError("bad type"),
@@ -1438,9 +1331,9 @@ pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
 
     switch (@typeInfo(Type)) {
         .Float, .ComptimeFloat => assert(t >= 0 and t <= 1),
-        .Vector => |vector| {
-            const lower_bound = @reduce(.And, t >= @splat(vector.len, @as(vector.child, 0)));
-            const upper_bound = @reduce(.And, t <= @splat(vector.len, @as(vector.child, 1)));
+        .Vector => {
+            const lower_bound = @reduce(.And, t >= @as(Type, @splat(0)));
+            const upper_bound = @reduce(.And, t <= @as(Type, @splat(1)));
             assert(lower_bound and upper_bound);
         },
         else => comptime unreachable,
@@ -1462,14 +1355,24 @@ test "lerp" {
     try testing.expectEqual(@as(f32, 1.0), lerp(@as(f32, 1.0e7), 1.0, 1.0));
     try testing.expectEqual(@as(f64, 1.0), lerp(@as(f64, 1.0e15), 1.0, 1.0));
 
-    try testing.expectEqual(
-        lerp(@splat(3, @as(f32, 0)), @splat(3, @as(f32, 50)), @splat(3, @as(f32, 0.5))),
-        @Vector(3, f32){ 25, 25, 25 },
-    );
-    try testing.expectEqual(
-        lerp(@splat(3, @as(f64, 50)), @splat(3, @as(f64, 100)), @splat(3, @as(f64, 0.5))),
-        @Vector(3, f64){ 75, 75, 75 },
-    );
+    {
+        const a: @Vector(3, f32) = @splat(0);
+        const b: @Vector(3, f32) = @splat(50);
+        const t: @Vector(3, f32) = @splat(0.5);
+        try testing.expectEqual(
+            lerp(a, b, t),
+            @Vector(3, f32){ 25, 25, 25 },
+        );
+    }
+    {
+        const a: @Vector(3, f64) = @splat(50);
+        const b: @Vector(3, f64) = @splat(100);
+        const t: @Vector(3, f64) = @splat(0.5);
+        try testing.expectEqual(
+            lerp(a, b, t),
+            @Vector(3, f64){ 75, 75, 75 },
+        );
+    }
 }
 
 /// Returns the maximum value of integer type T.
@@ -1477,7 +1380,7 @@ pub fn maxInt(comptime T: type) comptime_int {
     const info = @typeInfo(T);
     const bit_count = info.Int.bits;
     if (bit_count == 0) return 0;
-    return (1 << (bit_count - @boolToInt(info.Int.signedness == .signed))) - 1;
+    return (1 << (bit_count - @intFromBool(info.Int.signedness == .signed))) - 1;
 }
 
 /// Returns the minimum value of integer type T.
@@ -1552,14 +1455,14 @@ test "mulWide" {
 
 /// See also `CompareOperator`.
 pub const Order = enum {
+    /// Greater than (`>`)
+    gt,
+
     /// Less than (`<`)
     lt,
 
     /// Equal (`==`)
     eq,
-
-    /// Greater than (`>`)
-    gt,
 
     pub fn invert(self: Order) Order {
         return switch (self) {
@@ -1670,7 +1573,7 @@ test "compare between signed and unsigned" {
     try testing.expect(compare(@as(u8, 255), .gt, @as(i9, -1)));
     try testing.expect(!compare(@as(u8, 255), .lte, @as(i9, -1)));
     try testing.expect(compare(@as(u8, 1), .lt, @as(u8, 2)));
-    try testing.expect(@bitCast(u8, @as(i8, -1)) == @as(u8, 255));
+    try testing.expect(@as(u8, @bitCast(@as(i8, -1))) == @as(u8, 255));
     try testing.expect(!compare(@as(u8, 255), .eq, @as(i8, -1)));
     try testing.expect(compare(@as(u8, 1), .eq, @as(u8, 1)));
 }
@@ -1700,7 +1603,7 @@ test "order.compare" {
 
 test "compare.reverse" {
     inline for (@typeInfo(CompareOperator).Enum.fields) |op_field| {
-        const op = @intToEnum(CompareOperator, op_field.value);
+        const op = @as(CompareOperator, @enumFromInt(op_field.value));
         try testing.expect(compare(2, op, 3) == compare(3, op.reverse(), 2));
         try testing.expect(compare(3, op, 3) == compare(3, op.reverse(), 3));
         try testing.expect(compare(4, op, 3) == compare(3, op.reverse(), 4));
@@ -1719,13 +1622,13 @@ pub inline fn boolMask(comptime MaskInt: type, value: bool) MaskInt {
 
     // The u1 and i1 cases tend to overflow,
     // so we special case them here.
-    if (MaskInt == u1) return @boolToInt(value);
+    if (MaskInt == u1) return @intFromBool(value);
     if (MaskInt == i1) {
         // The @as here is a workaround for #7950
-        return @bitCast(i1, @as(u1, @boolToInt(value)));
+        return @as(i1, @bitCast(@as(u1, @intFromBool(value))));
     }
 
-    return -%@intCast(MaskInt, @boolToInt(value));
+    return -%@as(MaskInt, @intCast(@intFromBool(value)));
 }
 
 test "boolMask" {
@@ -1756,7 +1659,7 @@ test "boolMask" {
 
 /// Return the mod of `num` with the smallest integer type
 pub fn comptimeMod(num: anytype, comptime denom: comptime_int) IntFittingRange(0, denom - 1) {
-    return @intCast(IntFittingRange(0, denom - 1), @mod(num, denom));
+    return @as(IntFittingRange(0, denom - 1), @intCast(@mod(num, denom)));
 }
 
 pub const F80 = struct {
@@ -1766,14 +1669,14 @@ pub const F80 = struct {
 
 pub fn make_f80(repr: F80) f80 {
     const int = (@as(u80, repr.exp) << 64) | repr.fraction;
-    return @bitCast(f80, int);
+    return @as(f80, @bitCast(int));
 }
 
 pub fn break_f80(x: f80) F80 {
-    const int = @bitCast(u80, x);
+    const int = @as(u80, @bitCast(x));
     return .{
-        .fraction = @truncate(u64, int),
-        .exp = @truncate(u16, int >> 64),
+        .fraction = @as(u64, @truncate(int)),
+        .exp = @as(u16, @truncate(int >> 64)),
     };
 }
 
@@ -1784,13 +1687,13 @@ pub fn break_f80(x: f80) F80 {
 pub inline fn sign(i: anytype) @TypeOf(i) {
     const T = @TypeOf(i);
     return switch (@typeInfo(T)) {
-        .Int, .ComptimeInt => @as(T, @boolToInt(i > 0)) - @as(T, @boolToInt(i < 0)),
-        .Float, .ComptimeFloat => @intToFloat(T, @boolToInt(i > 0)) - @intToFloat(T, @boolToInt(i < 0)),
+        .Int, .ComptimeInt => @as(T, @intFromBool(i > 0)) - @as(T, @intFromBool(i < 0)),
+        .Float, .ComptimeFloat => @as(T, @floatFromInt(@intFromBool(i > 0))) - @as(T, @floatFromInt(@intFromBool(i < 0))),
         .Vector => |vinfo| blk: {
             switch (@typeInfo(vinfo.child)) {
                 .Int, .Float => {
-                    const zero = @splat(vinfo.len, @as(vinfo.child, 0));
-                    const one = @splat(vinfo.len, @as(vinfo.child, 1));
+                    const zero: T = @splat(0);
+                    const one: T = @splat(1);
                     break :blk @select(vinfo.child, i > zero, one, zero) - @select(vinfo.child, i < zero, one, zero);
                 },
                 else => @compileError("Expected vector of ints or floats, found " ++ @typeName(T)),

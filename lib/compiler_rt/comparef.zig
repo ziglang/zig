@@ -26,12 +26,12 @@ pub inline fn cmpf2(comptime T: type, comptime RT: type, a: T, b: T) RT {
     const signBit = (@as(rep_t, 1) << (significandBits + exponentBits));
     const absMask = signBit - 1;
     const infT = comptime std.math.inf(T);
-    const infRep = @bitCast(rep_t, infT);
+    const infRep = @as(rep_t, @bitCast(infT));
 
-    const aInt = @bitCast(srep_t, a);
-    const bInt = @bitCast(srep_t, b);
-    const aAbs = @bitCast(rep_t, aInt) & absMask;
-    const bAbs = @bitCast(rep_t, bInt) & absMask;
+    const aInt = @as(srep_t, @bitCast(a));
+    const bInt = @as(srep_t, @bitCast(b));
+    const aAbs = @as(rep_t, @bitCast(aInt)) & absMask;
+    const bAbs = @as(rep_t, @bitCast(bInt)) & absMask;
 
     // If either a or b is NaN, they are unordered.
     if (aAbs > infRep or bAbs > infRep) return RT.Unordered;
@@ -77,11 +77,11 @@ pub inline fn cmp_f80(comptime RT: type, a: f80, b: f80) RT {
     if ((a_rep.fraction | b_rep.fraction) | ((a_rep.exp | b_rep.exp) & special_exp) == 0)
         return .Equal;
 
-    if (@boolToInt(a_rep.exp == b_rep.exp) & @boolToInt(a_rep.fraction == b_rep.fraction) != 0) {
+    if (@intFromBool(a_rep.exp == b_rep.exp) & @intFromBool(a_rep.fraction == b_rep.fraction) != 0) {
         return .Equal;
     } else if (a_rep.exp & sign_bit != b_rep.exp & sign_bit) {
         // signs are different
-        if (@bitCast(i16, a_rep.exp) < @bitCast(i16, b_rep.exp)) {
+        if (@as(i16, @bitCast(a_rep.exp)) < @as(i16, @bitCast(b_rep.exp))) {
             return .Less;
         } else {
             return .Greater;
@@ -104,12 +104,12 @@ pub inline fn unordcmp(comptime T: type, a: T, b: T) i32 {
     const exponentBits = std.math.floatExponentBits(T);
     const signBit = (@as(rep_t, 1) << (significandBits + exponentBits));
     const absMask = signBit - 1;
-    const infRep = @bitCast(rep_t, std.math.inf(T));
+    const infRep = @as(rep_t, @bitCast(std.math.inf(T)));
 
-    const aAbs: rep_t = @bitCast(rep_t, a) & absMask;
-    const bAbs: rep_t = @bitCast(rep_t, b) & absMask;
+    const aAbs: rep_t = @as(rep_t, @bitCast(a)) & absMask;
+    const bAbs: rep_t = @as(rep_t, @bitCast(b)) & absMask;
 
-    return @boolToInt(aAbs > infRep or bAbs > infRep);
+    return @intFromBool(aAbs > infRep or bAbs > infRep);
 }
 
 test {

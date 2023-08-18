@@ -51,7 +51,6 @@
 #endif
 
 #include <linux/types.h>
-#include <stdlib.h>
 
 struct agp_version {
 	__u16 major;
@@ -63,10 +62,10 @@ typedef struct _agp_info {
 	__u32 bridge_id;	/* bridge vendor/device         */
 	__u32 agp_mode;		/* mode info of bridge          */
 	unsigned long aper_base;/* base of aperture             */
-	size_t aper_size;	/* size of aperture             */
-	size_t pg_total;	/* max pages (swap + system)    */
-	size_t pg_system;	/* max pages (system)           */
-	size_t pg_used;		/* current pages used           */
+	__kernel_size_t aper_size;	/* size of aperture             */
+	__kernel_size_t pg_total;	/* max pages (swap + system)    */
+	__kernel_size_t pg_system;	/* max pages (system)           */
+	__kernel_size_t pg_used;	/* current pages used           */
 } agp_info;
 
 typedef struct _agp_setup {

@@ -54,8 +54,8 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
 
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, bytes / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(bytes / elapsed_s));
 
     return throughput;
 }
@@ -95,8 +95,8 @@ pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
     }
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, bytes / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(bytes / elapsed_s));
 
     return throughput;
 }
@@ -125,8 +125,8 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
     }
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, exchange_count / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(exchange_count / elapsed_s));
 
     return throughput;
 }
@@ -148,8 +148,8 @@ pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count
     }
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, signatures_count / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(signatures_count / elapsed_s));
 
     return throughput;
 }
@@ -172,8 +172,8 @@ pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime sign
     }
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, signatures_count / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(signatures_count / elapsed_s));
 
     return throughput;
 }
@@ -201,8 +201,8 @@ pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime
     }
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = batch.len * @floatToInt(u64, signatures_count / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = batch.len * @as(u64, @intFromFloat(signatures_count / elapsed_s));
 
     return throughput;
 }
@@ -227,8 +227,8 @@ pub fn benchmarkKem(comptime Kem: anytype, comptime kems_count: comptime_int) !u
     }
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, kems_count / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(kems_count / elapsed_s));
 
     return throughput;
 }
@@ -249,8 +249,8 @@ pub fn benchmarkKemDecaps(comptime Kem: anytype, comptime kems_count: comptime_i
     }
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, kems_count / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(kems_count / elapsed_s));
 
     return throughput;
 }
@@ -267,8 +267,8 @@ pub fn benchmarkKemKeyGen(comptime Kem: anytype, comptime kems_count: comptime_i
     }
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, kems_count / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(kems_count / elapsed_s));
 
     return throughput;
 }
@@ -309,8 +309,8 @@ pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 
     mem.doNotOptimizeAway(&in);
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, 2 * bytes / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(2 * bytes / elapsed_s));
 
     return throughput;
 }
@@ -338,8 +338,8 @@ pub fn benchmarkAes(comptime Aes: anytype, comptime count: comptime_int) !u64 {
     mem.doNotOptimizeAway(&in);
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, count / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(count / elapsed_s));
 
     return throughput;
 }
@@ -367,8 +367,8 @@ pub fn benchmarkAes8(comptime Aes: anytype, comptime count: comptime_int) !u64 {
     mem.doNotOptimizeAway(&in);
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, 8 * count / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(8 * count / elapsed_s));
 
     return throughput;
 }
@@ -406,7 +406,7 @@ fn benchmarkPwhash(
     const password = "testpass" ** 2;
     const opts = .{
         .allocator = allocator,
-        .params = @ptrCast(*const ty.Params, @alignCast(std.meta.alignment(ty.Params), params)).*,
+        .params = @as(*const ty.Params, @ptrCast(@alignCast(params))).*,
         .encoding = .phc,
     };
     var buf: [256]u8 = undefined;
@@ -422,7 +422,7 @@ fn benchmarkPwhash(
     }
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
     const throughput = elapsed_s / count;
 
     return throughput;

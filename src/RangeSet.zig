@@ -95,7 +95,7 @@ pub fn spans(self: *RangeSet, first: InternPool.Index, last: InternPool.Index) !
         try counter.addScalar(&counter, 1);
 
         const cur_start_int = cur.first.toValue().toBigInt(&space, mod);
-        if (!cur_start_int.eq(counter.toConst())) {
+        if (!cur_start_int.eql(counter.toConst())) {
             return false;
         }
     }

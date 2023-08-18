@@ -1,4 +1,4 @@
-//! A software version formatted according to the Semantic Version 2 specification.
+//! A software version formatted according to the Semantic Versioning 2.0.0 specification.
 //!
 //! See: https://semver.org
 
@@ -167,7 +167,7 @@ const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 
 test "SemanticVersion format" {
-    // Test vectors are from https://github.com/semver/semver.org/issues/59#issuecomment-390854010.
+    // Many of these test strings are from https://github.com/semver/semver.org/issues/59#issuecomment-390854010.
 
     // Valid version strings should be accepted.
     for ([_][]const u8{
@@ -200,6 +200,8 @@ test "SemanticVersion format" {
         "1.2.3----R-S.12.9.1--.12+meta",
         "1.2.3----RC-SNAPSHOT.12.9.1--.12",
         "1.0.0+0.build.1-rc.10000aaa-kk-0.1",
+        "5.4.0-1018-raspi",
+        "5.7.123",
     }) |valid| try std.testing.expectFmt(valid, "{}", .{try parse(valid)});
 
     // Invalid version strings should be rejected.
@@ -244,6 +246,24 @@ test "SemanticVersion format" {
         "+justmeta",
         "9.8.7+meta+meta",
         "9.8.7-whatever+meta+meta",
+        "2.6.32.11-svn21605",
+        "2.11.2(0.329/5/3)",
+        "2.13-DEVELOPMENT",
+        "2.3-35",
+        "1a.4",
+        "3.b1.0",
+        "1.4beta",
+        "2.7.pre",
+        "0..3",
+        "8.008.",
+        "01...",
+        "55",
+        "foobar",
+        "",
+        "-1",
+        "+4",
+        ".",
+        "....3",
     }) |invalid| try expectError(error.InvalidVersion, parse(invalid));
 
     // Valid version string that may overflow.

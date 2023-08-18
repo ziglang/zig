@@ -1,10 +1,7 @@
 const std = @import("std.zig");
-const io = std.io;
-const os = std.os;
 const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
-const File = std.fs.File;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
 pub const AT_NULL = 0;
@@ -221,6 +218,58 @@ pub const DT_IA_64_NUM = 1;
 
 pub const DT_NIOS2_GP = 0x70000002;
 
+pub const DF_ORIGIN = 0x00000001;
+pub const DF_SYMBOLIC = 0x00000002;
+pub const DF_TEXTREL = 0x00000004;
+pub const DF_BIND_NOW = 0x00000008;
+pub const DF_STATIC_TLS = 0x00000010;
+
+pub const DF_1_NOW = 0x00000001;
+pub const DF_1_GLOBAL = 0x00000002;
+pub const DF_1_GROUP = 0x00000004;
+pub const DF_1_NODELETE = 0x00000008;
+pub const DF_1_LOADFLTR = 0x00000010;
+pub const DF_1_INITFIRST = 0x00000020;
+pub const DF_1_NOOPEN = 0x00000040;
+pub const DF_1_ORIGIN = 0x00000080;
+pub const DF_1_DIRECT = 0x00000100;
+pub const DF_1_TRANS = 0x00000200;
+pub const DF_1_INTERPOSE = 0x00000400;
+pub const DF_1_NODEFLIB = 0x00000800;
+pub const DF_1_NODUMP = 0x00001000;
+pub const DF_1_CONFALT = 0x00002000;
+pub const DF_1_ENDFILTEE = 0x00004000;
+pub const DF_1_DISPRELDNE = 0x00008000;
+pub const DF_1_DISPRELPND = 0x00010000;
+pub const DF_1_NODIRECT = 0x00020000;
+pub const DF_1_IGNMULDEF = 0x00040000;
+pub const DF_1_NOKSYMS = 0x00080000;
+pub const DF_1_NOHDR = 0x00100000;
+pub const DF_1_EDITED = 0x00200000;
+pub const DF_1_NORELOC = 0x00400000;
+pub const DF_1_SYMINTPOSE = 0x00800000;
+pub const DF_1_GLOBAUDIT = 0x01000000;
+pub const DF_1_SINGLETON = 0x02000000;
+pub const DF_1_STUB = 0x04000000;
+pub const DF_1_PIE = 0x08000000;
+
+pub const VERSYM_HIDDEN = 0x8000;
+pub const VERSYM_VERSION = 0x7fff;
+
+/// Symbol is local
+pub const VER_NDX_LOCAL = 0;
+/// Symbol is global
+pub const VER_NDX_GLOBAL = 1;
+/// Beginning of reserved entries
+pub const VER_NDX_LORESERVE = 0xff00;
+/// Symbol is to be eliminated
+pub const VER_NDX_ELIMINATE = 0xff01;
+
+/// Version definition of the file itself
+pub const VER_FLG_BASE = 1;
+/// Weak version identifier
+pub const VER_FLG_WEAK = 2;
+
 /// Program header table entry unused
 pub const PT_NULL = 0;
 /// Loadable program segment
@@ -298,6 +347,14 @@ pub const SHT_SYMTAB_SHNDX = 18;
 pub const SHT_LOOS = 0x60000000;
 /// LLVM address-significance table
 pub const SHT_LLVM_ADDRSIG = 0x6fff4c03;
+/// GNU hash table
+pub const SHT_GNU_HASH = 0x6ffffff6;
+/// GNU version definition table
+pub const SHT_GNU_VERDEF = 0x6ffffffd;
+/// GNU needed versions table
+pub const SHT_GNU_VERNEED = 0x6ffffffe;
+/// GNU symbol version table
+pub const SHT_GNU_VERSYM = 0x6fffffff;
 /// End of OS-specific
 pub const SHT_HIOS = 0x6fffffff;
 /// Start of processor-specific
@@ -310,6 +367,9 @@ pub const SHT_HIPROC = 0x7fffffff;
 pub const SHT_LOUSER = 0x80000000;
 /// End of application-specific
 pub const SHT_HIUSER = 0xffffffff;
+
+// Note type for .note.gnu.build_id
+pub const NT_GNU_BUILD_ID = 3;
 
 /// Local symbol
 pub const STB_LOCAL = 0;
@@ -368,9 +428,6 @@ pub const STT_HP_STUB = (STT_LOOS + 0x2);
 
 pub const STT_ARM_TFUNC = STT_LOPROC;
 pub const STT_ARM_16BIT = STT_HIPROC;
-
-pub const VER_FLG_BASE = 0x1;
-pub const VER_FLG_WEAK = 0x2;
 
 pub const MAGIC = "\x7fELF";
 
@@ -434,8 +491,8 @@ pub const Header = struct {
     }
 
     pub fn parse(hdr_buf: *align(@alignOf(Elf64_Ehdr)) const [@sizeOf(Elf64_Ehdr)]u8) !Header {
-        const hdr32 = @ptrCast(*const Elf32_Ehdr, hdr_buf);
-        const hdr64 = @ptrCast(*const Elf64_Ehdr, hdr_buf);
+        const hdr32 = @as(*const Elf32_Ehdr, @ptrCast(hdr_buf));
+        const hdr64 = @as(*const Elf64_Ehdr, @ptrCast(hdr_buf));
         if (!mem.eql(u8, hdr32.e_ident[0..4], MAGIC)) return error.InvalidElfMagic;
         if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
 
@@ -453,8 +510,8 @@ pub const Header = struct {
         };
 
         const machine = if (need_bswap) blk: {
-            const value = @enumToInt(hdr32.e_machine);
-            break :blk @intToEnum(EM, @byteSwap(value));
+            const value = @intFromEnum(hdr32.e_machine);
+            break :blk @as(EM, @enumFromInt(@byteSwap(value)));
         } else hdr32.e_machine;
 
         return @as(Header, .{
@@ -706,13 +763,13 @@ pub const Elf64_Shdr = extern struct {
     sh_entsize: Elf64_Xword,
 };
 pub const Elf32_Chdr = extern struct {
-    ch_type: Elf32_Word,
+    ch_type: COMPRESS,
     ch_size: Elf32_Word,
     ch_addralign: Elf32_Word,
 };
 pub const Elf64_Chdr = extern struct {
-    ch_type: Elf64_Word,
-    ch_reserved: Elf64_Word,
+    ch_type: COMPRESS,
+    ch_reserved: Elf64_Word = 0,
     ch_size: Elf64_Xword,
     ch_addralign: Elf64_Xword,
 };
@@ -725,10 +782,10 @@ pub const Elf32_Sym = extern struct {
     st_shndx: Elf32_Section,
 
     pub inline fn st_type(self: @This()) u4 {
-        return @truncate(u4, self.st_info);
+        return @as(u4, @truncate(self.st_info));
     }
     pub inline fn st_bind(self: @This()) u4 {
-        return @truncate(u4, self.st_info >> 4);
+        return @as(u4, @truncate(self.st_info >> 4));
     }
 };
 pub const Elf64_Sym = extern struct {
@@ -740,10 +797,10 @@ pub const Elf64_Sym = extern struct {
     st_size: Elf64_Xword,
 
     pub inline fn st_type(self: @This()) u4 {
-        return @truncate(u4, self.st_info);
+        return @as(u4, @truncate(self.st_info));
     }
     pub inline fn st_bind(self: @This()) u4 {
-        return @truncate(u4, self.st_info >> 4);
+        return @as(u4, @truncate(self.st_info >> 4));
     }
 };
 pub const Elf32_Syminfo = extern struct {
@@ -759,10 +816,10 @@ pub const Elf32_Rel = extern struct {
     r_info: Elf32_Word,
 
     pub inline fn r_sym(self: @This()) u24 {
-        return @truncate(u24, self.r_info >> 8);
+        return @as(u24, @truncate(self.r_info >> 8));
     }
     pub inline fn r_type(self: @This()) u8 {
-        return @truncate(u8, self.r_info);
+        return @as(u8, @truncate(self.r_info));
     }
 };
 pub const Elf64_Rel = extern struct {
@@ -770,10 +827,10 @@ pub const Elf64_Rel = extern struct {
     r_info: Elf64_Xword,
 
     pub inline fn r_sym(self: @This()) u32 {
-        return @truncate(u32, self.r_info >> 32);
+        return @as(u32, @truncate(self.r_info >> 32));
     }
     pub inline fn r_type(self: @This()) u32 {
-        return @truncate(u32, self.r_info);
+        return @as(u32, @truncate(self.r_info));
     }
 };
 pub const Elf32_Rela = extern struct {
@@ -782,10 +839,10 @@ pub const Elf32_Rela = extern struct {
     r_addend: Elf32_Sword,
 
     pub inline fn r_sym(self: @This()) u24 {
-        return @truncate(u24, self.r_info >> 8);
+        return @as(u24, @truncate(self.r_info >> 8));
     }
     pub inline fn r_type(self: @This()) u8 {
-        return @truncate(u8, self.r_info);
+        return @as(u8, @truncate(self.r_info));
     }
 };
 pub const Elf64_Rela = extern struct {
@@ -794,10 +851,10 @@ pub const Elf64_Rela = extern struct {
     r_addend: Elf64_Sxword,
 
     pub inline fn r_sym(self: @This()) u32 {
-        return @truncate(u32, self.r_info >> 32);
+        return @as(u32, @truncate(self.r_info >> 32));
     }
     pub inline fn r_type(self: @This()) u32 {
-        return @truncate(u32, self.r_info);
+        return @as(u32, @truncate(self.r_info));
     }
 };
 pub const Elf32_Dyn = extern struct {
@@ -996,6 +1053,11 @@ pub const Rela = switch (@sizeOf(usize)) {
 pub const Shdr = switch (@sizeOf(usize)) {
     4 => Elf32_Shdr,
     8 => Elf64_Shdr,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
+pub const Chdr = switch (@sizeOf(usize)) {
+    4 => Elf32_Chdr,
+    8 => Elf64_Chdr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
 pub const Sym = switch (@sizeOf(usize)) {
@@ -1729,6 +1791,17 @@ pub const SHN_ABS = 0xfff1;
 pub const SHN_COMMON = 0xfff2;
 /// End of reserved indices
 pub const SHN_HIRESERVE = 0xffff;
+
+// Legal values for ch_type (compression algorithm).
+pub const COMPRESS = enum(u32) {
+    ZLIB = 1,
+    ZSTD = 2,
+    LOOS = 0x60000000,
+    HIOS = 0x6fffffff,
+    LOPROC = 0x70000000,
+    HIPROC = 0x7fffffff,
+    _,
+};
 
 /// AMD x86-64 relocations.
 /// No reloc

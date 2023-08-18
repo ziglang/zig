@@ -135,7 +135,7 @@ pub fn Queue(comptime T: type) type {
                 ) !void {
                     try s.writeByteNTimes(' ', indent);
                     if (optional_node) |node| {
-                        try s.print("0x{x}={}\n", .{ @ptrToInt(node), node.data });
+                        try s.print("0x{x}={}\n", .{ @intFromPtr(node), node.data });
                         if (depth == 0) {
                             try s.print("(max depth)\n", .{});
                             return;
@@ -248,7 +248,7 @@ fn startPuts(ctx: *Context) u8 {
     const random = prng.random();
     while (put_count != 0) : (put_count -= 1) {
         std.time.sleep(1); // let the os scheduler be our fuzz
-        const x = @bitCast(i32, random.int(u32));
+        const x = @as(i32, @bitCast(random.int(u32)));
         const node = ctx.allocator.create(Queue(i32).Node) catch unreachable;
         node.* = .{
             .prev = undefined,
@@ -387,7 +387,7 @@ test "std.atomic.Queue dump" {
         \\tail: 0x{x}=1
         \\ (null)
         \\
-    , .{ @ptrToInt(queue.head), @ptrToInt(queue.tail) });
+    , .{ @intFromPtr(queue.head), @intFromPtr(queue.tail) });
     try expect(mem.eql(u8, buffer[0..fbs.pos], expected));
 
     // Test a stream with two elements
@@ -408,6 +408,6 @@ test "std.atomic.Queue dump" {
         \\tail: 0x{x}=2
         \\ (null)
         \\
-    , .{ @ptrToInt(queue.head), @ptrToInt(queue.head.?.next), @ptrToInt(queue.tail) });
+    , .{ @intFromPtr(queue.head), @intFromPtr(queue.head.?.next), @intFromPtr(queue.tail) });
     try expect(mem.eql(u8, buffer[0..fbs.pos], expected));
 }

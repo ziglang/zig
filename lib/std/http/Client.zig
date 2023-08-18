@@ -92,16 +92,15 @@ pub const ConnectionPool = struct {
 
         if (node.data.closing) {
             node.data.deinit(client);
-
             return client.allocator.destroy(node);
         }
 
-        if (pool.free_len + 1 >= pool.free_size) {
+        if (pool.free_len >= pool.free_size) {
             const popped = pool.free.popFirst() orelse unreachable;
+            pool.free_len -= 1;
 
             popped.data.deinit(client);
-
-            return client.allocator.destroy(popped);
+            client.allocator.destroy(popped);
         }
 
         if (node.data.proxied) {
@@ -187,7 +186,7 @@ pub const Connection = struct {
         const nread = try conn.rawReadAtLeast(conn.read_buf[0..], 1);
         if (nread == 0) return error.EndOfStream;
         conn.read_start = 0;
-        conn.read_end = @intCast(u16, nread);
+        conn.read_end = @as(u16, @intCast(nread));
     }
 
     pub fn peek(conn: *Connection) []const u8 {
@@ -208,8 +207,8 @@ pub const Connection = struct {
 
             if (available_read > available_buffer) { // partially read buffered data
                 @memcpy(buffer[out_index..], conn.read_buf[conn.read_start..conn.read_end][0..available_buffer]);
-                out_index += @intCast(u16, available_buffer);
-                conn.read_start += @intCast(u16, available_buffer);
+                out_index += @as(u16, @intCast(available_buffer));
+                conn.read_start += @as(u16, @intCast(available_buffer));
 
                 break;
             } else if (available_read > 0) { // fully read buffered data
@@ -309,7 +308,7 @@ pub const RequestTransfer = union(enum) {
 
 /// The decompressor for response messages.
 pub const Compression = union(enum) {
-    pub const DeflateDecompressor = std.compress.zlib.ZlibStream(Request.TransferReader);
+    pub const DeflateDecompressor = std.compress.zlib.DecompressStream(Request.TransferReader);
     pub const GzipDecompressor = std.compress.gzip.Decompress(Request.TransferReader);
     pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.TransferReader, .{});
 
@@ -343,7 +342,7 @@ pub const Response = struct {
             else => return error.HttpHeadersInvalid,
         };
         if (first_line[8] != ' ') return error.HttpHeadersInvalid;
-        const status = @intToEnum(http.Status, parseInt3(first_line[9..12].*));
+        const status = @as(http.Status, @enumFromInt(parseInt3(first_line[9..12].*)));
         const reason = mem.trimLeft(u8, first_line[12..], " ");
 
         res.version = version;
@@ -415,7 +414,7 @@ pub const Response = struct {
     }
 
     inline fn int64(array: *const [8]u8) u64 {
-        return @bitCast(u64, array.*);
+        return @as(u64, @bitCast(array.*));
     }
 
     fn parseInt3(nnn: @Vector(3, u8)) u10 {
@@ -451,7 +450,8 @@ pub const Response = struct {
 pub const Request = struct {
     uri: Uri,
     client: *Client,
-    connection: *ConnectionPool.Node,
+    /// is null when this connection is released
+    connection: ?*ConnectionPool.Node,
 
     method: http.Method,
     version: http.Version = .@"HTTP/1.1",
@@ -481,12 +481,13 @@ pub const Request = struct {
             req.response.parser.header_bytes.deinit(req.client.allocator);
         }
 
-        if (!req.response.parser.done) {
-            // If the response wasn't fully read, then we need to close the connection.
-            req.connection.data.closing = true;
+        if (req.connection) |connection| {
+            if (!req.response.parser.done) {
+                // If the response wasn't fully read, then we need to close the connection.
+                connection.data.closing = true;
+            }
+            req.client.connection_pool.release(req.client, connection);
         }
-
-        req.client.connection_pool.release(req.client, req.connection);
 
         req.arena.deinit();
         req.* = undefined;
@@ -504,7 +505,8 @@ pub const Request = struct {
             .zstd => |*zstd| zstd.deinit(),
         }
 
-        req.client.connection_pool.release(req.client, req.connection);
+        req.client.connection_pool.release(req.client, req.connection.?);
+        req.connection = null;
 
         const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
 
@@ -534,7 +536,7 @@ pub const Request = struct {
 
     /// Send the request to the server.
     pub fn start(req: *Request) StartError!void {
-        var buffered = std.io.bufferedWriter(req.connection.data.writer());
+        var buffered = std.io.bufferedWriter(req.connection.?.data.writer());
         const w = buffered.writer();
 
         try w.writeAll(@tagName(req.method));
@@ -544,7 +546,7 @@ pub const Request = struct {
             try w.writeAll(req.uri.host.?);
             try w.writeByte(':');
             try w.print("{}", .{req.uri.port.?});
-        } else if (req.connection.data.proxied) {
+        } else if (req.connection.?.data.proxied) {
             // proxied connections require the full uri
             try w.print("{+/}", .{req.uri});
         } else {
@@ -594,7 +596,7 @@ pub const Request = struct {
 
                 req.transfer_encoding = .{ .content_length = content_length };
             } else if (has_transfer_encoding) {
-                const transfer_encoding = req.headers.getFirstValue("content-length").?;
+                const transfer_encoding = req.headers.getFirstValue("transfer-encoding").?;
                 if (std.mem.eql(u8, transfer_encoding, "chunked")) {
                     req.transfer_encoding = .chunked;
                 } else {
@@ -625,7 +627,7 @@ pub const Request = struct {
 
         var index: usize = 0;
         while (index == 0) {
-            const amt = try req.response.parser.read(&req.connection.data, buf[index..], req.response.skip);
+            const amt = try req.response.parser.read(&req.connection.?.data, buf[index..], req.response.skip);
             if (amt == 0 and req.response.parser.done) break;
             index += amt;
         }
@@ -643,10 +645,10 @@ pub const Request = struct {
     pub fn wait(req: *Request) WaitError!void {
         while (true) { // handle redirects
             while (true) { // read headers
-                try req.connection.data.fill();
+                try req.connection.?.data.fill();
 
-                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.data.peek());
-                req.connection.data.drop(@intCast(u16, nchecked));
+                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.?.data.peek());
+                req.connection.?.data.drop(@as(u16, @intCast(nchecked)));
 
                 if (req.response.parser.state.isContent()) break;
             }
@@ -654,12 +656,12 @@ pub const Request = struct {
             try req.response.parse(req.response.parser.header_bytes.items, false);
 
             if (req.response.status == .switching_protocols) {
-                req.connection.data.closing = false;
+                req.connection.?.data.closing = false;
                 req.response.parser.done = true;
             }
 
             if (req.method == .CONNECT and req.response.status == .ok) {
-                req.connection.data.closing = false;
+                req.connection.?.data.closing = false;
                 req.response.parser.done = true;
             }
 
@@ -670,9 +672,9 @@ pub const Request = struct {
             const res_connection = req.response.headers.getFirstValue("connection");
             const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
             if (res_keepalive and (req_keepalive or req_connection == null)) {
-                req.connection.data.closing = false;
+                req.connection.?.data.closing = false;
             } else {
-                req.connection.data.closing = true;
+                req.connection.?.data.closing = true;
             }
 
             if (req.response.transfer_encoding) |te| {
@@ -722,7 +724,7 @@ pub const Request = struct {
                     if (req.response.transfer_compression) |tc| switch (tc) {
                         .compress => return error.CompressionNotSupported,
                         .deflate => req.response.compression = .{
-                            .deflate = std.compress.zlib.zlibStream(req.client.allocator, req.transferReader()) catch return error.CompressionInitializationFailed,
+                            .deflate = std.compress.zlib.decompressStream(req.client.allocator, req.transferReader()) catch return error.CompressionInitializationFailed,
                         },
                         .gzip => req.response.compression = .{
                             .gzip = std.compress.gzip.decompress(req.client.allocator, req.transferReader()) catch return error.CompressionInitializationFailed,
@@ -762,10 +764,10 @@ pub const Request = struct {
             const has_trail = !req.response.parser.state.isContent();
 
             while (!req.response.parser.state.isContent()) { // read trailing headers
-                try req.connection.data.fill();
+                try req.connection.?.data.fill();
 
-                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.data.peek());
-                req.connection.data.drop(@intCast(u16, nchecked));
+                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.?.data.peek());
+                req.connection.?.data.drop(@as(u16, @intCast(nchecked)));
             }
 
             if (has_trail) {
@@ -803,16 +805,16 @@ pub const Request = struct {
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
         switch (req.transfer_encoding) {
             .chunked => {
-                try req.connection.data.writer().print("{x}\r\n", .{bytes.len});
-                try req.connection.data.writeAll(bytes);
-                try req.connection.data.writeAll("\r\n");
+                try req.connection.?.data.writer().print("{x}\r\n", .{bytes.len});
+                try req.connection.?.data.writeAll(bytes);
+                try req.connection.?.data.writeAll("\r\n");
 
                 return bytes.len;
             },
             .content_length => |*len| {
                 if (len.* < bytes.len) return error.MessageTooLong;
 
-                const amt = try req.connection.data.write(bytes);
+                const amt = try req.connection.?.data.write(bytes);
                 len.* -= amt;
                 return amt;
             },
@@ -832,7 +834,7 @@ pub const Request = struct {
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(req: *Request) FinishError!void {
         switch (req.transfer_encoding) {
-            .chunked => try req.connection.data.writeAll("0\r\n\r\n"),
+            .chunked => try req.connection.?.data.writeAll("0\r\n\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }

@@ -6,7 +6,7 @@ const expect = std.testing.expect;
 pub fn signbit(x: anytype) bool {
     const T = @TypeOf(x);
     const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
-    return @bitCast(TBits, x) >> (@bitSizeOf(T) - 1) != 0;
+    return @as(TBits, @bitCast(x)) >> (@bitSizeOf(T) - 1) != 0;
 }
 
 test "math.signbit" {

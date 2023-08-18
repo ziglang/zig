@@ -4,12 +4,10 @@
 #include <fcntl.h>
 #include "syscall.h"
 
-int fstat(int fd, struct stat *st)
+int __fstat(int fd, struct stat *st)
 {
 	if (fd<0) return __syscall_ret(-EBADF);
-	return fstatat(fd, "", st, AT_EMPTY_PATH);
+	return __fstatat(fd, "", st, AT_EMPTY_PATH);
 }
 
-#if !_REDIR_TIME64
-weak_alias(fstat, fstat64);
-#endif
+weak_alias(__fstat, fstat);

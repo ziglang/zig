@@ -41,8 +41,8 @@ pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash, mod: *Module) void {
     return tv.val.hash(tv.ty, hasher, mod);
 }
 
-pub fn enumToInt(tv: TypedValue, mod: *Module) Allocator.Error!Value {
-    return tv.val.enumToInt(tv.ty, mod);
+pub fn intFromEnum(tv: TypedValue, mod: *Module) Allocator.Error!Value {
+    return tv.val.intFromEnum(tv.ty, mod);
 }
 
 const max_aggregate_items = 100;
@@ -111,7 +111,7 @@ pub fn print(
                     .val = val.castTag(.repeated).?.data,
                 };
                 const len = ty.arrayLen(mod);
-                const max_len = std.math.min(len, max_aggregate_items);
+                const max_len = @min(len, max_aggregate_items);
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
                     try print(elem_tv, writer, level - 1, mod);
@@ -130,7 +130,7 @@ pub fn print(
                 const len = payload.len.toUnsignedInt(mod);
 
                 if (elem_ty.eql(Type.u8, mod)) str: {
-                    const max_len = @intCast(usize, std.math.min(len, max_string_len));
+                    const max_len: usize = @min(len, max_string_len);
                     var buf: [max_string_len]u8 = undefined;
 
                     var i: u32 = 0;
@@ -149,7 +149,7 @@ pub fn print(
 
                 try writer.writeAll(".{ ");
 
-                const max_len = std.math.min(len, max_aggregate_items);
+                const max_len = @min(len, max_aggregate_items);
                 var i: u32 = 0;
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
@@ -196,6 +196,7 @@ pub fn print(
             .undef => return writer.writeAll("undefined"),
             .runtime_value => return writer.writeAll("(runtime value)"),
             .simple_value => |simple_value| switch (simple_value) {
+                .void => return writer.writeAll("{}"),
                 .empty_struct => return printAggregate(ty, val, writer, level, mod),
                 .generic_poison => return writer.writeAll("(generic poison)"),
                 else => return writer.writeAll(@tagName(simple_value)),
@@ -205,7 +206,7 @@ pub fn print(
                 mod.declPtr(extern_func.decl).name.fmt(ip),
             }),
             .func => |func| return writer.print("(function '{}')", .{
-                mod.declPtr(mod.funcPtr(func.index).owner_decl).name.fmt(ip),
+                mod.declPtr(func.owner_decl).name.fmt(ip),
             }),
             .int => |int| switch (int.storage) {
                 inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),
@@ -237,15 +238,10 @@ pub fn print(
                 }
                 const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
                 if (enum_type.tagValueIndex(ip, val.toIntern())) |tag_index| {
-                    try writer.print(".{i}", .{enum_type.names[tag_index].fmt(ip)});
+                    try writer.print(".{i}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
                     return;
                 }
-                try writer.writeAll("@intToEnum(");
-                try print(.{
-                    .ty = Type.type,
-                    .val = enum_tag.ty.toValue(),
-                }, writer, level - 1, mod);
-                try writer.writeAll(", ");
+                try writer.writeAll("@enumFromInt(");
                 try print(.{
                     .ty = ip.typeOf(enum_tag.int).toType(),
                     .val = enum_tag.int.toValue(),
@@ -255,7 +251,7 @@ pub fn print(
             },
             .empty_enum_value => return writer.writeAll("(empty enum value)"),
             .float => |float| switch (float.storage) {
-                inline else => |x| return writer.print("{d}", .{@floatCast(f64, x)}),
+                inline else => |x| return writer.print("{d}", .{@as(f64, @floatCast(x))}),
             },
             .ptr => |ptr| {
                 if (ptr.addr == .int) {
@@ -278,7 +274,7 @@ pub fn print(
                         for (buf[0..max_len], 0..) |*c, i| {
                             const elem = try val.elemValue(mod, i);
                             if (elem.isUndef(mod)) break :str;
-                            c.* = @intCast(u8, elem.toUnsignedInt(mod));
+                            c.* = @as(u8, @intCast(elem.toUnsignedInt(mod)));
                         }
                         const truncated = if (len > max_string_len) " (truncated)" else "";
                         return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
@@ -357,11 +353,11 @@ pub fn print(
                                 if (container_ty.isTuple(mod)) {
                                     try writer.print("[{d}]", .{field.index});
                                 }
-                                const field_name = container_ty.structFieldName(@intCast(usize, field.index), mod);
+                                const field_name = container_ty.structFieldName(@as(usize, @intCast(field.index)), mod);
                                 try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Union => {
-                                const field_name = container_ty.unionFields(mod).keys()[@intCast(usize, field.index)];
+                                const field_name = container_ty.unionFields(mod).keys()[@as(usize, @intCast(field.index))];
                                 try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Pointer => {
@@ -455,7 +451,7 @@ fn printAggregate(
         const len = ty.arrayLen(mod);
 
         if (elem_ty.eql(Type.u8, mod)) str: {
-            const max_len = @intCast(usize, std.math.min(len, max_string_len));
+            const max_len: usize = @min(len, max_string_len);
             var buf: [max_string_len]u8 = undefined;
 
             var i: u32 = 0;
@@ -471,7 +467,7 @@ fn printAggregate(
 
         try writer.writeAll(".{ ");
 
-        const max_len = std.math.min(len, max_aggregate_items);
+        const max_len = @min(len, max_aggregate_items);
         var i: u32 = 0;
         while (i < max_len) : (i += 1) {
             if (i != 0) try writer.writeAll(", ");

@@ -40,14 +40,14 @@ const FreeBlock = struct {
 
     fn getBit(self: FreeBlock, idx: usize) PageStatus {
         const bit_offset = 0;
-        return @intToEnum(PageStatus, Io.get(mem.sliceAsBytes(self.data), idx, bit_offset));
+        return @as(PageStatus, @enumFromInt(Io.get(mem.sliceAsBytes(self.data), idx, bit_offset)));
     }
 
     fn setBits(self: FreeBlock, start_idx: usize, len: usize, val: PageStatus) void {
         const bit_offset = 0;
         var i: usize = 0;
         while (i < len) : (i += 1) {
-            Io.set(mem.sliceAsBytes(self.data), start_idx + i, bit_offset, @enumToInt(val));
+            Io.set(mem.sliceAsBytes(self.data), start_idx + i, bit_offset, @intFromEnum(val));
         }
     }
 
@@ -63,7 +63,7 @@ const FreeBlock = struct {
     fn useRecycled(self: FreeBlock, num_pages: usize, log2_align: u8) usize {
         @setCold(true);
         for (self.data, 0..) |segment, i| {
-            const spills_into_next = @bitCast(i128, segment) < 0;
+            const spills_into_next = @as(i128, @bitCast(segment)) < 0;
             const has_enough_bits = @popCount(segment) >= num_pages;
 
             if (!spills_into_next and !has_enough_bits) continue;
@@ -100,7 +100,7 @@ fn extendedOffset() usize {
 }
 
 fn nPages(memsize: usize) usize {
-    return mem.alignForward(memsize, mem.page_size) / mem.page_size;
+    return mem.alignForward(usize, memsize, mem.page_size) / mem.page_size;
 }
 
 fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, ra: usize) ?[*]u8 {
@@ -109,7 +109,7 @@ fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, ra: usize) ?[*]u8 {
     if (len > maxInt(usize) - (mem.page_size - 1)) return null;
     const page_count = nPages(len);
     const page_idx = allocPages(page_count, log2_align) catch return null;
-    return @intToPtr([*]u8, page_idx * mem.page_size);
+    return @as([*]u8, @ptrFromInt(page_idx * mem.page_size));
 }
 
 fn allocPages(page_count: usize, log2_align: u8) !usize {
@@ -129,7 +129,7 @@ fn allocPages(page_count: usize, log2_align: u8) !usize {
     const next_page_addr = next_page_idx * mem.page_size;
     const aligned_addr = mem.alignForwardLog2(next_page_addr, log2_align);
     const drop_page_count = @divExact(aligned_addr - next_page_addr, mem.page_size);
-    const result = @wasmMemoryGrow(0, @intCast(u32, drop_page_count + page_count));
+    const result = @wasmMemoryGrow(0, @as(u32, @intCast(drop_page_count + page_count)));
     if (result <= 0)
         return error.OutOfMemory;
     assert(result == next_page_idx);
@@ -137,7 +137,7 @@ fn allocPages(page_count: usize, log2_align: u8) !usize {
     if (drop_page_count > 0) {
         freePages(next_page_idx, aligned_page_idx);
     }
-    return @intCast(usize, aligned_page_idx);
+    return @as(usize, @intCast(aligned_page_idx));
 }
 
 fn freePages(start: usize, end: usize) void {
@@ -151,7 +151,7 @@ fn freePages(start: usize, end: usize) void {
             // TODO: would it be better if we use the first page instead?
             new_end -= 1;
 
-            extended.data = @intToPtr([*]u128, new_end * mem.page_size)[0 .. mem.page_size / @sizeOf(u128)];
+            extended.data = @as([*]u128, @ptrFromInt(new_end * mem.page_size))[0 .. mem.page_size / @sizeOf(u128)];
             // Since this is the first page being freed and we consume it, assume *nothing* is free.
             @memset(extended.data, PageStatus.none_free);
         }
@@ -170,12 +170,12 @@ fn resize(
     _ = ctx;
     _ = log2_buf_align;
     _ = return_address;
-    const aligned_len = mem.alignForward(buf.len, mem.page_size);
+    const aligned_len = mem.alignForward(usize, buf.len, mem.page_size);
     if (new_len > aligned_len) return false;
     const current_n = nPages(aligned_len);
     const new_n = nPages(new_len);
     if (new_n != current_n) {
-        const base = nPages(@ptrToInt(buf.ptr));
+        const base = nPages(@intFromPtr(buf.ptr));
         freePages(base + new_n, base + current_n);
     }
     return true;
@@ -190,9 +190,9 @@ fn free(
     _ = ctx;
     _ = log2_buf_align;
     _ = return_address;
-    const aligned_len = mem.alignForward(buf.len, mem.page_size);
+    const aligned_len = mem.alignForward(usize, buf.len, mem.page_size);
     const current_n = nPages(aligned_len);
-    const base = nPages(@ptrToInt(buf.ptr));
+    const base = nPages(@intFromPtr(buf.ptr));
     freePages(base, base + current_n);
 }
 
@@ -202,7 +202,7 @@ test "internals" {
 
     const conventional_memsize = WasmPageAllocator.conventional.totalPages() * mem.page_size;
     const initial = try page_allocator.alloc(u8, mem.page_size);
-    try testing.expect(@ptrToInt(initial.ptr) < conventional_memsize); // If this isn't conventional, the rest of these tests don't make sense. Also we have a serious memory leak in the test suite.
+    try testing.expect(@intFromPtr(initial.ptr) < conventional_memsize); // If this isn't conventional, the rest of these tests don't make sense. Also we have a serious memory leak in the test suite.
 
     var inplace = try page_allocator.realloc(initial, 1);
     try testing.expectEqual(initial.ptr, inplace.ptr);
@@ -219,7 +219,7 @@ test "internals" {
     page_allocator.free(padding);
 
     const ext = try page_allocator.alloc(u8, conventional_memsize);
-    try testing.expect(@ptrToInt(ext.ptr) >= conventional_memsize);
+    try testing.expect(@intFromPtr(ext.ptr) >= conventional_memsize);
 
     const use_small = try page_allocator.alloc(u8, 1);
     try testing.expectEqual(initial.ptr, use_small.ptr);

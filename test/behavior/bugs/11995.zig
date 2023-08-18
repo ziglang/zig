@@ -25,7 +25,7 @@ test {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var string: [5]u8 = "hello".*;
-    const arg_data = wuffs_base__slice_u8{ .ptr = @ptrCast([*c]u8, &string), .len = string.len };
+    const arg_data = wuffs_base__slice_u8{ .ptr = @as([*c]u8, @ptrCast(&string)), .len = string.len };
     var arg_meta = wuffs_base__io_buffer_meta{ .wi = 1, .ri = 2, .pos = 3, .closed = true };
     wuffs_base__make_io_buffer(arg_data, &arg_meta);
     try std.testing.expectEqualStrings("wello", arg_data.ptr[0..arg_data.len]);

@@ -17,10 +17,11 @@
 //! https://datatracker.ietf.org/doc/draft-irtf-cfrg-aegis-aead/
 
 const std = @import("std");
+const crypto = std.crypto;
 const mem = std.mem;
 const assert = std.debug.assert;
-const AesBlock = std.crypto.core.aes.Block;
-const AuthenticationError = std.crypto.errors.AuthenticationError;
+const AesBlock = crypto.core.aes.Block;
+const AuthenticationError = crypto.errors.AuthenticationError;
 
 /// AEGIS-128L with a 128-bit authentication tag.
 pub const Aegis128L = Aegis128LGeneric(128);
@@ -169,12 +170,15 @@ fn Aegis128LGeneric(comptime tag_bits: u9) type {
             tag.* = state.mac(tag_bits, ad.len, m.len);
         }
 
-        /// m: message: output buffer should be of size c.len
-        /// c: ciphertext
-        /// tag: authentication tag
-        /// ad: Associated Data
-        /// npub: public nonce
-        /// k: private key
+        /// `m`: Message
+        /// `c`: Ciphertext
+        /// `tag`: Authentication tag
+        /// `ad`: Associated data
+        /// `npub`: Public nonce
+        /// `k`: Private key
+        /// Asserts `c.len == m.len`.
+        ///
+        /// Contents of `m` are undefined if an error is returned.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
             var state = State128L.init(key, npub);
@@ -203,12 +207,10 @@ fn Aegis128LGeneric(comptime tag_bits: u9) type {
                 blocks[0] = blocks[0].xorBlocks(AesBlock.fromBytes(dst[0..16]));
                 blocks[4] = blocks[4].xorBlocks(AesBlock.fromBytes(dst[16..32]));
             }
-            const computed_tag = state.mac(tag_bits, ad.len, m.len);
-            var acc: u8 = 0;
-            for (computed_tag, 0..) |_, j| {
-                acc |= (computed_tag[j] ^ tag[j]);
-            }
-            if (acc != 0) {
+            var computed_tag = state.mac(tag_bits, ad.len, m.len);
+            const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
+            if (!verify) {
+                crypto.utils.secureZero(u8, &computed_tag);
                 @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
@@ -351,12 +353,15 @@ fn Aegis256Generic(comptime tag_bits: u9) type {
             tag.* = state.mac(tag_bits, ad.len, m.len);
         }
 
-        /// m: message: output buffer should be of size c.len
-        /// c: ciphertext
-        /// tag: authentication tag
-        /// ad: Associated Data
-        /// npub: public nonce
-        /// k: private key
+        /// `m`: Message
+        /// `c`: Ciphertext
+        /// `tag`: Authentication tag
+        /// `ad`: Associated data
+        /// `npub`: Public nonce
+        /// `k`: Private key
+        /// Asserts `c.len == m.len`.
+        ///
+        /// Contents of `m` are undefined if an error is returned.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
             var state = State256.init(key, npub);
@@ -384,12 +389,10 @@ fn Aegis256Generic(comptime tag_bits: u9) type {
                 const blocks = &state.blocks;
                 blocks[0] = blocks[0].xorBlocks(AesBlock.fromBytes(&dst));
             }
-            const computed_tag = state.mac(tag_bits, ad.len, m.len);
-            var acc: u8 = 0;
-            for (computed_tag, 0..) |_, j| {
-                acc |= (computed_tag[j] ^ tag[j]);
-            }
-            if (acc != 0) {
+            var computed_tag = state.mac(tag_bits, ad.len, m.len);
+            const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
+            if (!verify) {
+                crypto.utils.secureZero(u8, &computed_tag);
                 @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
@@ -411,7 +414,7 @@ pub const Aegis128LMac = AegisMac(Aegis128L_256);
 /// concern, the AEGIS-128L variant should be preferred.
 /// AEGIS' large state, non-linearity and non-invertibility provides the
 /// following properties:
-/// - 256 bit security against forgery.
+/// - More than 128 bit security against forgery.
 /// - Recovering the secret key from the state would require ~2^256 attempts,
 ///   which is infeasible for any practical adversary.
 /// - It has a large security margin against internal collisions.
@@ -625,7 +628,7 @@ test "Aegis MAC" {
     const key = [_]u8{0x00} ** Aegis128LMac.key_length;
     var msg: [64]u8 = undefined;
     for (&msg, 0..) |*m, i| {
-        m.* = @truncate(u8, i);
+        m.* = @as(u8, @truncate(i));
     }
     const st_init = Aegis128LMac.init(&key);
     var st = st_init;

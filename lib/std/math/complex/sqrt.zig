@@ -58,14 +58,14 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
     if (dx >= 0) {
         const t = @sqrt((dx + math.hypot(f64, dx, dy)) * 0.5);
         return Complex(f32).init(
-            @floatCast(f32, t),
-            @floatCast(f32, dy / (2.0 * t)),
+            @as(f32, @floatCast(t)),
+            @as(f32, @floatCast(dy / (2.0 * t))),
         );
     } else {
         const t = @sqrt((-dx + math.hypot(f64, dx, dy)) * 0.5);
         return Complex(f32).init(
-            @floatCast(f32, @fabs(y) / (2.0 * t)),
-            @floatCast(f32, math.copysign(t, y)),
+            @as(f32, @floatCast(@fabs(y) / (2.0 * t))),
+            @as(f32, @floatCast(math.copysign(t, y))),
         );
     }
 }

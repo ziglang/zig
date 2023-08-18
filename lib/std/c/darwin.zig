@@ -51,19 +51,19 @@ pub const EXC = enum(exception_type_t) {
 
 pub const EXC_SOFT_SIGNAL = 0x10003;
 
-pub const EXC_MASK_BAD_ACCESS = 1 << @enumToInt(EXC.BAD_ACCESS);
-pub const EXC_MASK_BAD_INSTRUCTION = 1 << @enumToInt(EXC.BAD_INSTRUCTION);
-pub const EXC_MASK_ARITHMETIC = 1 << @enumToInt(EXC.ARITHMETIC);
-pub const EXC_MASK_EMULATION = 1 << @enumToInt(EXC.EMULATION);
-pub const EXC_MASK_SOFTWARE = 1 << @enumToInt(EXC.SOFTWARE);
-pub const EXC_MASK_BREAKPOINT = 1 << @enumToInt(EXC.BREAKPOINT);
-pub const EXC_MASK_SYSCALL = 1 << @enumToInt(EXC.SYSCALL);
-pub const EXC_MASK_MACH_SYSCALL = 1 << @enumToInt(EXC.MACH_SYSCALL);
-pub const EXC_MASK_RPC_ALERT = 1 << @enumToInt(EXC.RPC_ALERT);
-pub const EXC_MASK_CRASH = 1 << @enumToInt(EXC.CRASH);
-pub const EXC_MASK_RESOURCE = 1 << @enumToInt(EXC.RESOURCE);
-pub const EXC_MASK_GUARD = 1 << @enumToInt(EXC.GUARD);
-pub const EXC_MASK_CORPSE_NOTIFY = 1 << @enumToInt(EXC.CORPSE_NOTIFY);
+pub const EXC_MASK_BAD_ACCESS = 1 << @intFromEnum(EXC.BAD_ACCESS);
+pub const EXC_MASK_BAD_INSTRUCTION = 1 << @intFromEnum(EXC.BAD_INSTRUCTION);
+pub const EXC_MASK_ARITHMETIC = 1 << @intFromEnum(EXC.ARITHMETIC);
+pub const EXC_MASK_EMULATION = 1 << @intFromEnum(EXC.EMULATION);
+pub const EXC_MASK_SOFTWARE = 1 << @intFromEnum(EXC.SOFTWARE);
+pub const EXC_MASK_BREAKPOINT = 1 << @intFromEnum(EXC.BREAKPOINT);
+pub const EXC_MASK_SYSCALL = 1 << @intFromEnum(EXC.SYSCALL);
+pub const EXC_MASK_MACH_SYSCALL = 1 << @intFromEnum(EXC.MACH_SYSCALL);
+pub const EXC_MASK_RPC_ALERT = 1 << @intFromEnum(EXC.RPC_ALERT);
+pub const EXC_MASK_CRASH = 1 << @intFromEnum(EXC.CRASH);
+pub const EXC_MASK_RESOURCE = 1 << @intFromEnum(EXC.RESOURCE);
+pub const EXC_MASK_GUARD = 1 << @intFromEnum(EXC.GUARD);
+pub const EXC_MASK_CORPSE_NOTIFY = 1 << @intFromEnum(EXC.CORPSE_NOTIFY);
 pub const EXC_MASK_MACHINE = arch_bits.EXC_MASK_MACHINE;
 
 pub const EXC_MASK_ALL = EXC_MASK_BAD_ACCESS |
@@ -148,12 +148,10 @@ pub const ucontext_t = extern struct {
     link: ?*ucontext_t,
     mcsize: u64,
     mcontext: *mcontext_t,
+    __mcontext_data: mcontext_t,
 };
 
-pub const mcontext_t = extern struct {
-    es: arch_bits.exception_state,
-    ss: arch_bits.thread_state,
-};
+pub const mcontext_t = arch_bits.mcontext_t;
 
 extern "c" fn __error() *c_int;
 pub extern "c" fn NSVersionOfRunTimeLibrary(library_name: [*:0]const u8) u32;
@@ -163,67 +161,13 @@ pub extern "c" fn _dyld_get_image_header(image_index: u32) ?*mach_header;
 pub extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) usize;
 pub extern "c" fn _dyld_get_image_name(image_index: u32) [*:0]const u8;
 
-pub const COPYFILE = struct {
-    pub const ACL = 1 << 0;
-    pub const STAT = 1 << 1;
-    pub const XATTR = 1 << 2;
-    pub const DATA = 1 << 3;
-    pub const SECURITY = COPYFILE.STAT | COPYFILE.ACL;
-    pub const METADATA = COPYFILE.SECURITY | COPYFILE.XATTR;
-    pub const ALL = COPYFILE.METADATA | COPYFILE.DATA;
-    pub const RECURSIVE = 1 << 15;
-    pub const CHECK = 1 << 16;
-    pub const EXCL = 1 << 17;
-    pub const NOFOLLOW_SRC = 1 << 18;
-    pub const NOFOLLOW_DST = 1 << 19;
-    pub const MOVE = 1 << 20;
-    pub const UNLINK = 1 << 21;
-    pub const NOFOLLOW = COPYFILE.NOFOLLOW_SRC | NOFOLLOW_DST;
-    pub const PACK = 1 << 22;
-    pub const UNPACK = 1 << 23;
-    pub const CLONE = 1 << 24;
-    pub const CLONE_FORCE = 1 << 25;
-    pub const RUN_IN_PLACE = 1 << 26;
-    pub const DATA_SPARSE = 1 << 27;
-    pub const PRESERVE_DST_TRACKED = 1 << 28;
-    pub const VERBOSE = 1 << 30;
-    pub const RECURSE_ERROR = 0;
-    pub const RECURSE_FILE = 1;
-    pub const RECURSE_DIR = 2;
-    pub const RECURSE_DIR_CLEANUP = 3;
-    pub const COPY_DATA = 4;
-    pub const COPY_XATTR = 5;
-    pub const START = 1;
-    pub const FINISH = 2;
-    pub const ERR = 3;
-    pub const PROGRESS = 4;
-    pub const CONTINUE = 0;
-    pub const SKIP = 1;
-    pub const QUIT = 2;
-    pub const STATE_SRC_FD = 1;
-    pub const STATE_SRC_FILENAME = 2;
-    pub const STATE_DST_FD = 3;
-    pub const STATE_DST_FILENAME = 4;
-    pub const STATE_QUARANTINE = 5;
-    pub const STATE_STATUS_CB = 6;
-    pub const STATE_STATUS_CTX = 7;
-    pub const STATE_COPIED = 8;
-    pub const STATE_XATTRNAME = 9;
-    pub const STATE_WAS_CLONED = 10;
-    pub const STATE_SRC_BSIZE = 11;
-    pub const STATE_DST_BSIZE = 12;
-    pub const STATE_BSIZE = 13;
-    pub const DISABLE_VAR: [*]u8 = "COPYFILE_DISABLE";
-};
+pub const COPYFILE_ACL = 1 << 0;
+pub const COPYFILE_STAT = 1 << 1;
+pub const COPYFILE_XATTR = 1 << 2;
+pub const COPYFILE_DATA = 1 << 3;
 
 pub const copyfile_state_t = *opaque {};
-pub const copyfile_flags_t = u32;
-pub extern "c" fn fcopyfile(from: fd_t, to: fd_t, state: ?copyfile_state_t, flags: copyfile_flags_t) c_int;
-pub extern "c" fn copyfile(from: [*:0]u8, to: [*:0]u8, state: ?copyfile_state_t, flags: copyfile_flags_t) c_int;
-pub extern "c" fn copyfile_state_alloc() copyfile_state_t;
-pub extern "c" fn copyfile_state_free(state: copyfile_state_t) void;
-pub extern "c" fn copyfile_state_get(s: copyfile_state_t, flag: u32, dst: ?*anyopaque) c_int;
-pub extern "c" fn copyfile_state_set(s: copyfile_state_t, flag: u32, dst: ?*const anyopaque) c_int;
+pub extern "c" fn fcopyfile(from: fd_t, to: fd_t, state: ?copyfile_state_t, flags: u32) c_int;
 
 pub extern "c" fn @"realpath$DARWIN_EXTSN"(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
 pub const realpath = @"realpath$DARWIN_EXTSN";
@@ -951,35 +895,7 @@ pub extern "c" fn pthread_attr_get_qos_class_np(attr: *pthread_attr_t, qos_class
 pub extern "c" fn pthread_set_qos_class_self_np(qos_class: qos_class_t, relative_priority: c_int) c_int;
 pub extern "c" fn pthread_get_qos_class_np(pthread: std.c.pthread_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
 
-pub const CCryptorStatus = enum(i32) {
-    /// Operation completed
-    kCCSuccess = 0,
-    /// Illegal parameter
-    kCCParamError = -4300,
-    /// Provided buffer too small
-    kCCBufferTooSmall = -4301,
-    /// Failed memory allocation
-    kCCMemoryFailure = -4302,
-    /// Size alignment issue
-    kCCAlignmentError = -4303,
-    /// Decoding issue
-    kCCDecodeError = -4304,
-    /// Call not implemented
-    kCCUnimplemented = -4305,
-    kCCOverflow = -4306,
-    kCCRNGFailure = -4307,
-    /// Unspecified error
-    kCCUnspecifiedError = -4308,
-    kCCCallSequenceError = -4309,
-    kCCKeySizeError = -4310,
-    /// Invalid key
-    kCCInvalidKey = -4311,
-};
-
-pub const CCRNGStatus = CCryptorStatus;
-
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
-pub extern "c" fn CCRandomGenerateBytes(bytes: ?*anyopaque, count: usize) CCRNGStatus;
 
 // Grand Central Dispatch is exposed by libSystem.
 pub extern "c" fn dispatch_release(object: *anyopaque) void;
@@ -1177,17 +1093,17 @@ pub const sigset_t = u32;
 pub const empty_sigset: sigset_t = 0;
 
 pub const SIG = struct {
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const HOLD = @intToPtr(?Sigaction.handler_fn, 5);
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const HOLD = @as(?Sigaction.handler_fn, @ptrFromInt(5));
 
     /// block specified signal set
-    pub const _BLOCK = 1;
+    pub const BLOCK = 1;
     /// unblock specified signal set
-    pub const _UNBLOCK = 2;
+    pub const UNBLOCK = 2;
     /// set specified signal set
-    pub const _SETMASK = 3;
+    pub const SETMASK = 3;
     /// hangup
     pub const HUP = 1;
     /// interrupt
@@ -1411,7 +1327,7 @@ pub const MAP = struct {
     pub const NOCACHE = 0x0400;
     /// don't reserve needed swap area
     pub const NORESERVE = 0x0040;
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
 };
 
 pub const MSF = struct {
@@ -1879,7 +1795,7 @@ pub const W = struct {
     pub const UNTRACED = 0x00000002;
 
     pub fn EXITSTATUS(x: u32) u8 {
-        return @intCast(u8, x >> 8);
+        return @as(u8, @intCast(x >> 8));
     }
     pub fn TERMSIG(x: u32) u32 {
         return status(x);
@@ -2463,7 +2379,7 @@ pub const KernE = enum(u32) {
 pub const mach_msg_return_t = kern_return_t;
 
 pub fn getMachMsgError(err: mach_msg_return_t) MachMsgE {
-    return @intToEnum(MachMsgE, @truncate(u32, @intCast(usize, err)));
+    return @as(MachMsgE, @enumFromInt(@as(u32, @truncate(@as(usize, @intCast(err))))));
 }
 
 /// All special error code bits defined below.
@@ -2665,10 +2581,10 @@ pub const RTLD = struct {
     pub const NODELETE = 0x80;
     pub const FIRST = 0x100;
 
-    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
-    pub const MAIN_ONLY = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -5)));
+    pub const NEXT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
+    pub const DEFAULT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -2)))));
+    pub const SELF = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -3)))));
+    pub const MAIN_ONLY = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -5)))));
 };
 
 pub const F = struct {
@@ -3238,14 +3154,14 @@ pub const PosixSpawn = struct {
         pub fn get(self: Attr) Error!u16 {
             var flags: c_short = undefined;
             switch (errno(posix_spawnattr_getflags(&self.attr, &flags))) {
-                .SUCCESS => return @bitCast(u16, flags),
+                .SUCCESS => return @as(u16, @bitCast(flags)),
                 .INVAL => unreachable,
                 else => |err| return unexpectedErrno(err),
             }
         }
 
         pub fn set(self: *Attr, flags: u16) Error!void {
-            switch (errno(posix_spawnattr_setflags(&self.attr, @bitCast(c_short, flags)))) {
+            switch (errno(posix_spawnattr_setflags(&self.attr, @as(c_short, @bitCast(flags))))) {
                 .SUCCESS => return,
                 .INVAL => unreachable,
                 else => |err| return unexpectedErrno(err),
@@ -3281,7 +3197,7 @@ pub const PosixSpawn = struct {
         }
 
         pub fn openZ(self: *Actions, fd: fd_t, path: [*:0]const u8, flags: u32, mode: mode_t) Error!void {
-            switch (errno(posix_spawn_file_actions_addopen(&self.actions, fd, path, @bitCast(c_int, flags), mode))) {
+            switch (errno(posix_spawn_file_actions_addopen(&self.actions, fd, path, @as(c_int, @bitCast(flags)), mode))) {
                 .SUCCESS => return,
                 .BADF => return error.InvalidFileDescriptor,
                 .NOMEM => return error.SystemResources,
@@ -3402,11 +3318,11 @@ pub const PosixSpawn = struct {
     pub fn waitpid(pid: pid_t, flags: u32) Error!std.os.WaitPidResult {
         var status: c_int = undefined;
         while (true) {
-            const rc = waitpid(pid, &status, @intCast(c_int, flags));
+            const rc = waitpid(pid, &status, @as(c_int, @intCast(flags)));
             switch (errno(rc)) {
                 .SUCCESS => return std.os.WaitPidResult{
-                    .pid = @intCast(pid_t, rc),
-                    .status = @bitCast(u32, status),
+                    .pid = @as(pid_t, @intCast(rc)),
+                    .status = @as(u32, @bitCast(status)),
                 },
                 .INTR => continue,
                 .CHILD => return error.ChildExecFailed,
@@ -3418,12 +3334,12 @@ pub const PosixSpawn = struct {
 };
 
 pub fn getKernError(err: kern_return_t) KernE {
-    return @intToEnum(KernE, @truncate(u32, @intCast(usize, err)));
+    return @as(KernE, @enumFromInt(@as(u32, @truncate(@as(usize, @intCast(err))))));
 }
 
 pub fn unexpectedKernError(err: KernE) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.print("unexpected error: {d}\n", .{@enumToInt(err)});
+        std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
@@ -3455,7 +3371,7 @@ pub const MachTask = extern struct {
         var out_port: mach_port_name_t = undefined;
         switch (getKernError(mach_port_allocate(
             self.port,
-            @enumToInt(right),
+            @intFromEnum(right),
             &out_port,
         ))) {
             .SUCCESS => return .{ .port = out_port },
@@ -3473,7 +3389,7 @@ pub const MachTask = extern struct {
             self.port,
             port.port,
             port.port,
-            @enumToInt(msg),
+            @intFromEnum(msg),
         ))) {
             .SUCCESS => return,
             .FAILURE => return error.PermissionDenied,
@@ -3585,9 +3501,9 @@ pub const MachTask = extern struct {
                 .top => VM_REGION_TOP_INFO,
             },
             switch (tag) {
-                .basic => @ptrCast(vm_region_info_t, &info.info.basic),
-                .extended => @ptrCast(vm_region_info_t, &info.info.extended),
-                .top => @ptrCast(vm_region_info_t, &info.info.top),
+                .basic => @as(vm_region_info_t, @ptrCast(&info.info.basic)),
+                .extended => @as(vm_region_info_t, @ptrCast(&info.info.extended)),
+                .top => @as(vm_region_info_t, @ptrCast(&info.info.top)),
             },
             &count,
             &objname,
@@ -3640,8 +3556,8 @@ pub const MachTask = extern struct {
             &base_len,
             &nesting,
             switch (tag) {
-                .short => @ptrCast(vm_region_recurse_info_t, &info.info.short),
-                .full => @ptrCast(vm_region_recurse_info_t, &info.info.full),
+                .short => @as(vm_region_recurse_info_t, @ptrCast(&info.info.short)),
+                .full => @as(vm_region_recurse_info_t, @ptrCast(&info.info.full)),
             },
             &count,
         ))) {
@@ -3665,7 +3581,7 @@ pub const MachTask = extern struct {
     }
 
     fn setProtectionImpl(task: MachTask, address: u64, len: usize, set_max: bool, prot: vm_prot_t) MachError!void {
-        switch (getKernError(mach_vm_protect(task.port, address, len, @boolToInt(set_max), prot))) {
+        switch (getKernError(mach_vm_protect(task.port, address, len, @intFromBool(set_max), prot))) {
             .SUCCESS => return,
             .FAILURE => return error.PermissionDenied,
             else => |err| return unexpectedKernError(err),
@@ -3700,8 +3616,8 @@ pub const MachTask = extern struct {
             switch (getKernError(mach_vm_write(
                 task.port,
                 curr_addr,
-                @ptrToInt(out_buf.ptr),
-                @intCast(mach_msg_type_number_t, curr_size),
+                @intFromPtr(out_buf.ptr),
+                @as(mach_msg_type_number_t, @intCast(curr_size)),
             ))) {
                 .SUCCESS => {},
                 .FAILURE => return error.PermissionDenied,
@@ -3752,7 +3668,7 @@ pub const MachTask = extern struct {
                 else => |err| return unexpectedKernError(err),
             }
 
-            @memcpy(out_buf[0..curr_bytes_read], @intToPtr([*]const u8, vm_memory));
+            @memcpy(out_buf[0..curr_bytes_read], @as([*]const u8, @ptrFromInt(vm_memory)));
             _ = vm_deallocate(mach_task_self(), vm_memory, curr_bytes_read);
 
             out_buf = out_buf[curr_bytes_read..];
@@ -3782,10 +3698,10 @@ pub const MachTask = extern struct {
             switch (getKernError(task_info(
                 task.port,
                 TASK_VM_INFO,
-                @ptrCast(task_info_t, &vm_info),
+                @as(task_info_t, @ptrCast(&vm_info)),
                 &info_count,
             ))) {
-                .SUCCESS => return @intCast(usize, vm_info.page_size),
+                .SUCCESS => return @as(usize, @intCast(vm_info.page_size)),
                 else => {},
             }
         }
@@ -3802,7 +3718,7 @@ pub const MachTask = extern struct {
         switch (getKernError(task_info(
             task.port,
             MACH_TASK_BASIC_INFO,
-            @ptrCast(task_info_t, &info),
+            @as(task_info_t, @ptrCast(&info)),
             &count,
         ))) {
             .SUCCESS => return info,
@@ -3831,8 +3747,8 @@ pub const MachTask = extern struct {
             const self_task = machTaskForSelf();
             _ = vm_deallocate(
                 self_task.port,
-                @ptrToInt(list.buf.ptr),
-                @intCast(vm_size_t, list.buf.len * @sizeOf(mach_port_t)),
+                @intFromPtr(list.buf.ptr),
+                @as(vm_size_t, @intCast(list.buf.len * @sizeOf(mach_port_t))),
             );
         }
     };
@@ -3841,7 +3757,7 @@ pub const MachTask = extern struct {
         var thread_list: mach_port_array_t = undefined;
         var thread_count: mach_msg_type_number_t = undefined;
         switch (getKernError(task_threads(task.port, &thread_list, &thread_count))) {
-            .SUCCESS => return ThreadList{ .buf = @ptrCast([*]MachThread, thread_list)[0..thread_count] },
+            .SUCCESS => return ThreadList{ .buf = @as([*]MachThread, @ptrCast(thread_list))[0..thread_count] },
             else => |err| return unexpectedKernError(err),
         }
     }
@@ -3860,7 +3776,7 @@ pub const MachThread = extern struct {
         switch (getKernError(thread_info(
             thread.port,
             THREAD_BASIC_INFO,
-            @ptrCast(thread_info_t, &info),
+            @as(thread_info_t, @ptrCast(&info)),
             &count,
         ))) {
             .SUCCESS => return info,
@@ -3874,7 +3790,7 @@ pub const MachThread = extern struct {
         switch (getKernError(thread_info(
             thread.port,
             THREAD_IDENTIFIER_INFO,
-            @ptrCast(thread_info_t, &info),
+            @as(thread_info_t, @ptrCast(&info)),
             &count,
         ))) {
             .SUCCESS => return info,
@@ -3928,248 +3844,3 @@ pub extern "c" fn os_signpost_interval_begin(log: os_log_t, signpos: os_signpost
 pub extern "c" fn os_signpost_interval_end(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
 pub extern "c" fn os_signpost_id_make_with_pointer(log: os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
 pub extern "c" fn os_signpost_enabled(log: os_log_t) bool;
-
-pub extern "c" fn proc_listpids(tpe: u32, tinfo: u32, buffer: ?*anyopaque, buffersize: c_int) c_int;
-pub extern "c" fn proc_listallpids(buffer: ?*anyopaque, buffersize: c_int) c_int;
-pub extern "c" fn proc_listpgrppids(pgrpid: pid_t, buffer: ?*anyopaque, buffersize: c_int) c_int;
-pub extern "c" fn proc_listchildpids(ppid: pid_t, buffer: ?*anyopaque, buffersize: c_int) c_int;
-pub extern "c" fn proc_pidinfo(pid: c_int, flavor: c_int, arg: u64, buffer: ?*anyopaque, buffersize: c_int) c_int;
-pub extern "c" fn proc_name(pid: c_int, buffer: ?*anyopaque, buffersize: u32) c_int;
-pub extern "c" fn proc_pidpath(pid: c_int, buffer: ?*anyopaque, buffersize: u32) c_int;
-
-pub const MIN = struct {
-    pub const INCORE = 0x1;
-    pub const REFERENCED = 0x2;
-    pub const MODIFIED = 0x4;
-    pub const REFERENCED_OTHER = 0x8;
-    pub const MODIFIED_OTHER = 0x10;
-    pub const PAGED_OUT = 0x20;
-    pub const COPIED = 0x40;
-    pub const ANONYMOUS = 0x80;
-};
-
-pub extern "c" fn mincore(addr: *align(std.mem.page_size) const anyopaque, length: usize, vec: [*]u8) c_int;
-pub extern "c" fn os_proc_available_memory() usize;
-
-pub const thread_affinity_policy = extern struct {
-    tag: integer_t,
-};
-
-pub const thread_policy_flavor_t = natural_t;
-pub const thread_policy_t = [*]integer_t;
-pub const thread_affinity_policy_data_t = thread_affinity_policy;
-pub const thread_affinity_policy_t = [*]thread_affinity_policy;
-
-pub const THREAD_AFFINITY = struct {
-    pub const POLICY = 0;
-    pub const POLICY_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(thread_affinity_policy_data_t) / @sizeOf(integer_t));
-};
-
-/// cpu affinity api
-/// albeit it is also available on arm64, it always fails as in this architecture there is no sense of
-/// individual cpus (high performance cpus group and low consumption one), thus the pthread QOS api is more appropriate in this case.
-pub extern "c" fn thread_affinity_get(thread: thread_act_t, flavor: thread_policy_flavor_t, info: thread_policy_t, infocnt: [*]mach_msg_type_number_t, default: *boolean_t) kern_return_t;
-pub extern "c" fn thread_affinity_set(thread: thread_act_t, flavor: thread_policy_flavor_t, info: thread_policy_t, infocnt: mach_msg_type_number_t) kern_return_t;
-
-pub const cpu_type_t = integer_t;
-pub const cpu_subtype_t = integer_t;
-pub const cpu_threadtype_t = integer_t;
-pub const host_flavor_t = integer_t;
-pub const host_info_t = *integer_t;
-pub const host_info64_t = *integer_t;
-pub const host_can_has_debugger_info = extern struct {
-    can_has_debugger: boolean_t,
-};
-pub const host_can_has_debugger_info_data_t = host_can_has_debugger_info;
-pub const host_can_has_debugger_info_t = *host_can_has_debugger_info;
-
-pub const host_sched_info = extern struct {
-    min_timeout: integer_t,
-    min_quantum: integer_t,
-};
-pub const host_sched_info_data_t = host_sched_info;
-pub const host_sched_info_t = *host_sched_info;
-
-pub const kernel_resource_sizes = extern struct {
-    task: natural_t,
-    thread: natural_t,
-    port: natural_t,
-    memory_region: natural_t,
-    memory_object: natural_t,
-};
-
-pub const kernel_resource_sizes_data_t = kernel_resource_sizes;
-pub const kernel_resource_sizes_t = *kernel_resource_sizes;
-
-pub const host_priority_info = extern struct {
-    kernel_priority: integer_t,
-    system_priority: integer_t,
-    server_priority: integer_t,
-    user_priority: integer_t,
-    depress_priority: integer_t,
-    idle_priority: integer_t,
-    minimum_priority: integer_t,
-    maximum_priority: integer_t,
-};
-
-pub const host_priority_info_data_t = host_priority_info;
-pub const host_priority_info_t = *host_priority_info;
-
-pub const CPU_STATE_MAX = 4;
-
-pub const host_cpu_load_info = extern struct {
-    cpu_ticks: [CPU_STATE_MAX]natural_t,
-};
-
-pub const host_cpu_load_info_data_t = host_cpu_load_info;
-pub const host_cpu_load_info_t = *host_cpu_load_info;
-
-pub const host_load_info = extern struct {
-    avenrun: [3]integer_t,
-    mach_factor: [3]integer_t,
-};
-
-pub const host_load_info_data_t = host_load_info;
-pub const host_load_info_t = *host_load_info;
-
-pub const host_preferred_user_arch = extern struct {
-    cpu_type: cpu_type_t,
-    cpu_subtype: cpu_subtype_t,
-};
-
-pub const host_preferred_user_arch_data_t = host_preferred_user_arch;
-pub const host_preferred_user_arch_t = *host_preferred_user_arch;
-
-fn HostCount(comptime HT: type) mach_msg_type_number_t {
-    return @intCast(mach_msg_type_number_t, @sizeOf(HT) / @sizeOf(integer_t));
-}
-
-pub const HOST = struct {
-    pub const BASIC_INFO = 1;
-    pub const SCHED_INFO = 3;
-    pub const RESOURCE_SIZES = 4;
-    pub const PRIORITY_INFO = 5;
-    pub const SEMAPHORE_TRAPS = 7;
-    pub const MACH_MSG_TRAPS = 8;
-    pub const VM_PURGEABLE = 9;
-    pub const DEBUG_INFO_INTERNAL = 10;
-    pub const CAN_HAS_DEBUGGER = 11;
-    pub const PREFERRED_USER_ARCH = 12;
-    pub const LOAD_INFO = 1;
-    pub const VM_INFO = 2;
-    pub const CPU_LOAD_INFO = 3;
-    pub const VM_INFO64 = 4;
-    pub const EXTMOD_INFO64 = 5;
-    pub const EXPIRED_TASK_INFO = 6;
-    pub const CAN_HAS_DEBUGGER_COUNT = HostCount(host_can_has_debugger_info_data_t);
-    pub const SCHED_INFO_COUNT = HostCount(host_sched_info_data_t);
-    pub const RESOURCES_SIZES_COUNT = HostCount(kernel_resource_sizes_data_t);
-    pub const PRIORITY_INFO_COUNT = HostCount(host_priority_info_data_t);
-    pub const CPU_LOAD_INFO_COUNT = HostCount(host_cpu_load_info_data_t);
-    pub const LOAD_INFO_COUNT = HostCount(host_load_info_data_t);
-    pub const PREFERRED_USER_ARCH_COUNT = HostCount(host_preferred_user_arch_data_t);
-    pub const VM_INFO_COUNT = HostCount(vm_statistics_data_t);
-    pub const VM_INFO64_COUNT = HostCount(vm_statistics64_data_t);
-    pub const EXTMOD_INFO64_COUNT = HostCount(vm_extmod_statistics_data_t);
-};
-
-pub const host_basic_info = packed struct(u32) {
-    max_cpus: integer_t,
-    avail_cpus: integer_t,
-    memory_size: natural_t,
-    cpu_type: cpu_type_t,
-    cpu_subtype: cpu_subtype_t,
-    cpu_threadtype: cpu_threadtype_t,
-    physical_cpu: integer_t,
-    physical_cpu_max: integer_t,
-    logical_cpu: integer_t,
-    logical_cpu_max: integer_t,
-    max_mem: u64,
-};
-
-pub extern "c" fn host_info(host: host_t, flavor: host_flavor_t, info_out: host_info_t, info_outCnt: [*]mach_msg_type_number_t) kern_return_t;
-pub extern "c" fn host_statistics(priv: host_t, flavor: host_flavor_t, info_out: host_info_t, info_outCnt: [*]mach_msg_type_number_t) kern_return_t;
-pub extern "c" fn host_statistics64(priv: host_t, flavor: host_flavor_t, info_out: host_info64_t, info64_outCnt: [*]mach_msg_type_number_t) kern_return_t;
-
-pub const vm_statistics = extern struct {
-    free_count: natural_t,
-    active_count: natural_t,
-    inactive_count: natural_t,
-    wire_count: natural_t,
-    zero_fill_count: natural_t,
-    reactivations: natural_t,
-    pageins: natural_t,
-    pageouts: natural_t,
-    faults: natural_t,
-    cow_faults: natural_t,
-    lookups: natural_t,
-    hits: natural_t,
-    purgeable_count: natural_t,
-    purges: natural_t,
-    speculative_count: natural_t,
-};
-
-pub const vm_statistics_t = *vm_statistics;
-pub const vm_statistics_data_t = vm_statistics;
-
-pub const vm_statistics64 align(8) = extern struct {
-    free_count: natural_t,
-    active_count: natural_t,
-    inactive_count: natural_t,
-    wire_count: natural_t,
-    zero_fill_count: u64,
-    reactivations: u64,
-    pageins: u64,
-    pageouts: u64,
-    faults: u64,
-    cow_faults: u64,
-    lookups: u64,
-    hits: u64,
-    purges: u64,
-    purgeable_count: natural_t,
-    speculative_count: natural_t,
-    decompressions: u64,
-    compressions: u64,
-    swapins: u64,
-    swapouts: u64,
-    compressor_page_count: natural_t,
-    throttled_count: natural_t,
-    external_page_count: natural_t,
-    internal_page_count: natural_t,
-    total_uncompressed_pages_in_compressor: u64,
-};
-
-pub const vm_statistics64_t = *vm_statistics64;
-pub const vm_statistics64_data_t = vm_statistics64;
-
-pub const vm_extmod_statistics align(8) = extern struct {
-    task_for_pid_count: i64,
-    task_for_pid_caller_count: i64,
-    thread_creation_count: i64,
-    thread_creation_caller_count: i64,
-    thread_set_state_count: i64,
-    thread_set_state_caller_count: i64,
-};
-
-pub const vm_extmod_statistics_t = *vm_extmod_statistics;
-pub const vm_extmod_statistics_data_t = vm_extmod_statistics;
-
-pub extern "c" fn vm_stats(info: ?*anyopaque, count: *c_uint) kern_return_t;
-
-/// TODO refines if necessary
-pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
-    .arm, .aarch64 => 16 * 1024,
-    else => 8 * 1024,
-};
-
-pub const _SYS_NAMELEN = 256;
-
-pub const utsname = extern struct {
-    sysname: [255:0]u8,
-    nodename: [255:0]u8,
-    release: [255:0]u8,
-    version: [255:0]u8,
-    machine: [255:0]u8,
-};
-
-pub extern "c" fn uname(u: *utsname) c_int;

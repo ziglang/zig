@@ -107,7 +107,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             }
             var n = self.nbytes;
             while (self.nbits != 0) {
-                self.bytes[n] = @truncate(u8, self.bits);
+                self.bytes[n] = @as(u8, @truncate(self.bits));
                 self.bits >>= 8;
                 if (self.nbits > 8) { // Avoid underflow
                     self.nbits -= 8;
@@ -132,7 +132,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             if (self.err) {
                 return;
             }
-            self.bits |= @intCast(u64, b) << @intCast(u6, self.nbits);
+            self.bits |= @as(u64, @intCast(b)) << @as(u6, @intCast(self.nbits));
             self.nbits += nb;
             if (self.nbits >= 48) {
                 var bits = self.bits;
@@ -140,12 +140,12 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 self.nbits -= 48;
                 var n = self.nbytes;
                 var bytes = self.bytes[n..][0..6];
-                bytes[0] = @truncate(u8, bits);
-                bytes[1] = @truncate(u8, bits >> 8);
-                bytes[2] = @truncate(u8, bits >> 16);
-                bytes[3] = @truncate(u8, bits >> 24);
-                bytes[4] = @truncate(u8, bits >> 32);
-                bytes[5] = @truncate(u8, bits >> 40);
+                bytes[0] = @as(u8, @truncate(bits));
+                bytes[1] = @as(u8, @truncate(bits >> 8));
+                bytes[2] = @as(u8, @truncate(bits >> 16));
+                bytes[3] = @as(u8, @truncate(bits >> 24));
+                bytes[4] = @as(u8, @truncate(bits >> 32));
+                bytes[5] = @as(u8, @truncate(bits >> 40));
                 n += 6;
                 if (n >= buffer_flush_size) {
                     try self.write(self.bytes[0..n]);
@@ -165,7 +165,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 return;
             }
             while (self.nbits != 0) {
-                self.bytes[n] = @truncate(u8, self.bits);
+                self.bytes[n] = @as(u8, @truncate(self.bits));
                 self.bits >>= 8;
                 self.nbits -= 8;
                 n += 1;
@@ -209,12 +209,12 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             // Copy the concatenated code sizes to codegen. Put a marker at the end.
             var cgnl = codegen[0..num_literals];
             for (cgnl, 0..) |_, i| {
-                cgnl[i] = @intCast(u8, lit_enc.codes[i].len);
+                cgnl[i] = @as(u8, @intCast(lit_enc.codes[i].len));
             }
 
             cgnl = codegen[num_literals .. num_literals + num_offsets];
             for (cgnl, 0..) |_, i| {
-                cgnl[i] = @intCast(u8, off_enc.codes[i].len);
+                cgnl[i] = @as(u8, @intCast(off_enc.codes[i].len));
             }
             codegen[num_literals + num_offsets] = bad_code;
 
@@ -243,7 +243,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                         }
                         codegen[out_index] = 16;
                         out_index += 1;
-                        codegen[out_index] = @intCast(u8, n - 3);
+                        codegen[out_index] = @as(u8, @intCast(n - 3));
                         out_index += 1;
                         self.codegen_freq[16] += 1;
                         count -= n;
@@ -256,7 +256,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                         }
                         codegen[out_index] = 18;
                         out_index += 1;
-                        codegen[out_index] = @intCast(u8, n - 11);
+                        codegen[out_index] = @as(u8, @intCast(n - 11));
                         out_index += 1;
                         self.codegen_freq[18] += 1;
                         count -= n;
@@ -265,7 +265,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                         // 3 <= count <= 10
                         codegen[out_index] = 17;
                         out_index += 1;
-                        codegen[out_index] = @intCast(u8, count - 3);
+                        codegen[out_index] = @as(u8, @intCast(count - 3));
                         out_index += 1;
                         self.codegen_freq[17] += 1;
                         count = 0;
@@ -307,8 +307,8 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 extra_bits;
 
             return DynamicSize{
-                .size = @intCast(u32, size),
-                .num_codegens = @intCast(u32, num_codegens),
+                .size = @as(u32, @intCast(size)),
+                .num_codegens = @as(u32, @intCast(num_codegens)),
             };
         }
 
@@ -328,7 +328,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 return .{ .size = 0, .storable = false };
             }
             if (in.?.len <= deflate_const.max_store_block_size) {
-                return .{ .size = @intCast(u32, (in.?.len + 5) * 8), .storable = true };
+                return .{ .size = @as(u32, @intCast((in.?.len + 5) * 8)), .storable = true };
             }
             return .{ .size = 0, .storable = false };
         }
@@ -337,20 +337,20 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             if (self.err) {
                 return;
             }
-            self.bits |= @intCast(u64, c.code) << @intCast(u6, self.nbits);
-            self.nbits += @intCast(u32, c.len);
+            self.bits |= @as(u64, @intCast(c.code)) << @as(u6, @intCast(self.nbits));
+            self.nbits += @as(u32, @intCast(c.len));
             if (self.nbits >= 48) {
                 var bits = self.bits;
                 self.bits >>= 48;
                 self.nbits -= 48;
                 var n = self.nbytes;
                 var bytes = self.bytes[n..][0..6];
-                bytes[0] = @truncate(u8, bits);
-                bytes[1] = @truncate(u8, bits >> 8);
-                bytes[2] = @truncate(u8, bits >> 16);
-                bytes[3] = @truncate(u8, bits >> 24);
-                bytes[4] = @truncate(u8, bits >> 32);
-                bytes[5] = @truncate(u8, bits >> 40);
+                bytes[0] = @as(u8, @truncate(bits));
+                bytes[1] = @as(u8, @truncate(bits >> 8));
+                bytes[2] = @as(u8, @truncate(bits >> 16));
+                bytes[3] = @as(u8, @truncate(bits >> 24));
+                bytes[4] = @as(u8, @truncate(bits >> 32));
+                bytes[5] = @as(u8, @truncate(bits >> 40));
                 n += 6;
                 if (n >= buffer_flush_size) {
                     try self.write(self.bytes[0..n]);
@@ -381,36 +381,36 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 first_bits = 5;
             }
             try self.writeBits(first_bits, 3);
-            try self.writeBits(@intCast(u32, num_literals - 257), 5);
-            try self.writeBits(@intCast(u32, num_offsets - 1), 5);
-            try self.writeBits(@intCast(u32, num_codegens - 4), 4);
+            try self.writeBits(@as(u32, @intCast(num_literals - 257)), 5);
+            try self.writeBits(@as(u32, @intCast(num_offsets - 1)), 5);
+            try self.writeBits(@as(u32, @intCast(num_codegens - 4)), 4);
 
             var i: u32 = 0;
             while (i < num_codegens) : (i += 1) {
-                var value = @intCast(u32, self.codegen_encoding.codes[codegen_order[i]].len);
-                try self.writeBits(@intCast(u32, value), 3);
+                var value = @as(u32, @intCast(self.codegen_encoding.codes[codegen_order[i]].len));
+                try self.writeBits(@as(u32, @intCast(value)), 3);
             }
 
             i = 0;
             while (true) {
-                var code_word: u32 = @intCast(u32, self.codegen[i]);
+                var code_word: u32 = @as(u32, @intCast(self.codegen[i]));
                 i += 1;
                 if (code_word == bad_code) {
                     break;
                 }
-                try self.writeCode(self.codegen_encoding.codes[@intCast(u32, code_word)]);
+                try self.writeCode(self.codegen_encoding.codes[@as(u32, @intCast(code_word))]);
 
                 switch (code_word) {
                     16 => {
-                        try self.writeBits(@intCast(u32, self.codegen[i]), 2);
+                        try self.writeBits(@as(u32, @intCast(self.codegen[i])), 2);
                         i += 1;
                     },
                     17 => {
-                        try self.writeBits(@intCast(u32, self.codegen[i]), 3);
+                        try self.writeBits(@as(u32, @intCast(self.codegen[i])), 3);
                         i += 1;
                     },
                     18 => {
-                        try self.writeBits(@intCast(u32, self.codegen[i]), 7);
+                        try self.writeBits(@as(u32, @intCast(self.codegen[i])), 7);
                         i += 1;
                     },
                     else => {},
@@ -428,8 +428,8 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             }
             try self.writeBits(flag, 3);
             try self.flush();
-            try self.writeBits(@intCast(u32, length), 16);
-            try self.writeBits(@intCast(u32, ~@intCast(u16, length)), 16);
+            try self.writeBits(@as(u32, @intCast(length)), 16);
+            try self.writeBits(@as(u32, @intCast(~@as(u16, @intCast(length)))), 16);
         }
 
         fn writeFixedHeader(self: *Self, is_eof: bool) Error!void {
@@ -476,14 +476,14 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 var length_code: u32 = length_codes_start + 8;
                 while (length_code < num_literals) : (length_code += 1) {
                     // First eight length codes have extra size = 0.
-                    extra_bits += @intCast(u32, self.literal_freq[length_code]) *
-                        @intCast(u32, length_extra_bits[length_code - length_codes_start]);
+                    extra_bits += @as(u32, @intCast(self.literal_freq[length_code])) *
+                        @as(u32, @intCast(length_extra_bits[length_code - length_codes_start]));
                 }
                 var offset_code: u32 = 4;
                 while (offset_code < num_offsets) : (offset_code += 1) {
                     // First four offset codes have extra size = 0.
-                    extra_bits += @intCast(u32, self.offset_freq[offset_code]) *
-                        @intCast(u32, offset_extra_bits[offset_code]);
+                    extra_bits += @as(u32, @intCast(self.offset_freq[offset_code])) *
+                        @as(u32, @intCast(offset_extra_bits[offset_code]));
                 }
             }
 
@@ -527,7 +527,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             }
 
             // Huffman.
-            if (@ptrToInt(literal_encoding) == @ptrToInt(&self.fixed_literal_encoding)) {
+            if (@intFromPtr(literal_encoding) == @intFromPtr(&self.fixed_literal_encoding)) {
                 try self.writeFixedHeader(eof);
             } else {
                 try self.writeDynamicHeader(num_literals, num_offsets, num_codegens, eof);
@@ -621,12 +621,12 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             self.literal_freq[token.literal(deflate_const.end_block_marker)] += 1;
 
             // get the number of literals
-            num_literals = @intCast(u32, self.literal_freq.len);
+            num_literals = @as(u32, @intCast(self.literal_freq.len));
             while (self.literal_freq[num_literals - 1] == 0) {
                 num_literals -= 1;
             }
             // get the number of offsets
-            num_offsets = @intCast(u32, self.offset_freq.len);
+            num_offsets = @as(u32, @intCast(self.offset_freq.len));
             while (num_offsets > 0 and self.offset_freq[num_offsets - 1] == 0) {
                 num_offsets -= 1;
             }
@@ -664,18 +664,18 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 var length = token.length(t);
                 var length_code = token.lengthCode(length);
                 try self.writeCode(le_codes[length_code + length_codes_start]);
-                var extra_length_bits = @intCast(u32, length_extra_bits[length_code]);
+                var extra_length_bits = @as(u32, @intCast(length_extra_bits[length_code]));
                 if (extra_length_bits > 0) {
-                    var extra_length = @intCast(u32, length - length_base[length_code]);
+                    var extra_length = @as(u32, @intCast(length - length_base[length_code]));
                     try self.writeBits(extra_length, extra_length_bits);
                 }
                 // Write the offset
                 var offset = token.offset(t);
                 var offset_code = token.offsetCode(offset);
                 try self.writeCode(oe_codes[offset_code]);
-                var extra_offset_bits = @intCast(u32, offset_extra_bits[offset_code]);
+                var extra_offset_bits = @as(u32, @intCast(offset_extra_bits[offset_code]));
                 if (extra_offset_bits > 0) {
-                    var extra_offset = @intCast(u32, offset - offset_base[offset_code]);
+                    var extra_offset = @as(u32, @intCast(offset - offset_base[offset_code]));
                     try self.writeBits(extra_offset, extra_offset_bits);
                 }
             }
@@ -742,8 +742,8 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             for (input) |t| {
                 // Bitwriting inlined, ~30% speedup
                 var c = encoding[t];
-                self.bits |= @intCast(u64, c.code) << @intCast(u6, self.nbits);
-                self.nbits += @intCast(u32, c.len);
+                self.bits |= @as(u64, @intCast(c.code)) << @as(u6, @intCast(self.nbits));
+                self.nbits += @as(u32, @intCast(c.len));
                 if (self.nbits < 48) {
                     continue;
                 }
@@ -752,12 +752,12 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 self.bits >>= 48;
                 self.nbits -= 48;
                 var bytes = self.bytes[n..][0..6];
-                bytes[0] = @truncate(u8, bits);
-                bytes[1] = @truncate(u8, bits >> 8);
-                bytes[2] = @truncate(u8, bits >> 16);
-                bytes[3] = @truncate(u8, bits >> 24);
-                bytes[4] = @truncate(u8, bits >> 32);
-                bytes[5] = @truncate(u8, bits >> 40);
+                bytes[0] = @as(u8, @truncate(bits));
+                bytes[1] = @as(u8, @truncate(bits >> 8));
+                bytes[2] = @as(u8, @truncate(bits >> 16));
+                bytes[3] = @as(u8, @truncate(bits >> 24));
+                bytes[4] = @as(u8, @truncate(bits >> 32));
+                bytes[5] = @as(u8, @truncate(bits >> 40));
                 n += 6;
                 if (n < buffer_flush_size) {
                     continue;

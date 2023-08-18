@@ -246,10 +246,10 @@ fn orderGlobalsInto(
     const global = self.globalPtr(decl_index).?;
     const insts = self.globals.section.instructions.items[global.begin_inst..global.end_inst];
 
-    seen.set(@enumToInt(decl_index));
+    seen.set(@intFromEnum(decl_index));
 
     for (deps) |dep| {
-        if (!seen.isSet(@enumToInt(dep))) {
+        if (!seen.isSet(@intFromEnum(dep))) {
             try self.orderGlobalsInto(dep, section, seen);
         }
     }
@@ -267,7 +267,7 @@ fn orderGlobals(self: *Module) !Section {
     errdefer ordered_globals.deinit(self.gpa);
 
     for (globals) |decl_index| {
-        if (!seen.isSet(@enumToInt(decl_index))) {
+        if (!seen.isSet(@intFromEnum(decl_index))) {
             try self.orderGlobalsInto(decl_index, &ordered_globals, &seen);
         }
     }
@@ -284,14 +284,14 @@ fn addEntryPointDeps(
     const decl = self.declPtr(decl_index);
     const deps = self.decl_deps.items[decl.begin_dep..decl.end_dep];
 
-    seen.set(@enumToInt(decl_index));
+    seen.set(@intFromEnum(decl_index));
 
     if (self.globalPtr(decl_index)) |global| {
         try interface.append(global.result_id);
     }
 
     for (deps) |dep| {
-        if (!seen.isSet(@enumToInt(dep))) {
+        if (!seen.isSet(@intFromEnum(dep))) {
             try self.addEntryPointDeps(dep, seen, interface);
         }
     }
@@ -451,8 +451,8 @@ pub fn constInt(self: *Module, ty_ref: CacheRef, value: anytype) !IdRef {
     return try self.resolveId(.{ .int = .{
         .ty = ty_ref,
         .value = switch (ty.signedness) {
-            .signed => Value{ .int64 = @intCast(i64, value) },
-            .unsigned => Value{ .uint64 = @intCast(u64, value) },
+            .signed => Value{ .int64 = @as(i64, @intCast(value)) },
+            .unsigned => Value{ .uint64 = @as(u64, @intCast(value)) },
         },
     } });
 }
@@ -516,7 +516,7 @@ pub fn allocDecl(self: *Module, kind: DeclKind) !Decl.Index {
         .begin_dep = undefined,
         .end_dep = undefined,
     });
-    const index = @intToEnum(Decl.Index, @intCast(u32, self.decls.items.len - 1));
+    const index = @as(Decl.Index, @enumFromInt(@as(u32, @intCast(self.decls.items.len - 1))));
     switch (kind) {
         .func => {},
         // If the decl represents a global, also allocate a global node.
@@ -531,7 +531,7 @@ pub fn allocDecl(self: *Module, kind: DeclKind) !Decl.Index {
 }
 
 pub fn declPtr(self: *Module, index: Decl.Index) *Decl {
-    return &self.decls.items[@enumToInt(index)];
+    return &self.decls.items[@intFromEnum(index)];
 }
 
 pub fn globalPtr(self: *Module, index: Decl.Index) ?*Global {
@@ -540,9 +540,9 @@ pub fn globalPtr(self: *Module, index: Decl.Index) ?*Global {
 
 /// Declare ALL dependencies for a decl.
 pub fn declareDeclDeps(self: *Module, decl_index: Decl.Index, deps: []const Decl.Index) !void {
-    const begin_dep = @intCast(u32, self.decl_deps.items.len);
+    const begin_dep = @as(u32, @intCast(self.decl_deps.items.len));
     try self.decl_deps.appendSlice(self.gpa, deps);
-    const end_dep = @intCast(u32, self.decl_deps.items.len);
+    const end_dep = @as(u32, @intCast(self.decl_deps.items.len));
 
     const decl = self.declPtr(decl_index);
     decl.begin_dep = begin_dep;
@@ -550,13 +550,13 @@ pub fn declareDeclDeps(self: *Module, decl_index: Decl.Index, deps: []const Decl
 }
 
 pub fn beginGlobal(self: *Module) u32 {
-    return @intCast(u32, self.globals.section.instructions.items.len);
+    return @as(u32, @intCast(self.globals.section.instructions.items.len));
 }
 
 pub fn endGlobal(self: *Module, global_index: Decl.Index, begin_inst: u32) void {
     const global = self.globalPtr(global_index).?;
     global.begin_inst = begin_inst;
-    global.end_inst = @intCast(u32, self.globals.section.instructions.items.len);
+    global.end_inst = @as(u32, @intCast(self.globals.section.instructions.items.len));
 }
 
 pub fn declareEntryPoint(self: *Module, decl_index: Decl.Index, name: []const u8) !void {

@@ -23,6 +23,12 @@ pub var system_table: *tables.SystemTable = undefined;
 /// A handle to an event structure.
 pub const Event = *opaque {};
 
+/// The calling convention used for all external functions part of the UEFI API.
+pub const cc = switch (@import("builtin").target.cpu.arch) {
+    .x86_64 => .Win64,
+    else => .C,
+};
+
 pub const MacAddress = extern struct {
     address: [32]u8,
 };
@@ -143,7 +149,7 @@ pub const FileHandle = *opaque {};
 test "GUID formatting" {
     var bytes = [_]u8{ 137, 60, 203, 50, 128, 128, 124, 66, 186, 19, 80, 73, 135, 59, 194, 135 };
 
-    var guid = @bitCast(Guid, bytes);
+    var guid = @as(Guid, @bitCast(bytes));
 
     var str = try std.fmt.allocPrint(std.testing.allocator, "{}", .{guid});
     defer std.testing.allocator.free(str);

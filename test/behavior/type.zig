@@ -289,7 +289,7 @@ test "Type.Struct" {
     try testing.expectEqual(@as(?*const anyopaque, null), infoB.fields[0].default_value);
     try testing.expectEqualSlices(u8, "y", infoB.fields[1].name);
     try testing.expectEqual(u32, infoB.fields[1].type);
-    try testing.expectEqual(@as(u32, 5), @ptrCast(*align(1) const u32, infoB.fields[1].default_value.?).*);
+    try testing.expectEqual(@as(u32, 5), @as(*align(1) const u32, @ptrCast(infoB.fields[1].default_value.?)).*);
     try testing.expectEqual(@as(usize, 0), infoB.decls.len);
     try testing.expectEqual(@as(bool, false), infoB.is_tuple);
 
@@ -298,10 +298,10 @@ test "Type.Struct" {
     try testing.expectEqual(Type.ContainerLayout.Packed, infoC.layout);
     try testing.expectEqualSlices(u8, "x", infoC.fields[0].name);
     try testing.expectEqual(u8, infoC.fields[0].type);
-    try testing.expectEqual(@as(u8, 3), @ptrCast(*const u8, infoC.fields[0].default_value.?).*);
+    try testing.expectEqual(@as(u8, 3), @as(*const u8, @ptrCast(infoC.fields[0].default_value.?)).*);
     try testing.expectEqualSlices(u8, "y", infoC.fields[1].name);
     try testing.expectEqual(u32, infoC.fields[1].type);
-    try testing.expectEqual(@as(u32, 5), @ptrCast(*align(1) const u32, infoC.fields[1].default_value.?).*);
+    try testing.expectEqual(@as(u32, 5), @as(*align(1) const u32, @ptrCast(infoC.fields[1].default_value.?)).*);
     try testing.expectEqual(@as(usize, 0), infoC.decls.len);
     try testing.expectEqual(@as(bool, false), infoC.is_tuple);
 
@@ -311,10 +311,10 @@ test "Type.Struct" {
     try testing.expectEqual(Type.ContainerLayout.Auto, infoD.layout);
     try testing.expectEqualSlices(u8, "x", infoD.fields[0].name);
     try testing.expectEqual(comptime_int, infoD.fields[0].type);
-    try testing.expectEqual(@as(comptime_int, 3), @ptrCast(*const comptime_int, infoD.fields[0].default_value.?).*);
+    try testing.expectEqual(@as(comptime_int, 3), @as(*const comptime_int, @ptrCast(infoD.fields[0].default_value.?)).*);
     try testing.expectEqualSlices(u8, "y", infoD.fields[1].name);
     try testing.expectEqual(comptime_int, infoD.fields[1].type);
-    try testing.expectEqual(@as(comptime_int, 5), @ptrCast(*const comptime_int, infoD.fields[1].default_value.?).*);
+    try testing.expectEqual(@as(comptime_int, 5), @as(*const comptime_int, @ptrCast(infoD.fields[1].default_value.?)).*);
     try testing.expectEqual(@as(usize, 0), infoD.decls.len);
     try testing.expectEqual(@as(bool, false), infoD.is_tuple);
 
@@ -324,10 +324,10 @@ test "Type.Struct" {
     try testing.expectEqual(Type.ContainerLayout.Auto, infoE.layout);
     try testing.expectEqualSlices(u8, "0", infoE.fields[0].name);
     try testing.expectEqual(comptime_int, infoE.fields[0].type);
-    try testing.expectEqual(@as(comptime_int, 1), @ptrCast(*const comptime_int, infoE.fields[0].default_value.?).*);
+    try testing.expectEqual(@as(comptime_int, 1), @as(*const comptime_int, @ptrCast(infoE.fields[0].default_value.?)).*);
     try testing.expectEqualSlices(u8, "1", infoE.fields[1].name);
     try testing.expectEqual(comptime_int, infoE.fields[1].type);
-    try testing.expectEqual(@as(comptime_int, 2), @ptrCast(*const comptime_int, infoE.fields[1].default_value.?).*);
+    try testing.expectEqual(@as(comptime_int, 2), @as(*const comptime_int, @ptrCast(infoE.fields[1].default_value.?)).*);
     try testing.expectEqual(@as(usize, 0), infoE.decls.len);
     try testing.expectEqual(@as(bool, true), infoE.is_tuple);
 
@@ -363,8 +363,8 @@ test "Type.Enum" {
         },
     });
     try testing.expectEqual(true, @typeInfo(Foo).Enum.is_exhaustive);
-    try testing.expectEqual(@as(u8, 1), @enumToInt(Foo.a));
-    try testing.expectEqual(@as(u8, 5), @enumToInt(Foo.b));
+    try testing.expectEqual(@as(u8, 1), @intFromEnum(Foo.a));
+    try testing.expectEqual(@as(u8, 5), @intFromEnum(Foo.b));
     const Bar = @Type(.{
         .Enum = .{
             .tag_type = u32,
@@ -377,9 +377,9 @@ test "Type.Enum" {
         },
     });
     try testing.expectEqual(false, @typeInfo(Bar).Enum.is_exhaustive);
-    try testing.expectEqual(@as(u32, 1), @enumToInt(Bar.a));
-    try testing.expectEqual(@as(u32, 5), @enumToInt(Bar.b));
-    try testing.expectEqual(@as(u32, 6), @enumToInt(@intToEnum(Bar, 6)));
+    try testing.expectEqual(@as(u32, 1), @intFromEnum(Bar.a));
+    try testing.expectEqual(@as(u32, 5), @intFromEnum(Bar.b));
+    try testing.expectEqual(@as(u32, 6), @intFromEnum(@as(Bar, @enumFromInt(6))));
 }
 
 test "Type.Union" {

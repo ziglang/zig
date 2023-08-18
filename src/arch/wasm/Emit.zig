@@ -45,7 +45,7 @@ pub fn emitMir(emit: *Emit) InnerError!void {
     try emit.emitLocals();
 
     for (mir_tags, 0..) |tag, index| {
-        const inst = @intCast(u32, index);
+        const inst = @as(u32, @intCast(index));
         switch (tag) {
             // block instructions
             .block => try emit.emitBlock(tag, inst),
@@ -247,7 +247,7 @@ pub fn emitMir(emit: *Emit) InnerError!void {
 }
 
 fn offset(self: Emit) u32 {
-    return @intCast(u32, self.code.items.len);
+    return @as(u32, @intCast(self.code.items.len));
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
@@ -260,7 +260,7 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
 
 fn emitLocals(emit: *Emit) !void {
     const writer = emit.code.writer();
-    try leb128.writeULEB128(writer, @intCast(u32, emit.locals.len));
+    try leb128.writeULEB128(writer, @as(u32, @intCast(emit.locals.len)));
     // emit the actual locals amount
     for (emit.locals) |local| {
         try leb128.writeULEB128(writer, @as(u32, 1));
@@ -269,12 +269,12 @@ fn emitLocals(emit: *Emit) !void {
 }
 
 fn emitTag(emit: *Emit, tag: Mir.Inst.Tag) !void {
-    try emit.code.append(@enumToInt(tag));
+    try emit.code.append(@intFromEnum(tag));
 }
 
 fn emitBlock(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const block_type = emit.mir.instructions.items(.data)[inst].block_type;
-    try emit.code.append(@enumToInt(tag));
+    try emit.code.append(@intFromEnum(tag));
     try emit.code.append(block_type);
 }
 
@@ -293,13 +293,13 @@ fn emitBrTable(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn emitLabel(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const label = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(@enumToInt(tag));
+    try emit.code.append(@intFromEnum(tag));
     try leb128.writeULEB128(emit.code.writer(), label);
 }
 
 fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const label = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(@enumToInt(tag));
+    try emit.code.append(@intFromEnum(tag));
     var buf: [5]u8 = undefined;
     leb128.writeUnsignedFixed(5, &buf, label);
     const global_offset = emit.offset();
@@ -324,13 +324,13 @@ fn emitImm64(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const value = emit.mir.extraData(Mir.Imm64, extra_index);
     try emit.code.append(std.wasm.opcode(.i64_const));
-    try leb128.writeILEB128(emit.code.writer(), @bitCast(i64, value.data.toU64()));
+    try leb128.writeILEB128(emit.code.writer(), @as(i64, @bitCast(value.data.toU64())));
 }
 
 fn emitFloat32(emit: *Emit, inst: Mir.Inst.Index) !void {
     const value: f32 = emit.mir.instructions.items(.data)[inst].float32;
     try emit.code.append(std.wasm.opcode(.f32_const));
-    try emit.code.writer().writeIntLittle(u32, @bitCast(u32, value));
+    try emit.code.writer().writeIntLittle(u32, @as(u32, @bitCast(value)));
 }
 
 fn emitFloat64(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -343,7 +343,7 @@ fn emitFloat64(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index).data;
-    try emit.code.append(@enumToInt(tag));
+    try emit.code.append(@intFromEnum(tag));
     try encodeMemArg(mem_arg, emit.code.writer());
 }
 
@@ -425,7 +425,7 @@ fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
             .offset = mem_offset,
             .index = mem.pointer,
             .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_LEB else .R_WASM_MEMORY_ADDR_LEB64,
-            .addend = @intCast(i32, mem.offset),
+            .addend = @as(i32, @intCast(mem.offset)),
         });
     }
 }
@@ -436,7 +436,7 @@ fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {
     const writer = emit.code.writer();
     try emit.code.append(std.wasm.opcode(.misc_prefix));
     try leb128.writeULEB128(writer, opcode);
-    switch (@intToEnum(std.wasm.MiscOpcode, opcode)) {
+    switch (@as(std.wasm.MiscOpcode, @enumFromInt(opcode))) {
         // bulk-memory opcodes
         .data_drop => {
             const segment = emit.mir.extra[extra_index + 1];
@@ -475,7 +475,7 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
     const writer = emit.code.writer();
     try emit.code.append(std.wasm.opcode(.simd_prefix));
     try leb128.writeULEB128(writer, opcode);
-    switch (@intToEnum(std.wasm.SimdOpcode, opcode)) {
+    switch (@as(std.wasm.SimdOpcode, @enumFromInt(opcode))) {
         .v128_store,
         .v128_load,
         .v128_load8_splat,
@@ -507,7 +507,7 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
         .f64x2_extract_lane,
         .f64x2_replace_lane,
         => {
-            try writer.writeByte(@intCast(u8, emit.mir.extra[extra_index + 1]));
+            try writer.writeByte(@as(u8, @intCast(emit.mir.extra[extra_index + 1])));
         },
         .i8x16_splat,
         .i16x8_splat,
@@ -526,7 +526,7 @@ fn emitAtomic(emit: *Emit, inst: Mir.Inst.Index) !void {
     const writer = emit.code.writer();
     try emit.code.append(std.wasm.opcode(.atomics_prefix));
     try leb128.writeULEB128(writer, opcode);
-    switch (@intToEnum(std.wasm.AtomicsOpcode, opcode)) {
+    switch (@as(std.wasm.AtomicsOpcode, @enumFromInt(opcode))) {
         .i32_atomic_load,
         .i64_atomic_load,
         .i32_atomic_load8_u,
@@ -623,7 +623,7 @@ fn emitDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
     if (emit.dbg_output != .dwarf) return;
 
-    const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
+    const delta_line = @as(i32, @intCast(line)) - @as(i32, @intCast(emit.prev_di_line));
     const delta_pc = emit.offset() - emit.prev_di_offset;
     // TODO: This must emit a relocation to calculate the offset relative
     // to the code section start.

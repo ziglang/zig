@@ -3,10 +3,11 @@ const uefi = std.os.uefi;
 const Handle = uefi.Handle;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
+const cc = uefi.cc;
 
 pub const Udp6ServiceBindingProtocol = extern struct {
-    _create_child: *const fn (*const Udp6ServiceBindingProtocol, *?Handle) callconv(.C) Status,
-    _destroy_child: *const fn (*const Udp6ServiceBindingProtocol, Handle) callconv(.C) Status,
+    _create_child: *const fn (*const Udp6ServiceBindingProtocol, *?Handle) callconv(cc) Status,
+    _destroy_child: *const fn (*const Udp6ServiceBindingProtocol, Handle) callconv(cc) Status,
 
     pub fn createChild(self: *const Udp6ServiceBindingProtocol, handle: *?Handle) Status {
         return self._create_child(self, handle);

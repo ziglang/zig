@@ -16,6 +16,7 @@ int getaddrinfo(const char *restrict host, const char *restrict serv, const stru
 	char canon[256], *outcanon;
 	int nservs, naddrs, nais, canon_len, i, j, k;
 	int family = AF_UNSPEC, flags = 0, proto = 0, socktype = 0;
+	int no_family = 0;
 	struct aibuf *out;
 
 	if (!host && !serv) return EAI_NONAME;
@@ -66,9 +67,11 @@ int getaddrinfo(const char *restrict host, const char *restrict serv, const stru
 				pthread_setcancelstate(
 					PTHREAD_CANCEL_DISABLE, &cs);
 				int r = connect(s, ta[i], tl[i]);
+				int saved_errno = errno;
 				pthread_setcancelstate(cs, 0);
 				close(s);
 				if (!r) continue;
+				errno = saved_errno;
 			}
 			switch (errno) {
 			case EADDRNOTAVAIL:
@@ -80,7 +83,7 @@ int getaddrinfo(const char *restrict host, const char *restrict serv, const stru
 			default:
 				return EAI_SYSTEM;
 			}
-			if (family == tf[i]) return EAI_NONAME;
+			if (family == tf[i]) no_family = 1;
 			family = tf[1-i];
 		}
 	}
@@ -90,6 +93,8 @@ int getaddrinfo(const char *restrict host, const char *restrict serv, const stru
 
 	naddrs = __lookup_name(addrs, canon, host, family, flags);
 	if (naddrs < 0) return naddrs;
+
+	if (no_family) return EAI_NODATA;
 
 	nais = nservs * naddrs;
 	canon_len = strlen(canon);

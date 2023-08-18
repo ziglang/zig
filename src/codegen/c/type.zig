@@ -1,11 +1,11 @@
 const std = @import("std");
-const cstr = std.cstr;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 const autoHash = std.hash.autoHash;
 const Target = std.Target;
 
+const Alignment = @import("../../InternPool.zig").Alignment;
 const Module = @import("../../Module.zig");
 const Type = @import("../../type.zig").Type;
 
@@ -129,15 +129,15 @@ pub const CType = extern union {
         varargs_function,
 
         pub const last_no_payload_tag = Tag.zig_c_longdouble;
-        pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
+        pub const no_payload_count = @intFromEnum(last_no_payload_tag) + 1;
 
         pub fn hasPayload(self: Tag) bool {
-            return @enumToInt(self) >= no_payload_count;
+            return @intFromEnum(self) >= no_payload_count;
         }
 
         pub fn toIndex(self: Tag) Index {
             assert(!self.hasPayload());
-            return @intCast(Index, @enumToInt(self));
+            return @as(Index, @intCast(@intFromEnum(self)));
         }
 
         pub fn Type(comptime self: Tag) type {
@@ -280,16 +280,15 @@ pub const CType = extern union {
     };
 
     pub const AlignAs = struct {
-        @"align": std.math.Log2Int(u32),
-        abi: std.math.Log2Int(u32),
+        @"align": Alignment,
+        abi: Alignment,
 
-        pub fn init(alignment: u32, abi_alignment: u32) AlignAs {
-            const actual_align = if (alignment != 0) alignment else abi_alignment;
-            assert(std.math.isPowerOfTwo(actual_align));
-            assert(std.math.isPowerOfTwo(abi_alignment));
+        pub fn init(alignment: u64, abi_alignment: u32) AlignAs {
+            const @"align" = Alignment.fromByteUnits(alignment);
+            const abi_align = Alignment.fromNonzeroByteUnits(abi_alignment);
             return .{
-                .@"align" = std.math.log2_int(u32, actual_align),
-                .abi = std.math.log2_int(u32, abi_alignment),
+                .@"align" = if (@"align" != .none) @"align" else abi_align,
+                .abi = abi_align,
             };
         }
         pub fn abiAlign(ty: Type, mod: *Module) AlignAs {
@@ -308,8 +307,14 @@ pub const CType = extern union {
             return init(union_payload_align, union_payload_align);
         }
 
-        pub fn getAlign(self: AlignAs) u32 {
-            return @as(u32, 1) << self.@"align";
+        pub fn order(lhs: AlignAs, rhs: AlignAs) std.math.Order {
+            return lhs.@"align".order(rhs.@"align");
+        }
+        pub fn abiOrder(self: AlignAs) std.math.Order {
+            return self.@"align".order(self.abi);
+        }
+        pub fn toByteUnits(self: AlignAs) u64 {
+            return self.@"align".toByteUnitsOptional().?;
         }
     };
 
@@ -324,7 +329,7 @@ pub const CType = extern union {
                 store: *const Set,
 
                 pub fn hash(self: @This(), cty: CType) Map.Hash {
-                    return @truncate(Map.Hash, cty.hash(self.store.*));
+                    return @as(Map.Hash, @truncate(cty.hash(self.store.*)));
                 }
                 pub fn eql(_: @This(), lhs: CType, rhs: CType, _: usize) bool {
                     return lhs.eql(rhs);
@@ -334,7 +339,7 @@ pub const CType = extern union {
             map: Map = .{},
 
             pub fn indexToCType(self: Set, index: Index) CType {
-                if (index < Tag.no_payload_count) return initTag(@intToEnum(Tag, index));
+                if (index < Tag.no_payload_count) return initTag(@as(Tag, @enumFromInt(index)));
                 return self.map.keys()[index - Tag.no_payload_count];
             }
 
@@ -356,7 +361,7 @@ pub const CType = extern union {
                 return if (self.map.getIndexAdapted(
                     ty,
                     TypeAdapter32{ .kind = kind, .lookup = lookup, .convert = &convert },
-                )) |idx| @intCast(Index, Tag.no_payload_count + idx) else null;
+                )) |idx| @as(Index, @intCast(Tag.no_payload_count + idx)) else null;
             }
         };
 
@@ -370,7 +375,7 @@ pub const CType = extern union {
 
             pub fn cTypeToIndex(self: *Promoted, cty: CType) Allocator.Error!Index {
                 const t = cty.tag();
-                if (@enumToInt(t) < Tag.no_payload_count) return @intCast(Index, @enumToInt(t));
+                if (@intFromEnum(t) < Tag.no_payload_count) return @as(Index, @intCast(@intFromEnum(t)));
 
                 const gop = try self.set.map.getOrPutContext(self.gpa(), cty, .{ .store = &self.set });
                 if (!gop.found_existing) gop.key_ptr.* = cty;
@@ -380,7 +385,7 @@ pub const CType = extern union {
                     assert(cty.eql(key.*));
                     assert(cty.hash(self.set) == key.hash(self.set));
                 }
-                return @intCast(Index, Tag.no_payload_count + gop.index);
+                return @as(Index, @intCast(Tag.no_payload_count + gop.index));
             }
 
             pub fn typeToIndex(
@@ -418,7 +423,7 @@ pub const CType = extern union {
                     assert(adapter.eql(ty, cty.*));
                     assert(adapter.hash(ty) == cty.hash(self.set));
                 }
-                return @intCast(Index, Tag.no_payload_count + gop.index);
+                return @as(Index, @intCast(Tag.no_payload_count + gop.index));
             }
         };
 
@@ -537,9 +542,9 @@ pub const CType = extern union {
         };
     }
 
-    pub fn signedness(self: CType) ?std.builtin.Signedness {
+    pub fn signedness(self: CType, target: std.Target) std.builtin.Signedness {
         return switch (self.tag()) {
-            .char => null, // unknown signedness
+            .char => target.charSignedness(),
             .@"signed char",
             .short,
             .int,
@@ -1019,7 +1024,7 @@ pub const CType = extern union {
                 for (lhs_data, rhs_data) |lhs_field, rhs_field| {
                     if (!ctx.eqlIndex(lhs_field.type, rhs_field.type)) return false;
                     if (lhs_field.alignas.@"align" != rhs_field.alignas.@"align") return false;
-                    if (cstr.cmp(lhs_field.name, rhs_field.name) != 0) return false;
+                    if (std.mem.orderZ(u8, lhs_field.name, rhs_field.name) != .eq) return false;
                 }
                 return true;
             },
@@ -1298,7 +1303,7 @@ pub const CType = extern union {
             const slice = self.storage.anon.fields[0..fields_len];
             mem.sort(Field, slice, {}, struct {
                 fn before(_: void, lhs: Field, rhs: Field) bool {
-                    return lhs.alignas.@"align" > rhs.alignas.@"align";
+                    return lhs.alignas.order(rhs.alignas).compare(.gt);
                 }
             }.before);
             return slice;
@@ -1382,7 +1387,7 @@ pub const CType = extern union {
                                 .len = @divExact(abi_size, abi_align),
                                 .elem_type = tagFromIntInfo(.{
                                     .signedness = .unsigned,
-                                    .bits = @intCast(u16, abi_align * 8),
+                                    .bits = @as(u16, @intCast(abi_align * 8)),
                                 }).toIndex(),
                             } } };
                             self.value = .{ .cty = initPayload(&self.storage.seq) };
@@ -1424,7 +1429,7 @@ pub const CType = extern union {
 
                 .Pointer => {
                     const info = ty.ptrInfo(mod);
-                    switch (info.size) {
+                    switch (info.flags.size) {
                         .Slice => {
                             if (switch (kind) {
                                 .forward, .forward_parameter => @as(Index, undefined),
@@ -1454,27 +1459,24 @@ pub const CType = extern union {
                         },
 
                         .One, .Many, .C => {
-                            const t: Tag = switch (info.@"volatile") {
-                                false => switch (info.mutable) {
-                                    true => .pointer,
-                                    false => .pointer_const,
+                            const t: Tag = switch (info.flags.is_volatile) {
+                                false => switch (info.flags.is_const) {
+                                    false => .pointer,
+                                    true => .pointer_const,
                                 },
-                                true => switch (info.mutable) {
-                                    true => .pointer_volatile,
-                                    false => .pointer_const_volatile,
+                                true => switch (info.flags.is_const) {
+                                    false => .pointer_volatile,
+                                    true => .pointer_const_volatile,
                                 },
                             };
 
-                            const pointee_ty = if (info.host_size > 0 and info.vector_index == .none)
-                                try mod.intType(.unsigned, info.host_size * 8)
+                            const pointee_ty = if (info.packed_offset.host_size > 0 and
+                                info.flags.vector_index == .none)
+                                try mod.intType(.unsigned, info.packed_offset.host_size * 8)
                             else
-                                info.pointee_type;
+                                info.child.toType();
 
-                            if (if (info.size == .C and pointee_ty.ip_index == .u8_type)
-                                Tag.char.toIndex()
-                            else
-                                try lookup.typeToIndex(pointee_ty, .forward)) |child_idx|
-                            {
+                            if (try lookup.typeToIndex(pointee_ty, .forward)) |child_idx| {
                                 self.storage = .{ .child = .{
                                     .base = .{ .tag = t },
                                     .data = child_idx,
@@ -1489,7 +1491,7 @@ pub const CType = extern union {
                     if (mod.typeToStruct(ty)) |struct_obj| {
                         try self.initType(struct_obj.backing_int_ty, kind, lookup);
                     } else {
-                        const bits = @intCast(u16, ty.bitSize(mod));
+                        const bits = @as(u16, @intCast(ty.bitSize(mod)));
                         const int_ty = try mod.intType(.unsigned, bits);
                         try self.initType(int_ty, kind, lookup);
                     }
@@ -1586,7 +1588,7 @@ pub const CType = extern union {
                                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 const field_align = AlignAs.fieldAlign(ty, field_i, mod);
-                                if (field_align.@"align" < field_align.abi) {
+                                if (field_align.abiOrder().compare(.lt)) {
                                     is_packed = true;
                                     if (!lookup.isMutable()) break;
                                 }
@@ -1720,6 +1722,7 @@ pub const CType = extern union {
 
                 .Fn => {
                     const info = mod.typeToFunc(ty).?;
+                    const ip = &mod.intern_pool;
                     if (!info.is_generic) {
                         if (lookup.isMutable()) {
                             const param_kind: Kind = switch (kind) {
@@ -1728,7 +1731,7 @@ pub const CType = extern union {
                                 .payload => unreachable,
                             };
                             _ = try lookup.typeToIndex(info.return_type.toType(), param_kind);
-                            for (info.param_types) |param_type| {
+                            for (info.param_types.get(ip)) |param_type| {
                                 if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
                                 _ = try lookup.typeToIndex(param_type.toType(), param_kind);
                             }
@@ -2012,6 +2015,7 @@ pub const CType = extern union {
                 .function,
                 .varargs_function,
                 => {
+                    const ip = &mod.intern_pool;
                     const info = mod.typeToFunc(ty).?;
                     assert(!info.is_generic);
                     const param_kind: Kind = switch (kind) {
@@ -2021,14 +2025,14 @@ pub const CType = extern union {
                     };
 
                     var c_params_len: usize = 0;
-                    for (info.param_types) |param_type| {
+                    for (info.param_types.get(ip)) |param_type| {
                         if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
                         c_params_len += 1;
                     }
 
                     const params_pl = try arena.alloc(Index, c_params_len);
                     var c_param_i: usize = 0;
-                    for (info.param_types) |param_type| {
+                    for (info.param_types.get(ip)) |param_type| {
                         if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
                         params_pl[c_param_i] = store.set.typeToIndex(param_type.toType(), mod, param_kind).?;
                         c_param_i += 1;
@@ -2145,6 +2149,7 @@ pub const CType = extern union {
                         => {
                             if (ty.zigTypeTag(mod) != .Fn) return false;
 
+                            const ip = &mod.intern_pool;
                             const info = mod.typeToFunc(ty).?;
                             assert(!info.is_generic);
                             const data = cty.cast(Payload.Function).?.data;
@@ -2158,7 +2163,7 @@ pub const CType = extern union {
                                 return false;
 
                             var c_param_i: usize = 0;
-                            for (info.param_types) |param_type| {
+                            for (info.param_types.get(ip)) |param_type| {
                                 if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 if (c_param_i >= data.param_types.len) return false;
@@ -2200,6 +2205,7 @@ pub const CType = extern union {
                     autoHash(hasher, t);
 
                     const mod = self.lookup.getModule();
+                    const ip = &mod.intern_pool;
                     switch (t) {
                         .fwd_anon_struct,
                         .fwd_anon_union,
@@ -2268,7 +2274,7 @@ pub const CType = extern union {
                             };
 
                             self.updateHasherRecurse(hasher, info.return_type.toType(), param_kind);
-                            for (info.param_types) |param_type| {
+                            for (info.param_types.get(ip)) |param_type| {
                                 if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
                                 self.updateHasherRecurse(hasher, param_type.toType(), param_kind);
                             }
@@ -2296,7 +2302,7 @@ pub const CType = extern union {
         }
 
         pub fn hash(self: @This(), ty: Type) u32 {
-            return @truncate(u32, self.to64().hash(ty));
+            return @as(u32, @truncate(self.to64().hash(ty)));
         }
     };
 };

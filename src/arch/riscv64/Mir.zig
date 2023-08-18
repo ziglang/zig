@@ -135,7 +135,7 @@ pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => mir.extra[i],
-            i32 => @bitCast(i32, mir.extra[i]),
+            i32 => @as(i32, @bitCast(mir.extra[i])),
             else => @compileError("bad field type"),
         };
         i += 1;

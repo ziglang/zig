@@ -18,17 +18,17 @@ pub fn next_f64(random: Random, comptime tables: ZigTable) f64 {
         // We manually construct a float from parts as we can avoid an extra random lookup here by
         // using the unused exponent for the lookup table entry.
         const bits = random.int(u64);
-        const i = @as(usize, @truncate(u8, bits));
+        const i = @as(usize, @as(u8, @truncate(bits)));
 
         const u = blk: {
             if (tables.is_symmetric) {
                 // Generate a value in the range [2, 4) and scale into [-1, 1)
                 const repr = ((0x3ff + 1) << 52) | (bits >> 12);
-                break :blk @bitCast(f64, repr) - 3.0;
+                break :blk @as(f64, @bitCast(repr)) - 3.0;
             } else {
                 // Generate a value in the range [1, 2) and scale into (0, 1)
                 const repr = (0x3ff << 52) | (bits >> 12);
-                break :blk @bitCast(f64, repr) - (1.0 - math.floatEps(f64) / 2.0);
+                break :blk @as(f64, @bitCast(repr)) - (1.0 - math.floatEps(f64) / 2.0);
             }
         };
 

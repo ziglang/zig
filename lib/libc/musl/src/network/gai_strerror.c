@@ -6,7 +6,7 @@ static const char msgs[] =
 	"Name does not resolve\0"
 	"Try again\0"
 	"Non-recoverable error\0"
-	"Unknown error\0"
+	"Name has no usable address\0"
 	"Unrecognized address family or invalid length\0"
 	"Unrecognized socket type\0"
 	"Unrecognized service\0"

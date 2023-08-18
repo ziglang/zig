@@ -170,14 +170,14 @@ test "array with sentinels" {
             {
                 var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
                 try expect(zero_sized[0] == 0xde);
-                var reinterpreted = @ptrCast(*[1]u8, &zero_sized);
+                var reinterpreted = @as(*[1]u8, @ptrCast(&zero_sized));
                 try expect(reinterpreted[0] == 0xde);
             }
             var arr: [3:0x55]u8 = undefined;
             // Make sure the sentinel pointer is pointing after the last element.
             if (!is_ct) {
-                const sentinel_ptr = @ptrToInt(&arr[3]);
-                const last_elem_ptr = @ptrToInt(&arr[2]);
+                const sentinel_ptr = @intFromPtr(&arr[3]);
+                const last_elem_ptr = @intFromPtr(&arr[2]);
                 try expect((sentinel_ptr - last_elem_ptr) == 1);
             }
             // Make sure the sentinel is writeable.
@@ -694,7 +694,7 @@ test "array init of container level array variable" {
 test "runtime initialized sentinel-terminated array literal" {
     var c: u16 = 300;
     const f = &[_:0x9999]u16{c};
-    const g = @ptrCast(*const [4]u8, f);
+    const g = @as(*const [4]u8, @ptrCast(f));
     try std.testing.expect(g[2] == 0x99);
     try std.testing.expect(g[3] == 0x99);
 }
@@ -718,4 +718,84 @@ test "pointer to array has ptr field" {
     try std.testing.expect(arr.ptr[2] == 30);
     try std.testing.expect(arr.ptr[3] == 40);
     try std.testing.expect(arr.ptr[4] == 50);
+}
+
+test "discarded array init preserves result location" {
+    const S = struct {
+        fn f(p: *u32) u16 {
+            p.* += 1;
+            return 0;
+        }
+    };
+
+    var x: u32 = 0;
+    _ = [2]u8{
+        @intCast(S.f(&x)),
+        @intCast(S.f(&x)),
+    };
+
+    // Ensure function was run
+    try expect(x == 2);
+}
+
+test "array init with no result location has result type" {
+    const x = .{ .foo = [2]u16{
+        @intCast(10),
+        @intCast(20),
+    } };
+
+    try expect(x.foo.len == 2);
+    try expect(x.foo[0] == 10);
+    try expect(x.foo[1] == 20);
+}
+
+test "slicing array of zero-sized values" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var arr: [32]u0 = undefined;
+    for (arr[0..]) |*zero|
+        zero.* = 0;
+    for (arr[0..]) |zero|
+        try expect(zero == 0);
+}
+
+test "array init with no result pointer sets field result types" {
+    const S = struct {
+        // A function parameter has a result type, but no result pointer.
+        fn f(arr: [1]u32) u32 {
+            return arr[0];
+        }
+    };
+
+    const x: u64 = 123;
+    const y = S.f(.{@intCast(x)});
+
+    try expect(y == x);
+}
+
+test "runtime side-effects in comptime-known array init" {
+    var side_effects: u4 = 0;
+    const init = [4]u4{
+        blk: {
+            side_effects += 1;
+            break :blk 1;
+        },
+        blk: {
+            side_effects += 2;
+            break :blk 2;
+        },
+        blk: {
+            side_effects += 4;
+            break :blk 4;
+        },
+        blk: {
+            side_effects += 8;
+            break :blk 8;
+        },
+    };
+    try expectEqual([4]u4{ 1, 2, 4, 8 }, init);
+    try expectEqual(@as(u4, std.math.maxInt(u4)), side_effects);
 }

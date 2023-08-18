@@ -51,18 +51,16 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         }
 
         fn siftUp(self: *Self, start_index: usize) void {
+            const child = self.items[start_index];
             var child_index = start_index;
             while (child_index > 0) {
-                var parent_index = ((child_index - 1) >> 1);
-                const child = self.items[child_index];
+                const parent_index = ((child_index - 1) >> 1);
                 const parent = self.items[parent_index];
-
                 if (compareFn(self.context, child, parent) != .lt) break;
-
-                self.items[parent_index] = child;
                 self.items[child_index] = parent;
                 child_index = parent_index;
             }
+            self.items[child_index] = child;
         }
 
         /// Add each element in `items` to the queue.
@@ -128,61 +126,43 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             return self.items.len;
         }
 
-        fn siftDown(self: *Self, start_index: usize) void {
-            var index = start_index;
-            const half = self.len >> 1;
+        fn siftDown(self: *Self, target_index: usize) void {
+            const target_element = self.items[target_index];
+            var index = target_index;
             while (true) {
-                var left_index = (index << 1) + 1;
-                var right_index = left_index + 1;
-                var left = if (left_index < self.len) self.items[left_index] else null;
-                var right = if (right_index < self.len) self.items[right_index] else null;
+                var lesser_child_i = (std.math.mul(usize, index, 2) catch break) | 1;
+                if (!(lesser_child_i < self.len)) break;
 
-                var smallest_index = index;
-                var smallest = self.items[index];
-
-                if (left) |e| {
-                    if (compareFn(self.context, e, smallest) == .lt) {
-                        smallest_index = left_index;
-                        smallest = e;
-                    }
+                const next_child_i = lesser_child_i + 1;
+                if (next_child_i < self.len and compareFn(self.context, self.items[next_child_i], self.items[lesser_child_i]) == .lt) {
+                    lesser_child_i = next_child_i;
                 }
 
-                if (right) |e| {
-                    if (compareFn(self.context, e, smallest) == .lt) {
-                        smallest_index = right_index;
-                        smallest = e;
-                    }
-                }
+                if (compareFn(self.context, target_element, self.items[lesser_child_i]) == .lt) break;
 
-                if (smallest_index == index) return;
-
-                self.items[smallest_index] = self.items[index];
-                self.items[index] = smallest;
-                index = smallest_index;
-
-                if (index >= half) return;
+                self.items[index] = self.items[lesser_child_i];
+                index = lesser_child_i;
             }
+            self.items[index] = target_element;
         }
 
         /// PriorityQueue takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit`.
         pub fn fromOwnedSlice(allocator: Allocator, items: []T, context: Context) Self {
-            var queue = Self{
+            var self = Self{
                 .items = items,
                 .len = items.len,
                 .allocator = allocator,
                 .context = context,
             };
 
-            if (queue.len <= 1) return queue;
-
-            const half = (queue.len >> 1) - 1;
-            var i: usize = 0;
-            while (i <= half) : (i += 1) {
-                queue.siftDown(half - i);
+            var i = self.len >> 1;
+            while (i > 0) {
+                i -= 1;
+                self.siftDown(i);
             }
-            return queue;
+            return self;
         }
 
         /// Ensure that the queue can fit at least `new_capacity` items.

@@ -95,7 +95,7 @@ int prlimit(pid_t, int, const struct rlimit *, struct rlimit *);
 
 #define RLIM_NLIMITS RLIMIT_NLIMITS
 
-#if defined(_LARGEFILE64_SOURCE) || defined(_GNU_SOURCE)
+#if defined(_LARGEFILE64_SOURCE)
 #define RLIM64_INFINITY RLIM_INFINITY
 #define RLIM64_SAVED_CUR RLIM_SAVED_CUR
 #define RLIM64_SAVED_MAX RLIM_SAVED_MAX

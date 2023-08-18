@@ -332,13 +332,13 @@ test "Random float chi-square goodness of fit" {
     while (i < num_numbers) : (i += 1) {
         const rand_f32 = random.float(f32);
         const rand_f64 = random.float(f64);
-        var f32_put = try f32_hist.getOrPut(@floatToInt(u32, rand_f32 * @intToFloat(f32, num_buckets)));
+        var f32_put = try f32_hist.getOrPut(@as(u32, @intFromFloat(rand_f32 * @as(f32, @floatFromInt(num_buckets)))));
         if (f32_put.found_existing) {
             f32_put.value_ptr.* += 1;
         } else {
             f32_put.value_ptr.* = 1;
         }
-        var f64_put = try f64_hist.getOrPut(@floatToInt(u32, rand_f64 * @intToFloat(f64, num_buckets)));
+        var f64_put = try f64_hist.getOrPut(@as(u32, @intFromFloat(rand_f64 * @as(f64, @floatFromInt(num_buckets)))));
         if (f64_put.found_existing) {
             f64_put.value_ptr.* += 1;
         } else {
@@ -352,8 +352,8 @@ test "Random float chi-square goodness of fit" {
     {
         var j: u32 = 0;
         while (j < num_buckets) : (j += 1) {
-            const count = @intToFloat(f64, (if (f32_hist.get(j)) |v| v else 0));
-            const expected = @intToFloat(f64, num_numbers) / @intToFloat(f64, num_buckets);
+            const count = @as(f64, @floatFromInt((if (f32_hist.get(j)) |v| v else 0)));
+            const expected = @as(f64, @floatFromInt(num_numbers)) / @as(f64, @floatFromInt(num_buckets));
             const delta = count - expected;
             const variance = (delta * delta) / expected;
             f32_total_variance += variance;
@@ -363,8 +363,8 @@ test "Random float chi-square goodness of fit" {
     {
         var j: u64 = 0;
         while (j < num_buckets) : (j += 1) {
-            const count = @intToFloat(f64, (if (f64_hist.get(j)) |v| v else 0));
-            const expected = @intToFloat(f64, num_numbers) / @intToFloat(f64, num_buckets);
+            const count = @as(f64, @floatFromInt((if (f64_hist.get(j)) |v| v else 0)));
+            const expected = @as(f64, @floatFromInt(num_numbers)) / @as(f64, @floatFromInt(num_buckets));
             const delta = count - expected;
             const variance = (delta * delta) / expected;
             f64_total_variance += variance;
@@ -421,13 +421,13 @@ fn testRange(r: Random, start: i8, end: i8) !void {
     try testRangeBias(r, start, end, false);
 }
 fn testRangeBias(r: Random, start: i8, end: i8, biased: bool) !void {
-    const count = @intCast(usize, @as(i32, end) - @as(i32, start));
+    const count = @as(usize, @intCast(@as(i32, end) - @as(i32, start)));
     var values_buffer = [_]bool{false} ** 0x100;
     const values = values_buffer[0..count];
     var i: usize = 0;
     while (i < count) {
         const value: i32 = if (biased) r.intRangeLessThanBiased(i8, start, end) else r.intRangeLessThan(i8, start, end);
-        const index = @intCast(usize, value - start);
+        const index = @as(usize, @intCast(value - start));
         if (!values[index]) {
             i += 1;
             values[index] = true;

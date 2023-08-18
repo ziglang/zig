@@ -246,7 +246,7 @@ pub fn Reader(
 
         /// Same as `readByte` except the returned byte is signed.
         pub fn readByteSigned(self: Self) (Error || error{EndOfStream})!i8 {
-            return @bitCast(i8, try self.readByte());
+            return @as(i8, @bitCast(try self.readByte()));
         }
 
         /// Reads exactly `num_bytes` bytes and returns as an array.
@@ -257,17 +257,23 @@ pub fn Reader(
             return bytes;
         }
 
-        /// Reads bytes into the bounded array, until
-        /// the bounded array is full, or the stream ends.
+        /// Reads bytes until `bounded.len` is equal to `num_bytes`,
+        /// or the stream ends.
+        ///
+        /// * it is assumed that `num_bytes` will not exceed `bounded.capacity()`
         pub fn readIntoBoundedBytes(
             self: Self,
             comptime num_bytes: usize,
             bounded: *std.BoundedArray(u8, num_bytes),
         ) Error!void {
             while (bounded.len < num_bytes) {
+                // get at most the number of bytes free in the bounded array
                 const bytes_read = try self.read(bounded.unusedCapacitySlice());
                 if (bytes_read == 0) return;
-                bounded.len += bytes_read;
+
+                // bytes_read will never be larger than @TypeOf(bounded.len)
+                // due to `self.read` being bounded by `bounded.unusedCapacitySlice()`
+                bounded.len += @as(@TypeOf(bounded.len), @intCast(bytes_read));
             }
         }
 
@@ -280,28 +286,28 @@ pub fn Reader(
 
         /// Reads a native-endian integer
         pub fn readIntNative(self: Self, comptime T: type) (Error || error{EndOfStream})!T {
-            const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
+            const bytes = try self.readBytesNoEof(@as(u16, @intCast((@as(u17, @typeInfo(T).Int.bits) + 7) / 8)));
             return mem.readIntNative(T, &bytes);
         }
 
         /// Reads a foreign-endian integer
         pub fn readIntForeign(self: Self, comptime T: type) (Error || error{EndOfStream})!T {
-            const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
+            const bytes = try self.readBytesNoEof(@as(u16, @intCast((@as(u17, @typeInfo(T).Int.bits) + 7) / 8)));
             return mem.readIntForeign(T, &bytes);
         }
 
         pub fn readIntLittle(self: Self, comptime T: type) !T {
-            const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
+            const bytes = try self.readBytesNoEof(@as(u16, @intCast((@as(u17, @typeInfo(T).Int.bits) + 7) / 8)));
             return mem.readIntLittle(T, &bytes);
         }
 
         pub fn readIntBig(self: Self, comptime T: type) !T {
-            const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
+            const bytes = try self.readBytesNoEof(@as(u16, @intCast((@as(u17, @typeInfo(T).Int.bits) + 7) / 8)));
             return mem.readIntBig(T, &bytes);
         }
 
         pub fn readInt(self: Self, comptime T: type, endian: std.builtin.Endian) !T {
-            const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
+            const bytes = try self.readBytesNoEof(@as(u16, @intCast((@as(u17, @typeInfo(T).Int.bits) + 7) / 8)));
             return mem.readInt(T, &bytes, endian);
         }
 
@@ -325,7 +331,7 @@ pub fn Reader(
             var remaining = num_bytes;
 
             while (remaining > 0) {
-                const amt = std.math.min(remaining, options.buf_size);
+                const amt = @min(remaining, options.buf_size);
                 try self.readNoEof(buf[0..amt]);
                 remaining -= amt;
             }
@@ -727,4 +733,25 @@ test "Reader.streamUntilDelimiter writes all bytes without delimiter to the outp
     output_fbs.reset();
 
     try std.testing.expectError(error.StreamTooLong, reader.streamUntilDelimiter(writer, '!', 5));
+}
+
+test "Reader.readBoundedBytes correctly reads into a new bounded array" {
+    const test_string = "abcdefg";
+    var fis = std.io.fixedBufferStream(test_string);
+    const reader = fis.reader();
+
+    var array = try reader.readBoundedBytes(10000);
+    try testing.expectEqualStrings(array.slice(), test_string);
+}
+
+test "Reader.readIntoBoundedBytes correctly reads into a provided bounded array" {
+    const test_string = "abcdefg";
+    var fis = std.io.fixedBufferStream(test_string);
+    const reader = fis.reader();
+
+    var bounded_array = std.BoundedArray(u8, 10000){};
+
+    // compile time error if the size is not the same at the provided `bounded.capacity()`
+    try reader.readIntoBoundedBytes(10000, &bounded_array);
+    try testing.expectEqualStrings(bounded_array.slice(), test_string);
 }

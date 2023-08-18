@@ -20,8 +20,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
-    exe.addCSourceFile("empty.c", &[0][]const u8{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
+    exe.addCSourceFile(.{ .file = .{ .path = "empty.c" }, .flags = &[0][]const u8{} });
     exe.linkLibC();
 
     const run_cmd = b.addRunArtifact(exe);

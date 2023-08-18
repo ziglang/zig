@@ -9,12 +9,14 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const fat = @import("fat.zig");
+const tapi = @import("../tapi.zig");
 
 const Allocator = mem.Allocator;
 const CrossTarget = std.zig.CrossTarget;
-const LibStub = @import("../tapi.zig").LibStub;
+const LibStub = tapi.LibStub;
 const LoadCommandIterator = macho.LoadCommandIterator;
 const MachO = @import("../MachO.zig");
+const Tbd = tapi.Tbd;
 
 id: ?Id = null,
 weak: bool = false,
@@ -75,7 +77,7 @@ pub const Id = struct {
                 .int => |int| {
                     var out: u32 = 0;
                     const major = math.cast(u16, int) orelse return error.Overflow;
-                    out += @intCast(u32, major) << 16;
+                    out += @as(u32, @intCast(major)) << 16;
                     return out;
                 },
                 .float => |float| {
@@ -106,9 +108,9 @@ pub const Id = struct {
             out += try fmt.parseInt(u8, values[2], 10);
         }
         if (count > 1) {
-            out += @intCast(u32, try fmt.parseInt(u8, values[1], 10)) << 8;
+            out += @as(u32, @intCast(try fmt.parseInt(u8, values[1], 10))) << 8;
         }
-        out += @intCast(u32, try fmt.parseInt(u16, values[0], 10)) << 16;
+        out += @as(u32, @intCast(try fmt.parseInt(u16, values[0], 10))) << 16;
 
         return out;
     }
@@ -164,11 +166,11 @@ pub fn parseFromBinary(
         switch (cmd.cmd()) {
             .SYMTAB => {
                 const symtab_cmd = cmd.cast(macho.symtab_command).?;
-                const symtab = @ptrCast(
+                const symtab = @as(
                     [*]const macho.nlist_64,
                     // Alignment is guaranteed as a dylib is a final linked image and has to have sections
                     // properly aligned in order to be correctly loaded by the loader.
-                    @alignCast(@alignOf(macho.nlist_64), &data[symtab_cmd.symoff]),
+                    @ptrCast(@alignCast(&data[symtab_cmd.symoff])),
                 )[0..symtab_cmd.nsyms];
                 const strtab = data[symtab_cmd.stroff..][0..symtab_cmd.strsize];
 
@@ -176,7 +178,7 @@ pub fn parseFromBinary(
                     const add_to_symtab = sym.ext() and (sym.sect() or sym.indr());
                     if (!add_to_symtab) continue;
 
-                    const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
+                    const sym_name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + sym.n_strx)), 0);
                     try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), false);
                 }
             },
@@ -247,7 +249,8 @@ const TargetMatcher = struct {
             .allocator = allocator,
             .target = target,
         };
-        try self.target_strings.append(allocator, try targetToAppleString(allocator, target));
+        const apple_string = try targetToAppleString(allocator, target);
+        try self.target_strings.append(allocator, apple_string);
 
         const abi = target.abi orelse .none;
         if (abi == .simulator) {
@@ -270,22 +273,29 @@ const TargetMatcher = struct {
         self.target_strings.deinit(self.allocator);
     }
 
-    fn targetToAppleString(allocator: Allocator, target: CrossTarget) ![]const u8 {
-        const cpu_arch = switch (target.cpu_arch.?) {
+    inline fn cpuArchToAppleString(cpu_arch: std.Target.Cpu.Arch) []const u8 {
+        return switch (cpu_arch) {
             .aarch64 => "arm64",
             .x86_64 => "x86_64",
             else => unreachable,
         };
-        const os_tag = @tagName(target.os_tag.?);
-        const target_abi = target.abi orelse .none;
-        const abi: ?[]const u8 = switch (target_abi) {
+    }
+
+    inline fn abiToAppleString(abi: std.Target.Abi) ?[]const u8 {
+        return switch (abi) {
             .none => null,
             .simulator => "simulator",
             .macabi => "maccatalyst",
             else => unreachable,
         };
-        if (abi) |x| {
-            return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ cpu_arch, os_tag, x });
+    }
+
+    fn targetToAppleString(allocator: Allocator, target: CrossTarget) ![]const u8 {
+        const cpu_arch = cpuArchToAppleString(target.cpu_arch.?);
+        const os_tag = @tagName(target.os_tag.?);
+        const target_abi = abiToAppleString(target.abi orelse .none);
+        if (target_abi) |abi| {
+            return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ cpu_arch, os_tag, abi });
         }
         return std.fmt.allocPrint(allocator, "{s}-{s}", .{ cpu_arch, os_tag });
     }
@@ -305,7 +315,26 @@ const TargetMatcher = struct {
     }
 
     fn matchesArch(self: TargetMatcher, archs: []const []const u8) bool {
-        return hasValue(archs, @tagName(self.target.cpu_arch.?));
+        return hasValue(archs, cpuArchToAppleString(self.target.cpu_arch.?));
+    }
+
+    fn matchesTargetTbd(self: TargetMatcher, tbd: Tbd) !bool {
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+
+        const targets = switch (tbd) {
+            .v3 => |v3| blk: {
+                var targets = std.ArrayList([]const u8).init(arena.allocator());
+                for (v3.archs) |arch| {
+                    const target = try std.fmt.allocPrint(arena.allocator(), "{s}-{s}", .{ arch, v3.platform });
+                    try targets.append(target);
+                }
+                break :blk targets.items;
+            },
+            .v4 => |v4| v4.targets,
+        };
+
+        return self.matchesTarget(targets);
     }
 };
 
@@ -348,11 +377,7 @@ pub fn parseFromStub(
     defer matcher.deinit();
 
     for (lib_stub.inner, 0..) |elem, stub_index| {
-        const is_match = switch (elem) {
-            .v3 => |stub| matcher.matchesArch(stub.archs),
-            .v4 => |stub| matcher.matchesTarget(stub.targets),
-        };
-        if (!is_match) continue;
+        if (!(try matcher.matchesTargetTbd(elem))) continue;
 
         if (stub_index > 0) {
             // TODO I thought that we could switch on presence of `parent-umbrella` map;

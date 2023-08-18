@@ -8,7 +8,7 @@ export fn entry() void {
         .child = u8,
         .is_allowzero = false,
         .sentinel = &@as(u8, 0),
-    }});
+    } });
 }
 
 // error

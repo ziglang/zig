@@ -20,7 +20,7 @@ pub fn __udivmodti4(a: u128, b: u128, maybe_rem: ?*u128) callconv(.C) u128 {
 const v2u64 = @Vector(2, u64);
 
 fn __udivmodti4_windows_x86_64(a: v2u64, b: v2u64, maybe_rem: ?*u128) callconv(.C) v2u64 {
-    return @bitCast(v2u64, udivmod(u128, @bitCast(u128, a), @bitCast(u128, b), maybe_rem));
+    return @as(v2u64, @bitCast(udivmod(u128, @as(u128, @bitCast(a)), @as(u128, @bitCast(b)), maybe_rem)));
 }
 
 test {

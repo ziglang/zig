@@ -82,8 +82,8 @@ pub const HeadersParser = struct {
     /// If the amount returned is less than `bytes.len`, you may assume that the parser is in a content state and the
     /// first byte of content is located at `bytes[result]`.
     pub fn findHeadersEnd(r: *HeadersParser, bytes: []const u8) u32 {
-        const vector_len: comptime_int = comptime std.math.max(std.simd.suggestVectorSize(u8) orelse 1, 8);
-        const len = @intCast(u32, bytes.len);
+        const vector_len: comptime_int = comptime @max(std.simd.suggestVectorSize(u8) orelse 1, 8);
+        const len = @as(u32, @intCast(bytes.len));
         var index: u32 = 0;
 
         while (true) {
@@ -182,8 +182,8 @@ pub const HeadersParser = struct {
 
                         const chunk = bytes[index..][0..vector_len];
                         const v: Vector = chunk.*;
-                        const matches_r = @bitCast(BitVector, v == @splat(vector_len, @as(u8, '\r')));
-                        const matches_n = @bitCast(BitVector, v == @splat(vector_len, @as(u8, '\n')));
+                        const matches_r = @as(BitVector, @bitCast(v == @as(Vector, @splat('\r'))));
+                        const matches_n = @as(BitVector, @bitCast(v == @as(Vector, @splat('\n'))));
                         const matches_or: SizeVector = matches_r | matches_n;
 
                         const matches = @reduce(.Add, matches_or);
@@ -234,7 +234,7 @@ pub const HeadersParser = struct {
                             },
                             4...vector_len => {
                                 inline for (0..vector_len - 3) |i_usize| {
-                                    const i = @truncate(u32, i_usize);
+                                    const i = @as(u32, @truncate(i_usize));
 
                                     const b32 = int32(chunk[i..][0..4]);
                                     const b16 = intShift(u16, b32);
@@ -405,10 +405,10 @@ pub const HeadersParser = struct {
     /// If the amount returned is less than `bytes.len`, you may assume that the parser is in the `chunk_data` state
     /// and that the first byte of the chunk is at `bytes[result]`.
     pub fn findChunkedLen(r: *HeadersParser, bytes: []const u8) u32 {
-        const len = @intCast(u32, bytes.len);
+        const len = @as(u32, @intCast(bytes.len));
 
         for (bytes[0..], 0..) |c, i| {
-            const index = @intCast(u32, i);
+            const index = @as(u32, @intCast(i));
             switch (r.state) {
                 .chunk_data_suffix => switch (c) {
                     '\r' => r.state = .chunk_data_suffix_r,
@@ -529,7 +529,7 @@ pub const HeadersParser = struct {
                         try conn.fill();
 
                         const nread = @min(conn.peek().len, data_avail);
-                        conn.drop(@intCast(u16, nread));
+                        conn.drop(@as(u16, @intCast(nread)));
                         r.next_chunk_length -= nread;
 
                         if (r.next_chunk_length == 0) r.done = true;
@@ -538,7 +538,7 @@ pub const HeadersParser = struct {
                     } else {
                         const out_avail = buffer.len;
 
-                        const can_read = @intCast(usize, @min(data_avail, out_avail));
+                        const can_read = @as(usize, @intCast(@min(data_avail, out_avail)));
                         const nread = try conn.read(buffer[0..can_read]);
                         r.next_chunk_length -= nread;
 
@@ -551,7 +551,7 @@ pub const HeadersParser = struct {
                     try conn.fill();
 
                     const i = r.findChunkedLen(conn.peek());
-                    conn.drop(@intCast(u16, i));
+                    conn.drop(@as(u16, @intCast(i)));
 
                     switch (r.state) {
                         .invalid => return error.HttpChunkInvalid,
@@ -579,10 +579,10 @@ pub const HeadersParser = struct {
                         try conn.fill();
 
                         const nread = @min(conn.peek().len, data_avail);
-                        conn.drop(@intCast(u16, nread));
+                        conn.drop(@as(u16, @intCast(nread)));
                         r.next_chunk_length -= nread;
-                    } else {
-                        const can_read = @intCast(usize, @min(data_avail, out_avail));
+                    } else if (out_avail > 0) {
+                        const can_read: usize = @intCast(@min(data_avail, out_avail));
                         const nread = try conn.read(buffer[out_index..][0..can_read]);
                         r.next_chunk_length -= nread;
                         out_index += nread;
@@ -601,21 +601,21 @@ pub const HeadersParser = struct {
 };
 
 inline fn int16(array: *const [2]u8) u16 {
-    return @bitCast(u16, array.*);
+    return @as(u16, @bitCast(array.*));
 }
 
 inline fn int24(array: *const [3]u8) u24 {
-    return @bitCast(u24, array.*);
+    return @as(u24, @bitCast(array.*));
 }
 
 inline fn int32(array: *const [4]u8) u32 {
-    return @bitCast(u32, array.*);
+    return @as(u32, @bitCast(array.*));
 }
 
 inline fn intShift(comptime T: type, x: anytype) T {
     switch (@import("builtin").cpu.arch.endian()) {
-        .Little => return @truncate(T, x >> (@bitSizeOf(@TypeOf(x)) - @bitSizeOf(T))),
-        .Big => return @truncate(T, x),
+        .Little => return @as(T, @truncate(x >> (@bitSizeOf(@TypeOf(x)) - @bitSizeOf(T)))),
+        .Big => return @as(T, @truncate(x)),
     }
 }
 
@@ -634,7 +634,7 @@ const MockBufferedConnection = struct {
         const nread = try conn.conn.read(conn.buf[0..]);
         if (nread == 0) return error.EndOfStream;
         conn.start = 0;
-        conn.end = @truncate(u16, nread);
+        conn.end = @as(u16, @truncate(nread));
     }
 
     pub fn peek(conn: *MockBufferedConnection) []const u8 {
@@ -652,7 +652,7 @@ const MockBufferedConnection = struct {
             const left = buffer.len - out_index;
 
             if (available > 0) {
-                const can_read = @truncate(u16, @min(available, left));
+                const can_read = @as(u16, @truncate(@min(available, left)));
 
                 @memcpy(buffer[out_index..][0..can_read], conn.buf[conn.start..][0..can_read]);
                 out_index += can_read;
@@ -705,8 +705,8 @@ test "HeadersParser.findHeadersEnd" {
 
     for (0..36) |i| {
         r = HeadersParser.initDynamic(0);
-        try std.testing.expectEqual(@intCast(u32, i), r.findHeadersEnd(data[0..i]));
-        try std.testing.expectEqual(@intCast(u32, 35 - i), r.findHeadersEnd(data[i..]));
+        try std.testing.expectEqual(@as(u32, @intCast(i)), r.findHeadersEnd(data[0..i]));
+        try std.testing.expectEqual(@as(u32, @intCast(35 - i)), r.findHeadersEnd(data[i..]));
     }
 }
 
@@ -761,7 +761,7 @@ test "HeadersParser.read length" {
         try conn.fill();
 
         const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
-        conn.drop(@intCast(u16, nchecked));
+        conn.drop(@as(u16, @intCast(nchecked)));
 
         if (r.state.isContent()) break;
     }
@@ -792,7 +792,7 @@ test "HeadersParser.read chunked" {
         try conn.fill();
 
         const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
-        conn.drop(@intCast(u16, nchecked));
+        conn.drop(@as(u16, @intCast(nchecked)));
 
         if (r.state.isContent()) break;
     }
@@ -822,7 +822,7 @@ test "HeadersParser.read chunked trailer" {
         try conn.fill();
 
         const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
-        conn.drop(@intCast(u16, nchecked));
+        conn.drop(@as(u16, @intCast(nchecked)));
 
         if (r.state.isContent()) break;
     }
@@ -837,7 +837,7 @@ test "HeadersParser.read chunked trailer" {
         try conn.fill();
 
         const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
-        conn.drop(@intCast(u16, nchecked));
+        conn.drop(@as(u16, @intCast(nchecked)));
 
         if (r.state.isContent()) break;
     }

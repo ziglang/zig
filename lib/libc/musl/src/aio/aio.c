@@ -82,6 +82,8 @@ static size_t io_thread_stack_size;
 
 static struct aio_queue *__aio_get_queue(int fd, int need)
 {
+	sigset_t allmask, origmask;
+	int masked = 0;
 	if (fd < 0) {
 		errno = EBADF;
 		return 0;
@@ -93,6 +95,9 @@ static struct aio_queue *__aio_get_queue(int fd, int need)
 	if ((!map || !map[a] || !map[a][b] || !map[a][b][c] || !(q=map[a][b][c][d])) && need) {
 		pthread_rwlock_unlock(&maplock);
 		if (fcntl(fd, F_GETFD) < 0) return 0;
+		sigfillset(&allmask);
+		masked = 1;
+		pthread_sigmask(SIG_BLOCK, &allmask, &origmask);
 		pthread_rwlock_wrlock(&maplock);
 		if (!io_thread_stack_size) {
 			unsigned long val = __getauxval(AT_MINSIGSTKSZ);
@@ -119,6 +124,7 @@ static struct aio_queue *__aio_get_queue(int fd, int need)
 	if (q) pthread_mutex_lock(&q->lock);
 out:
 	pthread_rwlock_unlock(&maplock);
+	if (masked) pthread_sigmask(SIG_SETMASK, &origmask, 0);
 	return q;
 }
 
@@ -401,18 +407,26 @@ void __aio_atfork(int who)
 	if (who<0) {
 		pthread_rwlock_rdlock(&maplock);
 		return;
+	} else if (!who) {
+		pthread_rwlock_unlock(&maplock);
+		return;
 	}
-	if (who>0 && map) for (int a=0; a<(-1U/2+1)>>24; a++)
+	aio_fd_cnt = 0;
+	if (pthread_rwlock_tryrdlock(&maplock)) {
+		/* Obtaining lock may fail if _Fork was called nor via
+		 * fork. In this case, no further aio is possible from
+		 * child and we can just null out map so __aio_close
+		 * does not attempt to do anything. */
+		map = 0;
+		return;
+	}
+	if (map) for (int a=0; a<(-1U/2+1)>>24; a++)
 		if (map[a]) for (int b=0; b<256; b++)
 			if (map[a][b]) for (int c=0; c<256; c++)
 				if (map[a][b][c]) for (int d=0; d<256; d++)
 					map[a][b][c][d] = 0;
-	pthread_rwlock_unlock(&maplock);
+	/* Re-initialize the rwlock rather than unlocking since there
+	 * may have been more than one reference on it in the parent.
+	 * We are not a lock holder anyway; the thread in the parent was. */
+	pthread_rwlock_init(&maplock, 0);
 }
-
-weak_alias(aio_cancel, aio_cancel64);
-weak_alias(aio_error, aio_error64);
-weak_alias(aio_fsync, aio_fsync64);
-weak_alias(aio_read, aio_read64);
-weak_alias(aio_write, aio_write64);
-weak_alias(aio_return, aio_return64);

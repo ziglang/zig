@@ -31,7 +31,7 @@ pub fn deinit(rebase: *Rebase, gpa: Allocator) void {
 }
 
 pub fn size(rebase: Rebase) u64 {
-    return @intCast(u64, rebase.buffer.items.len);
+    return @as(u64, @intCast(rebase.buffer.items.len));
 }
 
 pub fn finalize(rebase: *Rebase, gpa: Allocator) !void {
@@ -145,12 +145,12 @@ fn finalizeSegment(entries: []const Entry, writer: anytype) !void {
 
 fn setTypePointer(writer: anytype) !void {
     log.debug(">>> set type: {d}", .{macho.REBASE_TYPE_POINTER});
-    try writer.writeByte(macho.REBASE_OPCODE_SET_TYPE_IMM | @truncate(u4, macho.REBASE_TYPE_POINTER));
+    try writer.writeByte(macho.REBASE_OPCODE_SET_TYPE_IMM | @as(u4, @truncate(macho.REBASE_TYPE_POINTER)));
 }
 
 fn setSegmentOffset(segment_id: u8, offset: u64, writer: anytype) !void {
     log.debug(">>> set segment: {d} and offset: {x}", .{ segment_id, offset });
-    try writer.writeByte(macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @truncate(u4, segment_id));
+    try writer.writeByte(macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @as(u4, @truncate(segment_id)));
     try std.leb.writeULEB128(writer, offset);
 }
 
@@ -163,7 +163,7 @@ fn rebaseAddAddr(addr: u64, writer: anytype) !void {
 fn rebaseTimes(count: usize, writer: anytype) !void {
     log.debug(">>> rebase with count: {d}", .{count});
     if (count <= 0xf) {
-        try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES | @truncate(u4, count));
+        try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES | @as(u4, @truncate(count)));
     } else {
         try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES);
         try std.leb.writeULEB128(writer, count);
@@ -182,7 +182,7 @@ fn addAddr(addr: u64, writer: anytype) !void {
     if (std.mem.isAlignedGeneric(u64, addr, @sizeOf(u64))) {
         const imm = @divExact(addr, @sizeOf(u64));
         if (imm <= 0xf) {
-            try writer.writeByte(macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED | @truncate(u4, imm));
+            try writer.writeByte(macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED | @as(u4, @truncate(imm)));
             return;
         }
     }

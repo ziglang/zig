@@ -5,7 +5,7 @@ const log = std.log;
 const fs = std.fs;
 const path = fs.path;
 const assert = std.debug.assert;
-const Version = std.builtin.Version;
+const Version = std.SemanticVersion;
 
 const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
@@ -172,7 +172,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
 
     const target = comp.getTarget();
     const target_ver = target.os.version_range.linux.glibc;
-    const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33 }) != .gt;
+    const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33, .patch = 0 }) != .gt;
 
     // In all cases in this function, we add the C compiler flags to
     // cache_exempt_flags rather than extra_flags, because these arguments
@@ -779,13 +779,13 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
             // Test whether the inclusion applies to our current library and target.
             const ok_lib_and_target =
                 (lib_index == lib_i) and
-                ((targets & (@as(u32, 1) << @intCast(u5, target_targ_index))) != 0);
+                ((targets & (@as(u32, 1) << @as(u5, @intCast(target_targ_index)))) != 0);
 
             while (true) {
                 const byte = metadata.inclusions[inc_i];
                 inc_i += 1;
                 const last = (byte & 0b1000_0000) != 0;
-                const ver_i = @truncate(u7, byte);
+                const ver_i = @as(u7, @truncate(byte));
                 if (ok_lib_and_target and ver_i <= target_ver_index) {
                     versions_buffer[versions_len] = ver_i;
                     versions_len += 1;
@@ -913,13 +913,13 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
             // Test whether the inclusion applies to our current library and target.
             const ok_lib_and_target =
                 (lib_index == lib_i) and
-                ((targets & (@as(u32, 1) << @intCast(u5, target_targ_index))) != 0);
+                ((targets & (@as(u32, 1) << @as(u5, @intCast(target_targ_index)))) != 0);
 
             while (true) {
                 const byte = metadata.inclusions[inc_i];
                 inc_i += 1;
                 const last = (byte & 0b1000_0000) != 0;
-                const ver_i = @truncate(u7, byte);
+                const ver_i = @as(u7, @truncate(byte));
                 if (ok_lib_and_target and ver_i <= target_ver_index) {
                     versions_buffer[versions_len] = ver_i;
                     versions_len += 1;

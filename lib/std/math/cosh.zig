@@ -29,9 +29,9 @@ pub fn cosh(x: anytype) @TypeOf(x) {
 //         = 1 + 0.5 * (exp(x) - 1) * (exp(x) - 1) / exp(x)
 //         = 1 + (x * x) / 2 + o(x^4)
 fn cosh32(x: f32) f32 {
-    const u = @bitCast(u32, x);
+    const u = @as(u32, @bitCast(x));
     const ux = u & 0x7FFFFFFF;
-    const ax = @bitCast(f32, ux);
+    const ax = @as(f32, @bitCast(ux));
 
     // |x| < log(2)
     if (ux < 0x3F317217) {
@@ -54,9 +54,9 @@ fn cosh32(x: f32) f32 {
 }
 
 fn cosh64(x: f64) f64 {
-    const u = @bitCast(u64, x);
-    const w = @intCast(u32, u >> 32) & (maxInt(u32) >> 1);
-    const ax = @bitCast(f64, u & (maxInt(u64) >> 1));
+    const u = @as(u64, @bitCast(x));
+    const w = @as(u32, @intCast(u >> 32)) & (maxInt(u32) >> 1);
+    const ax = @as(f64, @bitCast(u & (maxInt(u64) >> 1)));
 
     // TODO: Shouldn't need this explicit check.
     if (x == 0.0) {

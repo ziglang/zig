@@ -1,6 +1,6 @@
 export fn entry1() void {
     const spartan_count: u16 = 300;
-    const byte = @intCast(u8, spartan_count);
+    const byte: u8 = @intCast(spartan_count);
     _ = byte;
 }
 export fn entry2() void {

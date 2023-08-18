@@ -3,8 +3,8 @@ const Moo = enum(u8) {
     Over,
 };
 pub export fn entry() void {
-  var y = Moo.Last;
-  _ = y;
+    var y = Moo.Last;
+    _ = y;
 }
 
 // error

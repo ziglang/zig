@@ -293,7 +293,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
                     return self.fail(0, "{} is not a valid bit count for floats (expected 16, 32 or 64)", .{bits});
                 },
             }
-            break :blk try self.spv.resolve(.{ .float_type = .{ .bits = @intCast(u16, bits) } });
+            break :blk try self.spv.resolve(.{ .float_type = .{ .bits = @as(u16, @intCast(bits)) } });
         },
         .OpTypeVector => try self.spv.resolve(.{ .vector_type = .{
             .component_type = try self.resolveTypeRef(operands[1].ref_id),
@@ -306,7 +306,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
         },
         .OpTypePointer => try self.spv.ptrType(
             try self.resolveTypeRef(operands[2].ref_id),
-            @intToEnum(spec.StorageClass, operands[1].value),
+            @as(spec.StorageClass, @enumFromInt(operands[1].value)),
         ),
         .OpTypeFunction => blk: {
             const param_operands = operands[2..];
@@ -340,7 +340,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
         else => switch (self.inst.opcode) {
             .OpEntryPoint => unreachable,
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
-            .OpVariable => switch (@intToEnum(spec.StorageClass, operands[2].value)) {
+            .OpVariable => switch (@as(spec.StorageClass, @enumFromInt(operands[2].value))) {
                 .Function => &self.func.prologue,
                 else => {
                     // This is currently disabled because global variables are required to be
@@ -391,7 +391,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
     }
 
     const actual_word_count = section.instructions.items.len - first_word;
-    section.instructions.items[first_word] |= @as(u32, @intCast(u16, actual_word_count)) << 16 | @enumToInt(self.inst.opcode);
+    section.instructions.items[first_word] |= @as(u32, @as(u16, @intCast(actual_word_count))) << 16 | @intFromEnum(self.inst.opcode);
 
     if (maybe_result_id) |result| {
         return AsmValue{ .value = result };
@@ -458,7 +458,7 @@ fn parseInstruction(self: *Assembler) !void {
         if (!entry.found_existing) {
             entry.value_ptr.* = .just_declared;
         }
-        break :blk @intCast(AsmValue.Ref, entry.index);
+        break :blk @as(AsmValue.Ref, @intCast(entry.index));
     } else null;
 
     const opcode_tok = self.currentToken();
@@ -613,7 +613,7 @@ fn parseRefId(self: *Assembler) !void {
         entry.value_ptr.* = .unresolved_forward_reference;
     }
 
-    const index = @intCast(AsmValue.Ref, entry.index);
+    const index = @as(AsmValue.Ref, @intCast(entry.index));
     try self.inst.operands.append(self.gpa, .{ .ref_id = index });
 }
 
@@ -645,7 +645,7 @@ fn parseString(self: *Assembler) !void {
     else
         text[1..];
 
-    const string_offset = @intCast(u32, self.inst.string_bytes.items.len);
+    const string_offset = @as(u32, @intCast(self.inst.string_bytes.items.len));
     try self.inst.string_bytes.ensureUnusedCapacity(self.gpa, literal.len + 1);
     self.inst.string_bytes.appendSliceAssumeCapacity(literal);
     self.inst.string_bytes.appendAssumeCapacity(0);
@@ -693,18 +693,18 @@ fn parseContextDependentInt(self: *Assembler, signedness: std.builtin.Signedness
         const int = std.fmt.parseInt(i128, text, 0) catch break :invalid;
         const min = switch (signedness) {
             .unsigned => 0,
-            .signed => -(@as(i128, 1) << (@intCast(u7, width) - 1)),
+            .signed => -(@as(i128, 1) << (@as(u7, @intCast(width)) - 1)),
         };
-        const max = (@as(i128, 1) << (@intCast(u7, width) - @boolToInt(signedness == .signed))) - 1;
+        const max = (@as(i128, 1) << (@as(u7, @intCast(width)) - @intFromBool(signedness == .signed))) - 1;
         if (int < min or int > max) {
             break :invalid;
         }
 
         // Note, we store the sign-extended version here.
         if (width <= @bitSizeOf(spec.Word)) {
-            try self.inst.operands.append(self.gpa, .{ .literal32 = @truncate(u32, @bitCast(u128, int)) });
+            try self.inst.operands.append(self.gpa, .{ .literal32 = @as(u32, @truncate(@as(u128, @bitCast(int)))) });
         } else {
-            try self.inst.operands.append(self.gpa, .{ .literal64 = @truncate(u64, @bitCast(u128, int)) });
+            try self.inst.operands.append(self.gpa, .{ .literal64 = @as(u64, @truncate(@as(u128, @bitCast(int)))) });
         }
         return;
     }
@@ -725,7 +725,7 @@ fn parseContextDependentFloat(self: *Assembler, comptime width: u16) !void {
         return self.fail(tok.start, "'{s}' is not a valid {}-bit float literal", .{ text, width });
     };
 
-    const float_bits = @bitCast(Int, value);
+    const float_bits = @as(Int, @bitCast(value));
     if (width <= @bitSizeOf(spec.Word)) {
         try self.inst.operands.append(self.gpa, .{ .literal32 = float_bits });
     } else {

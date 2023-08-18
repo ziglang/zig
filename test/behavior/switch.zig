@@ -590,9 +590,9 @@ test "switch on pointer type" {
             field: u32,
         };
 
-        const P1 = @intToPtr(*X, 0x400);
-        const P2 = @intToPtr(*X, 0x800);
-        const P3 = @intToPtr(*X, 0xC00);
+        const P1 = @as(*X, @ptrFromInt(0x400));
+        const P2 = @as(*X, @ptrFromInt(0x800));
+        const P3 = @as(*X, @ptrFromInt(0xC00));
 
         fn doTheTest(arg: *X) i32 {
             switch (arg) {
@@ -682,9 +682,9 @@ test "enum value without tag name used as switch item" {
         b = 2,
         _,
     };
-    var e: E = @intToEnum(E, 0);
+    var e: E = @as(E, @enumFromInt(0));
     switch (e) {
-        @intToEnum(E, 0) => {},
+        @as(E, @enumFromInt(0)) => {},
         .a => return error.TestFailed,
         .b => return error.TestFailed,
         _ => return error.TestFailed,
@@ -784,4 +784,35 @@ test "switch pointer capture peer type resolution" {
 
     try expectEqual(U{ .a = 111 }, ua);
     try expectEqual(U{ .b = 222 }, ub);
+}
+
+test "inline switch range that includes the maximum value of the switched type" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const inputs: [3]u8 = .{ 0, 254, 255 };
+    for (inputs) |input| {
+        switch (input) {
+            inline 254...255 => |val| try expectEqual(input, val),
+            else => |val| try expectEqual(input, val),
+        }
+    }
+}
+
+test "nested break ignores switch conditions and breaks instead" {
+    const S = struct {
+        fn register_to_address(ident: []const u8) !u8 {
+            const reg: u8 = if (std.mem.eql(u8, ident, "zero")) 0x00 else blk: {
+                break :blk switch (ident[0]) {
+                    0x61 => (try std.fmt.parseInt(u8, ident[1..], 0)) + 1,
+                    0x66 => (try std.fmt.parseInt(u8, ident[1..], 0)) + 1,
+                    else => {
+                        break :blk 0xFF;
+                    },
+                };
+            };
+            return reg;
+        }
+    };
+    // Originally reported at https://github.com/ziglang/zig/issues/10196
+    try expect(0x01 == try S.register_to_address("a0"));
 }

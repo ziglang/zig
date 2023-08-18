@@ -21,7 +21,7 @@ test "tuple declaration type info" {
 
         try expectEqualStrings(info.fields[0].name, "0");
         try expect(info.fields[0].type == u32);
-        try expect(@ptrCast(*const u32, @alignCast(@alignOf(u32), info.fields[0].default_value)).* == 1);
+        try expect(@as(*const u32, @ptrCast(@alignCast(info.fields[0].default_value))).* == 1);
         try expect(info.fields[0].is_comptime);
         try expect(info.fields[0].alignment == 2);
 
@@ -30,27 +30,6 @@ test "tuple declaration type info" {
         try expect(info.fields[1].default_value == null);
         try expect(!info.fields[1].is_comptime);
         try expect(info.fields[1].alignment == @alignOf([]const u8));
-    }
-    {
-        const T = packed struct(u32) { u1, u30, u1 };
-        const info = @typeInfo(T).Struct;
-
-        try expect(std.mem.endsWith(u8, @typeName(T), "test.tuple declaration type info.T"));
-
-        try expect(info.layout == .Packed);
-        try expect(info.backing_integer == u32);
-        try expect(info.fields.len == 3);
-        try expect(info.decls.len == 0);
-        try expect(info.is_tuple);
-
-        try expectEqualStrings(info.fields[0].name, "0");
-        try expect(info.fields[0].type == u1);
-
-        try expectEqualStrings(info.fields[1].name, "1");
-        try expect(info.fields[1].type == u30);
-
-        try expectEqualStrings(info.fields[2].name, "2");
-        try expect(info.fields[2].type == u1);
     }
 }
 

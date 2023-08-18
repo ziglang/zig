@@ -7,8 +7,8 @@ const Set2 = error{
     C,
 };
 comptime {
-    var x = @errorToInt(Set1.B);
-    var y = @errSetCast(Set2, @intToError(x));
+    var x = @intFromError(Set1.B);
+    var y: Set2 = @errSetCast(@errorFromInt(x));
     _ = y;
 }
 
@@ -16,4 +16,4 @@ comptime {
 // backend=llvm
 // target=native
 //
-// :11:13: error: 'error.B' not a member of error set 'error{C,A}'
+// :11:19: error: 'error.B' not a member of error set 'error{C,A}'

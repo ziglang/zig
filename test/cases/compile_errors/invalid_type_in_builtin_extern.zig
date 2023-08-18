@@ -1,4 +1,4 @@
-const x = @extern(*comptime_int, .{.name="foo"});
+const x = @extern(*comptime_int, .{ .name = "foo" });
 pub export fn entry() void {
     _ = x;
 }

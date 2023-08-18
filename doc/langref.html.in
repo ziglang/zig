@@ -71,19 +71,19 @@
           text-align: left;
           font-weight: normal;
       }
-      .t0_1, .t37, .t37_1 {
+      .sgr-1m {
         font-weight: bold;
       }
-      .t2_0 {
+      .sgr-2m {
         color: #575757;
       }
-      .t31_1 {
+      .sgr-31_1m {
         color: #b40000;
       }
-      .t32_1 {
+      .sgr-32_1m {
         color: green;
       }
-      .t36_1 {
+      .sgr-36_1m {
         color: #005C7A;
       }
       .file {
@@ -114,7 +114,7 @@
         line-height: normal;
       }
       kbd {
-        font-weight: bold;
+        font-weight: normal;
       }
       .table-wrapper {
         width: 100%;
@@ -232,16 +232,16 @@
         table, th, td {
             border-color: grey;
         }
-        .t2_0 {
+        .sgr-2m {
             color: grey;
         }
-        .t31_1 {
+        .sgr-31_1m {
             color: red;
         }
-        .t32_1 {
+        .sgr-32_1m {
             color: #00B800;
         }
-        .t36_1 {
+        .sgr-36_1m {
             color: #0086b3;
         }
         code {
@@ -351,6 +351,7 @@
           <a href="https://ziglang.org/documentation/0.8.1/">0.8.1</a> |
           <a href="https://ziglang.org/documentation/0.9.1/">0.9.1</a> |
           <a href="https://ziglang.org/documentation/0.10.1/">0.10.1</a> |
+          <a href="https://ziglang.org/documentation/0.11.0/">0.11.0</a> |
           master
         </nav>
         <nav aria-labelledby="table-of-contents">
@@ -413,7 +414,7 @@ pub fn main() !void {
       <p>
         The code sample shows the contents of a file named <code class="file">hello.zig</code>. Files storing Zig
         source code are {#link|UTF-8 encoded|Source Encoding#} text files. The files storing
-        Zig source code are usually named with the <code class="file"><em>.zig</em></code> extension.
+        Zig source code must be named with the <code class="file"><em>.zig</em></code> extension.
       </p>
       <p>
         Following the <code class="file">hello.zig</code> Zig code sample, the {#link|Zig Build System#} is used
@@ -487,7 +488,7 @@ pub fn main() !void {
         purposely written to show how to perform {#link|string|String Literals and Unicode Code Point Literals#}
         substitution in the {#syntax#}print{#endsyntax#} function. The curly-braces inside of the first argument
         are substituted with the compile-time known value inside of the second argument
-        (known as an {#link|tuple|Tuples#}). The <code>\n</code>
+        (known as a {#link|tuple|Tuples#}). The <code>\n</code>
         inside of the double-quotes of the first argument is the {#link|escape sequence|Escape Sequences#} for the
         newline character. The {#link|try#} expression evaluates the result of {#syntax#}stdout.print{#endsyntax#}.
         If the result is an error, then the {#syntax#}try{#endsyntax#} expression will return from
@@ -518,6 +519,14 @@ pub fn main() void {
       {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
       {#header_close#}
       {#header_open|Comments#}
+      <p>
+      Zig supports 3 types of comments. Normal comments are ignored, but doc comments
+      and top-level doc comments are used by the compiler to generate the package documentation.
+      </p>
+      <p>
+      The generated documentation is still experimental, and can be produced with:
+      </p>
+      {#shell_samp#}zig test -femit-docs main.zig{#end_shell_samp#}
       {#code_begin|exe|comments#}
 const print = @import("std").debug.print;
 
@@ -532,10 +541,10 @@ pub fn main() void {
       {#code_end#}
       <p>
       There are no multiline comments in Zig (e.g. like <code class="c">/* */</code>
-      comments in C).  This helps allow Zig to have the property that each line
+      comments in C).  This allows Zig to have the property that each line
       of code can be tokenized out of context.
       </p>
-      {#header_open|Doc comments#}
+      {#header_open|Doc Comments#}
       <p>
       A doc comment is one that begins with exactly three slashes (i.e.
       {#syntax#}///{#endsyntax#} but not {#syntax#}////{#endsyntax#});
@@ -562,21 +571,44 @@ const Timestamp = struct {
 };
       {#code_end#}
       <p>
-      Doc comments are only allowed in certain places; eventually, it will
-      become a compile error to have a doc comment in an unexpected place, such as
-      in the middle of an expression, or just before a non-doc comment.
+      Doc comments are only allowed in certain places; it is a compile error to
+      have a doc comment in an unexpected place, such as in the middle of an expression,
+      or just before a non-doc comment.
+      </p>
+      {#code_begin|obj_err|invalid_doc-comment|expected type expression, found 'a document comment'#}
+/// doc-comment
+//! top-level doc-comment
+const std = @import("std");
+      {#code_end#}
+      {#code_begin|obj_err|unattached_doc-comment|unattached documentation comment#}
+pub fn main() void {}
+
+/// End of file
+      {#code_end#}
+      <p>
+      Doc comments can be interleaved with normal comments. Currently, when producing
+      the package documentation, normal comments are merged with doc comments.
       </p>
       {#header_close#}
       {#header_open|Top-Level Doc Comments#}
-      <p>User documentation that doesn't belong to whatever
-      immediately follows it, like {#link|container|Containers#}-level documentation, goes
-      in top-level doc comments. A top-level doc comment is one that
-      begins with two slashes and an exclamation point:
-      {#syntax#}//!{#endsyntax#}.</p>
+      <p>
+      A top-level doc comment is one that begins with two slashes and an exclamation
+      point: {#syntax#}//!{#endsyntax#}; it documents the current module.
+      </p>
+      <p>
+      It is a compile error if a top-level doc comment is not placed at the start
+      of a {#link|container|Containers#}, before any expressions.
+      </p>
       {#code_begin|syntax|tldoc_comments#}
 //! This module provides functions for retrieving the current date and
 //! time with varying degrees of precision and accuracy. It does not
 //! depend on libc, but will use functions from it if available.
+
+const S = struct {
+    //! Top level comments are allowed inside a container other than a module,
+    //! but it is not very useful.  Currently, when producing the package
+    //! documentation, these comments are ignored.
+};
       {#code_end#}
       {#header_close#}
       {#header_close#}
@@ -705,6 +737,11 @@ pub fn main() void {
           <td>unsigned pointer sized integer. Also see <a href="https://github.com/ziglang/zig/issues/5185">#5185</a></td>
         </tr>
 
+        <tr>
+            <th scope="row">{#syntax#}c_char{#endsyntax#}</th>
+          <td><code class="c">char</code></td>
+          <td>for ABI compatibility with C</td>
+        </tr>
         <tr>
             <th scope="row">{#syntax#}c_short{#endsyntax#}</th>
           <td><code class="c">short</code></td>
@@ -1060,13 +1097,18 @@ test "expect addOne adds one to 41" {
     try std.testing.expect(addOne(41) == 42);
 }
 
+test addOne {
+    // A test name can also be written using an identifier.
+    try std.testing.expect(addOne(41) == 42);
+}
+
 /// The function `addOne` adds one to the number given as its argument.
 fn addOne(number: i32) i32 {
     return number + 1;
 }
       {#code_end#}
       <p>
-        The <code class="file">introducing_zig_test.zig</code> code sample tests the {#link|function|Functions#}
+        The <code class="file">testing_introduction.zig</code> code sample tests the {#link|function|Functions#}
         {#syntax#}addOne{#endsyntax#} to ensure that it returns {#syntax#}42{#endsyntax#} given the input
         {#syntax#}41{#endsyntax#}. From this test's perspective, the {#syntax#}addOne{#endsyntax#} function is
         said to be <em>code under test</em>.
@@ -1087,20 +1129,25 @@ fn addOne(number: i32) i32 {
         printed to standard error by the default test runner:
       </p>
       <dl>
-        <dt><samp>Test [1/1] test "expect addOne adds one to 41"...</samp></dt>
+        <dt><samp>Test [1/2] test.expect addOne adds one to 41...</samp></dt>
         <dd>Lines like this indicate which test, out of the total number of tests, is being run.
-          In this case, <samp>[1/1]</samp> indicates that the first test, out of a total of
-          one test, is being run. Note that, when the test runner program's standard error is output
+          In this case, <samp>[1/2]</samp> indicates that the first test, out of a total of
+          two test, is being run. Note that, when the test runner program's standard error is output
           to the terminal, these lines are cleared when a test succeeds.
         </dd>
-        <dt><samp>All 1 tests passed.</samp></dt>
+        <dt><samp>Test [2/2] decltest.addOne...</samp></dt>
+        <dd>When the test name is an identifier, the default test runner uses the text
+          decltest instead of test.
+        </dd>
+        <dt><samp>All 2 tests passed.</samp></dt>
         <dd>This line indicates the total number of tests that have passed.</dd>
       </dl>
       {#header_open|Test Declarations#}
       <p>
         Test declarations contain the {#link|keyword|Keyword Reference#} {#syntax#}test{#endsyntax#}, followed by an
-        optional name written as a {#link|string literal|String Literals and Unicode Code Point Literals#}, followed
-        by a {#link|block|Blocks#} containing any valid Zig code that is allowed in a {#link|function|Functions#}.
+        optional name written as a {#link|string literal|String Literals and Unicode Code Point Literals#} or an
+        {#link|identifier|Identifiers#}, followed by a {#link|block|Blocks#} containing any valid Zig code that
+        is allowed in a {#link|function|Functions#}.
       </p>
       <aside>
         By convention, non-named tests should only be used to {#link|make other tests run|Nested Container Tests#}.
@@ -1138,7 +1185,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 // Imported source file tests will run when referenced from a top-level test declaration.
-// The next line alone does not cause "introducing_zig_test.zig" tests to run.
+// The next line alone does not cause "testing_introduction.zig" tests to run.
 const imported_file = @import("testing_introduction.zig");
 
 test {
@@ -2240,7 +2287,7 @@ value == null{#endsyntax#}</pre>
           <td>
             Array concatenation.
             <ul>
-              <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
+              <li>Only available when the lengths of both {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
           </td>
           <td>
@@ -2261,7 +2308,7 @@ mem.eql(u32, &together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           <td>
             Array multiplication.
             <ul>
-              <li>Only available when {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
+              <li>Only available when the length of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
           </td>
           <td>
@@ -2369,7 +2416,7 @@ var some_integers: [100]i32 = undefined;
 
 test "modify an array" {
     for (&some_integers, 0..) |*item, i| {
-        item.* = @intCast(i32, i);
+        item.* = @intCast(i);
     }
     try expect(some_integers[10] == 10);
     try expect(some_integers[99] == 99);
@@ -2411,8 +2458,8 @@ var fancy_array = init: {
     var initial_value: [10]Point = undefined;
     for (&initial_value, 0..) |*pt, i| {
         pt.* = Point{
-            .x = @intCast(i32, i),
-            .y = @intCast(i32, i) * 2,
+            .x = @intCast(i),
+            .y = @intCast(i * 2),
         };
     }
     break :init initial_value;
@@ -2722,14 +2769,14 @@ test "comptime pointers" {
     }
 }
       {#code_end#}
-      <p>To convert an integer address into a pointer, use {#syntax#}@intToPtr{#endsyntax#}.
-      To convert a pointer to an integer, use {#syntax#}@ptrToInt{#endsyntax#}:</p>
+      <p>To convert an integer address into a pointer, use {#syntax#}@ptrFromInt{#endsyntax#}.
+      To convert a pointer to an integer, use {#syntax#}@intFromPtr{#endsyntax#}:</p>
       {#code_begin|test|test_integer_pointer_conversion#}
 const expect = @import("std").testing.expect;
 
-test "@ptrToInt and @intToPtr" {
-    const ptr = @intToPtr(*i32, 0xdeadbee0);
-    const addr = @ptrToInt(ptr);
+test "@intFromPtr and @ptrFromInt" {
+    const ptr: *i32 = @ptrFromInt(0xdeadbee0);
+    const addr = @intFromPtr(ptr);
     try expect(@TypeOf(addr) == usize);
     try expect(addr == 0xdeadbee0);
 }
@@ -2739,18 +2786,18 @@ test "@ptrToInt and @intToPtr" {
       {#code_begin|test|test_comptime_pointer_conversion#}
 const expect = @import("std").testing.expect;
 
-test "comptime @intToPtr" {
+test "comptime @ptrFromInt" {
     comptime {
         // Zig is able to do this at compile-time, as long as
         // ptr is never dereferenced.
-        const ptr = @intToPtr(*i32, 0xdeadbee0);
-        const addr = @ptrToInt(ptr);
+        const ptr: *i32 = @ptrFromInt(0xdeadbee0);
+        const addr = @intFromPtr(ptr);
         try expect(@TypeOf(addr) == usize);
         try expect(addr == 0xdeadbee0);
     }
 }
       {#code_end#}
-      {#see_also|Optional Pointers|@intToPtr|@ptrToInt|C Pointers#}
+      {#see_also|Optional Pointers|@ptrFromInt|@intFromPtr|C Pointers#}
       {#header_open|volatile#}
       <p>Loads and stores are assumed to not have side effects. If a given load or store
       should have side effects, such as Memory Mapped Input/Output (MMIO), use {#syntax#}volatile{#endsyntax#}.
@@ -2760,7 +2807,7 @@ test "comptime @intToPtr" {
 const expect = @import("std").testing.expect;
 
 test "volatile" {
-    const mmio_ptr = @intToPtr(*volatile u8, 0x12345678);
+    const mmio_ptr: *volatile u8 = @ptrFromInt(0x12345678);
     try expect(@TypeOf(mmio_ptr) == *volatile u8);
 }
       {#code_end#}
@@ -2781,7 +2828,7 @@ const expect = std.testing.expect;
 
 test "pointer casting" {
     const bytes align(@alignOf(u32)) = [_]u8{ 0x12, 0x12, 0x12, 0x12 };
-    const u32_ptr = @ptrCast(*const u32, &bytes);
+    const u32_ptr: *const u32 = @ptrCast(&bytes);
     try expect(u32_ptr.* == 0x12121212);
 
     // Even this example is contrived - there are better ways to do the above than
@@ -2790,7 +2837,7 @@ test "pointer casting" {
     try expect(u32_value == 0x12121212);
 
     // And even another way, the most straightforward way to do it:
-    try expect(@bitCast(u32, bytes) == 0x12121212);
+    try expect(@as(u32, @bitCast(bytes)) == 0x12121212);
 }
 
 test "pointer child type" {
@@ -2880,7 +2927,7 @@ test "pointer alignment safety" {
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
-    const int_slice = std.mem.bytesAsSlice(u32, @alignCast(4, slice4));
+    const int_slice = std.mem.bytesAsSlice(u32, @as([]align(4) u8, @alignCast(slice4)));
     return int_slice[0];
 }
       {#code_end#}
@@ -2901,8 +2948,8 @@ const expect = std.testing.expect;
 
 test "allowzero" {
     var zero: usize = 0;
-    var ptr = @intToPtr(*allowzero i32, zero);
-    try expect(@ptrToInt(ptr) == 0);
+    var ptr: *allowzero i32 = @ptrFromInt(zero);
+    try expect(@intFromPtr(ptr) == 0);
 }
       {#code_end#}
       {#header_close#}
@@ -2965,14 +3012,14 @@ test "basic slices" {
     // while using the `ptr` field gives a many-item pointer.
     try expect(@TypeOf(slice.ptr) == [*]i32);
     try expect(@TypeOf(&slice[0]) == *i32);
-    try expect(@ptrToInt(slice.ptr) == @ptrToInt(&slice[0]));
+    try expect(@intFromPtr(slice.ptr) == @intFromPtr(&slice[0]));
 
     // Slices have array bounds checking. If you try to access something out
     // of bounds, you'll get a safety check failure:
     slice[10] += 1;
 
     // Note that `slice.ptr` does not invoke safety checking, while `&slice[0]`
-    // asserts that the slice has len >= 1.
+    // asserts that the slice has len > 0.
 }
       {#code_end#}
       <p>This is one reason we prefer slices to pointers.</p>
@@ -3313,12 +3360,12 @@ fn doTheTest() !void {
     try expect(@sizeOf(Full) == 2);
     try expect(@sizeOf(Divided) == 2);
     var full = Full{ .number = 0x1234 };
-    var divided = @bitCast(Divided, full);
+    var divided: Divided = @bitCast(full);
     try expect(divided.half1 == 0x34);
     try expect(divided.quarter3 == 0x2);
     try expect(divided.quarter4 == 0x1);
 
-    var ordered = @bitCast([2]u8, full);
+    var ordered: [2]u8 = @bitCast(full);
     switch (native_endian) {
         .Big => {
             try expect(ordered[0] == 0x12);
@@ -3407,8 +3454,8 @@ var bit_field = BitField{
 };
 
 test "pointers of sub-byte-aligned fields share addresses" {
-    try expect(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.b));
-    try expect(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.c));
+    try expect(@intFromPtr(&bit_field.a) == @intFromPtr(&bit_field.b));
+    try expect(@intFromPtr(&bit_field.a) == @intFromPtr(&bit_field.c));
 }
       {#code_end#}
       <p>
@@ -3623,9 +3670,9 @@ const Value = enum(u2) {
 // Now you can cast between u2 and Value.
 // The ordinal value starts from 0, counting up by 1 from the previous member.
 test "enum ordinal value" {
-    try expect(@enumToInt(Value.zero) == 0);
-    try expect(@enumToInt(Value.one) == 1);
-    try expect(@enumToInt(Value.two) == 2);
+    try expect(@intFromEnum(Value.zero) == 0);
+    try expect(@intFromEnum(Value.one) == 1);
+    try expect(@intFromEnum(Value.two) == 2);
 }
 
 // You can override the ordinal value for an enum.
@@ -3635,9 +3682,9 @@ const Value2 = enum(u32) {
     million = 1000000,
 };
 test "set enum ordinal value" {
-    try expect(@enumToInt(Value2.hundred) == 100);
-    try expect(@enumToInt(Value2.thousand) == 1000);
-    try expect(@enumToInt(Value2.million) == 1000000);
+    try expect(@intFromEnum(Value2.hundred) == 100);
+    try expect(@intFromEnum(Value2.thousand) == 1000);
+    try expect(@intFromEnum(Value2.million) == 1000000);
 }
 
 // You can also override only some values.
@@ -3649,11 +3696,11 @@ const Value3 = enum(u4) {
     e,
 };
 test "enum implicit ordinal values and overridden values" {
-    try expect(@enumToInt(Value3.a) == 0);
-    try expect(@enumToInt(Value3.b) == 8);
-    try expect(@enumToInt(Value3.c) == 9);
-    try expect(@enumToInt(Value3.d) == 4);
-    try expect(@enumToInt(Value3.e) == 5);
+    try expect(@intFromEnum(Value3.a) == 0);
+    try expect(@intFromEnum(Value3.b) == 8);
+    try expect(@intFromEnum(Value3.c) == 9);
+    try expect(@intFromEnum(Value3.d) == 4);
+    try expect(@intFromEnum(Value3.e) == 5);
 }
 
 // Enums can have methods, the same as structs and unions.
@@ -3770,7 +3817,7 @@ test "switch using enum literals" {
       It  must specify a tag type and cannot consume every enumeration value.
       </p>
       <p>
-      {#link|@intToEnum#} on a non-exhaustive enum involves the safety semantics
+      {#link|@enumFromInt#} on a non-exhaustive enum involves the safety semantics
       of {#link|@intCast#} to the integer tag type, but beyond that always results in
       a well-defined enum value.
       </p>
@@ -4344,7 +4391,7 @@ fn withFor(any: AnySlice) usize {
         // With `inline for` the function gets generated as
         // a series of `if` statements relying on the optimizer
         // to convert it to a switch.
-        if (field.value == @enumToInt(any)) {
+        if (field.value == @intFromEnum(any)) {
             return @field(any, field.name).len;
         }
     }
@@ -4387,7 +4434,7 @@ fn getNum(u: U) u32 {
         // `u.a` or `u.b` and `tag` is `u`'s comptime-known tag value.
         inline else => |num, tag| {
             if (tag == .b) {
-                return @floatToInt(u32, num);
+                return @intFromFloat(num);
             }
             return num;
         }
@@ -4673,7 +4720,7 @@ test "for basics" {
     var sum2: i32 = 0;
     for (items, 0..) |_, i| {
         try expect(@TypeOf(i) == usize);
-        sum2 += @intCast(i32, i);
+        sum2 += @as(i32, @intCast(i));
     }
     try expect(sum2 == 10);
 
@@ -5050,11 +5097,10 @@ fn deferErrorExample(is_error: bool) !void {
     }
 }
 
-// The errdefer keyword support also an alternative syntax to capture the
-// error generated in case of one error.
+// The errdefer keyword also supports an alternative syntax to capture the
+// generated error.
 //
-// This is useful when during the clean up after an error additional
-// message want to be printed.
+// This is useful for printing an additional error message during clean up.
 fn deferErrorCaptureExample() !void {
     errdefer |err| {
         std.debug.print("the error is {s}\n", .{@errorName(err)});
@@ -5544,7 +5590,7 @@ fn doAThing(str: []u8) !void {
       appropriately.
       </p>
       <p>
-      Finally, you may want to take a different action for every situation. For that, we combine
+      You may want to take a different action for every situation. For that, we combine
       the {#link|if#} and {#link|switch#} expression:
       </p>
       {#syntax_block|zig|handle_all_error_scenarios.zig#}
@@ -5557,6 +5603,22 @@ fn doAThing(str: []u8) void {
         },
         // we promise that InvalidChar won't happen (or crash in debug mode if it does)
         error.InvalidChar => unreachable,
+    }
+}
+      {#end_syntax_block#}
+      <p>
+      Finally, you may want to handle only some errors. For that, you can capture the unhandled
+      errors in the {#syntax#}else{#endsyntax#} case, which now contains a narrower error set:
+      </p>
+      {#syntax_block|zig|handle_some_error_scenarios.zig#}
+ fn doAnotherThing(str: []u8) error{InvaidChar}!void {
+    if (parseU64(str, 10)) |number| {
+        doSomethingWithNumber(number);
+    } else |err| switch (err) {
+        error.Overflow => {
+            // handle overflow...
+        },
+        else => |leftover_err| return leftover_err,
     }
 }
       {#end_syntax_block#}
@@ -6307,7 +6369,7 @@ const mem = std.mem;
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    try expect(mem.eql(u8, std.mem.sliceTo(@ptrCast([*:0]const u8, x[0].?), 0), "window name"));
+    try expect(mem.eql(u8, std.mem.sliceTo(@as([*:0]const u8, @ptrCast(x[0].?)), 0), "window name"));
 }
       {#code_end#}
       {#header_close#}
@@ -6585,19 +6647,19 @@ test "coercion from homogenous tuple to array" {
       <ul>
           <li>{#link|@bitCast#} - change type but maintain bit representation</li>
           <li>{#link|@alignCast#} - make a pointer have more alignment</li>
-          <li>{#link|@boolToInt#} - convert true to 1 and false to 0</li>
-          <li>{#link|@enumToInt#} - obtain the integer tag value of an enum or tagged union</li>
+          <li>{#link|@enumFromInt#} - obtain an enum value based on its integer tag value</li>
+          <li>{#link|@errorFromInt#} - obtain an error code based on its integer value</li>
           <li>{#link|@errSetCast#} - convert to a smaller error set</li>
-          <li>{#link|@errorToInt#} - obtain the integer value of an error code</li>
           <li>{#link|@floatCast#} - convert a larger float to a smaller float</li>
-          <li>{#link|@floatToInt#} - obtain the integer part of a float value</li>
+          <li>{#link|@floatFromInt#} - convert an integer to a float value</li>
           <li>{#link|@intCast#} - convert between integer types</li>
-          <li>{#link|@intToEnum#} - obtain an enum value based on its integer tag value</li>
-          <li>{#link|@intToError#} - obtain an error code based on its integer value</li>
-          <li>{#link|@intToFloat#} - convert an integer to a float value</li>
-          <li>{#link|@intToPtr#} - convert an address to a pointer</li>
+          <li>{#link|@intFromBool#} - convert true to 1 and false to 0</li>
+          <li>{#link|@intFromEnum#} - obtain the integer tag value of an enum or tagged union</li>
+          <li>{#link|@intFromError#} - obtain the integer value of an error code</li>
+          <li>{#link|@intFromFloat#} - obtain the integer part of a float value</li>
+          <li>{#link|@intFromPtr#} - obtain the address of a pointer</li>
+          <li>{#link|@ptrFromInt#} - convert an address to a pointer</li>
           <li>{#link|@ptrCast#} - convert between pointer types</li>
-          <li>{#link|@ptrToInt#} - obtain the address of a pointer</li>
           <li>{#link|@truncate#} - convert between integer types, chopping off bits</li>
       </ul>
       {#header_close#}
@@ -6704,8 +6766,8 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
 }
 
 test "peer type resolution: *const T and ?*T" {
-    const a = @intToPtr(*const usize, 0x123456780);
-    const b = @intToPtr(?*usize, 0x123456780);
+    const a: *const usize = @ptrFromInt(0x123456780);
+    const b: ?*usize = @ptrFromInt(0x123456780);
     try expect(a == b);
     try expect(b == a);
 }
@@ -7502,7 +7564,7 @@ pub fn main() void {
       {#target_linux_x86_64#}
 pub fn main() noreturn {
     const msg = "hello world\n";
-    _ = syscall3(SYS_write, STDOUT_FILENO, @ptrToInt(msg), msg.len);
+    _ = syscall3(SYS_write, STDOUT_FILENO, @intFromPtr(msg), msg.len);
     _ = syscall1(SYS_exit, 0);
     unreachable;
 }
@@ -7706,12 +7768,13 @@ test "global assembly" {
       at compile time.
       </p>
       {#header_open|@addrSpaceCast#}
-      <pre>{#syntax#}@addrSpaceCast(comptime addrspace: std.builtin.AddressSpace, ptr: anytype) anytype{#endsyntax#}</pre>
+      <pre>{#syntax#}@addrSpaceCast(ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts a pointer from one address space to another. Depending on the current target and
-      address spaces, this cast may be a no-op, a complex operation, or illegal. If the cast is
-      legal, then the resulting pointer points to the same memory location as the pointer operand.
-      It is always valid to cast a pointer between the same address spaces.
+      Converts a pointer from one address space to another. The new address space is inferred
+			based on the result type. Depending on the current target and address spaces, this cast
+			may be a no-op, a complex operation, or illegal. If the cast is legal, then the resulting
+			pointer points to the same memory location as the pointer operand. It is always valid to
+			cast a pointer between the same address spaces.
       </p>
       {#header_close#}
       {#header_open|@addWithOverflow#}
@@ -7721,10 +7784,10 @@ test "global assembly" {
       </p>
       {#header_close#}
       {#header_open|@alignCast#}
-      <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: anytype) anytype{#endsyntax#}</pre>
+      <pre>{#syntax#}@alignCast(ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
       {#syntax#}ptr{#endsyntax#} can be {#syntax#}*T{#endsyntax#}, {#syntax#}?*T{#endsyntax#}, or {#syntax#}[]T{#endsyntax#}.
-      It returns the same type as {#syntax#}ptr{#endsyntax#} except with the alignment adjusted to the new value.
+			Changes the alignment of a pointer. The alignment to use is inferred based on the result type.
       </p>
       <p>A {#link|pointer alignment safety check|Incorrect Pointer Alignment#} is added
       to the generated code to make sure the pointer is aligned as promised.</p>
@@ -7809,15 +7872,16 @@ comptime {
       {#header_close#}
 
       {#header_open|@bitCast#}
-      <pre>{#syntax#}@bitCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@bitCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts a value of one type to another type.
+      Converts a value of one type to another type. The return type is the
+			inferred result type.
       </p>
       <p>
       Asserts that {#syntax#}@sizeOf(@TypeOf(value)) == @sizeOf(DestType){#endsyntax#}.
       </p>
       <p>
-      Asserts that {#syntax#}@typeInfo(DestType) != .Pointer{#endsyntax#}. Use {#syntax#}@ptrCast{#endsyntax#} or {#syntax#}@intToPtr{#endsyntax#} if you need this.
+      Asserts that {#syntax#}@typeInfo(DestType) != .Pointer{#endsyntax#}. Use {#syntax#}@ptrCast{#endsyntax#} or {#syntax#}@ptrFromInt{#endsyntax#} if you need this.
       </p>
       <p>
       Can be used for these things for example:
@@ -7842,14 +7906,6 @@ comptime {
       bit offsets.
       </p>
       {#see_also|@offsetOf#}
-      {#header_close#}
-
-      {#header_open|@boolToInt#}
-      <pre>{#syntax#}@boolToInt(value: bool) u1{#endsyntax#}</pre>
-      <p>
-      Converts {#syntax#}true{#endsyntax#} to {#syntax#}@as(u1, 1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
-                  {#syntax#}@as(u1, 0){#endsyntax#}.
-      </p>
       {#header_close#}
 
       {#header_open|@bitSizeOf#}
@@ -7986,7 +8042,7 @@ pub const CallModifier = enum {
       {#header_close#}
 
       {#header_open|@cDefine#}
-      <pre>{#syntax#}@cDefine(comptime name: []u8, value) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@cDefine(comptime name: []const u8, value) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8030,7 +8086,7 @@ pub const CallModifier = enum {
       {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cInclude#}
-      <pre>{#syntax#}@cInclude(comptime path: []u8) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@cInclude(comptime path: []const u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8121,7 +8177,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileError#}
-      <pre>{#syntax#}@compileError(comptime msg: []u8) noreturn{#endsyntax#}</pre>
+      <pre>{#syntax#}@compileError(comptime msg: []const u8) noreturn{#endsyntax#}</pre>
       <p>
       This function, when semantically analyzed, causes a compile error with the
       message {#syntax#}msg{#endsyntax#}.
@@ -8212,7 +8268,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@cUndef#}
-      <pre>{#syntax#}@cUndef(comptime name: []u8) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@cUndef(comptime name: []const u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8293,6 +8349,7 @@ test "main" {
       <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divTrunc{#endsyntax#}.</p>
       {#see_also|@divFloor|@divExact#}
       {#header_close#}
+
       {#header_open|@embedFile#}
       <pre>{#syntax#}@embedFile(comptime path: []const u8) *const [N:0]u8{#endsyntax#}</pre>
       <p>
@@ -8308,17 +8365,32 @@ test "main" {
       {#see_also|@import#}
       {#header_close#}
 
-      {#header_open|@enumToInt#}
-      <pre>{#syntax#}@enumToInt(enum_or_tagged_union: anytype) anytype{#endsyntax#}</pre>
+      {#header_open|@enumFromInt#}
+      <pre>{#syntax#}@enumFromInt(integer: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts an enumeration value into its integer tag type. When a tagged union is passed,
-      the tag value is used as the enumeration value.
+      Converts an integer into an {#link|enum#} value. The return type is the inferred result type.
       </p>
       <p>
-      If there is only one possible enum value, the result is a {#syntax#}comptime_int{#endsyntax#}
-      known at {#link|comptime#}.
+      Attempting to convert an integer which represents no value in the chosen enum type invokes
+      safety-checked {#link|Undefined Behavior#}.
       </p>
-      {#see_also|@intToEnum#}
+      {#see_also|@intFromEnum#}
+      {#header_close#}
+
+      {#header_open|@errorFromInt#}
+      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      <p>
+      Converts from the integer representation of an error into {#link|The Global Error Set#} type.
+      </p>
+      <p>
+      It is generally recommended to avoid this
+      cast, as the integer representation of an error is not stable across source code changes.
+      </p>
+      <p>
+      Attempting to convert an integer that does not correspond to any error results in
+      safety-protected {#link|Undefined Behavior#}.
+      </p>
+      {#see_also|@intFromError#}
       {#header_close#}
 
       {#header_open|@errorName#}
@@ -8343,31 +8415,12 @@ test "main" {
       </p>
       {#header_close#}
 
-      {#header_open|@errorToInt#}
-      <pre>{#syntax#}@errorToInt(err: anytype) std.meta.Int(.unsigned, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
-      <p>
-      Supports the following types:
-      </p>
-      <ul>
-          <li>{#link|The Global Error Set#}</li>
-          <li>{#link|Error Set Type#}</li>
-          <li>{#link|Error Union Type#}</li>
-      </ul>
-      <p>
-      Converts an error to the integer representation of an error.
-      </p>
-      <p>
-      It is generally recommended to avoid this
-      cast, as the integer representation of an error is not stable across source code changes.
-      </p>
-      {#see_also|@intToError#}
-      {#header_close#}
-
       {#header_open|@errSetCast#}
-      <pre>{#syntax#}@errSetCast(comptime T: DestType, value: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@errSetCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts an error value from one error set to another error set. Attempting to convert an error
-      which is not in the destination error set results in safety-protected {#link|Undefined Behavior#}.
+      Converts an error value from one error set to another error set. The return type is the
+			inferred result type. Attempting to convert an error which is not in the destination error
+			set results in safety-protected {#link|Undefined Behavior#}.
       </p>
       {#header_close#}
 
@@ -8415,9 +8468,10 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_close#}
 
       {#header_open|@extern#}
-      <pre>{#syntax#}@extern(T: type, comptime options: std.builtin.ExternOptions) *T{#endsyntax#}</pre>
+      <pre>{#syntax#}@extern(T: type, comptime options: std.builtin.ExternOptions) T{#endsyntax#}</pre>
       <p>
       Creates a reference to an external symbol in the output object file.
+      T must be a pointer type.
       </p>
       {#see_also|@export#}
       {#header_close#}
@@ -8479,23 +8533,19 @@ test "decl access by string" {
       {#header_close#}
 
       {#header_open|@floatCast#}
-      <pre>{#syntax#}@floatCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@floatCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
       Convert from one float type to another. This cast is safe, but may cause the
-      numeric value to lose precision.
+      numeric value to lose precision. The return type is the inferred result type.
       </p>
       {#header_close#}
 
-      {#header_open|@floatToInt#}
-      <pre>{#syntax#}@floatToInt(comptime DestType: type, float: anytype) DestType{#endsyntax#}</pre>
+      {#header_open|@floatFromInt#}
+      <pre>{#syntax#}@floatFromInt(int: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts the integer part of a floating point number to the destination type.
+      Converts an integer to the closest floating point representation. The return type is the inferred result type.
+			To convert the other way, use {#link|@intFromFloat#}. This cast is always safe.
       </p>
-      <p>
-      If the integer part of the floating point number cannot fit in the destination type,
-      it invokes safety-checked {#link|Undefined Behavior#}.
-      </p>
-      {#see_also|@intToFloat#}
       {#header_close#}
 
       {#header_open|@frameAddress#}
@@ -8559,7 +8609,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@import#}
-      <pre>{#syntax#}@import(comptime path: []u8) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@import(comptime path: []const u8) type{#endsyntax#}</pre>
       <p>
       This function finds a zig file corresponding to {#syntax#}path{#endsyntax#} and adds it to the build,
       if it is not already added.
@@ -8604,16 +8654,17 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@intCast#}
-      <pre>{#syntax#}@intCast(comptime DestType: type, int: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@intCast(int: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts an integer to another integer while keeping the same numerical value.
+			The return type is the inferred result type.
       Attempting to convert a number which is out of range of the destination type results in
       safety-protected {#link|Undefined Behavior#}.
       </p>
       {#code_begin|test_err|test_intCast_builtin|cast truncated bits#}
 test "integer cast panic" {
     var a: u16 = 0xabcd;
-    var b: u8 = @intCast(u8, a);
+    var b: u8 = @intCast(a);
     _ = b;
 }
       {#code_end#}
@@ -8626,52 +8677,66 @@ test "integer cast panic" {
       </p>
       {#header_close#}
 
-      {#header_open|@intToEnum#}
-      <pre>{#syntax#}@intToEnum(comptime DestType: type, integer: anytype) DestType{#endsyntax#}</pre>
+      {#header_open|@intFromBool#}
+      <pre>{#syntax#}@intFromBool(value: bool) u1{#endsyntax#}</pre>
       <p>
-      Converts an integer into an {#link|enum#} value.
+      Converts {#syntax#}true{#endsyntax#} to {#syntax#}@as(u1, 1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
+                  {#syntax#}@as(u1, 0){#endsyntax#}.
       </p>
-      <p>
-      Attempting to convert an integer which represents no value in the chosen enum type invokes
-      safety-checked {#link|Undefined Behavior#}.
-      </p>
-      {#see_also|@enumToInt#}
       {#header_close#}
 
-      {#header_open|@intToError#}
-      <pre>{#syntax#}@intToError(value: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      {#header_open|@intFromEnum#}
+      <pre>{#syntax#}@intFromEnum(enum_or_tagged_union: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts from the integer representation of an error into {#link|The Global Error Set#} type.
+      Converts an enumeration value into its integer tag type. When a tagged union is passed,
+      the tag value is used as the enumeration value.
+      </p>
+      <p>
+      If there is only one possible enum value, the result is a {#syntax#}comptime_int{#endsyntax#}
+      known at {#link|comptime#}.
+      </p>
+      {#see_also|@enumFromInt#}
+      {#header_close#}
+
+      {#header_open|@intFromError#}
+      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <p>
+      Supports the following types:
+      </p>
+      <ul>
+          <li>{#link|The Global Error Set#}</li>
+          <li>{#link|Error Set Type#}</li>
+          <li>{#link|Error Union Type#}</li>
+      </ul>
+      <p>
+      Converts an error to the integer representation of an error.
       </p>
       <p>
       It is generally recommended to avoid this
       cast, as the integer representation of an error is not stable across source code changes.
       </p>
-      <p>
-      Attempting to convert an integer that does not correspond to any error results in
-      safety-protected {#link|Undefined Behavior#}.
-      </p>
-      {#see_also|@errorToInt#}
+      {#see_also|@errorFromInt#}
       {#header_close#}
 
-      {#header_open|@intToFloat#}
-      <pre>{#syntax#}@intToFloat(comptime DestType: type, int: anytype) DestType{#endsyntax#}</pre>
+      {#header_open|@intFromFloat#}
+      <pre>{#syntax#}@intFromFloat(float: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts an integer to the closest floating point representation. To convert the other way, use {#link|@floatToInt#}. This cast is always safe.
+      Converts the integer part of a floating point number to the inferred result type.
       </p>
+      <p>
+      If the integer part of the floating point number cannot fit in the destination type,
+      it invokes safety-checked {#link|Undefined Behavior#}.
+      </p>
+      {#see_also|@floatFromInt#}
       {#header_close#}
 
-      {#header_open|@intToPtr#}
-      <pre>{#syntax#}@intToPtr(comptime DestType: type, address: usize) DestType{#endsyntax#}</pre>
+      {#header_open|@intFromPtr#}
+      <pre>{#syntax#}@intFromPtr(value: anytype) usize{#endsyntax#}</pre>
       <p>
-      Converts an integer to a {#link|pointer|Pointers#}. To convert the other way, use {#link|@ptrToInt#}. Casting an address of 0 to a destination type
-      which in not {#link|optional|Optional Pointers#} and does not have the {#syntax#}allowzero{#endsyntax#} attribute will result in a
-      {#link|Pointer Cast Invalid Null#} panic when runtime safety checks are enabled.
+      Converts {#syntax#}value{#endsyntax#} to a {#syntax#}usize{#endsyntax#} which is the address of the pointer.
+      {#syntax#}value{#endsyntax#} can be {#syntax#}*T{#endsyntax#} or {#syntax#}?*T{#endsyntax#}.
       </p>
-      <p>
-      If the destination pointer type does not allow address zero and {#syntax#}address{#endsyntax#}
-      is zero, this invokes safety-checked {#link|Undefined Behavior#}.
-      </p>
+      <p>To convert the other way, use {#link|@ptrFromInt#}</p>
       {#header_close#}
 
       {#header_open|@max#}
@@ -8709,6 +8774,8 @@ test "integer cast panic" {
       <p>{#syntax#}dest{#endsyntax#} must be a mutable slice or a mutable pointer to an array.
       It may have any alignment, and it may have any element type.</p>
       <p>{#syntax#}elem{#endsyntax#} is coerced to the element type of {#syntax#}dest{#endsyntax#}.</p>
+      <p>For securely zeroing out sensitive contents from memory, you should use
+      {#syntax#}std.crypto.utils.secureZero{#endsyntax#}</p>
       {#header_close#}
 
       {#header_open|@min#}
@@ -8868,9 +8935,9 @@ pub const PrefetchOptions = struct {
       {#header_close#}
 
       {#header_open|@ptrCast#}
-      <pre>{#syntax#}@ptrCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@ptrCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts a pointer of one type to a pointer of another type.
+      Converts a pointer of one type to a pointer of another type. The return type is the inferred result type.
       </p>
       <p>
       {#link|Optional Pointers#} are allowed. Casting an optional pointer which is {#link|null#}
@@ -8888,14 +8955,18 @@ pub const PrefetchOptions = struct {
       </ul>
       {#header_close#}
 
-      {#header_open|@ptrToInt#}
-      <pre>{#syntax#}@ptrToInt(value: anytype) usize{#endsyntax#}</pre>
+      {#header_open|@ptrFromInt#}
+      <pre>{#syntax#}@ptrFromInt(address: usize) anytype{#endsyntax#}</pre>
       <p>
-      Converts {#syntax#}value{#endsyntax#} to a {#syntax#}usize{#endsyntax#} which is the address of the pointer.
-      {#syntax#}value{#endsyntax#} can be {#syntax#}*T{#endsyntax#} or {#syntax#}?*T{#endsyntax#}.
+      Converts an integer to a {#link|pointer|Pointers#}. The return type is the inferred result type.
+			To convert the other way, use {#link|@intFromPtr#}. Casting an address of 0 to a destination type
+      which in not {#link|optional|Optional Pointers#} and does not have the {#syntax#}allowzero{#endsyntax#} attribute will result in a
+      {#link|Pointer Cast Invalid Null#} panic when runtime safety checks are enabled.
       </p>
-      <p>To convert the other way, use {#link|@intToPtr#}</p>
-
+      <p>
+      If the destination pointer type does not allow address zero and {#syntax#}address{#endsyntax#}
+      is zero, this invokes safety-checked {#link|Undefined Behavior#}.
+      </p>
       {#header_close#}
 
       {#header_open|@rem#}
@@ -9172,10 +9243,10 @@ test "vector @shuffle" {
       {#header_close#}
 
       {#header_open|@splat#}
-      <pre>{#syntax#}@splat(comptime len: u32, scalar: anytype) @Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
+      <pre>{#syntax#}@splat(scalar: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
-      {#syntax#}scalar{#endsyntax#}:
+      Produces a vector where each element is the value {#syntax#}scalar{#endsyntax#}. 
+      The return type and thus the length of the vector is inferred.
       </p>
       {#code_begin|test|test_splat_builtin#}
 const std = @import("std");
@@ -9183,8 +9254,7 @@ const expect = std.testing.expect;
 
 test "vector @splat" {
     const scalar: u32 = 5;
-    const result = @splat(4, scalar);
-    try comptime expect(@TypeOf(result) == @Vector(4, u32));
+    const result: @Vector(4, u32) = @splat(scalar);
     try expect(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
@@ -9225,8 +9295,9 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "vector @reduce" {
-    const value = @Vector(4, i32){ 1, -1, 1, -1 };
-    const result = value > @splat(4, @as(i32, 0));
+    const V = @Vector(4, i32);
+    const value = V{ 1, -1, 1, -1 };
+    const result = value > @as(V, @splat(0));
     // result is { true, false, true, false };
     try comptime expect(@TypeOf(result) == @Vector(4, bool));
     const is_all_true = @reduce(.And, result);
@@ -9466,10 +9537,10 @@ fn List(comptime T: type) type {
       {#header_close#}
 
       {#header_open|@truncate#}
-      <pre>{#syntax#}@truncate(comptime T: type, integer: anytype) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@truncate(integer: anytype) anytype{#endsyntax#}</pre>
       <p>
       This function truncates bits from an integer type, resulting in a smaller
-      or same-sized integer type.
+      or same-sized integer type. The return type is the inferred result type.
       </p>
       <p>
       This function always truncates the significant bits of the integer, regardless
@@ -9484,7 +9555,7 @@ const expect = std.testing.expect;
 
 test "integer truncation" {
     var a: u16 = 0xabcd;
-    var b: u8 = @truncate(u8, a);
+    var b: u8 = @truncate(a);
     try expect(b == 0xcd);
 }
       {#code_end#}
@@ -9782,7 +9853,7 @@ fn foo(x: []const u8) u8 {
       {#code_begin|test_err|test_comptime_invalid_cast|type 'u32' cannot represent integer value '-1'#}
 comptime {
     var value: i32 = -1;
-    const unsigned = @intCast(u32, value);
+    const unsigned: u32 = @intCast(value);
     _ = unsigned;
 }
       {#code_end#}
@@ -9792,7 +9863,7 @@ const std = @import("std");
 
 pub fn main() void {
     var value: i32 = -1;
-    var unsigned = @intCast(u32, value);
+    var unsigned: u32 = @intCast(value);
     std.debug.print("value: {}\n", .{unsigned});
 }
       {#code_end#}
@@ -9805,7 +9876,7 @@ pub fn main() void {
       {#code_begin|test_err|test_comptime_invalid_cast_truncate|type 'u8' cannot represent integer value '300'#}
 comptime {
     const spartan_count: u16 = 300;
-    const byte = @intCast(u8, spartan_count);
+    const byte: u8 = @intCast(spartan_count);
     _ = byte;
 }
       {#code_end#}
@@ -9815,7 +9886,7 @@ const std = @import("std");
 
 pub fn main() void {
     var spartan_count: u16 = 300;
-    const byte = @intCast(u8, spartan_count);
+    const byte: u8 = @intCast(spartan_count);
     std.debug.print("value: {}\n", .{byte});
 }
       {#code_end#}
@@ -10125,8 +10196,8 @@ fn getNumberOrFail() !i32 {
       {#code_begin|test_err|test_comptime_invalid_error_code|integer value '11' represents no error#}
 comptime {
     const err = error.AnError;
-    const number = @errorToInt(err) + 10;
-    const invalid_err = @intToError(number);
+    const number = @intFromError(err) + 10;
+    const invalid_err = @errorFromInt(number);
     _ = invalid_err;
 }
       {#code_end#}
@@ -10136,8 +10207,8 @@ const std = @import("std");
 
 pub fn main() void {
     var err = error.AnError;
-    var number = @errorToInt(err) + 500;
-    var invalid_err = @intToError(number);
+    var number = @intFromError(err) + 500;
+    var invalid_err = @errorFromInt(number);
     std.debug.print("value: {}\n", .{invalid_err});
 }
       {#code_end#}
@@ -10152,7 +10223,7 @@ const Foo = enum {
 };
 comptime {
     const a: u2 = 3;
-    const b = @intToEnum(Foo, a);
+    const b: Foo = @enumFromInt(a);
     _ = b;
 }
       {#code_end#}
@@ -10168,7 +10239,7 @@ const Foo = enum {
 
 pub fn main() void {
     var a: u2 = 3;
-    var b = @intToEnum(Foo, a);
+    var b: Foo = @enumFromInt(a);
     std.debug.print("value: {s}\n", .{@tagName(b)});
 }
       {#code_end#}
@@ -10186,7 +10257,7 @@ const Set2 = error{
     C,
 };
 comptime {
-    _ = @errSetCast(Set2, Set1.B);
+    _ = @as(Set2, @errSetCast(Set1.B));
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -10205,7 +10276,7 @@ pub fn main() void {
     foo(Set1.B);
 }
 fn foo(set1: Set1) void {
-    const x = @errSetCast(Set2, set1);
+    const x: Set2 = @errSetCast(set1);
     std.debug.print("value: {}\n", .{x});
 }
       {#code_end#}
@@ -10215,8 +10286,8 @@ fn foo(set1: Set1) void {
       <p>At compile-time:</p>
       {#code_begin|test_err|test_comptime_incorrect_pointer_alignment|pointer address 0x1 is not aligned to 4 bytes#}
 comptime {
-    const ptr = @intToPtr(*align(1) i32, 0x1);
-    const aligned = @alignCast(4, ptr);
+    const ptr: *align(1) i32 = @ptrFromInt(0x1);
+    const aligned: *align(4) i32 = @alignCast(ptr);
     _ = aligned;
 }
       {#code_end#}
@@ -10230,7 +10301,7 @@ pub fn main() !void {
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
-    const int_slice = mem.bytesAsSlice(u32, @alignCast(4, slice4));
+    const int_slice = mem.bytesAsSlice(u32, @as([]align(4) u8, @alignCast(slice4)));
     return int_slice[0];
 }
       {#code_end#}
@@ -10318,7 +10389,26 @@ fn bar(f: *Foo) void {
       {#header_close#}
 
       {#header_open|Out of Bounds Float to Integer Cast#}
-      <p>TODO</p>
+      <p>
+      This happens when casting a float to an integer where the float has a value outside the
+      integer type's range.
+      </p>
+      <p>At compile-time:</p>
+      {#code_begin|test_err|test_comptime_out_of_bounds_float_to_integer_cast|float value '4294967296' cannot be stored in integer type 'i32'#}
+comptime {
+	const float: f32 = 4294967296;
+	const int: i32 = @intFromFloat(float);
+	_ = int;
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err|runtime_out_of_bounds_float_to_integer_cast#}
+pub fn main() void {
+	var float: f32 = 4294967296;
+	var int: i32 = @intFromFloat(float);
+	_ = int;
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Pointer Cast Invalid Null#}
@@ -10331,7 +10421,7 @@ fn bar(f: *Foo) void {
       {#code_begin|test_err|test_comptime_invalid_null_pointer_cast|null pointer casted to type#}
 comptime {
     const opt_ptr: ?*i32 = null;
-    const ptr = @ptrCast(*i32, opt_ptr);
+    const ptr: *i32 = @ptrCast(opt_ptr);
     _ = ptr;
 }
       {#code_end#}
@@ -10339,7 +10429,7 @@ comptime {
       {#code_begin|exe_err|runtime_invalid_null_pointer_cast#}
 pub fn main() void {
     var opt_ptr: ?*i32 = null;
-    var ptr = @ptrCast(*i32, opt_ptr);
+    var ptr: *i32 = @ptrCast(opt_ptr);
     _ = ptr;
 }
       {#code_end#}
@@ -10729,11 +10819,11 @@ pub fn build(b: *std.Build) void {
 
       {#header_open|Compiling C Source Code#}
       <pre>{#syntax#}
-lib.addCSourceFile("src/lib.c", &[_][]const u8{
-    "-Wall",
-    "-Wextra",
-    "-Werror",
-});
+lib.addCSourceFile(.{ .file = .{ .path = "src/lib.c" }, .flags = &.{
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    } });
       {#endsyntax#}</pre>
       {#header_close#}
 
@@ -10751,6 +10841,7 @@ lib.addCSourceFile("src/lib.c", &[_][]const u8{
       These have guaranteed C ABI compatibility and can be used like any other type.
       </p>
       <ul>
+          <li>{#syntax#}c_char{#endsyntax#}</li>
           <li>{#syntax#}c_short{#endsyntax#}</li>
           <li>{#syntax#}c_ushort{#endsyntax#}</li>
           <li>{#syntax#}c_int{#endsyntax#}</li>
@@ -11089,7 +11180,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "test",
     });
-    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
+    exe.addCSourceFile(.{ .file = .{ .path = "test.c" }, .flags = &.{"-std=c99"} });
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");
 
@@ -11156,10 +11247,10 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "test",
     });
-    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
+    exe.addCSourceFile(.{ .file = .{ .path = "test.c" }, .flags = &.{"-std=c99",} });
     exe.addObject(obj);
     exe.linkSystemLibrary("c");
-    exe.install();
+    b.installArtifact(exe);
 }
       {#code_end#}
       {#shell_samp#}$ zig build
@@ -11662,7 +11753,6 @@ fn readU32Be() u32 {}
       </p>
       <p>
       Note that running <kbd>zig fmt</kbd> on a source file will implement all recommendations mentioned here.
-      Note also that the stage1 compiler does <a href="https://github.com/ziglang/zig/wiki/FAQ#why-does-zig-force-me-to-use-spaces-instead-of-tabs">not yet support CR or HT</a> control characters.
       </p>
       <p>
       Note that a tool reading Zig source code can make assumptions if the source code is assumed to be correct Zig code.

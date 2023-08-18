@@ -119,5 +119,3 @@ pub const POLL = struct {
     pub const HUP = 0x2000;
     pub const NVAL = 0x4000;
 };
-
-pub const PTHREAD_STACK_MIN = 16 * 1024;

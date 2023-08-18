@@ -44,7 +44,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .inferred_alloc,
             .inferred_alloc_comptime,
             .ret_ptr,
-            .interned,
             .breakpoint,
             .dbg_stmt,
             .dbg_inline_begin,
@@ -97,9 +96,9 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .struct_field_ptr_index_2,
             .struct_field_ptr_index_3,
             .array_to_slice,
-            .float_to_int,
-            .float_to_int_optimized,
-            .int_to_float,
+            .int_from_float,
+            .int_from_float_optimized,
+            .float_from_int,
             .get_union_tag,
             .clz,
             .ctz,
@@ -123,8 +122,8 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .is_non_err,
             .is_err_ptr,
             .is_non_err_ptr,
-            .ptrtoint,
-            .bool_to_int,
+            .int_from_ptr,
+            .int_from_bool,
             .is_named_enum_value,
             .tag_name,
             .error_name,
@@ -198,19 +197,19 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
             // binary
             .add,
+            .add_safe,
             .add_optimized,
-            .addwrap,
-            .addwrap_optimized,
+            .add_wrap,
             .add_sat,
             .sub,
+            .sub_safe,
             .sub_optimized,
-            .subwrap,
-            .subwrap_optimized,
+            .sub_wrap,
             .sub_sat,
             .mul,
+            .mul_safe,
             .mul_optimized,
-            .mulwrap,
-            .mulwrap_optimized,
+            .mul_wrap,
             .mul_sat,
             .div_float,
             .div_float_optimized,
@@ -325,8 +324,8 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .aggregate_init => {
                 const ty_pl = data[inst].ty_pl;
                 const aggregate_ty = self.air.getRefType(ty_pl.ty);
-                const len = @intCast(usize, aggregate_ty.arrayLenIp(ip));
-                const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+                const len = @as(usize, @intCast(aggregate_ty.arrayLenIp(ip)));
+                const elements = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[ty_pl.payload..][0..len]));
 
                 var bt = self.liveness.iterateBigTomb(inst);
                 for (elements) |element| {
@@ -337,9 +336,9 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .call, .call_always_tail, .call_never_tail, .call_never_inline => {
                 const pl_op = data[inst].pl_op;
                 const extra = self.air.extraData(Air.Call, pl_op.payload);
-                const args = @ptrCast(
+                const args = @as(
                     []const Air.Inst.Ref,
-                    self.air.extra[extra.end..][0..extra.data.args_len],
+                    @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]),
                 );
 
                 var bt = self.liveness.iterateBigTomb(inst);
@@ -353,14 +352,14 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 const ty_pl = data[inst].ty_pl;
                 const extra = self.air.extraData(Air.Asm, ty_pl.payload);
                 var extra_i = extra.end;
-                const outputs = @ptrCast(
+                const outputs = @as(
                     []const Air.Inst.Ref,
-                    self.air.extra[extra_i..][0..extra.data.outputs_len],
+                    @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]),
                 );
                 extra_i += outputs.len;
-                const inputs = @ptrCast(
+                const inputs = @as(
                     []const Air.Inst.Ref,
-                    self.air.extra[extra_i..][0..extra.data.inputs_len],
+                    @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]),
                 );
                 extra_i += inputs.len;
 
@@ -521,9 +520,9 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 while (case_i < switch_br.data.cases_len) : (case_i += 1) {
                     const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-                    const items = @ptrCast(
+                    const items = @as(
                         []const Air.Inst.Ref,
-                        self.air.extra[case.end..][0..case.data.items_len],
+                        @ptrCast(self.air.extra[case.end..][0..case.data.items_len]),
                     );
                     const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
                     extra_index = case.end + items.len + case_body.len;
@@ -559,10 +558,6 @@ fn verifyOperand(self: *Verify, inst: Air.Inst.Index, op_ref: Air.Inst.Ref, dies
         assert(!dies);
         return;
     };
-    if (self.air.instructions.items(.tag)[operand] == .interned) {
-        assert(!dies);
-        return;
-    }
     if (dies) {
         if (!self.live.remove(operand)) return invalid("%{}: dead operand %{} reused and killed again", .{ inst, operand });
     } else {
@@ -576,14 +571,13 @@ fn verifyInstOperands(
     operands: [Liveness.bpi - 1]Air.Inst.Ref,
 ) Error!void {
     for (operands, 0..) |operand, operand_index| {
-        const dies = self.liveness.operandDies(inst, @intCast(Liveness.OperandInt, operand_index));
+        const dies = self.liveness.operandDies(inst, @as(Liveness.OperandInt, @intCast(operand_index)));
         try self.verifyOperand(inst, operand, dies);
     }
     try self.verifyInst(inst);
 }
 
 fn verifyInst(self: *Verify, inst: Air.Inst.Index) Error!void {
-    if (self.air.instructions.items(.tag)[inst] == .interned) return;
     if (self.liveness.isUnused(inst)) {
         assert(!self.live.contains(inst));
     } else {

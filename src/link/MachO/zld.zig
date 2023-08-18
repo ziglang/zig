@@ -9,14 +9,15 @@ const math = std.math;
 const mem = std.mem;
 
 const aarch64 = @import("../../arch/aarch64/bits.zig");
+const calcUuid = @import("uuid.zig").calcUuid;
 const dead_strip = @import("dead_strip.zig");
 const eh_frame = @import("eh_frame.zig");
 const fat = @import("fat.zig");
 const link = @import("../../link.zig");
 const load_commands = @import("load_commands.zig");
+const stub_helpers = @import("stubs.zig");
 const thunks = @import("thunks.zig");
 const trace = @import("../../tracy.zig").trace;
-const stub_helpers = @import("stubs.zig");
 
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
@@ -102,7 +103,7 @@ pub const Zld = struct {
         const cpu_arch = self.options.target.cpu.arch;
         const mtime: u64 = mtime: {
             const stat = file.stat() catch break :mtime 0;
-            break :mtime @intCast(u64, @divFloor(stat.mtime, 1_000_000_000));
+            break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
         };
         const file_stat = try file.stat();
         const file_size = math.cast(usize, file_stat.size) orelse return error.Overflow;
@@ -219,7 +220,7 @@ pub const Zld = struct {
         const contents = try file.readToEndAllocOptions(gpa, file_size, file_size, @alignOf(u64), null);
         defer gpa.free(contents);
 
-        const dylib_id = @intCast(u16, self.dylibs.items.len);
+        const dylib_id = @as(u16, @intCast(self.dylibs.items.len));
         var dylib = Dylib{ .weak = opts.weak };
 
         dylib.parseFromBinary(
@@ -534,7 +535,7 @@ pub const Zld = struct {
 
     pub fn createEmptyAtom(self: *Zld, sym_index: u32, size: u64, alignment: u32) !AtomIndex {
         const gpa = self.gpa;
-        const index = @intCast(AtomIndex, self.atoms.items.len);
+        const index = @as(AtomIndex, @intCast(self.atoms.items.len));
         const atom = try self.atoms.addOne(gpa);
         atom.* = Atom.empty;
         atom.sym_index = sym_index;
@@ -595,7 +596,7 @@ pub const Zld = struct {
         const global_index = self.dyld_stub_binder_index orelse return;
         const target = self.globals.items[global_index];
         const atom_index = try self.createGotAtom();
-        const got_index = @intCast(u32, self.got_entries.items.len);
+        const got_index = @as(u32, @intCast(self.got_entries.items.len));
         try self.got_entries.append(gpa, .{
             .target = target,
             .atom_index = atom_index,
@@ -873,7 +874,7 @@ pub const Zld = struct {
         }
 
         for (self.objects.items, 0..) |_, object_id| {
-            try self.resolveSymbolsInObject(@intCast(u32, object_id), resolver);
+            try self.resolveSymbolsInObject(@as(u32, @intCast(object_id)), resolver);
         }
 
         try self.resolveSymbolsInArchives(resolver);
@@ -1023,7 +1024,7 @@ pub const Zld = struct {
                 };
                 assert(offsets.items.len > 0);
 
-                const object_id = @intCast(u16, self.objects.items.len);
+                const object_id = @as(u16, @intCast(self.objects.items.len));
                 const object = archive.parseObject(gpa, cpu_arch, offsets.items[0]) catch |e| switch (e) {
                     error.MismatchedCpuArchitecture => {
                         log.err("CPU architecture mismatch found in {s}", .{archive.name});
@@ -1054,14 +1055,14 @@ pub const Zld = struct {
             for (self.dylibs.items, 0..) |dylib, id| {
                 if (!dylib.symbols.contains(sym_name)) continue;
 
-                const dylib_id = @intCast(u16, id);
+                const dylib_id = @as(u16, @intCast(id));
                 if (!self.referenced_dylibs.contains(dylib_id)) {
                     try self.referenced_dylibs.putNoClobber(self.gpa, dylib_id, {});
                 }
 
                 const ordinal = self.referenced_dylibs.getIndex(dylib_id) orelse unreachable;
                 sym.n_type |= macho.N_EXT;
-                sym.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
+                sym.n_desc = @as(u16, @intCast(ordinal + 1)) * macho.N_SYMBOL_RESOLVER;
 
                 if (dylib.weak) {
                     sym.n_desc |= macho.N_WEAK_REF;
@@ -1098,9 +1099,9 @@ pub const Zld = struct {
                 _ = resolver.unresolved.swapRemove(global_index);
                 continue;
             } else if (allow_undef) {
-                const n_desc = @bitCast(
+                const n_desc = @as(
                     u16,
-                    macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP * @intCast(i16, macho.N_SYMBOL_RESOLVER),
+                    @bitCast(macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP * @as(i16, @intCast(macho.N_SYMBOL_RESOLVER))),
                 );
                 sym.n_type = macho.N_EXT;
                 sym.n_desc = n_desc;
@@ -1207,7 +1208,7 @@ pub const Zld = struct {
 
     fn createSegments(self: *Zld) !void {
         const pagezero_vmsize = self.options.pagezero_size orelse MachO.default_pagezero_vmsize;
-        const aligned_pagezero_vmsize = mem.alignBackwardGeneric(u64, pagezero_vmsize, self.page_size);
+        const aligned_pagezero_vmsize = mem.alignBackward(u64, pagezero_vmsize, self.page_size);
         if (self.options.output_mode != .Lib and aligned_pagezero_vmsize > 0) {
             if (aligned_pagezero_vmsize != pagezero_vmsize) {
                 log.warn("requested __PAGEZERO size (0x{x}) is not page aligned", .{pagezero_vmsize});
@@ -1237,7 +1238,7 @@ pub const Zld = struct {
             const segname = header.segName();
             const segment_id = self.getSegmentByName(segname) orelse blk: {
                 log.debug("creating segment '{s}'", .{segname});
-                const segment_id = @intCast(u8, self.segments.items.len);
+                const segment_id = @as(u8, @intCast(self.segments.items.len));
                 const protection = getSegmentMemoryProtection(segname);
                 try self.segments.append(self.gpa, .{
                     .cmdsize = @sizeOf(macho.segment_command_64),
@@ -1268,7 +1269,7 @@ pub const Zld = struct {
     pub fn allocateSymbol(self: *Zld) !u32 {
         try self.locals.ensureUnusedCapacity(self.gpa, 1);
         log.debug("  (allocating symbol index {d})", .{self.locals.items.len});
-        const index = @intCast(u32, self.locals.items.len);
+        const index = @as(u32, @intCast(self.locals.items.len));
         _ = self.locals.addOneAssumeCapacity();
         self.locals.items[index] = .{
             .n_strx = 0,
@@ -1281,7 +1282,7 @@ pub const Zld = struct {
     }
 
     fn addGlobal(self: *Zld, sym_loc: SymbolWithLoc) !u32 {
-        const global_index = @intCast(u32, self.globals.items.len);
+        const global_index = @as(u32, @intCast(self.globals.items.len));
         try self.globals.append(self.gpa, sym_loc);
         return global_index;
     }
@@ -1466,7 +1467,7 @@ pub const Zld = struct {
             while (true) {
                 const atom = self.getAtom(atom_index);
                 const atom_alignment = try math.powi(u32, 2, atom.alignment);
-                const atom_offset = mem.alignForwardGeneric(u64, header.size, atom_alignment);
+                const atom_offset = mem.alignForward(u64, header.size, atom_alignment);
                 const padding = atom_offset - header.size;
 
                 const sym = self.getSymbolPtr(atom.getSymbolWithLoc());
@@ -1488,7 +1489,43 @@ pub const Zld = struct {
                 if (mem.eql(u8, header.sectName(), "__stub_helper")) continue;
 
                 // Create jump/branch range extenders if needed.
-                try thunks.createThunks(self, @intCast(u8, sect_id));
+                try thunks.createThunks(self, @as(u8, @intCast(sect_id)));
+            }
+        }
+
+        // Update offsets of all symbols contained within each Atom.
+        // We need to do this since our unwind info synthesiser relies on
+        // traversing the symbols when synthesising unwind info and DWARF CFI records.
+        for (slice.items(.first_atom_index)) |first_atom_index| {
+            if (first_atom_index == 0) continue;
+            var atom_index = first_atom_index;
+
+            while (true) {
+                const atom = self.getAtom(atom_index);
+                const sym = self.getSymbol(atom.getSymbolWithLoc());
+
+                if (atom.getFile() != null) {
+                    // Update each symbol contained within the atom
+                    var it = Atom.getInnerSymbolsIterator(self, atom_index);
+                    while (it.next()) |sym_loc| {
+                        const inner_sym = self.getSymbolPtr(sym_loc);
+                        inner_sym.n_value = sym.n_value + Atom.calcInnerSymbolOffset(
+                            self,
+                            atom_index,
+                            sym_loc.sym_index,
+                        );
+                    }
+
+                    // If there is a section alias, update it now too
+                    if (Atom.getSectionAlias(self, atom_index)) |sym_loc| {
+                        const alias = self.getSymbolPtr(sym_loc);
+                        alias.n_value = sym.n_value;
+                    }
+                }
+
+                if (atom.next_index) |next_index| {
+                    atom_index = next_index;
+                } else break;
             }
         }
     }
@@ -1501,7 +1538,7 @@ pub const Zld = struct {
                 .dylibs = self.dylibs.items,
                 .referenced_dylibs = self.referenced_dylibs.keys(),
             }) else 0;
-            try self.allocateSegment(@intCast(u8, segment_index), base_size);
+            try self.allocateSegment(@as(u8, @intCast(segment_index)), base_size);
         }
     }
 
@@ -1534,13 +1571,13 @@ pub const Zld = struct {
         const slice = self.sections.slice();
         for (slice.items(.header)[indexes.start..indexes.end], 0..) |*header, sect_id| {
             const alignment = try math.powi(u32, 2, header.@"align");
-            const start_aligned = mem.alignForwardGeneric(u64, start, alignment);
-            const n_sect = @intCast(u8, indexes.start + sect_id + 1);
+            const start_aligned = mem.alignForward(u64, start, alignment);
+            const n_sect = @as(u8, @intCast(indexes.start + sect_id + 1));
 
             header.offset = if (header.isZerofill())
                 0
             else
-                @intCast(u32, segment.fileoff + start_aligned);
+                @as(u32, @intCast(segment.fileoff + start_aligned));
             header.addr = segment.vmaddr + start_aligned;
 
             var atom_index = slice.items(.first_atom_index)[indexes.start + sect_id];
@@ -1598,8 +1635,8 @@ pub const Zld = struct {
             segment.vmsize = start;
         }
 
-        segment.filesize = mem.alignForwardGeneric(u64, segment.filesize, self.page_size);
-        segment.vmsize = mem.alignForwardGeneric(u64, segment.vmsize, self.page_size);
+        segment.filesize = mem.alignForward(u64, segment.filesize, self.page_size);
+        segment.vmsize = mem.alignForward(u64, segment.vmsize, self.page_size);
     }
 
     const InitSectionOpts = struct {
@@ -1616,7 +1653,7 @@ pub const Zld = struct {
     ) !u8 {
         const gpa = self.gpa;
         log.debug("creating section '{s},{s}'", .{ segname, sectname });
-        const index = @intCast(u8, self.sections.slice().len);
+        const index = @as(u8, @intCast(self.sections.slice().len));
         try self.sections.append(gpa, .{
             .segment_index = undefined, // Segments will be created automatically later down the pipeline
             .header = .{
@@ -1672,12 +1709,12 @@ pub const Zld = struct {
                 },
             }
         };
-        return (@intCast(u8, segment_precedence) << 4) + section_precedence;
+        return (@as(u8, @intCast(segment_precedence)) << 4) + section_precedence;
     }
 
     fn writeSegmentHeaders(self: *Zld, writer: anytype) !void {
         for (self.segments.items, 0..) |seg, i| {
-            const indexes = self.getSectionIndexes(@intCast(u8, i));
+            const indexes = self.getSectionIndexes(@as(u8, @intCast(i)));
             var out_seg = seg;
             out_seg.cmdsize = @sizeOf(macho.segment_command_64);
             out_seg.nsects = 0;
@@ -1709,7 +1746,7 @@ pub const Zld = struct {
         try self.writeSymtabs();
 
         const seg = self.getLinkeditSegmentPtr();
-        seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
+        seg.vmsize = mem.alignForward(u64, seg.filesize, self.page_size);
     }
 
     fn collectRebaseDataFromContainer(
@@ -1789,7 +1826,7 @@ pub const Zld = struct {
             }
 
             const segment_index = slice.items(.segment_index)[sect_id];
-            const segment = self.getSegment(@intCast(u8, sect_id));
+            const segment = self.getSegment(@as(u8, @intCast(sect_id)));
             if (segment.maxprot & macho.PROT.WRITE == 0) continue;
 
             log.debug("{s},{s}", .{ header.segName(), header.sectName() });
@@ -1819,12 +1856,12 @@ pub const Zld = struct {
                     for (relocs) |rel| {
                         switch (cpu_arch) {
                             .aarch64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+                                const rel_type = @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type));
                                 if (rel_type != .ARM64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
                             .x86_64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
+                                const rel_type = @as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type));
                                 if (rel_type != .X86_64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
@@ -1840,9 +1877,9 @@ pub const Zld = struct {
                         const target_sym = self.getSymbol(target);
                         if (target_sym.undf()) continue;
 
-                        const base_offset = @intCast(i32, sym.n_value - segment.vmaddr);
+                        const base_offset = @as(i32, @intCast(sym.n_value - segment.vmaddr));
                         const rel_offset = rel.r_address - ctx.base_offset;
-                        const offset = @intCast(u64, base_offset + rel_offset);
+                        const offset = @as(u64, @intCast(base_offset + rel_offset));
                         log.debug("    | rebase at {x}", .{offset});
 
                         try rebase.entries.append(self.gpa, .{
@@ -1881,7 +1918,7 @@ pub const Zld = struct {
             const sym = entry.getAtomSymbol(self);
             const base_offset = sym.n_value - seg.vmaddr;
 
-            const dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER);
+            const dylib_ordinal = @divTrunc(@as(i16, @bitCast(bind_sym.n_desc)), macho.N_SYMBOL_RESOLVER);
             log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
                 base_offset,
                 bind_sym_name,
@@ -1928,7 +1965,7 @@ pub const Zld = struct {
             }
 
             const segment_index = slice.items(.segment_index)[sect_id];
-            const segment = self.getSegment(@intCast(u8, sect_id));
+            const segment = self.getSegment(@as(u8, @intCast(sect_id)));
             if (segment.maxprot & macho.PROT.WRITE == 0) continue;
 
             const cpu_arch = self.options.target.cpu.arch;
@@ -1958,12 +1995,12 @@ pub const Zld = struct {
                     for (relocs) |rel| {
                         switch (cpu_arch) {
                             .aarch64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+                                const rel_type = @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type));
                                 if (rel_type != .ARM64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
                             .x86_64 => {
-                                const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
+                                const rel_type = @as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type));
                                 if (rel_type != .X86_64_RELOC_UNSIGNED) continue;
                                 if (rel.r_length != 3) continue;
                             },
@@ -1982,11 +2019,11 @@ pub const Zld = struct {
                         if (!bind_sym.undf()) continue;
 
                         const base_offset = sym.n_value - segment.vmaddr;
-                        const rel_offset = @intCast(u32, rel.r_address - ctx.base_offset);
-                        const offset = @intCast(u64, base_offset + rel_offset);
+                        const rel_offset = @as(u32, @intCast(rel.r_address - ctx.base_offset));
+                        const offset = @as(u64, @intCast(base_offset + rel_offset));
                         const addend = mem.readIntLittle(i64, code[rel_offset..][0..8]);
 
-                        const dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER);
+                        const dylib_ordinal = @divTrunc(@as(i16, @bitCast(bind_sym.n_desc)), macho.N_SYMBOL_RESOLVER);
                         log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
                             base_offset,
                             bind_sym_name,
@@ -2038,7 +2075,7 @@ pub const Zld = struct {
             const stub_entry = self.stubs.items[count];
             const bind_sym = stub_entry.getTargetSymbol(self);
             const bind_sym_name = stub_entry.getTargetSymbolName(self);
-            const dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER);
+            const dylib_ordinal = @divTrunc(@as(i16, @bitCast(bind_sym.n_desc)), macho.N_SYMBOL_RESOLVER);
             log.debug("    | lazy bind at {x}, import('{s}') in dylib({d})", .{
                 base_offset,
                 bind_sym_name,
@@ -2106,23 +2143,24 @@ pub const Zld = struct {
 
         var trie = Trie{};
         defer trie.deinit(gpa);
+        try trie.init(gpa);
         try self.collectExportData(&trie);
 
         const link_seg = self.getLinkeditSegmentPtr();
         assert(mem.isAlignedGeneric(u64, link_seg.fileoff, @alignOf(u64)));
         const rebase_off = link_seg.fileoff;
         const rebase_size = rebase.size();
-        const rebase_size_aligned = mem.alignForwardGeneric(u64, rebase_size, @alignOf(u64));
+        const rebase_size_aligned = mem.alignForward(u64, rebase_size, @alignOf(u64));
         log.debug("writing rebase info from 0x{x} to 0x{x}", .{ rebase_off, rebase_off + rebase_size_aligned });
 
         const bind_off = rebase_off + rebase_size_aligned;
         const bind_size = bind.size();
-        const bind_size_aligned = mem.alignForwardGeneric(u64, bind_size, @alignOf(u64));
+        const bind_size_aligned = mem.alignForward(u64, bind_size, @alignOf(u64));
         log.debug("writing bind info from 0x{x} to 0x{x}", .{ bind_off, bind_off + bind_size_aligned });
 
         const lazy_bind_off = bind_off + bind_size_aligned;
         const lazy_bind_size = lazy_bind.size();
-        const lazy_bind_size_aligned = mem.alignForwardGeneric(u64, lazy_bind_size, @alignOf(u64));
+        const lazy_bind_size_aligned = mem.alignForward(u64, lazy_bind_size, @alignOf(u64));
         log.debug("writing lazy bind info from 0x{x} to 0x{x}", .{
             lazy_bind_off,
             lazy_bind_off + lazy_bind_size_aligned,
@@ -2130,7 +2168,7 @@ pub const Zld = struct {
 
         const export_off = lazy_bind_off + lazy_bind_size_aligned;
         const export_size = trie.size;
-        const export_size_aligned = mem.alignForwardGeneric(u64, export_size, @alignOf(u64));
+        const export_size_aligned = mem.alignForward(u64, export_size, @alignOf(u64));
         log.debug("writing export trie from 0x{x} to 0x{x}", .{ export_off, export_off + export_size_aligned });
 
         const needed_size = math.cast(usize, export_off + export_size_aligned - rebase_off) orelse
@@ -2164,14 +2202,14 @@ pub const Zld = struct {
         try self.file.pwriteAll(buffer, rebase_off);
         try self.populateLazyBindOffsetsInStubHelper(lazy_bind);
 
-        self.dyld_info_cmd.rebase_off = @intCast(u32, rebase_off);
-        self.dyld_info_cmd.rebase_size = @intCast(u32, rebase_size_aligned);
-        self.dyld_info_cmd.bind_off = @intCast(u32, bind_off);
-        self.dyld_info_cmd.bind_size = @intCast(u32, bind_size_aligned);
-        self.dyld_info_cmd.lazy_bind_off = @intCast(u32, lazy_bind_off);
-        self.dyld_info_cmd.lazy_bind_size = @intCast(u32, lazy_bind_size_aligned);
-        self.dyld_info_cmd.export_off = @intCast(u32, export_off);
-        self.dyld_info_cmd.export_size = @intCast(u32, export_size_aligned);
+        self.dyld_info_cmd.rebase_off = @as(u32, @intCast(rebase_off));
+        self.dyld_info_cmd.rebase_size = @as(u32, @intCast(rebase_size_aligned));
+        self.dyld_info_cmd.bind_off = @as(u32, @intCast(bind_off));
+        self.dyld_info_cmd.bind_size = @as(u32, @intCast(bind_size_aligned));
+        self.dyld_info_cmd.lazy_bind_off = @as(u32, @intCast(lazy_bind_off));
+        self.dyld_info_cmd.lazy_bind_size = @as(u32, @intCast(lazy_bind_size_aligned));
+        self.dyld_info_cmd.export_off = @as(u32, @intCast(export_off));
+        self.dyld_info_cmd.export_size = @as(u32, @intCast(export_size_aligned));
     }
 
     fn populateLazyBindOffsetsInStubHelper(self: *Zld, lazy_bind: LazyBind) !void {
@@ -2245,7 +2283,7 @@ pub const Zld = struct {
 
         var last_off: u32 = 0;
         for (addresses.items) |addr| {
-            const offset = @intCast(u32, addr - text_seg.vmaddr);
+            const offset = @as(u32, @intCast(addr - text_seg.vmaddr));
             const diff = offset - last_off;
 
             if (diff == 0) continue;
@@ -2257,7 +2295,7 @@ pub const Zld = struct {
         var buffer = std.ArrayList(u8).init(gpa);
         defer buffer.deinit();
 
-        const max_size = @intCast(usize, offsets.items.len * @sizeOf(u64));
+        const max_size = @as(usize, @intCast(offsets.items.len * @sizeOf(u64)));
         try buffer.ensureTotalCapacity(max_size);
 
         for (offsets.items) |offset| {
@@ -2268,7 +2306,7 @@ pub const Zld = struct {
         const offset = link_seg.fileoff + link_seg.filesize;
         assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
         const needed_size = buffer.items.len;
-        const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+        const needed_size_aligned = mem.alignForward(u64, needed_size, @alignOf(u64));
         const padding = math.cast(usize, needed_size_aligned - needed_size) orelse return error.Overflow;
         if (padding > 0) {
             try buffer.ensureUnusedCapacity(padding);
@@ -2280,8 +2318,8 @@ pub const Zld = struct {
 
         try self.file.pwriteAll(buffer.items, offset);
 
-        self.function_starts_cmd.dataoff = @intCast(u32, offset);
-        self.function_starts_cmd.datasize = @intCast(u32, needed_size_aligned);
+        self.function_starts_cmd.dataoff = @as(u32, @intCast(offset));
+        self.function_starts_cmd.datasize = @as(u32, @intCast(needed_size_aligned));
     }
 
     fn filterDataInCode(
@@ -2323,8 +2361,8 @@ pub const Zld = struct {
                 const source_addr = if (object.getSourceSymbol(atom.sym_index)) |source_sym|
                     source_sym.n_value
                 else blk: {
-                    const nbase = @intCast(u32, object.in_symtab.?.len);
-                    const source_sect_id = @intCast(u8, atom.sym_index - nbase);
+                    const nbase = @as(u32, @intCast(object.in_symtab.?.len));
+                    const source_sect_id = @as(u8, @intCast(atom.sym_index - nbase));
                     break :blk object.getSourceSection(source_sect_id).addr;
                 };
                 const filtered_dice = filterDataInCode(dice, source_addr, source_addr + atom.size);
@@ -2347,7 +2385,7 @@ pub const Zld = struct {
         const offset = seg.fileoff + seg.filesize;
         assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
         const needed_size = out_dice.items.len * @sizeOf(macho.data_in_code_entry);
-        const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+        const needed_size_aligned = mem.alignForward(u64, needed_size, @alignOf(u64));
         seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
         const buffer = try self.gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
@@ -2362,8 +2400,8 @@ pub const Zld = struct {
 
         try self.file.pwriteAll(buffer, offset);
 
-        self.data_in_code_cmd.dataoff = @intCast(u32, offset);
-        self.data_in_code_cmd.datasize = @intCast(u32, needed_size_aligned);
+        self.data_in_code_cmd.dataoff = @as(u32, @intCast(offset));
+        self.data_in_code_cmd.datasize = @as(u32, @intCast(needed_size_aligned));
     }
 
     fn writeSymtabs(self: *Zld) !void {
@@ -2427,7 +2465,7 @@ pub const Zld = struct {
             if (!sym.undf()) continue; // not an import, skip
             if (sym.n_desc == N_DEAD) continue;
 
-            const new_index = @intCast(u32, imports.items.len);
+            const new_index = @as(u32, @intCast(imports.items.len));
             var out_sym = sym;
             out_sym.n_strx = try self.strtab.insert(gpa, self.getSymbolName(global));
             try imports.append(out_sym);
@@ -2442,9 +2480,9 @@ pub const Zld = struct {
             }
         }
 
-        const nlocals = @intCast(u32, locals.items.len);
-        const nexports = @intCast(u32, exports.items.len);
-        const nimports = @intCast(u32, imports.items.len);
+        const nlocals = @as(u32, @intCast(locals.items.len));
+        const nexports = @as(u32, @intCast(exports.items.len));
+        const nimports = @as(u32, @intCast(imports.items.len));
         const nsyms = nlocals + nexports + nimports;
 
         const seg = self.getLinkeditSegmentPtr();
@@ -2464,7 +2502,7 @@ pub const Zld = struct {
         log.debug("writing symtab from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
         try self.file.pwriteAll(buffer.items, offset);
 
-        self.symtab_cmd.symoff = @intCast(u32, offset);
+        self.symtab_cmd.symoff = @as(u32, @intCast(offset));
         self.symtab_cmd.nsyms = nsyms;
 
         return SymtabCtx{
@@ -2480,7 +2518,7 @@ pub const Zld = struct {
         const offset = seg.fileoff + seg.filesize;
         assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
         const needed_size = self.strtab.buffer.items.len;
-        const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+        const needed_size_aligned = mem.alignForward(u64, needed_size, @alignOf(u64));
         seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
         log.debug("writing string table from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
@@ -2492,8 +2530,8 @@ pub const Zld = struct {
 
         try self.file.pwriteAll(buffer, offset);
 
-        self.symtab_cmd.stroff = @intCast(u32, offset);
-        self.symtab_cmd.strsize = @intCast(u32, needed_size_aligned);
+        self.symtab_cmd.stroff = @as(u32, @intCast(offset));
+        self.symtab_cmd.strsize = @as(u32, @intCast(needed_size_aligned));
     }
 
     const SymtabCtx = struct {
@@ -2505,8 +2543,8 @@ pub const Zld = struct {
 
     fn writeDysymtab(self: *Zld, ctx: SymtabCtx) !void {
         const gpa = self.gpa;
-        const nstubs = @intCast(u32, self.stubs.items.len);
-        const ngot_entries = @intCast(u32, self.got_entries.items.len);
+        const nstubs = @as(u32, @intCast(self.stubs.items.len));
+        const ngot_entries = @as(u32, @intCast(self.got_entries.items.len));
         const nindirectsyms = nstubs * 2 + ngot_entries;
         const iextdefsym = ctx.nlocalsym;
         const iundefsym = iextdefsym + ctx.nextdefsym;
@@ -2515,7 +2553,7 @@ pub const Zld = struct {
         const offset = seg.fileoff + seg.filesize;
         assert(mem.isAlignedGeneric(u64, offset, @alignOf(u64)));
         const needed_size = nindirectsyms * @sizeOf(u32);
-        const needed_size_aligned = mem.alignForwardGeneric(u64, needed_size, @alignOf(u64));
+        const needed_size_aligned = mem.alignForward(u64, needed_size, @alignOf(u64));
         seg.filesize = offset + needed_size_aligned - seg.fileoff;
 
         log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
@@ -2571,171 +2609,35 @@ pub const Zld = struct {
         self.dysymtab_cmd.nextdefsym = ctx.nextdefsym;
         self.dysymtab_cmd.iundefsym = iundefsym;
         self.dysymtab_cmd.nundefsym = ctx.nundefsym;
-        self.dysymtab_cmd.indirectsymoff = @intCast(u32, offset);
+        self.dysymtab_cmd.indirectsymoff = @as(u32, @intCast(offset));
         self.dysymtab_cmd.nindirectsyms = nindirectsyms;
     }
 
-    fn writeUuid(self: *Zld, comp: *const Compilation, args: struct {
-        linkedit_cmd_offset: u32,
-        symtab_cmd_offset: u32,
-        uuid_cmd_offset: u32,
-        codesig_cmd_offset: ?u32,
-    }) !void {
-        _ = comp;
-        switch (self.options.optimize_mode) {
-            .Debug => {
-                // In Debug we don't really care about reproducibility, so put in a random value
-                // and be done with it.
-                std.crypto.random.bytes(&self.uuid_cmd.uuid);
-                Md5.hash(&self.uuid_cmd.uuid, &self.uuid_cmd.uuid, .{});
-                conformUuid(&self.uuid_cmd.uuid);
-            },
-            else => {
-                // We set the max file size to the actual strtab buffer length to exclude any strtab padding.
-                const max_file_end = @intCast(u32, self.symtab_cmd.stroff + self.strtab.buffer.items.len);
-
-                const FileSubsection = struct {
-                    start: u32,
-                    end: u32,
-                };
-
-                var subsections: [5]FileSubsection = undefined;
-                var count: usize = 0;
-
-                // Exclude LINKEDIT segment command as it contains file size that includes stabs contribution
-                // and code signature.
-                subsections[count] = .{
-                    .start = 0,
-                    .end = args.linkedit_cmd_offset,
-                };
-                count += 1;
-
-                // Exclude SYMTAB and DYSYMTAB commands for the same reason.
-                subsections[count] = .{
-                    .start = subsections[count - 1].end + @sizeOf(macho.segment_command_64),
-                    .end = args.symtab_cmd_offset,
-                };
-                count += 1;
-
-                // Exclude CODE_SIGNATURE command (if present).
-                if (args.codesig_cmd_offset) |offset| {
-                    subsections[count] = .{
-                        .start = subsections[count - 1].end + @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command),
-                        .end = offset,
-                    };
-                    count += 1;
-                }
-
-                if (!self.options.strip) {
-                    // Exclude region comprising all symbol stabs.
-                    const nlocals = self.dysymtab_cmd.nlocalsym;
-
-                    const locals = try self.gpa.alloc(macho.nlist_64, nlocals);
-                    defer self.gpa.free(locals);
-
-                    const locals_buf = @ptrCast([*]u8, locals.ptr)[0 .. @sizeOf(macho.nlist_64) * nlocals];
-                    const amt = try self.file.preadAll(locals_buf, self.symtab_cmd.symoff);
-                    if (amt != locals_buf.len) return error.InputOutput;
-
-                    const istab: usize = for (locals, 0..) |local, i| {
-                        if (local.stab()) break i;
-                    } else locals.len;
-                    const nstabs = locals.len - istab;
-
-                    if (nstabs == 0) {
-                        subsections[count] = .{
-                            .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
-                                @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
-                            else
-                                @sizeOf(macho.linkedit_data_command),
-                            .end = max_file_end,
-                        };
-                        count += 1;
-                    } else {
-                        // Exclude a subsection of the strtab with names of the stabs.
-                        // We do not care about anything succeeding strtab as it is the code signature data which is
-                        // not part of the UUID calculation anyway.
-                        const stab_stroff = locals[istab].n_strx;
-
-                        subsections[count] = .{
-                            .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
-                                @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
-                            else
-                                @sizeOf(macho.linkedit_data_command),
-                            .end = @intCast(u32, self.symtab_cmd.symoff + istab * @sizeOf(macho.nlist_64)),
-                        };
-                        count += 1;
-
-                        subsections[count] = .{
-                            .start = subsections[count - 1].end + @intCast(u32, nstabs * @sizeOf(macho.nlist_64)),
-                            .end = self.symtab_cmd.stroff + stab_stroff,
-                        };
-                        count += 1;
-                    }
-                } else {
-                    subsections[count] = .{
-                        .start = subsections[count - 1].end + if (args.codesig_cmd_offset == null)
-                            @as(u32, @sizeOf(macho.symtab_command) + @sizeOf(macho.dysymtab_command))
-                        else
-                            @sizeOf(macho.linkedit_data_command),
-                        .end = max_file_end,
-                    };
-                    count += 1;
-                }
-
-                const chunk_size = 0x4000;
-
-                var hasher = Md5.init(.{});
-                var buffer: [chunk_size]u8 = undefined;
-
-                for (subsections[0..count]) |cut| {
-                    const size = cut.end - cut.start;
-                    const num_chunks = mem.alignForward(size, chunk_size) / chunk_size;
-
-                    var i: usize = 0;
-                    while (i < num_chunks) : (i += 1) {
-                        const fstart = cut.start + i * chunk_size;
-                        const fsize = if (fstart + chunk_size > cut.end)
-                            cut.end - fstart
-                        else
-                            chunk_size;
-                        const amt = try self.file.preadAll(buffer[0..fsize], fstart);
-                        if (amt != fsize) return error.InputOutput;
-
-                        hasher.update(buffer[0..fsize]);
-                    }
-                }
-
-                hasher.final(&self.uuid_cmd.uuid);
-                conformUuid(&self.uuid_cmd.uuid);
-            },
-        }
-
-        const in_file = args.uuid_cmd_offset + @sizeOf(macho.load_command);
-        try self.file.pwriteAll(&self.uuid_cmd.uuid, in_file);
-    }
-
-    inline fn conformUuid(out: *[Md5.digest_length]u8) void {
-        // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
-        out[6] = (out[6] & 0x0F) | (3 << 4);
-        out[8] = (out[8] & 0x3F) | 0x80;
+    fn writeUuid(self: *Zld, comp: *const Compilation, uuid_cmd_offset: u32, has_codesig: bool) !void {
+        const file_size = if (!has_codesig) blk: {
+            const seg = self.getLinkeditSegmentPtr();
+            break :blk seg.fileoff + seg.filesize;
+        } else self.codesig_cmd.dataoff;
+        try calcUuid(comp, self.file, file_size, &self.uuid_cmd.uuid);
+        const offset = uuid_cmd_offset + @sizeOf(macho.load_command);
+        try self.file.pwriteAll(&self.uuid_cmd.uuid, offset);
     }
 
     fn writeCodeSignaturePadding(self: *Zld, code_sig: *CodeSignature) !void {
         const seg = self.getLinkeditSegmentPtr();
         // Code signature data has to be 16-bytes aligned for Apple tools to recognize the file
         // https://github.com/opensource-apple/cctools/blob/fdb4825f303fd5c0751be524babd32958181b3ed/libstuff/checkout.c#L271
-        const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, 16);
+        const offset = mem.alignForward(u64, seg.fileoff + seg.filesize, 16);
         const needed_size = code_sig.estimateSize(offset);
         seg.filesize = offset + needed_size - seg.fileoff;
-        seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
+        seg.vmsize = mem.alignForward(u64, seg.filesize, self.page_size);
         log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
         // Pad out the space. We need to do this to calculate valid hashes for everything in the file
         // except for code signature data.
         try self.file.pwriteAll(&[_]u8{0}, offset + needed_size - 1);
 
-        self.codesig_cmd.dataoff = @intCast(u32, offset);
-        self.codesig_cmd.datasize = @intCast(u32, needed_size);
+        self.codesig_cmd.dataoff = @as(u32, @intCast(offset));
+        self.codesig_cmd.datasize = @as(u32, @intCast(needed_size));
     }
 
     fn writeCodeSignature(self: *Zld, comp: *const Compilation, code_sig: *CodeSignature) !void {
@@ -2824,7 +2726,7 @@ pub const Zld = struct {
 
     fn getSegmentByName(self: Zld, segname: []const u8) ?u8 {
         for (self.segments.items, 0..) |seg, i| {
-            if (mem.eql(u8, segname, seg.segName())) return @intCast(u8, i);
+            if (mem.eql(u8, segname, seg.segName())) return @as(u8, @intCast(i));
         } else return null;
     }
 
@@ -2849,15 +2751,15 @@ pub const Zld = struct {
         // TODO investigate caching with a hashmap
         for (self.sections.items(.header), 0..) |header, i| {
             if (mem.eql(u8, header.segName(), segname) and mem.eql(u8, header.sectName(), sectname))
-                return @intCast(u8, i);
+                return @as(u8, @intCast(i));
         } else return null;
     }
 
     pub fn getSectionIndexes(self: Zld, segment_index: u8) struct { start: u8, end: u8 } {
         var start: u8 = 0;
         const nsects = for (self.segments.items, 0..) |seg, i| {
-            if (i == segment_index) break @intCast(u8, seg.nsects);
-            start += @intCast(u8, seg.nsects);
+            if (i == segment_index) break @as(u8, @intCast(seg.nsects));
+            start += @as(u8, @intCast(seg.nsects));
         } else 0;
         return .{ .start = start, .end = start + nsects };
     }
@@ -3014,7 +2916,7 @@ pub const Zld = struct {
         var name_lookup: ?DwarfInfo.SubprogramLookupByName = if (object.header.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS == 0) blk: {
             var name_lookup = DwarfInfo.SubprogramLookupByName.init(gpa);
             errdefer name_lookup.deinit();
-            try name_lookup.ensureUnusedCapacity(@intCast(u32, object.atoms.items.len));
+            try name_lookup.ensureUnusedCapacity(@as(u32, @intCast(object.atoms.items.len)));
             try debug_info.genSubprogramLookupByName(compile_unit, lookup, &name_lookup);
             break :blk name_lookup;
         } else null;
@@ -3204,7 +3106,7 @@ pub const Zld = struct {
                 @memset(&buf, '_');
                 scoped_log.debug("    %{d}: {s} @{x} in sect({d}), {s}", .{
                     sym_id,
-                    object.getSymbolName(@intCast(u32, sym_id)),
+                    object.getSymbolName(@as(u32, @intCast(sym_id))),
                     sym.n_value,
                     sym.n_sect,
                     logSymAttributes(sym, &buf),
@@ -3387,7 +3289,7 @@ pub const Zld = struct {
     }
 };
 
-pub const N_DEAD: u16 = @bitCast(u16, @as(i16, -1));
+pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
 
 const Section = struct {
     header: macho.section_64,
@@ -3508,7 +3410,6 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.add(stack_size);
         man.hash.addOptional(options.pagezero_size);
-        man.hash.addOptional(options.search_strategy);
         man.hash.addOptional(options.headerpad_size);
         man.hash.add(options.headerpad_max_install_names);
         man.hash.add(gc_sections);
@@ -3516,13 +3417,13 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         man.hash.add(options.strip);
         man.hash.addListOfBytes(options.lib_dirs);
         man.hash.addListOfBytes(options.framework_dirs);
-        link.hashAddSystemLibs(&man.hash, options.frameworks);
+        link.hashAddFrameworks(&man.hash, options.frameworks);
         man.hash.addListOfBytes(options.rpath_list);
         if (is_dyn_lib) {
             man.hash.addOptionalBytes(options.install_name);
             man.hash.addOptional(options.version);
         }
-        link.hashAddSystemLibs(&man.hash, options.system_libs);
+        try link.hashAddSystemLibs(&man, options.system_libs);
         man.hash.addOptionalBytes(options.sysroot);
         man.hash.addListOfBytes(options.force_undefined_symbols.keys());
         try man.addOptionalFile(options.entitlements);
@@ -3648,84 +3549,15 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             try positionals.append(comp.libcxx_static_lib.?.full_object_path);
         }
 
-        // Shared and static libraries passed via `-l` flag.
-        var candidate_libs = std.StringArrayHashMap(link.SystemLib).init(arena);
-
-        const system_lib_names = options.system_libs.keys();
-        for (system_lib_names) |system_lib_name| {
-            // By this time, we depend on these libs being dynamically linked libraries and not static libraries
-            // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
-            // case we want to avoid prepending "-l".
-            if (Compilation.classifyFileExt(system_lib_name) == .shared_library) {
-                try positionals.append(system_lib_name);
-                continue;
-            }
-
-            const system_lib_info = options.system_libs.get(system_lib_name).?;
-            try candidate_libs.put(system_lib_name, .{
-                .needed = system_lib_info.needed,
-                .weak = system_lib_info.weak,
-            });
-        }
-
-        var lib_dirs = std.ArrayList([]const u8).init(arena);
-        for (options.lib_dirs) |dir| {
-            if (try MachO.resolveSearchDir(arena, dir, options.sysroot)) |search_dir| {
-                try lib_dirs.append(search_dir);
-            } else {
-                log.warn("directory not found for '-L{s}'", .{dir});
-            }
-        }
-
         var libs = std.StringArrayHashMap(link.SystemLib).init(arena);
 
-        // Assume ld64 default -search_paths_first if no strategy specified.
-        const search_strategy = options.search_strategy orelse .paths_first;
-        outer: for (candidate_libs.keys()) |lib_name| {
-            switch (search_strategy) {
-                .paths_first => {
-                    // Look in each directory for a dylib (stub first), and then for archive
-                    for (lib_dirs.items) |dir| {
-                        for (&[_][]const u8{ ".tbd", ".dylib", ".a" }) |ext| {
-                            if (try MachO.resolveLib(arena, dir, lib_name, ext)) |full_path| {
-                                try libs.put(full_path, candidate_libs.get(lib_name).?);
-                                continue :outer;
-                            }
-                        }
-                    } else {
-                        log.warn("library not found for '-l{s}'", .{lib_name});
-                        lib_not_found = true;
-                    }
-                },
-                .dylibs_first => {
-                    // First, look for a dylib in each search dir
-                    for (lib_dirs.items) |dir| {
-                        for (&[_][]const u8{ ".tbd", ".dylib" }) |ext| {
-                            if (try MachO.resolveLib(arena, dir, lib_name, ext)) |full_path| {
-                                try libs.put(full_path, candidate_libs.get(lib_name).?);
-                                continue :outer;
-                            }
-                        }
-                    } else for (lib_dirs.items) |dir| {
-                        if (try MachO.resolveLib(arena, dir, lib_name, ".a")) |full_path| {
-                            try libs.put(full_path, candidate_libs.get(lib_name).?);
-                        } else {
-                            log.warn("library not found for '-l{s}'", .{lib_name});
-                            lib_not_found = true;
-                        }
-                    }
-                },
-            }
+        {
+            const vals = options.system_libs.values();
+            try libs.ensureUnusedCapacity(vals.len);
+            for (vals) |v| libs.putAssumeCapacity(v.path.?, v);
         }
 
-        if (lib_not_found) {
-            log.warn("Library search paths:", .{});
-            for (lib_dirs.items) |dir| {
-                log.warn("  {s}", .{dir});
-            }
-        }
-
-        try MachO.resolveLibSystem(arena, comp, options.sysroot, target, lib_dirs.items, &libs);
+        try MachO.resolveLibSystem(arena, comp, options.sysroot, target, options.lib_dirs, &libs);
 
         // frameworks
         var framework_dirs = std.ArrayList([]const u8).init(arena);
@@ -3745,6 +3577,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                         try libs.put(full_path, .{
                             .needed = info.needed,
                             .weak = info.weak,
+                            .path = full_path,
                         });
                         continue :outer;
                     }
@@ -3795,11 +3628,6 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 try argv.append("-pagezero_size");
                 try argv.append(try std.fmt.allocPrint(arena, "0x{x}", .{pagezero_size}));
             }
-
-            if (options.search_strategy) |strat| switch (strat) {
-                .paths_first => try argv.append("-search_paths_first"),
-                .dylibs_first => try argv.append("-search_dylibs_first"),
-            };
 
             if (options.headerpad_size) |headerpad_size| {
                 try argv.append("-headerpad_size");
@@ -3926,7 +3754,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
 
         for (zld.objects.items, 0..) |*object, object_id| {
-            try object.splitIntoAtoms(&zld, @intCast(u32, object_id));
+            try object.splitIntoAtoms(&zld, @as(u32, @intCast(object_id)));
         }
 
         if (gc_sections) {
@@ -4041,16 +3869,11 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         const lc_writer = lc_buffer.writer();
 
         try zld.writeSegmentHeaders(lc_writer);
-        const linkedit_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len - @sizeOf(macho.segment_command_64));
-
         try lc_writer.writeStruct(zld.dyld_info_cmd);
         try lc_writer.writeStruct(zld.function_starts_cmd);
         try lc_writer.writeStruct(zld.data_in_code_cmd);
-
-        const symtab_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
         try lc_writer.writeStruct(zld.symtab_cmd);
         try lc_writer.writeStruct(zld.dysymtab_cmd);
-
         try load_commands.writeDylinkerLC(lc_writer);
 
         if (zld.options.output_mode == .Exe) {
@@ -4069,7 +3892,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             } else sym.n_value;
 
             try lc_writer.writeStruct(macho.entry_point_command{
-                .entryoff = @intCast(u32, addr - seg.vmaddr),
+                .entryoff = @as(u32, @intCast(addr - seg.vmaddr)),
                 .stacksize = options.stack_size_override orelse 0,
             });
         } else {
@@ -4083,27 +3906,19 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         });
         try load_commands.writeBuildVersionLC(zld.options, lc_writer);
 
-        const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
+        const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + @as(u32, @intCast(lc_buffer.items.len));
         try lc_writer.writeStruct(zld.uuid_cmd);
 
         try load_commands.writeLoadDylibLCs(zld.dylibs.items, zld.referenced_dylibs.keys(), lc_writer);
 
-        var codesig_cmd_offset: ?u32 = null;
         if (requires_codesig) {
-            codesig_cmd_offset = @sizeOf(macho.mach_header_64) + @intCast(u32, lc_buffer.items.len);
             try lc_writer.writeStruct(zld.codesig_cmd);
         }
 
         const ncmds = load_commands.calcNumOfLCs(lc_buffer.items);
         try zld.file.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64));
-        try zld.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len));
-
-        try zld.writeUuid(comp, .{
-            .linkedit_cmd_offset = linkedit_cmd_offset,
-            .symtab_cmd_offset = symtab_cmd_offset,
-            .uuid_cmd_offset = uuid_cmd_offset,
-            .codesig_cmd_offset = codesig_cmd_offset,
-        });
+        try zld.writeHeader(ncmds, @as(u32, @intCast(lc_buffer.items.len)));
+        try zld.writeUuid(comp, uuid_cmd_offset, requires_codesig);
 
         if (codesig) |*csig| {
             try zld.writeCodeSignature(comp, csig); // code signing always comes last

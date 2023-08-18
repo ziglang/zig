@@ -1,5 +1,5 @@
-var a : i32 = 1;
-var a : i32 = 2;
+var a: i32 = 1;
+var a: i32 = 2;
 
 // error
 // backend=stage2

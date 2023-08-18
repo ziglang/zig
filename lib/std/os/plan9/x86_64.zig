@@ -10,7 +10,7 @@ pub fn syscall1(sys: plan9.SYS, arg0: usize) usize {
         \\pop %%r11
         : [ret] "={rax}" (-> usize),
         : [arg0] "{r8}" (arg0),
-          [syscall_number] "{rbp}" (@enumToInt(sys)),
+          [syscall_number] "{rbp}" (@intFromEnum(sys)),
         : "rcx", "rax", "rbp", "r11", "memory"
     );
 }
@@ -26,7 +26,7 @@ pub fn syscall2(sys: plan9.SYS, arg0: usize, arg1: usize) usize {
         : [ret] "={rax}" (-> usize),
         : [arg0] "{r8}" (arg0),
           [arg1] "{r9}" (arg1),
-          [syscall_number] "{rbp}" (@enumToInt(sys)),
+          [syscall_number] "{rbp}" (@intFromEnum(sys)),
         : "rcx", "rax", "rbp", "r11", "memory"
     );
 }
@@ -45,7 +45,7 @@ pub fn syscall3(sys: plan9.SYS, arg0: usize, arg1: usize, arg2: usize) usize {
         : [arg0] "{r8}" (arg0),
           [arg1] "{r9}" (arg1),
           [arg2] "{r10}" (arg2),
-          [syscall_number] "{rbp}" (@enumToInt(sys)),
+          [syscall_number] "{rbp}" (@intFromEnum(sys)),
         : "rcx", "rax", "rbp", "r11", "memory"
     );
 }
@@ -66,8 +66,8 @@ pub fn syscall4(sys: plan9.SYS, arg0: usize, arg1: usize, arg2: usize, arg3: usi
         : [arg0] "{r8}" (arg0),
           [arg1] "{r9}" (arg1),
           [arg2] "{r10}" (arg2),
-          [arg2] "{r11}" (arg3),
-          [syscall_number] "{rbp}" (@enumToInt(sys)),
+          [arg3] "{r11}" (arg3),
+          [syscall_number] "{rbp}" (@intFromEnum(sys)),
         : "rcx", "rax", "rbp", "r11", "memory"
     );
 }

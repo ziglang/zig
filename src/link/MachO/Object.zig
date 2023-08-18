@@ -75,11 +75,11 @@ exec_atoms: std.ArrayListUnmanaged(AtomIndex) = .{},
 
 eh_frame_sect_id: ?u8 = null,
 eh_frame_relocs_lookup: std.AutoArrayHashMapUnmanaged(u32, Record) = .{},
-eh_frame_records_lookup: std.AutoArrayHashMapUnmanaged(AtomIndex, u32) = .{},
+eh_frame_records_lookup: std.AutoArrayHashMapUnmanaged(SymbolWithLoc, u32) = .{},
 
 unwind_info_sect_id: ?u8 = null,
 unwind_relocs_lookup: []Record = undefined,
-unwind_records_lookup: std.AutoHashMapUnmanaged(AtomIndex, u32) = .{},
+unwind_records_lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .{},
 
 const Entry = struct {
     start: u32 = 0,
@@ -164,7 +164,7 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
         else => {},
     } else return;
 
-    self.in_symtab = @ptrCast([*]align(1) const macho.nlist_64, self.contents.ptr + symtab.symoff)[0..symtab.nsyms];
+    self.in_symtab = @as([*]align(1) const macho.nlist_64, @ptrCast(self.contents.ptr + symtab.symoff))[0..symtab.nsyms];
     self.in_strtab = self.contents[symtab.stroff..][0..symtab.strsize];
 
     self.symtab = try allocator.alloc(macho.nlist_64, self.in_symtab.?.len + nsects);
@@ -202,7 +202,7 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
     defer sorted_all_syms.deinit();
 
     for (self.in_symtab.?, 0..) |_, index| {
-        sorted_all_syms.appendAssumeCapacity(.{ .index = @intCast(u32, index) });
+        sorted_all_syms.appendAssumeCapacity(.{ .index = @as(u32, @intCast(index)) });
     }
 
     // We sort by type: defined < undefined, and
@@ -225,18 +225,18 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
             }
         }
         if (sym.sect() and section_index_lookup == null) {
-            section_index_lookup = .{ .start = @intCast(u32, i), .len = 1 };
+            section_index_lookup = .{ .start = @as(u32, @intCast(i)), .len = 1 };
         }
 
         prev_sect_id = sym.n_sect;
 
         self.symtab[i] = sym;
         self.source_symtab_lookup[i] = sym_id.index;
-        self.reverse_symtab_lookup[sym_id.index] = @intCast(u32, i);
-        self.source_address_lookup[i] = if (sym.undf()) -1 else @intCast(i64, sym.n_value);
+        self.reverse_symtab_lookup[sym_id.index] = @as(u32, @intCast(i));
+        self.source_address_lookup[i] = if (sym.undf()) -1 else @as(i64, @intCast(sym.n_value));
 
-        const sym_name_len = mem.sliceTo(@ptrCast([*:0]const u8, self.in_strtab.?.ptr + sym.n_strx), 0).len + 1;
-        self.strtab_lookup[i] = @intCast(u32, sym_name_len);
+        const sym_name_len = mem.sliceTo(@as([*:0]const u8, @ptrCast(self.in_strtab.?.ptr + sym.n_strx)), 0).len + 1;
+        self.strtab_lookup[i] = @as(u32, @intCast(sym_name_len));
     }
 
     // If there were no undefined symbols, make sure we populate the
@@ -267,18 +267,18 @@ const SymbolAtIndex = struct {
 
     fn getSymbolName(self: SymbolAtIndex, ctx: Context) []const u8 {
         const off = self.getSymbol(ctx).n_strx;
-        return mem.sliceTo(@ptrCast([*:0]const u8, ctx.in_strtab.?.ptr + off), 0);
+        return mem.sliceTo(@as([*:0]const u8, @ptrCast(ctx.in_strtab.?.ptr + off)), 0);
     }
 
     fn getSymbolSeniority(self: SymbolAtIndex, ctx: Context) u2 {
         const sym = self.getSymbol(ctx);
         if (!sym.ext()) {
             const sym_name = self.getSymbolName(ctx);
-            if (mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L")) return 0;
-            return 1;
+            if (mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L")) return 3;
+            return 2;
         }
-        if (sym.weakDef() or sym.pext()) return 2;
-        return 3;
+        if (sym.weakDef() or sym.pext()) return 1;
+        return 0;
     }
 
     /// Performs lexicographic-like check.
@@ -338,7 +338,7 @@ fn filterSymbolsBySection(symbols: []macho.nlist_64, n_sect: u8) struct {
         .n_sect = n_sect,
     });
 
-    return .{ .index = @intCast(u32, index), .len = @intCast(u32, len) };
+    return .{ .index = @as(u32, @intCast(index)), .len = @as(u32, @intCast(len)) };
 }
 
 fn filterSymbolsByAddress(symbols: []macho.nlist_64, start_addr: u64, end_addr: u64) struct {
@@ -360,7 +360,7 @@ fn filterSymbolsByAddress(symbols: []macho.nlist_64, start_addr: u64, end_addr: 
         .addr = end_addr,
     });
 
-    return .{ .index = @intCast(u32, index), .len = @intCast(u32, len) };
+    return .{ .index = @as(u32, @intCast(index)), .len = @as(u32, @intCast(len)) };
 }
 
 const SortedSection = struct {
@@ -400,7 +400,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
         };
         if (sect.size == 0) continue;
 
-        const sect_id = @intCast(u8, id);
+        const sect_id = @as(u8, @intCast(id));
         const sym = self.getSectionAliasSymbolPtr(sect_id);
         sym.* = .{
             .n_strx = 0,
@@ -417,14 +417,14 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
             const out_sect_id = (try zld.getOutputSection(sect)) orelse continue;
             if (sect.size == 0) continue;
 
-            const sect_id = @intCast(u8, id);
+            const sect_id = @as(u8, @intCast(id));
             const sym_index = self.getSectionAliasSymbolIndex(sect_id);
             const atom_index = try self.createAtomFromSubsection(
                 zld,
                 object_id,
                 sym_index,
-                0,
-                0,
+                sym_index,
+                1,
                 sect.size,
                 sect.@"align",
                 out_sect_id,
@@ -459,7 +459,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
     defer gpa.free(sorted_sections);
 
     for (sections, 0..) |sect, id| {
-        sorted_sections[id] = .{ .header = sect, .id = @intCast(u8, id) };
+        sorted_sections[id] = .{ .header = sect, .id = @as(u8, @intCast(id)) };
     }
 
     mem.sort(SortedSection, sorted_sections, {}, sectionLessThanByAddress);
@@ -502,8 +502,8 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                     zld,
                     object_id,
                     sym_index,
-                    0,
-                    0,
+                    sym_index,
+                    1,
                     atom_size,
                     sect.@"align",
                     out_sect_id,
@@ -521,7 +521,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                 const atom_loc = filterSymbolsByAddress(symtab[next_sym_index..], addr, addr + 1);
                 assert(atom_loc.len > 0);
                 const atom_sym_index = atom_loc.index + next_sym_index;
-                const nsyms_trailing = atom_loc.len - 1;
+                const nsyms_trailing = atom_loc.len;
                 next_sym_index += atom_loc.len;
 
                 const atom_size = if (next_sym_index < sect_start_index + sect_loc.len)
@@ -530,7 +530,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                     sect.addr + sect.size - addr;
 
                 const atom_align = if (addr > 0)
-                    math.min(@ctz(addr), sect.@"align")
+                    @min(@ctz(addr), sect.@"align")
                 else
                     sect.@"align";
 
@@ -538,7 +538,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                     zld,
                     object_id,
                     atom_sym_index,
-                    atom_sym_index + 1,
+                    atom_sym_index,
                     nsyms_trailing,
                     atom_size,
                     atom_align,
@@ -651,7 +651,7 @@ fn filterRelocs(
     const start = @import("zld.zig").bsearch(macho.relocation_info, relocs, Predicate{ .addr = end_addr });
     const len = @import("zld.zig").lsearch(macho.relocation_info, relocs[start..], LPredicate{ .addr = start_addr });
 
-    return .{ .start = @intCast(u32, start), .len = @intCast(u32, len) };
+    return .{ .start = @as(u32, @intCast(start)), .len = @as(u32, @intCast(len)) };
 }
 
 /// Parse all relocs for the input section, and sort in descending order.
@@ -659,7 +659,7 @@ fn filterRelocs(
 /// section in a sorted manner which is simply not true.
 fn parseRelocs(self: *Object, gpa: Allocator, sect_id: u8) !void {
     const section = self.getSourceSection(sect_id);
-    const start = @intCast(u32, self.relocations.items.len);
+    const start = @as(u32, @intCast(self.relocations.items.len));
     if (self.getSourceRelocs(section)) |relocs| {
         try self.relocations.ensureUnusedCapacity(gpa, relocs.len);
         self.relocations.appendUnalignedSliceAssumeCapacity(relocs);
@@ -677,8 +677,8 @@ fn cacheRelocs(self: *Object, zld: *Zld, atom_index: AtomIndex) !void {
         // If there was no matching symbol present in the source symtab, this means
         // we are dealing with either an entire section, or part of it, but also
         // starting at the beginning.
-        const nbase = @intCast(u32, self.in_symtab.?.len);
-        const sect_id = @intCast(u8, atom.sym_index - nbase);
+        const nbase = @as(u32, @intCast(self.in_symtab.?.len));
+        const sect_id = @as(u8, @intCast(atom.sym_index - nbase));
         break :blk sect_id;
     };
     const source_sect = self.getSourceSection(source_sect_id);
@@ -718,7 +718,7 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
     }
 
     try self.eh_frame_relocs_lookup.ensureTotalCapacity(gpa, record_count);
-    try self.eh_frame_records_lookup.ensureTotalCapacity(gpa, record_count);
+    try self.eh_frame_records_lookup.ensureUnusedCapacity(gpa, record_count);
 
     it.reset();
 
@@ -740,12 +740,16 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
                     .aarch64 => {
                         assert(rel_pos.len > 0); // TODO convert to an error as the FDE eh frame is malformed
                         // Find function symbol that this record describes
-                        const rel = relocs[rel_pos.start..][rel_pos.len - 1];
+                        const rel = for (relocs[rel_pos.start..][0..rel_pos.len]) |rel| {
+                            if (rel.r_address - @as(i32, @intCast(offset)) == 8 and
+                                @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type)) == .ARM64_RELOC_UNSIGNED)
+                                break rel;
+                        } else unreachable;
                         const target = Atom.parseRelocTarget(zld, .{
                             .object_id = object_id,
                             .rel = rel,
                             .code = it.data[offset..],
-                            .base_offset = @intCast(i32, offset),
+                            .base_offset = @as(i32, @intCast(offset)),
                         });
                         break :blk target;
                     },
@@ -764,12 +768,28 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
                     else => unreachable,
                 }
             };
-            log.debug("FDE at offset {x} tracks {s}", .{ offset, zld.getSymbolName(target) });
             if (target.getFile() != object_id) {
+                log.debug("FDE at offset {x} marked DEAD", .{offset});
                 self.eh_frame_relocs_lookup.getPtr(offset).?.dead = true;
             } else {
-                const atom_index = self.getAtomIndexForSymbol(target.sym_index).?;
-                self.eh_frame_records_lookup.putAssumeCapacityNoClobber(atom_index, offset);
+                // You would think that we are done but turns out that the compilers may use
+                // whichever symbol alias they want for a target symbol. This in particular
+                // very problematic when using Zig's @export feature to re-export symbols under
+                // additional names. For that reason, we need to ensure we record aliases here
+                // too so that we can tie them with their matching unwind records and vice versa.
+                const aliases = self.getSymbolAliases(target.sym_index);
+                var i: u32 = 0;
+                while (i < aliases.len) : (i += 1) {
+                    const actual_target = SymbolWithLoc{
+                        .sym_index = i + aliases.start,
+                        .file = target.file,
+                    };
+                    log.debug("FDE at offset {x} tracks {s}", .{
+                        offset,
+                        zld.getSymbolName(actual_target),
+                    });
+                    try self.eh_frame_records_lookup.putNoClobber(gpa, actual_target, offset);
+                }
             }
         }
     }
@@ -798,9 +818,9 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
         _ = try zld.initSection("__TEXT", "__unwind_info", .{});
     }
 
-    try self.unwind_records_lookup.ensureTotalCapacity(gpa, @intCast(u32, self.exec_atoms.items.len));
-
     const unwind_records = self.getUnwindRecords();
+
+    try self.unwind_records_lookup.ensureUnusedCapacity(gpa, @as(u32, @intCast(unwind_records.len)));
 
     const needs_eh_frame = for (unwind_records) |record| {
         if (UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) break true;
@@ -834,14 +854,30 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
             .object_id = object_id,
             .rel = rel,
             .code = mem.asBytes(&record),
-            .base_offset = @intCast(i32, offset),
+            .base_offset = @as(i32, @intCast(offset)),
         });
-        log.debug("unwind record {d} tracks {s}", .{ record_id, zld.getSymbolName(target) });
         if (target.getFile() != object_id) {
+            log.debug("unwind record {d} marked DEAD", .{record_id});
             self.unwind_relocs_lookup[record_id].dead = true;
         } else {
-            const atom_index = self.getAtomIndexForSymbol(target.sym_index).?;
-            self.unwind_records_lookup.putAssumeCapacityNoClobber(atom_index, @intCast(u32, record_id));
+            // You would think that we are done but turns out that the compilers may use
+            // whichever symbol alias they want for a target symbol. This in particular
+            // very problematic when using Zig's @export feature to re-export symbols under
+            // additional names. For that reason, we need to ensure we record aliases here
+            // too so that we can tie them with their matching unwind records and vice versa.
+            const aliases = self.getSymbolAliases(target.sym_index);
+            var i: u32 = 0;
+            while (i < aliases.len) : (i += 1) {
+                const actual_target = SymbolWithLoc{
+                    .sym_index = i + aliases.start,
+                    .file = target.file,
+                };
+                log.debug("unwind record {d} tracks {s}", .{
+                    record_id,
+                    zld.getSymbolName(actual_target),
+                });
+                try self.unwind_records_lookup.putNoClobber(gpa, actual_target, @intCast(record_id));
+            }
         }
     }
 }
@@ -869,7 +905,7 @@ pub fn getSourceSectionIndexByName(self: Object, segname: []const u8, sectname: 
     const sections = self.getSourceSections();
     for (sections, 0..) |sect, i| {
         if (mem.eql(u8, segname, sect.segName()) and mem.eql(u8, sectname, sect.sectName()))
-            return @intCast(u8, i);
+            return @as(u8, @intCast(i));
     } else return null;
 }
 
@@ -898,7 +934,7 @@ pub fn parseDataInCode(self: *Object, gpa: Allocator) !void {
         }
     } else return;
     const ndice = @divExact(cmd.datasize, @sizeOf(macho.data_in_code_entry));
-    const dice = @ptrCast([*]align(1) const macho.data_in_code_entry, self.contents.ptr + cmd.dataoff)[0..ndice];
+    const dice = @as([*]align(1) const macho.data_in_code_entry, @ptrCast(self.contents.ptr + cmd.dataoff))[0..ndice];
     try self.data_in_code.ensureTotalCapacityPrecise(gpa, dice.len);
     self.data_in_code.appendUnalignedSliceAssumeCapacity(dice);
     mem.sort(macho.data_in_code_entry, self.data_in_code.items, {}, diceLessThan);
@@ -945,12 +981,12 @@ pub fn parseDwarfInfo(self: Object) DwarfInfo {
 }
 
 pub fn getSectionContents(self: Object, sect: macho.section_64) []const u8 {
-    const size = @intCast(usize, sect.size);
+    const size = @as(usize, @intCast(sect.size));
     return self.contents[sect.offset..][0..size];
 }
 
 pub fn getSectionAliasSymbolIndex(self: Object, sect_id: u8) u32 {
-    const start = @intCast(u32, self.in_symtab.?.len);
+    const start = @as(u32, @intCast(self.in_symtab.?.len));
     return start + sect_id;
 }
 
@@ -964,7 +1000,7 @@ pub fn getSectionAliasSymbolPtr(self: *Object, sect_id: u8) *macho.nlist_64 {
 
 fn getSourceRelocs(self: Object, sect: macho.section_64) ?[]align(1) const macho.relocation_info {
     if (sect.nreloc == 0) return null;
-    return @ptrCast([*]align(1) const macho.relocation_info, self.contents.ptr + sect.reloff)[0..sect.nreloc];
+    return @as([*]align(1) const macho.relocation_info, @ptrCast(self.contents.ptr + sect.reloff))[0..sect.nreloc];
 }
 
 pub fn getRelocs(self: Object, sect_id: u8) []const macho.relocation_info {
@@ -989,6 +1025,18 @@ pub fn getSymbolName(self: Object, index: u32) []const u8 {
     return strtab[start..][0 .. len - 1 :0];
 }
 
+fn getSymbolAliases(self: Object, index: u32) Entry {
+    const addr = self.source_address_lookup[index];
+    var start = index;
+    while (start > 0 and
+        self.source_address_lookup[start - 1] == addr) : (start -= 1)
+    {}
+    const end: u32 = for (self.source_address_lookup[start..], start..) |saddr, i| {
+        if (saddr != addr) break @as(u32, @intCast(i));
+    } else @as(u32, @intCast(self.source_address_lookup.len));
+    return .{ .start = start, .len = end - start };
+}
+
 pub fn getSymbolByAddress(self: Object, addr: u64, sect_hint: ?u8) u32 {
     // Find containing atom
     const Predicate = struct {
@@ -1005,25 +1053,28 @@ pub fn getSymbolByAddress(self: Object, addr: u64, sect_hint: ?u8) u32 {
             const target_sym_index = @import("zld.zig").lsearch(
                 i64,
                 self.source_address_lookup[lookup.start..][0..lookup.len],
-                Predicate{ .addr = @intCast(i64, addr) },
+                Predicate{ .addr = @as(i64, @intCast(addr)) },
             );
             if (target_sym_index > 0) {
-                return @intCast(u32, lookup.start + target_sym_index - 1);
+                // Hone in on the most senior alias of the target symbol.
+                // See SymbolAtIndex.lessThan for more context.
+                const aliases = self.getSymbolAliases(@intCast(lookup.start + target_sym_index - 1));
+                return aliases.start;
             }
         }
         return self.getSectionAliasSymbolIndex(sect_id);
     }
 
     const target_sym_index = @import("zld.zig").lsearch(i64, self.source_address_lookup, Predicate{
-        .addr = @intCast(i64, addr),
+        .addr = @as(i64, @intCast(addr)),
     });
     assert(target_sym_index > 0);
-    return @intCast(u32, target_sym_index - 1);
+    return @as(u32, @intCast(target_sym_index - 1));
 }
 
 pub fn getGlobal(self: Object, sym_index: u32) ?u32 {
     if (self.globals_lookup[sym_index] == -1) return null;
-    return @intCast(u32, self.globals_lookup[sym_index]);
+    return @as(u32, @intCast(self.globals_lookup[sym_index]));
 }
 
 pub fn getAtomIndexForSymbol(self: Object, sym_index: u32) ?AtomIndex {
@@ -1041,7 +1092,7 @@ pub fn getUnwindRecords(self: Object) []align(1) const macho.compact_unwind_entr
     const sect = self.getSourceSection(sect_id);
     const data = self.getSectionContents(sect);
     const num_entries = @divExact(data.len, @sizeOf(macho.compact_unwind_entry));
-    return @ptrCast([*]align(1) const macho.compact_unwind_entry, data)[0..num_entries];
+    return @as([*]align(1) const macho.compact_unwind_entry, @ptrCast(data))[0..num_entries];
 }
 
 pub fn hasEhFrameRecords(self: Object) bool {

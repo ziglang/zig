@@ -136,12 +136,12 @@ test "@frameSize" {
     const S = struct {
         fn doTheTest() !void {
             {
-                var ptr = @ptrCast(fn (i32) callconv(.Async) void, other);
+                var ptr = @as(fn (i32) callconv(.Async) void, @ptrCast(other));
                 const size = @frameSize(ptr);
                 try expect(size == @sizeOf(@Frame(other)));
             }
             {
-                var ptr = @ptrCast(fn () callconv(.Async) void, first);
+                var ptr = @as(fn () callconv(.Async) void, @ptrCast(first));
                 const size = @frameSize(ptr);
                 try expect(size == @sizeOf(@Frame(first)));
             }
@@ -829,7 +829,7 @@ test "alignment of local variables in async functions" {
             var y: u8 = 123;
             _ = y;
             var x: u8 align(128) = 1;
-            try expect(@ptrToInt(&x) % 128 == 0);
+            try expect(@intFromPtr(&x) % 128 == 0);
         }
     };
     try S.doTheTest();
@@ -1184,7 +1184,7 @@ test "using @TypeOf on a generic function call" {
                 global_frame = @frame();
             }
             const F = @TypeOf(async amain(x - 1));
-            const frame = @intToPtr(*F, @ptrToInt(&buf));
+            const frame = @as(*F, @ptrFromInt(@intFromPtr(&buf)));
             return await @asyncCall(frame, {}, amain, .{x - 1});
         }
     };
@@ -1212,7 +1212,7 @@ test "recursive call of await @asyncCall with struct return type" {
                 global_frame = @frame();
             }
             const F = @TypeOf(async amain(x - 1));
-            const frame = @intToPtr(*F, @ptrToInt(&buf));
+            const frame = @as(*F, @ptrFromInt(@intFromPtr(&buf)));
             return await @asyncCall(frame, {}, amain, .{x - 1});
         }
 
@@ -1833,7 +1833,7 @@ test "avoid forcing frame alignment resolution implicit cast to *anyopaque" {
         }
     };
     var frame = async S.foo();
-    resume @ptrCast(anyframe->bool, @alignCast(@alignOf(@Frame(S.foo)), S.x));
+    resume @as(anyframe->bool, @ptrCast(@alignCast(S.x)));
     try expect(nosuspend await frame);
 }
 

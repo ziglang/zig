@@ -57,6 +57,10 @@ pub const Wyhash = struct {
         }
 
         const remaining_bytes = input[i..];
+        if (remaining_bytes.len < 16 and i >= 48) {
+            const rem = 16 - remaining_bytes.len;
+            @memcpy(self.buf[self.buf.len - rem ..], input[i - rem .. i]);
+        }
         @memcpy(self.buf[0..remaining_bytes.len], remaining_bytes);
         self.buf_len = remaining_bytes.len;
     }
@@ -68,18 +72,20 @@ pub const Wyhash = struct {
         if (self.total_len <= 16) {
             newSelf.smallKey(input);
         } else {
+            var offset: usize = 0;
             if (self.buf_len < 16) {
                 var scratch: [16]u8 = undefined;
                 const rem = 16 - self.buf_len;
                 @memcpy(scratch[0..rem], self.buf[self.buf.len - rem ..][0..rem]);
                 @memcpy(scratch[rem..][0..self.buf_len], self.buf[0..self.buf_len]);
 
-                // Same as input with lookbehind to pad to 16-bytes
-                input = scratch[rem..];
+                // Same as input but with additional bytes preceeding start in case of a short buffer
+                input = &scratch;
+                offset = rem;
             }
 
             newSelf.final0();
-            newSelf.final1(input);
+            newSelf.final1(input, offset);
         }
 
         return newSelf.final2();
@@ -130,8 +136,8 @@ pub const Wyhash = struct {
 
     inline fn mum(a: *u64, b: *u64) void {
         const x = @as(u128, a.*) *% b.*;
-        a.* = @truncate(u64, x);
-        b.* = @truncate(u64, x >> 64);
+        a.* = @as(u64, @truncate(x));
+        b.* = @as(u64, @truncate(x >> 64));
     }
 
     inline fn mix(a_: u64, b_: u64) u64 {
@@ -145,19 +151,21 @@ pub const Wyhash = struct {
         self.state[0] ^= self.state[1] ^ self.state[2];
     }
 
-    // Input must reside in a 16-byte buffer. The input slice passed be offset into it in which
-    // case this function will index in front of the slice.
-    inline fn final1(self: *Wyhash, input: []const u8) void {
-        std.debug.assert(input.len <= 48);
+    // input_lb must be at least 16-bytes long (in shorter key cases the smallKey function will be
+    // used instead). We use an index into a slice to for comptime processing as opposed to if we
+    // used pointers.
+    inline fn final1(self: *Wyhash, input_lb: []const u8, start_pos: usize) void {
+        std.debug.assert(input_lb.len >= 16);
+        std.debug.assert(input_lb.len - start_pos <= 48);
+        const input = input_lb[start_pos..];
 
         var i: usize = 0;
         while (i + 16 < input.len) : (i += 16) {
             self.state[0] = mix(read(8, input[i..]) ^ secret[1], read(8, input[i + 8 ..]) ^ self.state[0]);
         }
 
-        // Possible lookbehind past pointer start.
-        self.a = read(8, (input.ptr + input.len - 16)[0..8]);
-        self.b = read(8, (input.ptr + input.len - 8)[0..8]);
+        self.a = read(8, input_lb[input_lb.len - 16 ..][0..8]);
+        self.b = read(8, input_lb[input_lb.len - 8 ..][0..8]);
     }
 
     inline fn final2(self: *Wyhash) u64 {
@@ -180,7 +188,7 @@ pub const Wyhash = struct {
                 }
                 self.final0();
             }
-            self.final1(input[i..]);
+            self.final1(input, i);
         }
 
         self.total_len = input.len;
@@ -213,6 +221,14 @@ test "test vectors" {
     }
 }
 
+test "test vectors at comptime" {
+    comptime {
+        inline for (vectors) |e| {
+            try expectEqual(e.expected, Wyhash.hash(e.seed, e.input));
+        }
+    }
+}
+
 test "test vectors streaming" {
     const step = 5;
 
@@ -240,7 +256,7 @@ test "test ensure idempotent final call" {
 test "iterative non-divisible update" {
     var buf: [8192]u8 = undefined;
     for (&buf, 0..) |*e, i| {
-        e.* = @truncate(u8, i);
+        e.* = @as(u8, @truncate(i));
     }
 
     const seed = 0x128dad08f;
@@ -252,10 +268,26 @@ test "iterative non-divisible update" {
         var wy = Wyhash.init(seed);
         var i: usize = 0;
         while (i < end) : (i += 33) {
-            wy.update(buf[i..std.math.min(i + 33, end)]);
+            wy.update(buf[i..@min(i + 33, end)]);
         }
         const iterative_hash = wy.final();
 
         try std.testing.expectEqual(iterative_hash, non_iterative_hash);
+    }
+}
+
+test "iterative maintains last sixteen" {
+    const input = "Z" ** 48 ++ "01234567890abcdefg";
+    const seed = 0;
+
+    for (0..17) |i| {
+        const payload = input[0 .. input.len - i];
+        const non_iterative_hash = Wyhash.hash(seed, payload);
+
+        var wh = Wyhash.init(seed);
+        wh.update(payload);
+        const iterative_hash = wh.final();
+
+        try expectEqual(non_iterative_hash, iterative_hash);
     }
 }

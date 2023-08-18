@@ -1,5 +1,7 @@
 comptime {
-    blk: {blk: {}}
+    blk: {
+        blk: {}
+    }
 }
 
 // error

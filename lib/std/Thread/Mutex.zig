@@ -242,12 +242,12 @@ const NonAtomicCounter = struct {
     value: [2]u64 = [_]u64{ 0, 0 },
 
     fn get(self: NonAtomicCounter) u128 {
-        return @bitCast(u128, self.value);
+        return @as(u128, @bitCast(self.value));
     }
 
     fn inc(self: *NonAtomicCounter) void {
-        for (@bitCast([2]u64, self.get() + 1), 0..) |v, i| {
-            @ptrCast(*volatile u64, &self.value[i]).* = v;
+        for (@as([2]u64, @bitCast(self.get() + 1)), 0..) |v, i| {
+            @as(*volatile u64, @ptrCast(&self.value[i])).* = v;
         }
     }
 };

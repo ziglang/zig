@@ -39,7 +39,7 @@ pub fn emitMir(
 
     // Emit machine code
     for (mir_tags, 0..) |tag, index| {
-        const inst = @intCast(u32, index);
+        const inst = @as(u32, @intCast(index));
         switch (tag) {
             .add => try emit.mirRType(inst),
             .sub => try emit.mirRType(inst),
@@ -85,7 +85,7 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
 }
 
 fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
-    const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
+    const delta_line = @as(i32, @intCast(line)) - @as(i32, @intCast(self.prev_di_line));
     const delta_pc: usize = self.code.items.len - self.prev_di_pc;
     switch (self.debug_output) {
         .dwarf => |dw| {
@@ -102,13 +102,13 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
             // increasing the line number
             try @import("../../link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
             // increasing the pc
-            const d_pc_p9 = @intCast(i64, delta_pc) - quant;
+            const d_pc_p9 = @as(i64, @intCast(delta_pc)) - quant;
             if (d_pc_p9 > 0) {
                 // minus one because if its the last one, we want to leave space to change the line which is one quanta
-                try dbg_out.dbg_line.append(@intCast(u8, @divExact(d_pc_p9, quant) + 128) - quant);
+                try dbg_out.dbg_line.append(@as(u8, @intCast(@divExact(d_pc_p9, quant) + 128)) - quant);
                 if (dbg_out.pcop_change_index.*) |pci|
                     dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index.* = @intCast(u32, dbg_out.dbg_line.items.len - 1);
+                dbg_out.pcop_change_index.* = @as(u32, @intCast(dbg_out.dbg_line.items.len - 1));
             } else if (d_pc_p9 == 0) {
                 // we don't need to do anything, because adding the quant does it for us
             } else unreachable;

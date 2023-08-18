@@ -9,7 +9,7 @@ comptime {
 }
 
 fn __gexf2(a: f80, b: f80) callconv(.C) i32 {
-    return @enumToInt(comparef.cmp_f80(comparef.GE, a, b));
+    return @intFromEnum(comparef.cmp_f80(comparef.GE, a, b));
 }
 
 fn __gtxf2(a: f80, b: f80) callconv(.C) i32 {

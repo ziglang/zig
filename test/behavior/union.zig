@@ -364,7 +364,7 @@ test "simple union(enum(u32))" {
 
     var x = MultipleChoice.C;
     try expect(x == MultipleChoice.C);
-    try expect(@enumToInt(@as(Tag(MultipleChoice), x)) == 60);
+    try expect(@intFromEnum(@as(Tag(MultipleChoice), x)) == 60);
 }
 
 const PackedPtrOrInt = packed union {
@@ -655,7 +655,7 @@ const MultipleChoice2 = union(enum(u32)) {
 };
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
-    try expect(@enumToInt(@as(Tag(MultipleChoice2), x)) == 60);
+    try expect(@intFromEnum(@as(Tag(MultipleChoice2), x)) == 60);
     try expect(1123 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
@@ -721,11 +721,11 @@ test "union with only 1 field casted to its enum type which has enum value speci
     try comptime expect(Tag(ExprTag) == comptime_int);
     comptime var t = @as(ExprTag, e);
     try expect(t == Expr.Literal);
-    try expect(@enumToInt(t) == 33);
-    try comptime expect(@enumToInt(t) == 33);
+    try expect(@intFromEnum(t) == 33);
+    try comptime expect(@intFromEnum(t) == 33);
 }
 
-test "@enumToInt works on unions" {
+test "@intFromEnum works on unions" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -739,9 +739,9 @@ test "@enumToInt works on unions" {
     const a = Bar{ .A = true };
     var b = Bar{ .B = undefined };
     var c = Bar.C;
-    try expect(@enumToInt(a) == 0);
-    try expect(@enumToInt(b) == 1);
-    try expect(@enumToInt(c) == 2);
+    try expect(@intFromEnum(a) == 0);
+    try expect(@intFromEnum(b) == 1);
+    try expect(@intFromEnum(c) == 2);
 }
 
 test "comptime union field value equality" {
@@ -1396,7 +1396,7 @@ test "@unionInit uses tag value instead of field index" {
         var a = &u.b;
         try expect(a.* == i);
     }
-    try expect(@enumToInt(u) == 255);
+    try expect(@intFromEnum(u) == 255);
 }
 
 test "union field ptr - zero sized payload" {
@@ -1582,4 +1582,134 @@ test "coerce enum literal to union in result loc" {
     };
     try U.doTest(true);
     try comptime U.doTest(true);
+}
+
+test "defined-layout union field pointer has correct alignment" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest(comptime U: type) !void {
+            var a: U = .{ .x = 123 };
+            var b: U align(1) = .{ .x = 456 };
+            var c: U align(64) = .{ .x = 789 };
+
+            const ap = &a.x;
+            const bp = &b.x;
+            const cp = &c.x;
+
+            comptime assert(@TypeOf(ap) == *u32);
+            comptime assert(@TypeOf(bp) == *align(1) u32);
+            comptime assert(@TypeOf(cp) == *align(64) u32);
+
+            try expectEqual(@as(u32, 123), ap.*);
+            try expectEqual(@as(u32, 456), bp.*);
+            try expectEqual(@as(u32, 789), cp.*);
+        }
+    };
+
+    const U1 = extern union { x: u32 };
+    const U2 = packed union { x: u32 };
+
+    try S.doTheTest(U1);
+    try S.doTheTest(U2);
+    try comptime S.doTheTest(U1);
+    try comptime S.doTheTest(U2);
+}
+
+test "undefined-layout union field pointer has correct alignment" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest(comptime U: type) !void {
+            var a: U = .{ .x = 123 };
+            var b: U align(1) = .{ .x = 456 };
+            var c: U align(64) = .{ .x = 789 };
+
+            const ap = &a.x;
+            const bp = &b.x;
+            const cp = &c.x;
+
+            comptime assert(@TypeOf(ap) == *u32);
+            comptime assert(@TypeOf(bp) == *align(1) u32);
+            comptime assert(@TypeOf(cp) == *u32); // undefined layout so does not inherit larger aligns
+
+            try expectEqual(@as(u32, 123), ap.*);
+            try expectEqual(@as(u32, 456), bp.*);
+            try expectEqual(@as(u32, 789), cp.*);
+        }
+    };
+
+    const U1 = union { x: u32 };
+    const U2 = union(enum) { x: u32 };
+
+    try S.doTheTest(U1);
+    try S.doTheTest(U2);
+    try comptime S.doTheTest(U1);
+    try comptime S.doTheTest(U2);
+}
+
+test "packed union field pointer has correct alignment" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const U = packed union { x: u20 };
+    const S = packed struct(u24) { a: u2, u: U, b: u2 };
+
+    var a: S = undefined;
+    var b: S align(1) = undefined;
+    var c: S align(64) = undefined;
+
+    const ap = &a.u.x;
+    const bp = &b.u.x;
+    const cp = &c.u.x;
+
+    comptime assert(@TypeOf(ap) == *align(4:2:3) u20);
+    comptime assert(@TypeOf(bp) == *align(1:2:3) u20);
+    comptime assert(@TypeOf(cp) == *align(64:2:3) u20);
+
+    a.u = .{ .x = 123 };
+    b.u = .{ .x = 456 };
+    c.u = .{ .x = 789 };
+
+    try expectEqual(@as(u20, 123), ap.*);
+    try expectEqual(@as(u20, 456), bp.*);
+    try expectEqual(@as(u20, 789), cp.*);
+}
+
+test "union with 128 bit integer" {
+    const ValueTag = enum { int, other };
+
+    const Value3 = union(ValueTag) {
+        int: i128,
+        other: bool,
+    };
+    var values: [2]Value3 = undefined;
+    values[0] = .{ .int = 3 };
+    values[1] = .{ .int = 4 };
+
+    var ok: usize = 0;
+
+    for (values) |val| {
+        switch (val) {
+            .int => ok += 1,
+            else => return error.TestFailed,
+        }
+    }
 }

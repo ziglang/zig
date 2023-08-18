@@ -1,8 +1,10 @@
 const std = @import("std");
 const testing = std.testing;
-const Parser = @import("./dynamic.zig").Parser;
+const parseFromSlice = @import("./static.zig").parseFromSlice;
 const validate = @import("./scanner.zig").validate;
 const JsonScanner = @import("./scanner.zig").Scanner;
+const Value = @import("./dynamic.zig").Value;
+const stringifyAlloc = @import("./stringify.zig").stringifyAlloc;
 
 // Support for JSONTestSuite.zig
 pub fn ok(s: []const u8) !void {
@@ -26,10 +28,8 @@ fn testLowLevelScanner(s: []const u8) !void {
     }
 }
 fn testHighLevelDynamicParser(s: []const u8) !void {
-    var p = Parser.init(testing.allocator, .alloc_if_needed);
-    defer p.deinit();
-    var tree = try p.parse(s);
-    defer tree.deinit();
+    var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
+    defer parsed.deinit();
 }
 
 // Additional tests not part of test JSONTestSuite.
@@ -47,17 +47,13 @@ test "n_object_closed_missing_value" {
 fn roundTrip(s: []const u8) !void {
     try testing.expect(try validate(testing.allocator, s));
 
-    var p = Parser.init(testing.allocator, .alloc_if_needed);
-    defer p.deinit();
+    var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
+    defer parsed.deinit();
 
-    var tree = try p.parse(s);
-    defer tree.deinit();
+    const rendered = try stringifyAlloc(testing.allocator, parsed.value, .{});
+    defer testing.allocator.free(rendered);
 
-    var buf: [256]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    try tree.root.jsonStringify(.{}, fbs.writer());
-
-    try testing.expectEqualStrings(s, fbs.getWritten());
+    try testing.expectEqualStrings(s, rendered);
 }
 
 test "truncated UTF-8 sequence" {

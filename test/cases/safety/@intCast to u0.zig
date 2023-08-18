@@ -14,7 +14,7 @@ pub fn main() !void {
 }
 
 fn bar(one: u1, not_zero: i32) void {
-    var x = one << @intCast(u0, not_zero);
+    var x = one << @as(u0, @intCast(not_zero));
     _ = x;
 }
 // run

@@ -15,7 +15,7 @@ const E = enum(u32) {
 
 pub fn main() !void {
     var e: E = undefined;
-    @memset(@ptrCast([*]u8, &e)[0..@sizeOf(E)], 0x55);
+    @memset(@as([*]u8, @ptrCast(&e))[0..@sizeOf(E)], 0x55);
     var n = @tagName(e);
     _ = n;
     return error.TestFailed;

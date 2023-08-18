@@ -2,7 +2,7 @@ pub fn main() void {
     var bruh: u32 = 1;
     asm (""
         :
-        : [bruh] "{rax}" (4)
+        : [bruh] "{rax}" (4),
         : "memory"
     );
 }

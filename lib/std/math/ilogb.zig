@@ -38,8 +38,8 @@ fn ilogbX(comptime T: type, x: T) i32 {
 
     const absMask = signBit - 1;
 
-    var u = @bitCast(Z, x) & absMask;
-    var e = @intCast(i32, u >> significandBits);
+    var u = @as(Z, @bitCast(x)) & absMask;
+    var e = @as(i32, @intCast(u >> significandBits));
 
     if (e == 0) {
         if (u == 0) {
@@ -48,13 +48,13 @@ fn ilogbX(comptime T: type, x: T) i32 {
         }
 
         // offset sign bit, exponent bits, and integer bit (if present) + bias
-        const offset = 1 + exponentBits + @as(comptime_int, @boolToInt(T == f80)) - exponentBias;
-        return offset - @intCast(i32, @clz(u));
+        const offset = 1 + exponentBits + @as(comptime_int, @intFromBool(T == f80)) - exponentBias;
+        return offset - @as(i32, @intCast(@clz(u)));
     }
 
     if (e == maxExponent) {
         math.raiseInvalid();
-        if (u > @bitCast(Z, math.inf(T))) {
+        if (u > @as(Z, @bitCast(math.inf(T)))) {
             return fp_ilogbnan; // u is a NaN
         } else return maxInt(i32);
     }

@@ -237,7 +237,7 @@ pub fn isManyItemPtr(comptime T: type) bool {
 
 test "isManyItemPtr" {
     const array = [_]u8{0} ** 10;
-    const mip = @ptrCast([*]const u8, &array[0]);
+    const mip = @as([*]const u8, @ptrCast(&array[0]));
     try testing.expect(isManyItemPtr(@TypeOf(mip)));
     try testing.expect(!isManyItemPtr(@TypeOf(array)));
     try testing.expect(!isManyItemPtr(@TypeOf(array[0..1])));

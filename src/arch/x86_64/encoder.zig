@@ -267,7 +267,7 @@ pub const Instruction = struct {
 
     fn encodeOpcode(inst: Instruction, encoder: anytype) !void {
         const opcode = inst.encoding.opcode();
-        const first = @boolToInt(inst.encoding.mandatoryPrefix() != null);
+        const first = @intFromBool(inst.encoding.mandatoryPrefix() != null);
         const final = opcode.len - 1;
         for (opcode[first..final]) |byte| try encoder.opcode_1byte(byte);
         switch (inst.encoding.data.op_en) {
@@ -471,7 +471,7 @@ pub const Instruction = struct {
                             } else {
                                 try encoder.sib_baseDisp8(dst);
                             }
-                            try encoder.disp8(@truncate(i8, sib.disp));
+                            try encoder.disp8(@as(i8, @truncate(sib.disp)));
                         } else {
                             try encoder.modRm_SIBDisp32(src);
                             if (mem.scaleIndex()) |si| {
@@ -487,7 +487,7 @@ pub const Instruction = struct {
                             try encoder.modRm_indirectDisp0(src, dst);
                         } else if (math.cast(i8, sib.disp)) |_| {
                             try encoder.modRm_indirectDisp8(src, dst);
-                            try encoder.disp8(@truncate(i8, sib.disp));
+                            try encoder.disp8(@as(i8, @truncate(sib.disp)));
                         } else {
                             try encoder.modRm_indirectDisp32(src, dst);
                             try encoder.disp32(sib.disp);
@@ -509,9 +509,9 @@ pub const Instruction = struct {
     fn encodeImm(imm: Immediate, kind: Encoding.Op, encoder: anytype) !void {
         const raw = imm.asUnsigned(kind.immBitSize());
         switch (kind.immBitSize()) {
-            8 => try encoder.imm8(@intCast(u8, raw)),
-            16 => try encoder.imm16(@intCast(u16, raw)),
-            32 => try encoder.imm32(@intCast(u32, raw)),
+            8 => try encoder.imm8(@as(u8, @intCast(raw))),
+            16 => try encoder.imm16(@as(u16, @intCast(raw))),
+            32 => try encoder.imm32(@as(u32, @intCast(raw))),
             64 => try encoder.imm64(raw),
             else => unreachable,
         }
@@ -581,7 +581,7 @@ fn Encoder(comptime T: type, comptime opts: Options) type {
 
         /// Encodes legacy prefixes
         pub fn legacyPrefixes(self: Self, prefixes: LegacyPrefixes) !void {
-            if (@bitCast(u16, prefixes) != 0) {
+            if (@as(u16, @bitCast(prefixes)) != 0) {
                 // Hopefully this path isn't taken very often, so we'll do it the slow way for now
 
                 // LOCK
@@ -647,25 +647,25 @@ fn Encoder(comptime T: type, comptime opts: Options) type {
                 try self.writer.writeByte(0b1100_0100);
 
                 try self.writer.writeByte(
-                    @as(u8, ~@boolToInt(fields.r)) << 7 |
-                        @as(u8, ~@boolToInt(fields.x)) << 6 |
-                        @as(u8, ~@boolToInt(fields.b)) << 5 |
-                        @as(u8, @enumToInt(fields.m)) << 0,
+                    @as(u8, ~@intFromBool(fields.r)) << 7 |
+                        @as(u8, ~@intFromBool(fields.x)) << 6 |
+                        @as(u8, ~@intFromBool(fields.b)) << 5 |
+                        @as(u8, @intFromEnum(fields.m)) << 0,
                 );
 
                 try self.writer.writeByte(
-                    @as(u8, @boolToInt(fields.w)) << 7 |
+                    @as(u8, @intFromBool(fields.w)) << 7 |
                         @as(u8, ~fields.v.enc()) << 3 |
-                        @as(u8, @boolToInt(fields.l)) << 2 |
-                        @as(u8, @enumToInt(fields.p)) << 0,
+                        @as(u8, @intFromBool(fields.l)) << 2 |
+                        @as(u8, @intFromEnum(fields.p)) << 0,
                 );
             } else {
                 try self.writer.writeByte(0b1100_0101);
                 try self.writer.writeByte(
-                    @as(u8, ~@boolToInt(fields.r)) << 7 |
+                    @as(u8, ~@intFromBool(fields.r)) << 7 |
                         @as(u8, ~fields.v.enc()) << 3 |
-                        @as(u8, @boolToInt(fields.l)) << 2 |
-                        @as(u8, @enumToInt(fields.p)) << 0,
+                        @as(u8, @intFromBool(fields.l)) << 2 |
+                        @as(u8, @intFromEnum(fields.p)) << 0,
                 );
             }
         }
@@ -891,7 +891,7 @@ fn Encoder(comptime T: type, comptime opts: Options) type {
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn disp8(self: Self, disp: i8) !void {
-            try self.writer.writeByte(@bitCast(u8, disp));
+            try self.writer.writeByte(@as(u8, @bitCast(disp)));
         }
 
         /// Encode an 32 bit displacement

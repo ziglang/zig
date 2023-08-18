@@ -403,7 +403,7 @@ test "nested runtime conditionals in tuple initializer" {
 
     var data: u8 = 0;
     const x = .{
-        if (data != 0) "" else switch (@truncate(u1, data)) {
+        if (data != 0) "" else switch (@as(u1, @truncate(data))) {
             0 => "up",
             1 => "down",
         },
@@ -452,4 +452,19 @@ test "tuple pointer is indexable" {
     (&y)[1] = false;
     try expectEqual(@as(u32, 100), (&y)[0]);
     try expectEqual(false, (&y)[1]);
+}
+
+test "coerce anon tuple to tuple" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    var x: u8 = 1;
+    var y: u16 = 2;
+    var t = .{ x, y };
+    var s: struct { u8, u16 } = t;
+    try expectEqual(x, s[0]);
+    try expectEqual(y, s[1]);
 }

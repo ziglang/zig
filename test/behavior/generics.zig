@@ -97,7 +97,7 @@ test "type constructed by comptime function call" {
     l.array[0] = 10;
     l.array[1] = 11;
     l.array[2] = 12;
-    const ptr = @ptrCast([*]u8, &l.array);
+    const ptr = @as([*]u8, @ptrCast(&l.array));
     try expect(ptr[0] == 10);
     try expect(ptr[1] == 11);
     try expect(ptr[2] == 12);
@@ -171,7 +171,7 @@ fn getByte(ptr: ?*const u8) u8 {
     return ptr.?.*;
 }
 fn getFirstByte(comptime T: type, mem: []const T) u8 {
-    return getByte(@ptrCast(*const u8, &mem[0]));
+    return getByte(@as(*const u8, @ptrCast(&mem[0])));
 }
 
 test "generic fn keeps non-generic parameter types" {
@@ -267,7 +267,7 @@ test "generic function instantiation turns into comptime call" {
             .Enum => std.builtin.Type.EnumField,
             else => void,
         } {
-            return @typeInfo(T).Enum.fields[@enumToInt(field)];
+            return @typeInfo(T).Enum.fields[@intFromEnum(field)];
         }
 
         pub fn FieldEnum(comptime T: type) type {
@@ -425,10 +425,10 @@ test "null sentinel pointer passed as generic argument" {
 
     const S = struct {
         fn doTheTest(a: anytype) !void {
-            try std.testing.expect(@ptrToInt(a) == 8);
+            try std.testing.expect(@intFromPtr(a) == 8);
         }
     };
-    try S.doTheTest((@intToPtr([*:null]const [*c]const u8, 8)));
+    try S.doTheTest((@as([*:null]const [*c]const u8, @ptrFromInt(8))));
 }
 
 test "generic function passed as comptime argument" {
@@ -442,4 +442,37 @@ test "generic function passed as comptime argument" {
         }
     };
     try S.doMath(std.math.add, 5, 6);
+}
+
+test "return type of generic function is function pointer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn b(comptime T: type) ?*const fn () error{}!T {
+            return null;
+        }
+    };
+
+    try expect(null == S.b(void));
+}
+
+test "coerced function body has inequal value with its uncoerced body" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        const A = B(i32, c);
+        fn c() !i32 {
+            return 1234;
+        }
+        fn B(comptime T: type, comptime d: ?fn () anyerror!T) type {
+            return struct {
+                fn do() T {
+                    return d.?() catch @panic("fail");
+                }
+            };
+        }
+    };
+    try expect(S.A.do() == 1234);
 }

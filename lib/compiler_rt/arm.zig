@@ -9,7 +9,7 @@ pub const panic = common.panic;
 
 comptime {
     if (!builtin.is_test) {
-        if (arch.isARM() or arch.isThumb()) {
+        if (arch.isArmOrThumb()) {
             @export(__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = common.linkage, .visibility = common.visibility });
             @export(__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage, .visibility = common.visibility });
             @export(__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage, .visibility = common.visibility });
@@ -192,6 +192,6 @@ pub fn __aeabi_ldivmod() callconv(.Naked) void {
 }
 
 pub fn __aeabi_drsub(a: f64, b: f64) callconv(.AAPCS) f64 {
-    const neg_a = @bitCast(f64, @bitCast(u64, a) ^ (@as(u64, 1) << 63));
+    const neg_a: f64 = @bitCast(@as(u64, @bitCast(a)) ^ (@as(u64, 1) << 63));
     return b + neg_a;
 }
