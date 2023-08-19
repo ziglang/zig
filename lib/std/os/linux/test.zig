@@ -170,7 +170,7 @@ test "cpu_set_t" {
             var expected: usize = 0x00;
             for (case) |pos| {
                 if (pos / @sizeOf(usize) == i) {
-                    var p = pos % @sizeOf(usize);
+                    var p: u6 = @intCast(pos % @sizeOf(usize));
                     expected |= @as(usize, 1) << p;
                 }
             }

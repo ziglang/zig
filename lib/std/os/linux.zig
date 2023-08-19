@@ -3557,8 +3557,8 @@ inline fn cpu_elt(cpu: usize) usize {
 }
 inline fn cpu_mask(cpu: usize) usize {
     // M is 2^k, so n % M <=> n & (M - 1)
-    var x: cpu_shift_t = @intCast(cpu);
-    return 1 << (x & (@sizeOf(usize) - 1));
+    var fuck: u6 = @as(u6, @truncate((cpu & (@sizeOf(usize) - 1))));
+    return @as(usize, 1) << fuck;
 }
 
 pub fn CPU_ZERO(set: *cpu_set_t) void {
@@ -3584,8 +3584,8 @@ pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
     return set[cpu_elt(cpu)] & cpu_mask(cpu) != 0;
 }
 
-pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
-    var sum: cpu_count_t = 0;
+pub fn CPU_COUNT(set: cpu_set_t) usize {
+    var sum: usize = 0;
     for (set) |x| {
         sum += @popCount(x);
     }
