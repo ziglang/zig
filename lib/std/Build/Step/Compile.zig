@@ -42,7 +42,6 @@ unwind_tables: ?bool,
 compress_debug_sections: enum { none, zlib } = .none,
 lib_paths: ArrayList(LazyPath),
 rpaths: ArrayList(LazyPath),
-framework_dirs: ArrayList(LazyPath),
 frameworks: StringHashMap(FrameworkLinkInfo),
 verbose_link: bool,
 verbose_cc: bool,
@@ -261,6 +260,8 @@ const FrameworkLinkInfo = struct {
 pub const IncludeDir = union(enum) {
     path: LazyPath,
     path_system: LazyPath,
+    framework_path: LazyPath,
+    framework_path_system: LazyPath,
     other_step: *Compile,
     config_header_step: *Step.ConfigHeader,
 };
@@ -442,7 +443,6 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .c_macros = ArrayList([]const u8).init(owner.allocator),
         .lib_paths = ArrayList(LazyPath).init(owner.allocator),
         .rpaths = ArrayList(LazyPath).init(owner.allocator),
-        .framework_dirs = ArrayList(LazyPath).init(owner.allocator),
         .installed_headers = ArrayList(*Step).init(owner.allocator),
         .c_std = std.Build.CStd.C99,
         .zig_lib_dir = null,
@@ -1050,9 +1050,15 @@ pub fn addRPath(self: *Compile, directory_source: LazyPath) void {
     directory_source.addStepDependencies(&self.step);
 }
 
+pub fn addSystemFrameworkPath(self: *Compile, directory_source: LazyPath) void {
+    const b = self.step.owner;
+    self.include_dirs.append(IncludeDir{ .framework_path_system = directory_source.dupe(b) }) catch @panic("OOM");
+    directory_source.addStepDependencies(&self.step);
+}
+
 pub fn addFrameworkPath(self: *Compile, directory_source: LazyPath) void {
     const b = self.step.owner;
-    self.framework_dirs.append(directory_source.dupe(b)) catch @panic("OOM");
+    self.include_dirs.append(IncludeDir{ .framework_path = directory_source.dupe(b) }) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
@@ -1772,27 +1778,16 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 try zig_args.append(include_path.getPath(b));
             },
             .path_system => |include_path| {
-                if (b.sysroot != null) {
-                    try zig_args.append("-iwithsysroot");
-                } else {
-                    try zig_args.append("-isystem");
-                }
-
-                const resolved_include_path = include_path.getPath(b);
-
-                const common_include_path = if (builtin.os.tag == .windows and b.sysroot != null and fs.path.isAbsolute(resolved_include_path)) blk: {
-                    // We need to check for disk designator and strip it out from dir path so
-                    // that zig/clang can concat resolved_include_path with sysroot.
-                    const disk_designator = fs.path.diskDesignatorWindows(resolved_include_path);
-
-                    if (mem.indexOf(u8, resolved_include_path, disk_designator)) |where| {
-                        break :blk resolved_include_path[where + disk_designator.len ..];
-                    }
-
-                    break :blk resolved_include_path;
-                } else resolved_include_path;
-
-                try zig_args.append(common_include_path);
+                try zig_args.append("-isystem");
+                try zig_args.append(include_path.getPath(b));
+            },
+            .framework_path => |include_path| {
+                try zig_args.append("-F");
+                try zig_args.append(include_path.getPath2(b, step));
+            },
+            .framework_path_system => |include_path| {
+                try zig_args.append("-iframework");
+                try zig_args.append(include_path.getPath2(b, step));
             },
             .other_step => |other| {
                 if (other.generated_h) |header| {
@@ -1845,17 +1840,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         };
 
         zig_args.appendAssumeCapacity(rpath.getPath2(b, step));
-    }
-
-    for (self.framework_dirs.items) |directory_source| {
-        if (b.sysroot != null) {
-            try zig_args.append("-iframeworkwithsysroot");
-        } else {
-            try zig_args.append("-iframework");
-        }
-        try zig_args.append(directory_source.getPath2(b, step));
-        try zig_args.append("-F");
-        try zig_args.append(directory_source.getPath2(b, step));
     }
 
     {
