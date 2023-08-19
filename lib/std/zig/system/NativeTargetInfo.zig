@@ -833,6 +833,7 @@ pub fn abiAndDynamicLinkerFromFile(
                 error.InvalidUtf8 => unreachable, // Windows only
                 error.BadPathName => unreachable, // Windows only
                 error.UnsupportedReparsePointType => unreachable, // Windows only
+                error.NetworkNotFound => unreachable, // Windows only
 
                 error.AccessDenied,
                 error.FileNotFound,

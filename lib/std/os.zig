@@ -2995,6 +2995,8 @@ pub const ReadLinkError = error{
     /// Windows-only. This error may occur if the opened reparse point is
     /// of unsupported type.
     UnsupportedReparsePointType,
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 } || UnexpectedError;
 
 /// Read value of a symbolic link.
