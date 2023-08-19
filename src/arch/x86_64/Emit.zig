@@ -43,9 +43,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }),
                 .linker_extern_fn => |symbol| if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
                     // Add relocation to the decl.
-                    const atom_index = macho_file.getAtomIndexForSymbol(
-                        .{ .sym_index = symbol.atom_index, .file = null },
-                    ).?;
+                    const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
                     const target = macho_file.getGlobalByIndex(symbol.sym_index);
                     try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
                         .type = .branch,
@@ -77,10 +75,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 .linker_import,
                 .linker_tlv,
                 => |symbol| if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-                    const atom_index = macho_file.getAtomIndexForSymbol(.{
-                        .sym_index = symbol.atom_index,
-                        .file = null,
-                    }).?;
+                    const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
                     try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
                             .linker_got => .got,
@@ -88,7 +83,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .linker_tlv => .tlv,
                             else => unreachable,
                         },
-                        .target = .{ .sym_index = symbol.sym_index, .file = null },
+                        .target = .{ .sym_index = symbol.sym_index },
                         .offset = @as(u32, @intCast(end_offset - 4)),
                         .addend = 0,
                         .pcrel = true,

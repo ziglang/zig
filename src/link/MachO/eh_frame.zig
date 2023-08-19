@@ -9,8 +9,9 @@ const log = std.log.scoped(.eh_frame);
 const Allocator = mem.Allocator;
 const AtomIndex = @import("zld.zig").AtomIndex;
 const Atom = @import("ZldAtom.zig");
+const MachO = @import("../MachO.zig");
 const Relocation = @import("Relocation.zig");
-const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
+const SymbolWithLoc = MachO.SymbolWithLoc;
 const UnwindInfo = @import("UnwindInfo.zig");
 const Zld = @import("zld.zig").Zld;
 

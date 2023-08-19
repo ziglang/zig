@@ -15,8 +15,9 @@ const Allocator = mem.Allocator;
 const Atom = @import("ZldAtom.zig");
 const AtomIndex = @import("zld.zig").AtomIndex;
 const EhFrameRecord = eh_frame.EhFrameRecord;
+const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
-const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
+const SymbolWithLoc = MachO.SymbolWithLoc;
 const Zld = @import("zld.zig").Zld;
 
 const N_DEAD = @import("zld.zig").N_DEAD;

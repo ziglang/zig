@@ -23,9 +23,10 @@ const Atom = @import("ZldAtom.zig");
 const AtomIndex = @import("zld.zig").AtomIndex;
 const DwarfInfo = @import("DwarfInfo.zig");
 const LoadCommandIterator = macho.LoadCommandIterator;
-const Zld = @import("zld.zig").Zld;
-const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
+const MachO = @import("../MachO.zig");
+const SymbolWithLoc = MachO.SymbolWithLoc;
 const UnwindInfo = @import("UnwindInfo.zig");
+const Zld = @import("zld.zig").Zld;
 
 name: []const u8,
 mtime: u64,
@@ -314,10 +315,10 @@ fn filterSymbolsBySection(symbols: []macho.nlist_64, n_sect: u8) struct {
         }
     };
 
-    const index = @import("zld.zig").lsearch(macho.nlist_64, symbols, FirstMatch{
+    const index = MachO.lsearch(macho.nlist_64, symbols, FirstMatch{
         .n_sect = n_sect,
     });
-    const len = @import("zld.zig").lsearch(macho.nlist_64, symbols[index..], FirstNonMatch{
+    const len = MachO.lsearch(macho.nlist_64, symbols[index..], FirstNonMatch{
         .n_sect = n_sect,
     });
 
@@ -336,10 +337,10 @@ fn filterSymbolsByAddress(symbols: []macho.nlist_64, start_addr: u64, end_addr: 
         }
     };
 
-    const index = @import("zld.zig").lsearch(macho.nlist_64, symbols, Predicate{
+    const index = MachO.lsearch(macho.nlist_64, symbols, Predicate{
         .addr = start_addr,
     });
-    const len = @import("zld.zig").lsearch(macho.nlist_64, symbols[index..], Predicate{
+    const len = MachO.lsearch(macho.nlist_64, symbols[index..], Predicate{
         .addr = end_addr,
     });
 
@@ -631,8 +632,8 @@ fn filterRelocs(
         }
     };
 
-    const start = @import("zld.zig").bsearch(macho.relocation_info, relocs, Predicate{ .addr = end_addr });
-    const len = @import("zld.zig").lsearch(macho.relocation_info, relocs[start..], LPredicate{ .addr = start_addr });
+    const start = MachO.bsearch(macho.relocation_info, relocs, Predicate{ .addr = end_addr });
+    const len = MachO.lsearch(macho.relocation_info, relocs[start..], LPredicate{ .addr = start_addr });
 
     return .{ .start = @as(u32, @intCast(start)), .len = @as(u32, @intCast(len)) };
 }
@@ -1031,7 +1032,7 @@ pub fn getSymbolByAddress(self: Object, addr: u64, sect_hint: ?u8) u32 {
     if (sect_hint) |sect_id| {
         if (self.source_section_index_lookup[sect_id].len > 0) {
             const lookup = self.source_section_index_lookup[sect_id];
-            const target_sym_index = @import("zld.zig").lsearch(
+            const target_sym_index = MachO.lsearch(
                 i64,
                 self.source_address_lookup[lookup.start..][0..lookup.len],
                 Predicate{ .addr = @as(i64, @intCast(addr)) },
@@ -1046,7 +1047,7 @@ pub fn getSymbolByAddress(self: Object, addr: u64, sect_hint: ?u8) u32 {
         return self.getSectionAliasSymbolIndex(sect_id);
     }
 
-    const target_sym_index = @import("zld.zig").lsearch(i64, self.source_address_lookup, Predicate{
+    const target_sym_index = MachO.lsearch(i64, self.source_address_lookup, Predicate{
         .addr = @as(i64, @intCast(addr)),
     });
     assert(target_sym_index > 0);

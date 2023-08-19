@@ -475,7 +475,7 @@ fn writeSymtab(self: *DebugSymbols, macho_file: *MachO) !void {
 
     for (macho_file.locals.items, 0..) |sym, sym_id| {
         if (sym.n_strx == 0) continue; // no name, skip
-        const sym_loc = MachO.SymbolWithLoc{ .sym_index = @as(u32, @intCast(sym_id)), .file = null };
+        const sym_loc = MachO.SymbolWithLoc{ .sym_index = @as(u32, @intCast(sym_id)) };
         if (macho_file.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
         if (macho_file.getGlobal(macho_file.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
         var out_sym = sym;

@@ -17,8 +17,9 @@ const aarch64 = @import("../../arch/aarch64/bits.zig");
 const Allocator = mem.Allocator;
 const Atom = @import("ZldAtom.zig");
 const AtomIndex = @import("zld.zig").AtomIndex;
+const MachO = @import("../MachO.zig");
 const Relocation = @import("Relocation.zig");
-const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
+const SymbolWithLoc = MachO.SymbolWithLoc;
 const Zld = @import("zld.zig").Zld;
 
 pub const ThunkIndex = u32;

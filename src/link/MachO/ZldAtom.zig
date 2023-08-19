@@ -22,7 +22,7 @@ const Arch = std.Target.Cpu.Arch;
 const AtomIndex = @import("zld.zig").AtomIndex;
 const Object = @import("Object.zig");
 const Relocation = @import("Relocation.zig");
-const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
+const SymbolWithLoc = @import("../MachO.zig").SymbolWithLoc;
 const Zld = @import("zld.zig").Zld;
 
 /// Each Atom always gets a symbol with the fully qualified name.

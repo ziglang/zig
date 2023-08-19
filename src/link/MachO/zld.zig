@@ -32,6 +32,7 @@ const Md5 = std.crypto.hash.Md5;
 const LibStub = @import("../tapi.zig").LibStub;
 const Object = @import("Object.zig");
 const StringTable = @import("../strtab.zig").StringTable;
+const SymbolWithLoc = MachO.SymbolWithLoc;
 const Trie = @import("Trie.zig");
 const UnwindInfo = @import("UnwindInfo.zig");
 
@@ -2038,8 +2039,8 @@ pub const Zld = struct {
             }
         };
 
-        const start = lsearch(macho.data_in_code_entry, dices, Predicate{ .addr = start_addr });
-        const end = lsearch(macho.data_in_code_entry, dices[start..], Predicate{ .addr = end_addr }) + start;
+        const start = MachO.lsearch(macho.data_in_code_entry, dices, Predicate{ .addr = start_addr });
+        const end = MachO.lsearch(macho.data_in_code_entry, dices[start..], Predicate{ .addr = end_addr }) + start;
 
         return dices[start..end];
     }
@@ -3021,23 +3022,6 @@ const IndirectPointer = struct {
     }
 };
 
-pub const SymbolWithLoc = extern struct {
-    // Index into the respective symbol table.
-    sym_index: u32,
-
-    // 0 means it's a synthetic global.
-    file: u32 = 0,
-
-    pub fn getFile(self: SymbolWithLoc) ?u32 {
-        if (self.file == 0) return null;
-        return self.file - 1;
-    }
-
-    pub fn eql(self: SymbolWithLoc, other: SymbolWithLoc) bool {
-        return self.file == other.file and self.sym_index == other.sym_index;
-    }
-};
-
 pub const SymbolResolver = struct {
     arena: Allocator,
     table: std.StringHashMap(u32),
@@ -3635,35 +3619,4 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // other processes clobbering it.
         macho_file.base.lock = man.toOwnedLock();
     }
-}
-
-/// Binary search
-pub fn bsearch(comptime T: type, haystack: []align(1) const T, predicate: anytype) usize {
-    if (!@hasDecl(@TypeOf(predicate), "predicate"))
-        @compileError("Predicate is required to define fn predicate(@This(), T) bool");
-
-    var min: usize = 0;
-    var max: usize = haystack.len;
-    while (min < max) {
-        const index = (min + max) / 2;
-        const curr = haystack[index];
-        if (predicate.predicate(curr)) {
-            min = index + 1;
-        } else {
-            max = index;
-        }
-    }
-    return min;
-}
-
-/// Linear search
-pub fn lsearch(comptime T: type, haystack: []align(1) const T, predicate: anytype) usize {
-    if (!@hasDecl(@TypeOf(predicate), "predicate"))
-        @compileError("Predicate is required to define fn predicate(@This(), T) bool");
-
-    var i: usize = 0;
-    while (i < haystack.len) : (i += 1) {
-        if (predicate.predicate(haystack[i])) break;
-    }
-    return i;
 }

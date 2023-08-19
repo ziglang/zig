@@ -249,20 +249,14 @@ const DeclMetadata = struct {
 
     fn getExport(m: DeclMetadata, macho_file: *const MachO, name: []const u8) ?u32 {
         for (m.exports.items) |exp| {
-            if (mem.eql(u8, name, macho_file.getSymbolName(.{
-                .sym_index = exp,
-                .file = null,
-            }))) return exp;
+            if (mem.eql(u8, name, macho_file.getSymbolName(.{ .sym_index = exp }))) return exp;
         }
         return null;
     }
 
     fn getExportPtr(m: *DeclMetadata, macho_file: *MachO, name: []const u8) ?*u32 {
         for (m.exports.items) |*exp| {
-            if (mem.eql(u8, name, macho_file.getSymbolName(.{
-                .sym_index = exp.*,
-                .file = null,
-            }))) return exp;
+            if (mem.eql(u8, name, macho_file.getSymbolName(.{ .sym_index = exp.* }))) return exp;
         }
         return null;
     }
@@ -284,21 +278,20 @@ const ResolveAction = struct {
     };
 };
 
-pub const SymbolWithLoc = struct {
+pub const SymbolWithLoc = extern struct {
     // Index into the respective symbol table.
     sym_index: u32,
 
-    // null means it's a synthetic global.
-    file: ?u32 = null,
+    // 0 means it's a synthetic global.
+    file: u32 = 0,
 
-    pub fn eql(this: SymbolWithLoc, other: SymbolWithLoc) bool {
-        if (this.file == null and other.file == null) {
-            return this.sym_index == other.sym_index;
-        }
-        if (this.file != null and other.file != null) {
-            return this.sym_index == other.sym_index and this.file.? == other.file.?;
-        }
-        return false;
+    pub fn getFile(self: SymbolWithLoc) ?u32 {
+        if (self.file == 0) return null;
+        return self.file - 1;
+    }
+
+    pub fn eql(self: SymbolWithLoc, other: SymbolWithLoc) bool {
+        return self.file == other.file and self.sym_index == other.sym_index;
     }
 };
 
@@ -1576,7 +1569,7 @@ pub fn allocateSpecialSymbols(self: *MachO) !void {
         "__mh_execute_header",
     }) |name| {
         const global = self.getGlobal(name) orelse continue;
-        if (global.file != null) continue;
+        if (global.getFile() != null) continue;
         const sym = self.getSymbolPtr(global);
         const seg = self.getSegment(self.text_section_index.?);
         sym.n_sect = 1;
@@ -1597,7 +1590,7 @@ pub fn createAtom(self: *MachO) !Atom.Index {
     try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom_index);
     atom.* = .{
         .sym_index = sym_index,
-        .file = null,
+        .file = 0,
         .size = 0,
         .prev_index = null,
         .next_index = null,
@@ -1664,7 +1657,7 @@ fn createMhExecuteHeaderSymbol(self: *MachO) !void {
 
     const gpa = self.base.allocator;
     const sym_index = try self.allocateSymbol();
-    const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
+    const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
     const sym = self.getSymbolPtr(sym_loc);
     sym.* = .{
         .n_strx = try self.strtab.insert(gpa, "__mh_execute_header"),
@@ -1684,7 +1677,7 @@ fn createDsoHandleSymbol(self: *MachO) !void {
 
     const gpa = self.base.allocator;
     const sym_index = try self.allocateSymbol();
-    const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
+    const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
     const sym = self.getSymbolPtr(sym_loc);
     sym.* = .{
         .n_strx = try self.strtab.insert(gpa, "___dso_handle"),
@@ -1998,10 +1991,7 @@ fn allocateGlobal(self: *MachO) !u32 {
         }
     };
 
-    self.globals.items[index] = .{
-        .sym_index = 0,
-        .file = null,
-    };
+    self.globals.items[index] = .{ .sym_index = 0 };
 
     return index;
 }
@@ -2613,7 +2603,7 @@ pub fn updateDeclExports(
             try decl_metadata.exports.append(gpa, sym_index);
             break :blk sym_index;
         };
-        const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
+        const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
         const sym = self.getSymbolPtr(sym_loc);
         sym.* = .{
             .n_strx = try self.strtab.insert(gpa, exp_name),
@@ -2643,7 +2633,7 @@ pub fn updateDeclExports(
             error.MultipleSymbolDefinitions => {
                 // TODO: this needs rethinking
                 const global = self.getGlobal(exp_name).?;
-                if (sym_loc.sym_index != global.sym_index and global.file != null) {
+                if (sym_loc.sym_index != global.sym_index and global.getFile() != null) {
                     _ = try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
                         gpa,
                         decl.srcLoc(mod),
@@ -2672,7 +2662,7 @@ pub fn deleteDeclExport(
     defer gpa.free(exp_name);
     const sym_index = metadata.getExportPtr(self, exp_name) orelse return;
 
-    const sym_loc = SymbolWithLoc{ .sym_index = sym_index.*, .file = null };
+    const sym_loc = SymbolWithLoc{ .sym_index = sym_index.* };
     const sym = self.getSymbolPtr(sym_loc);
     log.debug("deleting export '{s}'", .{exp_name});
     assert(sym.sect() and sym.ext());
@@ -2688,10 +2678,7 @@ pub fn deleteDeclExport(
     if (self.resolver.fetchRemove(exp_name)) |entry| {
         defer gpa.free(entry.key);
         self.globals_free_list.append(gpa, entry.value) catch {};
-        self.globals.items[entry.value] = .{
-            .sym_index = 0,
-            .file = null,
-        };
+        self.globals.items[entry.value] = .{ .sym_index = 0 };
     }
 
     sym_index.* = 0;
@@ -2730,10 +2717,10 @@ pub fn getDeclVAddr(self: *MachO, decl_index: Module.Decl.Index, reloc_info: Fil
 
     const this_atom_index = try self.getOrCreateAtomForDecl(decl_index);
     const sym_index = self.getAtom(this_atom_index).getSymbolIndex().?;
-    const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
+    const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index }).?;
     try Atom.addRelocation(self, atom_index, .{
         .type = .unsigned,
-        .target = .{ .sym_index = sym_index, .file = null },
+        .target = .{ .sym_index = sym_index },
         .offset = @as(u32, @intCast(reloc_info.offset)),
         .addend = reloc_info.addend,
         .pcrel = false,
@@ -3514,7 +3501,7 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
 
     for (self.locals.items, 0..) |sym, sym_id| {
         if (sym.n_strx == 0) continue; // no name, skip
-        const sym_loc = SymbolWithLoc{ .sym_index = @as(u32, @intCast(sym_id)), .file = null };
+        const sym_loc = SymbolWithLoc{ .sym_index = @as(u32, @intCast(sym_id)) };
         if (self.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
         if (self.getGlobal(self.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
         try locals.append(sym);
@@ -3934,13 +3921,13 @@ pub fn symbolIsTemp(self: *MachO, sym_with_loc: SymbolWithLoc) bool {
 
 /// Returns pointer-to-symbol described by `sym_with_loc` descriptor.
 pub fn getSymbolPtr(self: *MachO, sym_with_loc: SymbolWithLoc) *macho.nlist_64 {
-    assert(sym_with_loc.file == null);
+    assert(sym_with_loc.getFile() == null);
     return &self.locals.items[sym_with_loc.sym_index];
 }
 
 /// Returns symbol described by `sym_with_loc` descriptor.
 pub fn getSymbol(self: *const MachO, sym_with_loc: SymbolWithLoc) macho.nlist_64 {
-    assert(sym_with_loc.file == null);
+    assert(sym_with_loc.getFile() == null);
     return self.locals.items[sym_with_loc.sym_index];
 }
 
@@ -4006,7 +3993,7 @@ pub fn getAtomPtr(self: *MachO, atom_index: Atom.Index) *Atom {
 /// Returns atom if there is an atom referenced by the symbol described by `sym_with_loc` descriptor.
 /// Returns null on failure.
 pub fn getAtomIndexForSymbol(self: *MachO, sym_with_loc: SymbolWithLoc) ?Atom.Index {
-    assert(sym_with_loc.file == null);
+    assert(sym_with_loc.getFile() == null);
     return self.atom_by_index_table.get(sym_with_loc.sym_index);
 }
 
@@ -4034,13 +4021,31 @@ pub inline fn getPageSize(cpu_arch: std.Target.Cpu.Arch) u16 {
     };
 }
 
-pub fn findFirst(comptime T: type, haystack: []align(1) const T, start: usize, predicate: anytype) usize {
+/// Binary search
+pub fn bsearch(comptime T: type, haystack: []align(1) const T, predicate: anytype) usize {
     if (!@hasDecl(@TypeOf(predicate), "predicate"))
         @compileError("Predicate is required to define fn predicate(@This(), T) bool");
 
-    if (start == haystack.len) return start;
+    var min: usize = 0;
+    var max: usize = haystack.len;
+    while (min < max) {
+        const index = (min + max) / 2;
+        const curr = haystack[index];
+        if (predicate.predicate(curr)) {
+            min = index + 1;
+        } else {
+            max = index;
+        }
+    }
+    return min;
+}
 
-    var i = start;
+/// Linear search
+pub fn lsearch(comptime T: type, haystack: []align(1) const T, predicate: anytype) usize {
+    if (!@hasDecl(@TypeOf(predicate), "predicate"))
+        @compileError("Predicate is required to define fn predicate(@This(), T) bool");
+
+    var i: usize = 0;
     while (i < haystack.len) : (i += 1) {
         if (predicate.predicate(haystack[i])) break;
     }

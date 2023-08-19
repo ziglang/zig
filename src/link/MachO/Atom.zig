@@ -17,16 +17,19 @@ const MachO = @import("../MachO.zig");
 pub const Relocation = @import("Relocation.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
 
-/// Each decl always gets a local symbol with the fully qualified name.
-/// The vaddr and size are found here directly.
-/// The file offset is found by computing the vaddr offset from the section vaddr
-/// the symbol references, and adding that to the file offset of the section.
+/// Each Atom always gets a symbol with the fully qualified name.
+/// The symbol can reside in any object file context structure in `symtab` array
+/// (see `Object`), or if the symbol is a synthetic symbol such as a GOT cell or
+/// a stub trampoline, it can be found in the linkers `locals` arraylist.
 /// If this field is 0, it means the codegen size = 0 and there is no symbol or
 /// offset table entry.
 sym_index: u32,
 
-/// null means symbol defined by Zig source.
-file: ?u32,
+/// 0 means an Atom is a synthetic Atom such as a GOT cell defined by the linker.
+/// Otherwise, it is the index into appropriate object file (indexing from 1).
+/// Prefer using `getFile()` helper to get the file index out rather than using
+/// the field directly.
+file: u32,
 
 /// Size and alignment of this atom
 /// Unlike in Elf, we need to store the size of this symbol as part of
