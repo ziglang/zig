@@ -2949,8 +2949,12 @@ pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
         return openFileAbsoluteZ("/proc/self/exe", flags);
     }
     if (builtin.os.tag == .windows) {
-        const wide_slice = selfExePathW();
-        const prefixed_path_w = try os.windows.wToPrefixedFileW(null, wide_slice);
+        // If ImagePathName is a symlink, then it will contain the path of the symlink,
+        // not the path that the symlink points to. However, because we are opening
+        // the file, we can let the openFileW call follow the symlink for us.
+        const image_path_unicode_string = &os.windows.peb().ProcessParameters.ImagePathName;
+        const image_path_name = image_path_unicode_string.Buffer[0 .. image_path_unicode_string.Length / 2 :0];
+        const prefixed_path_w = try os.windows.wToPrefixedFileW(null, image_path_name);
         return cwd().openFileW(prefixed_path_w.span(), flags);
     }
     // Use of MAX_PATH_BYTES here is valid as the resulting path is immediately
@@ -2977,7 +2981,7 @@ pub fn selfExePathAlloc(allocator: Allocator) ![]u8 {
     return allocator.dupe(u8, try selfExePath(&buf));
 }
 
-/// Get the path to the current executable.
+/// Get the path to the current executable. Follows symlinks.
 /// If you only need the directory, use selfExeDirPath.
 /// If you only want an open file handle, use openSelfExe.
 /// This function may return an error if the current executable
@@ -3060,21 +3064,21 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             return error.FileNotFound;
         },
         .windows => {
-            const utf16le_slice = selfExePathW();
-            // Trust that Windows gives us valid UTF-16LE.
-            const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
-            return out_buffer[0..end_index];
+            const image_path_unicode_string = &os.windows.peb().ProcessParameters.ImagePathName;
+            const image_path_name = image_path_unicode_string.Buffer[0 .. image_path_unicode_string.Length / 2 :0];
+
+            // If ImagePathName is a symlink, then it will contain the path of the
+            // symlink, not the path that the symlink points to. We want the path
+            // that the symlink points to, though, so we need to get the realpath.
+            const pathname_w = try os.windows.wToPrefixedFileW(null, image_path_name);
+            return std.fs.cwd().realpathW(pathname_w.span(), out_buffer);
         },
         .wasi => @compileError("std.fs.selfExePath not supported for WASI. Use std.fs.selfExePathAlloc instead."),
         else => @compileError("std.fs.selfExePath not supported for this target"),
     }
 }
 
-/// The result is UTF16LE-encoded.
-pub fn selfExePathW() [:0]const u16 {
-    const image_path_name = &os.windows.peb().ProcessParameters.ImagePathName;
-    return image_path_name.Buffer[0 .. image_path_name.Length / 2 :0];
-}
+pub const selfExePathW = @compileError("deprecated; use selfExePath instead");
 
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
