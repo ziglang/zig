@@ -20,6 +20,8 @@ const Tbd = tapi.Tbd;
 
 id: ?Id = null,
 weak: bool = false,
+/// Header is only set if Dylib is parsed directly from a binary and not a stub file.
+header: ?macho.mach_header_64 = null,
 
 /// Parsed symbol table represented as hash map of symbols'
 /// names. We can and should defer creating *Symbols until
@@ -116,6 +118,13 @@ pub const Id = struct {
     }
 };
 
+pub fn isDylib(file: std.fs.File, fat_offset: u64) bool {
+    const reader = file.reader();
+    const hdr = reader.readStruct(macho.mach_header_64) catch return false;
+    defer file.seekTo(fat_offset) catch {};
+    return hdr.filetype == macho.MH_DYLIB;
+}
+
 pub fn deinit(self: *Dylib, allocator: Allocator) void {
     for (self.symbols.keys()) |key| {
         allocator.free(key);
@@ -129,7 +138,6 @@ pub fn deinit(self: *Dylib, allocator: Allocator) void {
 pub fn parseFromBinary(
     self: *Dylib,
     allocator: Allocator,
-    cpu_arch: std.Target.Cpu.Arch,
     dylib_id: u16,
     dependent_libs: anytype,
     name: []const u8,
@@ -140,27 +148,12 @@ pub fn parseFromBinary(
 
     log.debug("parsing shared library '{s}'", .{name});
 
-    const header = try reader.readStruct(macho.mach_header_64);
+    self.header = try reader.readStruct(macho.mach_header_64);
 
-    if (header.filetype != macho.MH_DYLIB) {
-        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{ macho.MH_DYLIB, header.filetype });
-        return error.NotDylib;
-    }
-
-    const this_arch: std.Target.Cpu.Arch = try fat.decodeArch(header.cputype, true);
-
-    if (this_arch != cpu_arch) {
-        log.err("mismatched cpu architecture: expected {s}, found {s}", .{
-            @tagName(cpu_arch),
-            @tagName(this_arch),
-        });
-        return error.MismatchedCpuArchitecture;
-    }
-
-    const should_lookup_reexports = header.flags & macho.MH_NO_REEXPORTED_DYLIBS == 0;
+    const should_lookup_reexports = self.header.?.flags & macho.MH_NO_REEXPORTED_DYLIBS == 0;
     var it = LoadCommandIterator{
-        .ncmds = header.ncmds,
-        .buffer = data[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds],
+        .ncmds = self.header.?.ncmds,
+        .buffer = data[@sizeOf(macho.mach_header_64)..][0..self.header.?.sizeofcmds],
     };
     while (it.next()) |cmd| {
         switch (cmd.cmd()) {

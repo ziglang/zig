@@ -89,298 +89,6 @@ pub const Zld = struct {
 
     atoms: std.ArrayListUnmanaged(Atom) = .{},
 
-    fn parseObject(self: *Zld, path: []const u8) !bool {
-        const gpa = self.gpa;
-        const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-            error.FileNotFound => return false,
-            else => |e| return e,
-        };
-        defer file.close();
-
-        const name = try gpa.dupe(u8, path);
-        errdefer gpa.free(name);
-        const cpu_arch = self.options.target.cpu.arch;
-        const mtime: u64 = mtime: {
-            const stat = file.stat() catch break :mtime 0;
-            break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
-        };
-        const file_stat = try file.stat();
-        const file_size = math.cast(usize, file_stat.size) orelse return error.Overflow;
-        const contents = try file.readToEndAllocOptions(gpa, file_size, file_size, @alignOf(u64), null);
-
-        var object = Object{
-            .name = name,
-            .mtime = mtime,
-            .contents = contents,
-        };
-
-        object.parse(gpa, cpu_arch) catch |err| switch (err) {
-            error.EndOfStream, error.NotObject => {
-                object.deinit(gpa);
-                return false;
-            },
-            else => |e| return e,
-        };
-
-        try self.objects.append(gpa, object);
-
-        return true;
-    }
-
-    fn parseArchive(self: *Zld, path: []const u8, force_load: bool) !bool {
-        const gpa = self.gpa;
-        const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-            error.FileNotFound => return false,
-            else => |e| return e,
-        };
-        errdefer file.close();
-
-        const name = try gpa.dupe(u8, path);
-        errdefer gpa.free(name);
-        const cpu_arch = self.options.target.cpu.arch;
-        const reader = file.reader();
-        const fat_offset = try fat.getLibraryOffset(reader, cpu_arch);
-        try reader.context.seekTo(fat_offset);
-
-        var archive = Archive{
-            .name = name,
-            .fat_offset = fat_offset,
-            .file = file,
-        };
-
-        archive.parse(gpa, reader) catch |err| switch (err) {
-            error.EndOfStream, error.NotArchive => {
-                archive.deinit(gpa);
-                return false;
-            },
-            else => |e| return e,
-        };
-
-        if (force_load) {
-            defer archive.deinit(gpa);
-            // Get all offsets from the ToC
-            var offsets = std.AutoArrayHashMap(u32, void).init(gpa);
-            defer offsets.deinit();
-            for (archive.toc.values()) |offs| {
-                for (offs.items) |off| {
-                    _ = try offsets.getOrPut(off);
-                }
-            }
-            for (offsets.keys()) |off| {
-                const object = try archive.parseObject(gpa, cpu_arch, off);
-                try self.objects.append(gpa, object);
-            }
-        } else {
-            try self.archives.append(gpa, archive);
-        }
-
-        return true;
-    }
-
-    const ParseDylibError = error{
-        OutOfMemory,
-        EmptyStubFile,
-        MismatchedCpuArchitecture,
-        UnsupportedCpuArchitecture,
-        EndOfStream,
-    } || fs.File.OpenError || std.os.PReadError || Dylib.Id.ParseError;
-
-    const DylibCreateOpts = struct {
-        syslibroot: ?[]const u8,
-        id: ?Dylib.Id = null,
-        dependent: bool = false,
-        needed: bool = false,
-        weak: bool = false,
-    };
-
-    fn parseDylib(
-        self: *Zld,
-        path: []const u8,
-        dependent_libs: anytype,
-        opts: DylibCreateOpts,
-    ) ParseDylibError!bool {
-        const gpa = self.gpa;
-        const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-            error.FileNotFound => return false,
-            else => |e| return e,
-        };
-        defer file.close();
-
-        const cpu_arch = self.options.target.cpu.arch;
-        const file_stat = try file.stat();
-        var file_size = math.cast(usize, file_stat.size) orelse return error.Overflow;
-
-        const reader = file.reader();
-        const fat_offset = math.cast(usize, try fat.getLibraryOffset(reader, cpu_arch)) orelse
-            return error.Overflow;
-        try file.seekTo(fat_offset);
-        file_size -= fat_offset;
-
-        const contents = try file.readToEndAllocOptions(gpa, file_size, file_size, @alignOf(u64), null);
-        defer gpa.free(contents);
-
-        const dylib_id = @as(u16, @intCast(self.dylibs.items.len));
-        var dylib = Dylib{ .weak = opts.weak };
-
-        dylib.parseFromBinary(
-            gpa,
-            cpu_arch,
-            dylib_id,
-            dependent_libs,
-            path,
-            contents,
-        ) catch |err| switch (err) {
-            error.EndOfStream, error.NotDylib => {
-                try file.seekTo(0);
-
-                var lib_stub = LibStub.loadFromFile(gpa, file) catch {
-                    dylib.deinit(gpa);
-                    return false;
-                };
-                defer lib_stub.deinit();
-
-                try dylib.parseFromStub(
-                    gpa,
-                    self.options.target,
-                    lib_stub,
-                    dylib_id,
-                    dependent_libs,
-                    path,
-                );
-            },
-            else => |e| return e,
-        };
-
-        if (opts.id) |id| {
-            if (dylib.id.?.current_version < id.compatibility_version) {
-                log.warn("found dylib is incompatible with the required minimum version", .{});
-                log.warn("  dylib: {s}", .{id.name});
-                log.warn("  required minimum version: {}", .{id.compatibility_version});
-                log.warn("  dylib version: {}", .{dylib.id.?.current_version});
-
-                // TODO maybe this should be an error and facilitate auto-cleanup?
-                dylib.deinit(gpa);
-                return false;
-            }
-        }
-
-        try self.dylibs.append(gpa, dylib);
-        try self.dylibs_map.putNoClobber(gpa, dylib.id.?.name, dylib_id);
-
-        const should_link_dylib_even_if_unreachable = blk: {
-            if (self.options.dead_strip_dylibs and !opts.needed) break :blk false;
-            break :blk !(opts.dependent or self.referenced_dylibs.contains(dylib_id));
-        };
-
-        if (should_link_dylib_even_if_unreachable) {
-            try self.referenced_dylibs.putNoClobber(gpa, dylib_id, {});
-        }
-
-        return true;
-    }
-
-    fn parseInputFiles(
-        self: *Zld,
-        files: []const []const u8,
-        syslibroot: ?[]const u8,
-        dependent_libs: anytype,
-    ) !void {
-        for (files) |file_name| {
-            const full_path = full_path: {
-                var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
-                break :full_path try fs.realpath(file_name, &buffer);
-            };
-            log.debug("parsing input file path '{s}'", .{full_path});
-
-            if (try self.parseObject(full_path)) continue;
-            if (try self.parseArchive(full_path, false)) continue;
-            if (try self.parseDylib(full_path, dependent_libs, .{
-                .syslibroot = syslibroot,
-            })) continue;
-
-            log.debug("unknown filetype for positional input file: '{s}'", .{file_name});
-        }
-    }
-
-    fn parseAndForceLoadStaticArchives(self: *Zld, files: []const []const u8) !void {
-        for (files) |file_name| {
-            const full_path = full_path: {
-                var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
-                break :full_path try fs.realpath(file_name, &buffer);
-            };
-            log.debug("parsing and force loading static archive '{s}'", .{full_path});
-
-            if (try self.parseArchive(full_path, true)) continue;
-            log.debug("unknown filetype: expected static archive: '{s}'", .{file_name});
-        }
-    }
-
-    fn parseLibs(
-        self: *Zld,
-        lib_names: []const []const u8,
-        lib_infos: []const link.SystemLib,
-        syslibroot: ?[]const u8,
-        dependent_libs: anytype,
-    ) !void {
-        for (lib_names, 0..) |lib, i| {
-            const lib_info = lib_infos[i];
-            log.debug("parsing lib path '{s}'", .{lib});
-            if (try self.parseDylib(lib, dependent_libs, .{
-                .syslibroot = syslibroot,
-                .needed = lib_info.needed,
-                .weak = lib_info.weak,
-            })) continue;
-            if (try self.parseArchive(lib, false)) continue;
-
-            log.debug("unknown filetype for a library: '{s}'", .{lib});
-        }
-    }
-
-    fn parseDependentLibs(self: *Zld, syslibroot: ?[]const u8, dependent_libs: anytype) !void {
-        // At this point, we can now parse dependents of dylibs preserving the inclusion order of:
-        // 1) anything on the linker line is parsed first
-        // 2) afterwards, we parse dependents of the included dylibs
-        // TODO this should not be performed if the user specifies `-flat_namespace` flag.
-        // See ld64 manpages.
-        var arena_alloc = std.heap.ArenaAllocator.init(self.gpa);
-        const arena = arena_alloc.allocator();
-        defer arena_alloc.deinit();
-
-        while (dependent_libs.readItem()) |*dep_id| {
-            defer dep_id.id.deinit(self.gpa);
-
-            if (self.dylibs_map.contains(dep_id.id.name)) continue;
-
-            const weak = self.dylibs.items[dep_id.parent].weak;
-            const has_ext = blk: {
-                const basename = fs.path.basename(dep_id.id.name);
-                break :blk mem.lastIndexOfScalar(u8, basename, '.') != null;
-            };
-            const extension = if (has_ext) fs.path.extension(dep_id.id.name) else "";
-            const without_ext = if (has_ext) blk: {
-                const index = mem.lastIndexOfScalar(u8, dep_id.id.name, '.') orelse unreachable;
-                break :blk dep_id.id.name[0..index];
-            } else dep_id.id.name;
-
-            for (&[_][]const u8{ extension, ".tbd" }) |ext| {
-                const with_ext = try std.fmt.allocPrint(arena, "{s}{s}", .{ without_ext, ext });
-                const full_path = if (syslibroot) |root| try fs.path.join(arena, &.{ root, with_ext }) else with_ext;
-
-                log.debug("trying dependency at fully resolved path {s}", .{full_path});
-
-                const did_parse_successfully = try self.parseDylib(full_path, dependent_libs, .{
-                    .id = dep_id.id,
-                    .syslibroot = syslibroot,
-                    .dependent = true,
-                    .weak = weak,
-                });
-                if (did_parse_successfully) break;
-            } else {
-                log.debug("unable to resolve dependency {s}", .{dep_id.id.name});
-            }
-        }
-    }
-
     pub fn getOutputSection(self: *Zld, sect: macho.section_64) !?u8 {
         const segname = sect.segName();
         const sectname = sect.sectName();
@@ -1009,7 +717,7 @@ pub const Zld = struct {
         if (self.archives.items.len == 0) return;
 
         const gpa = self.gpa;
-        const cpu_arch = self.options.target.cpu.arch;
+
         var next_sym: usize = 0;
         loop: while (next_sym < resolver.unresolved.count()) {
             const global = self.globals.items[resolver.unresolved.keys()[next_sym]];
@@ -1024,13 +732,7 @@ pub const Zld = struct {
                 assert(offsets.items.len > 0);
 
                 const object_id = @as(u16, @intCast(self.objects.items.len));
-                const object = archive.parseObject(gpa, cpu_arch, offsets.items[0]) catch |e| switch (e) {
-                    error.MismatchedCpuArchitecture => {
-                        log.err("CPU architecture mismatch found in {s}", .{archive.name});
-                        return e;
-                    },
-                    else => return e,
-                };
+                const object = try archive.parseObject(gpa, offsets.items[0]);
                 try self.objects.append(gpa, object);
                 try self.resolveSymbolsInObject(object_id, resolver);
 
@@ -3512,37 +3214,27 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         try zld.strtab.buffer.append(gpa, 0);
 
         // Positional arguments to the linker such as object files and static archives.
-        var positionals = std.ArrayList([]const u8).init(arena);
+        var positionals = std.ArrayList(Compilation.LinkObject).init(arena);
         try positionals.ensureUnusedCapacity(options.objects.len);
-
-        var must_link_archives = std.StringArrayHashMap(void).init(arena);
-        try must_link_archives.ensureUnusedCapacity(options.objects.len);
-
-        for (options.objects) |obj| {
-            if (must_link_archives.contains(obj.path)) continue;
-            if (obj.must_link) {
-                _ = must_link_archives.getOrPutAssumeCapacity(obj.path);
-            } else {
-                _ = positionals.appendAssumeCapacity(obj.path);
-            }
-        }
+        positionals.appendSliceAssumeCapacity(options.objects);
 
         for (comp.c_object_table.keys()) |key| {
-            try positionals.append(key.status.success.object_path);
+            try positionals.append(.{ .path = key.status.success.object_path });
         }
 
         if (module_obj_path) |p| {
-            try positionals.append(p);
+            try positionals.append(.{ .path = p });
         }
 
         if (comp.compiler_rt_lib) |lib| {
-            try positionals.append(lib.full_object_path);
+            try positionals.append(.{ .path = lib.full_object_path });
         }
 
         // libc++ dep
         if (options.link_libcpp) {
-            try positionals.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try positionals.append(comp.libcxx_static_lib.?.full_object_path);
+            try positionals.ensureUnusedCapacity(2);
+            positionals.appendAssumeCapacity(.{ .path = comp.libcxxabi_static_lib.?.full_object_path });
+            positionals.appendAssumeCapacity(.{ .path = comp.libcxx_static_lib.?.full_object_path });
         }
 
         var libs = std.StringArrayHashMap(link.SystemLib).init(arena);
@@ -3621,6 +3313,9 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             }
 
             for (options.objects) |obj| {
+                if (obj.must_link) {
+                    try argv.append("-force_load");
+                }
                 try argv.append(obj.path);
             }
 
@@ -3682,10 +3377,6 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 try argv.append("dynamic_lookup");
             }
 
-            for (must_link_archives.keys()) |lib| {
-                try argv.append(try std.fmt.allocPrint(arena, "-force_load {s}", .{lib}));
-            }
-
             Compilation.dump_argv(argv.items);
         }
 
@@ -3694,10 +3385,49 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             parent: u16,
         }, .Dynamic).init(arena);
 
-        try zld.parseInputFiles(positionals.items, options.sysroot, &dependent_libs);
-        try zld.parseAndForceLoadStaticArchives(must_link_archives.keys());
-        try zld.parseLibs(libs.keys(), libs.values(), options.sysroot, &dependent_libs);
-        try zld.parseDependentLibs(options.sysroot, &dependent_libs);
+        for (positionals.items) |obj| {
+            const in_file = try std.fs.cwd().openFile(obj.path, .{});
+            defer in_file.close();
+
+            MachO.parsePositional(
+                &zld,
+                gpa,
+                in_file,
+                obj.path,
+                obj.must_link,
+                &dependent_libs,
+                options,
+            ) catch |err| {
+                // TODO convert to error
+                log.err("{s}: parsing positional failed with err {s}", .{ obj.path, @errorName(err) });
+                continue;
+            };
+        }
+
+        for (libs.keys(), libs.values()) |path, lib| {
+            const in_file = try std.fs.cwd().openFile(path, .{});
+            defer in_file.close();
+
+            MachO.parseLibrary(
+                &zld,
+                gpa,
+                in_file,
+                path,
+                lib,
+                false,
+                &dependent_libs,
+                options,
+            ) catch |err| {
+                // TODO convert to error
+                log.err("{s}: parsing library failed with err {s}", .{ path, @errorName(err) });
+                continue;
+            };
+        }
+
+        MachO.parseDependentLibs(&zld, gpa, &dependent_libs, options) catch |err| {
+            // TODO convert to error
+            log.err("parsing dependent libraries failed with err {s}", .{@errorName(err)});
+        };
 
         var resolver = SymbolResolver{
             .arena = arena,

@@ -1,42 +1,40 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const log = std.log.scoped(.archive);
 const macho = std.macho;
 const mem = std.mem;
 
-pub fn decodeArch(cputype: macho.cpu_type_t, comptime logError: bool) !std.Target.Cpu.Arch {
-    const cpu_arch: std.Target.Cpu.Arch = switch (cputype) {
-        macho.CPU_TYPE_ARM64 => .aarch64,
-        macho.CPU_TYPE_X86_64 => .x86_64,
-        else => {
-            if (logError) {
-                log.err("unsupported cpu architecture 0x{x}", .{cputype});
-            }
-            return error.UnsupportedCpuArchitecture;
-        },
-    };
-    return cpu_arch;
+pub fn isFatLibrary(file: std.fs.File) bool {
+    const reader = file.reader();
+    const hdr = reader.readStructBig(macho.fat_header) catch return false;
+    defer file.seekTo(0) catch {};
+    return hdr.magic == macho.FAT_MAGIC;
 }
 
-pub fn getLibraryOffset(reader: anytype, cpu_arch: std.Target.Cpu.Arch) !u64 {
-    const fat_header = try reader.readStructBig(macho.fat_header);
-    if (fat_header.magic != macho.FAT_MAGIC) return 0;
+pub const Arch = struct {
+    tag: std.Target.Cpu.Arch,
+    offset: u64,
+};
 
+pub fn parseArchs(file: std.fs.File, buffer: *[2]Arch) ![]const Arch {
+    const reader = file.reader();
+    const fat_header = try reader.readStructBig(macho.fat_header);
+    assert(fat_header.magic == macho.FAT_MAGIC);
+
+    var count: usize = 0;
     var fat_arch_index: u32 = 0;
     while (fat_arch_index < fat_header.nfat_arch) : (fat_arch_index += 1) {
         const fat_arch = try reader.readStructBig(macho.fat_arch);
         // If we come across an architecture that we do not know how to handle, that's
         // fine because we can keep looking for one that might match.
-        const lib_arch = decodeArch(fat_arch.cputype, false) catch |err| switch (err) {
-            error.UnsupportedCpuArchitecture => continue,
+        const arch: std.Target.Cpu.Arch = switch (fat_arch.cputype) {
+            macho.CPU_TYPE_ARM64 => if (fat_arch.cpusubtype == macho.CPU_SUBTYPE_ARM_ALL) .aarch64 else continue,
+            macho.CPU_TYPE_X86_64 => if (fat_arch.cpusubtype == macho.CPU_SUBTYPE_X86_64_ALL) .x86_64 else continue,
+            else => continue,
         };
-        if (lib_arch == cpu_arch) {
-            // We have found a matching architecture!
-            return fat_arch.offset;
-        }
-    } else {
-        log.err("Could not find matching cpu architecture in fat library: expected {s}", .{
-            @tagName(cpu_arch),
-        });
-        return error.MismatchedCpuArchitecture;
+        buffer[count] = .{ .tag = arch, .offset = fat_arch.offset };
+        count += 1;
     }
+
+    return buffer[0..count];
 }

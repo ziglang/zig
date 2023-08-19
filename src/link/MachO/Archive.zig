@@ -87,6 +87,13 @@ const ar_hdr = extern struct {
     }
 };
 
+pub fn isArchive(file: fs.File, fat_offset: u64) bool {
+    const reader = file.reader();
+    const magic = reader.readBytesNoEof(SARMAG) catch return false;
+    defer file.seekTo(fat_offset) catch {};
+    return mem.eql(u8, &magic, ARMAG);
+}
+
 pub fn deinit(self: *Archive, allocator: Allocator) void {
     self.file.close();
     for (self.toc.keys()) |*key| {
@@ -100,21 +107,8 @@ pub fn deinit(self: *Archive, allocator: Allocator) void {
 }
 
 pub fn parse(self: *Archive, allocator: Allocator, reader: anytype) !void {
-    const magic = try reader.readBytesNoEof(SARMAG);
-    if (!mem.eql(u8, &magic, ARMAG)) {
-        log.debug("invalid magic: expected '{s}', found '{s}'", .{ ARMAG, magic });
-        return error.NotArchive;
-    }
-
+    _ = try reader.readBytesNoEof(SARMAG);
     self.header = try reader.readStruct(ar_hdr);
-    if (!mem.eql(u8, &self.header.ar_fmag, ARFMAG)) {
-        log.debug("invalid header delimiter: expected '{s}', found '{s}'", .{
-            ARFMAG,
-            self.header.ar_fmag,
-        });
-        return error.NotArchive;
-    }
-
     const name_or_length = try self.header.nameOrLength();
     var embedded_name = try parseName(allocator, name_or_length, reader);
     log.debug("parsing archive '{s}' at '{s}'", .{ embedded_name, self.name });
@@ -182,21 +176,11 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
     }
 }
 
-pub fn parseObject(
-    self: Archive,
-    gpa: Allocator,
-    cpu_arch: std.Target.Cpu.Arch,
-    offset: u32,
-) !Object {
+pub fn parseObject(self: Archive, gpa: Allocator, offset: u32) !Object {
     const reader = self.file.reader();
     try reader.context.seekTo(self.fat_offset + offset);
 
     const object_header = try reader.readStruct(ar_hdr);
-
-    if (!mem.eql(u8, &object_header.ar_fmag, ARFMAG)) {
-        log.err("invalid header delimiter: expected '{s}', found '{s}'", .{ ARFMAG, object_header.ar_fmag });
-        return error.MalformedArchive;
-    }
 
     const name_or_length = try object_header.nameOrLength();
     const object_name = try parseName(gpa, name_or_length, reader);
@@ -227,7 +211,7 @@ pub fn parseObject(
         .contents = contents,
     };
 
-    try object.parse(gpa, cpu_arch);
+    try object.parse(gpa);
 
     return object;
 }

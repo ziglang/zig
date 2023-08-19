@@ -91,6 +91,13 @@ const Record = struct {
     reloc: Entry,
 };
 
+pub fn isObject(file: std.fs.File) bool {
+    const reader = file.reader();
+    const hdr = reader.readStruct(macho.mach_header_64) catch return false;
+    defer file.seekTo(0) catch {};
+    return hdr.filetype == macho.MH_OBJECT;
+}
+
 pub fn deinit(self: *Object, gpa: Allocator) void {
     self.atoms.deinit(gpa);
     self.exec_atoms.deinit(gpa);
@@ -118,35 +125,11 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
     self.data_in_code.deinit(gpa);
 }
 
-pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch) !void {
+pub fn parse(self: *Object, allocator: Allocator) !void {
     var stream = std.io.fixedBufferStream(self.contents);
     const reader = stream.reader();
 
     self.header = try reader.readStruct(macho.mach_header_64);
-
-    if (self.header.filetype != macho.MH_OBJECT) {
-        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{
-            macho.MH_OBJECT,
-            self.header.filetype,
-        });
-        return error.NotObject;
-    }
-
-    const this_arch: std.Target.Cpu.Arch = switch (self.header.cputype) {
-        macho.CPU_TYPE_ARM64 => .aarch64,
-        macho.CPU_TYPE_X86_64 => .x86_64,
-        else => |value| {
-            log.err("unsupported cpu architecture 0x{x}", .{value});
-            return error.UnsupportedCpuArchitecture;
-        },
-    };
-    if (this_arch != cpu_arch) {
-        log.err("mismatched cpu architecture: expected {s}, found {s}", .{
-            @tagName(cpu_arch),
-            @tagName(this_arch),
-        });
-        return error.MismatchedCpuArchitecture;
-    }
 
     var it = LoadCommandIterator{
         .ncmds = self.header.ncmds,
@@ -437,7 +420,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
     // Well, shit, sometimes compilers skip the dysymtab load command altogether, meaning we
     // have to infer the start of undef section in the symtab ourselves.
     const iundefsym = blk: {
-        const dysymtab = self.parseDysymtab() orelse {
+        const dysymtab = self.getDysymtab() orelse {
             var iundefsym: usize = self.in_symtab.?.len;
             while (iundefsym > 0) : (iundefsym -= 1) {
                 const sym = self.symtab[iundefsym - 1];
@@ -945,16 +928,14 @@ fn diceLessThan(ctx: void, lhs: macho.data_in_code_entry, rhs: macho.data_in_cod
     return lhs.offset < rhs.offset;
 }
 
-fn parseDysymtab(self: Object) ?macho.dysymtab_command {
+fn getDysymtab(self: Object) ?macho.dysymtab_command {
     var it = LoadCommandIterator{
         .ncmds = self.header.ncmds,
         .buffer = self.contents[@sizeOf(macho.mach_header_64)..][0..self.header.sizeofcmds],
     };
     while (it.next()) |cmd| {
         switch (cmd.cmd()) {
-            .DYSYMTAB => {
-                return cmd.cast(macho.dysymtab_command).?;
-            },
+            .DYSYMTAB => return cmd.cast(macho.dysymtab_command).?,
             else => {},
         }
     } else return null;
