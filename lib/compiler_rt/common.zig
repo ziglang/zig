@@ -84,6 +84,13 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
 /// here in compiler-rt.
 pub fn F16T(comptime other_type: type) type {
     return switch (builtin.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => if (std.Target.arm.featureSetHas(builtin.cpu.features, .has_v8))
+            switch (builtin.abi.floatAbi()) {
+                .soft => u16,
+                .hard => f16,
+            }
+        else
+            u16,
         .aarch64, .aarch64_be, .aarch64_32 => f16,
         .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
         .x86, .x86_64 => if (builtin.target.isDarwin()) switch (other_type) {
