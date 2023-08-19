@@ -793,6 +793,7 @@ const DocData = struct {
         switchOp: SwitchOp,
         binOp: BinOp,
         binOpIndex: usize,
+        load: usize, // index in `exprs`
         const BinOp = struct {
             lhs: usize, // index in `exprs`
             rhs: usize, // index in `exprs`
@@ -1467,6 +1468,38 @@ fn walkInstruction(
             return DocData.WalkResult{
                 .typeRef = typeRef,
                 .expr = .{ .sliceIndex = slice_index },
+            };
+        },
+
+        .load => {
+            const un_node = data[inst_index].un_node;
+            const operand = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                un_node.operand,
+                need_type,
+                call_ctx,
+            );
+            const load_idx = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
+            var typeRef: ?DocData.Expr = null;
+            if (operand.typeRef) |ref| {
+                switch (ref) {
+                    .type => |t_index| {
+                        switch (self.types.items[t_index]) {
+                            .Pointer => |p| typeRef = p.child,
+                            else => {},
+                        }
+                    },
+                    else => {},
+                }
+            }
+
+            return DocData.WalkResult{
+                .typeRef = typeRef,
+                .expr = .{ .load = load_idx },
             };
         },
 
