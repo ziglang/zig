@@ -28,7 +28,7 @@ comptime {
 
 pub fn __fmah(x: f16, y: f16, z: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(fmaf(x, y, z)));
+    return @floatCast(fmaf(x, y, z));
 }
 
 pub fn fmaf(x: f32, y: f32, z: f32) callconv(.C) f32 {
@@ -38,10 +38,10 @@ pub fn fmaf(x: f32, y: f32, z: f32) callconv(.C) f32 {
     const e = (u >> 52) & 0x7FF;
 
     if ((u & 0x1FFFFFFF) != 0x10000000 or e == 0x7FF or (xy_z - xy == z and xy_z - z == xy)) {
-        return @as(f32, @floatCast(xy_z));
+        return @floatCast(xy_z);
     } else {
         // TODO: Handle inexact case with double-rounding
-        return @as(f32, @floatCast(xy_z));
+        return @floatCast(xy_z);
     }
 }
 
@@ -95,7 +95,7 @@ pub fn fma(x: f64, y: f64, z: f64) callconv(.C) f64 {
 
 pub fn __fmax(a: f80, b: f80, c: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(fmaq(a, b, c)));
+    return @floatCast(fmaq(a, b, c));
 }
 
 /// Fused multiply-add: Compute x * y + z with a single rounding error.
@@ -201,12 +201,12 @@ fn dd_mul(a: f64, b: f64) dd {
 fn add_adjusted(a: f64, b: f64) f64 {
     var sum = dd_add(a, b);
     if (sum.lo != 0) {
-        var uhii = @as(u64, @bitCast(sum.hi));
+        var uhii: u64 = @bitCast(sum.hi);
         if (uhii & 1 == 0) {
             // hibits += copysign(1.0, sum.hi, sum.lo)
-            const uloi = @as(u64, @bitCast(sum.lo));
+            const uloi: u64 = @bitCast(sum.lo);
             uhii += 1 - ((uhii ^ uloi) >> 62);
-            sum.hi = @as(f64, @bitCast(uhii));
+            sum.hi = @bitCast(uhii);
         }
     }
     return sum.hi;
@@ -215,12 +215,12 @@ fn add_adjusted(a: f64, b: f64) f64 {
 fn add_and_denorm(a: f64, b: f64, scale: i32) f64 {
     var sum = dd_add(a, b);
     if (sum.lo != 0) {
-        var uhii = @as(u64, @bitCast(sum.hi));
+        var uhii: u64 = @bitCast(sum.hi);
         const bits_lost = -@as(i32, @intCast((uhii >> 52) & 0x7FF)) - scale + 1;
         if ((bits_lost != 1) == (uhii & 1 != 0)) {
-            const uloi = @as(u64, @bitCast(sum.lo));
+            const uloi: u64 = @bitCast(sum.lo);
             uhii += 1 - (((uhii ^ uloi) >> 62) & 2);
-            sum.hi = @as(f64, @bitCast(uhii));
+            sum.hi = @bitCast(uhii);
         }
     }
     return math.scalbn(sum.hi, scale);
@@ -257,12 +257,12 @@ fn dd_add128(a: f128, b: f128) dd128 {
 fn add_adjusted128(a: f128, b: f128) f128 {
     var sum = dd_add128(a, b);
     if (sum.lo != 0) {
-        var uhii = @as(u128, @bitCast(sum.hi));
+        var uhii: u128 = @bitCast(sum.hi);
         if (uhii & 1 == 0) {
             // hibits += copysign(1.0, sum.hi, sum.lo)
-            const uloi = @as(u128, @bitCast(sum.lo));
+            const uloi: u128 = @bitCast(sum.lo);
             uhii += 1 - ((uhii ^ uloi) >> 126);
-            sum.hi = @as(f128, @bitCast(uhii));
+            sum.hi = @bitCast(uhii);
         }
     }
     return sum.hi;
@@ -282,12 +282,12 @@ fn add_and_denorm128(a: f128, b: f128, scale: i32) f128 {
     // If we are losing only one bit to denormalization, however, we must
     // break the ties manually.
     if (sum.lo != 0) {
-        var uhii = @as(u128, @bitCast(sum.hi));
+        var uhii: u128 = @bitCast(sum.hi);
         const bits_lost = -@as(i32, @intCast((uhii >> 112) & 0x7FFF)) - scale + 1;
         if ((bits_lost != 1) == (uhii & 1 != 0)) {
-            const uloi = @as(u128, @bitCast(sum.lo));
+            const uloi: u128 = @bitCast(sum.lo);
             uhii += 1 - (((uhii ^ uloi) >> 126) & 2);
-            sum.hi = @as(f128, @bitCast(uhii));
+            sum.hi = @bitCast(uhii);
         }
     }
     return math.scalbn(sum.hi, scale);

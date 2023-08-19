@@ -27,7 +27,7 @@ comptime {
 
 pub fn __exph(a: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(expf(a)));
+    return @floatCast(expf(a));
 }
 
 pub fn expf(x_: f32) callconv(.C) f32 {
@@ -74,7 +74,7 @@ pub fn expf(x_: f32) callconv(.C) f32 {
     if (hx > 0x3EB17218) {
         // |x| > 1.5 * ln2
         if (hx > 0x3F851592) {
-            k = @intFromFloat(invln2 * x + half[@as(usize, @intCast(sign))]);
+            k = @intFromFloat(invln2 * x + half[@intCast(sign)]);
         } else {
             k = 1 - sign - sign;
         }
@@ -157,7 +157,7 @@ pub fn exp(x_: f64) callconv(.C) f64 {
     if (hx > 0x3FD62E42) {
         // |x| >= 1.5 * ln2
         if (hx > 0x3FF0A2B2) {
-            k = @intFromFloat(invln2 * x + half[@as(usize, @intCast(sign))]);
+            k = @intFromFloat(invln2 * x + half[@intCast(sign)]);
         } else {
             k = 1 - sign - sign;
         }

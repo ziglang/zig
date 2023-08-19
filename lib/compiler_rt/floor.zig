@@ -40,7 +40,7 @@ pub fn __floorh(x: f16) callconv(.C) f16 {
     }
 
     if (e >= 0) {
-        m = @as(u16, 1023) >> @as(u4, @intCast(e));
+        m = @as(u16, 1023) >> @intCast(e);
         if (u & m == 0) {
             return x;
         }
@@ -48,7 +48,7 @@ pub fn __floorh(x: f16) callconv(.C) f16 {
         if (u >> 15 != 0) {
             u += m;
         }
-        return @as(f16, @bitCast(u & ~m));
+        return @bitCast(u & ~m);
     } else {
         math.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 15 == 0) {
@@ -60,7 +60,7 @@ pub fn __floorh(x: f16) callconv(.C) f16 {
 }
 
 pub fn floorf(x: f32) callconv(.C) f32 {
-    var u = @as(u32, @bitCast(x));
+    var u: u32 = @bitCast(x);
     const e = @as(i32, @intCast((u >> 23) & 0xFF)) - 0x7F;
     var m: u32 = undefined;
 
@@ -74,7 +74,7 @@ pub fn floorf(x: f32) callconv(.C) f32 {
     }
 
     if (e >= 0) {
-        m = @as(u32, 0x007FFFFF) >> @as(u5, @intCast(e));
+        m = @as(u32, 0x007FFFFF) >> @intCast(e);
         if (u & m == 0) {
             return x;
         }
@@ -82,7 +82,7 @@ pub fn floorf(x: f32) callconv(.C) f32 {
         if (u >> 31 != 0) {
             u += m;
         }
-        return @as(f32, @bitCast(u & ~m));
+        return @bitCast(u & ~m);
     } else {
         math.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 31 == 0) {
@@ -96,7 +96,7 @@ pub fn floorf(x: f32) callconv(.C) f32 {
 pub fn floor(x: f64) callconv(.C) f64 {
     const f64_toint = 1.0 / math.floatEps(f64);
 
-    const u = @as(u64, @bitCast(x));
+    const u: u64 = @bitCast(x);
     const e = (u >> 52) & 0x7FF;
     var y: f64 = undefined;
 
@@ -126,7 +126,7 @@ pub fn floor(x: f64) callconv(.C) f64 {
 
 pub fn __floorx(x: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(floorq(x)));
+    return @floatCast(floorq(x));
 }
 
 pub fn floorq(x: f128) callconv(.C) f128 {

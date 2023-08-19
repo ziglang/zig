@@ -102,7 +102,7 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         // If CTR_EL0.IDC is set, data cache cleaning to the point of unification
         // is not required for instruction to data coherence.
         if (((ctr_el0 >> 28) & 0x1) == 0x0) {
-            const dcache_line_size: usize = @as(usize, 4) << @as(u6, @intCast((ctr_el0 >> 16) & 15));
+            const dcache_line_size = @as(usize, 4) << @intCast((ctr_el0 >> 16) & 15);
             addr = start & ~(dcache_line_size - 1);
             while (addr < end) : (addr += dcache_line_size) {
                 asm volatile ("dc cvau, %[addr]"
@@ -115,7 +115,7 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         // If CTR_EL0.DIC is set, instruction cache invalidation to the point of
         // unification is not required for instruction to data coherence.
         if (((ctr_el0 >> 29) & 0x1) == 0x0) {
-            const icache_line_size: usize = @as(usize, 4) << @as(u6, @intCast((ctr_el0 >> 0) & 15));
+            const icache_line_size = @as(usize, 4) << @intCast((ctr_el0 >> 0) & 15);
             addr = start & ~(icache_line_size - 1);
             while (addr < end) : (addr += icache_line_size) {
                 asm volatile ("ic ivau, %[addr]"

@@ -30,20 +30,19 @@ comptime {
 // Precondition: 0 <= b < bits_in_dword
 inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
     const word_t = common.HalveInt(T, false);
-    const S = Log2Int(word_t.HalfT);
 
     const input = word_t{ .all = a };
     var output: word_t = undefined;
 
     if (b >= word_t.bits) {
         output.s.low = 0;
-        output.s.high = input.s.low << @as(S, @intCast(b - word_t.bits));
+        output.s.high = input.s.low << @intCast(b - word_t.bits);
     } else if (b == 0) {
         return a;
     } else {
-        output.s.low = input.s.low << @as(S, @intCast(b));
-        output.s.high = input.s.high << @as(S, @intCast(b));
-        output.s.high |= input.s.low >> @as(S, @intCast(word_t.bits - b));
+        output.s.low = input.s.low << @intCast(b);
+        output.s.high = input.s.high << @intCast(b);
+        output.s.high |= input.s.low >> @intCast(word_t.bits - b);
     }
 
     return output.all;
@@ -53,24 +52,20 @@ inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
 // Precondition: 0 <= b < T.bit_count
 inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
     const word_t = common.HalveInt(T, true);
-    const S = Log2Int(word_t.HalfT);
 
     const input = word_t{ .all = a };
     var output: word_t = undefined;
 
     if (b >= word_t.bits) {
         output.s.high = input.s.high >> (word_t.bits - 1);
-        output.s.low = input.s.high >> @as(S, @intCast(b - word_t.bits));
+        output.s.low = input.s.high >> @intCast(b - word_t.bits);
     } else if (b == 0) {
         return a;
     } else {
-        output.s.high = input.s.high >> @as(S, @intCast(b));
-        output.s.low = input.s.high << @as(S, @intCast(word_t.bits - b));
+        output.s.high = input.s.high >> @intCast(b);
+        output.s.low = input.s.high << @intCast(word_t.bits - b);
         // Avoid sign-extension here
-        output.s.low |= @as(
-            word_t.HalfT,
-            @bitCast(@as(word_t.HalfTU, @bitCast(input.s.low)) >> @as(S, @intCast(b))),
-        );
+        output.s.low |= @bitCast(@as(word_t.HalfTU, @bitCast(input.s.low)) >> @intCast(b));
     }
 
     return output.all;
@@ -80,20 +75,19 @@ inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
 // Precondition: 0 <= b < T.bit_count
 inline fn lshrXi3(comptime T: type, a: T, b: i32) T {
     const word_t = common.HalveInt(T, false);
-    const S = Log2Int(word_t.HalfT);
 
     const input = word_t{ .all = a };
     var output: word_t = undefined;
 
     if (b >= word_t.bits) {
         output.s.high = 0;
-        output.s.low = input.s.high >> @as(S, @intCast(b - word_t.bits));
+        output.s.low = input.s.high >> @intCast(b - word_t.bits);
     } else if (b == 0) {
         return a;
     } else {
-        output.s.high = input.s.high >> @as(S, @intCast(b));
-        output.s.low = input.s.high << @as(S, @intCast(word_t.bits - b));
-        output.s.low |= input.s.low >> @as(S, @intCast(b));
+        output.s.high = input.s.high >> @intCast(b);
+        output.s.low = input.s.high << @intCast(word_t.bits - b);
+        output.s.low |= input.s.low >> @intCast(b);
     }
 
     return output.all;
