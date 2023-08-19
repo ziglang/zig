@@ -706,11 +706,6 @@ test "@floor f128" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isARM()) {
-        // https://github.com/ziglang/zig/issues/16848
-        return error.SkipZigTest;
-    }
-
     try testFloorLegacy(f128, 12.0);
     try comptime testFloorLegacy(f128, 12.0);
 }

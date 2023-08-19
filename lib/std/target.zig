@@ -1473,7 +1473,6 @@ pub const Target = struct {
     pub const FloatAbi = enum {
         hard,
         soft,
-        soft_fp,
     };
 
     pub inline fn getFloatAbi(self: Target) FloatAbi {

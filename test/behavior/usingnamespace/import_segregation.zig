@@ -12,11 +12,6 @@ test "no clobbering happened" {
         return error.SkipZigTest;
     }
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isARM()) {
-        // https://github.com/ziglang/zig/issues/16848
-        return error.SkipZigTest;
-    }
-
     @This().foo_function();
     @This().bar_function();
     try expect(@This().saw_foo_function);
