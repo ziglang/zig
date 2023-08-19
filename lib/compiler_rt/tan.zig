@@ -106,12 +106,12 @@ pub fn tan(x: f64) callconv(.C) f64 {
 
 pub fn __tanx(x: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(tanq(x)));
+    return @floatCast(tanq(x));
 }
 
 pub fn tanq(x: f128) callconv(.C) f128 {
     // TODO: more correct implementation
-    return tan(@as(f64, @floatCast(x)));
+    return tan(@floatCast(x));
 }
 
 pub fn tanl(x: c_longdouble) callconv(.C) c_longdouble {

@@ -21,7 +21,7 @@ pub fn __divti3(a: i128, b: i128) callconv(.C) i128 {
 const v128 = @Vector(2, u64);
 
 fn __divti3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
-    return @as(v128, @bitCast(div(@as(i128, @bitCast(a)), @as(i128, @bitCast(b)))));
+    return @bitCast(div(@bitCast(a), @bitCast(b)));
 }
 
 inline fn div(a: i128, b: i128) i128 {
@@ -31,7 +31,7 @@ inline fn div(a: i128, b: i128) i128 {
     const an = (a ^ s_a) -% s_a;
     const bn = (b ^ s_b) -% s_b;
 
-    const r = udivmod(u128, @as(u128, @bitCast(an)), @as(u128, @bitCast(bn)), null);
+    const r = udivmod(u128, @bitCast(an), @bitCast(bn), null);
     const s = s_a ^ s_b;
     return (@as(i128, @bitCast(r)) ^ s) -% s;
 }

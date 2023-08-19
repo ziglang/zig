@@ -17,7 +17,7 @@ pub inline fn intFromFloat(comptime I: type, a: anytype) I {
     const sig_mask = (@as(rep_t, 1) << sig_bits) - 1;
 
     // Break a into sign, exponent, significand
-    const a_rep: rep_t = @as(rep_t, @bitCast(a));
+    const a_rep: rep_t = @bitCast(a);
     const negative = (a_rep >> (float_bits - 1)) != 0;
     const exponent = @as(i32, @intCast((a_rep << 1) >> (sig_bits + 1))) - exp_bias;
     const significand: rep_t = (a_rep & sig_mask) | implicit_bit;
@@ -40,9 +40,9 @@ pub inline fn intFromFloat(comptime I: type, a: anytype) I {
     // Otherwise, shift left.
     var result: I = undefined;
     if (exponent < fractional_bits) {
-        result = @as(I, @intCast(significand >> @as(Log2Int(rep_t), @intCast(fractional_bits - exponent))));
+        result = @intCast(significand >> @intCast(fractional_bits - exponent));
     } else {
-        result = @as(I, @intCast(significand)) << @as(Log2Int(I), @intCast(exponent - fractional_bits));
+        result = @as(I, @intCast(significand)) << @intCast(exponent - fractional_bits);
     }
 
     if ((@typeInfo(I).Int.signedness == .signed) and negative)
