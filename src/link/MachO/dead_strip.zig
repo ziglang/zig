@@ -13,7 +13,7 @@ const AtomIndex = @import("zld.zig").AtomIndex;
 const Atom = @import("ZldAtom.zig");
 const MachO = @import("../MachO.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
-const SymbolResolver = @import("zld.zig").SymbolResolver;
+const SymbolResolver = MachO.SymbolResolver;
 const UnwindInfo = @import("UnwindInfo.zig");
 const Zld = @import("zld.zig").Zld;
 

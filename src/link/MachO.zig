@@ -52,8 +52,8 @@ const Value = @import("../value.zig").Value;
 
 pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
 
-const Bind = @import("MachO/dyld_info/bind.zig").Bind(*const MachO, MachO.SymbolWithLoc);
-const LazyBind = @import("MachO/dyld_info/bind.zig").LazyBind(*const MachO, MachO.SymbolWithLoc);
+const Bind = @import("MachO/dyld_info/bind.zig").Bind(*const MachO, SymbolWithLoc);
+const LazyBind = @import("MachO/dyld_info/bind.zig").LazyBind(*const MachO, SymbolWithLoc);
 const Rebase = @import("MachO/dyld_info/Rebase.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
@@ -154,6 +154,7 @@ got_table: TableSection(SymbolWithLoc) = .{},
 stub_table: TableSection(SymbolWithLoc) = .{},
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
+misc_errors: std.ArrayListUnmanaged(File.ErrorMsg) = .{},
 
 segment_table_dirty: bool = false,
 got_table_count_dirty: bool = false,
@@ -293,6 +294,12 @@ pub const SymbolWithLoc = extern struct {
     pub fn eql(self: SymbolWithLoc, other: SymbolWithLoc) bool {
         return self.file == other.file and self.sym_index == other.sym_index;
     }
+};
+
+pub const SymbolResolver = struct {
+    arena: Allocator,
+    table: std.StringHashMap(u32),
+    unresolved: std.AutoArrayHashMap(u32, void),
 };
 
 const HotUpdateState = struct {
@@ -1856,6 +1863,11 @@ pub fn deinit(self: *MachO) void {
         bindings.deinit(gpa);
     }
     self.bindings.deinit(gpa);
+
+    for (self.misc_errors.items) |*err| {
+        err.deinit(gpa);
+    }
+    self.misc_errors.deinit(gpa);
 }
 
 fn freeAtom(self: *MachO, atom_index: Atom.Index) void {
@@ -4019,6 +4031,38 @@ pub inline fn getPageSize(cpu_arch: std.Target.Cpu.Arch) u16 {
         .x86_64 => 0x1000,
         else => unreachable,
     };
+}
+
+pub fn reportUndefined(self: *MachO, ctx: anytype, resolver: *const SymbolResolver) !void {
+    const count = resolver.unresolved.count();
+    if (count == 0) return;
+
+    const gpa = self.base.allocator;
+
+    try self.misc_errors.ensureUnusedCapacity(gpa, count);
+
+    for (resolver.unresolved.keys()) |global_index| {
+        const global = ctx.globals.items[global_index];
+        const sym_name = ctx.getSymbolName(global);
+
+        const nnotes: usize = if (global.getFile() == null) @as(usize, 0) else 1;
+        var notes = try std.ArrayList(File.ErrorMsg).initCapacity(gpa, nnotes);
+        defer notes.deinit();
+
+        if (global.getFile()) |file| {
+            const note = try std.fmt.allocPrint(gpa, "referenced in {s}", .{ctx.objects.items[file].name});
+            notes.appendAssumeCapacity(.{ .msg = note });
+        }
+
+        var err_msg = File.ErrorMsg{
+            .msg = try std.fmt.allocPrint(gpa, "undefined reference to symbol {s}", .{sym_name}),
+        };
+        err_msg.notes = try notes.toOwnedSlice();
+
+        self.misc_errors.appendAssumeCapacity(err_msg);
+    }
+
+    return error.FlushFailure;
 }
 
 /// Binary search
