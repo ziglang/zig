@@ -5149,18 +5149,8 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
             .share_access = share_access,
             .creation = creation,
             .io_mode = .blocking,
+            .filter = .any,
         }) catch |err| switch (err) {
-            error.IsDir => break :blk w.OpenFile(pathname, .{
-                .dir = dir,
-                .access_mask = access_mask,
-                .share_access = share_access,
-                .creation = creation,
-                .io_mode = .blocking,
-                .filter = .dir_only,
-            }) catch |er| switch (er) {
-                error.WouldBlock => unreachable,
-                else => |e2| return e2,
-            },
             error.WouldBlock => unreachable,
             else => |e| return e,
         };
