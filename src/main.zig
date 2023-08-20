@@ -2566,7 +2566,7 @@ fn buildOutputType(
             want_native_include_dirs = true;
     }
 
-    // Resolve the library path arguments with respect to sysroot.
+    // Resolve the library and framework path arguments with respect to sysroot.
     var lib_dirs = std.ArrayList([]const u8).init(arena);
     if (sysroot) |root| {
         for (lib_dir_args.items) |dir| {

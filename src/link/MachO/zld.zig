@@ -3560,17 +3560,8 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         try MachO.resolveLibSystem(arena, comp, options.sysroot, target, options.lib_dirs, &libs);
 
         // frameworks
-        var framework_dirs = std.ArrayList([]const u8).init(arena);
-        for (options.framework_dirs) |dir| {
-            if (try MachO.resolveSearchDir(arena, dir, options.sysroot)) |search_dir| {
-                try framework_dirs.append(search_dir);
-            } else {
-                log.warn("directory not found for '-F{s}'", .{dir});
-            }
-        }
-
         outer: for (options.frameworks.keys()) |f_name| {
-            for (framework_dirs.items) |dir| {
+            for (options.framework_dirs) |dir| {
                 for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
                     if (try MachO.resolveFramework(arena, dir, f_name, ext)) |full_path| {
                         const info = options.frameworks.get(f_name).?;
@@ -3590,7 +3581,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
 
         if (framework_not_found) {
             log.warn("Framework search paths:", .{});
-            for (framework_dirs.items) |dir| {
+            for (options.framework_dirs) |dir| {
                 log.warn("  {s}", .{dir});
             }
         }

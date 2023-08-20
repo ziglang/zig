@@ -870,48 +870,6 @@ fn resolveLibSystemInDirs(arena: Allocator, dirs: []const []const u8, out_libs: 
     return false;
 }
 
-pub fn resolveSearchDir(
-    arena: Allocator,
-    dir: []const u8,
-    syslibroot: ?[]const u8,
-) !?[]const u8 {
-    var candidates = std.ArrayList([]const u8).init(arena);
-
-    if (fs.path.isAbsolute(dir)) {
-        if (syslibroot) |root| {
-            const common_dir = if (builtin.os.tag == .windows) blk: {
-                // We need to check for disk designator and strip it out from dir path so
-                // that we can concat dir with syslibroot.
-                // TODO we should backport this mechanism to 'MachO.Dylib.parseDependentLibs()'
-                const disk_designator = fs.path.diskDesignatorWindows(dir);
-
-                if (mem.indexOf(u8, dir, disk_designator)) |where| {
-                    break :blk dir[where + disk_designator.len ..];
-                }
-
-                break :blk dir;
-            } else dir;
-            const full_path = try fs.path.join(arena, &[_][]const u8{ root, common_dir });
-            try candidates.append(full_path);
-        }
-    }
-
-    try candidates.append(dir);
-
-    for (candidates.items) |candidate| {
-        // Verify that search path actually exists
-        var tmp = fs.cwd().openDir(candidate, .{}) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => |e| return e,
-        };
-        defer tmp.close();
-
-        return candidate;
-    }
-
-    return null;
-}
-
 pub fn resolveLib(
     arena: Allocator,
     search_dir: []const u8,
