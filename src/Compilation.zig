@@ -507,7 +507,8 @@ pub const InitOptions = struct {
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
-    frameworks: std.StringArrayHashMapUnmanaged(Framework) = .{},
+    framework_names: []const []const u8 = &.{},
+    framework_infos: []const Framework = &.{},
     system_lib_names: []const []const u8 = &.{},
     system_lib_infos: []const SystemLib = &.{},
     /// These correspond to the WASI libc emulated subcomponents including:
@@ -830,7 +831,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // Our linker can't handle objects or most advanced options yet.
             if (options.link_objects.len != 0 or
                 options.c_source_files.len != 0 or
-                options.frameworks.count() != 0 or
+                options.framework_names.len != 0 or
                 options.system_lib_names.len != 0 or
                 options.link_libc or options.link_libcpp or
                 link_eh_frame_hdr or
@@ -1446,6 +1447,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             system_libs.putAssumeCapacity(lib_name, options.system_lib_infos[i]);
         }
 
+        var frameworks: std.StringArrayHashMapUnmanaged(Framework) = .{};
+        errdefer frameworks.deinit(gpa);
+        try frameworks.ensureTotalCapacity(gpa, options.framework_names.len);
+        for (options.framework_names, options.framework_infos) |framework_name, info| {
+            frameworks.putAssumeCapacity(framework_name, info);
+        }
+
         const bin_file = try link.File.openPath(gpa, .{
             .emit = bin_file_emit,
             .implib_emit = implib_emit,
@@ -1465,7 +1473,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .link_libcpp = link_libcpp,
             .link_libunwind = link_libunwind,
             .objects = options.link_objects,
-            .frameworks = options.frameworks,
+            .frameworks = frameworks,
             .framework_dirs = options.framework_dirs,
             .system_libs = system_libs,
             .wasi_emulated_libs = options.wasi_emulated_libs,

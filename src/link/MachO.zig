@@ -870,7 +870,7 @@ fn resolveLibSystemInDirs(arena: Allocator, dirs: []const []const u8, out_libs: 
     return false;
 }
 
-pub fn resolveLib(
+fn resolveLib(
     arena: Allocator,
     search_dir: []const u8,
     name: []const u8,
@@ -878,26 +878,6 @@ pub fn resolveLib(
 ) !?[]const u8 {
     const search_name = try std.fmt.allocPrint(arena, "lib{s}{s}", .{ name, ext });
     const full_path = try fs.path.join(arena, &[_][]const u8{ search_dir, search_name });
-
-    // Check if the file exists.
-    const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return null,
-        else => |e| return e,
-    };
-    defer tmp.close();
-
-    return full_path;
-}
-
-pub fn resolveFramework(
-    arena: Allocator,
-    search_dir: []const u8,
-    name: []const u8,
-    ext: []const u8,
-) !?[]const u8 {
-    const search_name = try std.fmt.allocPrint(arena, "{s}{s}", .{ name, ext });
-    const prefix_path = try std.fmt.allocPrint(arena, "{s}.framework", .{name});
-    const full_path = try fs.path.join(arena, &[_][]const u8{ search_dir, prefix_path, search_name });
 
     // Check if the file exists.
     const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {

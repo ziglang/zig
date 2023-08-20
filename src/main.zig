@@ -746,6 +746,13 @@ const SystemLib = struct {
     }
 };
 
+/// Similar to `link.Framework` except it doesn't store yet unresolved
+/// path to the framework.
+const Framework = struct {
+    needed: bool = false,
+    weak: bool = false,
+};
+
 const CliModule = struct {
     mod: *Package,
     /// still in CLI arg format
@@ -919,7 +926,7 @@ fn buildOutputType(
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
     var link_objects = std.ArrayList(Compilation.LinkObject).init(arena);
     var framework_dirs = std.ArrayList([]const u8).init(arena);
-    var frameworks: std.StringArrayHashMapUnmanaged(Compilation.Framework) = .{};
+    var frameworks: std.StringArrayHashMapUnmanaged(Framework) = .{};
     // null means replace with the test executable binary
     var test_exec_args = std.ArrayList(?[]const u8).init(arena);
     var linker_export_symbol_names = std.ArrayList([]const u8).init(arena);
@@ -2566,7 +2573,7 @@ fn buildOutputType(
             want_native_include_dirs = true;
     }
 
-    // Resolve the library and framework path arguments with respect to sysroot.
+    // Resolve the library path arguments with respect to sysroot.
     var lib_dirs = std.ArrayList([]const u8).init(arena);
     if (sysroot) |root| {
         for (lib_dir_args.items) |dir| {
@@ -2867,6 +2874,65 @@ fn buildOutputType(
         }
     }
     // After this point, resolved_system_libs is used instead of external_system_libs.
+
+    // We now repeat part of the process for frameworks.
+    var resolved_frameworks: std.MultiArrayList(struct {
+        name: []const u8,
+        framework: Compilation.Framework,
+    }) = .{};
+
+    if (frameworks.keys().len > 0) {
+        var test_path = std.ArrayList(u8).init(gpa);
+        defer test_path.deinit();
+
+        var checked_paths = std.ArrayList(u8).init(gpa);
+        defer checked_paths.deinit();
+
+        var failed_frameworks = std.ArrayList(struct {
+            name: []const u8,
+            checked_paths: []const u8,
+        }).init(arena);
+
+        framework: for (frameworks.keys(), frameworks.values()) |framework_name, info| {
+            checked_paths.clearRetainingCapacity();
+
+            for (framework_dirs.items) |framework_dir_path| {
+                if (try accessFrameworkPath(
+                    &test_path,
+                    &checked_paths,
+                    framework_dir_path,
+                    framework_name,
+                )) {
+                    const path = try arena.dupe(u8, test_path.items);
+                    try resolved_frameworks.append(arena, .{
+                        .name = framework_name,
+                        .framework = .{
+                            .needed = info.needed,
+                            .weak = info.weak,
+                            .path = path,
+                        },
+                    });
+                    continue :framework;
+                }
+            }
+
+            try failed_frameworks.append(.{
+                .name = framework_name,
+                .checked_paths = try arena.dupe(u8, checked_paths.items),
+            });
+        }
+
+        if (failed_frameworks.items.len > 0) {
+            for (failed_frameworks.items) |f| {
+                const searched_paths = if (f.checked_paths.len == 0) " none" else f.checked_paths;
+                std.log.err("unable to find framework '{s}'. searched paths: {s}", .{
+                    f.name, searched_paths,
+                });
+            }
+            process.exit(1);
+        }
+    }
+    // After this point, resolved_frameworks is used instead of frameworks.
 
     const object_format = target_info.target.ofmt;
 
@@ -3261,7 +3327,8 @@ fn buildOutputType(
         .c_source_files = c_source_files.items,
         .link_objects = link_objects.items,
         .framework_dirs = framework_dirs.items,
-        .frameworks = frameworks,
+        .framework_names = resolved_frameworks.items(.name),
+        .framework_infos = resolved_frameworks.items(.framework),
         .system_lib_names = resolved_system_libs.items(.name),
         .system_lib_infos = resolved_system_libs.items(.lib),
         .wasi_emulated_libs = wasi_emulated_libs.items,
@@ -6329,6 +6396,35 @@ fn accessLibPath(
             error.FileNotFound => break :mingw,
             else => |e| fatal("unable to search for static library '{s}': {s}", .{
                 test_path.items, @errorName(e),
+            }),
+        };
+        return true;
+    }
+
+    return false;
+}
+
+fn accessFrameworkPath(
+    test_path: *std.ArrayList(u8),
+    checked_paths: *std.ArrayList(u8),
+    framework_dir_path: []const u8,
+    framework_name: []const u8,
+) !bool {
+    const sep = fs.path.sep_str;
+
+    for (&[_][]const u8{ "tbd", "dylib" }) |ext| {
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}.{s}", .{
+            framework_dir_path,
+            framework_name,
+            framework_name,
+            ext,
+        });
+        try checked_paths.writer().print("\n {s}", .{test_path.items});
+        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |e| fatal("unable to search for {s} framework '{s}': {s}", .{
+                ext, test_path.items, @errorName(e),
             }),
         };
         return true;

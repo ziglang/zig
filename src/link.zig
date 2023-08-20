@@ -37,6 +37,7 @@ pub const SystemLib = struct {
 pub const Framework = struct {
     needed: bool = false,
     weak: bool = false,
+    path: []const u8,
 };
 
 pub const SortSection = enum { name, alignment };
