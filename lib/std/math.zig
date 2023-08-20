@@ -223,6 +223,7 @@ pub const isInf = @import("math/isinf.zig").isInf;
 pub const isPositiveInf = @import("math/isinf.zig").isPositiveInf;
 pub const isNegativeInf = @import("math/isinf.zig").isNegativeInf;
 pub const isNormal = @import("math/isnormal.zig").isNormal;
+pub const nextAfter = @import("math/nextafter.zig").nextAfter;
 pub const signbit = @import("math/signbit.zig").signbit;
 pub const scalbn = @import("math/scalbn.zig").scalbn;
 pub const ldexp = @import("math/ldexp.zig").ldexp;
@@ -344,6 +345,7 @@ test {
     _ = isPositiveInf;
     _ = isNegativeInf;
     _ = isNormal;
+    _ = nextAfter;
     _ = signbit;
     _ = scalbn;
     _ = ldexp;
