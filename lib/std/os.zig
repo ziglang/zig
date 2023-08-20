@@ -2630,6 +2630,7 @@ pub fn renameatW(
     defer windows.CloseHandle(src_fd);
 
     var need_fallback = true;
+    var rc: windows.NTSTATUS = undefined;
     if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
         const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) + (MAX_PATH_BYTES - 1);
         var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION_EX)) = undefined;
@@ -2648,7 +2649,7 @@ pub fn renameatW(
             .FileName = undefined,
         };
         @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
-        const rc = windows.ntdll.NtSetInformationFile(
+        rc = windows.ntdll.NtSetInformationFile(
             src_fd,
             &io_status_block,
             rename_info,
@@ -2681,7 +2682,7 @@ pub fn renameatW(
         };
         @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
 
-        const rc =
+        rc =
             windows.ntdll.NtSetInformationFile(
             src_fd,
             &io_status_block,
@@ -2689,19 +2690,19 @@ pub fn renameatW(
             @intCast(struct_len), // already checked for error.NameTooLong
             .FileRenameInformation,
         );
+    }
 
-        switch (rc) {
-            .SUCCESS => {},
-            .INVALID_HANDLE => unreachable,
-            .INVALID_PARAMETER => unreachable,
-            .OBJECT_PATH_SYNTAX_BAD => unreachable,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            .NOT_SAME_DEVICE => return error.RenameAcrossMountPoints,
-            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-            else => return windows.unexpectedStatus(rc),
-        }
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_HANDLE => unreachable,
+        .INVALID_PARAMETER => unreachable,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NOT_SAME_DEVICE => return error.RenameAcrossMountPoints,
+        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+        else => return windows.unexpectedStatus(rc),
     }
 }
 
