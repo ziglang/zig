@@ -97,6 +97,15 @@ pub extern "kernel32" fn CreateFileW(
     hTemplateFile: ?HANDLE,
 ) callconv(WINAPI) HANDLE;
 
+pub extern "kernel32" fn CreateFileMappingA(
+    hFile: HANDLE,
+    lpFileMappingAttributes: ?*SECURITY_ATTRIBUTES,
+    flProtect: DWORD,
+    dwMaximumSizeHigh: DWORD,
+    dwMaximumSizeLow: DWORD,
+    lpName: ?[*:0]const u8,
+) callconv(WINAPI) ?HANDLE;
+
 pub extern "kernel32" fn CreatePipe(
     hReadPipe: *HANDLE,
     hWritePipe: *HANDLE,
@@ -263,6 +272,10 @@ pub extern "kernel32" fn VirtualFree(lpAddress: ?LPVOID, dwSize: SIZE_T, dwFreeT
 pub extern "kernel32" fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) callconv(WINAPI) SIZE_T;
 
 pub extern "kernel32" fn LocalFree(hMem: HLOCAL) callconv(WINAPI) ?HLOCAL;
+
+pub extern "kernel32" fn MapViewOfFile(hFileMappingObject: HANDLE, dwDesiredAccess: DWORD, dwFileOffsetHigh: DWORD, dwFileOffsetLow: DWORD, dwNumberOfBytesToMap: SIZE_T) callconv(WINAPI) ?LPVOID;
+pub extern "kernel32" fn UnmapViewOfFile(lpBaseAddress: *const anyopaque) BOOL;
+
 
 pub extern "kernel32" fn Module32First(hSnapshot: HANDLE, lpme: *MODULEENTRY32) callconv(WINAPI) BOOL;
 
