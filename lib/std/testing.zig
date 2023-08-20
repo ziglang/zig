@@ -154,17 +154,9 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
 
         .Optional => {
             if (expected) |expected_payload| {
-                if (actual) |actual_payload| {
-                    try expectEqual(expected_payload, actual_payload);
-                } else {
-                    print("expected {any}, found null\n", .{expected_payload});
-                    return error.TestExpectedEqual;
-                }
+                try expectOptional(expected_payload, actual);
             } else {
-                if (actual) |actual_payload| {
-                    print("expected null, found {any}\n", .{actual_payload});
-                    return error.TestExpectedEqual;
-                }
+                try expectNull(actual);
             }
         },
 
@@ -197,6 +189,81 @@ test "expectEqual.union(enum)" {
     const a10 = T{ .a = 10 };
 
     try expectEqual(a10, a10);
+}
+
+test "expectEqual.optional" {
+    const T = ?u8;
+
+    const a: T = 10;
+    const b: T = null;
+
+    try expectEqual(@as(T, 10), a);
+    try expectEqual(@as(T, null), b);
+}
+
+/// This function is intended to be used only in tests. When the actual is not
+/// an Optional or actual is null or expected is not equal to actual, prints
+/// diagnostics to stderr to show exactly how they are not equal, then returns
+/// a test failure error.
+pub fn expectOptional(expected: anytype, actual: anytype) !void {
+    switch (@typeInfo(@TypeOf(actual))) {
+        .Optional => {
+            if (actual) |actual_payload| {
+                try expectEqual(expected, actual_payload);
+            } else {
+                print("expected {any}, found null\n", .{expected});
+                return error.TestExpectedOptional;
+            }
+        },
+        else => {
+            print("expected type Optional, found type {s}\n", .{@typeName(@TypeOf(actual))});
+            return error.TestExpectedOptional;
+        },
+    }
+}
+
+test "expectOptional" {
+    const T = ?u8;
+
+    const a: T = 10;
+
+    try expectOptional(@as(u8, 10), a);
+
+    // negative cases commented out to prevent printing of message
+    // const b: T = null;
+    // try expectError(error.TestExpectedOptional, expectOptional(@as(u8, 10), b));
+    // try expectError(error.TestExpectedOptional, expectOptional(10, 10));
+}
+
+/// This function is intended to be used only in tests. When the value is not
+/// an Optional or not null, prints diagnostics to stderr, then returns a
+/// test failure error.
+pub fn expectNull(actual: anytype) !void {
+    switch (@typeInfo(@TypeOf(actual))) {
+        .Optional => {
+            if (actual) |actual_payload| {
+                print("expected null, found {any}\n", .{actual_payload});
+                return error.TestExpectedNull;
+            }
+        },
+        else => {
+            print("expected type Optional, found type {s}\n", .{@typeName(@TypeOf(actual))});
+            return error.TestExpectedNull;
+        },
+    }
+}
+
+test "expectNull" {
+    const T = ?u8;
+
+    const b: T = null;
+
+    try expectNull(b);
+
+    // negative cases commented out to prevent printing of message
+    // const a: T = 10;
+    // try expectError(error.TestExpectedNull, expectNull(a));
+    // try expectError(error.TestExpectedNull, expectNull(10));
 }
 
 /// This function is intended to be used only in tests. When the formatted result of the template
