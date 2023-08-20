@@ -741,6 +741,7 @@ const DocData = struct {
         null: struct {},
         undefined: struct {},
         @"struct": []FieldVal,
+        fieldVal: FieldVal,
         bool: bool,
         @"anytype": struct {},
         @"&": usize, // index in `exprs`
@@ -867,7 +868,10 @@ const DocData = struct {
 
         const FieldVal = struct {
             name: []const u8,
-            val: WalkResult,
+            val: struct {
+                typeRef: ?usize, // index in `exprs`
+                expr: usize, // index in `exprs`
+            },
         };
 
         const ElemVal = struct {
@@ -921,8 +925,8 @@ const DocData = struct {
     /// Since the type information is only needed in certain contexts, the
     /// underlying normalized data (Expr) is untyped.
     const WalkResult = struct {
-        typeRef: ?Expr = null, // index in `exprs`
-        expr: Expr, // index in `exprs`
+        typeRef: ?Expr = null,
+        expr: Expr,
     };
 };
 
@@ -2874,7 +2878,20 @@ fn walkInstruction(
                     need_type,
                     call_ctx,
                 );
-                fv.* = .{ .name = field_name, .val = value };
+                const exprIdx = self.exprs.items.len;
+                try self.exprs.append(self.arena, value.expr);
+                var typeRefIdx: ?usize = null;
+                if (value.typeRef) |ref| {
+                    typeRefIdx = self.exprs.items.len;
+                    try self.exprs.append(self.arena, ref);
+                }
+                fv.* = .{
+                    .name = field_name,
+                    .val = .{
+                        .typeRef = typeRefIdx,
+                        .expr = exprIdx,
+                    },
+                };
             }
 
             return DocData.WalkResult{
@@ -2942,7 +2959,23 @@ fn walkInstruction(
                     need_type,
                     call_ctx,
                 );
-                fv.* = .{ .name = field_name, .val = value };
+
+                const exprIdx = self.exprs.items.len;
+                try self.exprs.append(self.arena, value.expr);
+                var typeRefIdx: ?usize = null;
+                if (value.typeRef) |ref| {
+                    typeRefIdx = self.exprs.items.len;
+                    try self.exprs.append(self.arena, ref);
+                }
+
+                fv.* = .{
+                    .name = field_name,
+                    .val = .{
+                        .typeRef = typeRefIdx,
+                        .expr = exprIdx,
+                    },
+                };
+
                 idx = init_extra.end;
             }
 
@@ -3099,16 +3132,14 @@ fn walkInstruction(
             );
 
             var field_call = try self.arena.alloc(DocData.Expr, 2);
-            field_call[0] = obj_ptr.expr;
-            field_call[1] = .{ .declName = file.zir.nullTerminatedString(extra.data.field_name_start) };
 
-            try self.tryResolveRefPath(file, inst_index, field_call);
-            if (field_call[1] == .declName and obj_ptr.typeRef != null) {
-                field_call[0] = obj_ptr.typeRef.?;
-                field_call[1] = .{ .declName = file.zir.nullTerminatedString(extra.data.field_name_start) };
-                try self.tryResolveRefPath(file, inst_index, field_call);
+            if (obj_ptr.typeRef) |ref| {
+                field_call[0] = ref;
+            } else {
                 field_call[0] = obj_ptr.expr;
             }
+            field_call[1] = .{ .declName = file.zir.nullTerminatedString(extra.data.field_name_start) };
+            try self.tryResolveRefPath(file, inst_index, field_call);
 
             const args_len = extra.data.flags.args_len;
             var args = try self.arena.alloc(DocData.Expr, args_len);
@@ -4442,6 +4473,9 @@ fn tryResolveRefPath(
                         },
                     }
                 },
+                .fieldVal => |fv| {
+                    resolved_parent = self.exprs.items[fv.val.expr];
+                },
             }
         } else {
             panicWithContext(
@@ -4743,7 +4777,7 @@ fn tryResolveRefPath(
             .@"struct" => |st| {
                 for (st) |field| {
                     if (std.mem.eql(u8, field.name, child_string)) {
-                        path[i + 1] = field.val.expr;
+                        path[i + 1] = .{ .fieldVal = field };
                         continue :outer;
                     }
                 }
