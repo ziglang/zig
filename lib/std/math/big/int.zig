@@ -147,9 +147,6 @@ pub const Mutable = struct {
         };
     }
 
-    // TODO: remove after release of 0.11
-    pub const eqZero = @compileError("use eqlZero");
-
     /// Returns true if `a == 0`.
     pub fn eqlZero(self: Mutable) bool {
         return self.toConst().eqlZero();
@@ -2481,11 +2478,6 @@ pub const Const = struct {
         return order(lhs, rhs.toConst());
     }
 
-    // TODO: remove after release of 0.11
-    pub const eqZero = @compileError("use eqlZero");
-    pub const eqAbs = @compileError("use eqlAbs");
-    pub const eq = @compileError("use eql");
-
     /// Returns true if `a == 0`.
     pub fn eqlZero(a: Const) bool {
         var d: Limb = 0;
@@ -2829,11 +2821,6 @@ pub const Managed = struct {
     pub fn order(a: Managed, b: Managed) math.Order {
         return a.toConst().order(b.toConst());
     }
-
-    // TODO: remove after release of 0.11
-    pub const eqZero = @compileError("use eqlZero");
-    pub const eqAbs = @compileError("use eqlAbs");
-    pub const eq = @compileError("use eql");
 
     /// Returns true if a == 0.
     pub fn eqlZero(a: Managed) bool {
