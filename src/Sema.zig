@@ -23938,7 +23938,26 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         return sema.fail(block, dest_src, "cannot memset constant pointer", .{});
     }
 
-    const dest_elem_ty = dest_ptr_ty.elemType2(mod);
+    const dest_elem_ty: Type = dest_elem_ty: {
+        const ptr_info = dest_ptr_ty.ptrInfo(mod);
+        switch (ptr_info.flags.size) {
+            .Slice => break :dest_elem_ty ptr_info.child.toType(),
+            .One => {
+                if (ptr_info.child.toType().zigTypeTag(mod) == .Array) {
+                    break :dest_elem_ty ptr_info.child.toType().childType(mod);
+                }
+            },
+            .Many, .C => {},
+        }
+        return sema.failWithOwnedErrorMsg(msg: {
+            const msg = try sema.errMsg(block, src, "unknown @memset length", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, dest_src, msg, "destination type '{}' provides no length", .{
+                dest_ptr_ty.fmt(mod),
+            });
+            break :msg msg;
+        });
+    };
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |ptr_val| rs: {
         const len_air_ref = try sema.fieldVal(block, src, dest_ptr, try ip.getOrPutString(gpa, "len"), dest_src);
