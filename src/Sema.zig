@@ -27289,6 +27289,7 @@ fn coerceExtra(
 
             // coercion from C pointer
             if (inst_ty.isCPtr(mod)) src_c_ptr: {
+                if (dest_info.flags.size == .Slice) break :src_c_ptr;
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :src_c_ptr;
                 // In this case we must add a safety check because the C pointer
                 // could be null.
