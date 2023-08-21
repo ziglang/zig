@@ -37,6 +37,7 @@ pub const SystemLib = struct {
 pub const Framework = struct {
     needed: bool = false,
     weak: bool = false,
+    path: []const u8,
 };
 
 pub const SortSection = enum { name, alignment };
@@ -56,15 +57,11 @@ pub fn hashAddSystemLibs(
     }
 }
 
-pub fn hashAddFrameworks(
-    hh: *Cache.HashHelper,
-    hm: std.StringArrayHashMapUnmanaged(Framework),
-) void {
-    const keys = hm.keys();
-    hh.addListOfBytes(keys);
-    for (hm.values()) |value| {
-        hh.add(value.needed);
-        hh.add(value.weak);
+pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
+    for (hm) |value| {
+        man.hash.add(value.needed);
+        man.hash.add(value.weak);
+        _ = try man.addFile(value.path, null);
     }
 }
 
@@ -208,7 +205,7 @@ pub const Options = struct {
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,
-    frameworks: std.StringArrayHashMapUnmanaged(Framework),
+    frameworks: []const Framework,
     /// These are *always* dynamically linked. Static libraries will be
     /// provided as positional arguments.
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
@@ -276,7 +273,6 @@ pub const Options = struct {
 
     pub fn move(self: *Options) Options {
         const copied_state = self.*;
-        self.frameworks = .{};
         self.system_libs = .{};
         self.force_undefined_symbols = .{};
         return copied_state;
@@ -642,7 +638,6 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
-        base.options.frameworks.deinit(base.allocator);
         base.options.system_libs.deinit(base.allocator);
         base.options.force_undefined_symbols.deinit(base.allocator);
         switch (base.tag) {
