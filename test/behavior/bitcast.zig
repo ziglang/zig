@@ -63,8 +63,6 @@ fn testBitCast(comptime N: usize) !void {
     try expect(conv_uN(N, 0) == 0);
     try expect(conv_iN(N, 0) == 0);
 
-    try expect(conv_iN(N, -0) == 0);
-
     if (N > 24) {
         try expect(conv_uN(N, 0xf23456) == 0xf23456);
     }

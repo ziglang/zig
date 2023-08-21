@@ -602,20 +602,9 @@ pub const Inst = struct {
         /// Same as `store` except provides a source location.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         store_node,
-        /// This instruction is not really supposed to be emitted from AstGen; nevertheless it
-        /// is sometimes emitted due to deficiencies in AstGen. When Sema sees this instruction,
-        /// it must clean up after AstGen's mess by looking at various context clues and
-        /// then treating it as one of the following:
-        ///  * no-op
-        ///  * store_to_inferred_ptr
-        ///  * store
-        /// Uses the `bin` union field with LHS as the pointer to store to.
-        store_to_block_ptr,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the pointer type.
-        /// Uses the `bin` union field - Astgen.zig depends on the ability to change
-        /// the tag of an instruction from `store_to_block_ptr` to `store_to_inferred_ptr`
-        /// without changing the data.
+        /// Uses the `bin` union field.
         store_to_inferred_ptr,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         /// Uses the `str` union field.
@@ -1109,7 +1098,6 @@ pub const Inst = struct {
                 .shr,
                 .store,
                 .store_node,
-                .store_to_block_ptr,
                 .store_to_inferred_ptr,
                 .str,
                 .sub,
@@ -1295,7 +1283,6 @@ pub const Inst = struct {
                 .atomic_store,
                 .store,
                 .store_node,
-                .store_to_block_ptr,
                 .store_to_inferred_ptr,
                 .resolve_inferred_alloc,
                 .validate_array_init_ty,
@@ -1667,7 +1654,6 @@ pub const Inst = struct {
                 .slice_length = .pl_node,
                 .store = .bin,
                 .store_node = .pl_node,
-                .store_to_block_ptr = .bin,
                 .store_to_inferred_ptr = .bin,
                 .str = .str,
                 .negate = .un_node,

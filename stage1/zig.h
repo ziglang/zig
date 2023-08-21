@@ -1176,10 +1176,10 @@ typedef   signed __int128 zig_i128;
 
 #if zig_little_endian
 typedef struct { zig_align(16) uint64_t lo; uint64_t hi; } zig_u128;
-typedef struct { zig_align(16) uint64_t lo; int64_t hi; } zig_i128;
+typedef struct { zig_align(16) uint64_t lo;  int64_t hi; } zig_i128;
 #else
 typedef struct { zig_align(16) uint64_t hi; uint64_t lo; } zig_u128;
-typedef struct { zig_align(16) int64_t hi; uint64_t lo; } zig_i128;
+typedef struct { zig_align(16)  int64_t hi; uint64_t lo; } zig_i128;
 #endif
 
 #define zig_make_u128(hi, lo) ((zig_u128){ .h##i = (hi), .l##o = (lo) })
@@ -3197,11 +3197,9 @@ zig_convert_builtin(zig_compiler_rt_f16, zig_f16,   trunc, zig_f64,             
 zig_convert_builtin(zig_f16,             zig_f16,   trunc, zig_f80,             zig_f80,  2)
 zig_convert_builtin(zig_f16,             zig_f16,   trunc, zig_f128,            zig_f128, 2)
 zig_convert_builtin(zig_f32,             zig_f32,  extend, zig_compiler_rt_f16, zig_f16,  2)
-zig_convert_builtin(zig_f32,             zig_f32,   trunc, zig_f64,             zig_f64,  2)
 zig_convert_builtin(zig_f32,             zig_f32,   trunc, zig_f80,             zig_f80,  2)
 zig_convert_builtin(zig_f32,             zig_f32,   trunc, zig_f128,            zig_f128, 2)
 zig_convert_builtin(zig_f64,             zig_f64,  extend, zig_compiler_rt_f16, zig_f16,  2)
-zig_convert_builtin(zig_f64,             zig_f64,  extend, zig_f32,             zig_f32,  2)
 zig_convert_builtin(zig_f64,             zig_f64,   trunc, zig_f80,             zig_f80,  2)
 zig_convert_builtin(zig_f64,             zig_f64,   trunc, zig_f128,            zig_f128, 2)
 zig_convert_builtin(zig_f80,             zig_f80,  extend, zig_f16,             zig_f16,  2)
@@ -3212,6 +3210,21 @@ zig_convert_builtin(zig_f128,            zig_f128, extend, zig_f16,             
 zig_convert_builtin(zig_f128,            zig_f128, extend, zig_f32,             zig_f32,  2)
 zig_convert_builtin(zig_f128,            zig_f128, extend, zig_f64,             zig_f64,  2)
 zig_convert_builtin(zig_f128,            zig_f128, extend, zig_f80,             zig_f80,  2)
+
+#ifdef __ARM_EABI__
+
+zig_extern zig_callconv(pcs("aapcs")) zig_f32 __aeabi_d2f(zig_f64);
+static inline zig_f32 zig_truncdfsf(zig_f64 arg) { return __aeabi_d2f(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) zig_f64 __aeabi_f2d(zig_f32);
+static inline zig_f64 zig_extendsfdf(zig_f32 arg) { return __aeabi_f2d(arg); }
+
+#else /* __ARM_EABI__ */
+
+zig_convert_builtin(zig_f32,             zig_f32,   trunc, zig_f64,             zig_f64,  2)
+zig_convert_builtin(zig_f64,             zig_f64,  extend, zig_f32,             zig_f32,  2)
+
+#endif /* __ARM_EABI__ */
 
 #define zig_float_negate_builtin_0(w, c, sb) \
     zig_expand_concat(zig_xor_, zig_repr_f##w)(arg, zig_make_f##w(-0x0.0p0, c sb))
@@ -3255,17 +3268,11 @@ zig_float_negate_builtin(128, zig_make_u128, (UINT64_C(1) << 63, UINT64_C(0)))
         return lhs operator rhs; \
     }
 
-#define zig_float_builtins(w) \
-    zig_convert_builtin( int32_t,  int32_t, fix,     zig_f##w, zig_f##w, ) \
-    zig_convert_builtin(uint32_t, uint32_t, fixuns,  zig_f##w, zig_f##w, ) \
+#define zig_common_float_builtins(w) \
     zig_convert_builtin( int64_t,  int64_t, fix,     zig_f##w, zig_f##w, ) \
-    zig_convert_builtin(uint64_t, uint64_t, fixuns,  zig_f##w, zig_f##w, ) \
     zig_convert_builtin(zig_i128, zig_i128, fix,     zig_f##w, zig_f##w, ) \
     zig_convert_builtin(zig_u128, zig_u128, fixuns,  zig_f##w, zig_f##w, ) \
-    zig_convert_builtin(zig_f##w, zig_f##w, float,    int32_t,  int32_t, ) \
-    zig_convert_builtin(zig_f##w, zig_f##w, floatun, uint32_t, uint32_t, ) \
     zig_convert_builtin(zig_f##w, zig_f##w, float,    int64_t,  int64_t, ) \
-    zig_convert_builtin(zig_f##w, zig_f##w, floatun, uint64_t, uint64_t, ) \
     zig_convert_builtin(zig_f##w, zig_f##w, float,   zig_i128, zig_i128, ) \
     zig_convert_builtin(zig_f##w, zig_f##w, floatun, zig_u128, zig_u128, ) \
     zig_expand_concat(zig_float_less_builtin_,    zig_has_f##w)(f##w, cmp) \
@@ -3309,11 +3316,67 @@ zig_float_negate_builtin(128, zig_make_u128, (UINT64_C(1) << 63, UINT64_C(0)))
     static inline zig_f##w zig_mod_f##w(zig_f##w lhs, zig_f##w rhs) { \
         return zig_sub_f##w(lhs, zig_mul_f##w(zig_div_floor_f##w(lhs, rhs), rhs)); \
     }
+zig_common_float_builtins(16)
+zig_common_float_builtins(32)
+zig_common_float_builtins(64)
+zig_common_float_builtins(80)
+zig_common_float_builtins(128)
+
+#define zig_float_builtins(w) \
+    zig_convert_builtin( int32_t,  int32_t, fix,     zig_f##w, zig_f##w, ) \
+    zig_convert_builtin(uint32_t, uint32_t, fixuns,  zig_f##w, zig_f##w, ) \
+    zig_convert_builtin(uint64_t, uint64_t, fixuns,  zig_f##w, zig_f##w, ) \
+    zig_convert_builtin(zig_f##w, zig_f##w, float,    int32_t,  int32_t, ) \
+    zig_convert_builtin(zig_f##w, zig_f##w, floatun, uint32_t, uint32_t, ) \
+    zig_convert_builtin(zig_f##w, zig_f##w, floatun, uint64_t, uint64_t, )
 zig_float_builtins(16)
-zig_float_builtins(32)
-zig_float_builtins(64)
 zig_float_builtins(80)
 zig_float_builtins(128)
+
+#ifdef __ARM_EABI__
+
+zig_extern zig_callconv(pcs("aapcs")) int32_t __aeabi_f2iz(zig_f32);
+static inline int32_t zig_fixsfsi(zig_f32 arg) { return __aeabi_f2iz(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) uint32_t __aeabi_f2uiz(zig_f32);
+static inline uint32_t zig_fixunssfsi(zig_f32 arg) { return __aeabi_f2uiz(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) uint64_t __aeabi_f2ulz(zig_f32);
+static inline uint64_t zig_fixunssfdi(zig_f32 arg) { return __aeabi_f2ulz(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) zig_f32 __aeabi_i2f(int32_t);
+static inline zig_f32 zig_floatsisf(int32_t arg) { return __aeabi_i2f(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) zig_f32 __aeabi_ui2f(uint32_t);
+static inline zig_f32 zig_floatunsisf(uint32_t arg) { return __aeabi_ui2f(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) zig_f32 __aeabi_ul2f(uint64_t);
+static inline zig_f32 zig_floatundisf(uint64_t arg) { return __aeabi_ul2f(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) int32_t __aeabi_d2iz(zig_f64);
+static inline int32_t zig_fixdfsi(zig_f64 arg) { return __aeabi_d2iz(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) uint32_t __aeabi_d2uiz(zig_f64);
+static inline uint32_t zig_fixunsdfsi(zig_f64 arg) { return __aeabi_d2uiz(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) uint64_t __aeabi_d2ulz(zig_f64);
+static inline uint64_t zig_fixunsdfdi(zig_f64 arg) { return __aeabi_d2ulz(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) zig_f64 __aeabi_i2d(int32_t);
+static inline zig_f64 zig_floatsidf(int32_t arg) { return __aeabi_i2d(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) zig_f64 __aeabi_ui2d(uint32_t);
+static inline zig_f64 zig_floatunsidf(uint32_t arg) { return __aeabi_ui2d(arg); }
+
+zig_extern zig_callconv(pcs("aapcs")) zig_f64 __aeabi_ul2d(uint64_t);
+static inline zig_f64 zig_floatundidf(uint64_t arg) { return __aeabi_ul2d(arg); }
+
+#else /* __ARM_EABI__ */
+
+zig_float_builtins(32)
+zig_float_builtins(64)
+
+#endif /* __ARM_EABI__ */
 
 /* ============================ Atomics Support ============================= */
 

@@ -34,8 +34,7 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :2:20: error: incompatible types: 'i32' and 'void'
-// :2:30: note: type 'i32' here
+// :2:20: error: expected type 'i32', found 'void'
 // :8:15: error: incompatible types: 'i32' and 'void'
 // :8:25: note: type 'i32' here
 // :16:16: error: expected type 'tmp.h.T', found 'void'

@@ -1346,11 +1346,6 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
-            .store_to_block_ptr => {
-                try sema.zirStoreToBlockPtr(block, inst);
-                i += 1;
-                continue;
-            },
             .store_to_inferred_ptr => {
                 try sema.zirStoreToInferredPtr(block, inst);
                 i += 1;
@@ -5267,35 +5262,6 @@ fn addDeclaredHereNote(sema: *Sema, parent: *Module.ErrorMsg, decl_ty: Type) !vo
         else => unreachable,
     };
     try mod.errNoteNonLazy(src_loc, parent, "{s} declared here", .{category});
-}
-
-fn zirStoreToBlockPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const ptr = sema.inst_map.get(Zir.refToIndex(bin_inst.lhs).?) orelse {
-        // This is an elided instruction, but AstGen was unable to omit it.
-        return;
-    };
-    const operand = try sema.resolveInst(bin_inst.rhs);
-    const src: LazySrcLoc = sema.src;
-    blk: {
-        const ptr_inst = Air.refToIndex(ptr) orelse break :blk;
-        switch (sema.air_instructions.items(.tag)[ptr_inst]) {
-            .inferred_alloc_comptime => {
-                const iac = &sema.air_instructions.items(.data)[ptr_inst].inferred_alloc_comptime;
-                return sema.storeToInferredAllocComptime(block, src, operand, iac);
-            },
-            .inferred_alloc => {
-                const ia = sema.unresolved_inferred_allocs.getPtr(ptr_inst).?;
-                return sema.storeToInferredAlloc(block, ptr, operand, ia);
-            },
-            else => break :blk,
-        }
-    }
-
-    return sema.storePtr(block, src, ptr, operand);
 }
 
 fn zirStoreToInferredPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -23978,7 +23944,26 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         return sema.fail(block, dest_src, "cannot memset constant pointer", .{});
     }
 
-    const dest_elem_ty = dest_ptr_ty.elemType2(mod);
+    const dest_elem_ty: Type = dest_elem_ty: {
+        const ptr_info = dest_ptr_ty.ptrInfo(mod);
+        switch (ptr_info.flags.size) {
+            .Slice => break :dest_elem_ty ptr_info.child.toType(),
+            .One => {
+                if (ptr_info.child.toType().zigTypeTag(mod) == .Array) {
+                    break :dest_elem_ty ptr_info.child.toType().childType(mod);
+                }
+            },
+            .Many, .C => {},
+        }
+        return sema.failWithOwnedErrorMsg(msg: {
+            const msg = try sema.errMsg(block, src, "unknown @memset length", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, dest_src, msg, "destination type '{}' provides no length", .{
+                dest_ptr_ty.fmt(mod),
+            });
+            break :msg msg;
+        });
+    };
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |ptr_val| rs: {
         const len_air_ref = try sema.fieldVal(block, src, dest_ptr, try ip.getOrPutString(gpa, "len"), dest_src);
@@ -27310,6 +27295,7 @@ fn coerceExtra(
 
             // coercion from C pointer
             if (inst_ty.isCPtr(mod)) src_c_ptr: {
+                if (dest_info.flags.size == .Slice) break :src_c_ptr;
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :src_c_ptr;
                 // In this case we must add a safety check because the C pointer
                 // could be null.
