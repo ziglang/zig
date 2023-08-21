@@ -28883,6 +28883,17 @@ fn storePtr2(
         } else break :rs ptr_src;
     } else ptr_src;
 
+    if (try sema.typeRequiresComptime(elem_ty)) {
+        // Since we got here and the pointer is not comptime-mutable, it must
+        // point to immutable memory.
+        return sema.failWithOwnedErrorMsg(msg: {
+            const msg = try sema.errMsg(block, src, "cannot assign to constant", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, ptr_src, msg, "mutable pointer refers to constant data", .{});
+            break :msg msg;
+        });
+    }
+
     // We do this after the possible comptime store above, for the case of field_ptr stores
     // to unions because we want the comptime tag to be set, even if the field type is void.
     if ((try sema.typeHasOnePossibleValue(elem_ty)) != null)
