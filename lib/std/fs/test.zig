@@ -1090,22 +1090,13 @@ test "makePath in a directory that no longer exists" {
 }
 
 test "makePath but sub_path contains pre-existing file" {
-    // makePath tmp/foo/bar/baz, but bar is a file
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-    var buf_alloc = fba.allocator();
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
-    
+
     try tmp.dir.makeDir("foo");
-    var foo = try tmp.dir.openDir("foo", .{});
-    defer foo.close();
-    var bar = try foo.createFile("bar", .{});
-    defer bar.close();
+    try tmp.dir.writeFile("foo" ++ fs.path.sep_str ++ "bar", "");
     
-    var sub_path = try std.fs.path.join(buf_alloc, &[_][]const u8{"foo", "bar", "baz"});
-    try testing.expectError(error.NotDir, tmp.dir.makePath(sub_path));
+    try testing.expectError(error.NotDir, tmp.dir.makePath("foo/bar/baz"));
 }
 
 fn expectDir(dir: Dir, path: []const u8) !void {
