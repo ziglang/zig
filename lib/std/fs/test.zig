@@ -1094,8 +1094,8 @@ test "makePath but sub_path contains pre-existing file" {
     defer tmp.cleanup();
 
     try tmp.dir.makeDir("foo");
-    try tmp.dir.writeFile("foo" ++ fs.path.sep_str ++ "bar", "");
-    
+    try tmp.dir.writeFile("foo/bar", "");
+
     try testing.expectError(error.NotDir, tmp.dir.makePath("foo/bar/baz"));
 }
 
