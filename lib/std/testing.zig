@@ -222,7 +222,7 @@ pub fn expectOptional(expected: anytype, actual: anytype) !void {
     }
 }
 
-test "expectOptional" {
+test expectOptional {
     const T = ?u8;
 
     const a: T = 10;
@@ -253,7 +253,7 @@ pub fn expectNull(actual: anytype) !void {
     }
 }
 
-test "expectNull" {
+test expectNull {
     const T = ?u8;
 
     const b: T = null;
