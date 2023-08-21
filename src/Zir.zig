@@ -251,6 +251,9 @@ pub const Inst = struct {
         /// Given a vector type, returns its element type.
         /// Uses the `un_node` field.
         vector_elem_type,
+        /// Given an enum type, returns its int backing type.
+        /// Uses the `un_node` field.
+        enum_backing_type,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -1022,6 +1025,7 @@ pub const Inst = struct {
                 .elem_type_index,
                 .elem_type,
                 .vector_elem_type,
+                .enum_backing_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1326,6 +1330,7 @@ pub const Inst = struct {
                 .elem_type_index,
                 .elem_type,
                 .vector_elem_type,
+                .enum_backing_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1558,6 +1563,7 @@ pub const Inst = struct {
                 .elem_type_index = .bin,
                 .elem_type = .un_node,
                 .vector_elem_type = .un_node,
+                .enum_backing_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as = .bin,

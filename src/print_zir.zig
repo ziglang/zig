@@ -155,6 +155,7 @@ const Writer = struct {
             .alloc_comptime_mut,
             .elem_type,
             .vector_elem_type,
+            .enum_backing_type,
             .indexable_ptr_len,
             .anyframe_type,
             .bit_not,

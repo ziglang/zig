@@ -1024,6 +1024,7 @@ fn analyzeBodyInner(
             .elem_type_index              => try sema.zirElemTypeIndex(block, inst),
             .elem_type                    => try sema.zirElemType(block, inst),
             .vector_elem_type             => try sema.zirVectorElemType(block, inst),
+            .enum_backing_type            => try sema.zirEnumBackingType(block, inst),
             .enum_literal                 => try sema.zirEnumLiteral(block, inst),
             .int_from_enum                => try sema.zirIntFromEnum(block, inst),
             .enum_from_int                => try sema.zirEnumFromInt(block, inst),
@@ -8117,6 +8118,28 @@ fn zirVectorElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         return sema.fail(block, un_node.src(), "expected vector type, found '{}'", .{vec_ty.fmt(mod)});
     }
     return Air.internedToRef(vec_ty.childType(mod).toIntern());
+}
+
+fn zirEnumBackingType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const un_node = sema.code.instructions.items(.data)[inst].un_node;
+    const src = un_node.src();
+    const operand_ty = sema.resolveType(block, src, un_node.operand) catch |err| switch (err) {
+        error.GenericPoison => return .generic_poison_type,
+        else => |e| return e,
+    };
+    var enum_ty = operand_ty;
+    while (true) {
+        switch (enum_ty.zigTypeTag(mod)) {
+            .Optional => enum_ty = enum_ty.childType(mod),
+            .ErrorUnion => enum_ty = enum_ty.errorUnionPayload(mod),
+            else => break,
+        }
+    }
+    if (enum_ty.zigTypeTag(mod) != .Enum) {
+        return sema.fail(block, src, "expected enum, found '{}'", .{enum_ty.fmt(mod)});
+    }
+    return Air.internedToRef(enum_ty.intTagType(mod).toIntern());
 }
 
 fn zirVectorType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

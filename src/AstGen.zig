@@ -2442,6 +2442,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .elem_type_index,
             .elem_type,
             .vector_elem_type,
+            .enum_backing_type,
             .vector_type,
             .indexable_ptr_len,
             .anyframe_type,
@@ -8449,7 +8450,15 @@ fn typeCast(
 ) InnerError!Zir.Inst.Ref {
     const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
     const result_type = try ri.rl.resultType(gz, node, builtin_name);
-    const operand = try expr(gz, scope, .{ .rl = .none }, operand_node);
+
+    const operand_ri: ResultInfo = switch (tag) {
+        .enum_from_int => blk: {
+            const backing_ty = try gz.addUnNode(.enum_backing_type, result_type, node);
+            break :blk .{ .rl = .{ .coerced_ty = backing_ty } };
+        },
+        else => .{ .rl = .none },
+    };
+    const operand = try expr(gz, scope, operand_ri, operand_node);
 
     try emitDbgStmt(gz, cursor);
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{

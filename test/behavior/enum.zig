@@ -1214,3 +1214,15 @@ test "auto-numbered enum with signed tag type" {
     try std.testing.expectEqualStrings("a", @tagName(E.a));
     try std.testing.expectEqualStrings("b", @tagName(E.b));
 }
+
+test "@enumFromInt gives operand result type" {
+    const large_two: u64 = (1 << 40) + 2;
+
+    const Explicit = enum(u8) { a = 1, b = 2, c = 0 };
+    const x: Explicit = @enumFromInt(@truncate(large_two));
+    try std.testing.expectEqual(Explicit.b, x);
+
+    const Implicit = enum { a, b, c };
+    const y: Implicit = @enumFromInt(@truncate(large_two));
+    try std.testing.expectEqual(Implicit.c, y);
+}
