@@ -4738,7 +4738,7 @@ pub fn sysconf(sc: c_int) SysConfError!usize {
             else => |err| return unexpectedErrno(err),
         }
     };
-    const choice: u8 = 0;
+    var choice: u8 = 0;
     choice += @intFromBool(is_minus_one);
     choice += @intFromBool(is_inval);
     switch (choice) {
