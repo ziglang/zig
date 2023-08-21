@@ -303,7 +303,7 @@ pub const CType = extern union {
         }
         pub fn unionPayloadAlign(union_ty: Type, mod: *Module) AlignAs {
             const union_obj = mod.typeToUnion(union_ty).?;
-            const union_payload_align = union_obj.abiAlignment(mod, false);
+            const union_payload_align = mod.unionAbiAlignment(union_obj);
             return init(union_payload_align, union_payload_align);
         }
 
@@ -1499,7 +1499,7 @@ pub const CType = extern union {
                     if (lookup.isMutable()) {
                         for (0..switch (zig_ty_tag) {
                             .Struct => ty.structFieldCount(mod),
-                            .Union => ty.unionFields(mod).count(),
+                            .Union => mod.typeToUnion(ty).?.field_names.len,
                             else => unreachable,
                         }) |field_i| {
                             const field_ty = ty.structFieldType(field_i, mod);
@@ -1581,7 +1581,7 @@ pub const CType = extern union {
                             var is_packed = false;
                             for (0..switch (zig_ty_tag) {
                                 .Struct => ty.structFieldCount(mod),
-                                .Union => ty.unionFields(mod).count(),
+                                .Union => mod.typeToUnion(ty).?.field_names.len,
                                 else => unreachable,
                             }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i, mod);
@@ -1912,6 +1912,7 @@ pub const CType = extern union {
         kind: Kind,
         convert: Convert,
     ) !CType {
+        const ip = &mod.intern_pool;
         const arena = store.arena.allocator();
         switch (convert.value) {
             .cty => |c| return c.copy(arena),
@@ -1932,7 +1933,7 @@ pub const CType = extern union {
                     const zig_ty_tag = ty.zigTypeTag(mod);
                     const fields_len = switch (zig_ty_tag) {
                         .Struct => ty.structFieldCount(mod),
-                        .Union => ty.unionFields(mod).count(),
+                        .Union => mod.typeToUnion(ty).?.field_names.len,
                         else => unreachable,
                     };
 
@@ -1956,9 +1957,9 @@ pub const CType = extern union {
                             .name = try if (ty.isSimpleTuple(mod))
                                 std.fmt.allocPrintZ(arena, "f{}", .{field_i})
                             else
-                                arena.dupeZ(u8, mod.intern_pool.stringToSlice(switch (zig_ty_tag) {
+                                arena.dupeZ(u8, ip.stringToSlice(switch (zig_ty_tag) {
                                     .Struct => ty.structFieldName(field_i, mod),
-                                    .Union => ty.unionFields(mod).keys()[field_i],
+                                    .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
                                     else => unreachable,
                                 })),
                             .type = store.set.typeToIndex(field_ty, mod, switch (kind) {
@@ -2015,7 +2016,6 @@ pub const CType = extern union {
                 .function,
                 .varargs_function,
                 => {
-                    const ip = &mod.intern_pool;
                     const info = mod.typeToFunc(ty).?;
                     assert(!info.is_generic);
                     const param_kind: Kind = switch (kind) {
@@ -2068,6 +2068,7 @@ pub const CType = extern union {
 
         pub fn eql(self: @This(), ty: Type, cty: CType) bool {
             const mod = self.lookup.getModule();
+            const ip = &mod.intern_pool;
             switch (self.convert.value) {
                 .cty => |c| return c.eql(cty),
                 .tag => |t| {
@@ -2088,7 +2089,7 @@ pub const CType = extern union {
                             var c_field_i: usize = 0;
                             for (0..switch (zig_ty_tag) {
                                 .Struct => ty.structFieldCount(mod),
-                                .Union => ty.unionFields(mod).count(),
+                                .Union => mod.typeToUnion(ty).?.field_names.len,
                                 else => unreachable,
                             }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i, mod);
@@ -2108,9 +2109,9 @@ pub const CType = extern union {
                                     if (ty.isSimpleTuple(mod))
                                         std.fmt.bufPrintZ(&name_buf, "f{}", .{field_i}) catch unreachable
                                     else
-                                        mod.intern_pool.stringToSlice(switch (zig_ty_tag) {
+                                        ip.stringToSlice(switch (zig_ty_tag) {
                                             .Struct => ty.structFieldName(field_i, mod),
-                                            .Union => ty.unionFields(mod).keys()[field_i],
+                                            .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
                                             else => unreachable,
                                         }),
                                     mem.span(c_field.name),
@@ -2149,7 +2150,6 @@ pub const CType = extern union {
                         => {
                             if (ty.zigTypeTag(mod) != .Fn) return false;
 
-                            const ip = &mod.intern_pool;
                             const info = mod.typeToFunc(ty).?;
                             assert(!info.is_generic);
                             const data = cty.cast(Payload.Function).?.data;
@@ -2217,7 +2217,7 @@ pub const CType = extern union {
                             const zig_ty_tag = ty.zigTypeTag(mod);
                             for (0..switch (ty.zigTypeTag(mod)) {
                                 .Struct => ty.structFieldCount(mod),
-                                .Union => ty.unionFields(mod).count(),
+                                .Union => mod.typeToUnion(ty).?.field_names.len,
                                 else => unreachable,
                             }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i, mod);
@@ -2235,7 +2235,7 @@ pub const CType = extern union {
                                 else
                                     mod.intern_pool.stringToSlice(switch (zig_ty_tag) {
                                         .Struct => ty.structFieldName(field_i, mod),
-                                        .Union => ty.unionFields(mod).keys()[field_i],
+                                        .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
                                         else => unreachable,
                                     }));
                                 autoHash(hasher, AlignAs.fieldAlign(ty, field_i, mod).@"align");
