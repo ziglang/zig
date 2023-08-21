@@ -75,7 +75,7 @@ pub fn createThunks(zld: *Zld, sect_id: u8) !void {
     if (header.size == 0) return;
 
     const gpa = zld.gpa;
-    const first_atom_index = zld.sections.items(.first_atom_index)[sect_id];
+    const first_atom_index = zld.sections.items(.first_atom_index)[sect_id].?;
 
     header.size = 0;
     header.@"align" = 0;

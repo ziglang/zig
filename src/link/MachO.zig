@@ -69,12 +69,10 @@ pub const Mode = enum {
     zld,
 };
 
-const Section = struct {
+pub const Section = struct {
     header: macho.section_64,
     segment_index: u8,
-
-    // TODO is null here necessary, or can we do away with tracking via section
-    // size in incremental context?
+    first_atom_index: ?Atom.Index = null,
     last_atom_index: ?Atom.Index = null,
 
     /// A list of atoms that have surplus capacity. This list can have false

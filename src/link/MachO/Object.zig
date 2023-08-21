@@ -55,7 +55,7 @@ source_section_index_lookup: []Entry = undefined,
 /// Can be undefined as set together with in_symtab.
 strtab_lookup: []u32 = undefined,
 /// Can be undefined as set together with in_symtab.
-atom_by_index_table: []AtomIndex = undefined,
+atom_by_index_table: []?AtomIndex = undefined,
 /// Can be undefined as set together with in_symtab.
 globals_lookup: []i64 = undefined,
 /// Can be undefined as set together with in_symtab.
@@ -156,7 +156,7 @@ pub fn parse(self: *Object, allocator: Allocator) !void {
     self.reverse_symtab_lookup = try allocator.alloc(u32, self.in_symtab.?.len);
     self.strtab_lookup = try allocator.alloc(u32, self.in_symtab.?.len);
     self.globals_lookup = try allocator.alloc(i64, self.in_symtab.?.len);
-    self.atom_by_index_table = try allocator.alloc(AtomIndex, self.in_symtab.?.len + nsects);
+    self.atom_by_index_table = try allocator.alloc(?AtomIndex, self.in_symtab.?.len + nsects);
     self.relocs_lookup = try allocator.alloc(Entry, self.in_symtab.?.len + nsects);
     // This is wasteful but we need to be able to lookup source symbol address after stripping and
     // allocating of sections.
@@ -174,7 +174,7 @@ pub fn parse(self: *Object, allocator: Allocator) !void {
     }
 
     @memset(self.globals_lookup, -1);
-    @memset(self.atom_by_index_table, 0);
+    @memset(self.atom_by_index_table, null);
     @memset(self.source_section_index_lookup, .{});
     @memset(self.relocs_lookup, .{});
 
@@ -1060,9 +1060,7 @@ pub fn getGlobal(self: Object, sym_index: u32) ?u32 {
 }
 
 pub fn getAtomIndexForSymbol(self: Object, sym_index: u32) ?AtomIndex {
-    const atom_index = self.atom_by_index_table[sym_index];
-    if (atom_index == 0) return null;
-    return atom_index;
+    return self.atom_by_index_table[sym_index];
 }
 
 pub fn hasUnwindRecords(self: Object) bool {

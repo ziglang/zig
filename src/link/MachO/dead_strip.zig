@@ -466,8 +466,8 @@ fn prune(zld: *Zld, alive: AtomTable) void {
                     section.last_atom_index = prev_index;
                 } else {
                     assert(section.header.size == 0);
-                    section.first_atom_index = 0;
-                    section.last_atom_index = 0;
+                    section.first_atom_index = null;
+                    section.last_atom_index = null;
                 }
             }
 

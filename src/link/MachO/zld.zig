@@ -31,6 +31,7 @@ const MachO = @import("../MachO.zig");
 const Md5 = std.crypto.hash.Md5;
 const LibStub = @import("../tapi.zig").LibStub;
 const Object = @import("Object.zig");
+const Section = MachO.Section;
 const StringTable = @import("../strtab.zig").StringTable;
 const SymbolWithLoc = MachO.SymbolWithLoc;
 const SymbolResolver = MachO.SymbolResolver;
@@ -231,7 +232,7 @@ pub const Zld = struct {
         const sym = self.getSymbol(atom.getSymbolWithLoc());
         var section = self.sections.get(sym.n_sect - 1);
         if (section.header.size > 0) {
-            const last_atom = self.getAtomPtr(section.last_atom_index);
+            const last_atom = self.getAtomPtr(section.last_atom_index.?);
             last_atom.next_index = atom_index;
             atom.prev_index = section.last_atom_index;
         } else {
@@ -445,7 +446,7 @@ pub const Zld = struct {
     fn writeLazyPointer(self: *Zld, stub_helper_index: u32, writer: anytype) !void {
         const target_addr = blk: {
             const sect_id = self.getSectionByName("__TEXT", "__stub_helper").?;
-            var atom_index = self.sections.items(.first_atom_index)[sect_id];
+            var atom_index = self.sections.items(.first_atom_index)[sect_id].?;
             var count: u32 = 0;
             while (count < stub_helper_index + 1) : (count += 1) {
                 const atom = self.getAtom(atom_index);
@@ -497,7 +498,7 @@ pub const Zld = struct {
         const target_addr = blk: {
             // TODO: cache this at stub atom creation; they always go in pairs anyhow
             const la_sect_id = self.getSectionByName("__DATA", "__la_symbol_ptr").?;
-            var la_atom_index = self.sections.items(.first_atom_index)[la_sect_id];
+            var la_atom_index = self.sections.items(.first_atom_index)[la_sect_id].?;
             var count: u32 = 0;
             while (count < stub_index) : (count += 1) {
                 const la_atom = self.getAtom(la_atom_index);
@@ -1012,10 +1013,9 @@ pub const Zld = struct {
 
         for (slice.items(.first_atom_index), 0..) |first_atom_index, sect_id| {
             const header = slice.items(.header)[sect_id];
-            var atom_index = first_atom_index;
-
-            if (atom_index == 0) continue;
             if (header.isZerofill()) continue;
+
+            var atom_index = first_atom_index orelse continue;
 
             var buffer = std.ArrayList(u8).init(gpa);
             defer buffer.deinit();
@@ -1129,7 +1129,7 @@ pub const Zld = struct {
             while (i < slice.len) : (i += 1) {
                 const section = self.sections.get(i);
                 if (section.header.size == 0) {
-                    log.debug("pruning section {s},{s} {d}", .{
+                    log.debug("pruning section {s},{s} {?d}", .{
                         section.header.segName(),
                         section.header.sectName(),
                         section.first_atom_index,
@@ -1156,8 +1156,7 @@ pub const Zld = struct {
                 if (header.isCode() and !(header.type() == macho.S_SYMBOL_STUBS) and !mem.eql(u8, header.sectName(), "__stub_helper")) continue;
             }
 
-            var atom_index = slice.items(.first_atom_index)[sect_id];
-            if (atom_index == 0) continue;
+            var atom_index = slice.items(.first_atom_index)[sect_id] orelse continue;
 
             header.size = 0;
             header.@"align" = 0;
@@ -1195,8 +1194,7 @@ pub const Zld = struct {
         // We need to do this since our unwind info synthesiser relies on
         // traversing the symbols when synthesising unwind info and DWARF CFI records.
         for (slice.items(.first_atom_index)) |first_atom_index| {
-            if (first_atom_index == 0) continue;
-            var atom_index = first_atom_index;
+            var atom_index = first_atom_index orelse continue;
 
             while (true) {
                 const atom = self.getAtom(atom_index);
@@ -1278,8 +1276,9 @@ pub const Zld = struct {
                 @as(u32, @intCast(segment.fileoff + start_aligned));
             header.addr = segment.vmaddr + start_aligned;
 
-            var atom_index = slice.items(.first_atom_index)[indexes.start + sect_id];
-            if (atom_index > 0) {
+            if (slice.items(.first_atom_index)[indexes.start + sect_id]) |first_atom_index| {
+                var atom_index = first_atom_index;
+
                 log.debug("allocating local symbols in sect({d}, '{s},{s}')", .{
                     n_sect,
                     header.segName(),
@@ -1362,8 +1361,6 @@ pub const Zld = struct {
                 .reserved1 = opts.reserved1,
                 .reserved2 = opts.reserved2,
             },
-            .first_atom_index = 0,
-            .last_atom_index = 0,
         });
         return index;
     }
@@ -1491,7 +1488,7 @@ pub const Zld = struct {
         if (self.getSectionByName("__DATA", "__la_symbol_ptr")) |sect_id| {
             const segment_index = slice.items(.segment_index)[sect_id];
             const seg = self.getSegment(sect_id);
-            var atom_index = slice.items(.first_atom_index)[sect_id];
+            var atom_index = slice.items(.first_atom_index)[sect_id].?;
 
             try rebase.entries.ensureUnusedCapacity(self.gpa, self.stubs.items.len);
 
@@ -1531,8 +1528,7 @@ pub const Zld = struct {
             log.debug("{s},{s}", .{ header.segName(), header.sectName() });
 
             const cpu_arch = self.options.target.cpu.arch;
-            var atom_index = slice.items(.first_atom_index)[sect_id];
-            if (atom_index == 0) continue;
+            var atom_index = slice.items(.first_atom_index)[sect_id] orelse continue;
 
             while (true) {
                 const atom = self.getAtom(atom_index);
@@ -1668,8 +1664,7 @@ pub const Zld = struct {
             if (segment.maxprot & macho.PROT.WRITE == 0) continue;
 
             const cpu_arch = self.options.target.cpu.arch;
-            var atom_index = slice.items(.first_atom_index)[sect_id];
-            if (atom_index == 0) continue;
+            var atom_index = slice.items(.first_atom_index)[sect_id] orelse continue;
 
             log.debug("{s},{s}", .{ header.segName(), header.sectName() });
 
@@ -1757,7 +1752,7 @@ pub const Zld = struct {
         const slice = self.sections.slice();
         const segment_index = slice.items(.segment_index)[sect_id];
         const seg = self.getSegment(sect_id);
-        var atom_index = slice.items(.first_atom_index)[sect_id];
+        var atom_index = slice.items(.first_atom_index)[sect_id].?;
 
         // TODO: we actually don't need to store lazy pointer atoms as they are synthetically generated by the linker
         try lazy_bind.entries.ensureUnusedCapacity(self.gpa, self.stubs.items.len);
@@ -1920,7 +1915,7 @@ pub const Zld = struct {
         const section = self.sections.get(stub_helper_section_index);
         const stub_offset = stub_helpers.calcStubOffsetInStubHelper(self.options.target.cpu.arch);
         const header = section.header;
-        var atom_index = section.first_atom_index;
+        var atom_index = section.first_atom_index.?;
         atom_index = self.getAtom(atom_index).next_index.?; // skip preamble
 
         var index: usize = 0;
@@ -2923,9 +2918,7 @@ pub const Zld = struct {
         log.debug("atoms:", .{});
         const slice = self.sections.slice();
         for (slice.items(.first_atom_index), 0..) |first_atom_index, sect_id| {
-            var atom_index = first_atom_index;
-            if (atom_index == 0) continue;
-
+            var atom_index = first_atom_index orelse continue;
             const header = slice.items(.header)[sect_id];
 
             log.debug("{s},{s}", .{ header.segName(), header.sectName() });
@@ -2989,13 +2982,6 @@ pub const Zld = struct {
 };
 
 pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
-
-const Section = struct {
-    header: macho.section_64,
-    segment_index: u8,
-    first_atom_index: AtomIndex,
-    last_atom_index: AtomIndex,
-};
 
 pub const AtomIndex = u32;
 
@@ -3183,7 +3169,6 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         };
         defer zld.deinit();
 
-        try zld.atoms.append(gpa, Atom.empty); // AtomIndex at 0 is reserved as null atom
         try zld.strtab.buffer.append(gpa, 0);
 
         // Positional arguments to the linker such as object files and static archives.
