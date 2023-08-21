@@ -2660,6 +2660,9 @@ pub fn renameatW(
             .SUCCESS => return,
             // INVALID_PARAMETER here means that the filesystem does not support FileRenameInformationEx
             .INVALID_PARAMETER => {},
+            .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
+            .FILE_IS_A_DIRECTORY => return error.IsDir,
+            .NOT_A_DIRECTORY => return error.NotDir,
             // For all other statuses, fall down to the switch below to handle them.
             else => need_fallback = false,
         }
