@@ -332,15 +332,15 @@ fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
     );
 
     if (self.ref_paths_pending_on_decls.count() > 0) {
-        @panic("some decl paths were never fully analized (pending on decls)");
+        @panic("some decl paths were never fully analyzed (pending on decls)");
     }
 
     if (self.ref_paths_pending_on_types.count() > 0) {
-        @panic("some decl paths were never fully analized (pending on types)");
+        @panic("some decl paths were never fully analyzed (pending on types)");
     }
 
     if (self.pending_ref_paths.count() > 0) {
-        @panic("some decl paths were never fully analized");
+        @panic("some decl paths were never fully analyzed");
     }
 
     var data = DocData{
@@ -984,7 +984,7 @@ fn walkInstruction(
                 // Immediately add this module to the import table of our
                 // current module, regardless of wether it's new or not.
                 if (self.modules.getPtr(file.pkg)) |current_module| {
-                    // TODO: apparently, in the stdlib a file gets analized before
+                    // TODO: apparently, in the stdlib a file gets analyzed before
                     //       its module gets added. I guess we're importing a file
                     //       that belongs to another module through its file path?
                     //       (ie not through its module name).
