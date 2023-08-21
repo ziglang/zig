@@ -614,9 +614,9 @@ test "std.meta.FieldEnum" {
     const Tagged = union(enum) { a: u8, b: void, c: f32 };
     try testing.expectEqual(Tag(Tagged), FieldEnum(Tagged));
 
-    const Tag2 = enum { b, c, a };
+    const Tag2 = enum { a, b, c };
     const Tagged2 = union(Tag2) { a: u8, b: void, c: f32 };
-    try testing.expect(Tag(Tagged2) != FieldEnum(Tagged2));
+    try testing.expect(Tag(Tagged2) == FieldEnum(Tagged2));
 
     const Tag3 = enum(u8) { a, b, c = 7 };
     const Tagged3 = union(Tag3) { a: u8, b: void, c: f32 };

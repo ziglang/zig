@@ -1717,6 +1717,7 @@ fn arch(func: *const CodeGen) std.Target.Cpu.Arch {
 /// For a given `Type`, will return true when the type will be passed
 /// by reference, rather than by value
 fn isByRef(ty: Type, mod: *Module) bool {
+    const ip = &mod.intern_pool;
     const target = mod.getTarget();
     switch (ty.zigTypeTag(mod)) {
         .Type,
@@ -1742,7 +1743,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
         => return ty.hasRuntimeBitsIgnoreComptime(mod),
         .Union => {
             if (mod.typeToUnion(ty)) |union_obj| {
-                if (union_obj.layout == .Packed) {
+                if (union_obj.getLayout(ip) == .Packed) {
                     return ty.abiSize(mod) > 8;
                 }
             }
@@ -2974,7 +2975,7 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
                 .Union => switch (parent_ty.containerLayout(mod)) {
                     .Packed => 0,
                     else => blk: {
-                        const layout: Module.Union.Layout = parent_ty.unionGetLayout(mod);
+                        const layout: Module.UnionLayout = parent_ty.unionGetLayout(mod);
                         if (layout.payload_size == 0) break :blk 0;
                         if (layout.payload_align > layout.tag_align) break :blk 0;
 
@@ -3058,8 +3059,9 @@ fn toTwosComplement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(
 
 fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
+    const ip = &mod.intern_pool;
     var val = arg_val;
-    switch (mod.intern_pool.indexToKey(val.ip_index)) {
+    switch (ip.indexToKey(val.ip_index)) {
         .runtime_value => |rt| val = rt.val.toValue(),
         else => {},
     }
@@ -3110,7 +3112,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         => unreachable, // comptime-only types
     };
 
-    switch (mod.intern_pool.indexToKey(val.ip_index)) {
+    switch (ip.indexToKey(val.ip_index)) {
         .int_type,
         .ptr_type,
         .array_type,
@@ -3198,7 +3200,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             return func.fail("Wasm TODO: lowerConstant error union with non-zero-bit payload type", .{});
         },
         .enum_tag => |enum_tag| {
-            const int_tag_ty = mod.intern_pool.typeOf(enum_tag.int);
+            const int_tag_ty = ip.typeOf(enum_tag.int);
             return func.lowerConstant(enum_tag.int.toValue(), int_tag_ty.toType());
         },
         .float => |float| switch (float.storage) {
@@ -3210,7 +3212,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         .ptr => |ptr| switch (ptr.addr) {
             .decl => |decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl, 0),
             .mut_decl => |mut_decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, mut_decl.decl, 0),
-            .int => |int| return func.lowerConstant(int.toValue(), mod.intern_pool.typeOf(int).toType()),
+            .int => |int| return func.lowerConstant(int.toValue(), ip.typeOf(int).toType()),
             .opt_payload, .elem, .field => return func.lowerParentPtr(val, 0),
             else => return func.fail("Wasm TODO: lowerConstant for other const addr tag {}", .{ptr.addr}),
         },
@@ -3224,7 +3226,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         } else {
             return WValue{ .imm32 = @intFromBool(!val.isNull(mod)) };
         },
-        .aggregate => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        .aggregate => switch (ip.indexToKey(ty.ip_index)) {
             .array_type => return func.fail("Wasm TODO: LowerConstant for {}", .{ty.fmt(mod)}),
             .vector_type => {
                 assert(determineSimdStoreStrategy(ty, mod) == .direct);
@@ -3245,11 +3247,12 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             },
             else => unreachable,
         },
-        .un => |union_obj| {
+        .un => |un| {
             // in this case we have a packed union which will not be passed by reference.
-            const field_index = ty.unionTagFieldIndex(union_obj.tag.toValue(), func.bin_file.base.options.module.?).?;
-            const field_ty = ty.unionFields(mod).values()[field_index].ty;
-            return func.lowerConstant(union_obj.val.toValue(), field_ty);
+            const union_obj = mod.typeToUnion(ty).?;
+            const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
+            const field_ty = union_obj.field_types.get(ip)[field_index].toType();
+            return func.lowerConstant(un.val.toValue(), field_ty);
         },
         .memoized_call => unreachable,
     }
@@ -5163,6 +5166,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.options.module.?;
+    const ip = &mod.intern_pool;
     const ty_pl = func.air.instructions.items(.data)[inst].ty_pl;
     const extra = func.air.extraData(Air.UnionInit, ty_pl.payload).data;
 
@@ -5170,8 +5174,8 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const union_ty = func.typeOfIndex(inst);
         const layout = union_ty.unionGetLayout(mod);
         const union_obj = mod.typeToUnion(union_ty).?;
-        const field = union_obj.fields.values()[extra.field_index];
-        const field_name = union_obj.fields.keys()[extra.field_index];
+        const field_ty = union_obj.field_types.get(ip)[extra.field_index].toType();
+        const field_name = union_obj.field_names.get(ip)[extra.field_index];
 
         const tag_int = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical(mod);
@@ -5191,24 +5195,24 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const result_ptr = try func.allocStack(union_ty);
             const payload = try func.resolveInst(extra.init);
             if (layout.tag_align >= layout.payload_align) {
-                if (isByRef(field.ty, mod)) {
+                if (isByRef(field_ty, mod)) {
                     const payload_ptr = try func.buildPointerOffset(result_ptr, layout.tag_size, .new);
-                    try func.store(payload_ptr, payload, field.ty, 0);
+                    try func.store(payload_ptr, payload, field_ty, 0);
                 } else {
-                    try func.store(result_ptr, payload, field.ty, @as(u32, @intCast(layout.tag_size)));
+                    try func.store(result_ptr, payload, field_ty, @intCast(layout.tag_size));
                 }
 
                 if (layout.tag_size > 0) {
-                    try func.store(result_ptr, tag_int, union_obj.tag_ty, 0);
+                    try func.store(result_ptr, tag_int, union_obj.enum_tag_ty.toType(), 0);
                 }
             } else {
-                try func.store(result_ptr, payload, field.ty, 0);
+                try func.store(result_ptr, payload, field_ty, 0);
                 if (layout.tag_size > 0) {
                     try func.store(
                         result_ptr,
                         tag_int,
-                        union_obj.tag_ty,
-                        @as(u32, @intCast(layout.payload_size)),
+                        union_obj.enum_tag_ty.toType(),
+                        @intCast(layout.payload_size),
                     );
                 }
             }
@@ -5216,18 +5220,18 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         } else {
             const operand = try func.resolveInst(extra.init);
             const union_int_type = try mod.intType(.unsigned, @as(u16, @intCast(union_ty.bitSize(mod))));
-            if (field.ty.zigTypeTag(mod) == .Float) {
-                const int_type = try mod.intType(.unsigned, @as(u16, @intCast(field.ty.bitSize(mod))));
-                const bitcasted = try func.bitcast(field.ty, int_type, operand);
+            if (field_ty.zigTypeTag(mod) == .Float) {
+                const int_type = try mod.intType(.unsigned, @intCast(field_ty.bitSize(mod)));
+                const bitcasted = try func.bitcast(field_ty, int_type, operand);
                 const casted = try func.trunc(bitcasted, int_type, union_int_type);
-                break :result try casted.toLocal(func, field.ty);
-            } else if (field.ty.isPtrAtRuntime(mod)) {
-                const int_type = try mod.intType(.unsigned, @as(u16, @intCast(field.ty.bitSize(mod))));
+                break :result try casted.toLocal(func, field_ty);
+            } else if (field_ty.isPtrAtRuntime(mod)) {
+                const int_type = try mod.intType(.unsigned, @intCast(field_ty.bitSize(mod)));
                 const casted = try func.intcast(operand, int_type, union_int_type);
-                break :result try casted.toLocal(func, field.ty);
+                break :result try casted.toLocal(func, field_ty);
             }
-            const casted = try func.intcast(operand, field.ty, union_int_type);
-            break :result try casted.toLocal(func, field.ty);
+            const casted = try func.intcast(operand, field_ty, union_int_type);
+            break :result try casted.toLocal(func, field_ty);
         }
     };
 
