@@ -2876,10 +2876,7 @@ fn buildOutputType(
     // After this point, resolved_system_libs is used instead of external_system_libs.
 
     // We now repeat part of the process for frameworks.
-    var resolved_frameworks: std.MultiArrayList(struct {
-        name: []const u8,
-        framework: Compilation.Framework,
-    }) = .{};
+    var resolved_frameworks = std.ArrayList(Compilation.Framework).init(arena);
 
     if (frameworks.keys().len > 0) {
         var test_path = std.ArrayList(u8).init(gpa);
@@ -2904,13 +2901,10 @@ fn buildOutputType(
                     framework_name,
                 )) {
                     const path = try arena.dupe(u8, test_path.items);
-                    try resolved_frameworks.append(arena, .{
-                        .name = framework_name,
-                        .framework = .{
-                            .needed = info.needed,
-                            .weak = info.weak,
-                            .path = path,
-                        },
+                    try resolved_frameworks.append(.{
+                        .needed = info.needed,
+                        .weak = info.weak,
+                        .path = path,
                     });
                     continue :framework;
                 }
@@ -3327,8 +3321,7 @@ fn buildOutputType(
         .c_source_files = c_source_files.items,
         .link_objects = link_objects.items,
         .framework_dirs = framework_dirs.items,
-        .framework_names = resolved_frameworks.items(.name),
-        .framework_infos = resolved_frameworks.items(.framework),
+        .frameworks = resolved_frameworks.items,
         .system_lib_names = resolved_system_libs.items(.name),
         .system_lib_infos = resolved_system_libs.items(.lib),
         .wasi_emulated_libs = wasi_emulated_libs.items,

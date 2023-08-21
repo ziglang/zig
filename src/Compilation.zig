@@ -507,8 +507,7 @@ pub const InitOptions = struct {
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
-    framework_names: []const []const u8 = &.{},
-    framework_infos: []const Framework = &.{},
+    frameworks: []const Framework = &.{},
     system_lib_names: []const []const u8 = &.{},
     system_lib_infos: []const SystemLib = &.{},
     /// These correspond to the WASI libc emulated subcomponents including:
@@ -831,7 +830,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // Our linker can't handle objects or most advanced options yet.
             if (options.link_objects.len != 0 or
                 options.c_source_files.len != 0 or
-                options.framework_names.len != 0 or
+                options.frameworks.len != 0 or
                 options.system_lib_names.len != 0 or
                 options.link_libc or options.link_libcpp or
                 link_eh_frame_hdr or
@@ -1447,13 +1446,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             system_libs.putAssumeCapacity(lib_name, options.system_lib_infos[i]);
         }
 
-        var frameworks: std.StringArrayHashMapUnmanaged(Framework) = .{};
-        errdefer frameworks.deinit(gpa);
-        try frameworks.ensureTotalCapacity(gpa, options.framework_names.len);
-        for (options.framework_names, options.framework_infos) |framework_name, info| {
-            frameworks.putAssumeCapacity(framework_name, info);
-        }
-
         const bin_file = try link.File.openPath(gpa, .{
             .emit = bin_file_emit,
             .implib_emit = implib_emit,
@@ -1473,7 +1465,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .link_libcpp = link_libcpp,
             .link_libunwind = link_libunwind,
             .objects = options.link_objects,
-            .frameworks = frameworks,
+            .frameworks = options.frameworks,
             .framework_dirs = options.framework_dirs,
             .system_libs = system_libs,
             .wasi_emulated_libs = options.wasi_emulated_libs,
@@ -2275,7 +2267,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 9;
+pub const link_hash_implementation_version = 10;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2285,7 +2277,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 9);
+    comptime assert(link_hash_implementation_version == 10);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2394,7 +2386,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     // Mach-O specific stuff
     man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
-    link.hashAddFrameworks(&man.hash, comp.bin_file.options.frameworks);
+    try link.hashAddFrameworks(man, comp.bin_file.options.frameworks);
     try man.addOptionalFile(comp.bin_file.options.entitlements);
     man.hash.addOptional(comp.bin_file.options.pagezero_size);
     man.hash.addOptional(comp.bin_file.options.headerpad_size);

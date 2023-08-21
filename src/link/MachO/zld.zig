@@ -3396,7 +3396,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // We are about to obtain this lock, so here we give other processes a chance first.
         macho_file.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 9);
+        comptime assert(Compilation.link_hash_implementation_version == 10);
 
         for (options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -3417,7 +3417,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         man.hash.add(options.strip);
         man.hash.addListOfBytes(options.lib_dirs);
         man.hash.addListOfBytes(options.framework_dirs);
-        link.hashAddFrameworks(&man.hash, options.frameworks);
+        try link.hashAddFrameworks(&man, options.frameworks);
         man.hash.addListOfBytes(options.rpath_list);
         if (is_dyn_lib) {
             man.hash.addOptionalBytes(options.install_name);
@@ -3555,9 +3555,8 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
 
         {
-            const vals = options.frameworks.values();
-            try libs.ensureUnusedCapacity(vals.len);
-            for (vals) |v| libs.putAssumeCapacity(v.path, .{
+            try libs.ensureUnusedCapacity(options.frameworks.len);
+            for (options.frameworks) |v| libs.putAssumeCapacity(v.path, .{
                 .needed = v.needed,
                 .weak = v.weak,
                 .path = v.path,
@@ -3664,14 +3663,14 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
             }
 
-            for (options.frameworks.keys()) |framework| {
-                const info = options.frameworks.get(framework).?;
-                const arg = if (info.needed)
-                    try std.fmt.allocPrint(arena, "-needed_framework {s}", .{framework})
-                else if (info.weak)
-                    try std.fmt.allocPrint(arena, "-weak_framework {s}", .{framework})
+            for (options.frameworks) |framework| {
+                const name = std.fs.path.stem(framework.path);
+                const arg = if (framework.needed)
+                    try std.fmt.allocPrint(arena, "-needed_framework {s}", .{name})
+                else if (framework.weak)
+                    try std.fmt.allocPrint(arena, "-weak_framework {s}", .{name})
                 else
-                    try std.fmt.allocPrint(arena, "-framework {s}", .{framework});
+                    try std.fmt.allocPrint(arena, "-framework {s}", .{name});
                 try argv.append(arg);
             }
 
