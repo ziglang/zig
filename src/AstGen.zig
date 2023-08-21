@@ -7270,7 +7270,15 @@ fn numberLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index, source_node:
 
     const result: Zir.Inst.Ref = switch (std.zig.parseNumberLiteral(bytes)) {
         .int => |num| switch (num) {
-            0 => .zero,
+            0 => if (sign == .positive) .zero else return astgen.failTokNotes(
+                num_token,
+                "integer literal '-0' is ambiguous",
+                .{},
+                &.{
+                    try astgen.errNoteTok(num_token, "use '0' for an integer zero", .{}),
+                    try astgen.errNoteTok(num_token, "use '-0.0' for a floating-point signed zero", .{}),
+                },
+            ),
             1 => .one,
             else => try gz.addInt(num),
         },
