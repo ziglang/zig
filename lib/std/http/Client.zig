@@ -958,9 +958,11 @@ pub fn connectUnproxied(client: *Client, host: []const u8, port: u16, protocol: 
     return conn;
 }
 
-pub const ConnectUnixError = Allocator.Error || std.os.SocketError || error{NameTooLong} || std.os.ConnectError;
+pub const ConnectUnixError = Allocator.Error || std.os.SocketError || error{ NameTooLong, Unsupported } || std.os.ConnectError;
 
 pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*ConnectionPool.Node {
+    if (!net.has_unix_sockets) return error.Unsupported;
+
     if (client.connection_pool.findConnection(.{
         .host = path,
         .port = 0,
