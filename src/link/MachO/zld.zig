@@ -3396,7 +3396,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // We are about to obtain this lock, so here we give other processes a chance first.
         macho_file.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 9);
+        comptime assert(Compilation.link_hash_implementation_version == 10);
 
         for (options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -3417,7 +3417,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         man.hash.add(options.strip);
         man.hash.addListOfBytes(options.lib_dirs);
         man.hash.addListOfBytes(options.framework_dirs);
-        link.hashAddFrameworks(&man.hash, options.frameworks);
+        try link.hashAddFrameworks(&man, options.frameworks);
         man.hash.addListOfBytes(options.rpath_list);
         if (is_dyn_lib) {
             man.hash.addOptionalBytes(options.install_name);
@@ -3512,9 +3512,6 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         try zld.atoms.append(gpa, Atom.empty); // AtomIndex at 0 is reserved as null atom
         try zld.strtab.buffer.append(gpa, 0);
 
-        var lib_not_found = false;
-        var framework_not_found = false;
-
         // Positional arguments to the linker such as object files and static archives.
         var positionals = std.ArrayList([]const u8).init(arena);
         try positionals.ensureUnusedCapacity(options.objects.len);
@@ -3557,43 +3554,16 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             for (vals) |v| libs.putAssumeCapacity(v.path.?, v);
         }
 
+        {
+            try libs.ensureUnusedCapacity(options.frameworks.len);
+            for (options.frameworks) |v| libs.putAssumeCapacity(v.path, .{
+                .needed = v.needed,
+                .weak = v.weak,
+                .path = v.path,
+            });
+        }
+
         try MachO.resolveLibSystem(arena, comp, options.sysroot, target, options.lib_dirs, &libs);
-
-        // frameworks
-        var framework_dirs = std.ArrayList([]const u8).init(arena);
-        for (options.framework_dirs) |dir| {
-            if (try MachO.resolveSearchDir(arena, dir, options.sysroot)) |search_dir| {
-                try framework_dirs.append(search_dir);
-            } else {
-                log.warn("directory not found for '-F{s}'", .{dir});
-            }
-        }
-
-        outer: for (options.frameworks.keys()) |f_name| {
-            for (framework_dirs.items) |dir| {
-                for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
-                    if (try MachO.resolveFramework(arena, dir, f_name, ext)) |full_path| {
-                        const info = options.frameworks.get(f_name).?;
-                        try libs.put(full_path, .{
-                            .needed = info.needed,
-                            .weak = info.weak,
-                            .path = full_path,
-                        });
-                        continue :outer;
-                    }
-                }
-            } else {
-                log.warn("framework not found for '-framework {s}'", .{f_name});
-                framework_not_found = true;
-            }
-        }
-
-        if (framework_not_found) {
-            log.warn("Framework search paths:", .{});
-            for (framework_dirs.items) |dir| {
-                log.warn("  {s}", .{dir});
-            }
-        }
 
         if (options.verbose_link) {
             var argv = std.ArrayList([]const u8).init(arena);
@@ -3693,14 +3663,14 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
             }
 
-            for (options.frameworks.keys()) |framework| {
-                const info = options.frameworks.get(framework).?;
-                const arg = if (info.needed)
-                    try std.fmt.allocPrint(arena, "-needed_framework {s}", .{framework})
-                else if (info.weak)
-                    try std.fmt.allocPrint(arena, "-weak_framework {s}", .{framework})
+            for (options.frameworks) |framework| {
+                const name = std.fs.path.stem(framework.path);
+                const arg = if (framework.needed)
+                    try std.fmt.allocPrint(arena, "-needed_framework {s}", .{name})
+                else if (framework.weak)
+                    try std.fmt.allocPrint(arena, "-weak_framework {s}", .{name})
                 else
-                    try std.fmt.allocPrint(arena, "-framework {s}", .{framework});
+                    try std.fmt.allocPrint(arena, "-framework {s}", .{name});
                 try argv.append(arg);
             }
 
@@ -3739,12 +3709,6 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
 
         if (resolver.unresolved.count() > 0) {
             return error.UndefinedSymbolReference;
-        }
-        if (lib_not_found) {
-            return error.LibraryNotFound;
-        }
-        if (framework_not_found) {
-            return error.FrameworkNotFound;
         }
 
         if (options.output_mode == .Exe) {
