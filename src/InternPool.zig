@@ -2846,7 +2846,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.* = undefined;
 }
 
-pub fn indexToKey(ip: *const InternPool, index: Index) Key {
+pub inline fn indexToKey(ip: *const InternPool, index: Index) Key {
     assert(index != .none);
     const item = ip.items.get(@intFromEnum(index));
     const data = item.data;
