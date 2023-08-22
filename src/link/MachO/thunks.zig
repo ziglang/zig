@@ -15,7 +15,7 @@ const mem = std.mem;
 const aarch64 = @import("../../arch/aarch64/bits.zig");
 
 const Allocator = mem.Allocator;
-const Atom = @import("ZldAtom.zig");
+const Atom = @import("Atom.zig");
 const AtomIndex = @import("zld.zig").AtomIndex;
 const MachO = @import("../MachO.zig");
 const Relocation = @import("Relocation.zig");

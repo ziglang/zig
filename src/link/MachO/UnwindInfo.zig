@@ -12,7 +12,7 @@ const mem = std.mem;
 const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
-const Atom = @import("ZldAtom.zig");
+const Atom = @import("Atom.zig");
 const AtomIndex = @import("zld.zig").AtomIndex;
 const EhFrameRecord = eh_frame.EhFrameRecord;
 const MachO = @import("../MachO.zig");

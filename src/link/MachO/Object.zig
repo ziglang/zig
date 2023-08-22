@@ -19,7 +19,7 @@ const sort = std.sort;
 const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
-const Atom = @import("ZldAtom.zig");
+const Atom = @import("Atom.zig");
 const AtomIndex = @import("zld.zig").AtomIndex;
 const DwarfInfo = @import("DwarfInfo.zig");
 const LoadCommandIterator = macho.LoadCommandIterator;

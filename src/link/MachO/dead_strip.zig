@@ -10,7 +10,7 @@ const mem = std.mem;
 
 const Allocator = mem.Allocator;
 const AtomIndex = @import("zld.zig").AtomIndex;
-const Atom = @import("ZldAtom.zig");
+const Atom = @import("Atom.zig");
 const MachO = @import("../MachO.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
 const SymbolResolver = MachO.SymbolResolver;

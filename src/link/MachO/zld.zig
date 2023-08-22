@@ -21,7 +21,7 @@ const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
-const Atom = @import("ZldAtom.zig");
+const Atom = @import("Atom.zig");
 const Cache = std.Build.Cache;
 const CodeSignature = @import("CodeSignature.zig");
 const Compilation = @import("../../Compilation.zig");
@@ -247,7 +247,16 @@ pub const Zld = struct {
         const gpa = self.gpa;
         const index = @as(AtomIndex, @intCast(self.atoms.items.len));
         const atom = try self.atoms.addOne(gpa);
-        atom.* = Atom.empty;
+        atom.* = .{
+            .sym_index = 0,
+            .inner_sym_index = 0,
+            .inner_nsyms_trailing = 0,
+            .file = 0,
+            .size = 0,
+            .alignment = 0,
+            .prev_index = null,
+            .next_index = null,
+        };
         atom.sym_index = sym_index;
         atom.size = size;
         atom.alignment = alignment;
@@ -3169,6 +3178,14 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         };
         defer zld.deinit();
 
+        // Index 0 is always a null symbol.
+        try zld.locals.append(gpa, .{
+            .n_strx = 0,
+            .n_type = 0,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = 0,
+        });
         try zld.strtab.buffer.append(gpa, 0);
 
         // Positional arguments to the linker such as object files and static archives.

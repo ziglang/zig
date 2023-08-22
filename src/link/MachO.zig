@@ -1597,8 +1597,11 @@ pub fn createAtom(self: *MachO) !Atom.Index {
     try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom_index);
     atom.* = .{
         .sym_index = sym_index,
+        .inner_sym_index = 0,
+        .inner_nsyms_trailing = 0,
         .file = 0,
         .size = 0,
+        .alignment = 0,
         .prev_index = null,
         .next_index = null,
     };
