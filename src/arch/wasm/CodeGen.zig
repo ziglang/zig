@@ -3067,51 +3067,6 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
     }
     if (val.isUndefDeep(mod)) return func.emitUndefined(ty);
 
-    if (val.ip_index == .none) switch (ty.zigTypeTag(mod)) {
-        .Array => |zig_type| return func.fail("Wasm TODO: LowerConstant for zigTypeTag {}", .{zig_type}),
-        .Struct => {
-            const struct_obj = mod.typeToStruct(ty).?;
-            assert(struct_obj.layout == .Packed);
-            var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
-            val.writeToPackedMemory(ty, func.bin_file.base.options.module.?, &buf, 0) catch unreachable;
-            const int_val = try mod.intValue(
-                struct_obj.backing_int_ty,
-                std.mem.readIntLittle(u64, &buf),
-            );
-            return func.lowerConstant(int_val, struct_obj.backing_int_ty);
-        },
-        .Vector => {
-            assert(determineSimdStoreStrategy(ty, mod) == .direct);
-            var buf: [16]u8 = undefined;
-            val.writeToMemory(ty, mod, &buf) catch unreachable;
-            return func.storeSimdImmd(buf);
-        },
-        .Frame,
-        .AnyFrame,
-        => return func.fail("Wasm TODO: LowerConstant for type {}", .{ty.fmt(mod)}),
-        .Float,
-        .Union,
-        .Optional,
-        .ErrorUnion,
-        .ErrorSet,
-        .Int,
-        .Enum,
-        .Bool,
-        .Pointer,
-        => unreachable, // handled below
-        .Type,
-        .Void,
-        .NoReturn,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .Opaque,
-        .EnumLiteral,
-        .Fn,
-        => unreachable, // comptime-only types
-    };
-
     switch (ip.indexToKey(val.ip_index)) {
         .int_type,
         .ptr_type,
