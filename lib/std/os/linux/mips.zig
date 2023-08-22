@@ -195,16 +195,18 @@ const CloneFn = *const fn (arg: usize) callconv(.C) u8;
 /// This matches the libc clone function.
 pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
-pub fn restore() callconv(.Naked) void {
-    return asm volatile ("syscall"
+pub fn restore() callconv(.Naked) noreturn {
+    asm volatile (
+        \\ syscall
         :
         : [number] "{$2}" (@intFromEnum(SYS.sigreturn)),
         : "$1", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "$15", "$24", "$25", "hi", "lo", "memory"
     );
 }
 
-pub fn restore_rt() callconv(.Naked) void {
-    return asm volatile ("syscall"
+pub fn restore_rt() callconv(.Naked) noreturn {
+    asm volatile (
+        \\ syscall
         :
         : [number] "{$2}" (@intFromEnum(SYS.rt_sigreturn)),
         : "$1", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "$15", "$24", "$25", "hi", "lo", "memory"

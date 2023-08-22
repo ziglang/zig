@@ -26,7 +26,7 @@ comptime {
 }
 
 pub fn __floorh(x: f16) callconv(.C) f16 {
-    var u = @as(u16, @bitCast(x));
+    var u: u16 = @bitCast(x);
     const e = @as(i16, @intCast((u >> 10) & 31)) - 15;
     var m: u16 = undefined;
 
@@ -132,7 +132,7 @@ pub fn __floorx(x: f80) callconv(.C) f80 {
 pub fn floorq(x: f128) callconv(.C) f128 {
     const f128_toint = 1.0 / math.floatEps(f128);
 
-    const u = @as(u128, @bitCast(x));
+    const u: u128 = @bitCast(x);
     const e = (u >> 112) & 0x7FFF;
     var y: f128 = undefined;
 

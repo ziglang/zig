@@ -21,7 +21,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    dylib.addCSourceFile("a.c", &.{});
+    dylib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     dylib.linkLibC();
 
     // -dead_strip_dylibs
@@ -31,16 +31,18 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkLibC();
     exe.linkSystemLibraryNeeded("a");
-    exe.addLibraryPathDirectorySource(dylib.getOutputDirectorySource());
-    exe.addRPathDirectorySource(dylib.getOutputDirectorySource());
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
     exe.dead_strip_dylibs = true;
 
     const check = exe.checkObject();
-    check.checkStart("cmd LOAD_DYLIB");
-    check.checkNext("name @rpath/liba.dylib");
+    check.checkStart();
+    check.checkExact("cmd LOAD_DYLIB");
+    check.checkExact("name @rpath/liba.dylib");
+    test_step.dependOn(&check.step);
 
     const run = b.addRunArtifact(exe);
     run.skip_foreign_checks = true;

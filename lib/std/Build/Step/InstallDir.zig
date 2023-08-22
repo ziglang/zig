@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
 const Step = std.Build.Step;
-const FileSource = std.Build.FileSource;
+const LazyPath = std.Build.LazyPath;
 const InstallDir = std.Build.InstallDir;
 const InstallDirStep = @This();
 
@@ -15,7 +15,7 @@ dest_builder: *std.Build,
 pub const base_id = .install_dir;
 
 pub const Options = struct {
-    source_dir: FileSource,
+    source_dir: LazyPath,
     install_dir: InstallDir,
     install_subdir: []const u8,
     /// File paths which end in any of these suffixes will be excluded

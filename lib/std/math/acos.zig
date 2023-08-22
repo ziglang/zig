@@ -117,7 +117,7 @@ fn acos64(x: f64) f64 {
             }
         }
 
-        return math.nan(f32);
+        return math.nan(f64);
     }
 
     // |x| < 0.5

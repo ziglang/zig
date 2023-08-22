@@ -18,7 +18,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });
-    lib.addCSourceFile("bootstrap.c", &.{});
+    lib.addCSourceFile(.{ .file = .{ .path = "bootstrap.c" }, .flags = &.{} });
     lib.linkLibC();
     lib.linker_allow_shlib_undefined = true;
 
@@ -27,26 +27,30 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });
-    exe.addCSourceFile("main.c", &.{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkLibrary(lib);
     exe.linkLibC();
     exe.entry_symbol_name = "_bootstrap";
     exe.forceUndefinedSymbol("_my_main");
 
     const check_exe = exe.checkObject();
-    check_exe.checkStart("segname __TEXT");
-    check_exe.checkNext("vmaddr {text_vmaddr}");
+    check_exe.checkStart();
+    check_exe.checkExact("segname __TEXT");
+    check_exe.checkExtract("vmaddr {text_vmaddr}");
 
-    check_exe.checkStart("sectname __stubs");
-    check_exe.checkNext("addr {stubs_vmaddr}");
+    check_exe.checkStart();
+    check_exe.checkExact("sectname __stubs");
+    check_exe.checkExtract("addr {stubs_vmaddr}");
 
-    check_exe.checkStart("cmd MAIN");
-    check_exe.checkNext("entryoff {entryoff}");
+    check_exe.checkStart();
+    check_exe.checkExact("cmd MAIN");
+    check_exe.checkExtract("entryoff {entryoff}");
 
     check_exe.checkComputeCompare("text_vmaddr entryoff +", .{
         .op = .eq,
         .value = .{ .variable = "stubs_vmaddr" }, // The entrypoint should be a synthetic stub
     });
+    test_step.dependOn(&check_exe.step);
 
     const run = b.addRunArtifact(exe);
     run.skip_foreign_checks = true;

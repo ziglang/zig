@@ -12,6 +12,7 @@ const Value = @import("../../value.zig").Value;
 const TypedValue = @import("../../TypedValue.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
+const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
@@ -43,7 +44,7 @@ air: Air,
 liveness: Liveness,
 bin_file: *link.File,
 target: *const std.Target,
-mod_fn: *const Module.Fn,
+func_index: InternPool.Index,
 code: *std.ArrayList(u8),
 debug_output: DebugInfoOutput,
 err_msg: ?*ErrorMsg,
@@ -217,7 +218,7 @@ const Self = @This();
 pub fn generate(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    module_fn_index: Module.Fn.Index,
+    func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
@@ -228,8 +229,8 @@ pub fn generate(
     }
 
     const mod = bin_file.options.module.?;
-    const module_fn = mod.funcPtr(module_fn_index);
-    const fn_owner_decl = mod.declPtr(module_fn.owner_decl);
+    const func = mod.funcInfo(func_index);
+    const fn_owner_decl = mod.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
 
@@ -247,7 +248,7 @@ pub fn generate(
         .liveness = liveness,
         .target = &bin_file.options.target,
         .bin_file = bin_file,
-        .mod_fn = module_fn,
+        .func_index = func_index,
         .code = code,
         .debug_output = debug_output,
         .err_msg = null,
@@ -258,8 +259,8 @@ pub fn generate(
         .branch_stack = &branch_stack,
         .src_loc = src_loc,
         .stack_align = undefined,
-        .end_di_line = module_fn.rbrace_line,
-        .end_di_column = module_fn.rbrace_column,
+        .end_di_line = func.rbrace_line,
+        .end_di_column = func.rbrace_column,
     };
     defer function.stack.deinit(bin_file.allocator);
     defer function.blocks.deinit(bin_file.allocator);
@@ -301,8 +302,8 @@ pub fn generate(
         .src_loc = src_loc,
         .code = code,
         .prev_di_pc = 0,
-        .prev_di_line = module_fn.lbrace_line,
-        .prev_di_column = module_fn.lbrace_column,
+        .prev_di_line = func.lbrace_line,
+        .prev_di_column = func.lbrace_column,
     };
     defer emit.deinit();
 
@@ -1627,13 +1628,15 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
+    const mod = self.bin_file.options.module.?;
     const arg = self.air.instructions.items(.data)[inst].arg;
     const ty = self.air.getRefType(arg.ty);
-    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg.src_index);
+    const owner_decl = mod.funcOwnerDeclIndex(self.func_index);
+    const name = mod.getParamName(self.func_index, arg.src_index);
 
     switch (self.debug_output) {
         .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genArgDbgInfo(name, ty, self.mod_fn.owner_decl, .{
+            .register => |reg| try dw.genArgDbgInfo(name, ty, owner_decl, .{
                 .register = reg.dwarfLocOp(),
             }),
             .stack_offset => {},
@@ -1742,24 +1745,28 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         }
 
         if (try self.air.value(callee, mod)) |func_value| {
-            if (mod.funcPtrUnwrap(mod.intern_pool.indexToFunc(func_value.ip_index))) |func| {
-                const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
-                const atom = elf_file.getAtom(atom_index);
-                _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-                const got_addr = @as(u32, @intCast(atom.getOffsetTableAddress(elf_file)));
-                try self.genSetReg(Type.usize, .ra, .{ .memory = got_addr });
-                _ = try self.addInst(.{
-                    .tag = .jalr,
-                    .data = .{ .i_type = .{
-                        .rd = .ra,
-                        .rs1 = .ra,
-                        .imm12 = 0,
-                    } },
-                });
-            } else if (mod.intern_pool.indexToKey(func_value.ip_index) == .extern_func) {
-                return self.fail("TODO implement calling extern functions", .{});
-            } else {
-                return self.fail("TODO implement calling bitcasted functions", .{});
+            switch (mod.intern_pool.indexToKey(func_value.ip_index)) {
+                .func => |func| {
+                    const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
+                    const atom = elf_file.getAtom(atom_index);
+                    _ = try atom.getOrCreateOffsetTableEntry(elf_file);
+                    const got_addr = @as(u32, @intCast(atom.getOffsetTableAddress(elf_file)));
+                    try self.genSetReg(Type.usize, .ra, .{ .memory = got_addr });
+                    _ = try self.addInst(.{
+                        .tag = .jalr,
+                        .data = .{ .i_type = .{
+                            .rd = .ra,
+                            .rs1 = .ra,
+                            .imm12 = 0,
+                        } },
+                    });
+                },
+                .extern_func => {
+                    return self.fail("TODO implement calling extern functions", .{});
+                },
+                else => {
+                    return self.fail("TODO implement calling bitcasted functions", .{});
+                },
             }
         } else {
             return self.fail("TODO implement calling runtime-known function pointer", .{});
@@ -1876,9 +1883,9 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
     const mod = self.bin_file.options.module.?;
-    const function = mod.funcPtr(ty_fn.func);
+    const func = mod.funcInfo(ty_fn.func);
     // TODO emit debug info for function change
-    _ = function;
+    _ = func;
     return self.finishAir(inst, .dead, .{ .none, .none, .none });
 }
 
@@ -2569,11 +2576,12 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
 }
 
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
+    const mod = self.bin_file.options.module.?;
     const mcv: MCValue = switch (try codegen.genTypedValue(
         self.bin_file,
         self.src_loc,
         typed_value,
-        self.mod_fn.owner_decl,
+        mod.funcOwnerDeclIndex(self.func_index),
     )) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
@@ -2605,6 +2613,7 @@ const CallMCValues = struct {
 /// Caller must call `CallMCValues.deinit`.
 fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
     const mod = self.bin_file.options.module.?;
+    const ip = &mod.intern_pool;
     const fn_info = mod.typeToFunc(fn_ty).?;
     const cc = fn_info.cc;
     var result: CallMCValues = .{
@@ -2636,14 +2645,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             var next_stack_offset: u32 = 0;
             const argument_registers = [_]Register{ .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7 };
 
-            for (fn_info.param_types, 0..) |ty, i| {
+            for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
                 const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
                 if (param_size <= 8) {
                     if (next_register < argument_registers.len) {
-                        result.args[i] = .{ .register = argument_registers[next_register] };
+                        result_arg.* = .{ .register = argument_registers[next_register] };
                         next_register += 1;
                     } else {
-                        result.args[i] = .{ .stack_offset = next_stack_offset };
+                        result_arg.* = .{ .stack_offset = next_stack_offset };
                         next_register += next_stack_offset;
                     }
                 } else if (param_size <= 16) {
@@ -2652,11 +2661,11 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     } else if (next_register < argument_registers.len) {
                         return self.fail("TODO MCValues split register + stack", .{});
                     } else {
-                        result.args[i] = .{ .stack_offset = next_stack_offset };
+                        result_arg.* = .{ .stack_offset = next_stack_offset };
                         next_register += next_stack_offset;
                     }
                 } else {
-                    result.args[i] = .{ .stack_offset = next_stack_offset };
+                    result_arg.* = .{ .stack_offset = next_stack_offset };
                     next_register += next_stack_offset;
                 }
             }

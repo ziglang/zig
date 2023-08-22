@@ -9,7 +9,7 @@ const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
 
-const zig_version = std.SemanticVersion{ .major = 0, .minor = 11, .patch = 0 };
+const zig_version = std.SemanticVersion{ .major = 0, .minor = 12, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
@@ -24,17 +24,19 @@ pub fn build(b: *std.Build) !void {
 
     const optimize = b.standardOptimizeOption(.{});
 
+    const flat = b.option(bool, "flat", "Put files into the installation prefix in a manner suited for upstream distribution rather than a posix file system hierarchy standard") orelse false;
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     const test_step = b.step("test", "Run all the tests");
     const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
+    const skip_install_autodocs = b.option(bool, "no-autodocs", "skip copying of standard library autodocs to the installation prefix") orelse skip_install_lib_files;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
-        .root_source_file = .{ .path = "doc/docgen.zig" },
+        .root_source_file = .{ .path = "tools/docgen.zig" },
         .target = .{},
         .optimize = .Debug,
     });
@@ -43,24 +45,51 @@ pub fn build(b: *std.Build) !void {
     const docgen_cmd = b.addRunArtifact(docgen_exe);
     docgen_cmd.addArgs(&.{ "--zig", b.zig_exe });
     if (b.zig_lib_dir) |p| {
-        docgen_cmd.addArgs(&.{ "--zig-lib-dir", p });
+        docgen_cmd.addArg("--zig-lib-dir");
+        docgen_cmd.addDirectoryArg(p);
     }
-    docgen_cmd.addFileSourceArg(.{ .path = "doc/langref.html.in" });
+    docgen_cmd.addFileArg(.{ .path = "doc/langref.html.in" });
     const langref_file = docgen_cmd.addOutputFileArg("langref.html");
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
     if (!skip_install_langref) {
         b.getInstallStep().dependOn(&install_langref.step);
     }
 
-    const docs_step = b.step("docs", "Build documentation");
-    docs_step.dependOn(&docgen_cmd.step);
+    const autodoc_test = b.addTest(.{
+        .root_source_file = .{ .path = "lib/std/std.zig" },
+        .target = target,
+        .zig_lib_dir = .{ .path = "lib" },
+    });
+    const install_std_docs = b.addInstallDirectory(.{
+        .source_dir = autodoc_test.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "doc/std",
+    });
+    if (!skip_install_autodocs) {
+        b.getInstallStep().dependOn(&install_std_docs.step);
+    }
+
+    if (flat) {
+        b.installFile("LICENSE", "LICENSE");
+        b.installFile("README.md", "README.md");
+    }
+
+    const langref_step = b.step("langref", "Build and install the language reference");
+    langref_step.dependOn(&install_langref.step);
+
+    const std_docs_step = b.step("std-docs", "Build and install the standard library documentation");
+    std_docs_step.dependOn(&install_std_docs.step);
+
+    const docs_step = b.step("docs", "Build and install documentation");
+    docs_step.dependOn(langref_step);
+    docs_step.dependOn(std_docs_step);
 
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
         .root_source_file = .{ .path = "test/src/Cases.zig" },
         .optimize = optimize,
+        .main_pkg_path = .{ .path = "." },
     });
-    check_case_exe.main_pkg_path = ".";
     check_case_exe.stack_size = stack_size;
     check_case_exe.single_threaded = single_threaded;
 
@@ -99,15 +128,16 @@ pub fn build(b: *std.Build) !void {
         "llvm-has-xtensa",
         "Whether LLVM has the experimental target xtensa enabled",
     ) orelse false;
-    const enable_macos_sdk = b.option(bool, "enable-macos-sdk", "Run tests requiring presence of macOS SDK and frameworks") orelse false;
+    const enable_ios_sdk = b.option(bool, "enable-ios-sdk", "Run tests requiring presence of iOS SDK and frameworks") orelse false;
+    const enable_macos_sdk = b.option(bool, "enable-macos-sdk", "Run tests requiring presence of macOS SDK and frameworks") orelse enable_ios_sdk;
     const enable_symlinks_windows = b.option(bool, "enable-symlinks-windows", "Run tests requiring presence of symlinks on Windows") orelse false;
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
     if (!skip_install_lib_files) {
-        b.installDirectory(InstallDirectoryOptions{
+        b.installDirectory(.{
             .source_dir = .{ .path = "lib" },
-            .install_dir = .lib,
-            .install_subdir = "zig",
+            .install_dir = if (flat) .prefix else .lib,
+            .install_subdir = if (flat) "lib" else "zig",
             .exclude_extensions = &[_][]const u8{
                 // exclude files from lib/std/compress/testdata
                 ".gz",
@@ -167,7 +197,6 @@ pub fn build(b: *std.Build) !void {
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
     exe.entitlements = entitlements;
-    if (no_bin) exe.emit_bin = .no_emit;
 
     exe.build_id = b.option(
         std.Build.Step.Compile.BuildId,
@@ -175,7 +204,12 @@ pub fn build(b: *std.Build) !void {
         "Request creation of '.note.gnu.build-id' section",
     );
 
-    b.installArtifact(exe);
+    if (!no_bin) {
+        const install_exe = b.addInstallArtifact(exe, .{
+            .dest_dir = if (flat) .{ .override = .prefix } else .default,
+        });
+        b.getInstallStep().dependOn(&install_exe.step);
+    }
 
     test_step.dependOn(&exe.step);
 
@@ -314,10 +348,9 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
     exe_options.addOption(bool, "value_tracing", value_tracing);
     if (tracy) |tracy_path| {
-        const client_cpp = fs.path.join(
-            b.allocator,
+        const client_cpp = b.pathJoin(
             &[_][]const u8{ tracy_path, "public", "TracyClient.cpp" },
-        ) catch unreachable;
+        );
 
         // On mingw, we need to opt into windows 7+ to get some features required by tracy.
         const tracy_c_flags: []const []const u8 = if (target.isWindows() and target.getAbi() == .gnu)
@@ -325,8 +358,8 @@ pub fn build(b: *std.Build) !void {
         else
             &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
 
-        exe.addIncludePath(tracy_path);
-        exe.addCSourceFile(client_cpp, tracy_c_flags);
+        exe.addIncludePath(.{ .cwd_relative = tracy_path });
+        exe.addCSourceFile(.{ .file = .{ .cwd_relative = client_cpp }, .flags = tracy_c_flags });
         if (!enable_llvm) {
             exe.linkSystemLibraryName("c++");
         }
@@ -368,22 +401,22 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(std.SemanticVersion, "semver", semver);
     test_cases_options.addOption(?[]const u8, "test_filter", test_filter);
 
-    var chosen_opt_modes_buf: [4]builtin.Mode = undefined;
+    var chosen_opt_modes_buf: [4]builtin.OptimizeMode = undefined;
     var chosen_mode_index: usize = 0;
     if (!skip_debug) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.Debug;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.Debug;
         chosen_mode_index += 1;
     }
     if (!skip_release_safe) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.ReleaseSafe;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.ReleaseSafe;
         chosen_mode_index += 1;
     }
     if (!skip_release_fast) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.ReleaseFast;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.ReleaseFast;
         chosen_mode_index += 1;
     }
     if (!skip_release_small) {
-        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.ReleaseSmall;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.OptimizeMode.ReleaseSmall;
         chosen_mode_index += 1;
     }
     const optimization_modes = chosen_opt_modes_buf[0..chosen_mode_index];
@@ -402,7 +435,13 @@ pub fn build(b: *std.Build) !void {
     }).step);
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
-    try tests.addCases(b, test_cases_step, test_filter, check_case_exe);
+    try tests.addCases(b, test_cases_step, test_filter, check_case_exe, .{
+        .enable_llvm = enable_llvm,
+        .llvm_has_m68k = llvm_has_m68k,
+        .llvm_has_csky = llvm_has_csky,
+        .llvm_has_arc = llvm_has_arc,
+        .llvm_has_xtensa = llvm_has_xtensa,
+    });
     test_step.dependOn(test_cases_step);
 
     test_step.dependOn(tests.addModuleTests(b, .{
@@ -447,11 +486,12 @@ pub fn build(b: *std.Build) !void {
         b,
         optimization_modes,
         enable_macos_sdk,
+        enable_ios_sdk,
         false,
         enable_symlinks_windows,
     ));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
-    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, false, enable_symlinks_windows));
+    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, false, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, optimization_modes));
@@ -516,7 +556,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     });
     run_opt.addArtifactArg(exe);
     run_opt.addArg("-o");
-    run_opt.addFileSourceArg(.{ .path = "stage1/zig1.wasm" });
+    run_opt.addFileArg(.{ .path = "stage1/zig1.wasm" });
 
     const copy_zig_h = b.addWriteFiles();
     copy_zig_h.addCopyFileToSource(.{ .path = "lib/zig.h" }, "stage1/zig.h");
@@ -565,7 +605,7 @@ fn addCmakeCfgOptionsToExe(
         // useful for package maintainers
         exe.headerpad_max_install_names = true;
     }
-    exe.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
+    exe.addObjectFile(.{ .cwd_relative = b.pathJoin(&[_][]const u8{
         cfg.cmake_binary_dir,
         "zigcpp",
         b.fmt("{s}{s}{s}", .{
@@ -573,11 +613,11 @@ fn addCmakeCfgOptionsToExe(
             "zigcpp",
             cfg.cmake_static_library_suffix,
         }),
-    }) catch unreachable);
+    }) });
     assert(cfg.lld_include_dir.len != 0);
-    exe.addIncludePath(cfg.lld_include_dir);
-    exe.addIncludePath(cfg.llvm_include_dir);
-    exe.addLibraryPath(cfg.llvm_lib_dir);
+    exe.addIncludePath(.{ .cwd_relative = cfg.lld_include_dir });
+    exe.addIncludePath(.{ .cwd_relative = cfg.llvm_include_dir });
+    exe.addLibraryPath(.{ .cwd_relative = cfg.llvm_lib_dir });
     addCMakeLibraryList(exe, cfg.clang_libraries);
     addCMakeLibraryList(exe, cfg.lld_libraries);
     addCMakeLibraryList(exe, cfg.llvm_libraries);
@@ -592,14 +632,16 @@ fn addCmakeCfgOptionsToExe(
         const lib_suffix = if (static) exe.target.staticLibSuffix()[1..] else exe.target.dynamicLibSuffix()[1..];
         switch (exe.target.getOsTag()) {
             .linux => {
-                // First we try to link against gcc libstdc++. If that doesn't work, we fall
-                // back to -lc++ and cross our fingers.
-                addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), "", need_cpp_includes) catch |err| switch (err) {
-                    error.RequiredLibraryNotFound => {
-                        exe.linkLibCpp();
-                    },
-                    else => |e| return e,
-                };
+                // First we try to link against system libstdc++ or libc++.
+                // If that doesn't work, we fall to -lc++ and cross our fingers.
+                const found = for ([_][]const u8{ "stdc++", "c++" }) |name| {
+                    addCxxKnownPath(b, cfg, exe, b.fmt("lib{s}.{s}", .{ name, lib_suffix }), "", need_cpp_includes) catch |err| switch (err) {
+                        error.RequiredLibraryNotFound => continue,
+                        else => |e| return e,
+                    };
+                    break true;
+                } else false;
+                if (!found) exe.linkLibCpp();
                 exe.linkSystemLibrary("unwind");
             },
             .ios, .macos, .watchos, .tvos => {
@@ -633,7 +675,7 @@ fn addCmakeCfgOptionsToExe(
     }
 
     if (cfg.dia_guids_lib.len != 0) {
-        exe.addObjectFile(cfg.dia_guids_lib);
+        exe.addObjectFile(.{ .cwd_relative = cfg.dia_guids_lib });
     }
 }
 
@@ -694,7 +736,7 @@ fn addCxxKnownPath(
         }
         return error.RequiredLibraryNotFound;
     }
-    exe.addObjectFile(path_unpadded);
+    exe.addObjectFile(.{ .cwd_relative = path_unpadded });
 
     // TODO a way to integrate with system c++ include files here
     // c++ -E -Wp,-v -xc++ /dev/null
@@ -714,7 +756,7 @@ fn addCMakeLibraryList(exe: *std.Build.Step.Compile, list: []const u8) void {
         } else if (exe.target.isWindows() and mem.endsWith(u8, lib, ".lib") and !fs.path.isAbsolute(lib)) {
             exe.linkSystemLibrary(lib[0 .. lib.len - ".lib".len]);
         } else {
-            exe.addObjectFile(lib);
+            exe.addObjectFile(.{ .cwd_relative = lib });
         }
     }
 }
@@ -889,8 +931,6 @@ const zig_cpp_sources = [_][]const u8{
     "src/zig_clang_driver.cpp",
     "src/zig_clang_cc1_main.cpp",
     "src/zig_clang_cc1as_main.cpp",
-    // https://github.com/ziglang/zig/issues/6363
-    "src/windows_sdk.cpp",
 };
 
 const clang_libs = [_][]const u8{

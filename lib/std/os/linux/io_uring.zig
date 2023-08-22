@@ -1507,7 +1507,7 @@ pub fn io_uring_prep_renameat(
         0,
         @intFromPtr(new_path),
     );
-    sqe.len = @as(u32, @bitCast(new_dir_fd));
+    sqe.len = @bitCast(new_dir_fd);
     sqe.rw_flags = flags;
 }
 
@@ -1562,7 +1562,7 @@ pub fn io_uring_prep_linkat(
         0,
         @intFromPtr(new_path),
     );
-    sqe.len = @as(u32, @bitCast(new_dir_fd));
+    sqe.len = @bitCast(new_dir_fd);
     sqe.rw_flags = flags;
 }
 
@@ -1576,7 +1576,7 @@ pub fn io_uring_prep_provide_buffers(
 ) void {
     const ptr = @intFromPtr(buffers);
     io_uring_prep_rw(.PROVIDE_BUFFERS, sqe, @as(i32, @intCast(num)), ptr, buffer_len, buffer_id);
-    sqe.buf_index = @as(u16, @intCast(group_id));
+    sqe.buf_index = @intCast(group_id);
 }
 
 pub fn io_uring_prep_remove_buffers(
@@ -1585,7 +1585,7 @@ pub fn io_uring_prep_remove_buffers(
     group_id: usize,
 ) void {
     io_uring_prep_rw(.REMOVE_BUFFERS, sqe, @as(i32, @intCast(num)), 0, 0, 0);
-    sqe.buf_index = @as(u16, @intCast(group_id));
+    sqe.buf_index = @intCast(group_id);
 }
 
 test "structs/offsets/entries" {
@@ -1978,11 +1978,6 @@ test "close" {
 test "accept/connect/send/recv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
-
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2024,11 +2019,6 @@ test "accept/connect/send/recv" {
 test "sendmsg/recvmsg" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
-
     var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2036,14 +2026,17 @@ test "sendmsg/recvmsg" {
     };
     defer ring.deinit();
 
-    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
-    const address_server = try net.Address.parseIp4("127.0.0.1", 3131);
+    var address_server = try net.Address.parseIp4("127.0.0.1", 0);
 
     const server = try os.socket(address_server.any.family, os.SOCK.DGRAM, 0);
     defer os.close(server);
     try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEPORT, &mem.toBytes(@as(c_int, 1)));
     try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
     try os.bind(server, &address_server.any, address_server.getOsSockLen());
+
+    // set address_server to the OS-chosen IP/port.
+    var slen: os.socklen_t = address_server.getOsSockLen();
+    try os.getsockname(server, &address_server.any, &slen);
 
     const client = try os.socket(address_server.any.family, os.SOCK.DGRAM, 0);
     defer os.close(client);
@@ -2236,11 +2229,6 @@ test "timeout_remove" {
 test "accept/connect/recv/link_timeout" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
-
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2391,11 +2379,6 @@ test "statx" {
 test "accept/connect/recv/cancel" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
-
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2533,11 +2516,6 @@ test "register_files_update" {
 test "shutdown" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
-
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2545,8 +2523,7 @@ test "shutdown" {
     };
     defer ring.deinit();
 
-    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
-    const address = try net.Address.parseIp4("127.0.0.1", 3131);
+    var address = try net.Address.parseIp4("127.0.0.1", 0);
 
     // Socket bound, expect shutdown to work
     {
@@ -2555,6 +2532,10 @@ test "shutdown" {
         try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
         try os.bind(server, &address.any, address.getOsSockLen());
         try os.listen(server, 1);
+
+        // set address to the OS-chosen IP/port.
+        var slen: os.socklen_t = address.getOsSockLen();
+        try os.getsockname(server, &address.any, &slen);
 
         var shutdown_sqe = try ring.shutdown(0x445445445, server, os.linux.SHUT.RD);
         try testing.expectEqual(linux.IORING_OP.SHUTDOWN, shutdown_sqe.opcode);
@@ -3091,11 +3072,6 @@ test "remove_buffers" {
 test "provide_buffers: accept/connect/send/recv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
-
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -3272,8 +3248,7 @@ const SocketTestHarness = struct {
 fn createSocketTestHarness(ring: *IO_Uring) !SocketTestHarness {
     // Create a TCP server socket
 
-    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
-    const address = try net.Address.parseIp4("127.0.0.1", 3131);
+    var address = try net.Address.parseIp4("127.0.0.1", 0);
     const kernel_backlog = 1;
     const listener_socket = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
     errdefer os.closeSocket(listener_socket);
@@ -3281,6 +3256,10 @@ fn createSocketTestHarness(ring: *IO_Uring) !SocketTestHarness {
     try os.setsockopt(listener_socket, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
     try os.bind(listener_socket, &address.any, address.getOsSockLen());
     try os.listen(listener_socket, kernel_backlog);
+
+    // set address to the OS-chosen IP/port.
+    var slen: os.socklen_t = address.getOsSockLen();
+    try os.getsockname(listener_socket, &address.any, &slen);
 
     // Submit 1 accept
     var accept_addr: os.sockaddr = undefined;

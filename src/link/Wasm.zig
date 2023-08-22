@@ -12,6 +12,7 @@ const log = std.log.scoped(.link);
 pub const Atom = @import("Wasm/Atom.zig");
 const Dwarf = @import("Dwarf.zig");
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
 const codegen = @import("../codegen.zig");
@@ -124,6 +125,8 @@ exports: std.ArrayListUnmanaged(types.Export) = .{},
 /// List of initialization functions. These must be called in order of priority
 /// by the (synthetic) __wasm_call_ctors function.
 init_funcs: std.ArrayListUnmanaged(InitFuncLoc) = .{},
+/// Index to a function defining the entry of the wasm file
+entry: ?u32 = null,
 
 /// Indirect function table, used to call function pointers
 /// When this is non-zero, we must emit a table entry,
@@ -357,7 +360,7 @@ pub const StringTable = struct {
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
     assert(options.target.ofmt == .wasm);
 
-    if (build_options.have_llvm and options.use_llvm and options.use_lld) {
+    if (options.use_llvm and options.use_lld) {
         return createEmpty(allocator, options);
     }
 
@@ -408,7 +411,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
                 },
             );
         } else {
-            symbol.index = @as(u32, @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len));
+            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
             const global = try wasm_bin.wasm_globals.addOne(allocator);
             global.* = .{
@@ -431,7 +434,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         };
         if (options.output_mode == .Obj or options.import_table) {
             symbol.setUndefined(true);
-            symbol.index = @as(u32, @intCast(wasm_bin.imported_tables_count));
+            symbol.index = @intCast(wasm_bin.imported_tables_count);
             wasm_bin.imported_tables_count += 1;
             try wasm_bin.imports.put(allocator, loc, .{
                 .module_name = try wasm_bin.string_table.put(allocator, wasm_bin.host_name),
@@ -465,19 +468,34 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             const loc = try wasm_bin.createSyntheticSymbol("__tls_base", .global);
             const symbol = loc.getSymbol(wasm_bin);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
+            try wasm_bin.wasm_globals.append(wasm_bin.base.allocator, .{
+                .global_type = .{ .valtype = .i32, .mutable = true },
+                .init = .{ .i32_const = undefined },
+            });
         }
         {
             const loc = try wasm_bin.createSyntheticSymbol("__tls_size", .global);
             const symbol = loc.getSymbol(wasm_bin);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
+            try wasm_bin.wasm_globals.append(wasm_bin.base.allocator, .{
+                .global_type = .{ .valtype = .i32, .mutable = false },
+                .init = .{ .i32_const = undefined },
+            });
         }
         {
             const loc = try wasm_bin.createSyntheticSymbol("__tls_align", .global);
             const symbol = loc.getSymbol(wasm_bin);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
+            try wasm_bin.wasm_globals.append(wasm_bin.base.allocator, .{
+                .global_type = .{ .valtype = .i32, .mutable = false },
+                .init = .{ .i32_const = undefined },
+            });
         }
         {
-            const loc = try wasm_bin.createSyntheticSymbol("__wasm_tls_init", .function);
+            const loc = try wasm_bin.createSyntheticSymbol("__wasm_init_tls", .function);
             const symbol = loc.getSymbol(wasm_bin);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
         }
@@ -504,8 +522,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
         .name = undefined,
     };
 
-    const use_llvm = build_options.have_llvm and options.use_llvm;
-    if (use_llvm) {
+    if (options.use_llvm) {
         wasm.llvm_object = try LlvmObject.create(gpa, options);
     }
     return wasm;
@@ -843,6 +860,12 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
     }
 }
 
+/// Writes an unsigned 32-bit integer as a LEB128-encoded 'i32.const' value.
+fn writeI32Const(writer: anytype, val: u32) !void {
+    try writer.writeByte(std.wasm.opcode(.i32_const));
+    try leb.writeILEB128(writer, @as(i32, @bitCast(val)));
+}
+
 fn setupInitMemoryFunction(wasm: *Wasm) !void {
     // Passive segments are used to avoid memory being reinitialized on each
     // thread's instantiation. These passive segments are initialized and
@@ -880,12 +903,9 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
         try writer.writeByte(std.wasm.block_empty); // block type
 
         // atomically check
-        try writer.writeByte(std.wasm.opcode(.i32_const));
-        try leb.writeULEB128(writer, flag_address);
-        try writer.writeByte(std.wasm.opcode(.i32_const));
-        try leb.writeULEB128(writer, @as(u32, 0));
-        try writer.writeByte(std.wasm.opcode(.i32_const));
-        try leb.writeULEB128(writer, @as(u32, 1));
+        try writeI32Const(writer, flag_address);
+        try writeI32Const(writer, 0);
+        try writeI32Const(writer, 1);
         try writer.writeByte(std.wasm.opcode(.atomics_prefix));
         try leb.writeULEB128(writer, std.wasm.atomicsOpcode(.i32_atomic_rmw_cmpxchg));
         try leb.writeULEB128(writer, @as(u32, 2)); // alignment
@@ -909,24 +929,20 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
             // For non-BSS segments we do a memory.init.  Both these
             // instructions take as their first argument the destination
             // address.
-            try writer.writeByte(std.wasm.opcode(.i32_const));
-            try leb.writeULEB128(writer, segment.offset);
+            try writeI32Const(writer, segment.offset);
 
             if (wasm.base.options.shared_memory and std.mem.eql(u8, entry.key_ptr.*, ".tdata")) {
                 // When we initialize the TLS segment we also set the `__tls_base`
                 // global.  This allows the runtime to use this static copy of the
                 // TLS data for the first/main thread.
-                try writer.writeByte(std.wasm.opcode(.i32_const));
-                try leb.writeULEB128(writer, segment.offset);
+                try writeI32Const(writer, segment.offset);
                 try writer.writeByte(std.wasm.opcode(.global_set));
                 const loc = wasm.findGlobalSymbol("__tls_base").?;
                 try leb.writeULEB128(writer, loc.getSymbol(wasm).index);
             }
 
-            try writer.writeByte(std.wasm.opcode(.i32_const));
-            try leb.writeULEB128(writer, @as(u32, 0));
-            try writer.writeByte(std.wasm.opcode(.i32_const));
-            try leb.writeULEB128(writer, segment.size);
+            try writeI32Const(writer, 0);
+            try writeI32Const(writer, segment.size);
             try writer.writeByte(std.wasm.opcode(.misc_prefix));
             if (std.mem.eql(u8, entry.key_ptr.*, ".bss")) {
                 // fill bss segment with zeroes
@@ -942,18 +958,15 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
 
     if (wasm.base.options.shared_memory) {
         // we set the init memory flag to value '2'
-        try writer.writeByte(std.wasm.opcode(.i32_const));
-        try leb.writeULEB128(writer, flag_address);
-        try writer.writeByte(std.wasm.opcode(.i32_const));
-        try leb.writeULEB128(writer, @as(u32, 2));
+        try writeI32Const(writer, flag_address);
+        try writeI32Const(writer, 2);
         try writer.writeByte(std.wasm.opcode(.atomics_prefix));
         try leb.writeULEB128(writer, std.wasm.atomicsOpcode(.i32_atomic_store));
         try leb.writeULEB128(writer, @as(u32, 2)); // alignment
         try leb.writeULEB128(writer, @as(u32, 0)); // offset
 
         // notify any waiters for segment initialization completion
-        try writer.writeByte(std.wasm.opcode(.i32_const));
-        try leb.writeULEB128(writer, flag_address);
+        try writeI32Const(writer, flag_address);
         try writer.writeByte(std.wasm.opcode(.i32_const));
         try leb.writeILEB128(writer, @as(i32, -1)); // number of waiters
         try writer.writeByte(std.wasm.opcode(.atomics_prefix));
@@ -968,12 +981,10 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
 
         // wait for thread to initialize memory segments
         try writer.writeByte(std.wasm.opcode(.end)); // end $wait
-        try writer.writeByte(std.wasm.opcode(.i32_const));
-        try leb.writeULEB128(writer, flag_address);
-        try writer.writeByte(std.wasm.opcode(.i32_const));
-        try leb.writeULEB128(writer, @as(u32, 1)); // expected flag value
-        try writer.writeByte(std.wasm.opcode(.i32_const));
-        try leb.writeILEB128(writer, @as(i32, -1)); // timeout
+        try writeI32Const(writer, flag_address);
+        try writeI32Const(writer, 1); // expected flag value
+        try writer.writeByte(std.wasm.opcode(.i64_const));
+        try leb.writeILEB128(writer, @as(i64, -1)); // timeout
         try writer.writeByte(std.wasm.opcode(.atomics_prefix));
         try leb.writeULEB128(writer, std.wasm.atomicsOpcode(.memory_atomic_wait32));
         try leb.writeULEB128(writer, @as(u32, 2)); // alignment
@@ -1261,9 +1272,7 @@ fn checkUndefinedSymbols(wasm: *const Wasm) !void {
 
 pub fn deinit(wasm: *Wasm) void {
     const gpa = wasm.base.allocator;
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| llvm_object.destroy(gpa);
-    }
+    if (wasm.llvm_object) |llvm_object| llvm_object.destroy(gpa);
 
     for (wasm.func_types.items) |*func_type| {
         func_type.deinit(gpa);
@@ -1338,18 +1347,16 @@ pub fn allocateSymbol(wasm: *Wasm) !u32 {
     return index;
 }
 
-pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
-    }
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
 
     const tracy = trace(@src());
     defer tracy.end();
 
-    const func = mod.funcPtr(func_index);
+    const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
@@ -1410,9 +1417,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
-    }
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -1696,9 +1701,9 @@ pub fn updateDeclExports(
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
-    }
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
+
+    if (wasm.base.options.emit == null) return;
 
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
@@ -1797,9 +1802,7 @@ pub fn updateDeclExports(
 }
 
 pub fn freeDecl(wasm: *Wasm, decl_index: Module.Decl.Index) void {
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-    }
+    if (wasm.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     const mod = wasm.base.options.module.?;
     const decl = mod.declPtr(decl_index);
     const atom_index = wasm.decls.get(decl_index).?;
@@ -2153,7 +2156,14 @@ fn allocateVirtualAddresses(wasm: *Wasm) void {
         const segment_name = segment_info[symbol.index].outputName(merge_segment);
         const segment_index = wasm.data_segments.get(segment_name).?;
         const segment = wasm.segments.items[segment_index];
-        symbol.virtual_address = atom.offset + segment.offset;
+
+        // TLS symbols have their virtual address set relative to their own TLS segment,
+        // rather than the entire Data section.
+        if (symbol.hasFlag(.WASM_SYM_TLS)) {
+            symbol.virtual_address = atom.offset;
+        } else {
+            symbol.virtual_address = atom.offset + segment.offset;
+        }
     }
 }
 
@@ -2167,7 +2177,7 @@ fn sortDataSegments(wasm: *Wasm) !void {
 
     const SortContext = struct {
         fn sort(_: void, lhs: []const u8, rhs: []const u8) bool {
-            return order(lhs) <= order(rhs);
+            return order(lhs) < order(rhs);
         }
 
         fn order(name: []const u8) u8 {
@@ -2398,6 +2408,13 @@ pub fn createFunction(
     return loc.index;
 }
 
+/// If required, sets the function index in the `start` section.
+fn setupStartSection(wasm: *Wasm) !void {
+    if (wasm.findGlobalSymbol("__wasm_init_memory")) |loc| {
+        wasm.entry = loc.getSymbol(wasm).index;
+    }
+}
+
 fn initializeTLSFunction(wasm: *Wasm) !void {
     if (!wasm.base.options.shared_memory) return;
 
@@ -2419,7 +2436,7 @@ fn initializeTLSFunction(wasm: *Wasm) !void {
         try leb.writeULEB128(writer, param_local);
 
         const tls_base_loc = wasm.findGlobalSymbol("__tls_base").?;
-        try writer.writeByte(std.wasm.opcode(.global_get));
+        try writer.writeByte(std.wasm.opcode(.global_set));
         try leb.writeULEB128(writer, tls_base_loc.getSymbol(wasm).index);
 
         // load stack values for the bulk-memory operation
@@ -2747,27 +2764,18 @@ fn setupMemory(wasm: *Wasm) !void {
         if (mem.eql(u8, entry.key_ptr.*, ".tdata")) {
             if (wasm.findGlobalSymbol("__tls_size")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                sym.index = @as(u32, @intCast(wasm.wasm_globals.items.len)) + wasm.imported_globals_count;
-                try wasm.wasm_globals.append(wasm.base.allocator, .{
-                    .global_type = .{ .valtype = .i32, .mutable = false },
-                    .init = .{ .i32_const = @as(i32, @intCast(segment.size)) },
-                });
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.size);
             }
             if (wasm.findGlobalSymbol("__tls_align")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                sym.index = @as(u32, @intCast(wasm.wasm_globals.items.len)) + wasm.imported_globals_count;
-                try wasm.wasm_globals.append(wasm.base.allocator, .{
-                    .global_type = .{ .valtype = .i32, .mutable = false },
-                    .init = .{ .i32_const = @as(i32, @intCast(segment.alignment)) },
-                });
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.alignment);
             }
             if (wasm.findGlobalSymbol("__tls_base")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                sym.index = @as(u32, @intCast(wasm.wasm_globals.items.len)) + wasm.imported_globals_count;
-                try wasm.wasm_globals.append(wasm.base.allocator, .{
-                    .global_type = .{ .valtype = .i32, .mutable = wasm.base.options.shared_memory },
-                    .init = .{ .i32_const = if (wasm.base.options.shared_memory) @as(u32, 0) else @as(i32, @intCast(memory_ptr)) },
-                });
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = if (wasm.base.options.shared_memory)
+                    @as(i32, 0)
+                else
+                    @as(i32, @intCast(memory_ptr));
             }
         }
 
@@ -3118,17 +3126,15 @@ fn resetState(wasm: *Wasm) void {
 
 pub fn flush(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (wasm.base.options.emit == null) {
-        if (build_options.have_llvm) {
-            if (wasm.llvm_object) |llvm_object| {
-                return try llvm_object.flushModule(comp, prog_node);
-            }
+        if (wasm.llvm_object) |llvm_object| {
+            return try llvm_object.flushModule(comp, prog_node);
         }
         return;
     }
 
     if (build_options.have_llvm and wasm.base.options.use_lld) {
         return wasm.linkWithLLD(comp, prog_node);
-    } else if (build_options.have_llvm and wasm.base.options.use_llvm and !wasm.base.options.use_lld) {
+    } else if (wasm.base.options.use_llvm and !wasm.base.options.use_lld) {
         return wasm.linkWithZld(comp, prog_node);
     } else {
         return wasm.flushModule(comp, prog_node);
@@ -3187,7 +3193,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 9);
+        comptime assert(Compilation.link_hash_implementation_version == 10);
 
         for (options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -3322,6 +3328,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     try wasm.setupInitMemoryFunction();
     try wasm.setupTLSRelocationsFunction();
     try wasm.initializeTLSFunction();
+    try wasm.setupStartSection();
     try wasm.setupExports();
     try wasm.writeToFile(enabled_features, emit_features_count, arena);
 
@@ -3345,10 +3352,8 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp, prog_node);
-        }
+    if (wasm.llvm_object) |llvm_object| {
+        return try llvm_object.flushModule(comp, prog_node);
     }
 
     var sub_prog_node = prog_node.start("Wasm Flush", 0);
@@ -3459,6 +3464,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try wasm.setupInitMemoryFunction();
     try wasm.setupTLSRelocationsFunction();
     try wasm.initializeTLSFunction();
+    try wasm.setupStartSection();
     try wasm.setupExports();
     try wasm.writeToFile(enabled_features, emit_features_count, arena);
 }
@@ -3519,6 +3525,7 @@ fn writeToFile(
 
     // Import section
     const import_memory = wasm.base.options.import_memory or is_obj;
+    const export_memory = wasm.base.options.export_memory;
     if (wasm.imports.count() != 0 or import_memory) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
@@ -3621,7 +3628,7 @@ fn writeToFile(
     }
 
     // Export section
-    if (wasm.exports.items.len != 0 or !import_memory) {
+    if (wasm.exports.items.len != 0 or export_memory) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
         for (wasm.exports.items) |exp| {
@@ -3632,7 +3639,7 @@ fn writeToFile(
             try leb.writeULEB128(binary_writer, exp.index);
         }
 
-        if (!import_memory) {
+        if (export_memory) {
             try leb.writeULEB128(binary_writer, @as(u32, @intCast("memory".len)));
             try binary_writer.writeAll("memory");
             try binary_writer.writeByte(std.wasm.externalKind(.memory));
@@ -3644,9 +3651,20 @@ fn writeToFile(
             header_offset,
             .@"export",
             @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, @intCast(wasm.exports.items.len)) + @intFromBool(!import_memory),
+            @as(u32, @intCast(wasm.exports.items.len)) + @intFromBool(export_memory),
         );
         section_count += 1;
+    }
+
+    if (wasm.entry) |entry_index| {
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
+        try writeVecSectionHeader(
+            binary_bytes.items,
+            header_offset,
+            .start,
+            @intCast(binary_bytes.items.len - header_offset - header_size),
+            entry_index,
+        );
     }
 
     // element section (function table)
@@ -3682,7 +3700,7 @@ fn writeToFile(
     }
 
     // When the shared-memory option is enabled, we *must* emit the 'data count' section.
-    const data_segments_count = wasm.data_segments.count() - @intFromBool(wasm.data_segments.contains(".bss") and import_memory);
+    const data_segments_count = wasm.data_segments.count() - @intFromBool(wasm.data_segments.contains(".bss") and !import_memory);
     if (data_segments_count != 0 and wasm.base.options.shared_memory) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
         try writeVecSectionHeader(
@@ -4236,7 +4254,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 9);
+        comptime assert(Compilation.link_hash_implementation_version == 10);
 
         for (wasm.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -4529,7 +4547,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
                 try child.spawn();
 
-                const stderr = try child.stderr.?.reader().readAllAlloc(arena, 10 * 1024 * 1024);
+                const stderr = try child.stderr.?.reader().readAllAlloc(arena, std.math.maxInt(usize));
 
                 const term = child.wait() catch |err| {
                     log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });

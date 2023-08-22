@@ -56,7 +56,7 @@ pub fn KeccakF(comptime f: u11) type {
         /// Byte-swap the entire state if the architecture doesn't match the required endianness.
         pub fn endianSwap(self: *Self) void {
             for (&self.st) |*w| {
-                w.* = mem.littleTooNative(T, w.*);
+                w.* = mem.littleToNative(T, w.*);
             }
         }
 

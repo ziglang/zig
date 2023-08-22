@@ -124,7 +124,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .target = symbol.sym_index, // we set sym_index to just be the atom index
                         .offset = @as(u32, @intCast(end_offset - 4)),
                         .addend = 0,
-                        .pcrel = true,
+                        .type = .pcrel,
                     });
                 } else return emit.fail("TODO implement linker reloc for {s}", .{
                     @tagName(emit.bin_file.tag),

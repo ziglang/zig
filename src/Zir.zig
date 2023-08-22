@@ -65,21 +65,26 @@ pub const ExtraIndex = enum(u32) {
     _,
 };
 
+fn ExtraData(comptime T: type) type {
+    return struct { data: T, end: usize };
+}
+
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
-pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, end: usize } {
+pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
     const fields = @typeInfo(T).Struct.fields;
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => code.extra[i],
-            Inst.Ref => @as(Inst.Ref, @enumFromInt(code.extra[i])),
-            i32 => @as(i32, @bitCast(code.extra[i])),
-            Inst.Call.Flags => @as(Inst.Call.Flags, @bitCast(code.extra[i])),
-            Inst.BuiltinCall.Flags => @as(Inst.BuiltinCall.Flags, @bitCast(code.extra[i])),
-            Inst.SwitchBlock.Bits => @as(Inst.SwitchBlock.Bits, @bitCast(code.extra[i])),
-            Inst.FuncFancy.Bits => @as(Inst.FuncFancy.Bits, @bitCast(code.extra[i])),
+            Inst.Ref => @enumFromInt(code.extra[i]),
+            i32,
+            Inst.Call.Flags,
+            Inst.BuiltinCall.Flags,
+            Inst.SwitchBlock.Bits,
+            Inst.FuncFancy.Bits,
+            => @bitCast(code.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -90,18 +95,28 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
     };
 }
 
-/// Given an index into `string_bytes` returns the null-terminated string found there.
+/// TODO migrate to use this for type safety
+pub const NullTerminatedString = enum(u32) {
+    _,
+};
+
+/// TODO: migrate to nullTerminatedString2 for type safety
 pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
-    var end: usize = index;
+    return nullTerminatedString2(code, @enumFromInt(index));
+}
+
+/// Given an index into `string_bytes` returns the null-terminated string found there.
+pub fn nullTerminatedString2(code: Zir, index: NullTerminatedString) [:0]const u8 {
+    const start = @intFromEnum(index);
+    var end: u32 = start;
     while (code.string_bytes[end] != 0) {
         end += 1;
     }
-    return code.string_bytes[index..end :0];
+    return code.string_bytes[start..end :0];
 }
 
 pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
-    const raw_slice = code.extra[start..][0..len];
-    return @as([]Inst.Ref, @ptrCast(raw_slice));
+    return @ptrCast(code.extra[start..][0..len]);
 }
 
 pub fn hasCompileErrors(code: Zir) bool {
@@ -233,6 +248,9 @@ pub const Inst = struct {
         /// Given a pointer type, returns its element type.
         /// Uses the `un_node` field.
         elem_type,
+        /// Given a vector type, returns its element type.
+        /// Uses the `un_node` field.
+        vector_elem_type,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -584,20 +602,9 @@ pub const Inst = struct {
         /// Same as `store` except provides a source location.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         store_node,
-        /// This instruction is not really supposed to be emitted from AstGen; nevertheless it
-        /// is sometimes emitted due to deficiencies in AstGen. When Sema sees this instruction,
-        /// it must clean up after AstGen's mess by looking at various context clues and
-        /// then treating it as one of the following:
-        ///  * no-op
-        ///  * store_to_inferred_ptr
-        ///  * store
-        /// Uses the `bin` union field with LHS as the pointer to store to.
-        store_to_block_ptr,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the pointer type.
-        /// Uses the `bin` union field - Astgen.zig depends on the ability to change
-        /// the tag of an instruction from `store_to_block_ptr` to `store_to_inferred_ptr`
-        /// without changing the data.
+        /// Uses the `bin` union field.
         store_to_inferred_ptr,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         /// Uses the `str` union field.
@@ -685,10 +692,16 @@ pub const Inst = struct {
         ///   *?S returns *S
         /// Uses the `un_node` field.
         field_base_ptr,
+        /// Given a type, strips all optional and error union types wrapping it.
+        /// e.g. `E!?u32` becomes `u32`, `[]u8` becomes `[]u8`.
+        /// Uses the `un_node` field.
+        opt_eu_base_ty,
         /// Checks that the type supports array init syntax.
+        /// Returns the underlying indexable type (since the given type may be e.g. an optional).
         /// Uses the `un_node` field.
         validate_array_init_ty,
         /// Checks that the type supports struct init syntax.
+        /// Returns the underlying struct type (since the given type may be e.g. an optional).
         /// Uses the `un_node` field.
         validate_struct_init_ty,
         /// Given a set of `field_ptr` instructions, assumes they are all part of a struct
@@ -1008,6 +1021,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1084,7 +1098,6 @@ pub const Inst = struct {
                 .shr,
                 .store,
                 .store_node,
-                .store_to_block_ptr,
                 .store_to_inferred_ptr,
                 .str,
                 .sub,
@@ -1219,6 +1232,7 @@ pub const Inst = struct {
                 .save_err_ret_index,
                 .restore_err_ret_index,
                 .for_len,
+                .opt_eu_base_ty,
                 => false,
 
                 .@"break",
@@ -1269,7 +1283,6 @@ pub const Inst = struct {
                 .atomic_store,
                 .store,
                 .store_node,
-                .store_to_block_ptr,
                 .store_to_inferred_ptr,
                 .resolve_inferred_alloc,
                 .validate_array_init_ty,
@@ -1312,6 +1325,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1507,6 +1521,7 @@ pub const Inst = struct {
                 .for_len,
                 .@"try",
                 .try_ptr,
+                .opt_eu_base_ty,
                 => false,
 
                 .extended => switch (data.extended.opcode) {
@@ -1542,6 +1557,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type_index = .bin,
                 .elem_type = .un_node,
+                .vector_elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as = .bin,
@@ -1638,7 +1654,6 @@ pub const Inst = struct {
                 .slice_length = .pl_node,
                 .store = .bin,
                 .store_node = .pl_node,
-                .store_to_block_ptr = .bin,
                 .store_to_inferred_ptr = .bin,
                 .str = .str,
                 .negate = .un_node,
@@ -1661,6 +1676,7 @@ pub const Inst = struct {
                 .switch_block_ref = .pl_node,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
+                .opt_eu_base_ty = .un_node,
                 .validate_array_init_ty = .pl_node,
                 .validate_struct_init_ty = .un_node,
                 .validate_struct_init = .pl_node,
@@ -2076,6 +2092,7 @@ pub const Inst = struct {
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
         optional_noreturn_type = @intFromEnum(InternPool.Index.optional_noreturn_type),
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
+        adhoc_inferred_error_set_type = @intFromEnum(InternPool.Index.adhoc_inferred_error_set_type),
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
         empty_struct_type = @intFromEnum(InternPool.Index.empty_struct_type),
         undef = @intFromEnum(InternPool.Index.undef),
@@ -2316,8 +2333,8 @@ pub const Inst = struct {
     pub const Break = struct {
         pub const no_src_node = std.math.maxInt(i32);
 
-        block_inst: Index,
         operand_src_node: i32,
+        block_inst: Index,
     };
 
     /// Trailing:
@@ -3235,10 +3252,10 @@ pub const DeclIterator = struct {
         }
         it.decl_i += 1;
 
-        const flags = @as(u4, @truncate(it.cur_bit_bag));
+        const flags: u4 = @truncate(it.cur_bit_bag);
         it.cur_bit_bag >>= 4;
 
-        const sub_index = @as(u32, @intCast(it.extra_index));
+        const sub_index: u32 = @intCast(it.extra_index);
         it.extra_index += 5; // src_hash(4) + line(1)
         const name = it.zir.nullTerminatedString(it.zir.extra[it.extra_index]);
         it.extra_index += 3; // name(1) + value(1) + doc_comment(1)
@@ -3265,7 +3282,7 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
             const extended = datas[decl_inst].extended;
             switch (extended.opcode) {
                 .struct_decl => {
-                    const small = @as(Inst.StructDecl.Small, @bitCast(extended.small));
+                    const small: Inst.StructDecl.Small = @bitCast(extended.small);
                     var extra_index: usize = extended.operand;
                     extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_fields_len);
@@ -3288,7 +3305,7 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
                     return declIteratorInner(zir, extra_index, decls_len);
                 },
                 .enum_decl => {
-                    const small = @as(Inst.EnumDecl.Small, @bitCast(extended.small));
+                    const small: Inst.EnumDecl.Small = @bitCast(extended.small);
                     var extra_index: usize = extended.operand;
                     extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_tag_type);
@@ -3303,7 +3320,7 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
                     return declIteratorInner(zir, extra_index, decls_len);
                 },
                 .union_decl => {
-                    const small = @as(Inst.UnionDecl.Small, @bitCast(extended.small));
+                    const small: Inst.UnionDecl.Small = @bitCast(extended.small);
                     var extra_index: usize = extended.operand;
                     extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_tag_type);
@@ -3318,7 +3335,7 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
                     return declIteratorInner(zir, extra_index, decls_len);
                 },
                 .opaque_decl => {
-                    const small = @as(Inst.OpaqueDecl.Small, @bitCast(extended.small));
+                    const small: Inst.OpaqueDecl.Small = @bitCast(extended.small);
                     var extra_index: usize = extended.operand;
                     extra_index += @intFromBool(small.has_src_node);
                     const decls_len = if (small.has_decls_len) decls_len: {
@@ -3514,7 +3531,7 @@ fn findDeclsSwitch(
 
     const special_prong = extra.data.bits.specialProng();
     if (special_prong != .none) {
-        const body_len = @as(u31, @truncate(zir.extra[extra_index]));
+        const body_len: u31 = @truncate(zir.extra[extra_index]);
         extra_index += 1;
         const body = zir.extra[extra_index..][0..body_len];
         extra_index += body.len;
@@ -3527,7 +3544,7 @@ fn findDeclsSwitch(
         var scalar_i: usize = 0;
         while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
             extra_index += 1;
-            const body_len = @as(u31, @truncate(zir.extra[extra_index]));
+            const body_len: u31 = @truncate(zir.extra[extra_index]);
             extra_index += 1;
             const body = zir.extra[extra_index..][0..body_len];
             extra_index += body_len;
@@ -3542,7 +3559,7 @@ fn findDeclsSwitch(
             extra_index += 1;
             const ranges_len = zir.extra[extra_index];
             extra_index += 1;
-            const body_len = @as(u31, @truncate(zir.extra[extra_index]));
+            const body_len: u31 = @truncate(zir.extra[extra_index]);
             extra_index += 1;
             const items = zir.refSlice(extra_index, items_len);
             extra_index += items_len;
@@ -3624,7 +3641,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                     ret_ty_ref = .void_type;
                 },
                 1 => {
-                    ret_ty_ref = @as(Inst.Ref, @enumFromInt(zir.extra[extra_index]));
+                    ret_ty_ref = @enumFromInt(zir.extra[extra_index]);
                     extra_index += 1;
                 },
                 else => {
@@ -3678,7 +3695,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                 ret_ty_body = zir.extra[extra_index..][0..body_len];
                 extra_index += ret_ty_body.len;
             } else if (extra.data.bits.has_ret_ty_ref) {
-                ret_ty_ref = @as(Inst.Ref, @enumFromInt(zir.extra[extra_index]));
+                ret_ty_ref = @enumFromInt(zir.extra[extra_index]);
                 extra_index += 1;
             }
 
@@ -3722,7 +3739,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
 pub const ref_start_index: u32 = InternPool.static_len;
 
 pub fn indexToRef(inst: Inst.Index) Inst.Ref {
-    return @as(Inst.Ref, @enumFromInt(ref_start_index + inst));
+    return @enumFromInt(ref_start_index + inst);
 }
 
 pub fn refToIndex(inst: Inst.Ref) ?Inst.Index {

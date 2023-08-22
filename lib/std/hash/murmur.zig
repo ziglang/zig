@@ -14,7 +14,7 @@ pub const Murmur2_32 = struct {
 
     pub fn hashWithSeed(str: []const u8, seed: u32) u32 {
         const m: u32 = 0x5bd1e995;
-        const len = @as(u32, @truncate(str.len));
+        const len: u32 = @truncate(str.len);
         var h1: u32 = seed ^ len;
         for (@as([*]align(1) const u32, @ptrCast(str.ptr))[0..(len >> 2)]) |v| {
             var k1: u32 = v;
@@ -178,7 +178,7 @@ pub const Murmur3_32 = struct {
     pub fn hashWithSeed(str: []const u8, seed: u32) u32 {
         const c1: u32 = 0xcc9e2d51;
         const c2: u32 = 0x1b873593;
-        const len = @as(u32, @truncate(str.len));
+        const len: u32 = @truncate(str.len);
         var h1: u32 = seed;
         for (@as([*]align(1) const u32, @ptrCast(str.ptr))[0..(len >> 2)]) |v| {
             var k1: u32 = v;

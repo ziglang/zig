@@ -21,6 +21,10 @@ pub const cases = [_]Case{
         .import = @import("link/interdependent_static_c_libs/build.zig"),
     },
     .{
+        .build_root = "test/link/static_libs_from_object_files",
+        .import = @import("link/static_libs_from_object_files/build.zig"),
+    },
+    .{
         .build_root = "test/link/glibc_compat",
         .import = @import("link/glibc_compat/build.zig"),
     },
@@ -89,6 +93,14 @@ pub const cases = [_]Case{
         .import = @import("link/macho/bugs/13457/build.zig"),
     },
     .{
+        .build_root = "test/link/macho/bugs/16308",
+        .import = @import("link/macho/bugs/16308/build.zig"),
+    },
+    .{
+        .build_root = "test/link/macho/bugs/16628",
+        .import = @import("link/macho/bugs/16628/build.zig"),
+    },
+    .{
         .build_root = "test/link/macho/dead_strip",
         .import = @import("link/macho/dead_strip/build.zig"),
     },
@@ -145,6 +157,10 @@ pub const cases = [_]Case{
         .import = @import("link/macho/pagezero/build.zig"),
     },
     .{
+        .build_root = "test/link/macho/reexports",
+        .import = @import("link/macho/reexports/build.zig"),
+    },
+    .{
         .build_root = "test/link/macho/search_strategy",
         .import = @import("link/macho/search_strategy/build.zig"),
     },
@@ -155,6 +171,10 @@ pub const cases = [_]Case{
     .{
         .build_root = "test/link/macho/strict_validation",
         .import = @import("link/macho/strict_validation/build.zig"),
+    },
+    .{
+        .build_root = "test/link/macho/tbdv3",
+        .import = @import("link/macho/tbdv3/build.zig"),
     },
     .{
         .build_root = "test/link/macho/tls",

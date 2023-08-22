@@ -5,7 +5,7 @@
 
 const std = @import("std");
 const math = std.math;
-const qnan128 = @as(f128, @bitCast(@as(u128, 0x7fff800000000000) << 64));
+const qnan128: f128 = @bitCast(@as(u128, 0x7fff800000000000) << 64);
 
 const __addtf3 = @import("addtf3.zig").__addtf3;
 const __addxf3 = @import("addxf3.zig").__addxf3;
@@ -14,9 +14,9 @@ const __subtf3 = @import("subtf3.zig").__subtf3;
 fn test__addtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) !void {
     const x = __addtf3(a, b);
 
-    const rep = @as(u128, @bitCast(x));
-    const hi = @as(u64, @intCast(rep >> 64));
-    const lo = @as(u64, @truncate(rep));
+    const rep: u128 = @bitCast(x);
+    const hi: u64 = @intCast(rep >> 64);
+    const lo: u64 = @truncate(rep);
 
     if (hi == expected_hi and lo == expected_lo) {
         return;
@@ -53,9 +53,9 @@ test "addtf3" {
 fn test__subtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) !void {
     const x = __subtf3(a, b);
 
-    const rep = @as(u128, @bitCast(x));
-    const hi = @as(u64, @intCast(rep >> 64));
-    const lo = @as(u64, @truncate(rep));
+    const rep: u128 = @bitCast(x);
+    const hi: u64 = @intCast(rep >> 64);
+    const lo: u64 = @truncate(rep);
 
     if (hi == expected_hi and lo == expected_lo) {
         return;
@@ -87,11 +87,11 @@ test "subtf3" {
     try test__subtf3(0x1.ee9d7c52354a6936ab8d7654321fp-1, 0x1.234567829a3bcdef5678ade36734p+5, 0xc0041b8af1915166, 0xa44a7bca780a166c);
 }
 
-const qnan80 = @as(f80, @bitCast(@as(u80, @bitCast(math.nan(f80))) | (1 << (math.floatFractionalBits(f80) - 1))));
+const qnan80: f80 = @bitCast(@as(u80, @bitCast(math.nan(f80))) | (1 << (math.floatFractionalBits(f80) - 1)));
 
 fn test__addxf3(a: f80, b: f80, expected: u80) !void {
     const x = __addxf3(a, b);
-    const rep = @as(u80, @bitCast(x));
+    const rep: u80 = @bitCast(x);
 
     if (rep == expected)
         return;

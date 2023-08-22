@@ -200,72 +200,67 @@ fn clone() callconv(.Naked) void {
             // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
             //         eax,       ebx,   ecx,   edx,  esi, edi
             asm volatile (
-                \\  push %%ebp
-                \\  mov %%esp,%%ebp
-                \\  push %%ebx
-                \\  push %%esi
-                \\  push %%edi
+                \\  pushl %%ebp
+                \\  movl %%esp,%%ebp
+                \\  pushl %%ebx
+                \\  pushl %%esi
+                \\  pushl %%edi
                 \\  // Setup the arguments
-                \\  mov 16(%%ebp),%%ebx
-                \\  mov 12(%%ebp),%%ecx
-                \\  and $-16,%%ecx
-                \\  sub $20,%%ecx
-                \\  mov 20(%%ebp),%%eax
-                \\  mov %%eax,4(%%ecx)
-                \\  mov 8(%%ebp),%%eax
-                \\  mov %%eax,0(%%ecx)
-                \\  mov 24(%%ebp),%%edx
-                \\  mov 28(%%ebp),%%esi
-                \\  mov 32(%%ebp),%%edi
-                \\  mov $120,%%eax
+                \\  movl 16(%%ebp),%%ebx
+                \\  movl 12(%%ebp),%%ecx
+                \\  andl $-16,%%ecx
+                \\  subl $20,%%ecx
+                \\  movl 20(%%ebp),%%eax
+                \\  movl %%eax,4(%%ecx)
+                \\  movl 8(%%ebp),%%eax
+                \\  movl %%eax,0(%%ecx)
+                \\  movl 24(%%ebp),%%edx
+                \\  movl 28(%%ebp),%%esi
+                \\  movl 32(%%ebp),%%edi
+                \\  movl $120,%%eax
                 \\  int $128
-                \\  test %%eax,%%eax
+                \\  testl %%eax,%%eax
                 \\  jnz 1f
-                \\  pop %%eax
-                \\  xor %%ebp,%%ebp
-                \\  call *%%eax
-                \\  mov %%eax,%%ebx
-                \\  xor %%eax,%%eax
-                \\  inc %%eax
+                \\  popl %%eax
+                \\  xorl %%ebp,%%ebp
+                \\  calll *%%eax
+                \\  movl %%eax,%%ebx
+                \\  movl $1,%%eax
                 \\  int $128
-                \\  hlt
                 \\1:
-                \\  pop %%edi
-                \\  pop %%esi
-                \\  pop %%ebx
-                \\  pop %%ebp
-                \\  ret
+                \\  popl %%edi
+                \\  popl %%esi
+                \\  popl %%ebx
+                \\  popl %%ebp
+                \\  retl
             );
         },
         .x86_64 => {
             asm volatile (
-                \\      xor %%eax,%%eax
-                \\      mov $56,%%al // SYS_clone
-                \\      mov %%rdi,%%r11
-                \\      mov %%rdx,%%rdi
-                \\      mov %%r8,%%rdx
-                \\      mov %%r9,%%r8
-                \\      mov 8(%%rsp),%%r10
-                \\      mov %%r11,%%r9
-                \\      and $-16,%%rsi
-                \\      sub $8,%%rsi
-                \\      mov %%rcx,(%%rsi)
+                \\      movl $56,%%eax // SYS_clone
+                \\      movq %%rdi,%%r11
+                \\      movq %%rdx,%%rdi
+                \\      movq %%r8,%%rdx
+                \\      movq %%r9,%%r8
+                \\      movq 8(%%rsp),%%r10
+                \\      movq %%r11,%%r9
+                \\      andq $-16,%%rsi
+                \\      subq $8,%%rsi
+                \\      movq %%rcx,(%%rsi)
                 \\      syscall
-                \\      test %%eax,%%eax
+                \\      testq %%rax,%%rax
                 \\      jnz 1f
-                \\      xor %%ebp,%%ebp
-                \\      pop %%rdi
-                \\      call *%%r9
-                \\      mov %%eax,%%edi
-                \\      xor %%eax,%%eax
-                \\      mov $60,%%al // SYS_exit
+                \\      xorl %%ebp,%%ebp
+                \\      popq %%rdi
+                \\      callq *%%r9
+                \\      movl %%eax,%%edi
+                \\      movl $60,%%eax // SYS_exit
                 \\      syscall
-                \\      hlt
                 \\1:    ret
                 \\
             );
         },
-        .aarch64 => {
+        .aarch64, .aarch64_be => {
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
             //         x0,   x1,    w2,    x3,  x4,   x5,  x6
 
@@ -400,69 +395,69 @@ fn clone() callconv(.Naked) void {
                 \\  syscall
             );
         },
-        .powerpc => {
+        .powerpc, .powerpcle => {
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
             //            3,     4,     5,   6,    7,   8,    9
 
             // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
             //                 0      3,     4,    5,   6,    7
             asm volatile (
-                \\# store non-volatile regs r30, r31 on stack in order to put our
-                \\# start func and its arg there
-                \\stwu 30, -16(1)
-                \\stw 31, 4(1)
+                \\ # store non-volatile regs r30, r31 on stack in order to put our
+                \\ # start func and its arg there
+                \\ stwu 30, -16(1)
+                \\ stw 31, 4(1)
                 \\
-                \\# save r3 (func) into r30, and r6(arg) into r31
-                \\mr 30, 3
-                \\mr 31, 6
+                \\ # save r3 (func) into r30, and r6(arg) into r31
+                \\ mr 30, 3
+                \\ mr 31, 6
                 \\
-                \\# create initial stack frame for new thread
-                \\clrrwi 4, 4, 4
-                \\li 0, 0
-                \\stwu 0, -16(4)
+                \\ # create initial stack frame for new thread
+                \\ clrrwi 4, 4, 4
+                \\ li 0, 0
+                \\ stwu 0, -16(4)
                 \\
-                \\#move c into first arg
-                \\mr 3, 5
-                \\#mr 4, 4
-                \\mr 5, 7
-                \\mr 6, 8
-                \\mr 7, 9
+                \\ #move c into first arg
+                \\ mr 3, 5
+                \\ #mr 4, 4
+                \\ mr 5, 7
+                \\ mr 6, 8
+                \\ mr 7, 9
                 \\
-                \\# move syscall number into r0
-                \\li 0, 120
+                \\ # move syscall number into r0
+                \\ li 0, 120
                 \\
-                \\sc
+                \\ sc
                 \\
-                \\# check for syscall error
-                \\bns+ 1f # jump to label 1 if no summary overflow.
-                \\#else
-                \\neg 3, 3 #negate the result (errno)
-                \\1:
-                \\# compare sc result with 0
-                \\cmpwi cr7, 3, 0
+                \\ # check for syscall error
+                \\ bns+ 1f # jump to label 1 if no summary overflow.
+                \\ #else
+                \\ neg 3, 3 #negate the result (errno)
+                \\ 1:
+                \\ # compare sc result with 0
+                \\ cmpwi cr7, 3, 0
                 \\
-                \\# if not 0, jump to end
-                \\bne cr7, 2f
+                \\ # if not 0, jump to end
+                \\ bne cr7, 2f
                 \\
-                \\#else: we're the child
-                \\#call funcptr: move arg (d) into r3
-                \\mr 3, 31
-                \\#move r30 (funcptr) into CTR reg
-                \\mtctr 30
-                \\# call CTR reg
-                \\bctrl
-                \\# mov SYS_exit into r0 (the exit param is already in r3)
-                \\li 0, 1
-                \\sc
+                \\ #else: we're the child
+                \\ #call funcptr: move arg (d) into r3
+                \\ mr 3, 31
+                \\ #move r30 (funcptr) into CTR reg
+                \\ mtctr 30
+                \\ # call CTR reg
+                \\ bctrl
+                \\ # mov SYS_exit into r0 (the exit param is already in r3)
+                \\ li 0, 1
+                \\ sc
                 \\
-                \\2:
+                \\ 2:
                 \\
-                \\# restore stack
-                \\lwz 30, 0(1)
-                \\lwz 31, 4(1)
-                \\addi 1, 1, 16
+                \\ # restore stack
+                \\ lwz 30, 0(1)
+                \\ lwz 31, 4(1)
+                \\ addi 1, 1, 16
                 \\
-                \\blr
+                \\ blr
             );
         },
         .powerpc64, .powerpc64le => {

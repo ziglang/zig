@@ -133,8 +133,9 @@ pub extern fn clone(func: CloneFn, stack: usize, flags: usize, arg: usize, ptid:
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) void {
-    return asm volatile ("sc"
+pub fn restore_rt() callconv(.Naked) noreturn {
+    asm volatile (
+        \\ sc
         :
         : [number] "{r0}" (@intFromEnum(SYS.rt_sigreturn)),
         : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"

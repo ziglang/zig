@@ -73,4 +73,12 @@ pub const E = enum(u16) {
     // These added in 1003.1b-1993
     CANCELED = 61,
     INPROGRESS = 62,
+
+    // We just add these to be compatible with std.os, which uses them,
+    // They should never get used.
+    DQUOT,
+    CONNRESET,
+    OVERFLOW,
+    LOOP,
+    TXTBSY,
 };

@@ -665,7 +665,7 @@ const Writer = struct {
     fn writeDbgInline(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_fn = w.air.instructions.items(.data)[inst].ty_fn;
         const func_index = ty_fn.func;
-        const owner_decl = w.module.declPtr(w.module.funcPtr(func_index).owner_decl);
+        const owner_decl = w.module.funcOwnerDeclPtr(func_index);
         try s.print("{}", .{owner_decl.name.fmt(&w.module.intern_pool)});
     }
 

@@ -59,44 +59,23 @@ pub const Value = union(enum) {
         stringify(self, .{}, stderr) catch return;
     }
 
-    pub fn jsonStringify(
-        value: @This(),
-        options: StringifyOptions,
-        out_stream: anytype,
-    ) @TypeOf(out_stream).Error!void {
+    pub fn jsonStringify(value: @This(), jws: anytype) !void {
         switch (value) {
-            .null => try stringify(null, options, out_stream),
-            .bool => |inner| try stringify(inner, options, out_stream),
-            .integer => |inner| try stringify(inner, options, out_stream),
-            .float => |inner| try stringify(inner, options, out_stream),
-            .number_string => |inner| try out_stream.writeAll(inner),
-            .string => |inner| try stringify(inner, options, out_stream),
-            .array => |inner| try stringify(inner.items, options, out_stream),
+            .null => try jws.write(null),
+            .bool => |inner| try jws.write(inner),
+            .integer => |inner| try jws.write(inner),
+            .float => |inner| try jws.write(inner),
+            .number_string => |inner| try jws.print("{s}", .{inner}),
+            .string => |inner| try jws.write(inner),
+            .array => |inner| try jws.write(inner.items),
             .object => |inner| {
-                try out_stream.writeByte('{');
-                var field_output = false;
-                var child_options = options;
-                child_options.whitespace.indent_level += 1;
+                try jws.beginObject();
                 var it = inner.iterator();
                 while (it.next()) |entry| {
-                    if (!field_output) {
-                        field_output = true;
-                    } else {
-                        try out_stream.writeByte(',');
-                    }
-                    try child_options.whitespace.outputIndent(out_stream);
-
-                    try stringify(entry.key_ptr.*, options, out_stream);
-                    try out_stream.writeByte(':');
-                    if (child_options.whitespace.separator) {
-                        try out_stream.writeByte(' ');
-                    }
-                    try stringify(entry.value_ptr.*, child_options, out_stream);
+                    try jws.objectField(entry.key_ptr.*);
+                    try jws.write(entry.value_ptr.*);
                 }
-                if (field_output) {
-                    try options.whitespace.outputIndent(out_stream);
-                }
-                try out_stream.writeByte('}');
+                try jws.endObject();
             },
         }
     }
@@ -114,11 +93,11 @@ pub const Value = union(enum) {
                 stack.items[stack.items.len - 1] == .array or
                 (stack.items[stack.items.len - 2] == .object and stack.items[stack.items.len - 1] == .string));
 
-            switch (try source.nextAlloc(allocator, .alloc_if_needed)) {
-                inline .string, .allocated_string => |s| {
+            switch (try source.nextAlloc(allocator, .alloc_always)) {
+                .allocated_string => |s| {
                     return try handleCompleteValue(&stack, allocator, source, Value{ .string = s }) orelse continue;
                 },
-                inline .number, .allocated_number => |slice| {
+                .allocated_number => |slice| {
                     return try handleCompleteValue(&stack, allocator, source, Value.parseFromNumberSlice(slice)) orelse continue;
                 },
 
@@ -127,9 +106,9 @@ pub const Value = union(enum) {
                 .false => return try handleCompleteValue(&stack, allocator, source, Value{ .bool = false }) orelse continue,
 
                 .object_begin => {
-                    switch (try source.nextAlloc(allocator, .alloc_if_needed)) {
+                    switch (try source.nextAlloc(allocator, .alloc_always)) {
                         .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = ObjectMap.init(allocator) }) orelse continue,
-                        inline .string, .allocated_string => |key| {
+                        .allocated_string => |key| {
                             try stack.appendSlice(&[_]Value{
                                 Value{ .object = ObjectMap.init(allocator) },
                                 Value{ .string = key },
@@ -173,7 +152,7 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, val
 
                 // This is an invalid state to leave the stack in,
                 // so we have to process the next token before we return.
-                switch (try source.nextAlloc(allocator, .alloc_if_needed)) {
+                switch (try source.nextAlloc(allocator, .alloc_always)) {
                     .object_end => {
                         // This object is complete.
                         value = stack.pop();
@@ -181,7 +160,7 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, val
                         if (stack.items.len == 0) return value;
                         continue;
                     },
-                    inline .string, .allocated_string => |next_key| {
+                    .allocated_string => |next_key| {
                         // We've got another key.
                         try stack.append(Value{ .string = next_key });
                         // stack: [..., .object, .string]

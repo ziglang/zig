@@ -14,5 +14,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
     main.strip = true;
+
+    // TODO: actually check the output
+    _ = main.getEmittedBin();
+
     test_step.dependOn(&main.step);
 }

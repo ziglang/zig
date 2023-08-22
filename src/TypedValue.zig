@@ -196,6 +196,7 @@ pub fn print(
             .undef => return writer.writeAll("undefined"),
             .runtime_value => return writer.writeAll("(runtime value)"),
             .simple_value => |simple_value| switch (simple_value) {
+                .void => return writer.writeAll("{}"),
                 .empty_struct => return printAggregate(ty, val, writer, level, mod),
                 .generic_poison => return writer.writeAll("(generic poison)"),
                 else => return writer.writeAll(@tagName(simple_value)),
@@ -205,7 +206,7 @@ pub fn print(
                 mod.declPtr(extern_func.decl).name.fmt(ip),
             }),
             .func => |func| return writer.print("(function '{}')", .{
-                mod.declPtr(mod.funcPtr(func.index).owner_decl).name.fmt(ip),
+                mod.declPtr(func.owner_decl).name.fmt(ip),
             }),
             .int => |int| switch (int.storage) {
                 inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),
@@ -237,7 +238,7 @@ pub fn print(
                 }
                 const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
                 if (enum_type.tagValueIndex(ip, val.toIntern())) |tag_index| {
-                    try writer.print(".{i}", .{enum_type.names[tag_index].fmt(ip)});
+                    try writer.print(".{i}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
                     return;
                 }
                 try writer.writeAll("@enumFromInt(");

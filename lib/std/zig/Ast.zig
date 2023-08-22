@@ -752,11 +752,11 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
             // Look for a label and inline.
             const main_token = main_tokens[n];
             var result = main_token;
-            if (token_tags[result - 1] == .keyword_inline) {
+            if (token_tags[result -| 1] == .keyword_inline) {
                 result -= 1;
             }
-            if (token_tags[result - 1] == .colon) {
-                result -= 2;
+            if (token_tags[result -| 1] == .colon) {
+                result -|= 2;
             }
             return result - end_offset;
         },
@@ -2246,13 +2246,13 @@ fn fullWhileComponents(tree: Ast, info: full.While.Components) full.While {
         .else_token = undefined,
         .error_token = null,
     };
-    var tok_i = info.while_token - 1;
+    var tok_i = info.while_token -| 1;
     if (token_tags[tok_i] == .keyword_inline) {
         result.inline_token = tok_i;
-        tok_i -= 1;
+        tok_i -|= 1;
     }
     if (token_tags[tok_i] == .colon and
-        token_tags[tok_i - 1] == .identifier)
+        token_tags[tok_i -| 1] == .identifier)
     {
         result.label_token = tok_i - 1;
     }
@@ -2280,13 +2280,13 @@ fn fullForComponents(tree: Ast, info: full.For.Components) full.For {
         .payload_token = undefined,
         .else_token = undefined,
     };
-    var tok_i = info.for_token - 1;
+    var tok_i = info.for_token -| 1;
     if (token_tags[tok_i] == .keyword_inline) {
         result.inline_token = tok_i;
-        tok_i -= 1;
+        tok_i -|= 1;
     }
     if (token_tags[tok_i] == .colon and
-        token_tags[tok_i - 1] == .identifier)
+        token_tags[tok_i -| 1] == .identifier)
     {
         result.label_token = tok_i - 1;
     }

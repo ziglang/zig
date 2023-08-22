@@ -3,14 +3,15 @@ const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const hii = uefi.protocols.hii;
+const cc = uefi.cc;
 
 /// Database manager for HII-related data structures.
 pub const HIIDatabaseProtocol = extern struct {
     _new_package_list: Status, // TODO
-    _remove_package_list: *const fn (*const HIIDatabaseProtocol, hii.HIIHandle) callconv(.C) Status,
-    _update_package_list: *const fn (*const HIIDatabaseProtocol, hii.HIIHandle, *const hii.HIIPackageList) callconv(.C) Status,
-    _list_package_lists: *const fn (*const HIIDatabaseProtocol, u8, ?*const Guid, *usize, [*]hii.HIIHandle) callconv(.C) Status,
-    _export_package_lists: *const fn (*const HIIDatabaseProtocol, ?hii.HIIHandle, *usize, *hii.HIIPackageList) callconv(.C) Status,
+    _remove_package_list: *const fn (*const HIIDatabaseProtocol, hii.HIIHandle) callconv(cc) Status,
+    _update_package_list: *const fn (*const HIIDatabaseProtocol, hii.HIIHandle, *const hii.HIIPackageList) callconv(cc) Status,
+    _list_package_lists: *const fn (*const HIIDatabaseProtocol, u8, ?*const Guid, *usize, [*]hii.HIIHandle) callconv(cc) Status,
+    _export_package_lists: *const fn (*const HIIDatabaseProtocol, ?hii.HIIHandle, *usize, *hii.HIIPackageList) callconv(cc) Status,
     _register_package_notify: Status, // TODO
     _unregister_package_notify: Status, // TODO
     _find_keyboard_layouts: Status, // TODO

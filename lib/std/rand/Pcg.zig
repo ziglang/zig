@@ -29,8 +29,8 @@ fn next(self: *Pcg) u32 {
     const l = self.s;
     self.s = l *% default_multiplier +% (self.i | 1);
 
-    const xor_s = @as(u32, @truncate(((l >> 18) ^ l) >> 27));
-    const rot = @as(u32, @intCast(l >> 59));
+    const xor_s: u32 = @truncate(((l >> 18) ^ l) >> 27);
+    const rot: u32 = @intCast(l >> 59);
 
     return (xor_s >> @as(u5, @intCast(rot))) | (xor_s << @as(u5, @intCast((0 -% rot) & 31)));
 }

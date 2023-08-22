@@ -28,7 +28,10 @@ pub const File = struct {
     sub_path: []const u8,
     contents: Contents,
 
-    pub fn getFileSource(self: *File) std.Build.FileSource {
+    /// deprecated: use `getPath`
+    pub const getFileSource = getPath;
+
+    pub fn getPath(self: *File) std.Build.LazyPath {
         return .{ .generated = &self.generated_file };
     }
 };
@@ -40,7 +43,7 @@ pub const OutputSourceFile = struct {
 
 pub const Contents = union(enum) {
     bytes: []const u8,
-    copy: std.Build.FileSource,
+    copy: std.Build.LazyPath,
 };
 
 pub fn create(owner: *std.Build) *WriteFile {
@@ -59,7 +62,7 @@ pub fn create(owner: *std.Build) *WriteFile {
     return wf;
 }
 
-pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) std.Build.FileSource {
+pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) std.Build.LazyPath {
     const b = wf.step.owner;
     const gpa = b.allocator;
     const file = gpa.create(File) catch @panic("OOM");
@@ -70,7 +73,7 @@ pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) std.Build.Fi
     };
     wf.files.append(gpa, file) catch @panic("OOM");
     wf.maybeUpdateName();
-    return file.getFileSource();
+    return file.getPath();
 }
 
 /// Place the file into the generated directory within the local cache,
@@ -80,7 +83,7 @@ pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) std.Build.Fi
 /// include sub-directories, in which case this step will ensure the
 /// required sub-path exists.
 /// This is the option expected to be used most commonly with `addCopyFile`.
-pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []const u8) std.Build.FileSource {
+pub fn addCopyFile(wf: *WriteFile, source: std.Build.LazyPath, sub_path: []const u8) std.Build.LazyPath {
     const b = wf.step.owner;
     const gpa = b.allocator;
     const file = gpa.create(File) catch @panic("OOM");
@@ -93,7 +96,7 @@ pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []con
 
     wf.maybeUpdateName();
     source.addStepDependencies(&wf.step);
-    return file.getFileSource();
+    return file.getPath();
 }
 
 /// A path relative to the package root.
@@ -101,7 +104,7 @@ pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []con
 /// used as part of the normal build process, but as a utility occasionally
 /// run by a developer with intent to modify source files and then commit
 /// those changes to version control.
-pub fn addCopyFileToSource(wf: *WriteFile, source: std.Build.FileSource, sub_path: []const u8) void {
+pub fn addCopyFileToSource(wf: *WriteFile, source: std.Build.LazyPath, sub_path: []const u8) void {
     const b = wf.step.owner;
     wf.output_source_files.append(b.allocator, .{
         .contents = .{ .copy = source },
@@ -123,11 +126,13 @@ pub fn addBytesToSource(wf: *WriteFile, bytes: []const u8, sub_path: []const u8)
     }) catch @panic("OOM");
 }
 
-pub const getFileSource = @compileError("Deprecated; use the return value from add()/addCopyFile(), or use files[i].getFileSource()");
+pub const getFileSource = @compileError("Deprecated; use the return value from add()/addCopyFile(), or use files[i].getPath()");
 
-/// Returns a `FileSource` representing the base directory that contains all the
+pub const getDirectorySource = getDirectory;
+
+/// Returns a `LazyPath` representing the base directory that contains all the
 /// files from this `WriteFile`.
-pub fn getDirectorySource(wf: *WriteFile) std.Build.FileSource {
+pub fn getDirectory(wf: *WriteFile) std.Build.LazyPath {
     return .{ .generated = &wf.generated_directory };
 }
 

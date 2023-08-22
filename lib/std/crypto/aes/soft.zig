@@ -122,14 +122,14 @@ pub const Block = struct {
 
         // Last round uses s-box directly and XORs to produce output.
         var x: [4]u8 = undefined;
-        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s3 >> 24)), @as(u8, @truncate(s2 >> 16)), @as(u8, @truncate(s1 >> 8)), @as(u8, @truncate(s0)));
-        var t0 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s0 >> 24)), @as(u8, @truncate(s3 >> 16)), @as(u8, @truncate(s2 >> 8)), @as(u8, @truncate(s1)));
-        var t1 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s1 >> 24)), @as(u8, @truncate(s0 >> 16)), @as(u8, @truncate(s3 >> 8)), @as(u8, @truncate(s2)));
-        var t2 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s2 >> 24)), @as(u8, @truncate(s1 >> 16)), @as(u8, @truncate(s0 >> 8)), @as(u8, @truncate(s3)));
-        var t3 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
+        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s0)), @as(u8, @truncate(s1 >> 8)), @as(u8, @truncate(s2 >> 16)), @as(u8, @truncate(s3 >> 24)));
+        var t0 = mem.readIntLittle(u32, &x);
+        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s1)), @as(u8, @truncate(s2 >> 8)), @as(u8, @truncate(s3 >> 16)), @as(u8, @truncate(s0 >> 24)));
+        var t1 = mem.readIntLittle(u32, &x);
+        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s2)), @as(u8, @truncate(s3 >> 8)), @as(u8, @truncate(s0 >> 16)), @as(u8, @truncate(s1 >> 24)));
+        var t2 = mem.readIntLittle(u32, &x);
+        x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s3)), @as(u8, @truncate(s0 >> 8)), @as(u8, @truncate(s1 >> 16)), @as(u8, @truncate(s2 >> 24)));
+        var t3 = mem.readIntLittle(u32, &x);
 
         t0 ^= round_key.repr[0];
         t1 ^= round_key.repr[1];
@@ -218,14 +218,14 @@ pub const Block = struct {
 
         // Last round uses s-box directly and XORs to produce output.
         var x: [4]u8 = undefined;
-        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s1 >> 24)), @as(u8, @truncate(s2 >> 16)), @as(u8, @truncate(s3 >> 8)), @as(u8, @truncate(s0)));
-        var t0 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s2 >> 24)), @as(u8, @truncate(s3 >> 16)), @as(u8, @truncate(s0 >> 8)), @as(u8, @truncate(s1)));
-        var t1 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s3 >> 24)), @as(u8, @truncate(s0 >> 16)), @as(u8, @truncate(s1 >> 8)), @as(u8, @truncate(s2)));
-        var t2 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
-        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s0 >> 24)), @as(u8, @truncate(s1 >> 16)), @as(u8, @truncate(s2 >> 8)), @as(u8, @truncate(s3)));
-        var t3 = @as(u32, x[0]) << 24 | @as(u32, x[1]) << 16 | @as(u32, x[2]) << 8 | @as(u32, x[3]);
+        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s0)), @as(u8, @truncate(s3 >> 8)), @as(u8, @truncate(s2 >> 16)), @as(u8, @truncate(s1 >> 24)));
+        var t0 = mem.readIntLittle(u32, &x);
+        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s1)), @as(u8, @truncate(s0 >> 8)), @as(u8, @truncate(s3 >> 16)), @as(u8, @truncate(s2 >> 24)));
+        var t1 = mem.readIntLittle(u32, &x);
+        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s2)), @as(u8, @truncate(s1 >> 8)), @as(u8, @truncate(s0 >> 16)), @as(u8, @truncate(s3 >> 24)));
+        var t2 = mem.readIntLittle(u32, &x);
+        x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s3)), @as(u8, @truncate(s2 >> 8)), @as(u8, @truncate(s1 >> 16)), @as(u8, @truncate(s0 >> 24)));
+        var t3 = mem.readIntLittle(u32, &x);
 
         t0 ^= round_key.repr[0];
         t1 ^= round_key.repr[1];
@@ -349,7 +349,7 @@ fn KeySchedule(comptime Aes: type) type {
                 // Apply sbox_encrypt to each byte in w.
                 fn func(w: u32) u32 {
                     const x = sbox_lookup(&sbox_key_schedule, @as(u8, @truncate(w)), @as(u8, @truncate(w >> 8)), @as(u8, @truncate(w >> 16)), @as(u8, @truncate(w >> 24)));
-                    return @as(u32, x[3]) << 24 | @as(u32, x[2]) << 16 | @as(u32, x[1]) << 8 | @as(u32, x[0]);
+                    return mem.readIntLittle(u32, &x);
                 }
             }.func;
 

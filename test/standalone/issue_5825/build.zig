@@ -27,5 +27,8 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("ntdll");
     exe.addObject(obj);
 
+    // TODO: actually check the output
+    _ = exe.getEmittedBin();
+
     test_step.dependOn(&exe.step);
 }

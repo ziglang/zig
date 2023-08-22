@@ -153,7 +153,7 @@ pub const Node = extern union {
         div_exact,
         /// @offsetOf(lhs, rhs)
         offset_of,
-        /// @splat(lhs, rhs)
+        /// @splat(operand)
         vector_zero_init,
         /// @shuffle(type, a, b, mask)
         shuffle,
@@ -284,6 +284,7 @@ pub const Node = extern union {
                 .int_cast,
                 .const_cast,
                 .volatile_cast,
+                .vector_zero_init,
                 => Payload.UnOp,
 
                 .add,
@@ -334,7 +335,6 @@ pub const Node = extern union {
                 .div_exact,
                 .offset_of,
                 .helpers_cast,
-                .vector_zero_init,
                 => Payload.BinOp,
 
                 .integer_literal,
@@ -1918,7 +1918,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .vector_zero_init => {
             const payload = node.castTag(.vector_zero_init).?.data;
-            return renderBuiltinCall(c, "@splat", &.{ payload.lhs, payload.rhs });
+            return renderBuiltinCall(c, "@splat", &.{payload});
         },
         .field_access => {
             const payload = node.castTag(.field_access).?.data;

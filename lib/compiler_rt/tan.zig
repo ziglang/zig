@@ -33,7 +33,7 @@ comptime {
 
 pub fn __tanh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(tanf(x)));
+    return @floatCast(tanf(x));
 }
 
 pub fn tanf(x: f32) callconv(.C) f32 {
@@ -43,7 +43,7 @@ pub fn tanf(x: f32) callconv(.C) f32 {
     const t3pio2: f64 = 3.0 * math.pi / 2.0; // 0x4012D97C, 0x7F3321D2
     const t4pio2: f64 = 4.0 * math.pi / 2.0; // 0x401921FB, 0x54442D18
 
-    var ix = @as(u32, @bitCast(x));
+    var ix: u32 = @bitCast(x);
     const sign = ix >> 31 != 0;
     ix &= 0x7fffffff;
 

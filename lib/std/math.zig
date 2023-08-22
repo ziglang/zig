@@ -47,6 +47,8 @@ pub const floatMin = @import("math/float.zig").floatMin;
 pub const floatMax = @import("math/float.zig").floatMax;
 pub const floatEps = @import("math/float.zig").floatEps;
 pub const inf = @import("math/float.zig").inf;
+pub const nan = @import("math/float.zig").nan;
+pub const snan = @import("math/float.zig").snan;
 
 pub const f16_true_min = @compileError("Deprecated: use `floatTrueMin(f16)` instead");
 pub const f32_true_min = @compileError("Deprecated: use `floatTrueMin(f32)` instead");
@@ -73,46 +75,37 @@ pub const f32_toint = @compileError("Deprecated: use `1.0 / floatEps(f32)` inste
 pub const f64_toint = @compileError("Deprecated: use `1.0 / floatEps(f64)` instead");
 pub const f80_toint = @compileError("Deprecated: use `1.0 / floatEps(f80)` instead");
 pub const f128_toint = @compileError("Deprecated: use `1.0 / floatEps(f128)` instead");
-pub const inf_u16 = @compileError("Deprecated: use `@bitCast(u16, inf(f16))` instead");
+pub const inf_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(inf(f16)))` instead");
 pub const inf_f16 = @compileError("Deprecated: use `inf(f16)` instead");
-pub const inf_u32 = @compileError("Deprecated: use `@bitCast(u32, inf(f32))` instead");
+pub const inf_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(inf(f32)))` instead");
 pub const inf_f32 = @compileError("Deprecated: use `inf(f32)` instead");
-pub const inf_u64 = @compileError("Deprecated: use `@bitCast(u64, inf(f64))` instead");
+pub const inf_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(inf(f64)))` instead");
 pub const inf_f64 = @compileError("Deprecated: use `inf(f64)` instead");
+pub const inf_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(inf(f80)))` instead");
 pub const inf_f80 = @compileError("Deprecated: use `inf(f80)` instead");
-pub const inf_u128 = @compileError("Deprecated: use `@bitCast(u128, inf(f128))` instead");
+pub const inf_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(inf(f128)))` instead");
 pub const inf_f128 = @compileError("Deprecated: use `inf(f128)` instead");
+pub const nan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
+pub const nan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
+pub const nan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
+pub const nan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
+pub const nan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
+pub const nan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
+pub const nan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
+pub const nan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
+pub const nan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
+pub const nan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
+pub const qnan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
+pub const qnan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
+pub const qnan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
+pub const qnan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
+pub const qnan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
+pub const qnan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
+pub const qnan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
+pub const qnan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
+pub const qnan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
+pub const qnan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
 pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
-
-pub const nan_u16 = @as(u16, 0x7C01);
-pub const nan_f16 = @as(f16, @bitCast(nan_u16));
-
-pub const qnan_u16 = @as(u16, 0x7E00);
-pub const qnan_f16 = @as(f16, @bitCast(qnan_u16));
-
-pub const nan_u32 = @as(u32, 0x7F800001);
-pub const nan_f32 = @as(f32, @bitCast(nan_u32));
-
-pub const qnan_u32 = @as(u32, 0x7FC00000);
-pub const qnan_f32 = @as(f32, @bitCast(qnan_u32));
-
-pub const nan_u64 = @as(u64, 0x7FF << 52) | 1;
-pub const nan_f64 = @as(f64, @bitCast(nan_u64));
-
-pub const qnan_u64 = @as(u64, 0x7ff8000000000000);
-pub const qnan_f64 = @as(f64, @bitCast(qnan_u64));
-
-pub const nan_f80 = make_f80(F80{ .fraction = 0xA000000000000000, .exp = 0x7fff });
-pub const qnan_f80 = make_f80(F80{ .fraction = 0xC000000000000000, .exp = 0x7fff });
-
-pub const nan_u128 = @as(u128, 0x7fff0000000000000000000000000001);
-pub const nan_f128 = @as(f128, @bitCast(nan_u128));
-
-pub const qnan_u128 = @as(u128, 0x7fff8000000000000000000000000000);
-pub const qnan_f128 = @as(f128, @bitCast(qnan_u128));
-
-pub const nan = @import("math/nan.zig").nan;
-pub const snan = @import("math/nan.zig").snan;
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
@@ -244,7 +237,6 @@ pub const atan2 = @import("math/atan2.zig").atan2;
 pub const hypot = @import("math/hypot.zig").hypot;
 pub const expm1 = @import("math/expm1.zig").expm1;
 pub const ilogb = @import("math/ilogb.zig").ilogb;
-pub const ln = @import("math/ln.zig").ln;
 pub const log = @import("math/log.zig").log;
 pub const log2 = @import("math/log2.zig").log2;
 pub const log10 = @import("math/log10.zig").log10;
@@ -337,37 +329,8 @@ test {
     _ = floatMax;
     _ = floatEps;
     _ = inf;
-
-    _ = nan_u16;
-    _ = nan_f16;
-
-    _ = qnan_u16;
-    _ = qnan_f16;
-
-    _ = nan_u32;
-    _ = nan_f32;
-
-    _ = qnan_u32;
-    _ = qnan_f32;
-
-    _ = nan_u64;
-    _ = nan_f64;
-
-    _ = qnan_u64;
-    _ = qnan_f64;
-
-    _ = nan_f80;
-    _ = qnan_f80;
-
-    _ = nan_u128;
-    _ = nan_f128;
-
-    _ = qnan_u128;
-    _ = qnan_f128;
-
     _ = nan;
     _ = snan;
-
     _ = isNan;
     _ = isSignalNan;
     _ = frexp;
@@ -395,7 +358,6 @@ test {
     _ = hypot;
     _ = expm1;
     _ = ilogb;
-    _ = ln;
     _ = log;
     _ = log2;
     _ = log10;
@@ -438,6 +400,7 @@ pub const min = @compileError("deprecated; use @min instead");
 pub const max = @compileError("deprecated; use @max instead");
 pub const min3 = @compileError("deprecated; use @min instead");
 pub const max3 = @compileError("deprecated; use @max instead");
+pub const ln = @compileError("deprecated; use @log instead");
 
 /// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
@@ -507,8 +470,8 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
         if (@typeInfo(T) == .Vector) {
             const C = @typeInfo(T).Vector.child;
             const len = @typeInfo(T).Vector.len;
-            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(len, @as(C, 0));
-            break :blk @splat(len, @as(Log2Int(C), @intCast(abs_shift_amt)));
+            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(0);
+            break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
         } else {
             if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0;
             break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
@@ -551,8 +514,8 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
         if (@typeInfo(T) == .Vector) {
             const C = @typeInfo(T).Vector.child;
             const len = @typeInfo(T).Vector.len;
-            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(len, @as(C, 0));
-            break :blk @splat(len, @as(Log2Int(C), @intCast(abs_shift_amt)));
+            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(0);
+            break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
         } else {
             if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0;
             break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
@@ -597,7 +560,7 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
             @compileError("cannot rotate signed integers");
         }
         const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
-        return (x >> @splat(@typeInfo(T).Vector.len, ar)) | (x << @splat(@typeInfo(T).Vector.len, 1 + ~ar));
+        return (x >> @splat(ar)) | (x << @splat(1 + ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
@@ -641,7 +604,7 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
             @compileError("cannot rotate signed integers");
         }
         const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
-        return (x << @splat(@typeInfo(T).Vector.len, ar)) | (x >> @splat(@typeInfo(T).Vector.len, 1 +% ~ar));
+        return (x << @splat(ar)) | (x >> @splat(1 +% ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
@@ -794,10 +757,10 @@ pub fn absInt(x: anytype) !@TypeOf(x) {
             switch (@typeInfo(vinfo.child)) {
                 .Int => |info| {
                     comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
-                    if (@reduce(.Or, x == @splat(vinfo.len, @as(vinfo.child, minInt(vinfo.child))))) {
+                    if (@reduce(.Or, x == @as(T, @splat(minInt(vinfo.child))))) {
                         return error.Overflow;
                     }
-                    const zero = @splat(vinfo.len, @as(vinfo.child, 0));
+                    const zero: T = @splat(0);
                     break :blk @select(vinfo.child, x > zero, x, -x);
                 },
                 else => @compileError("Expected vector of ints, found " ++ @typeName(T)),
@@ -1368,9 +1331,9 @@ pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
 
     switch (@typeInfo(Type)) {
         .Float, .ComptimeFloat => assert(t >= 0 and t <= 1),
-        .Vector => |vector| {
-            const lower_bound = @reduce(.And, t >= @splat(vector.len, @as(vector.child, 0)));
-            const upper_bound = @reduce(.And, t <= @splat(vector.len, @as(vector.child, 1)));
+        .Vector => {
+            const lower_bound = @reduce(.And, t >= @as(Type, @splat(0)));
+            const upper_bound = @reduce(.And, t <= @as(Type, @splat(1)));
             assert(lower_bound and upper_bound);
         },
         else => comptime unreachable,
@@ -1392,14 +1355,24 @@ test "lerp" {
     try testing.expectEqual(@as(f32, 1.0), lerp(@as(f32, 1.0e7), 1.0, 1.0));
     try testing.expectEqual(@as(f64, 1.0), lerp(@as(f64, 1.0e15), 1.0, 1.0));
 
-    try testing.expectEqual(
-        lerp(@splat(3, @as(f32, 0)), @splat(3, @as(f32, 50)), @splat(3, @as(f32, 0.5))),
-        @Vector(3, f32){ 25, 25, 25 },
-    );
-    try testing.expectEqual(
-        lerp(@splat(3, @as(f64, 50)), @splat(3, @as(f64, 100)), @splat(3, @as(f64, 0.5))),
-        @Vector(3, f64){ 75, 75, 75 },
-    );
+    {
+        const a: @Vector(3, f32) = @splat(0);
+        const b: @Vector(3, f32) = @splat(50);
+        const t: @Vector(3, f32) = @splat(0.5);
+        try testing.expectEqual(
+            lerp(a, b, t),
+            @Vector(3, f32){ 25, 25, 25 },
+        );
+    }
+    {
+        const a: @Vector(3, f64) = @splat(50);
+        const b: @Vector(3, f64) = @splat(100);
+        const t: @Vector(3, f64) = @splat(0.5);
+        try testing.expectEqual(
+            lerp(a, b, t),
+            @Vector(3, f64){ 75, 75, 75 },
+        );
+    }
 }
 
 /// Returns the maximum value of integer type T.
@@ -1482,14 +1455,14 @@ test "mulWide" {
 
 /// See also `CompareOperator`.
 pub const Order = enum {
+    /// Greater than (`>`)
+    gt,
+
     /// Less than (`<`)
     lt,
 
     /// Equal (`==`)
     eq,
-
-    /// Greater than (`>`)
-    gt,
 
     pub fn invert(self: Order) Order {
         return switch (self) {
@@ -1719,8 +1692,8 @@ pub inline fn sign(i: anytype) @TypeOf(i) {
         .Vector => |vinfo| blk: {
             switch (@typeInfo(vinfo.child)) {
                 .Int, .Float => {
-                    const zero = @splat(vinfo.len, @as(vinfo.child, 0));
-                    const one = @splat(vinfo.len, @as(vinfo.child, 1));
+                    const zero: T = @splat(0);
+                    const one: T = @splat(1);
                     break :blk @select(vinfo.child, i > zero, one, zero) - @select(vinfo.child, i < zero, one, zero);
                 },
                 else => @compileError("Expected vector of ints or floats, found " ++ @typeName(T)),

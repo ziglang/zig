@@ -1,9 +1,6 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
-const io = std.io;
 const mem = std.mem;
-const os = std.os;
-const fs = std.fs;
 
 pub const CoffHeaderFlags = packed struct {
     /// Image only, Windows CE, and Microsoft Windows NT and later.
@@ -1062,6 +1059,8 @@ pub const CoffError = error{
 // Official documentation of the format: https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
 pub const Coff = struct {
     data: []const u8,
+    // Set if `data` is backed by the image as loaded by the loader
+    is_loaded: bool,
     is_image: bool,
     coff_header_offset: usize,
 
@@ -1069,7 +1068,7 @@ pub const Coff = struct {
     age: u32 = undefined,
 
     // The lifetime of `data` must be longer than the lifetime of the returned Coff
-    pub fn init(data: []const u8) !Coff {
+    pub fn init(data: []const u8, is_loaded: bool) !Coff {
         const pe_pointer_offset = 0x3C;
         const pe_magic = "PE\x00\x00";
 
@@ -1085,6 +1084,7 @@ pub const Coff = struct {
         var coff = @This(){
             .data = data,
             .is_image = is_image,
+            .is_loaded = is_loaded,
             .coff_header_offset = coff_header_offset,
         };
 
@@ -1101,27 +1101,40 @@ pub const Coff = struct {
         return coff;
     }
 
-    pub fn getPdbPath(self: *Coff, buffer: []u8) !usize {
+    pub fn getPdbPath(self: *Coff, buffer: []u8) !?usize {
         assert(self.is_image);
 
         const data_dirs = self.getDataDirectories();
-        const debug_dir = data_dirs[@intFromEnum(DirectoryEntry.DEBUG)];
+        if (@intFromEnum(DirectoryEntry.DEBUG) >= data_dirs.len) return null;
 
+        const debug_dir = data_dirs[@intFromEnum(DirectoryEntry.DEBUG)];
         var stream = std.io.fixedBufferStream(self.data);
         const reader = stream.reader();
-        try stream.seekTo(debug_dir.virtual_address);
+
+        if (self.is_loaded) {
+            try stream.seekTo(debug_dir.virtual_address);
+        } else {
+            // Find what section the debug_dir is in, in order to convert the RVA to a file offset
+            for (self.getSectionHeaders()) |*sect| {
+                if (debug_dir.virtual_address >= sect.virtual_address and debug_dir.virtual_address < sect.virtual_address + sect.virtual_size) {
+                    try stream.seekTo(sect.pointer_to_raw_data + (debug_dir.virtual_address - sect.virtual_address));
+                    break;
+                }
+            } else return error.InvalidDebugDirectory;
+        }
 
         // Find the correct DebugDirectoryEntry, and where its data is stored.
         // It can be in any section.
         const debug_dir_entry_count = debug_dir.size / @sizeOf(DebugDirectoryEntry);
         var i: u32 = 0;
-        blk: while (i < debug_dir_entry_count) : (i += 1) {
+        while (i < debug_dir_entry_count) : (i += 1) {
             const debug_dir_entry = try reader.readStruct(DebugDirectoryEntry);
             if (debug_dir_entry.type == .CODEVIEW) {
-                try stream.seekTo(debug_dir_entry.address_of_raw_data);
-                break :blk;
+                const dir_offset = if (self.is_loaded) debug_dir_entry.address_of_raw_data else debug_dir_entry.pointer_to_raw_data;
+                try stream.seekTo(dir_offset);
+                break;
             }
-        }
+        } else return null;
 
         var cv_signature: [4]u8 = undefined; // CodeView signature
         try reader.readNoEof(cv_signature[0..]);
@@ -1205,13 +1218,20 @@ pub const Coff = struct {
         return .{ .buffer = self.data[offset..][0..size] };
     }
 
-    pub fn getStrtab(self: *const Coff) ?Strtab {
+    pub fn getStrtab(self: *const Coff) error{InvalidStrtabSize}!?Strtab {
         const coff_header = self.getCoffHeader();
         if (coff_header.pointer_to_symbol_table == 0) return null;
 
         const offset = coff_header.pointer_to_symbol_table + Symbol.sizeOf() * coff_header.number_of_symbols;
         const size = mem.readIntLittle(u32, self.data[offset..][0..4]);
+        if ((offset + size) > self.data.len) return error.InvalidStrtabSize;
+
         return Strtab{ .buffer = self.data[offset..][0..size] };
+    }
+
+    pub fn strtabRequired(self: *const Coff) bool {
+        for (self.getSectionHeaders()) |*sect_hdr| if (sect_hdr.getName() == null) return true;
+        return false;
     }
 
     pub fn getSectionHeaders(self: *const Coff) []align(1) const SectionHeader {
@@ -1230,9 +1250,9 @@ pub const Coff = struct {
         return out_buff;
     }
 
-    pub fn getSectionName(self: *const Coff, sect_hdr: *align(1) const SectionHeader) []const u8 {
+    pub fn getSectionName(self: *const Coff, sect_hdr: *align(1) const SectionHeader) error{InvalidStrtabSize}![]const u8 {
         const name = sect_hdr.getName() orelse blk: {
-            const strtab = self.getStrtab().?;
+            const strtab = (try self.getStrtab()).?;
             const name_offset = sect_hdr.getNameOffset().?;
             break :blk strtab.get(name_offset);
         };
@@ -1241,21 +1261,23 @@ pub const Coff = struct {
 
     pub fn getSectionByName(self: *const Coff, comptime name: []const u8) ?*align(1) const SectionHeader {
         for (self.getSectionHeaders()) |*sect| {
-            if (mem.eql(u8, self.getSectionName(sect), name)) {
+            const section_name = self.getSectionName(sect) catch |e| switch (e) {
+                error.InvalidStrtabSize => continue, //ignore invalid(?) strtab entries - see also GitHub issue #15238
+            };
+            if (mem.eql(u8, section_name, name)) {
                 return sect;
             }
         }
         return null;
     }
 
-    pub fn getSectionData(self: *const Coff, comptime name: []const u8) ![]const u8 {
-        const sec = self.getSectionByName(name) orelse return error.MissingCoffSection;
-        return self.data[sec.pointer_to_raw_data..][0..sec.virtual_size];
+    pub fn getSectionData(self: *const Coff, sec: *align(1) const SectionHeader) []const u8 {
+        const offset = if (self.is_loaded) sec.virtual_address else sec.pointer_to_raw_data;
+        return self.data[offset..][0..sec.virtual_size];
     }
 
-    // Return an owned slice full of the section data
-    pub fn getSectionDataAlloc(self: *const Coff, comptime name: []const u8, allocator: mem.Allocator) ![]u8 {
-        const section_data = try self.getSectionData(name);
+    pub fn getSectionDataAlloc(self: *const Coff, sec: *align(1) const SectionHeader, allocator: mem.Allocator) ![]u8 {
+        const section_data = self.getSectionData(sec);
         return allocator.dupe(u8, section_data);
     }
 };

@@ -123,6 +123,7 @@ test "@floatFromInt(f80)" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(comptime Int: type) !void {
@@ -639,7 +640,7 @@ test "vector casts" {
         }
 
         fn doTheTestFloat() !void {
-            var vec = @splat(2, @as(f32, 1234.0));
+            var vec: @Vector(2, f32) = @splat(1234.0);
             var wider: @Vector(2, f64) = vec;
             try expect(wider[0] == 1234.0);
             try expect(wider[1] == 1234.0);
@@ -1153,6 +1154,29 @@ fn foobar(func: PFN_void) !void {
     try std.testing.expect(@intFromPtr(func) == hardcoded_fn_addr);
 }
 
+test "cast function with an opaque parameter" {
+    const Container = struct {
+        const Ctx = opaque {};
+        ctx: *Ctx,
+        func: *const fn (*Ctx) void,
+    };
+    const Foo = struct {
+        x: i32,
+        y: i32,
+        fn funcImpl(self: *@This()) void {
+            self.x += 1;
+            self.y += 1;
+        }
+    };
+    var foo = Foo{ .x = 100, .y = 200 };
+    var c = Container{
+        .ctx = @ptrCast(&foo),
+        .func = @ptrCast(&Foo.funcImpl),
+    };
+    c.func(c.ctx);
+    try std.testing.expectEqual(foo, .{ .x = 101, .y = 201 });
+}
+
 test "implicit ptr to *anyopaque" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -1369,6 +1393,7 @@ test "cast f16 to wider types" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {

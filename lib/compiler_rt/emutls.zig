@@ -125,7 +125,7 @@ const ObjectArray = struct {
         if (self.slots[index] == null) {
             // initialize the slot
             const size = control.size;
-            const alignment = @as(u29, @truncate(control.alignment));
+            const alignment: u29 = @truncate(control.alignment);
 
             var data = simple_allocator.advancedAlloc(alignment, size);
             errdefer simple_allocator.free(data);

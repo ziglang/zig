@@ -209,8 +209,8 @@ test "math.pow.special" {
     try expect(pow(f32, -45, 1.0) == -45);
     try expect(math.isNan(pow(f32, math.nan(f32), 5.0)));
     try expect(math.isPositiveInf(pow(f32, -math.inf(f32), 0.5)));
-    try expect(math.isPositiveInf(pow(f32, -0, -0.5)));
-    try expect(pow(f32, -0, 0.5) == 0);
+    try expect(math.isPositiveInf(pow(f32, -0.0, -0.5)));
+    try expect(pow(f32, -0.0, 0.5) == 0);
     try expect(math.isNan(pow(f32, 5.0, math.nan(f32))));
     try expect(math.isPositiveInf(pow(f32, 0.0, -1.0)));
     //expect(math.isNegativeInf(pow(f32, -0.0, -3.0))); TODO is this required?

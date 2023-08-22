@@ -55,11 +55,11 @@ fn atanh_32(x: f32) f32 {
 }
 
 fn atanh_64(x: f64) f64 {
-    const u = @as(u64, @bitCast(x));
+    const u: u64 = @bitCast(x);
     const e = (u >> 52) & 0x7FF;
     const s = u >> 63;
 
-    var y = @as(f64, @bitCast(u & (maxInt(u64) >> 1))); // |x|
+    var y: f64 = @bitCast(u & (maxInt(u64) >> 1)); // |x|
 
     if (y == 1.0) {
         return math.copysign(math.inf(f64), x);
@@ -107,15 +107,15 @@ test "math.atanh_64" {
 test "math.atanh32.special" {
     try expect(math.isPositiveInf(atanh_32(1)));
     try expect(math.isNegativeInf(atanh_32(-1)));
-    try expect(math.isSignalNan(atanh_32(1.5)));
-    try expect(math.isSignalNan(atanh_32(-1.5)));
+    try expect(math.isNan(atanh_32(1.5)));
+    try expect(math.isNan(atanh_32(-1.5)));
     try expect(math.isNan(atanh_32(math.nan(f32))));
 }
 
 test "math.atanh64.special" {
     try expect(math.isPositiveInf(atanh_64(1)));
     try expect(math.isNegativeInf(atanh_64(-1)));
-    try expect(math.isSignalNan(atanh_64(1.5)));
-    try expect(math.isSignalNan(atanh_64(-1.5)));
+    try expect(math.isNan(atanh_64(1.5)));
+    try expect(math.isNan(atanh_64(-1.5)));
     try expect(math.isNan(atanh_64(math.nan(f64))));
 }

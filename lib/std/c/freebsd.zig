@@ -5,80 +5,12 @@ const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
 
-pub const CPU_SETSIZE = 256;
-pub const cpuset_t = extern struct {
-    __bits: [(CPU_SETSIZE + (@bitSizeOf(c_long) - 1)) / @bitSizeOf(c_long)]c_long,
-};
-
-fn __BIT_COUNT(bits: []const c_long) c_long {
-    var count: c_long = 0;
-    for (bits) |b| {
-        count += @popCount(b);
-    }
-    return count;
-}
-
-fn __BIT_MASK(s: usize) c_long {
-    var x = s % CPU_SETSIZE;
-    return @as(c_long, @bitCast(@as(c_ulong, @intCast(1)) << @as(u6, @intCast(x))));
-}
-
-pub fn CPU_COUNT(set: cpuset_t) c_int {
-    return @as(c_int, @intCast(__BIT_COUNT(set.__bits[0..])));
-}
-
-pub fn CPU_ZERO(set: *cpuset_t) void {
-    @memset((set.*).__bits[0..], 0);
-}
-
-pub fn CPU_SET(cpu: usize, set: *cpuset_t) void {
-    const x = cpu / @sizeOf(c_long);
-    if (x < @sizeOf(cpuset_t)) {
-        (set.*).__bits[x] |= __BIT_MASK(x);
-    }
-}
-
-pub fn CPU_ISSET(cpu: usize, set: cpuset_t) bool {
-    const x = cpu / @sizeOf(c_long);
-    if (x < @sizeOf(cpuset_t)) {
-        return set.__bits[x] & __BIT_MASK(x) != 0;
-    }
-    return false;
-}
-
-pub fn CPU_CLR(cpu: usize, set: *cpuset_t) void {
-    const x = cpu / @sizeOf(c_long);
-    if (x < @sizeOf(cpuset_t)) {
-        (set.*).__bits[x] &= !__BIT_MASK(x);
-    }
-}
-
-pub const cpulevel_t = c_int;
-pub const cpuwhich_t = c_int;
-pub const id_t = i64;
-
-pub const CPU_LEVEL_ROOT: cpulevel_t = 1;
-pub const CPU_LEVEL_CPUSET: cpulevel_t = 2;
-pub const CPU_LEVEL_WHICH: cpulevel_t = 3;
-pub const CPU_WHICH_TID: cpuwhich_t = 1;
-pub const CPU_WHICH_PID: cpuwhich_t = 2;
-pub const CPU_WHICH_CPUSET: cpuwhich_t = 3;
-pub const CPU_WHICH_IRQ: cpuwhich_t = 4;
-pub const CPU_WHICH_JAIL: cpuwhich_t = 5;
-pub const CPU_WHICH_DOMAIN: cpuwhich_t = 6;
-pub const CPU_WHICH_INTRHANDLER: cpuwhich_t = 7;
-pub const CPU_WHICH_ITHREAD: cpuwhich_t = 8;
-pub const CPU_WHICH_TIDPID: cpuwhich_t = 8;
-
 extern "c" fn __error() *c_int;
 pub const _errno = __error;
-
-pub extern "c" var malloc_options: [*:0]const u8;
 
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) isize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
-pub extern "c" fn getentropy(buf_ptr: [*]u8, buf_len: usize) c_int;
 
 pub extern "c" fn pthread_getthreadid_np() c_int;
 pub extern "c" fn pthread_set_name_np(thread: std.c.pthread_t, name: [*:0]const u8) void;
@@ -88,21 +20,10 @@ pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
-pub extern "c" fn reallocf(?*anyopaque, usize) ?*anyopaque;
 
 pub extern "c" fn getpid() pid_t;
 
 pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;
-pub extern "c" fn kinfo_getvmmap(pid: pid_t, cntp: *c_int) ?[*]kinfo_vmentry;
-pub extern "c" fn kinfo_getproc(pid: pid_t) ?*kinfo_proc;
-pub extern "c" fn kinfo_getvmobject(cntp: *c_int) ?[*]kinfo_vmobject;
-pub extern "c" fn kinfo_getswapvmobject(cntp: *c_int) ?[*]kinfo_vmobject;
-
-pub extern "c" fn cpuset_getaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *cpuset_t) c_int;
-pub extern "c" fn cpuset_setaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *const cpuset_t) c_int;
-pub extern "c" fn sched_getaffinity(pid: pid_t, cpusetsz: usize, cpuset: *cpuset_t) c_int;
-pub extern "c" fn sched_setaffinity(pid: pid_t, cpusetsz: usize, cpuset: *const cpuset_t) c_int;
-pub extern "c" fn sched_getcpu() c_int;
 
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
@@ -355,36 +276,36 @@ pub const Flock = extern struct {
 
 pub const msghdr = extern struct {
     /// Optional address.
-    name: ?*sockaddr,
+    msg_name: ?*sockaddr,
     /// Size of address.
-    namelen: socklen_t,
+    msg_namelen: socklen_t,
     /// Scatter/gather array.
-    iov: [*]iovec,
+    msg_iov: [*]iovec,
     /// Number of elements in msg_iov.
-    iovlen: i32,
+    msg_iovlen: i32,
     /// Ancillary data.
-    control: ?*anyopaque,
+    msg_control: ?*anyopaque,
     /// Ancillary data buffer length.
-    controllen: socklen_t,
+    msg_controllen: socklen_t,
     /// Flags on received message.
-    flags: i32,
+    msg_flags: i32,
 };
 
 pub const msghdr_const = extern struct {
     /// Optional address.
-    name: ?*const sockaddr,
+    msg_name: ?*const sockaddr,
     /// Size of address.
-    namelen: socklen_t,
+    msg_namelen: socklen_t,
     /// Scatter/gather array.
-    iov: [*]iovec_const,
+    msg_iov: [*]iovec_const,
     /// Number of elements in msg_iov.
-    iovlen: i32,
+    msg_iovlen: i32,
     /// Ancillary data.
-    control: ?*anyopaque,
+    msg_control: ?*anyopaque,
     /// Ancillary data buffer length.
-    controllen: socklen_t,
+    msg_controllen: socklen_t,
     /// Flags on received message.
-    flags: i32,
+    msg_flags: i32,
 };
 
 pub const Stat = extern struct {
@@ -523,42 +444,9 @@ pub const sockaddr = extern struct {
 
 pub const CAP_RIGHTS_VERSION = 0;
 
-pub const cap_rights_t = extern struct {
-    cr_rights: [CAP_RIGHTS_VERSION + 2]u64,
+pub const cap_rights = extern struct {
+    rights: [CAP_RIGHTS_VERSION + 2]u64,
 };
-
-pub const CAP = struct {
-    pub fn RIGHT(idx: u6, bit: u64) u64 {
-        return (@as(u64, @intCast(1)) << (57 + idx)) | bit;
-    }
-    pub const READ = CAP.RIGHT(0, 0x0000000000000001);
-    pub const WRITE = CAP.RIGHT(0, 0x0000000000000002);
-    pub const SEEK_TELL = CAP.RIGHT(0, 0x0000000000000004);
-    pub const SEEK = CAP.SEEK_TELL | 0x0000000000000008;
-    pub const PREAD = CAP.SEEK | CAP.READ;
-    pub const PWRITE = CAP.SEEK | CAP.WRITE;
-    pub const MMAP = CAP.RIGHT(0, 0x0000000000000010);
-    pub const MMAP_R = CAP.MMAP | CAP.SEEK | CAP.READ;
-    pub const MMAP_W = CAP.MMAP | CAP.SEEK | CAP.WRITE;
-    pub const MMAP_X = CAP.MMAP | CAP.SEEK | 0x0000000000000020;
-    pub const MMAP_RW = CAP.MMAP_R | CAP.MMAP_W;
-    pub const MMAP_RX = CAP.MMAP_R | CAP.MMAP_X;
-    pub const MMAP_WX = CAP.MMAP_W | CAP.MMAP_X;
-    pub const MMAP_RWX = CAP.MMAP_R | CAP.MMAP_W | CAP.MMAP_X;
-    pub const CREATE = CAP.RIGHT(0, 0x0000000000000040);
-    pub const FEXECVE = CAP.RIGHT(0, 0x0000000000000080);
-    pub const FSYNC = CAP.RIGHT(0, 0x0000000000000100);
-    pub const FTRUNCATE = CAP.RIGHT(0, 0x0000000000000200);
-};
-
-pub extern "c" fn __cap_rights_init(version: c_int, rights: ?*cap_rights_t, ...) ?*cap_rights_t;
-pub extern "c" fn __cap_rights_set(rights: ?*cap_rights_t, ...) ?*cap_rights_t;
-pub extern "c" fn __cap_rights_clear(rights: ?*cap_rights_t, ...) ?*cap_rights_t;
-pub extern "c" fn __cap_rights_is_set(rights: ?*const cap_rights_t, ...) bool;
-pub extern "c" fn cap_rights_merge(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
-pub extern "c" fn cap_rights_remove(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
-pub extern "c" fn cap_rights_contains(dst: ?*const cap_rights_t, src: ?*const cap_rights_t) bool;
-pub extern "c" fn cap_rights_is_valid(rights: ?*const cap_rights_t) bool;
 
 pub const kinfo_file = extern struct {
     /// Size of this record.
@@ -661,7 +549,7 @@ pub const kinfo_file = extern struct {
     // Reserved for future use.
     _spare: c_int,
     /// Capability rights.
-    cap_rights: cap_rights_t,
+    cap_rights: cap_rights,
     /// Reserved for future cap_rights
     _cap_spare: u64,
     /// Path to file, if any.
@@ -674,248 +562,6 @@ comptime {
     std.debug.assert(@sizeOf(kinfo_file) == KINFO_FILE_SIZE);
     std.debug.assert(@alignOf(kinfo_file) == @sizeOf(u64));
 }
-
-pub const kinfo_vmentry = extern struct {
-    structsize: c_int,
-    type: c_int,
-    start: u64,
-    end: u64,
-    offset: u64,
-    vn_fileid: u64,
-    vn_fsid_freebsd11: u32,
-    flags: c_int,
-    resident: c_int,
-    private_resident: c_int,
-    protection: c_int,
-    ref_count: c_int,
-    shadow_count: c_int,
-    vn_type: c_int,
-    vn_size: u64,
-    vn_rdev_freebsd11: u32,
-    vn_mode: u16,
-    status: u16,
-    type_spec: extern union {
-        _vn_fsid: u64,
-        _obj: u64,
-    },
-    vn_rdev: u64,
-    _ispare: [8]c_int,
-    rpath: [PATH_MAX]u8,
-};
-
-pub const KINFO_VMENTRY_SIZE = 1160;
-
-comptime {
-    std.debug.assert(@sizeOf(kinfo_vmentry) == KINFO_VMENTRY_SIZE);
-}
-
-pub const WMESGLEN = 8;
-pub const LOCKNAMELEN = 8;
-pub const TDNAMLEN = 16;
-pub const COMMLEN = 19;
-pub const MAXCOMLEN = 19;
-pub const KI_EMULNAMELEN = 16;
-pub const KI_NGROUPS = 16;
-pub const LOGNAMELEN = 17;
-pub const LOGINCLASSLEN = 17;
-
-pub const KI_NSPARE_INT = 2;
-pub const KI_NSPARE_LONG = 12;
-pub const KI_NSPARE_PTR = 5;
-
-pub const RUSAGE_SELF = 0;
-pub const RUSAGE_CHILDREN = -1;
-pub const RUSAGE_THREAD = 1;
-
-pub const proc = opaque {};
-pub const thread = opaque {};
-pub const vnode = opaque {};
-pub const filedesc = opaque {};
-pub const pwddesc = opaque {};
-pub const vmspace = opaque {};
-pub const pcb = opaque {};
-pub const lwpid_t = i32;
-pub const fixpt_t = u32;
-pub const vm_size_t = usize;
-pub const segsz_t = isize;
-
-pub const itimerval = extern struct {
-    interval: timeval,
-    value: timeval,
-};
-
-pub const pstats = extern struct {
-    cru: rusage,
-    timer: [3]itimerval,
-    prof: extern struct {
-        base: u8,
-        size: c_ulong,
-        off: c_ulong,
-        scale: c_ulong,
-    },
-    start: timeval,
-};
-
-pub const user = extern struct {
-    stats: pstats,
-    kproc: kinfo_proc,
-};
-
-pub const pargs = extern struct {
-    ref: c_uint,
-    length: c_uint,
-    args: [1]u8,
-};
-
-pub const priority = extern struct {
-    class: u8,
-    level: u8,
-    native: u8,
-    user: u8,
-};
-
-pub const rusage = extern struct {
-    utime: timeval,
-    stime: timeval,
-    maxrss: c_long,
-    ixrss: c_long,
-    idrss: c_long,
-    isrss: c_long,
-    minflt: c_long,
-    majflt: c_long,
-    nswap: c_long,
-    inblock: c_long,
-    oublock: c_long,
-    msgsnd: c_long,
-    msgrcv: c_long,
-    nsignals: c_long,
-    nvcsw: c_long,
-    nivcsw: c_long,
-};
-
-pub const kinfo_proc = extern struct {
-    structsize: c_int,
-    layout: c_int,
-    args: *pargs,
-    paddr: *proc,
-    addr: *user,
-    tracep: *vnode,
-    textvp: *vnode,
-    fd: *filedesc,
-    vmspace: *vmspace,
-    wchan: ?*const anyopaque,
-    pid: pid_t,
-    ppid: pid_t,
-    pgid: pid_t,
-    tpgid: pid_t,
-    sid: pid_t,
-    tsid: pid_t,
-    jobc: c_short,
-    spare_short1: c_short,
-    tdev_freebsd11: u32,
-    siglist: sigset_t,
-    sigmask: sigset_t,
-    sigignore: sigset_t,
-    sigcatch: sigset_t,
-    uid: uid_t,
-    ruid: uid_t,
-    svuid: uid_t,
-    rgid: gid_t,
-    svgid: gid_t,
-    ngroups: c_short,
-    spare_short2: c_short,
-    groups: [KI_NGROUPS]gid_t,
-    size: vm_size_t,
-    rssize: segsz_t,
-    swrss: segsz_t,
-    tsize: segsz_t,
-    dsize: segsz_t,
-    ssize: segsz_t,
-    xstat: c_ushort,
-    acflag: c_ushort,
-    pctcpu: fixpt_t,
-    estcpu: c_uint,
-    slptime: c_uint,
-    swtime: c_uint,
-    cow: c_uint,
-    runtime: u64,
-    start: timeval,
-    childtime: timeval,
-    flag: c_long,
-    kiflag: c_long,
-    traceflag: c_int,
-    stat: u8,
-    nice: i8,
-    lock: u8,
-    rqindex: u8,
-    oncpu_old: u8,
-    lastcpu_old: u8,
-    tdname: [TDNAMLEN + 1]u8,
-    wmesg: [WMESGLEN + 1]u8,
-    login: [LOGNAMELEN + 1]u8,
-    lockname: [LOCKNAMELEN + 1]u8,
-    comm: [COMMLEN + 1]u8,
-    emul: [KI_EMULNAMELEN + 1]u8,
-    loginclass: [LOGINCLASSLEN + 1]u8,
-    moretdname: [MAXCOMLEN - TDNAMLEN + 1]u8,
-    sparestrings: [46]u8,
-    spareints: [KI_NSPARE_INT]c_int,
-    tdev: u64,
-    oncpu: c_int,
-    lastcpu: c_int,
-    tracer: c_int,
-    flag2: c_int,
-    fibnum: c_int,
-    cr_flags: c_uint,
-    jid: c_int,
-    numthreads: c_int,
-    tid: lwpid_t,
-    pri: priority,
-    rusage: rusage,
-    rusage_ch: rusage,
-    pcb: *pcb,
-    stack: ?*anyopaque,
-    udata: ?*anyopaque,
-    tdaddr: *thread,
-    pd: *pwddesc,
-    spareptrs: [KI_NSPARE_PTR]?*anyopaque,
-    sparelongs: [KI_NSPARE_LONG]c_long,
-    sflag: c_long,
-    tdflag: c_long,
-};
-
-pub const KINFO_PROC_SIZE = switch (builtin.cpu.arch) {
-    .x86 => 768,
-    .arm => 816,
-    else => 1088,
-};
-
-comptime {
-    assert(@sizeOf(kinfo_proc) == KINFO_PROC_SIZE);
-}
-
-pub const kinfo_vmobject = extern struct {
-    structsize: c_int,
-    tpe: c_int,
-    size: u64,
-    vn_fileid: u64,
-    vn_fsid_freebsd11: u32,
-    ref_count: c_int,
-    shadow_count: c_int,
-    memattr: c_int,
-    resident: u64,
-    active: u64,
-    inactive: u64,
-    type_spec: extern union {
-        _vn_fsid: u64,
-        _backing_obj: u64,
-    },
-    me: u64,
-    _qspare: [6]u64,
-    swapped: u32,
-    _ispare: [7]u32,
-    path: [PATH_MAX]u8,
-};
 
 pub const CTL = struct {
     pub const KERN = 1;
@@ -1396,11 +1042,6 @@ pub const DT = struct {
     pub const WHT = 14;
 };
 
-pub const accept_filter = extern struct {
-    af_name: [16]u8,
-    af_args: [240]u8,
-};
-
 /// add event to kq (implies enable)
 pub const EV_ADD = 0x0001;
 
@@ -1682,47 +1323,15 @@ pub const mcontext_t = switch (builtin.cpu.arch) {
         rflags: u64,
         rsp: u64,
         ss: u64,
-        len: c_long,
-        fpformat: c_long,
-        ownedfp: c_long,
-        fpstate: [64]c_long align(16),
+        len: u64,
+        fpformat: u64,
+        ownedfp: u64,
+        fpstate: [64]u64 align(16),
         fsbase: u64,
         gsbase: u64,
         xfpustate: u64,
         xfpustate_len: u64,
-        spare: [4]c_long,
-    },
-    .x86 => extern struct {
-        onstack: u32,
-        gs: u32,
-        fs: u32,
-        es: u32,
-        ds: u32,
-        edi: u32,
-        esi: u32,
-        ebp: u32,
-        isp: u32,
-        ebx: u32,
-        edx: u32,
-        ecx: u32,
-        eax: u32,
-        trapno: u32,
-        err: u32,
-        eip: u32,
-        cs: u32,
-        eflags: u32,
-        esp: u32,
-        ss: u32,
-        len: c_int,
-        fpformat: c_int,
-        ownedfp: c_int,
-        flags: u32,
-        fpstate: [128]c_int align(16),
-        fsbase: u32,
-        gsbase: u32,
-        xpustate: u32,
-        xpustate_len: u32,
-        spare2: [4]c_int,
+        spare: [4]u64,
     },
     .aarch64 => extern struct {
         gpregs: extern struct {
@@ -2002,45 +1611,6 @@ pub const AT = struct {
     pub const REMOVEDIR = 0x0800;
     /// Fail if not under dirfd
     pub const BENEATH = 0x1000;
-    /// elf_common constants
-    pub const NULL = 0;
-    pub const IGNORE = 1;
-    pub const EXECFD = 2;
-    pub const PHDR = 3;
-    pub const PHENT = 4;
-    pub const PHNUM = 5;
-    pub const PAGESZ = 6;
-    pub const BASE = 7;
-    pub const FLAGS = 8;
-    pub const ENTRY = 9;
-    pub const NOTELF = 10;
-    pub const UID = 11;
-    pub const EUID = 12;
-    pub const GID = 13;
-    pub const EGID = 14;
-    pub const EXECPATH = 15;
-    pub const CANARY = 16;
-    pub const CANARYLEN = 17;
-    pub const OSRELDATE = 18;
-    pub const NCPUS = 19;
-    pub const PAGESIZES = 20;
-    pub const PAGESIZESLEN = 21;
-    pub const TIMEKEEP = 22;
-    pub const STACKPROT = 23;
-    pub const EHDRFLAGS = 24;
-    pub const HWCAP = 25;
-    pub const HWCAP2 = 26;
-    pub const BSDFLAGS = 27;
-    pub const ARGC = 28;
-    pub const ARGV = 29;
-    pub const ENVC = 30;
-    pub const ENVV = 31;
-    pub const PS_STRINGS = 32;
-    pub const FXRNG = 33;
-    pub const KPRLOAD = 34;
-    pub const USRSTACKBASE = 35;
-    pub const USRSTACKLIM = 36;
-    pub const COUNT = 37;
 };
 
 pub const addrinfo = extern struct {
@@ -2373,468 +1943,7 @@ pub const NAME_MAX = 255;
 pub const MFD = struct {
     pub const CLOEXEC = 0x0001;
     pub const ALLOW_SEALING = 0x0002;
-    pub const HUGETLB = 0x00000004;
-    pub const HUGE_MASK = 0xFC000000;
-    pub const HUGE_SHIFT = 26;
-    pub const HUGE_64KB = 16 << HUGE_SHIFT;
-    pub const HUGE_512KB = 19 << HUGE_SHIFT;
-    pub const HUGE_1MB = 20 << HUGE_SHIFT;
-    pub const HUGE_2MB = 21 << HUGE_SHIFT;
-    pub const HUGE_8MB = 23 << HUGE_SHIFT;
-    pub const HUGE_16MB = 24 << HUGE_SHIFT;
-    pub const HUGE_32MB = 25 << HUGE_SHIFT;
-    pub const HUGE_256MB = 28 << HUGE_SHIFT;
-    pub const HUGE_512MB = 29 << HUGE_SHIFT;
-    pub const HUGE_1GB = 30 << HUGE_SHIFT;
-    pub const HUGE_2GB = 31 << HUGE_SHIFT;
-    pub const HUGE_16GB = 34 << HUGE_SHIFT;
 };
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
 pub extern "c" fn copy_file_range(fd_in: fd_t, off_in: ?*off_t, fd_out: fd_t, off_out: ?*off_t, len: usize, flags: u32) usize;
-
-pub const idtype_t = enum(c_int) {
-    P_PID = 0,
-    P_PPID = 1,
-    P_PGID = 2,
-    P_SID = 3,
-    P_CID = 4,
-    P_UID = 5,
-    P_GID = 6,
-    P_ALL = 7,
-    P_LWPID = 8,
-    P_TASKID = 9,
-    P_PROJID = 10,
-    P_POOLID = 11,
-    P_JAILID = 12,
-    P_CTID = 13,
-    P_CPUID = 14,
-    P_PSETID = 15,
-};
-
-pub const PROC = struct {
-    // constants for the id_t argument
-    pub const SPROTECT: id_t = 1;
-    pub const REAP_ACQUIRE: id_t = 2;
-    pub const REAP_RELEASE: id_t = 3;
-    pub const REAP_STATUS: id_t = 4;
-    pub const REAP_GETPIDS: id_t = 5;
-    pub const REAP_KILL: id_t = 6;
-    pub const TRACE_CTL: id_t = 7;
-    pub const TRACE_STATUS: id_t = 8;
-    pub const TRACECAP_CTL = 9;
-    pub const TRACECAP_STATUS: id_t = 10;
-    pub const PDEATHSIG_CTL: id_t = 11;
-    pub const PDEATHSIG_STATUS: id_t = 12;
-    pub const ASLR_CTL: id_t = 13;
-    pub const ASLR_STATUS: id_t = 14;
-    pub const PROTMAX_CTL: id_t = 15;
-    pub const PROTMAX_STATUS: id_t = 16;
-    pub const STACKGAP_CTL: id_t = 17;
-    pub const STACKGAP_STATUS: id_t = 18;
-    pub const NO_NEW_PRIVS_CTL: id_t = 19;
-    pub const NO_NEW_PRIVS_STATUS: id_t = 20;
-    pub const WXMAP_CTL: id_t = 21;
-    pub const WXMAP_STATUS: id_t = 22;
-
-    // constants for the operations
-    pub const TRACE_CTL_ENABLE = 1;
-    pub const TRACE_CTL_DISABLE = 2;
-    pub const TRACE_CTL_DISABLE_EXEC = 3;
-    pub const TRAPCAP_CTL_ENABLE = 1;
-    pub const TRAPCAP_CTL_DISABLE = 2;
-    pub const ASLR_FORCE_ENABLE = 1;
-    pub const ASLR_FORCE_DISABLE = 2;
-    pub const ASLR_FORCE_NOFORCE = 3;
-    pub const ASLR_FORCE_ACTIVE = 0x80000000;
-    pub const PROTMAX_FORCE_ENABLE = 1;
-    pub const PROTMAX_FORCE_DISABLE = 2;
-    pub const PROTMAX_FORCE_NOFORCE = 3;
-    pub const PROTMAX_FORCE_ACTIVE = 0x80000000;
-    pub const STACKGAP_ENABLE = 0x0001;
-    pub const STACKGAP_DISABLE = 0x0002;
-    pub const STACKGAP_ENABLE_EXEC = 0x0004;
-    pub const STACKGAP_DISABLE_EXEC = 0x0008;
-    pub const NO_NEW_PRIVS_ENABLE = 1;
-    pub const NO_NEW_PRIVS_DISABLE = 2;
-    pub const WX_MAPPINGS_PERMIT = 0x0001;
-    pub const WX_MAPPINGS_DISALLOW_EXEC = 0x0002;
-    pub const WX_MAPPINGS_ENFORCE = 0x80000000;
-    pub const PROCCTL_MD_MIN = 0x10000000;
-    // x86_64-only constants
-    pub const KPTI = switch (builtin.cpu.arch) {
-        .x86_64 => struct {
-            pub const CTL = PROC.PROCCTL_MD_MIN;
-            pub const STATUS = PROC.PROCCTL_MD_MIN + 1;
-            pub const CTL_ENABLE_ON_EXEC = 1;
-            pub const CTL_DISABLE_ON_EXEC = 2;
-            pub const STATUS_ACTIVE = 0x80000000;
-        },
-        else => void,
-    };
-    pub const LA = switch (builtin.cpu.arch) {
-        .x86_64 => struct {
-            pub const CTL = PROC.PROCCTL_MD_MIN + 2;
-            pub const STATUS = PROC.PROCCTL_MD_MIN + 3;
-            pub const CTL_LA48_ON_EXEC = 1;
-            pub const CTL_LA57_ON_EXEC = 2;
-            pub const CTL_DEFAULT_ON_EXEC = 3;
-            pub const STATUS_LA48 = 0x01000000;
-            pub const STATUS_LA57 = 0x02000000;
-        },
-        else => void,
-    };
-};
-
-pub const PPROT = struct {
-    pub fn OP(x: i32) i32 {
-        return x & 0xf;
-    }
-    pub const SET = 1;
-    pub const CLEAR = 2;
-    pub fn FLAGS(x: i32) i32 {
-        return x & !0xf;
-    }
-    pub const DESCEND = 0x10;
-    pub const INHERIT = 0x20;
-};
-
-pub const REAPER = struct {
-    pub const STATUS_OWNED = 0x00000001;
-    pub const STATUS_REALINIT = 0x00000002;
-    pub const PIDINFO_VALID = 0x00000001;
-    pub const PIDINFO_CHILD = 0x00000002;
-    pub const PIDINFO_REAPER = 0x00000004;
-    pub const KILL_CHILDREN = 0x00000001;
-    pub const KILL_SUBTREE = 0x00000002;
-};
-
-pub const procctl_reaper_status = extern struct {
-    rs_flags: u32,
-    rs_children: u32,
-    rs_descendants: u32,
-    rs_reaper: pid_t,
-    rs_pid: pid_t,
-    rs_pad0: [15]u32,
-};
-
-pub const procctl_reaper_pidinfo = extern struct {
-    pi_pid: pid_t,
-    pi_subtree: pid_t,
-    pi_flags: u32,
-    pi_pad0: [15]u32,
-};
-
-pub const procctl_reaper_pids = extern struct {
-    rp_count: u32,
-    rp_pad0: [15]u32,
-    rp_pids: [*]procctl_reaper_pidinfo,
-};
-
-pub const procctl_reaper_kill = extern struct {
-    rk_sig: c_int,
-    rk_flags: u32,
-    rk_subtree: pid_t,
-    rk_killed: u32,
-    rk_fpid: pid_t,
-    rk_pad0: [15]u32,
-};
-
-pub extern "c" fn procctl(idtype: idtype_t, id: id_t, cmd: c_int, data: ?*anyopaque) c_int;
-
-pub const SHM = struct {
-    pub const ALLOW_SEALING = 0x00000001;
-    pub const GROW_ON_WRWITE = 0x00000002;
-    pub const LARGEPAGE = 0x00000004;
-    pub const LARGEPAGE_ALLOC_DEFAULT = 0;
-    pub const LARGEPAGE_ALLOC_NOWAIT = 1;
-    pub const LARGEPAGE_ALLOC_HARD = 2;
-};
-
-pub const shm_largeconf = extern struct {
-    psind: c_int,
-    alloc_policy: c_int,
-    pad: [10]c_int,
-};
-
-pub extern "c" fn shm_create_largepage(path: [*:0]const u8, flags: c_int, psind: c_int, alloc_policy: c_int, mode: mode_t) c_int;
-
-pub extern "c" fn elf_aux_info(aux: c_int, buf: ?*anyopaque, buflen: c_int) c_int;
-
-pub const lwpid = i32;
-
-pub const SIGEV = struct {
-    pub const NONE = 0;
-    pub const SIGNAL = 1;
-    pub const THREAD = 2;
-    pub const KEVENT = 3;
-    pub const THREAD_ID = 4;
-};
-
-pub const sigevent = extern struct {
-    sigev_notify: c_int,
-    sigev_signo: c_int,
-    sigev_value: sigval,
-    _sigev_un: extern union {
-        _threadid: lwpid,
-        _sigev_thread: extern struct {
-            _function: ?*const fn (sigval) callconv(.C) void,
-            _attribute: ?**pthread_attr_t,
-        },
-        _kevent_flags: c_ushort,
-        __spare__: [8]c_long,
-    },
-};
-
-pub const timer_t = *opaque {};
-
-pub const MIN = struct {
-    pub const INCORE = 0x1;
-    pub const REFERENCED = 0x2;
-    pub const MODIFIED = 0x4;
-    pub const REFERENCED_OTHER = 0x8;
-    pub const MODIFIED_OTHER = 0x10;
-    pub const SUPER = 0x60;
-    pub fn PSIND(i: u32) u32 {
-        return (i << 5) & SUPER;
-    }
-};
-
-pub extern "c" fn mincore(
-    addr: *align(std.mem.page_size) const anyopaque,
-    length: usize,
-    vec: [*]u8,
-) c_int;
-
-pub const MAXMEMDOM = 8;
-pub const domainid_t = u8;
-
-pub const LIST_ENTRY = opaque {};
-
-pub const DOMAINSET = struct {
-    pub const POLICY_INVALID = 0;
-    pub const POLICY_ROUNDROBIN = 1;
-    pub const POLICY_FIRSTOUCH = 2;
-    pub const POLICY_PREFER = 3;
-    pub const POLICY_INTERLEAVE = 4;
-    pub const POLICY_MAX = DOMAINSET.POLICY_INTERLEAVE;
-};
-
-pub const DOMAINSET_SIZE = 256;
-pub const domainset_t = extern struct {
-    __bits: [(DOMAINSET_SIZE + (@sizeOf(domainset) - 1)) / @bitSizeOf(domainset)]domainset,
-};
-
-pub fn DOMAINSET_COUNT(set: domainset_t) c_int {
-    return @as(c_int, @intCast(__BIT_COUNT(set.__bits[0..])));
-}
-
-pub const domainset = extern struct {
-    link: LIST_ENTRY,
-    mask: domainset_t,
-    policy: u16,
-    prefer: domainid_t,
-    cnt: domainid_t,
-    order: [MAXMEMDOM]domainid_t,
-};
-
-pub extern "c" fn cpuset_getdomain(level: cpulevel_t, which: cpuwhich_t, id: id_t, len: usize, domain: *domainset_t, r: *c_int) c_int;
-pub extern "c" fn cpuset_setdomain(level: cpulevel_t, which: cpuwhich_t, id: id_t, len: usize, domain: *const domainset_t, r: c_int) c_int;
-
-const ioctl_cmd = enum(u32) {
-    VOID = 0x20000000,
-    OUT = 0x40000000,
-    IN = 0x80000000,
-    INOUT = ioctl_cmd.IN | ioctl_cmd.OUT,
-    DIRMASK = ioctl_cmd.VOID | ioctl_cmd.IN | ioctl_cmd.OUT,
-};
-
-fn ioImpl(cmd: ioctl_cmd, op: u8, nr: u8, comptime IT: type) u32 {
-    return @as(u32, @bitCast(@intFromEnum(cmd) | @as(u32, @intCast(@as(u8, @truncate(@sizeOf(IT))))) << 16 | @as(u32, @intCast(op)) << 8 | nr));
-}
-
-pub fn IO(op: u8, nr: u8) u32 {
-    return ioImpl(ioctl_cmd.VOID, op, nr, 0);
-}
-
-pub fn IOR(op: u8, nr: u8, comptime IT: type) u32 {
-    return ioImpl(ioctl_cmd.OUT, op, nr, @sizeOf(IT));
-}
-
-pub fn IOW(op: u8, nr: u8, comptime IT: type) u32 {
-    return ioImpl(ioctl_cmd.IN, op, nr, @sizeOf(IT));
-}
-
-pub fn IOWR(op: u8, nr: u8, comptime IT: type) u32 {
-    return ioImpl(ioctl_cmd.INOUT, op, nr, @sizeOf(IT));
-}
-
-pub const RF = struct {
-    pub const NAMEG = 1 << 0;
-    pub const ENVG = 1 << 1;
-    /// copy file descriptors table
-    pub const FDG = 1 << 2;
-    pub const NOTEG = 1 << 3;
-    /// creates a new process
-    pub const PROC = 1 << 4;
-    /// shares address space
-    pub const MEM = 1 << 5;
-    /// detaches the child
-    pub const NOWAIT = 1 << 6;
-    pub const CNAMEG = 1 << 10;
-    pub const CENVG = 1 << 11;
-    /// distinct file descriptor table
-    pub const CFDG = 1 << 12;
-    /// thread support
-    pub const THREAD = 1 << 13;
-    /// shares signal handlers
-    pub const SIGSHARE = 1 << 14;
-    /// emits SIGUSR1 on exit
-    pub const LINUXTHPN = 1 << 16;
-    /// child in stopped state
-    pub const STOPPED = 1 << 17;
-    /// use high pid id
-    pub const HIGHPID = 1 << 18;
-    /// selects signal flag for parent notification
-    pub const SIGSZMB = 1 << 19;
-    pub fn SIGNUM(f: u32) u32 {
-        return f >> 20;
-    }
-    pub fn SIGFLAGS(f: u32) u32 {
-        return f << 20;
-    }
-};
-
-pub extern "c" fn rfork(flags: c_int) c_int;
-
-pub const PTRACE = struct {
-    pub const EXC = 0x0001;
-    pub const SCE = 0x0002;
-    pub const SCX = 0x0004;
-    pub const SYSCALL = (PTRACE.SCE | PTRACE.SCX);
-    pub const FORK = 0x0008;
-    pub const LWP = 0x0010;
-    pub const VFORK = 0x0020;
-    pub const DEFAULT = PTRACE.EXEC;
-};
-
-pub const PT = struct {
-    pub const TRACE_ME = 0;
-    pub const READ_I = 1;
-    pub const READ_D = 2;
-    pub const WRITE_I = 4;
-    pub const WRITE_D = 5;
-    pub const CONTINUE = 7;
-    pub const KILL = 8;
-    pub const STEP = 9;
-    pub const ATTACH = 10;
-    pub const DETACH = 11;
-    pub const IO = 12;
-    pub const LWPINFO = 13;
-    pub const GETNUMLWPS = 14;
-    pub const GETLWPLIST = 15;
-    pub const CLEARSTEP = 16;
-    pub const SETSTEP = 17;
-    pub const SUSPEND = 18;
-    pub const RESUME = 19;
-    pub const TO_SCE = 20;
-    pub const TO_SCX = 21;
-    pub const SYSCALL = 22;
-    pub const FOLLOW_FORK = 23;
-    pub const LWP_EVENTS = 24;
-    pub const GET_EVENT_MASK = 25;
-    pub const SET_EVENT_MASK = 26;
-    pub const GET_SC_ARGS = 27;
-    pub const GET_SC_RET = 28;
-    pub const COREDUMP = 29;
-    pub const GETREGS = 33;
-    pub const SETREGS = 34;
-    pub const GETFPREGS = 35;
-    pub const SETFPREGS = 36;
-    pub const GETDBREGS = 37;
-    pub const SETDBREGS = 38;
-    pub const VM_TIMESTAMP = 40;
-    pub const VM_ENTRY = 41;
-    pub const GETREGSET = 42;
-    pub const SETREGSET = 43;
-    pub const SC_REMOTE = 44;
-    pub const FIRSTMACH = 64;
-};
-
-pub const ptrace_io_desc = extern struct {
-    op: c_int,
-    offs: ?*anyopaque,
-    addr: ?*anyopaque,
-    len: usize,
-};
-
-pub const PIOD = struct {
-    pub const READ_D = 1;
-    pub const WRITE_D = 2;
-    pub const READ_I = 3;
-    pub const WRITE_I = 4;
-};
-
-pub const ptrace_lwpinfo = extern struct {
-    lwpid: lwpid_t,
-    event: c_int,
-    flags: c_int,
-    sigmask: sigset_t,
-    siglist: sigset_t,
-    siginfo: siginfo_t,
-    tdname: [MAXCOMLEN + 1]u8,
-    child_pid: pid_t,
-    syscall_code: c_uint,
-    syscall_narg: c_uint,
-};
-
-pub const ptrace_sc_ret = extern struct {
-    retval: [2]isize,
-    err: c_int,
-};
-
-pub const ptrace_vm_entry = extern struct {
-    entry: c_int,
-    timestamp: c_int,
-    start: c_ulong,
-    end: c_ulong,
-    offset: c_ulong,
-    prot: c_uint,
-    pathlen: c_uint,
-    fileid: c_long,
-    fsid: u32,
-    pve_path: ?[*:0]u8,
-};
-
-pub const ptrace_coredump = extern struct {
-    fd: c_int,
-    flags: u32,
-    limit: isize,
-};
-
-pub const ptrace_cs_remote = extern struct {
-    ret: ptrace_sc_ret,
-    syscall: c_uint,
-    nargs: c_uint,
-    args: *isize,
-};
-
-pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: [*:0]u8, data: c_int) c_int;
-
-/// TODO refines if necessary
-pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
-    .x86, .powerpc => 4 * 512,
-    else => 4 * 1024,
-};
-
-pub const SYS_NMLN = 256;
-
-pub const utsname = extern struct {
-    sysname: [255:0]u8,
-    nodename: [255:0]u8,
-    release: [255:0]u8,
-    version: [255:0]u8,
-    machine: [255:0]u8,
-};
-
-pub extern "c" fn uname(u: *utsname) c_int;
