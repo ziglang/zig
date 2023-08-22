@@ -73,7 +73,7 @@ pub const Zld = struct {
     mh_execute_header_index: ?u32 = null,
     dso_handle_index: ?u32 = null,
     dyld_stub_binder_index: ?u32 = null,
-    dyld_private_sym_index: ?u32 = null,
+    dyld_private_atom_index: ?Atom.Index = null,
     stub_helper_preamble_sym_index: ?u32 = null,
 
     strtab: StringTable(.strtab) = .{},
@@ -324,8 +324,6 @@ pub const Zld = struct {
     }
 
     fn createDyldPrivateAtom(self: *Zld) !void {
-        if (self.dyld_stub_binder_index == null) return;
-
         const sym_index = try self.allocateSymbol();
         const atom_index = try self.createEmptyAtom(sym_index, @sizeOf(u64), 3);
         const sym = self.getSymbolPtr(.{ .sym_index = sym_index });
@@ -333,8 +331,7 @@ pub const Zld = struct {
 
         const sect_id = self.getSectionByName("__DATA", "__data") orelse try self.initSection("__DATA", "__data", .{});
         sym.n_sect = sect_id + 1;
-
-        self.dyld_private_sym_index = sym_index;
+        self.dyld_private_atom_index = atom_index;
 
         self.addAtomToSection(atom_index);
     }
@@ -378,7 +375,8 @@ pub const Zld = struct {
             break :blk sym.n_value;
         };
         const dyld_private_addr = blk: {
-            const sym = self.getSymbol(.{ .sym_index = self.dyld_private_sym_index.? });
+            const atom = self.getAtom(self.dyld_private_atom_index.?);
+            const sym = self.getSymbol(atom.getSymbolWithLoc());
             break :blk sym.n_value;
         };
         const dyld_stub_binder_got_addr = blk: {
@@ -1054,13 +1052,9 @@ pub const Zld = struct {
                 const offset = buffer.items.len;
 
                 // TODO: move writing synthetic sections into a separate function
-                if (atom.getFile() == null) outer: {
-                    if (self.dyld_private_sym_index) |sym_index| {
-                        if (atom.sym_index == sym_index) {
-                            buffer.appendSliceAssumeCapacity(&[_]u8{0} ** @sizeOf(u64));
-                            break :outer;
-                        }
-                    }
+                if (atom_index == self.dyld_private_atom_index.?) {
+                    buffer.appendSliceAssumeCapacity(&[_]u8{0} ** @sizeOf(u64));
+                } else if (atom.getFile() == null) outer: {
                     switch (header.type()) {
                         macho.S_NON_LAZY_SYMBOL_POINTERS => {
                             try self.writeGotPointer(count, buffer.writer());
@@ -1544,9 +1538,7 @@ pub const Zld = struct {
                 const sym = self.getSymbol(atom.getSymbolWithLoc());
 
                 const should_rebase = blk: {
-                    if (self.dyld_private_sym_index) |sym_index| {
-                        if (atom.getFile() == null and atom.sym_index == sym_index) break :blk false;
-                    }
+                    if (atom_index == self.dyld_private_atom_index.?) break :blk false;
                     break :blk !sym.undf();
                 };
 
@@ -1684,9 +1676,7 @@ pub const Zld = struct {
                 log.debug("  ATOM({d}, %{d}, '{s}')", .{ atom_index, atom.sym_index, self.getSymbolName(atom.getSymbolWithLoc()) });
 
                 const should_bind = blk: {
-                    if (self.dyld_private_sym_index) |sym_index| {
-                        if (atom.getFile() == null and atom.sym_index == sym_index) break :blk false;
-                    }
+                    if (atom_index == self.dyld_private_atom_index.?) break :blk false;
                     break :blk true;
                 };
 
