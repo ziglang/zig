@@ -411,48 +411,52 @@ pub const Response = struct {
         }
         try w.writeAll("\r\n");
 
-        if (!res.headers.contains("server")) {
-            try w.writeAll("Server: zig (std.http)\r\n");
-        }
-
-        if (!res.headers.contains("connection")) {
-            const req_connection = res.request.headers.getFirstValue("connection");
-            const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
-
-            if (req_keepalive) {
-                try w.writeAll("Connection: keep-alive\r\n");
-            } else {
-                try w.writeAll("Connection: close\r\n");
-            }
-        }
-
-        const has_transfer_encoding = res.headers.contains("transfer-encoding");
-        const has_content_length = res.headers.contains("content-length");
-
-        if (!has_transfer_encoding and !has_content_length) {
-            switch (res.transfer_encoding) {
-                .chunked => try w.writeAll("Transfer-Encoding: chunked\r\n"),
-                .content_length => |content_length| try w.print("Content-Length: {d}\r\n", .{content_length}),
-                .none => {},
-            }
+        if (res.status == .@"continue") {
+            res.state = .waited; // we still need to send another request after this
         } else {
-            if (has_content_length) {
-                const content_length = std.fmt.parseInt(u64, res.headers.getFirstValue("content-length").?, 10) catch return error.InvalidContentLength;
+            if (!res.headers.contains("server")) {
+                try w.writeAll("Server: zig (std.http)\r\n");
+            }
 
-                res.transfer_encoding = .{ .content_length = content_length };
-            } else if (has_transfer_encoding) {
-                const transfer_encoding = res.headers.getFirstValue("transfer-encoding").?;
-                if (std.mem.eql(u8, transfer_encoding, "chunked")) {
-                    res.transfer_encoding = .chunked;
+            if (!res.headers.contains("connection")) {
+                const req_connection = res.request.headers.getFirstValue("connection");
+                const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
+
+                if (req_keepalive) {
+                    try w.writeAll("Connection: keep-alive\r\n");
                 } else {
-                    return error.UnsupportedTransferEncoding;
+                    try w.writeAll("Connection: close\r\n");
+                }
+            }
+
+            const has_transfer_encoding = res.headers.contains("transfer-encoding");
+            const has_content_length = res.headers.contains("content-length");
+
+            if (!has_transfer_encoding and !has_content_length) {
+                switch (res.transfer_encoding) {
+                    .chunked => try w.writeAll("Transfer-Encoding: chunked\r\n"),
+                    .content_length => |content_length| try w.print("Content-Length: {d}\r\n", .{content_length}),
+                    .none => {},
                 }
             } else {
-                res.transfer_encoding = .none;
-            }
-        }
+                if (has_content_length) {
+                    const content_length = std.fmt.parseInt(u64, res.headers.getFirstValue("content-length").?, 10) catch return error.InvalidContentLength;
 
-        try w.print("{}", .{res.headers});
+                    res.transfer_encoding = .{ .content_length = content_length };
+                } else if (has_transfer_encoding) {
+                    const transfer_encoding = res.headers.getFirstValue("transfer-encoding").?;
+                    if (std.mem.eql(u8, transfer_encoding, "chunked")) {
+                        res.transfer_encoding = .chunked;
+                    } else {
+                        return error.UnsupportedTransferEncoding;
+                    }
+                } else {
+                    res.transfer_encoding = .none;
+                }
+            }
+
+            try w.print("{}", .{res.headers});
+        }
 
         try w.writeAll("\r\n");
 
@@ -513,6 +517,10 @@ pub const Response = struct {
 
             if (cl == 0) res.request.parser.done = true;
         } else {
+            res.request.parser.done = true;
+        }
+
+        if (res.request.method == .HEAD) {
             res.request.parser.done = true;
         }
 

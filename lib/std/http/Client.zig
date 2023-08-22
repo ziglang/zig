@@ -478,6 +478,7 @@ pub const Request = struct {
             .zstd => |*zstd| zstd.deinit(),
         }
 
+        req.headers.deinit();
         req.response.headers.deinit();
 
         if (req.response.parser.header_bytes_owned) {
@@ -667,17 +668,19 @@ pub const Request = struct {
 
             try req.response.parse(req.response.parser.header_bytes.items, false);
 
-            if (req.response.status == .switching_protocols) {
+            if (req.response.status == .@"continue") {
+                req.response.parser.done = true; // we're done parsing the continue response, reset to prepare for the real response
+                req.response.parser.reset();
+                break;
+            }
+
+            // we're switching protocols, so this connection is no longer doing http
+            if (req.response.status == .switching_protocols or (req.method == .CONNECT and req.response.status == .ok)) {
                 req.connection.?.data.closing = false;
                 req.response.parser.done = true;
             }
 
-            if (req.method == .CONNECT and req.response.status == .ok) {
-                req.connection.?.data.closing = false;
-                req.response.parser.done = true;
-            }
-
-            // we default to using keep-alive if not provided
+            // we default to using keep-alive if not provided in the client if the server asks for it
             const req_connection = req.headers.getFirstValue("connection");
             const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
 
@@ -949,6 +952,38 @@ pub fn connectUnproxied(client: *Client, host: []const u8, port: u16, protocol: 
             conn.data.tls_client.allow_truncation_attacks = true;
         },
     }
+
+    client.connection_pool.addUsed(conn);
+
+    return conn;
+}
+
+pub const ConnectUnixError = Allocator.Error || std.os.SocketError || error{NameTooLong} || std.os.ConnectError;
+
+pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*ConnectionPool.Node {
+    if (client.connection_pool.findConnection(.{
+        .host = path,
+        .port = 0,
+        .is_tls = false,
+    })) |node|
+        return node;
+
+    const conn = try client.allocator.create(ConnectionPool.Node);
+    errdefer client.allocator.destroy(conn);
+    conn.* = .{ .data = undefined };
+
+    const stream = try std.net.connectUnixSocket(path);
+    errdefer stream.close();
+
+    conn.data = .{
+        .stream = stream,
+        .tls_client = undefined,
+        .protocol = .plain,
+
+        .host = try client.allocator.dupe(u8, path),
+        .port = 0,
+    };
+    errdefer client.allocator.free(conn.data.host);
 
     client.connection_pool.addUsed(conn);
 
