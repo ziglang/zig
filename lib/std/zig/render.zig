@@ -1212,17 +1212,6 @@ fn renderFor(gpa: Allocator, ais: *Ais, tree: Ast, for_node: Ast.full.For, space
     const lparen = for_node.ast.for_token + 1;
     try renderParamList(gpa, ais, tree, lparen, for_node.ast.inputs, .space);
 
-    // TODO remove this after zig 0.11.0
-    if (for_node.isOldSyntax(token_tags)) {
-        // old: for (a) |b, c| {}
-        // new: for (a, 0..) |b, c| {}
-        const array_list = ais.underlying_writer.context; // abstractions? who needs 'em!
-        if (mem.endsWith(u8, array_list.items, ") ")) {
-            array_list.items.len -= 2;
-            try array_list.appendSlice(", 0..) ");
-        }
-    }
-
     var cur = for_node.payload_token;
     const pipe = std.mem.indexOfScalarPos(std.zig.Token.Tag, token_tags, cur, .pipe).?;
     if (token_tags[pipe - 1] == .comma) {
@@ -1428,12 +1417,6 @@ fn renderBuiltinCall(
     }
     // Corresponding logic below builtin name rewrite below
 
-    // TODO remove before release of 0.11.0
-    if (mem.eql(u8, slice, "@maximum")) {
-        try ais.writer().writeAll("@max");
-    } else if (mem.eql(u8, slice, "@minimum")) {
-        try ais.writer().writeAll("@min");
-    }
     // TODO remove before release of 0.12.0
     else if (mem.eql(u8, slice, "@boolToInt")) {
         try ais.writer().writeAll("@intFromBool");

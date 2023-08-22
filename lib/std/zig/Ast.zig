@@ -2528,18 +2528,6 @@ pub const full = struct {
             then_expr: Node.Index,
             else_expr: Node.Index,
         };
-
-        /// TODO: remove this after zig 0.11.0 is tagged.
-        pub fn isOldSyntax(f: For, token_tags: []const Token.Tag) bool {
-            if (f.ast.inputs.len != 1) return false;
-            if (token_tags[f.payload_token + 1] == .comma) return true;
-            if (token_tags[f.payload_token] == .asterisk and
-                token_tags[f.payload_token + 2] == .comma)
-            {
-                return true;
-            }
-            return false;
-        }
     };
 
     pub const ContainerField = struct {
