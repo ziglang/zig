@@ -1224,7 +1224,7 @@ test "getDefaultPageSize smoke test" {
     const page_size = try os.getDefaultPageSize();
     switch (page_size) {
         // zig fmt: off
-        1024, 2048, 4096, 8192, 16384, 32768, // 1, 2, 4, 8, 16, 32KB
+        1024, 2048, 4096, 8192, 16384, 32768, 65536, // 1, 2, 4, 8, 16, 32, 64KB
         2097152, 4194304 => {}, // 2, 4MB
         // zig fmt: on
         else => return error.InvalidDefaultPageSize,
