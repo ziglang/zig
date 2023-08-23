@@ -55,6 +55,8 @@ fn handleRequest(res: *Server.Response) !void {
             try res.writeAll("Hello, ");
             try res.writeAll("World!\n");
             try res.finish();
+        } else {
+            try testing.expectEqual(res.writeAll("errors"), error.NotWriteable);
         }
     } else if (mem.startsWith(u8, res.request.target, "/large")) {
         res.transfer_encoding = .{ .content_length = 14 * 1024 + 14 * 10 };

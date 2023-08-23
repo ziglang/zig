@@ -458,6 +458,10 @@ pub const Response = struct {
             try w.print("{}", .{res.headers});
         }
 
+        if (res.request.method == .HEAD) {
+            res.transfer_encoding = .none;
+        }
+
         try w.writeAll("\r\n");
 
         try buffered.flush();
@@ -517,10 +521,6 @@ pub const Response = struct {
 
             if (cl == 0) res.request.parser.done = true;
         } else {
-            res.request.parser.done = true;
-        }
-
-        if (res.request.method == .HEAD) {
             res.request.parser.done = true;
         }
 
