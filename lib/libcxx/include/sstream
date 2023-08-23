@@ -419,7 +419,7 @@ public:
     }
 
     _LIBCPP_HIDE_FROM_ABI basic_string_view<char_type, traits_type> view() const noexcept;
-#endif
+#endif // _LIBCPP_STD_VER >= 20
 
     void str(const string_type& __s) {
         __str_ = __s;
@@ -904,20 +904,22 @@ public:
         return const_cast<basic_stringbuf<char_type, traits_type, allocator_type>*>(&__sb_);
     }
 
-#if _LIBCPP_STD_VER >= 20
-    _LIBCPP_HIDE_FROM_ABI string_type str() const & { return __sb_.str(); }
+#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
+    _LIBCPP_HIDE_FROM_ABI string_type str() const { return __sb_.str(); }
+#else
+    _LIBCPP_HIDE_FROM_ABI_SSTREAM string_type str() const & { return __sb_.str(); }
 
+    _LIBCPP_HIDE_FROM_ABI_SSTREAM string_type str() && { return std::move(__sb_).str(); }
+#endif
+
+#if _LIBCPP_STD_VER >= 20
     template <class _SAlloc>
       requires __is_allocator<_SAlloc>::value
     _LIBCPP_HIDE_FROM_ABI basic_string<char_type, traits_type, _SAlloc> str(const _SAlloc& __sa) const {
         return __sb_.str(__sa);
     }
 
-    _LIBCPP_HIDE_FROM_ABI string_type str() && { return std::move(__sb_).str(); }
-
     _LIBCPP_HIDE_FROM_ABI basic_string_view<char_type, traits_type> view() const noexcept { return __sb_.view(); }
-#else // _LIBCPP_STD_VER >= 20
-    _LIBCPP_HIDE_FROM_ABI string_type str() const { return __sb_.str(); }
 #endif // _LIBCPP_STD_VER >= 20
 
     _LIBCPP_HIDE_FROM_ABI void str(const string_type& __s) { __sb_.str(__s); }
@@ -1027,20 +1029,22 @@ public:
         return const_cast<basic_stringbuf<char_type, traits_type, allocator_type>*>(&__sb_);
     }
 
-#if _LIBCPP_STD_VER >= 20
-    _LIBCPP_HIDE_FROM_ABI string_type str() const & { return __sb_.str(); }
+#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
+    _LIBCPP_HIDE_FROM_ABI string_type str() const { return __sb_.str(); }
+#else
+    _LIBCPP_HIDE_FROM_ABI_SSTREAM string_type str() const & { return __sb_.str(); }
 
+    _LIBCPP_HIDE_FROM_ABI_SSTREAM string_type str() && { return std::move(__sb_).str(); }
+#endif
+
+#if _LIBCPP_STD_VER >= 20
     template <class _SAlloc>
       requires __is_allocator<_SAlloc>::value
     _LIBCPP_HIDE_FROM_ABI basic_string<char_type, traits_type, _SAlloc> str(const _SAlloc& __sa) const {
         return __sb_.str(__sa);
     }
 
-    _LIBCPP_HIDE_FROM_ABI string_type str() && { return std::move(__sb_).str(); }
-
     _LIBCPP_HIDE_FROM_ABI basic_string_view<char_type, traits_type> view() const noexcept { return __sb_.view(); }
-#else // _LIBCPP_STD_VER >= 20
-    _LIBCPP_HIDE_FROM_ABI string_type str() const { return __sb_.str(); }
 #endif // _LIBCPP_STD_VER >= 20
 
     _LIBCPP_HIDE_FROM_ABI void str(const string_type& __s) { __sb_.str(__s); }
@@ -1149,20 +1153,22 @@ public:
         return const_cast<basic_stringbuf<char_type, traits_type, allocator_type>*>(&__sb_);
     }
 
-#if _LIBCPP_STD_VER >= 20
-    _LIBCPP_HIDE_FROM_ABI string_type str() const & { return __sb_.str(); }
+#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
+    _LIBCPP_HIDE_FROM_ABI string_type str() const { return __sb_.str(); }
+#else
+    _LIBCPP_HIDE_FROM_ABI_SSTREAM string_type str() const & { return __sb_.str(); }
 
+    _LIBCPP_HIDE_FROM_ABI_SSTREAM string_type str() && { return std::move(__sb_).str(); }
+#endif
+
+#if _LIBCPP_STD_VER >= 20
     template <class _SAlloc>
       requires __is_allocator<_SAlloc>::value
     _LIBCPP_HIDE_FROM_ABI basic_string<char_type, traits_type, _SAlloc> str(const _SAlloc& __sa) const {
         return __sb_.str(__sa);
     }
 
-    _LIBCPP_HIDE_FROM_ABI string_type str() && { return std::move(__sb_).str(); }
-
     _LIBCPP_HIDE_FROM_ABI basic_string_view<char_type, traits_type> view() const noexcept { return __sb_.view(); }
-#else // _LIBCPP_STD_VER >= 20
-    _LIBCPP_HIDE_FROM_ABI string_type str() const { return __sb_.str(); }
 #endif // _LIBCPP_STD_VER >= 20
 
     _LIBCPP_HIDE_FROM_ABI void str(const string_type& __s) { __sb_.str(__s); }
