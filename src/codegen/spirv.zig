@@ -619,9 +619,10 @@ pub const DeclGen = struct {
         fn lower(self: *@This(), ty: Type, arg_val: Value) !void {
             const dg = self.dg;
             const mod = dg.module;
+            const ip = &mod.intern_pool;
 
             var val = arg_val;
-            switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            switch (ip.indexToKey(val.toIntern())) {
                 .runtime_value => |rt| val = rt.val.toValue(),
                 else => {},
             }
@@ -631,7 +632,7 @@ pub const DeclGen = struct {
                 return try self.addUndef(size);
             }
 
-            switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            switch (ip.indexToKey(val.toIntern())) {
                 .int_type,
                 .ptr_type,
                 .array_type,
@@ -770,7 +771,7 @@ pub const DeclGen = struct {
                     try self.addConstBool(payload_val != null);
                     try self.addUndef(padding);
                 },
-                .aggregate => |aggregate| switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .aggregate => |aggregate| switch (ip.indexToKey(ty.ip_index)) {
                     .array_type => |array_type| {
                         const elem_ty = array_type.child.toType();
                         switch (aggregate.storage) {
@@ -801,7 +802,7 @@ pub const DeclGen = struct {
                             if (field.is_comptime or !field.ty.hasRuntimeBits(mod)) continue;
 
                             const field_val = switch (aggregate.storage) {
-                                .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                                .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
                                     .ty = field.ty.toIntern(),
                                     .storage = .{ .u64 = bytes[i] },
                                 } }),
@@ -828,13 +829,13 @@ pub const DeclGen = struct {
                         return try self.lower(ty.unionTagTypeSafety(mod).?, un.tag.toValue());
                     }
 
-                    const union_ty = mod.typeToUnion(ty).?;
-                    if (union_ty.layout == .Packed) {
+                    const union_obj = mod.typeToUnion(ty).?;
+                    if (union_obj.getLayout(ip) == .Packed) {
                         return dg.todo("packed union constants", .{});
                     }
 
                     const active_field = ty.unionTagFieldIndex(un.tag.toValue(), dg.module).?;
-                    const active_field_ty = union_ty.fields.values()[active_field].ty;
+                    const active_field_ty = union_obj.field_types.get(ip)[active_field].toType();
 
                     const has_tag = layout.tag_size != 0;
                     const tag_first = layout.tag_align >= layout.payload_align;
@@ -1162,16 +1163,17 @@ pub const DeclGen = struct {
     ///   resulting struct will be *underaligned*.
     fn resolveUnionType(self: *DeclGen, ty: Type, maybe_active_field: ?usize) !CacheRef {
         const mod = self.module;
+        const ip = &mod.intern_pool;
         const layout = ty.unionGetLayout(mod);
-        const union_ty = mod.typeToUnion(ty).?;
+        const union_obj = mod.typeToUnion(ty).?;
 
-        if (union_ty.layout == .Packed) {
+        if (union_obj.getLayout(ip) == .Packed) {
             return self.todo("packed union types", .{});
         }
 
         if (layout.payload_size == 0) {
             // No payload, so represent this as just the tag type.
-            return try self.resolveType(union_ty.tag_ty, .indirect);
+            return try self.resolveType(union_obj.enum_tag_ty.toType(), .indirect);
         }
 
         var member_types = std.BoundedArray(CacheRef, 4){};
@@ -1182,13 +1184,13 @@ pub const DeclGen = struct {
         const u8_ty_ref = try self.intType(.unsigned, 8); // TODO: What if Int8Type is not enabled?
 
         if (has_tag and tag_first) {
-            const tag_ty_ref = try self.resolveType(union_ty.tag_ty, .indirect);
+            const tag_ty_ref = try self.resolveType(union_obj.enum_tag_ty.toType(), .indirect);
             member_types.appendAssumeCapacity(tag_ty_ref);
             member_names.appendAssumeCapacity(try self.spv.resolveString("tag"));
         }
 
         const active_field = maybe_active_field orelse layout.most_aligned_field;
-        const active_field_ty = union_ty.fields.values()[active_field].ty;
+        const active_field_ty = union_obj.field_types.get(ip)[active_field].toType();
 
         const active_field_size = if (active_field_ty.hasRuntimeBitsIgnoreComptime(mod)) blk: {
             const active_payload_ty_ref = try self.resolveType(active_field_ty, .indirect);
@@ -1205,7 +1207,7 @@ pub const DeclGen = struct {
         }
 
         if (has_tag and !tag_first) {
-            const tag_ty_ref = try self.resolveType(union_ty.tag_ty, .indirect);
+            const tag_ty_ref = try self.resolveType(union_obj.enum_tag_ty.toType(), .indirect);
             member_types.appendAssumeCapacity(tag_ty_ref);
             member_names.appendAssumeCapacity(try self.spv.resolveString("tag"));
         }

@@ -1,4 +1,4 @@
-const Enum = enum(u32) { a, b };
+const Enum = enum(u32) { b, a };
 const TaggedUnion = union(Enum) {
     b: []const u8,
     a: []const u8,

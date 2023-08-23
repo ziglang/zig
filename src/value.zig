@@ -734,6 +734,7 @@ pub const Value = struct {
         buffer: []u8,
         bit_offset: usize,
     ) error{ ReinterpretDeclRef, OutOfMemory }!void {
+        const ip = &mod.intern_pool;
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         if (val.isUndef(mod)) {
@@ -759,7 +760,7 @@ pub const Value = struct {
                 const bits = ty.intInfo(mod).bits;
                 if (bits == 0) return;
 
-                switch (mod.intern_pool.indexToKey((try val.intFromEnum(ty, mod)).toIntern()).int.storage) {
+                switch (ip.indexToKey((try val.intFromEnum(ty, mod)).toIntern()).int.storage) {
                     inline .u64, .i64 => |int| std.mem.writeVarPackedInt(buffer, bit_offset, bits, int, endian),
                     .big_int => |bigint| bigint.writePackedTwosComplement(buffer, bit_offset, bits, endian),
                     else => unreachable,
@@ -794,7 +795,7 @@ pub const Value = struct {
                 .Packed => {
                     var bits: u16 = 0;
                     const fields = ty.structFields(mod).values();
-                    const storage = mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage;
+                    const storage = ip.indexToKey(val.toIntern()).aggregate.storage;
                     for (fields, 0..) |field, i| {
                         const field_bits = @as(u16, @intCast(field.ty.bitSize(mod)));
                         const field_val = switch (storage) {
@@ -807,16 +808,19 @@ pub const Value = struct {
                     }
                 },
             },
-            .Union => switch (ty.containerLayout(mod)) {
-                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
-                .Extern => unreachable, // Handled in non-packed writeToMemory
-                .Packed => {
-                    const field_index = ty.unionTagFieldIndex(val.unionTag(mod), mod);
-                    const field_type = ty.unionFields(mod).values()[field_index.?].ty;
-                    const field_val = try val.fieldValue(mod, field_index.?);
+            .Union => {
+                const union_obj = mod.typeToUnion(ty).?;
+                switch (union_obj.getLayout(ip)) {
+                    .Auto => unreachable, // Sema is supposed to have emitted a compile error already
+                    .Extern => unreachable, // Handled in non-packed writeToMemory
+                    .Packed => {
+                        const field_index = mod.unionTagFieldIndex(union_obj, val.unionTag(mod)).?;
+                        const field_type = union_obj.field_types.get(ip)[field_index].toType();
+                        const field_val = try val.fieldValue(mod, field_index);
 
-                    return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
-                },
+                        return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
+                    },
+                }
             },
             .Pointer => {
                 assert(!ty.isSlice(mod)); // No well defined layout.

@@ -2317,17 +2317,6 @@ test "big.int bitwise xor single negative simple" {
     try testing.expect((try a.to(i64)) == -0x2efed94fcb932ef9);
 }
 
-test "big.int bitwise xor single negative zero" {
-    var a = try Managed.initSet(testing.allocator, 0);
-    defer a.deinit();
-    var b = try Managed.initSet(testing.allocator, -0);
-    defer b.deinit();
-
-    try a.bitXor(&a, &b);
-
-    try testing.expect(a.eqlZero());
-}
-
 test "big.int bitwise xor single negative multi-limb" {
     var a = try Managed.initSet(testing.allocator, -0x9849c6e7a10d66d0e4260d4846254c32);
     defer a.deinit();
@@ -2687,8 +2676,6 @@ test "big int popcount" {
     try a.set(0);
     try popCountTest(&a, 0, 0);
     try popCountTest(&a, 567, 0);
-    try a.set(-0);
-    try popCountTest(&a, 0, 0);
 
     try a.set(1);
     try popCountTest(&a, 1, 1);

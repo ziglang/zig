@@ -70,6 +70,28 @@ fn testDifferentSizedFloatComparisons() !void {
     try expect(a < b);
 }
 
+test "f80 comparisons" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
+
+    try expect(compareF80(0.0, .eq, -0.0));
+    try expect(compareF80(0.0, .lte, -0.0));
+    try expect(compareF80(0.0, .gte, -0.0));
+    try expect(compareF80(1.0, .neq, -1.0));
+    try expect(compareF80(2.0, .lt, 4.0));
+    try expect(compareF80(2.0, .lte, 4.0));
+    try expect(compareF80(-2.0, .gt, -4.0));
+    try expect(compareF80(-2.0, .gte, -4.0));
+}
+
+fn compareF80(x: f80, op: math.CompareOperator, y: f80) bool {
+    return math.compare(x, op, y);
+}
+
 // TODO This is waiting on library support for the Windows build (not sure why the other's don't need it)
 //test "@nearbyint" {
 //    comptime testNearbyInt();
