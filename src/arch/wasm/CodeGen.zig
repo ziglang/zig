@@ -6429,7 +6429,7 @@ fn airDivFloor(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const zero = switch (wasm_bits) {
             32 => WValue{ .imm32 = 0 },
             64 => WValue{ .imm64 = 0 },
-            else => @panic("Unexpected wasm integer width"),
+            else => unreachable,
         };
 
         // tee leaves the value on the stack and stores it in a local.
@@ -6458,7 +6458,7 @@ fn airDivFloor(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 try func.addTag(.i64_extend_i32_u);
                 try func.addTag(.i64_sub);
             },
-            else => @panic("Unexpected wasm integer width"),
+            else => unreachable,
         }
 
         _ = try func.binOp(lhs_wasm, rhs_wasm, ty, .rem);
