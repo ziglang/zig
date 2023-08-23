@@ -7973,7 +7973,7 @@ pub const FuncGen = struct {
 
             return try self.wip.bin(.@"add nuw", quotient, correction, "");
         } else {
-            @panic("Unexpected scalar type");
+            unreachable;
         }
     }
 

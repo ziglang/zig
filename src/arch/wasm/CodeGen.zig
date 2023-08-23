@@ -6843,7 +6843,7 @@ fn airDivCeil(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 try func.addTag(.i64_extend_i32_u);
                 try func.addTag(.i64_add);
             },
-            else => @panic("Unexpected wasm integer width"),
+            else => unreachable,
         }
     } else if (ty.isSignedInt(mod)) {
         const int_bits = ty.intInfo(mod).bits;
@@ -6856,18 +6856,19 @@ fn airDivCeil(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         }
 
         const lhs_wasm = if (wasm_bits != int_bits)
-            try (try func.signAbsValue(lhs, ty)).toLocal(func, ty)
+            try (try func.signExtendInt(lhs, ty)).toLocal(func, ty)
         else
             lhs;
+
         const rhs_wasm = if (wasm_bits != int_bits)
-            try (try func.signAbsValue(rhs, ty)).toLocal(func, ty)
+            try (try func.signExtendInt(rhs, ty)).toLocal(func, ty)
         else
             rhs;
 
         const zero = switch (wasm_bits) {
             32 => WValue{ .imm32 = 0 },
             64 => WValue{ .imm64 = 0 },
-            else => @panic("Unexpected wasm integer width"),
+            else => unreachable,
         };
 
         _ = try func.binOp(lhs_wasm, rhs_wasm, ty, .div);
@@ -6916,7 +6917,7 @@ fn airDivCeil(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 try func.addTag(.f64_div);
                 try func.addTag(.f64_ceil);
             },
-            else => @panic("Unexpected float width"),
+            else => unreachable,
         }
 
         if (is_f16) {
