@@ -2956,7 +2956,8 @@ pub const Inst = struct {
             ///    true      | true          |  union(enum(T)) { }
             ///    true      | false         |  union(T) { }
             auto_enum_tag: bool,
-            _: u6 = undefined,
+            any_aligned_fields: bool,
+            _: u5 = undefined,
         };
     };
 

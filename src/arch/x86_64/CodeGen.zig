@@ -11534,6 +11534,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
+    const ip = &mod.intern_pool;
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
     const result: MCValue = result: {
@@ -11553,8 +11554,8 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
         const dst_mcv = try self.allocRegOrMem(inst, false);
 
         const union_obj = mod.typeToUnion(union_ty).?;
-        const field_name = union_obj.fields.keys()[extra.field_index];
-        const tag_ty = union_obj.tag_ty;
+        const field_name = union_obj.field_names.get(ip)[extra.field_index];
+        const tag_ty = union_obj.enum_tag_ty.toType();
         const field_index = tag_ty.enumFieldIndex(field_name, mod).?;
         const tag_val = try mod.enumValueFieldIndex(tag_ty, field_index);
         const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);

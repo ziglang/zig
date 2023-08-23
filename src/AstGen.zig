@@ -4696,6 +4696,7 @@ fn unionDeclInner(
 
     const bits_per_field = 4;
     const max_field_size = 5;
+    var any_aligned_fields = false;
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
@@ -4733,6 +4734,7 @@ fn unionDeclInner(
         if (have_align) {
             const align_inst = try expr(&block_scope, &block_scope.base, .{ .rl = .{ .ty = .u32_type } }, member.ast.align_expr);
             wip_members.appendToField(@intFromEnum(align_inst));
+            any_aligned_fields = true;
         }
         if (have_value) {
             if (arg_inst == .none) {
@@ -4783,6 +4785,7 @@ fn unionDeclInner(
         .fields_len = field_count,
         .decls_len = decl_count,
         .auto_enum_tag = auto_enum_tok != null,
+        .any_aligned_fields = any_aligned_fields,
     });
 
     wip_members.finishBits(bits_per_field);
@@ -11737,6 +11740,7 @@ const GenZir = struct {
         decls_len: u32,
         layout: std.builtin.Type.ContainerLayout,
         auto_enum_tag: bool,
+        any_aligned_fields: bool,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
@@ -11773,6 +11777,7 @@ const GenZir = struct {
                     .name_strategy = gz.anon_name_strategy,
                     .layout = args.layout,
                     .auto_enum_tag = args.auto_enum_tag,
+                    .any_aligned_fields = args.any_aligned_fields,
                 }),
                 .operand = payload_index,
             } },

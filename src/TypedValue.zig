@@ -88,7 +88,7 @@ pub fn print(
                 try writer.writeAll(".{ ");
 
                 try print(.{
-                    .ty = mod.unionPtr(ip.indexToKey(ty.toIntern()).union_type.index).tag_ty,
+                    .ty = ip.indexToKey(ty.toIntern()).union_type.enum_tag_ty.toType(),
                     .val = union_val.tag,
                 }, writer, level - 1, mod);
                 try writer.writeAll(" = ");
@@ -357,7 +357,7 @@ pub fn print(
                                 try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Union => {
-                                const field_name = container_ty.unionFields(mod).keys()[@as(usize, @intCast(field.index))];
+                                const field_name = mod.typeToUnion(container_ty).?.field_names.get(ip)[@intCast(field.index)];
                                 try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Pointer => {
