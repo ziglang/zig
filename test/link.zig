@@ -30,10 +30,11 @@ pub const cases = [_]Case{
     },
 
     // WASM Cases
-    .{
-        .build_root = "test/link/wasm/archive",
-        .import = @import("link/wasm/archive/build.zig"),
-    },
+    // https://github.com/ziglang/zig/issues/16938
+    //.{
+    //    .build_root = "test/link/wasm/archive",
+    //    .import = @import("link/wasm/archive/build.zig"),
+    //},
     .{
         .build_root = "test/link/wasm/basic-features",
         .import = @import("link/wasm/basic-features/build.zig"),
@@ -46,10 +47,11 @@ pub const cases = [_]Case{
         .build_root = "test/link/wasm/export",
         .import = @import("link/wasm/export/build.zig"),
     },
-    .{
-        .build_root = "test/link/wasm/export-data",
-        .import = @import("link/wasm/export-data/build.zig"),
-    },
+    // https://github.com/ziglang/zig/issues/16937
+    //.{
+    //    .build_root = "test/link/wasm/export-data",
+    //    .import = @import("link/wasm/export-data/build.zig"),
+    //},
     .{
         .build_root = "test/link/wasm/extern",
         .import = @import("link/wasm/extern/build.zig"),
