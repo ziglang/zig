@@ -3982,7 +3982,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .WSAEINVAL => unreachable,
             .WSAEISCONN => unreachable,
             .WSAENOTSOCK => unreachable,
-            .WSAEWOULDBLOCK => unreachable,
+            .WSAEWOULDBLOCK => return error.WouldBlock,
             .WSAEACCES => unreachable,
             .WSAENOBUFS => return error.SystemResources,
             .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
