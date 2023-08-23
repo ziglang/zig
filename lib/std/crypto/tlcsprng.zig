@@ -59,6 +59,7 @@ var install_atfork_handler = std.once(struct {
     }
 }.do);
 
+// TODO minimal page size
 threadlocal var wipe_mem: []align(mem.page_size) u8 = &[_]u8{};
 
 fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
@@ -94,6 +95,7 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
         } else {
             // Use a static thread-local buffer.
             const S = struct {
+                // TODO minimal page size
                 threadlocal var buf: Context align(mem.page_size) = .{
                     .init_state = .uninitialized,
                     .rng = undefined,

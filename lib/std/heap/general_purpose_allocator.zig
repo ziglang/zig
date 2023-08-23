@@ -103,7 +103,7 @@ const page_size = std.mem.page_size;
 const StackTrace = std.builtin.StackTrace;
 
 /// Integer type for pointing to slots in a small allocation
-const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
+const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1); // TODO use max_page_size
 
 const default_test_stack_trace_frames: usize = if (builtin.is_test) 10 else 6;
 const default_sys_stack_trace_frames: usize = if (std.debug.sys_can_stack_trace) default_test_stack_trace_frames else 0;
@@ -194,6 +194,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         pub const Error = mem.Allocator.Error;
 
+        // TODO minimal page size
         const small_bucket_count = math.log2(page_size);
         const largest_bucket_object_size = 1 << (small_bucket_count - 1);
 
@@ -245,6 +246,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         const BucketHeader = struct {
             prev: *BucketHeader,
             next: *BucketHeader,
+            // TODO minimal page size
             page: [*]align(page_size) u8,
             alloc_cursor: SlotIndex,
             used_count: SlotIndex,

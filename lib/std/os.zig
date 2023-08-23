@@ -4297,6 +4297,7 @@ pub const MProtectError = error{
 
 /// `memory.len` must be page-aligned.
 pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
+    // TODO minimal page size
     assert(mem.isAligned(memory.len, mem.page_size));
     if (builtin.os.tag == .windows) {
         const win_prot: windows.DWORD = switch (@as(u3, @truncate(protection))) {
@@ -4403,6 +4404,7 @@ pub const MMapError = error{
 /// * SIGSEGV - Attempted write into a region mapped as read-only.
 /// * SIGBUS - Attempted  access to a portion of the buffer that does not correspond to the file
 pub fn mmap(
+    // TODO minimal page size
     ptr: ?[*]align(mem.page_size) u8,
     length: usize,
     prot: u32,
@@ -4415,10 +4417,12 @@ pub fn mmap(
     const ioffset = @as(i64, @bitCast(offset)); // the OS treats this as unsigned
     const rc = mmap_sym(ptr, length, prot, flags, fd, ioffset);
     const err = if (builtin.link_libc) blk: {
+        // TODO minimal page size
         if (rc != std.c.MAP.FAILED) return @as([*]align(mem.page_size) u8, @ptrCast(@alignCast(rc)))[0..length];
         break :blk @as(E, @enumFromInt(system._errno().*));
     } else blk: {
         const err = errno(rc);
+        // TODO minimal page size
         if (err == .SUCCESS) return @as([*]align(mem.page_size) u8, @ptrFromInt(rc))[0..length];
         break :blk err;
     };
@@ -4446,6 +4450,7 @@ pub fn mmap(
 /// * It violates the Zig principle that resource deallocation must succeed.
 /// * The Windows function, VirtualFree, has this restriction.
 pub fn munmap(memory: []align(mem.page_size) const u8) void {
+    // TODO minimal page size
     switch (errno(system.munmap(memory.ptr, memory.len))) {
         .SUCCESS => return,
         .INVAL => unreachable, // Invalid parameters.
@@ -4459,6 +4464,7 @@ pub const MSyncError = error{
 } || UnexpectedError;
 
 pub fn msync(memory: []align(mem.page_size) u8, flags: i32) MSyncError!void {
+    // TODO minimal page size
     switch (errno(system.msync(memory.ptr, memory.len, flags))) {
         .SUCCESS => return,
         .NOMEM => return error.UnmappedMemory, // Unsuccessful, provided pointer does not point mapped memory
@@ -7065,6 +7071,7 @@ pub const MincoreError = error{
 
 /// Determine whether pages are resident in memory.
 pub fn mincore(ptr: [*]align(mem.page_size) u8, length: usize, vec: [*]u8) MincoreError!void {
+    // TODO minimal page size
     return switch (errno(system.mincore(ptr, length, vec))) {
         .SUCCESS => {},
         .AGAIN => error.SystemResources,
@@ -7111,6 +7118,7 @@ pub const MadviseError = error{
 /// Give advice about use of memory.
 /// This syscall is optional and is sometimes configured to be disabled.
 pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) MadviseError!void {
+    // TODO minimal page size
     switch (errno(system.madvise(ptr, length, advice))) {
         .SUCCESS => return,
         .ACCES => return error.AccessDenied,

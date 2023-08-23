@@ -980,6 +980,7 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
         ReadGroupId,
     };
 
+    // TODO minimal page size (no good default)
     var buf: [std.mem.page_size]u8 = undefined;
     var name_index: usize = 0;
     var state = State.Start;

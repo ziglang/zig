@@ -215,6 +215,8 @@ fn allocBytesWithAlignment(self: Allocator, comptime alignment: u29, byte_count:
     // The Zig Allocator interface is not intended to solve alignments beyond
     // the minimum OS page size. For these use cases, the caller must use OS
     // APIs directly.
+
+    // TODO minimal page size
     comptime assert(alignment <= mem.page_size);
 
     if (byte_count == 0) {

@@ -17,6 +17,8 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
 
         lock: std.Thread.Mutex = .{},
 
+        // TODO User must ensure the default page size is correct by compiled or configured Kernel
+        // or this logic would be wrong and os.getDefaultPageSize() must be used.
         const max_usize = math.maxInt(usize);
         const ushift = math.Log2Int(usize);
         const bigpage_size = 64 * 1024;

@@ -237,6 +237,7 @@ pub extern "c" fn fstatat64(dirfd: fd_t, noalias path: [*:0]const u8, noalias st
 pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
 pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
 pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
+// TODO minimal page_size
 pub extern "c" fn mmap64(addr: ?*align(std.mem.page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
 pub extern "c" fn open64(path: [*:0]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn openat64(fd: c_int, path: [*:0]const u8, oflag: c_uint, ...) c_int;
@@ -294,12 +295,14 @@ pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: u
 pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
 
 pub extern "c" fn mincore(
+    // TODO minimal page size
     addr: *align(std.mem.page_size) anyopaque,
     length: usize,
     vec: [*]u8,
 ) c_int;
 
 pub extern "c" fn madvise(
+    // TODO minimal page size
     addr: *align(std.mem.page_size) anyopaque,
     length: usize,
     advice: c_uint,

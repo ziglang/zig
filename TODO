@@ -1,0 +1,19 @@
+TODO
+- Design
+  * [ ] unclear, if variable `os.default_page_size` should exist or if
+    getDefaultPageSize() is sufficient
+    - [ ] implement naive solution
+    - [ ] get representable use cases
+    - [ ] profile
+  * [x] Use case optimal performance via input handling on stack/heap with
+  page alinged memory structure: `var buf: [std.mem.page_size]u8 = undefined;`
+  Default to min_page_size for these cases. Otherwise, the API should have the
+  buffer logic selection at comptime explicit as input. Justification: global
+  config can not reflect use cases, release optimizations neither and default
+  is fallback algorithm of Zig.
+
+Implementation
+  * [ ] lib/std/heap/general_purpose_allocator.zig wants to be available on
+  embedded, but this requires a user choice of what page size to use for
+  program lifetime for the particular instantiation of the allocator (because
+  we cant get that from the Kernel). Look into how to do that.

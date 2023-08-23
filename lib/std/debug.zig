@@ -597,7 +597,8 @@ pub const StackIterator = struct {
         // We are unable to determine validity of memory for freestanding targets
         if (native_os == .freestanding) return true;
 
-        const aligned_address = address & ~@as(usize, @intCast((mem.page_size - 1)));
+        const default_page_size = os.getDefaultPageSize() catch unreachable;
+        const aligned_address = address & ~@as(usize, @intCast((default_page_size - 1)));
         if (aligned_address == 0) return false;
         const aligned_memory = @as([*]align(mem.page_size) u8, @ptrFromInt(aligned_address))[0..mem.page_size];
 
@@ -1069,6 +1070,7 @@ pub fn readElfDebugInfo(
     build_id: ?[]const u8,
     expected_crc: ?u32,
     parent_sections: *DW.DwarfInfo.SectionArray,
+    // TODO minimal page size
     parent_mapped_mem: ?[]align(mem.page_size) const u8,
 ) !ModuleDebugInfo {
     nosuspend {
@@ -1393,6 +1395,7 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
+    // TODO minimal page size (no good default)
     var buf: [mem.page_size]u8 = undefined;
     var line: usize = 1;
     var column: usize = 1;

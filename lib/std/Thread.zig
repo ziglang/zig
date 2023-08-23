@@ -697,7 +697,8 @@ const PosixThreadImpl = struct {
         // Use the same set of parameters used by the libc-less impl.
         const stack_size = @max(config.stack_size, 16 * 1024);
         assert(c.pthread_attr_setstacksize(&attr, stack_size) == .SUCCESS);
-        assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == .SUCCESS);
+        const default_page_size = os.getDefaultPageSize() catch unreachable;
+        assert(c.pthread_attr_setguardsize(&attr, default_page_size) == .SUCCESS);
 
         var handle: c.pthread_t = undefined;
         switch (c.pthread_create(

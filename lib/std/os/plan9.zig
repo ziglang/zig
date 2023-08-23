@@ -278,6 +278,7 @@ pub fn sbrk(n: usize) usize {
         bloc = @intFromPtr(&ExecData.end);
         bloc_max = @intFromPtr(&ExecData.end);
     }
+    // TODO use underlying call to os.getDefaultPageSize() directly
     var bl = std.mem.alignForward(usize, bloc, std.mem.page_size);
     const n_aligned = std.mem.alignForward(usize, n, std.mem.page_size);
     if (bl + n_aligned > bloc_max) {

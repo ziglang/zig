@@ -1080,6 +1080,7 @@ pub const SubmissionQueue = struct {
     dropped: *u32,
     array: []u32,
     sqes: []linux.io_uring_sqe,
+    // TODO minimal page size
     mmap: []align(mem.page_size) u8,
     mmap_sqes: []align(mem.page_size) u8,
 

@@ -658,6 +658,8 @@ test "PackedIntArray at end of available memory" {
     }
     const PackedArray = PackedIntArray(u3, 8);
 
+    // TODO This logic is flawed, as Kernel can be compiled or configure page size
+    // from available ones on architecture.
     const Padded = struct {
         _: [std.mem.page_size - @sizeOf(PackedArray)]u8,
         p: PackedArray,

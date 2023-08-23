@@ -1,4 +1,4 @@
-// This file is included in the compilation unit when exporting an executable.
+//! This file is included in the compilation unit when exporting an executable.
 
 const root = @import("root");
 const std = @import("std.zig");
@@ -418,6 +418,8 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
             elf.PT_GNU_STACK => {
+                // TODO Kernel has loader and decides page_size, which can be
+                // configurable at Kernel compilation or runtiem
                 assert(phdr.p_memsz % std.mem.page_size == 0);
 
                 // Silently fail if we are unable to get limits.
