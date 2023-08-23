@@ -29,6 +29,7 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
 
     var maybe_float_bits: ?u16 = null;
     const max_byval_size = 512;
+    const ip = &mod.intern_pool;
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
             const bit_size = ty.bitSize(mod);
@@ -54,7 +55,8 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
         },
         .Union => {
             const bit_size = ty.bitSize(mod);
-            if (ty.containerLayout(mod) == .Packed) {
+            const union_obj = mod.typeToUnion(ty).?;
+            if (union_obj.getLayout(ip) == .Packed) {
                 if (bit_size > 64) return .memory;
                 return .byval;
             }
@@ -62,8 +64,10 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
             const float_count = countFloats(ty, mod, &maybe_float_bits);
             if (float_count <= byval_float_count) return .byval;
 
-            for (ty.unionFields(mod).values()) |field| {
-                if (field.ty.bitSize(mod) > 32 or field.normalAlignment(mod) > 32) {
+            for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
+                if (field_ty.toType().bitSize(mod) > 32 or
+                    mod.unionFieldNormalAlignment(union_obj, @intCast(field_index)) > 32)
+                {
                     return Class.arrSize(bit_size, 64);
                 }
             }
@@ -117,14 +121,15 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
 
 const byval_float_count = 4;
 fn countFloats(ty: Type, mod: *Module, maybe_float_bits: *?u16) u32 {
+    const ip = &mod.intern_pool;
     const target = mod.getTarget();
     const invalid = std.math.maxInt(u32);
     switch (ty.zigTypeTag(mod)) {
         .Union => {
-            const fields = ty.unionFields(mod);
+            const union_obj = mod.typeToUnion(ty).?;
             var max_count: u32 = 0;
-            for (fields.values()) |field| {
-                const field_count = countFloats(field.ty, mod, maybe_float_bits);
+            for (union_obj.field_types.get(ip)) |field_ty| {
+                const field_count = countFloats(field_ty.toType(), mod, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 if (field_count > max_count) max_count = field_count;
                 if (max_count > byval_float_count) return invalid;

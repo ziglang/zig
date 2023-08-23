@@ -166,6 +166,7 @@ pub const DeclState = struct {
         const dbg_info_buffer = &self.dbg_info;
         const target = mod.getTarget();
         const target_endian = target.cpu.arch.endian();
+        const ip = &mod.intern_pool;
 
         switch (ty.zigTypeTag(mod)) {
             .NoReturn => unreachable,
@@ -321,7 +322,7 @@ pub const DeclState = struct {
                 // DW.AT.byte_size, DW.FORM.udata
                 try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
 
-                switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                switch (ip.indexToKey(ty.ip_index)) {
                     .anon_struct_type => |fields| {
                         // DW.AT.name, DW.FORM.string
                         try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
@@ -357,7 +358,7 @@ pub const DeclState = struct {
                             0..,
                         ) |field_name_ip, field, field_index| {
                             if (!field.ty.hasRuntimeBits(mod)) continue;
-                            const field_name = mod.intern_pool.stringToSlice(field_name_ip);
+                            const field_name = ip.stringToSlice(field_name_ip);
                             // DW.AT.member
                             try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
                             dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
@@ -388,7 +389,6 @@ pub const DeclState = struct {
                 try ty.print(dbg_info_buffer.writer(), mod);
                 try dbg_info_buffer.append(0);
 
-                const ip = &mod.intern_pool;
                 const enum_type = ip.indexToKey(ty.ip_index).enum_type;
                 for (enum_type.names.get(ip), 0..) |field_name_index, field_i| {
                     const field_name = ip.stringToSlice(field_name_index);
@@ -414,8 +414,8 @@ pub const DeclState = struct {
                 try dbg_info_buffer.append(0);
             },
             .Union => {
-                const layout = ty.unionGetLayout(mod);
                 const union_obj = mod.typeToUnion(ty).?;
+                const layout = mod.getUnionLayout(union_obj);
                 const payload_offset = if (layout.tag_align >= layout.payload_align) layout.tag_size else 0;
                 const tag_offset = if (layout.tag_align >= layout.payload_align) 0 else layout.payload_size;
                 // TODO this is temporary to match current state of unions in Zig - we don't yet have
@@ -457,19 +457,17 @@ pub const DeclState = struct {
                     try dbg_info_buffer.append(0);
                 }
 
-                const fields = ty.unionFields(mod);
-                for (fields.keys()) |field_name| {
-                    const field = fields.get(field_name).?;
-                    if (!field.ty.hasRuntimeBits(mod)) continue;
+                for (union_obj.field_types.get(ip), union_obj.field_names.get(ip)) |field_ty, field_name| {
+                    if (!field_ty.toType().hasRuntimeBits(mod)) continue;
                     // DW.AT.member
                     try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
                     // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.appendSlice(mod.intern_pool.stringToSlice(field_name));
+                    try dbg_info_buffer.appendSlice(ip.stringToSlice(field_name));
                     try dbg_info_buffer.append(0);
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom_index, field.ty, @as(u32, @intCast(index)));
+                    try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try dbg_info_buffer.append(0);
                 }
@@ -486,7 +484,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom_index, union_obj.tag_ty, @as(u32, @intCast(index)));
+                    try self.addTypeRelocGlobal(atom_index, union_obj.enum_tag_ty.toType(), @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), tag_offset);
 

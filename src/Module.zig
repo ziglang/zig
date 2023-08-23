@@ -96,7 +96,7 @@ intern_pool: InternPool = .{},
 /// Current uses that must be eliminated:
 /// * Struct comptime_args
 /// * Struct optimized_order
-/// * Union fields
+/// * comptime pointer mutation
 /// This memory lives until the Module is destroyed.
 tmp_hack_arena: std.heap.ArenaAllocator,
 
@@ -736,7 +736,7 @@ pub const Decl = struct {
 
     /// If the Decl owns its value and it is a union, return it,
     /// otherwise null.
-    pub fn getOwnedUnion(decl: Decl, mod: *Module) ?*Union {
+    pub fn getOwnedUnion(decl: Decl, mod: *Module) ?InternPool.UnionType {
         if (!decl.owns_tv) return null;
         if (decl.val.ip_index == .none) return null;
         return mod.typeToUnion(decl.val.toType());
@@ -778,7 +778,7 @@ pub const Decl = struct {
             else => switch (mod.intern_pool.indexToKey(decl.val.toIntern())) {
                 .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
                 .struct_type => |struct_type| struct_type.namespace,
-                .union_type => |union_type| mod.unionPtr(union_type.index).namespace.toOptional(),
+                .union_type => |union_type| union_type.namespace.toOptional(),
                 .enum_type => |enum_type| enum_type.namespace,
                 else => .none,
             },
@@ -1060,246 +1060,6 @@ pub const Struct = struct {
         return .{
             .struct_obj = s,
             .module = module,
-        };
-    }
-};
-
-pub const Union = struct {
-    /// An enum type which is used for the tag of the union.
-    /// This type is created even for untagged unions, even when the memory
-    /// layout does not store the tag.
-    /// Whether zig chooses this type or the user specifies it, it is stored here.
-    /// This will be set to the null type until status is `have_field_types`.
-    tag_ty: Type,
-    /// Set of field names in declaration order.
-    fields: Fields,
-    /// Represents the declarations inside this union.
-    namespace: Namespace.Index,
-    /// The Decl that corresponds to the union itself.
-    owner_decl: Decl.Index,
-    /// Index of the union_decl ZIR instruction.
-    zir_index: Zir.Inst.Index,
-
-    layout: std.builtin.Type.ContainerLayout,
-    status: enum {
-        none,
-        field_types_wip,
-        have_field_types,
-        layout_wip,
-        have_layout,
-        fully_resolved_wip,
-        // The types and all its fields have had their layout resolved. Even through pointer,
-        // which `have_layout` does not ensure.
-        fully_resolved,
-    },
-    requires_comptime: PropertyBoolean = .unknown,
-    assumed_runtime_bits: bool = false,
-
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn toOptional(i: Index) OptionalIndex {
-            return @as(OptionalIndex, @enumFromInt(@intFromEnum(i)));
-        }
-    };
-
-    pub const OptionalIndex = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn init(oi: ?Index) OptionalIndex {
-            return @as(OptionalIndex, @enumFromInt(@intFromEnum(oi orelse return .none)));
-        }
-
-        pub fn unwrap(oi: OptionalIndex) ?Index {
-            if (oi == .none) return null;
-            return @as(Index, @enumFromInt(@intFromEnum(oi)));
-        }
-    };
-
-    pub const Field = struct {
-        /// undefined until `status` is `have_field_types` or `have_layout`.
-        ty: Type,
-        /// 0 means the ABI alignment of the type.
-        abi_align: Alignment,
-
-        /// Returns the field alignment, assuming the union is not packed.
-        /// Keep implementation in sync with `Sema.unionFieldAlignment`.
-        /// Prefer to call that function instead of this one during Sema.
-        pub fn normalAlignment(field: Field, mod: *Module) u32 {
-            return @as(u32, @intCast(field.abi_align.toByteUnitsOptional() orelse field.ty.abiAlignment(mod)));
-        }
-    };
-
-    pub const Fields = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, Field);
-
-    pub fn getFullyQualifiedName(s: *Union, mod: *Module) !InternPool.NullTerminatedString {
-        return mod.declPtr(s.owner_decl).getFullyQualifiedName(mod);
-    }
-
-    pub fn srcLoc(self: Union, mod: *Module) SrcLoc {
-        const owner_decl = mod.declPtr(self.owner_decl);
-        return .{
-            .file_scope = owner_decl.getFileScope(mod),
-            .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(0),
-        };
-    }
-
-    pub fn haveFieldTypes(u: Union) bool {
-        return switch (u.status) {
-            .none,
-            .field_types_wip,
-            => false,
-            .have_field_types,
-            .layout_wip,
-            .have_layout,
-            .fully_resolved_wip,
-            .fully_resolved,
-            => true,
-        };
-    }
-
-    pub fn hasAllZeroBitFieldTypes(u: Union, mod: *Module) bool {
-        assert(u.haveFieldTypes());
-        for (u.fields.values()) |field| {
-            if (field.ty.hasRuntimeBits(mod)) return false;
-        }
-        return true;
-    }
-
-    pub fn mostAlignedField(u: Union, mod: *Module) u32 {
-        assert(u.haveFieldTypes());
-        var most_alignment: u32 = 0;
-        var most_index: usize = undefined;
-        for (u.fields.values(), 0..) |field, i| {
-            if (!field.ty.hasRuntimeBits(mod)) continue;
-
-            const field_align = field.normalAlignment(mod);
-            if (field_align > most_alignment) {
-                most_alignment = field_align;
-                most_index = i;
-            }
-        }
-        return @as(u32, @intCast(most_index));
-    }
-
-    /// Returns 0 if the union is represented with 0 bits at runtime.
-    pub fn abiAlignment(u: Union, mod: *Module, have_tag: bool) u32 {
-        var max_align: u32 = 0;
-        if (have_tag) max_align = u.tag_ty.abiAlignment(mod);
-        for (u.fields.values()) |field| {
-            if (!field.ty.hasRuntimeBits(mod)) continue;
-
-            const field_align = field.normalAlignment(mod);
-            max_align = @max(max_align, field_align);
-        }
-        return max_align;
-    }
-
-    pub fn abiSize(u: Union, mod: *Module, have_tag: bool) u64 {
-        return u.getLayout(mod, have_tag).abi_size;
-    }
-
-    pub const Layout = struct {
-        abi_size: u64,
-        abi_align: u32,
-        most_aligned_field: u32,
-        most_aligned_field_size: u64,
-        biggest_field: u32,
-        payload_size: u64,
-        payload_align: u32,
-        tag_align: u32,
-        tag_size: u64,
-        padding: u32,
-    };
-
-    pub fn haveLayout(u: Union) bool {
-        return switch (u.status) {
-            .none,
-            .field_types_wip,
-            .have_field_types,
-            .layout_wip,
-            => false,
-            .have_layout,
-            .fully_resolved_wip,
-            .fully_resolved,
-            => true,
-        };
-    }
-
-    pub fn getLayout(u: Union, mod: *Module, have_tag: bool) Layout {
-        assert(u.haveLayout());
-        var most_aligned_field: u32 = undefined;
-        var most_aligned_field_size: u64 = undefined;
-        var biggest_field: u32 = undefined;
-        var payload_size: u64 = 0;
-        var payload_align: u32 = 0;
-        const fields = u.fields.values();
-        for (fields, 0..) |field, i| {
-            if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
-
-            const field_align = field.abi_align.toByteUnitsOptional() orelse field.ty.abiAlignment(mod);
-            const field_size = field.ty.abiSize(mod);
-            if (field_size > payload_size) {
-                payload_size = field_size;
-                biggest_field = @as(u32, @intCast(i));
-            }
-            if (field_align > payload_align) {
-                payload_align = @as(u32, @intCast(field_align));
-                most_aligned_field = @as(u32, @intCast(i));
-                most_aligned_field_size = field_size;
-            }
-        }
-        payload_align = @max(payload_align, 1);
-        if (!have_tag or !u.tag_ty.hasRuntimeBits(mod)) {
-            return .{
-                .abi_size = std.mem.alignForward(u64, payload_size, payload_align),
-                .abi_align = payload_align,
-                .most_aligned_field = most_aligned_field,
-                .most_aligned_field_size = most_aligned_field_size,
-                .biggest_field = biggest_field,
-                .payload_size = payload_size,
-                .payload_align = payload_align,
-                .tag_align = 0,
-                .tag_size = 0,
-                .padding = 0,
-            };
-        }
-        // Put the tag before or after the payload depending on which one's
-        // alignment is greater.
-        const tag_size = u.tag_ty.abiSize(mod);
-        const tag_align = @max(1, u.tag_ty.abiAlignment(mod));
-        var size: u64 = 0;
-        var padding: u32 = undefined;
-        if (tag_align >= payload_align) {
-            // {Tag, Payload}
-            size += tag_size;
-            size = std.mem.alignForward(u64, size, payload_align);
-            size += payload_size;
-            const prev_size = size;
-            size = std.mem.alignForward(u64, size, tag_align);
-            padding = @as(u32, @intCast(size - prev_size));
-        } else {
-            // {Payload, Tag}
-            size += payload_size;
-            size = std.mem.alignForward(u64, size, tag_align);
-            size += tag_size;
-            const prev_size = size;
-            size = std.mem.alignForward(u64, size, payload_align);
-            padding = @as(u32, @intCast(size - prev_size));
-        }
-        return .{
-            .abi_size = size,
-            .abi_align = @max(tag_align, payload_align),
-            .most_aligned_field = most_aligned_field,
-            .most_aligned_field_size = most_aligned_field_size,
-            .biggest_field = biggest_field,
-            .payload_size = payload_size,
-            .payload_align = payload_align,
-            .tag_align = tag_align,
-            .tag_size = tag_size,
-            .padding = padding,
         };
     }
 };
@@ -3182,10 +2942,6 @@ pub fn namespacePtr(mod: *Module, index: Namespace.Index) *Namespace {
     return mod.intern_pool.namespacePtr(index);
 }
 
-pub fn unionPtr(mod: *Module, index: Union.Index) *Union {
-    return mod.intern_pool.unionPtr(index);
-}
-
 pub fn structPtr(mod: *Module, index: Struct.Index) *Struct {
     return mod.intern_pool.structPtr(index);
 }
@@ -3651,11 +3407,11 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
             };
         }
 
-        if (decl.getOwnedUnion(mod)) |union_obj| {
-            union_obj.zir_index = inst_map.get(union_obj.zir_index) orelse {
+        if (decl.getOwnedUnion(mod)) |union_type| {
+            union_type.setZirIndex(ip, inst_map.get(union_type.zir_index) orelse {
                 try file.deleted_decls.append(gpa, decl_index);
                 continue;
-            };
+            });
         }
 
         if (decl.getOwnedFunction(mod)) |func| {
@@ -5556,14 +5312,6 @@ pub fn destroyStruct(mod: *Module, index: Struct.Index) void {
     return mod.intern_pool.destroyStruct(mod.gpa, index);
 }
 
-pub fn createUnion(mod: *Module, initialization: Union) Allocator.Error!Union.Index {
-    return mod.intern_pool.createUnion(mod.gpa, initialization);
-}
-
-pub fn destroyUnion(mod: *Module, index: Union.Index) void {
-    return mod.intern_pool.destroyUnion(mod.gpa, index);
-}
-
 pub fn allocateNewDecl(
     mod: *Module,
     namespace: Namespace.Index,
@@ -6962,10 +6710,14 @@ pub fn typeToStruct(mod: *Module, ty: Type) ?*Struct {
     return mod.structPtr(struct_index);
 }
 
-pub fn typeToUnion(mod: *Module, ty: Type) ?*Union {
+/// This asserts that the union's enum tag type has been resolved.
+pub fn typeToUnion(mod: *Module, ty: Type) ?InternPool.UnionType {
     if (ty.ip_index == .none) return null;
-    const union_index = mod.intern_pool.indexToUnionType(ty.toIntern()).unwrap() orelse return null;
-    return mod.unionPtr(union_index);
+    const ip = &mod.intern_pool;
+    switch (ip.indexToKey(ty.ip_index)) {
+        .union_type => |k| return ip.loadUnionType(k),
+        else => return null,
+    }
 }
 
 pub fn typeToFunc(mod: *Module, ty: Type) ?InternPool.Key.FuncType {
@@ -7050,4 +6802,132 @@ pub fn getParamName(mod: *Module, func_index: InternPool.Index, index: u32) [:0]
         },
         else => unreachable,
     };
+}
+
+pub const UnionLayout = struct {
+    abi_size: u64,
+    abi_align: u32,
+    most_aligned_field: u32,
+    most_aligned_field_size: u64,
+    biggest_field: u32,
+    payload_size: u64,
+    payload_align: u32,
+    tag_align: u32,
+    tag_size: u64,
+    padding: u32,
+};
+
+pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
+    const ip = &mod.intern_pool;
+    assert(u.haveLayout(ip));
+    var most_aligned_field: u32 = undefined;
+    var most_aligned_field_size: u64 = undefined;
+    var biggest_field: u32 = undefined;
+    var payload_size: u64 = 0;
+    var payload_align: u32 = 0;
+    for (u.field_types.get(ip), 0..) |field_ty, i| {
+        if (!field_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+
+        const field_align = u.fieldAlign(ip, @intCast(i)).toByteUnitsOptional() orelse
+            field_ty.toType().abiAlignment(mod);
+        const field_size = field_ty.toType().abiSize(mod);
+        if (field_size > payload_size) {
+            payload_size = field_size;
+            biggest_field = @intCast(i);
+        }
+        if (field_align > payload_align) {
+            payload_align = @intCast(field_align);
+            most_aligned_field = @intCast(i);
+            most_aligned_field_size = field_size;
+        }
+    }
+    payload_align = @max(payload_align, 1);
+    const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
+    if (!have_tag or !u.enum_tag_ty.toType().hasRuntimeBits(mod)) {
+        return .{
+            .abi_size = std.mem.alignForward(u64, payload_size, payload_align),
+            .abi_align = payload_align,
+            .most_aligned_field = most_aligned_field,
+            .most_aligned_field_size = most_aligned_field_size,
+            .biggest_field = biggest_field,
+            .payload_size = payload_size,
+            .payload_align = payload_align,
+            .tag_align = 0,
+            .tag_size = 0,
+            .padding = 0,
+        };
+    }
+    // Put the tag before or after the payload depending on which one's
+    // alignment is greater.
+    const tag_size = u.enum_tag_ty.toType().abiSize(mod);
+    const tag_align = @max(1, u.enum_tag_ty.toType().abiAlignment(mod));
+    var size: u64 = 0;
+    var padding: u32 = undefined;
+    if (tag_align >= payload_align) {
+        // {Tag, Payload}
+        size += tag_size;
+        size = std.mem.alignForward(u64, size, payload_align);
+        size += payload_size;
+        const prev_size = size;
+        size = std.mem.alignForward(u64, size, tag_align);
+        padding = @as(u32, @intCast(size - prev_size));
+    } else {
+        // {Payload, Tag}
+        size += payload_size;
+        size = std.mem.alignForward(u64, size, tag_align);
+        size += tag_size;
+        const prev_size = size;
+        size = std.mem.alignForward(u64, size, payload_align);
+        padding = @as(u32, @intCast(size - prev_size));
+    }
+    return .{
+        .abi_size = size,
+        .abi_align = @max(tag_align, payload_align),
+        .most_aligned_field = most_aligned_field,
+        .most_aligned_field_size = most_aligned_field_size,
+        .biggest_field = biggest_field,
+        .payload_size = payload_size,
+        .payload_align = payload_align,
+        .tag_align = tag_align,
+        .tag_size = tag_size,
+        .padding = padding,
+    };
+}
+
+pub fn unionAbiSize(mod: *Module, u: InternPool.UnionType) u64 {
+    return mod.getUnionLayout(u).abi_size;
+}
+
+/// Returns 0 if the union is represented with 0 bits at runtime.
+/// TODO: this returns alignment in byte units should should be a u64
+pub fn unionAbiAlignment(mod: *Module, u: InternPool.UnionType) u32 {
+    const ip = &mod.intern_pool;
+    const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
+    var max_align: u32 = 0;
+    if (have_tag) max_align = u.enum_tag_ty.toType().abiAlignment(mod);
+    for (u.field_types.get(ip), 0..) |field_ty, field_index| {
+        if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+
+        const field_align = mod.unionFieldNormalAlignment(u, @intCast(field_index));
+        max_align = @max(max_align, field_align);
+    }
+    return max_align;
+}
+
+/// Returns the field alignment, assuming the union is not packed.
+/// Keep implementation in sync with `Sema.unionFieldAlignment`.
+/// Prefer to call that function instead of this one during Sema.
+/// TODO: this returns alignment in byte units should should be a u64
+pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.UnionType, field_index: u32) u32 {
+    const ip = &mod.intern_pool;
+    if (u.fieldAlign(ip, field_index).toByteUnitsOptional()) |a| return @intCast(a);
+    const field_ty = u.field_types.get(ip)[field_index].toType();
+    return field_ty.abiAlignment(mod);
+}
+
+pub fn unionTagFieldIndex(mod: *Module, u: InternPool.UnionType, enum_tag: Value) ?u32 {
+    const ip = &mod.intern_pool;
+    assert(ip.typeOf(enum_tag.toIntern()) == u.enum_tag_ty);
+    const enum_type = ip.indexToKey(u.enum_tag_ty).enum_type;
+    return enum_type.tagValueIndex(ip, enum_tag.toIntern());
 }
