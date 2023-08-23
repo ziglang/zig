@@ -275,13 +275,14 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
 
         .{
             .target = .{
@@ -302,13 +303,14 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mipsel,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mipsel,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
 
         .{
             .target = .{
