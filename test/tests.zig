@@ -284,14 +284,15 @@ const test_targets = blk: {
         //    },
         //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
 
         // https://github.com/ziglang/zig/issues/4927
         //.{
@@ -312,14 +313,15 @@ const test_targets = blk: {
         //    },
         //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mipsel,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mipsel,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
 
         // https://github.com/ziglang/zig/issues/4927
         //.{
