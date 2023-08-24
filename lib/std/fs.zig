@@ -2795,7 +2795,7 @@ pub fn accessAbsoluteZ(absolute_path: [*:0]const u8, flags: File.OpenFlags) Dir.
     try cwd().accessZ(absolute_path, flags);
 }
 /// Same as `accessAbsolute` but the path parameter is WTF-16 encoded.
-pub fn accessAbsoluteW(absolute_path: [*:0]const 16, flags: File.OpenFlags) Dir.AccessError!void {
+pub fn accessAbsoluteW(absolute_path: [*:0]const u16, flags: File.OpenFlags) Dir.AccessError!void {
     assert(path.isAbsoluteWindowsW(absolute_path));
     try cwd().accessW(absolute_path, flags);
 }
