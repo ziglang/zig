@@ -267,12 +267,6 @@ pub const Zld = struct {
         return index;
     }
 
-    fn createDyldStubBinderGotAtom(self: *Zld) !void {
-        const global_index = self.dyld_stub_binder_index orelse return;
-        const target = self.globals.items[global_index];
-        try self.addGotEntry(target);
-    }
-
     fn createDyldPrivateAtom(self: *Zld) !void {
         const sym_index = try self.allocateSymbol();
         const atom_index = try self.createEmptyAtom(sym_index, @sizeOf(u64), 3);
@@ -3354,7 +3348,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         try eh_frame.scanRelocs(&zld);
         try UnwindInfo.scanRelocs(&zld);
 
-        try zld.createDyldStubBinderGotAtom();
+        if (zld.dyld_stub_binder_index) |index| try zld.addGotEntry(zld.globals.items[index]);
 
         try zld.calcSectionSizes();
 
