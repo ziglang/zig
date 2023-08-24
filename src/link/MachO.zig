@@ -3222,18 +3222,24 @@ fn writeLinkeditSegmentData(self: *MachO) !void {
     seg.vmsize = mem.alignForward(u64, seg.filesize, page_size);
 }
 
-fn collectRebaseDataFromTableSection(self: *MachO, sect_id: u8, rebase: *Rebase, table: anytype) !void {
-    const header = self.sections.items(.header)[sect_id];
-    const segment_index = self.sections.items(.segment_index)[sect_id];
-    const segment = self.segments.items[segment_index];
+pub fn collectRebaseDataFromTableSection(
+    gpa: Allocator,
+    ctx: anytype,
+    sect_id: u8,
+    rebase: *Rebase,
+    table: anytype,
+) !void {
+    const header = ctx.sections.items(.header)[sect_id];
+    const segment_index = ctx.sections.items(.segment_index)[sect_id];
+    const segment = ctx.segments.items[segment_index];
     const base_offset = header.addr - segment.vmaddr;
-    const is_got = if (self.got_section_index) |index| index == sect_id else false;
+    const is_got = if (ctx.got_section_index) |index| index == sect_id else false;
 
-    try rebase.entries.ensureUnusedCapacity(self.base.allocator, table.entries.items.len);
+    try rebase.entries.ensureUnusedCapacity(gpa, table.entries.items.len);
 
     for (table.entries.items, 0..) |entry, i| {
         if (!table.lookup.contains(entry)) continue;
-        const sym = self.getSymbol(entry);
+        const sym = ctx.getSymbol(entry);
         if (is_got and sym.undf()) continue;
         const offset = i * @sizeOf(u64);
         log.debug("    | rebase at {x}", .{base_offset + offset});
@@ -3271,28 +3277,34 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
         }
     }
 
-    try self.collectRebaseDataFromTableSection(self.got_section_index.?, rebase, self.got_table);
-    try self.collectRebaseDataFromTableSection(self.la_symbol_ptr_section_index.?, rebase, self.stub_table);
+    try collectRebaseDataFromTableSection(gpa, self, self.got_section_index.?, rebase, self.got_table);
+    try collectRebaseDataFromTableSection(gpa, self, self.la_symbol_ptr_section_index.?, rebase, self.stub_table);
 
     try rebase.finalize(gpa);
 }
 
-fn collectBindDataFromTableSection(self: *MachO, sect_id: u8, bind: anytype, table: anytype) !void {
-    const header = self.sections.items(.header)[sect_id];
-    const segment_index = self.sections.items(.segment_index)[sect_id];
-    const segment = self.segments.items[segment_index];
+pub fn collectBindDataFromTableSection(
+    gpa: Allocator,
+    ctx: anytype,
+    sect_id: u8,
+    bind: anytype,
+    table: anytype,
+) !void {
+    const header = ctx.sections.items(.header)[sect_id];
+    const segment_index = ctx.sections.items(.segment_index)[sect_id];
+    const segment = ctx.segments.items[segment_index];
     const base_offset = header.addr - segment.vmaddr;
 
-    try bind.entries.ensureUnusedCapacity(self.base.allocator, table.entries.items.len);
+    try bind.entries.ensureUnusedCapacity(gpa, table.entries.items.len);
 
     for (table.entries.items, 0..) |entry, i| {
         if (!table.lookup.contains(entry)) continue;
-        const bind_sym = self.getSymbol(entry);
+        const bind_sym = ctx.getSymbol(entry);
         if (!bind_sym.undf()) continue;
         const offset = i * @sizeOf(u64);
         log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
             base_offset + offset,
-            self.getSymbolName(entry),
+            ctx.getSymbolName(entry),
             @divTrunc(@as(i16, @bitCast(bind_sym.n_desc)), macho.N_SYMBOL_RESOLVER),
         });
         if (bind_sym.weakRef()) {
@@ -3349,12 +3361,12 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
     }
 
     // Gather GOT pointers
-    try self.collectBindDataFromTableSection(self.got_section_index.?, bind, self.got_table);
+    try collectBindDataFromTableSection(gpa, self, self.got_section_index.?, bind, self.got_table);
     try bind.finalize(gpa, self);
 }
 
 fn collectLazyBindData(self: *MachO, bind: anytype) !void {
-    try self.collectBindDataFromTableSection(self.la_symbol_ptr_section_index.?, bind, self.stub_table);
+    try collectBindDataFromTableSection(self.base.allocator, self, self.la_symbol_ptr_section_index.?, bind, self.stub_table);
     try bind.finalize(self.base.allocator, self);
 }
 

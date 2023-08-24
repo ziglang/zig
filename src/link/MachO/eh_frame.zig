@@ -267,7 +267,7 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
             source_offset: u32,
         ) !void {
             if (rec.getPersonalityPointerReloc(zld, object_id, source_offset)) |target| {
-                try Atom.addGotEntry(zld, target);
+                try zld.addGotEntry(target);
             }
         }
 
@@ -357,14 +357,14 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
                                 // Address of the __eh_frame in the source object file
                             },
                             .ARM64_RELOC_POINTER_TO_GOT => {
-                                const target_addr = try Atom.getRelocTargetAddress(zld, target, true, false);
+                                const target_addr = zld.getGotEntryAddress(target).?;
                                 const result = math.cast(i32, @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr))) orelse
                                     return error.Overflow;
                                 mem.writeIntLittle(i32, rec.data[rel_offset..][0..4], result);
                             },
                             .ARM64_RELOC_UNSIGNED => {
                                 assert(rel.r_extern == 1);
-                                const target_addr = try Atom.getRelocTargetAddress(zld, target, false, false);
+                                const target_addr = try Atom.getRelocTargetAddress(zld, target, false);
                                 const result = @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr));
                                 mem.writeIntLittle(i64, rec.data[rel_offset..][0..8], @as(i64, @intCast(result)));
                             },
@@ -375,7 +375,7 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
                         const rel_type = @as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type));
                         switch (rel_type) {
                             .X86_64_RELOC_GOT => {
-                                const target_addr = try Atom.getRelocTargetAddress(zld, target, true, false);
+                                const target_addr = zld.getGotEntryAddress(target).?;
                                 const addend = mem.readIntLittle(i32, rec.data[rel_offset..][0..4]);
                                 const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + addend));
                                 const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);

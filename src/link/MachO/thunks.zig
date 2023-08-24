@@ -318,7 +318,10 @@ fn isReachable(
 
     const source_addr = source_sym.n_value + @as(u32, @intCast(rel.r_address - base_offset));
     const is_via_got = Atom.relocRequiresGot(zld, rel);
-    const target_addr = Atom.getRelocTargetAddress(zld, target, is_via_got, false) catch unreachable;
+    const target_addr = if (is_via_got)
+        zld.getGotEntryAddress(target).?
+    else
+        Atom.getRelocTargetAddress(zld, target, false) catch unreachable;
     _ = Relocation.calcPcRelativeDisplacementArm64(source_addr, target_addr) catch
         return false;
 

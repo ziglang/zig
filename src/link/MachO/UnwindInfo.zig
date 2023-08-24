@@ -226,7 +226,7 @@ pub fn scanRelocs(zld: *Zld) !void {
                             .code = mem.asBytes(&record),
                             .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
                         });
-                        try Atom.addGotEntry(zld, target);
+                        try zld.addGotEntry(target);
                     }
                 }
             }
@@ -585,10 +585,8 @@ pub fn write(info: *UnwindInfo, zld: *Zld) !void {
 
     log.debug("Personalities:", .{});
     for (info.personalities[0..info.personalities_count], 0..) |target, i| {
-        const atom_index = zld.getGotAtomIndexForSymbol(target).?;
-        const atom = zld.getAtom(atom_index);
-        const sym = zld.getSymbol(atom.getSymbolWithLoc());
-        personalities[i] = @as(u32, @intCast(sym.n_value - seg.vmaddr));
+        const addr = zld.getGotEntryAddress(target).?;
+        personalities[i] = @as(u32, @intCast(addr - seg.vmaddr));
         log.debug("  {d}: 0x{x} ({s})", .{ i, personalities[i], zld.getSymbolName(target) });
     }
 

@@ -358,10 +358,7 @@ pub fn parseRelocTarget(zld: *Zld, ctx: struct {
     return target;
 }
 
-pub fn getRelocTargetAtomIndex(zld: *Zld, target: SymbolWithLoc, is_via_got: bool) ?Index {
-    if (is_via_got) {
-        return zld.getGotAtomIndexForSymbol(target).?; // panic means fatal error
-    }
+pub fn getRelocTargetAtomIndex(zld: *Zld, target: SymbolWithLoc) ?Index {
     if (zld.getStubsAtomIndexForSymbol(target)) |stubs_atom| return stubs_atom;
     if (zld.getTlvPtrAtomIndexForSymbol(target)) |tlv_ptr_atom| return tlv_ptr_atom;
 
@@ -411,7 +408,7 @@ fn scanAtomRelocsArm64(zld: *Zld, atom_index: Index, relocs: []align(1) const ma
             .ARM64_RELOC_POINTER_TO_GOT,
             => {
                 // TODO rewrite relocation
-                try addGotEntry(zld, target);
+                try zld.addGotEntry(target);
             },
             .ARM64_RELOC_TLVP_LOAD_PAGE21,
             .ARM64_RELOC_TLVP_LOAD_PAGEOFF12,
@@ -454,7 +451,7 @@ fn scanAtomRelocsX86(zld: *Zld, atom_index: Index, relocs: []align(1) const mach
             },
             .X86_64_RELOC_GOT, .X86_64_RELOC_GOT_LOAD => {
                 // TODO rewrite relocation
-                try addGotEntry(zld, target);
+                try zld.addGotEntry(target);
             },
             .X86_64_RELOC_TLV => {
                 try addTlvPtrEntry(zld, target);
@@ -477,18 +474,6 @@ fn addTlvPtrEntry(zld: *Zld, target: SymbolWithLoc) !void {
         .atom_index = atom_index,
     });
     try zld.tlv_ptr_table.putNoClobber(gpa, target, tlv_ptr_index);
-}
-
-pub fn addGotEntry(zld: *Zld, target: SymbolWithLoc) !void {
-    if (zld.got_table.contains(target)) return;
-    const gpa = zld.gpa;
-    const atom_index = try zld.createGotAtom();
-    const got_index = @as(u32, @intCast(zld.got_entries.items.len));
-    try zld.got_entries.append(gpa, .{
-        .target = target,
-        .atom_index = atom_index,
-    });
-    try zld.got_table.putNoClobber(gpa, target, got_index);
 }
 
 pub fn addStub(zld: *Zld, target: SymbolWithLoc) !void {
@@ -532,8 +517,8 @@ pub fn resolveRelocs(
     };
 }
 
-pub fn getRelocTargetAddress(zld: *Zld, target: SymbolWithLoc, is_via_got: bool, is_tlv: bool) !u64 {
-    const target_atom_index = getRelocTargetAtomIndex(zld, target, is_via_got) orelse {
+pub fn getRelocTargetAddress(zld: *Zld, target: SymbolWithLoc, is_tlv: bool) !u64 {
+    const target_atom_index = getRelocTargetAtomIndex(zld, target) orelse {
         // If there is no atom for target, we still need to check for special, atom-less
         // symbols such as `___dso_handle`.
         const target_name = zld.getSymbolName(target);
@@ -656,7 +641,10 @@ fn resolveRelocsArm64(
             const header = zld.sections.items(.header)[source_sym.n_sect - 1];
             break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
         };
-        const target_addr = try getRelocTargetAddress(zld, target, is_via_got, is_tlv);
+        const target_addr = if (is_via_got)
+            zld.getGotEntryAddress(target).?
+        else
+            try getRelocTargetAddress(zld, target, is_tlv);
 
         log.debug("    | source_addr = 0x{x}", .{source_addr});
 
@@ -670,7 +658,7 @@ fn resolveRelocsArm64(
                     zld.getSymbolName(atom.getSymbolWithLoc()),
                     atom.getFile(),
                     zld.getSymbolName(target),
-                    zld.getAtom(getRelocTargetAtomIndex(zld, target, is_via_got).?).getFile(),
+                    zld.getAtom(getRelocTargetAtomIndex(zld, target).?).getFile(),
                 });
 
                 const displacement = if (Relocation.calcPcRelativeDisplacementArm64(
@@ -953,7 +941,10 @@ fn resolveRelocsX86(
 
         log.debug("    | source_addr = 0x{x}", .{source_addr});
 
-        const target_addr = try getRelocTargetAddress(zld, target, is_via_got, is_tlv);
+        const target_addr = if (is_via_got)
+            zld.getGotEntryAddress(target).?
+        else
+            try getRelocTargetAddress(zld, target, is_tlv);
 
         switch (rel_type) {
             .X86_64_RELOC_BRANCH => {
