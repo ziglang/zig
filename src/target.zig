@@ -201,6 +201,11 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
         (linking_libc and target.isGnuLibC());
 }
 
+/// Returns true when the target should default to using PIC as output format depending on `link_mode`
+pub fn defaultsPIC(target: std.Target, link_mode: std.builtin.LinkMode) bool {
+    return link_mode == .Dynamic and !target.isWasm();
+}
+
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
 /// C compiler argument is valid to Clang.
 pub fn supports_fpic(target: std.Target) bool {

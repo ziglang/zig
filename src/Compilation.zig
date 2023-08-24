@@ -951,7 +951,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const must_pic: bool = b: {
             if (target_util.requiresPIC(options.target, link_libc))
                 break :b true;
-            break :b link_mode == .Dynamic;
+            break :b target_util.defaultsPIC(options.target, link_mode);
         };
         const pic = if (options.want_pic) |explicit| pic: {
             if (!explicit) {
