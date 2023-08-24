@@ -68,6 +68,7 @@ pub const Zld = struct {
     sections: std.MultiArrayList(Section) = .{},
 
     got_section_index: ?u8 = null,
+    tlv_ptr_section_index: ?u8 = null,
 
     locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
     globals: std.ArrayListUnmanaged(SymbolWithLoc) = .{},
@@ -81,9 +82,7 @@ pub const Zld = struct {
 
     strtab: StringTable(.strtab) = .{},
 
-    tlv_ptr_entries: std.ArrayListUnmanaged(IndirectPointer) = .{},
-    tlv_ptr_table: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .{},
-
+    tlv_ptr_table: TableSection(SymbolWithLoc) = .{},
     got_table: TableSection(SymbolWithLoc) = .{},
 
     stubs: std.ArrayListUnmanaged(IndirectPointer) = .{},
@@ -266,24 +265,6 @@ pub const Zld = struct {
         log.debug("creating ATOM(%{d}) at index {d}", .{ sym_index, index });
 
         return index;
-    }
-
-    pub fn createTlvPtrAtom(self: *Zld) !AtomIndex {
-        const sym_index = try self.allocateSymbol();
-        const atom_index = try self.createEmptyAtom(sym_index, @sizeOf(u64), 3);
-        const sym = self.getSymbolPtr(.{ .sym_index = sym_index });
-        sym.n_type = macho.N_SECT;
-
-        const sect_id = (try self.getOutputSection(.{
-            .segname = makeStaticString("__DATA"),
-            .sectname = makeStaticString("__thread_ptrs"),
-            .flags = macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
-        })).?;
-        sym.n_sect = sect_id + 1;
-
-        self.addAtomToSection(atom_index);
-
-        return atom_index;
     }
 
     fn createDyldStubBinderGotAtom(self: *Zld) !void {
@@ -841,7 +822,6 @@ pub const Zld = struct {
     pub fn deinit(self: *Zld) void {
         const gpa = self.gpa;
 
-        self.tlv_ptr_entries.deinit(gpa);
         self.tlv_ptr_table.deinit(gpa);
         self.got_table.deinit(gpa);
         self.stubs.deinit(gpa);
@@ -959,12 +939,22 @@ pub const Zld = struct {
         return global_index;
     }
 
-    pub fn addGotEntry(zld: *Zld, target: SymbolWithLoc) !void {
-        if (zld.got_table.lookup.contains(target)) return;
-        _ = try zld.got_table.allocateEntry(zld.gpa, target);
-        if (zld.got_section_index == null) {
-            zld.got_section_index = try zld.initSection("__DATA_CONST", "__got", .{
+    pub fn addGotEntry(self: *Zld, target: SymbolWithLoc) !void {
+        if (self.got_table.lookup.contains(target)) return;
+        _ = try self.got_table.allocateEntry(self.gpa, target);
+        if (self.got_section_index == null) {
+            self.got_section_index = try self.initSection("__DATA_CONST", "__got", .{
                 .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
+            });
+        }
+    }
+
+    pub fn addTlvPtrEntry(self: *Zld, target: SymbolWithLoc) !void {
+        if (self.tlv_ptr_table.lookup.contains(target)) return;
+        _ = try self.tlv_ptr_table.allocateEntry(self.gpa, target);
+        if (self.tlv_ptr_section_index == null) {
+            self.tlv_ptr_section_index = try self.initSection("__DATA", "__thread_ptrs", .{
+                .flags = macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
             });
         }
     }
@@ -1033,11 +1023,9 @@ pub const Zld = struct {
                 } else if (atom.getFile() == null) outer: {
                     switch (header.type()) {
                         macho.S_NON_LAZY_SYMBOL_POINTERS => unreachable,
+                        macho.S_THREAD_LOCAL_VARIABLE_POINTERS => unreachable,
                         macho.S_LAZY_SYMBOL_POINTERS => {
                             try self.writeLazyPointer(count, buffer.writer());
-                        },
-                        macho.S_THREAD_LOCAL_VARIABLE_POINTERS => {
-                            buffer.appendSliceAssumeCapacity(&[_]u8{0} ** @sizeOf(u64));
                         },
                         else => {
                             if (self.stub_helper_preamble_sym_index) |sym_index| {
@@ -1087,12 +1075,11 @@ pub const Zld = struct {
         }
     }
 
-    fn writeGotEntries(self: *Zld) !void {
-        const sect_id = self.got_section_index orelse return;
+    fn writePointerEntries(self: *Zld, sect_id: u8, table: anytype) !void {
         const header = self.sections.items(.header)[sect_id];
         var buffer = try std.ArrayList(u8).initCapacity(self.gpa, header.size);
         defer buffer.deinit();
-        for (self.got_table.entries.items) |entry| {
+        for (table.entries.items) |entry| {
             const sym = self.getSymbol(entry);
             buffer.writer().writeIntLittle(u64, sym.n_value) catch unreachable;
         }
@@ -1147,6 +1134,7 @@ pub const Zld = struct {
 
         for (&[_]*?u8{
             &self.got_section_index,
+            &self.tlv_ptr_section_index,
         }) |maybe_index| {
             if (maybe_index.*) |*index| {
                 index.* = backlinks[index.*];
@@ -1234,6 +1222,12 @@ pub const Zld = struct {
         if (self.got_section_index) |sect_id| {
             const header = &self.sections.items(.header)[sect_id];
             header.size = self.got_table.count() * @sizeOf(u64);
+            header.@"align" = 3;
+        }
+
+        if (self.tlv_ptr_section_index) |sect_id| {
+            const header = &self.sections.items(.header)[sect_id];
+            header.size = self.tlv_ptr_table.count() * @sizeOf(u64);
             header.@"align" = 3;
         }
     }
@@ -1579,44 +1573,6 @@ pub const Zld = struct {
         try rebase.finalize(self.gpa);
     }
 
-    fn collectBindDataFromContainer(
-        self: *Zld,
-        sect_id: u8,
-        bind: *Bind,
-        container: anytype,
-    ) !void {
-        const slice = self.sections.slice();
-        const segment_index = slice.items(.segment_index)[sect_id];
-        const seg = self.getSegment(sect_id);
-
-        try bind.entries.ensureUnusedCapacity(self.gpa, container.items.len);
-
-        for (container.items) |entry| {
-            const bind_sym_name = entry.getTargetSymbolName(self);
-            const bind_sym = entry.getTargetSymbol(self);
-            if (bind_sym.sect()) continue;
-
-            const sym = entry.getAtomSymbol(self);
-            const base_offset = sym.n_value - seg.vmaddr;
-
-            const dylib_ordinal = @divTrunc(@as(i16, @bitCast(bind_sym.n_desc)), macho.N_SYMBOL_RESOLVER);
-            log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
-                base_offset,
-                bind_sym_name,
-                dylib_ordinal,
-            });
-            if (bind_sym.weakRef()) {
-                log.debug("    | marking as weak ref ", .{});
-            }
-            bind.entries.appendAssumeCapacity(.{
-                .target = entry.target,
-                .offset = base_offset,
-                .segment_id = segment_index,
-                .addend = 0,
-            });
-        }
-    }
-
     fn collectBindData(
         self: *Zld,
         bind: *Bind,
@@ -1629,8 +1585,8 @@ pub const Zld = struct {
         }
 
         // Next, unpack TLV pointers section
-        if (self.getSectionByName("__DATA", "__thread_ptrs")) |sect_id| {
-            try self.collectBindDataFromContainer(sect_id, bind, self.tlv_ptr_entries);
+        if (self.tlv_ptr_section_index) |sect_id| {
+            try MachO.collectBindDataFromTableSection(self.gpa, self, sect_id, bind, self.tlv_ptr_table);
         }
 
         // Finally, unpack the rest.
@@ -2488,19 +2444,17 @@ pub const Zld = struct {
         return header.addr + @sizeOf(u64) * index;
     }
 
+    pub fn getTlvPtrEntryAddress(self: *Zld, sym_with_loc: SymbolWithLoc) ?u64 {
+        const index = self.tlv_ptr_table.lookup.get(sym_with_loc) orelse return null;
+        const header = self.sections.items(.header)[self.tlv_ptr_section_index.?];
+        return header.addr + @sizeOf(u64) * index;
+    }
+
     /// Returns stubs atom that references `sym_with_loc` if one exists.
     /// Returns null otherwise.
     pub fn getStubsAtomIndexForSymbol(self: *Zld, sym_with_loc: SymbolWithLoc) ?AtomIndex {
         const index = self.stubs_table.get(sym_with_loc) orelse return null;
         const entry = self.stubs.items[index];
-        return entry.atom_index;
-    }
-
-    /// Returns TLV pointer atom that references `sym_with_loc` if one exists.
-    /// Returns null otherwise.
-    pub fn getTlvPtrAtomIndexForSymbol(self: *Zld, sym_with_loc: SymbolWithLoc) ?AtomIndex {
-        const index = self.tlv_ptr_table.get(sym_with_loc) orelse return null;
-        const entry = self.tlv_ptr_entries.items[index];
         return entry.atom_index;
     }
 
@@ -2835,18 +2789,8 @@ pub const Zld = struct {
         scoped_log.debug("GOT entries:", .{});
         scoped_log.debug("{}", .{self.got_table});
 
-        scoped_log.debug("__thread_ptrs entries:", .{});
-        for (self.tlv_ptr_entries.items, 0..) |entry, i| {
-            const atom_sym = entry.getAtomSymbol(self);
-            const target_sym = entry.getTargetSymbol(self);
-            const target_sym_name = entry.getTargetSymbolName(self);
-            assert(target_sym.undf());
-            scoped_log.debug("  {d}@{x} => import('{s}')", .{
-                i,
-                atom_sym.n_value,
-                target_sym_name,
-            });
-        }
+        scoped_log.debug("TLV pointers:", .{});
+        scoped_log.debug("{}", .{self.tlv_ptr_table});
 
         scoped_log.debug("stubs entries:", .{});
         for (self.stubs.items, 0..) |entry, i| {
@@ -3435,7 +3379,10 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
 
         try zld.writeAtoms();
-        try zld.writeGotEntries();
+
+        if (zld.got_section_index) |sect_id| try zld.writePointerEntries(sect_id, &zld.got_table);
+        if (zld.tlv_ptr_section_index) |sect_id| try zld.writePointerEntries(sect_id, &zld.tlv_ptr_table);
+
         try eh_frame.write(&zld, &unwind_info);
         try unwind_info.write(&zld);
         try zld.writeLinkeditSegmentData();

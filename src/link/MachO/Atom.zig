@@ -360,7 +360,6 @@ pub fn parseRelocTarget(zld: *Zld, ctx: struct {
 
 pub fn getRelocTargetAtomIndex(zld: *Zld, target: SymbolWithLoc) ?Index {
     if (zld.getStubsAtomIndexForSymbol(target)) |stubs_atom| return stubs_atom;
-    if (zld.getTlvPtrAtomIndexForSymbol(target)) |tlv_ptr_atom| return tlv_ptr_atom;
 
     if (target.getFile() == null) {
         const target_sym_name = zld.getSymbolName(target);
@@ -413,7 +412,8 @@ fn scanAtomRelocsArm64(zld: *Zld, atom_index: Index, relocs: []align(1) const ma
             .ARM64_RELOC_TLVP_LOAD_PAGE21,
             .ARM64_RELOC_TLVP_LOAD_PAGEOFF12,
             => {
-                try addTlvPtrEntry(zld, target);
+                const sym = zld.getSymbol(target);
+                if (sym.undf()) try zld.addTlvPtrEntry(target);
             },
             else => {},
         }
@@ -454,26 +454,12 @@ fn scanAtomRelocsX86(zld: *Zld, atom_index: Index, relocs: []align(1) const mach
                 try zld.addGotEntry(target);
             },
             .X86_64_RELOC_TLV => {
-                try addTlvPtrEntry(zld, target);
+                const sym = zld.getSymbol(target);
+                if (sym.undf()) try zld.addTlvPtrEntry(target);
             },
             else => {},
         }
     }
-}
-
-fn addTlvPtrEntry(zld: *Zld, target: SymbolWithLoc) !void {
-    const target_sym = zld.getSymbol(target);
-    if (!target_sym.undf()) return;
-    if (zld.tlv_ptr_table.contains(target)) return;
-
-    const gpa = zld.gpa;
-    const atom_index = try zld.createTlvPtrAtom();
-    const tlv_ptr_index = @as(u32, @intCast(zld.tlv_ptr_entries.items.len));
-    try zld.tlv_ptr_entries.append(gpa, .{
-        .target = target,
-        .atom_index = atom_index,
-    });
-    try zld.tlv_ptr_table.putNoClobber(gpa, target, tlv_ptr_index);
 }
 
 pub fn addStub(zld: *Zld, target: SymbolWithLoc) !void {
@@ -641,10 +627,12 @@ fn resolveRelocsArm64(
             const header = zld.sections.items(.header)[source_sym.n_sect - 1];
             break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
         };
-        const target_addr = if (is_via_got)
-            zld.getGotEntryAddress(target).?
-        else
-            try getRelocTargetAddress(zld, target, is_tlv);
+        const target_addr = blk: {
+            if (is_via_got) break :blk zld.getGotEntryAddress(target).?;
+            if (relocIsTlv(zld, rel) and zld.getSymbol(target).undf())
+                break :blk zld.getTlvPtrEntryAddress(target).?;
+            break :blk try getRelocTargetAddress(zld, target, is_tlv);
+        };
 
         log.debug("    | source_addr = 0x{x}", .{source_addr});
 
@@ -802,7 +790,7 @@ fn resolveRelocsArm64(
                     }
                 };
 
-                var inst = if (zld.tlv_ptr_table.contains(target)) aarch64.Instruction{
+                var inst = if (zld.tlv_ptr_table.lookup.contains(target)) aarch64.Instruction{
                     .load_store_register = .{
                         .rt = reg_info.rd,
                         .rn = reg_info.rn,
@@ -938,13 +926,14 @@ fn resolveRelocsX86(
             const header = zld.sections.items(.header)[source_sym.n_sect - 1];
             break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
         };
+        const target_addr = blk: {
+            if (is_via_got) break :blk zld.getGotEntryAddress(target).?;
+            if (relocIsTlv(zld, rel) and zld.getSymbol(target).undf())
+                break :blk zld.getTlvPtrEntryAddress(target).?;
+            break :blk try getRelocTargetAddress(zld, target, is_tlv);
+        };
 
         log.debug("    | source_addr = 0x{x}", .{source_addr});
-
-        const target_addr = if (is_via_got)
-            zld.getGotEntryAddress(target).?
-        else
-            try getRelocTargetAddress(zld, target, is_tlv);
 
         switch (rel_type) {
             .X86_64_RELOC_BRANCH => {
@@ -971,7 +960,7 @@ fn resolveRelocsX86(
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
                 const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
 
-                if (zld.tlv_ptr_table.get(target) == null) {
+                if (zld.tlv_ptr_table.lookup.get(target) == null) {
                     // We need to rewrite the opcode from movq to leaq.
                     atom_code[rel_offset - 2] = 0x8d;
                 }
@@ -1107,6 +1096,22 @@ pub fn relocRequiresGot(zld: *Zld, rel: macho.relocation_info) bool {
             .X86_64_RELOC_GOT,
             .X86_64_RELOC_GOT_LOAD,
             => return true,
+            else => return false,
+        },
+        else => unreachable,
+    }
+}
+
+pub fn relocIsTlv(zld: *Zld, rel: macho.relocation_info) bool {
+    switch (zld.options.target.cpu.arch) {
+        .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
+            .ARM64_RELOC_TLVP_LOAD_PAGE21,
+            .ARM64_RELOC_TLVP_LOAD_PAGEOFF12,
+            => return true,
+            else => return false,
+        },
+        .x86_64 => switch (@as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type))) {
+            .X86_64_RELOC_TLV => return true,
             else => return false,
         },
         else => unreachable,
