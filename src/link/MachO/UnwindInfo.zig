@@ -577,7 +577,7 @@ pub fn write(info: *UnwindInfo, zld: *Zld) !void {
     const seg_id = zld.sections.items(.segment_index)[sect_id];
     const seg = zld.segments.items[seg_id];
 
-    const text_sect_id = zld.getSectionByName("__TEXT", "__text").?;
+    const text_sect_id = zld.text_section_index.?;
     const text_sect = zld.sections.items(.header)[text_sect_id];
 
     var personalities: [max_personalities]u32 = undefined;

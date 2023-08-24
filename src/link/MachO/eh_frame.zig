@@ -7,7 +7,6 @@ const leb = std.leb;
 const log = std.log.scoped(.eh_frame);
 
 const Allocator = mem.Allocator;
-const AtomIndex = @import("zld.zig").AtomIndex;
 const Atom = @import("Atom.zig");
 const MachO = @import("../MachO.zig");
 const Relocation = @import("Relocation.zig");

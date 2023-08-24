@@ -3,7 +3,7 @@ const aarch64 = @import("../../arch/aarch64/bits.zig");
 
 const Relocation = @import("Relocation.zig");
 
-pub inline fn calcStubHelperPreambleSize(cpu_arch: std.Target.Cpu.Arch) u5 {
+pub inline fn stubHelperPreambleSize(cpu_arch: std.Target.Cpu.Arch) u8 {
     return switch (cpu_arch) {
         .x86_64 => 15,
         .aarch64 => 6 * @sizeOf(u32),
@@ -11,7 +11,7 @@ pub inline fn calcStubHelperPreambleSize(cpu_arch: std.Target.Cpu.Arch) u5 {
     };
 }
 
-pub inline fn calcStubHelperEntrySize(cpu_arch: std.Target.Cpu.Arch) u4 {
+pub inline fn stubHelperSize(cpu_arch: std.Target.Cpu.Arch) u8 {
     return switch (cpu_arch) {
         .x86_64 => 10,
         .aarch64 => 3 * @sizeOf(u32),
@@ -19,7 +19,7 @@ pub inline fn calcStubHelperEntrySize(cpu_arch: std.Target.Cpu.Arch) u4 {
     };
 }
 
-pub inline fn calcStubEntrySize(cpu_arch: std.Target.Cpu.Arch) u4 {
+pub inline fn stubSize(cpu_arch: std.Target.Cpu.Arch) u8 {
     return switch (cpu_arch) {
         .x86_64 => 6,
         .aarch64 => 3 * @sizeOf(u32),
@@ -27,7 +27,15 @@ pub inline fn calcStubEntrySize(cpu_arch: std.Target.Cpu.Arch) u4 {
     };
 }
 
-pub inline fn calcStubOffsetInStubHelper(cpu_arch: std.Target.Cpu.Arch) u4 {
+pub inline fn stubAlignment(cpu_arch: std.Target.Cpu.Arch) u8 {
+    return switch (cpu_arch) {
+        .x86_64 => 0,
+        .aarch64 => 2,
+        else => unreachable, // unhandled architecture type
+    };
+}
+
+pub inline fn stubOffsetInStubHelper(cpu_arch: std.Target.Cpu.Arch) u8 {
     return switch (cpu_arch) {
         .x86_64 => 1,
         .aarch64 => 2 * @sizeOf(u32),

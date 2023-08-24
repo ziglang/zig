@@ -1412,7 +1412,7 @@ fn writeStubHelperPreamble(self: *MachO) !void {
 
     const gpa = self.base.allocator;
     const cpu_arch = self.base.options.target.cpu.arch;
-    const size = stubs.calcStubHelperPreambleSize(cpu_arch);
+    const size = stubs.stubHelperPreambleSize(cpu_arch);
 
     var buf = try std.ArrayList(u8).initCapacity(gpa, size);
     defer buf.deinit();
@@ -1442,9 +1442,9 @@ fn writeStubTableEntry(self: *MachO, index: usize) !void {
     const laptr_sect_id = self.la_symbol_ptr_section_index.?;
 
     const cpu_arch = self.base.options.target.cpu.arch;
-    const stub_entry_size = stubs.calcStubEntrySize(cpu_arch);
-    const stub_helper_entry_size = stubs.calcStubHelperEntrySize(cpu_arch);
-    const stub_helper_preamble_size = stubs.calcStubHelperPreambleSize(cpu_arch);
+    const stub_entry_size = stubs.stubSize(cpu_arch);
+    const stub_helper_entry_size = stubs.stubHelperSize(cpu_arch);
+    const stub_helper_preamble_size = stubs.stubHelperPreambleSize(cpu_arch);
 
     if (self.stub_table_count_dirty) {
         // We grow all 3 sections one by one.
@@ -2800,14 +2800,10 @@ fn populateMissingMetadata(self: *MachO) !void {
     }
 
     if (self.stubs_section_index == null) {
-        const stub_size = stubs.calcStubEntrySize(cpu_arch);
+        const stub_size = stubs.stubSize(cpu_arch);
         self.stubs_section_index = try self.allocateSection("__TEXT2", "__stubs", .{
             .size = stub_size,
-            .alignment = switch (cpu_arch) {
-                .x86_64 => 1,
-                .aarch64 => @sizeOf(u32),
-                else => unreachable, // unhandled architecture type
-            },
+            .alignment = stubs.stubAlignment(cpu_arch),
             .flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
             .reserved2 = stub_size,
             .prot = macho.PROT.READ | macho.PROT.EXEC,
@@ -3474,7 +3470,12 @@ fn writeDyldInfoData(self: *MachO) !void {
     });
 
     try self.base.file.?.pwriteAll(buffer, rebase_off);
-    try self.populateLazyBindOffsetsInStubHelper(lazy_bind);
+    try populateLazyBindOffsetsInStubHelper(
+        self,
+        self.base.options.target.cpu.arch,
+        self.base.file.?,
+        lazy_bind,
+    );
 
     self.dyld_info_cmd.rebase_off = @as(u32, @intCast(rebase_off));
     self.dyld_info_cmd.rebase_size = @as(u32, @intCast(rebase_size_aligned));
@@ -3486,18 +3487,22 @@ fn writeDyldInfoData(self: *MachO) !void {
     self.dyld_info_cmd.export_size = @as(u32, @intCast(export_size_aligned));
 }
 
-fn populateLazyBindOffsetsInStubHelper(self: *MachO, lazy_bind: LazyBind) !void {
+pub fn populateLazyBindOffsetsInStubHelper(
+    ctx: anytype,
+    cpu_arch: std.Target.Cpu.Arch,
+    file: fs.File,
+    lazy_bind: anytype,
+) !void {
     if (lazy_bind.size() == 0) return;
 
-    const stub_helper_section_index = self.stub_helper_section_index.?;
-    assert(self.stub_helper_preamble_allocated);
+    const stub_helper_section_index = ctx.stub_helper_section_index.?;
+    // assert(ctx.stub_helper_preamble_allocated);
 
-    const header = self.sections.items(.header)[stub_helper_section_index];
+    const header = ctx.sections.items(.header)[stub_helper_section_index];
 
-    const cpu_arch = self.base.options.target.cpu.arch;
-    const preamble_size = stubs.calcStubHelperPreambleSize(cpu_arch);
-    const stub_size = stubs.calcStubHelperEntrySize(cpu_arch);
-    const stub_offset = stubs.calcStubOffsetInStubHelper(cpu_arch);
+    const preamble_size = stubs.stubHelperPreambleSize(cpu_arch);
+    const stub_size = stubs.stubHelperSize(cpu_arch);
+    const stub_offset = stubs.stubOffsetInStubHelper(cpu_arch);
     const base_offset = header.offset + preamble_size;
 
     for (lazy_bind.offsets.items, 0..) |bind_offset, index| {
@@ -3505,11 +3510,11 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, lazy_bind: LazyBind) !void 
 
         log.debug("writing lazy bind offset 0x{x} ({s}) in stub helper at 0x{x}", .{
             bind_offset,
-            self.getSymbolName(lazy_bind.entries.items[index].target),
+            ctx.getSymbolName(lazy_bind.entries.items[index].target),
             file_offset,
         });
 
-        try self.base.file.?.pwriteAll(mem.asBytes(&bind_offset), file_offset);
+        try file.pwriteAll(mem.asBytes(&bind_offset), file_offset);
     }
 }
 

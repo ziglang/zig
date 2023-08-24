@@ -9,7 +9,6 @@ const math = std.math;
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
-const AtomIndex = @import("zld.zig").AtomIndex;
 const Atom = @import("Atom.zig");
 const MachO = @import("../MachO.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
@@ -19,7 +18,7 @@ const Zld = @import("zld.zig").Zld;
 
 const N_DEAD = @import("zld.zig").N_DEAD;
 
-const AtomTable = std.AutoHashMap(AtomIndex, void);
+const AtomTable = std.AutoHashMap(Atom.Index, void);
 
 pub fn gcAtoms(zld: *Zld, resolver: *const SymbolResolver) !void {
     const gpa = zld.gpa;
@@ -127,7 +126,7 @@ fn collectRoots(zld: *Zld, roots: *AtomTable, resolver: *const SymbolResolver) !
     }
 }
 
-fn markLive(zld: *Zld, atom_index: AtomIndex, alive: *AtomTable) void {
+fn markLive(zld: *Zld, atom_index: Atom.Index, alive: *AtomTable) void {
     if (alive.contains(atom_index)) return;
 
     const atom = zld.getAtom(atom_index);
@@ -191,7 +190,7 @@ fn markLive(zld: *Zld, atom_index: AtomIndex, alive: *AtomTable) void {
     }
 }
 
-fn refersLive(zld: *Zld, atom_index: AtomIndex, alive: AtomTable) bool {
+fn refersLive(zld: *Zld, atom_index: Atom.Index, alive: AtomTable) bool {
     const atom = zld.getAtom(atom_index);
     const sym_loc = atom.getSymbolWithLoc();
 
@@ -359,7 +358,7 @@ fn markUnwindRecords(zld: *Zld, object_id: u32, alive: *AtomTable) !void {
     }
 }
 
-fn markEhFrameRecords(zld: *Zld, object_id: u32, atom_index: AtomIndex, alive: *AtomTable) !void {
+fn markEhFrameRecords(zld: *Zld, object_id: u32, atom_index: Atom.Index, alive: *AtomTable) !void {
     const cpu_arch = zld.options.target.cpu.arch;
     const object = &zld.objects.items[object_id];
     var it = object.getEhFrameRecordsIterator();

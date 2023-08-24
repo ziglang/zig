@@ -359,8 +359,6 @@ pub fn parseRelocTarget(zld: *Zld, ctx: struct {
 }
 
 pub fn getRelocTargetAtomIndex(zld: *Zld, target: SymbolWithLoc) ?Index {
-    if (zld.getStubsAtomIndexForSymbol(target)) |stubs_atom| return stubs_atom;
-
     if (target.getFile() == null) {
         const target_sym_name = zld.getSymbolName(target);
         if (mem.eql(u8, "__mh_execute_header", target_sym_name)) return null;
@@ -400,7 +398,8 @@ fn scanAtomRelocsArm64(zld: *Zld, atom_index: Index, relocs: []align(1) const ma
         switch (rel_type) {
             .ARM64_RELOC_BRANCH26 => {
                 // TODO rewrite relocation
-                try addStub(zld, target);
+                const sym = zld.getSymbol(target);
+                if (sym.undf()) try zld.addStubEntry(target);
             },
             .ARM64_RELOC_GOT_LOAD_PAGE21,
             .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
@@ -447,7 +446,8 @@ fn scanAtomRelocsX86(zld: *Zld, atom_index: Index, relocs: []align(1) const mach
         switch (rel_type) {
             .X86_64_RELOC_BRANCH => {
                 // TODO rewrite relocation
-                try addStub(zld, target);
+                const sym = zld.getSymbol(target);
+                if (sym.undf()) try zld.addStubEntry(target);
             },
             .X86_64_RELOC_GOT, .X86_64_RELOC_GOT_LOAD => {
                 // TODO rewrite relocation
@@ -460,23 +460,6 @@ fn scanAtomRelocsX86(zld: *Zld, atom_index: Index, relocs: []align(1) const mach
             else => {},
         }
     }
-}
-
-pub fn addStub(zld: *Zld, target: SymbolWithLoc) !void {
-    const target_sym = zld.getSymbol(target);
-    if (!target_sym.undf()) return;
-    if (zld.stubs_table.contains(target)) return;
-
-    const gpa = zld.gpa;
-    _ = try zld.createStubHelperAtom();
-    _ = try zld.createLazyPointerAtom();
-    const atom_index = try zld.createStubAtom();
-    const stubs_index = @as(u32, @intCast(zld.stubs.items.len));
-    try zld.stubs.append(gpa, .{
-        .target = target,
-        .atom_index = atom_index,
-    });
-    try zld.stubs_table.putNoClobber(gpa, target, stubs_index);
 }
 
 pub fn resolveRelocs(
@@ -621,16 +604,17 @@ fn resolveRelocsArm64(
             const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
             break :blk source_sym.n_value + rel_offset;
         };
-        const is_via_got = relocRequiresGot(zld, rel);
-        const is_tlv = is_tlv: {
-            const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
-            const header = zld.sections.items(.header)[source_sym.n_sect - 1];
-            break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
-        };
         const target_addr = blk: {
-            if (is_via_got) break :blk zld.getGotEntryAddress(target).?;
+            if (relocRequiresGot(zld, rel)) break :blk zld.getGotEntryAddress(target).?;
             if (relocIsTlv(zld, rel) and zld.getSymbol(target).undf())
                 break :blk zld.getTlvPtrEntryAddress(target).?;
+            if (relocIsStub(zld, rel) and zld.getSymbol(target).undf())
+                break :blk zld.getStubsEntryAddress(target).?;
+            const is_tlv = is_tlv: {
+                const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
+                const header = zld.sections.items(.header)[source_sym.n_sect - 1];
+                break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
+            };
             break :blk try getRelocTargetAddress(zld, target, is_tlv);
         };
 
@@ -638,32 +622,28 @@ fn resolveRelocsArm64(
 
         switch (rel_type) {
             .ARM64_RELOC_BRANCH26 => {
-                const actual_target = if (zld.getStubsAtomIndexForSymbol(target)) |stub_atom_index| inner: {
-                    const stub_atom = zld.getAtom(stub_atom_index);
-                    break :inner stub_atom.getSymbolWithLoc();
-                } else target;
-                log.debug("  source {s} (object({?})), target {s} (object({?}))", .{
+                log.debug("  source {s} (object({?})), target {s}", .{
                     zld.getSymbolName(atom.getSymbolWithLoc()),
                     atom.getFile(),
                     zld.getSymbolName(target),
-                    zld.getAtom(getRelocTargetAtomIndex(zld, target).?).getFile(),
                 });
 
                 const displacement = if (Relocation.calcPcRelativeDisplacementArm64(
                     source_addr,
-                    zld.getSymbol(actual_target).n_value,
+                    target_addr,
                 )) |disp| blk: {
-                    log.debug("    | target_addr = 0x{x}", .{zld.getSymbol(actual_target).n_value});
+                    log.debug("    | target_addr = 0x{x}", .{target_addr});
                     break :blk disp;
                 } else |_| blk: {
                     const thunk_index = zld.thunk_table.get(atom_index).?;
                     const thunk = zld.thunks.items[thunk_index];
-                    const thunk_sym = zld.getSymbol(thunk.getTrampolineForSymbol(
-                        zld,
-                        actual_target,
-                    ).?);
-                    log.debug("    | target_addr = 0x{x} (thunk)", .{thunk_sym.n_value});
-                    break :blk try Relocation.calcPcRelativeDisplacementArm64(source_addr, thunk_sym.n_value);
+                    const thunk_sym_loc = if (zld.getSymbol(target).undf())
+                        thunk.getTrampoline(zld, .stub, target).?
+                    else
+                        thunk.getTrampoline(zld, .atom, target).?;
+                    const thunk_addr = zld.getSymbol(thunk_sym_loc).n_value;
+                    log.debug("    | target_addr = 0x{x} (thunk)", .{thunk_addr});
+                    break :blk try Relocation.calcPcRelativeDisplacementArm64(source_addr, thunk_addr);
                 };
 
                 const code = atom_code[rel_offset..][0..4];
@@ -920,16 +900,17 @@ fn resolveRelocsX86(
             const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
             break :blk source_sym.n_value + rel_offset;
         };
-        const is_via_got = relocRequiresGot(zld, rel);
-        const is_tlv = is_tlv: {
-            const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
-            const header = zld.sections.items(.header)[source_sym.n_sect - 1];
-            break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
-        };
         const target_addr = blk: {
-            if (is_via_got) break :blk zld.getGotEntryAddress(target).?;
+            if (relocRequiresGot(zld, rel)) break :blk zld.getGotEntryAddress(target).?;
+            if (relocIsStub(zld, rel) and zld.getSymbol(target).undf())
+                break :blk zld.getStubsEntryAddress(target).?;
             if (relocIsTlv(zld, rel) and zld.getSymbol(target).undf())
                 break :blk zld.getTlvPtrEntryAddress(target).?;
+            const is_tlv = is_tlv: {
+                const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
+                const header = zld.sections.items(.header)[source_sym.n_sect - 1];
+                break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
+            };
             break :blk try getRelocTargetAddress(zld, target, is_tlv);
         };
 
@@ -1112,6 +1093,20 @@ pub fn relocIsTlv(zld: *Zld, rel: macho.relocation_info) bool {
         },
         .x86_64 => switch (@as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type))) {
             .X86_64_RELOC_TLV => return true,
+            else => return false,
+        },
+        else => unreachable,
+    }
+}
+
+pub fn relocIsStub(zld: *Zld, rel: macho.relocation_info) bool {
+    switch (zld.options.target.cpu.arch) {
+        .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
+            .ARM64_RELOC_BRANCH26 => return true,
+            else => return false,
+        },
+        .x86_64 => switch (@as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type))) {
+            .X86_64_RELOC_BRANCH => return true,
             else => return false,
         },
         else => unreachable,

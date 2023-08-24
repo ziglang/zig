@@ -62,7 +62,7 @@ pub fn getTargetBaseAddress(self: Relocation, macho_file: *MachO) ?u64 {
         const index = macho_file.stub_table.lookup.get(self.target) orelse return null;
         const header = macho_file.sections.items(.header)[macho_file.stubs_section_index.?];
         return header.addr +
-            index * @import("stubs.zig").calcStubEntrySize(macho_file.base.options.target.cpu.arch);
+            index * @import("stubs.zig").stubSize(macho_file.base.options.target.cpu.arch);
     }
     switch (self.type) {
         .got, .got_page, .got_pageoff => {

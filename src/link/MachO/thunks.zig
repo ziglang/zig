@@ -16,13 +16,10 @@ const aarch64 = @import("../../arch/aarch64/bits.zig");
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
-const AtomIndex = @import("zld.zig").AtomIndex;
 const MachO = @import("../MachO.zig");
 const Relocation = @import("Relocation.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
 const Zld = @import("zld.zig").Zld;
-
-pub const ThunkIndex = u32;
 
 /// Branch instruction has 26 bits immediate but 4 byte aligned.
 const jump_bits = @bitSizeOf(i28);
@@ -36,21 +33,35 @@ const max_distance = (1 << (jump_bits - 1));
 const max_allowed_distance = max_distance - 0x500_000;
 
 pub const Thunk = struct {
-    start_index: AtomIndex,
+    start_index: Atom.Index,
     len: u32,
 
-    lookup: std.AutoArrayHashMapUnmanaged(SymbolWithLoc, AtomIndex) = .{},
+    targets: std.MultiArrayList(Target) = .{},
+    lookup: std.AutoHashMapUnmanaged(Target, u32) = .{},
+
+    pub const Tag = enum {
+        stub,
+        atom,
+    };
+
+    pub const Target = struct {
+        tag: Tag,
+        target: SymbolWithLoc,
+    };
+
+    pub const Index = u32;
 
     pub fn deinit(self: *Thunk, gpa: Allocator) void {
+        self.targets.deinit(gpa);
         self.lookup.deinit(gpa);
     }
 
-    pub fn getStartAtomIndex(self: Thunk) AtomIndex {
+    pub fn getStartAtomIndex(self: Thunk) Atom.Index {
         assert(self.len != 0);
         return self.start_index;
     }
 
-    pub fn getEndAtomIndex(self: Thunk) AtomIndex {
+    pub fn getEndAtomIndex(self: Thunk) Atom.Index {
         assert(self.len != 0);
         return self.start_index + self.len - 1;
     }
@@ -63,10 +74,9 @@ pub const Thunk = struct {
         return @alignOf(u32);
     }
 
-    pub fn getTrampolineForSymbol(self: Thunk, zld: *Zld, target: SymbolWithLoc) ?SymbolWithLoc {
-        const atom_index = self.lookup.get(target) orelse return null;
-        const atom = zld.getAtom(atom_index);
-        return atom.getSymbolWithLoc();
+    pub fn getTrampoline(self: Thunk, zld: *Zld, tag: Tag, target: SymbolWithLoc) ?SymbolWithLoc {
+        const atom_index = self.lookup.get(.{ .tag = tag, .target = target }) orelse return null;
+        return zld.getAtom(atom_index).getSymbolWithLoc();
     }
 };
 
@@ -96,7 +106,7 @@ pub fn createThunks(zld: *Zld, sect_id: u8) !void {
         }
     }
 
-    var allocated = std.AutoHashMap(AtomIndex, void).init(gpa);
+    var allocated = std.AutoHashMap(Atom.Index, void).init(gpa);
     defer allocated.deinit();
     try allocated.ensureTotalCapacity(atom_count);
 
@@ -180,7 +190,7 @@ pub fn createThunks(zld: *Zld, sect_id: u8) !void {
 
 fn allocateThunk(
     zld: *Zld,
-    thunk_index: ThunkIndex,
+    thunk_index: Thunk.Index,
     base_offset: u64,
     header: *macho.section_64,
 ) void {
@@ -214,10 +224,10 @@ fn allocateThunk(
 
 fn scanRelocs(
     zld: *Zld,
-    atom_index: AtomIndex,
-    allocated: std.AutoHashMap(AtomIndex, void),
-    thunk_index: ThunkIndex,
-    group_end: AtomIndex,
+    atom_index: Atom.Index,
+    allocated: std.AutoHashMap(Atom.Index, void),
+    thunk_index: Thunk.Index,
+    group_end: Atom.Index,
 ) !void {
     const atom = zld.getAtom(atom_index);
     const object = zld.objects.items[atom.getFile().?];
@@ -253,40 +263,43 @@ fn scanRelocs(
 
         const gpa = zld.gpa;
         const target_sym = zld.getSymbol(target);
-
-        const actual_target: SymbolWithLoc = if (target_sym.undf()) blk: {
-            const stub_atom_index = zld.getStubsAtomIndexForSymbol(target).?;
-            break :blk .{ .sym_index = zld.getAtom(stub_atom_index).sym_index };
-        } else target;
-
         const thunk = &zld.thunks.items[thunk_index];
-        const gop = try thunk.lookup.getOrPut(gpa, actual_target);
+
+        const tag: Thunk.Tag = if (target_sym.undf()) .stub else .atom;
+        const thunk_target: Thunk.Target = .{ .tag = tag, .target = target };
+        const gop = try thunk.lookup.getOrPut(gpa, thunk_target);
         if (!gop.found_existing) {
-            const thunk_atom_index = try createThunkAtom(zld);
-            gop.value_ptr.* = thunk_atom_index;
-
-            const thunk_atom = zld.getAtomPtr(thunk_atom_index);
-            const end_atom_index = if (thunk.len == 0) group_end else thunk.getEndAtomIndex();
-            const end_atom = zld.getAtomPtr(end_atom_index);
-
-            if (end_atom.next_index) |first_after_index| {
-                const first_after_atom = zld.getAtomPtr(first_after_index);
-                first_after_atom.prev_index = thunk_atom_index;
-                thunk_atom.next_index = first_after_index;
-            }
-
-            end_atom.next_index = thunk_atom_index;
-            thunk_atom.prev_index = end_atom_index;
-
-            if (thunk.len == 0) {
-                thunk.start_index = thunk_atom_index;
-            }
-
-            thunk.len += 1;
+            gop.value_ptr.* = try pushThunkAtom(zld, thunk, group_end);
+            try thunk.targets.append(gpa, thunk_target);
         }
 
         try zld.thunk_table.put(gpa, atom_index, thunk_index);
     }
+}
+
+fn pushThunkAtom(zld: *Zld, thunk: *Thunk, group_end: Atom.Index) !Atom.Index {
+    const thunk_atom_index = try createThunkAtom(zld);
+
+    const thunk_atom = zld.getAtomPtr(thunk_atom_index);
+    const end_atom_index = if (thunk.len == 0) group_end else thunk.getEndAtomIndex();
+    const end_atom = zld.getAtomPtr(end_atom_index);
+
+    if (end_atom.next_index) |first_after_index| {
+        const first_after_atom = zld.getAtomPtr(first_after_index);
+        first_after_atom.prev_index = thunk_atom_index;
+        thunk_atom.next_index = first_after_index;
+    }
+
+    end_atom.next_index = thunk_atom_index;
+    thunk_atom.prev_index = end_atom_index;
+
+    if (thunk.len == 0) {
+        thunk.start_index = thunk_atom_index;
+    }
+
+    thunk.len += 1;
+
+    return thunk_atom_index;
 }
 
 inline fn relocNeedsThunk(rel: macho.relocation_info) bool {
@@ -296,13 +309,13 @@ inline fn relocNeedsThunk(rel: macho.relocation_info) bool {
 
 fn isReachable(
     zld: *Zld,
-    atom_index: AtomIndex,
+    atom_index: Atom.Index,
     rel: macho.relocation_info,
     base_offset: i32,
     target: SymbolWithLoc,
-    allocated: std.AutoHashMap(AtomIndex, void),
+    allocated: std.AutoHashMap(Atom.Index, void),
 ) bool {
-    if (zld.getStubsAtomIndexForSymbol(target)) |_| return false;
+    if (zld.stubs_table.lookup.contains(target)) return false;
 
     const source_atom = zld.getAtom(atom_index);
     const source_sym = zld.getSymbol(source_atom.getSymbolWithLoc());
@@ -317,8 +330,7 @@ fn isReachable(
     if (!allocated.contains(target_atom_index)) return false;
 
     const source_addr = source_sym.n_value + @as(u32, @intCast(rel.r_address - base_offset));
-    const is_via_got = Atom.relocRequiresGot(zld, rel);
-    const target_addr = if (is_via_got)
+    const target_addr = if (Atom.relocRequiresGot(zld, rel))
         zld.getGotEntryAddress(target).?
     else
         Atom.getRelocTargetAddress(zld, target, false) catch unreachable;
@@ -328,50 +340,31 @@ fn isReachable(
     return true;
 }
 
-fn createThunkAtom(zld: *Zld) !AtomIndex {
+fn createThunkAtom(zld: *Zld) !Atom.Index {
     const sym_index = try zld.allocateSymbol();
     const atom_index = try zld.createEmptyAtom(sym_index, @sizeOf(u32) * 3, 2);
     const sym = zld.getSymbolPtr(.{ .sym_index = sym_index });
     sym.n_type = macho.N_SECT;
-
-    const sect_id = zld.getSectionByName("__TEXT", "__text") orelse unreachable;
-    sym.n_sect = sect_id + 1;
-
+    sym.n_sect = zld.text_section_index.? + 1;
     return atom_index;
 }
 
-fn getThunkIndex(zld: *Zld, atom_index: AtomIndex) ?ThunkIndex {
-    const atom = zld.getAtom(atom_index);
-    const sym = zld.getSymbol(atom.getSymbolWithLoc());
-    for (zld.thunks.items, 0..) |thunk, i| {
-        if (thunk.len == 0) continue;
-
-        const thunk_atom_index = thunk.getStartAtomIndex();
-        const thunk_atom = zld.getAtom(thunk_atom_index);
-        const thunk_sym = zld.getSymbol(thunk_atom.getSymbolWithLoc());
-        const start_addr = thunk_sym.n_value;
-        const end_addr = start_addr + thunk.getSize();
-
-        if (start_addr <= sym.n_value and sym.n_value < end_addr) {
-            return @as(u32, @intCast(i));
-        }
+pub fn writeThunkCode(zld: *Zld, thunk: *const Thunk, writer: anytype) !void {
+    const slice = thunk.targets.slice();
+    for (thunk.getStartAtomIndex()..thunk.getEndAtomIndex(), 0..) |atom_index, target_index| {
+        const atom = zld.getAtom(@intCast(atom_index));
+        const sym = zld.getSymbol(atom.getSymbolWithLoc());
+        const source_addr = sym.n_value;
+        const tag = slice.items(.tag)[target_index];
+        const target = slice.items(.target)[target_index];
+        const target_addr = switch (tag) {
+            .stub => zld.getStubsEntryAddress(target).?,
+            .atom => zld.getSymbol(target).n_value,
+        };
+        const pages = Relocation.calcNumberOfPages(source_addr, target_addr);
+        try writer.writeIntLittle(u32, aarch64.Instruction.adrp(.x16, pages).toU32());
+        const off = try Relocation.calcPageOffset(target_addr, .arithmetic);
+        try writer.writeIntLittle(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32());
+        try writer.writeIntLittle(u32, aarch64.Instruction.br(.x16).toU32());
     }
-    return null;
-}
-
-pub fn writeThunkCode(zld: *Zld, atom_index: AtomIndex, writer: anytype) !void {
-    const atom = zld.getAtom(atom_index);
-    const sym = zld.getSymbol(atom.getSymbolWithLoc());
-    const source_addr = sym.n_value;
-    const thunk = zld.thunks.items[getThunkIndex(zld, atom_index).?];
-    const target_addr = for (thunk.lookup.keys()) |target| {
-        const target_atom_index = thunk.lookup.get(target).?;
-        if (atom_index == target_atom_index) break zld.getSymbol(target).n_value;
-    } else unreachable;
-
-    const pages = Relocation.calcNumberOfPages(source_addr, target_addr);
-    try writer.writeIntLittle(u32, aarch64.Instruction.adrp(.x16, pages).toU32());
-    const off = try Relocation.calcPageOffset(target_addr, .arithmetic);
-    try writer.writeIntLittle(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32());
-    try writer.writeIntLittle(u32, aarch64.Instruction.br(.x16).toU32());
 }

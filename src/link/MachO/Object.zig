@@ -20,7 +20,6 @@ const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
-const AtomIndex = @import("zld.zig").AtomIndex;
 const DwarfInfo = @import("DwarfInfo.zig");
 const LoadCommandIterator = macho.LoadCommandIterator;
 const MachO = @import("../MachO.zig");
@@ -55,7 +54,7 @@ source_section_index_lookup: []Entry = undefined,
 /// Can be undefined as set together with in_symtab.
 strtab_lookup: []u32 = undefined,
 /// Can be undefined as set together with in_symtab.
-atom_by_index_table: []?AtomIndex = undefined,
+atom_by_index_table: []?Atom.Index = undefined,
 /// Can be undefined as set together with in_symtab.
 globals_lookup: []i64 = undefined,
 /// Can be undefined as set together with in_symtab.
@@ -71,8 +70,8 @@ section_relocs_lookup: std.ArrayListUnmanaged(u32) = .{},
 /// Data-in-code records sorted by address.
 data_in_code: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
-atoms: std.ArrayListUnmanaged(AtomIndex) = .{},
-exec_atoms: std.ArrayListUnmanaged(AtomIndex) = .{},
+atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
+exec_atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 
 eh_frame_sect_id: ?u8 = null,
 eh_frame_relocs_lookup: std.AutoArrayHashMapUnmanaged(u32, Record) = .{},
@@ -156,7 +155,7 @@ pub fn parse(self: *Object, allocator: Allocator) !void {
     self.reverse_symtab_lookup = try allocator.alloc(u32, self.in_symtab.?.len);
     self.strtab_lookup = try allocator.alloc(u32, self.in_symtab.?.len);
     self.globals_lookup = try allocator.alloc(i64, self.in_symtab.?.len);
-    self.atom_by_index_table = try allocator.alloc(?AtomIndex, self.in_symtab.?.len + nsects);
+    self.atom_by_index_table = try allocator.alloc(?Atom.Index, self.in_symtab.?.len + nsects);
     self.relocs_lookup = try allocator.alloc(Entry, self.in_symtab.?.len + nsects);
     // This is wasteful but we need to be able to lookup source symbol address after stripping and
     // allocating of sections.
@@ -572,7 +571,7 @@ fn createAtomFromSubsection(
     size: u64,
     alignment: u32,
     out_sect_id: u8,
-) !AtomIndex {
+) !Atom.Index {
     const gpa = zld.gpa;
     const atom_index = try zld.createEmptyAtom(sym_index, size, alignment);
     const atom = zld.getAtomPtr(atom_index);
@@ -652,7 +651,7 @@ fn parseRelocs(self: *Object, gpa: Allocator, sect_id: u8) !void {
     self.section_relocs_lookup.items[sect_id] = start;
 }
 
-fn cacheRelocs(self: *Object, zld: *Zld, atom_index: AtomIndex) !void {
+fn cacheRelocs(self: *Object, zld: *Zld, atom_index: Atom.Index) !void {
     const atom = zld.getAtom(atom_index);
 
     const source_sect_id = if (self.getSourceSymbol(atom.sym_index)) |source_sym| blk: {
@@ -1059,7 +1058,7 @@ pub fn getGlobal(self: Object, sym_index: u32) ?u32 {
     return @as(u32, @intCast(self.globals_lookup[sym_index]));
 }
 
-pub fn getAtomIndexForSymbol(self: Object, sym_index: u32) ?AtomIndex {
+pub fn getAtomIndexForSymbol(self: Object, sym_index: u32) ?Atom.Index {
     return self.atom_by_index_table[sym_index];
 }
 
