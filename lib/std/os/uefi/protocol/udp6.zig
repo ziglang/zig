@@ -6,11 +6,11 @@ const Status = uefi.Status;
 const Time = uefi.Time;
 const Ip6 = uefi.protocol.Ip6;
 const ManagedNetworkConfigData = uefi.protocol.ManagedNetwork.Config;
-const SimpleNetworkMode = uefi.protocol.SimpleNetworkMode;
+const SimpleNetwork = uefi.protocol.SimpleNetwork;
 const cc = uefi.cc;
 
 pub const Udp6 = extern struct {
-    _get_mode_data: *const fn (*const Udp6, ?*Config, ?*Ip6.Mode, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) callconv(cc) Status,
+    _get_mode_data: *const fn (*const Udp6, ?*Config, ?*Ip6.Mode, ?*ManagedNetworkConfigData, ?*SimpleNetwork) callconv(cc) Status,
     _configure: *const fn (*const Udp6, ?*const Config) callconv(cc) Status,
     _groups: *const fn (*const Udp6, bool, ?*const Ip6.Address) callconv(cc) Status,
     _transmit: *const fn (*const Udp6, *CompletionToken) callconv(cc) Status,
@@ -18,7 +18,7 @@ pub const Udp6 = extern struct {
     _cancel: *const fn (*const Udp6, ?*CompletionToken) callconv(cc) Status,
     _poll: *const fn (*const Udp6) callconv(cc) Status,
 
-    pub fn getModeData(self: *const Udp6, udp6_config_data: ?*Config, ip6_mode_data: ?*Ip6.Mode, mnp_config_data: ?*ManagedNetworkConfigData, snp_mode_data: ?*SimpleNetworkMode) Status {
+    pub fn getModeData(self: *const Udp6, udp6_config_data: ?*Config, ip6_mode_data: ?*Ip6.Mode, mnp_config_data: ?*ManagedNetworkConfigData, snp_mode_data: ?*SimpleNetwork) Status {
         return self._get_mode_data(self, udp6_config_data, ip6_mode_data, mnp_config_data, snp_mode_data);
     }
 

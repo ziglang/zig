@@ -5,11 +5,11 @@ const Event = uefi.Event;
 const Status = uefi.Status;
 const MacAddress = uefi.MacAddress;
 const ManagedNetworkConfigData = uefi.protocol.ManagedNetwork.Config;
-const SimpleNetworkMode = uefi.protocol.SimpleNetworkMode;
+const SimpleNetwork = uefi.protocol.SimpleNetwork;
 const cc = uefi.cc;
 
 pub const Ip6 = extern struct {
-    _get_mode_data: *const fn (*const Ip6, ?*Mode, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) callconv(cc) Status,
+    _get_mode_data: *const fn (*const Ip6, ?*Mode, ?*ManagedNetworkConfigData, ?*SimpleNetwork) callconv(cc) Status,
     _configure: *const fn (*const Ip6, ?*const Config) callconv(cc) Status,
     _groups: *const fn (*const Ip6, bool, ?*const Address) callconv(cc) Status,
     _routes: *const fn (*const Ip6, bool, ?*const Address, u8, ?*const Address) callconv(cc) Status,
@@ -20,7 +20,7 @@ pub const Ip6 = extern struct {
     _poll: *const fn (*const Ip6) callconv(cc) Status,
 
     /// Gets the current operational settings for this instance of the EFI IPv6 Protocol driver.
-    pub fn getModeData(self: *const Ip6, ip6_mode_data: ?*Mode, mnp_config_data: ?*ManagedNetworkConfigData, snp_mode_data: ?*SimpleNetworkMode) Status {
+    pub fn getModeData(self: *const Ip6, ip6_mode_data: ?*Mode, mnp_config_data: ?*ManagedNetworkConfigData, snp_mode_data: ?*SimpleNetwork) Status {
         return self._get_mode_data(self, ip6_mode_data, mnp_config_data, snp_mode_data);
     }
 

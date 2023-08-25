@@ -18,7 +18,7 @@ pub const GraphicsOutput = @import("protocol/graphics_output.zig").GraphicsOutpu
 
 pub const edid = @import("protocol/edid.zig");
 
-pub const SimpleNetworkMode = @import("protocol/simple_network.zig").SimpleNetwork;
+pub const SimpleNetwork = @import("protocol/simple_network.zig").SimpleNetwork;
 pub const ManagedNetwork = @import("protocol/managed_network.zig").ManagedNetwork;
 
 pub const Ip6ServiceBinding = @import("protocol/ip6_service_binding.zig").Ip6ServiceBinding;
@@ -28,8 +28,8 @@ pub const Ip6Config = @import("protocol/ip6_config.zig").Ip6Config;
 pub const Udp6ServiceBinding = @import("protocol/udp6_service_binding.zig").Udp6ServiceBinding;
 pub const Udp6 = @import("protocol/udp6.zig").Udp6;
 
-pub const HiiDatabase = @import("protocol/hii_database.zig").HIIDatabase;
-pub const HiiPopup = @import("protocol/hii_popup.zig").HIIPopup;
+pub const HiiDatabase = @import("protocol/hii_database.zig").HiiDatabase;
+pub const HiiPopup = @import("protocol/hii_popup.zig").HiiPopup;
 
 test {
     @setEvalBranchQuota(2000);
