@@ -57,6 +57,7 @@ const LazyBind = @import("MachO/dyld_info/bind.zig").LazyBind(*const MachO, Symb
 const Rebase = @import("MachO/dyld_info/Rebase.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
+pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
 
 /// Mode of operation of the linker.
 pub const Mode = enum {
@@ -4051,6 +4052,49 @@ pub inline fn getPageSize(cpu_arch: std.Target.Cpu.Arch) u16 {
         .x86_64 => 0x1000,
         else => unreachable,
     };
+}
+
+pub fn getSegmentPrecedence(segname: []const u8) u4 {
+    if (mem.eql(u8, segname, "__PAGEZERO")) return 0x0;
+    if (mem.eql(u8, segname, "__TEXT")) return 0x1;
+    if (mem.eql(u8, segname, "__DATA_CONST")) return 0x2;
+    if (mem.eql(u8, segname, "__DATA")) return 0x3;
+    if (mem.eql(u8, segname, "__LINKEDIT")) return 0x5;
+    return 0x4;
+}
+
+pub fn getSegmentMemoryProtection(segname: []const u8) macho.vm_prot_t {
+    if (mem.eql(u8, segname, "__PAGEZERO")) return macho.PROT.NONE;
+    if (mem.eql(u8, segname, "__TEXT")) return macho.PROT.READ | macho.PROT.EXEC;
+    if (mem.eql(u8, segname, "__LINKEDIT")) return macho.PROT.READ;
+    return macho.PROT.READ | macho.PROT.WRITE;
+}
+
+pub fn getSectionPrecedence(header: macho.section_64) u8 {
+    const segment_precedence: u4 = getSegmentPrecedence(header.segName());
+    const section_precedence: u4 = blk: {
+        if (header.isCode()) {
+            if (mem.eql(u8, "__text", header.sectName())) break :blk 0x0;
+            if (header.type() == macho.S_SYMBOL_STUBS) break :blk 0x1;
+            break :blk 0x2;
+        }
+        switch (header.type()) {
+            macho.S_NON_LAZY_SYMBOL_POINTERS,
+            macho.S_LAZY_SYMBOL_POINTERS,
+            => break :blk 0x0,
+            macho.S_MOD_INIT_FUNC_POINTERS => break :blk 0x1,
+            macho.S_MOD_TERM_FUNC_POINTERS => break :blk 0x2,
+            macho.S_ZEROFILL => break :blk 0xf,
+            macho.S_THREAD_LOCAL_REGULAR => break :blk 0xd,
+            macho.S_THREAD_LOCAL_ZEROFILL => break :blk 0xe,
+            else => {
+                if (mem.eql(u8, "__unwind_info", header.sectName())) break :blk 0xe;
+                if (mem.eql(u8, "__eh_frame", header.sectName())) break :blk 0xf;
+                break :blk 0x3;
+            },
+        }
+    };
+    return (@as(u8, @intCast(segment_precedence)) << 4) + section_precedence;
 }
 
 pub fn reportUndefined(self: *MachO, ctx: anytype, resolver: *const SymbolResolver) !void {

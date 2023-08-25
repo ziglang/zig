@@ -20,8 +20,6 @@ const Object = @import("Object.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
 const Zld = @import("zld.zig").Zld;
 
-const N_DEAD = @import("zld.zig").N_DEAD;
-
 gpa: Allocator,
 
 /// List of all unwind records gathered from all objects and sorted
@@ -301,7 +299,7 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
                     break :blk record;
                 } else blk: {
                     const sym = zld.getSymbol(symbol);
-                    if (sym.n_desc == N_DEAD) continue;
+                    if (sym.n_desc == MachO.N_DEAD) continue;
                     if (prev_symbol) |prev_sym| {
                         const prev_addr = object.getSourceSymbol(prev_sym.sym_index).?.n_value;
                         const curr_addr = object.getSourceSymbol(symbol.sym_index).?.n_value;
@@ -327,7 +325,7 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
 
                 const atom = zld.getAtom(atom_index);
                 const sym = zld.getSymbol(symbol);
-                assert(sym.n_desc != N_DEAD);
+                assert(sym.n_desc != MachO.N_DEAD);
                 const size = if (inner_syms_it.next()) |next_sym| blk: {
                     // All this trouble to account for symbol aliases.
                     // TODO I think that remodelling the linker so that a Symbol references an Atom

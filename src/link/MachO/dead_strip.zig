@@ -16,8 +16,6 @@ const SymbolResolver = MachO.SymbolResolver;
 const UnwindInfo = @import("UnwindInfo.zig");
 const Zld = @import("zld.zig").Zld;
 
-const N_DEAD = @import("zld.zig").N_DEAD;
-
 const AtomTable = std.AutoHashMap(Atom.Index, void);
 
 pub fn gcAtoms(zld: *Zld, resolver: *const SymbolResolver) !void {
@@ -473,17 +471,17 @@ fn prune(zld: *Zld, alive: AtomTable) void {
             zld.sections.set(sect_id, section);
             _ = object.atoms.swapRemove(i);
 
-            sym.n_desc = N_DEAD;
+            sym.n_desc = MachO.N_DEAD;
 
             var inner_sym_it = Atom.getInnerSymbolsIterator(zld, atom_index);
             while (inner_sym_it.next()) |inner| {
                 const inner_sym = zld.getSymbolPtr(inner);
-                inner_sym.n_desc = N_DEAD;
+                inner_sym.n_desc = MachO.N_DEAD;
             }
 
             if (Atom.getSectionAlias(zld, atom_index)) |alias| {
                 const alias_sym = zld.getSymbolPtr(alias);
-                alias_sym.n_desc = N_DEAD;
+                alias_sym.n_desc = MachO.N_DEAD;
             }
         }
     }

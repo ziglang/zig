@@ -503,7 +503,7 @@ pub fn getRelocTargetAddress(zld: *Zld, target: SymbolWithLoc, is_tlv: bool) !u6
     });
 
     const target_sym = zld.getSymbol(target_atom.getSymbolWithLoc());
-    assert(target_sym.n_desc != @import("zld.zig").N_DEAD);
+    assert(target_sym.n_desc != MachO.N_DEAD);
 
     // If `target` is contained within the target atom, pull its address value.
     const offset = if (target_atom.getFile() != null) blk: {

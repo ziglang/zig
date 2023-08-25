@@ -290,7 +290,7 @@ pub const Zld = struct {
         for (self.globals.items) |global| {
             const sym = self.getSymbolPtr(global);
             if (!sym.tentative()) continue;
-            if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == MachO.N_DEAD) continue;
 
             log.debug("creating tentative definition for ATOM(%{d}, '{s}') in object({?})", .{
                 global.sym_index, self.getSymbolName(global), global.file,
@@ -688,7 +688,7 @@ pub const Zld = struct {
 
         // __TEXT segment is non-optional
         {
-            const protection = getSegmentMemoryProtection("__TEXT");
+            const protection = MachO.getSegmentMemoryProtection("__TEXT");
             try self.segments.append(self.gpa, .{
                 .cmdsize = @sizeOf(macho.segment_command_64),
                 .segname = makeStaticString("__TEXT"),
@@ -704,7 +704,7 @@ pub const Zld = struct {
             const segment_id = self.getSegmentByName(segname) orelse blk: {
                 log.debug("creating segment '{s}'", .{segname});
                 const segment_id = @as(u8, @intCast(self.segments.items.len));
-                const protection = getSegmentMemoryProtection(segname);
+                const protection = MachO.getSegmentMemoryProtection(segname);
                 try self.segments.append(self.gpa, .{
                     .cmdsize = @sizeOf(macho.segment_command_64),
                     .segname = makeStaticString(segname),
@@ -721,7 +721,7 @@ pub const Zld = struct {
 
         // __LINKEDIT always comes last
         {
-            const protection = getSegmentMemoryProtection("__LINKEDIT");
+            const protection = MachO.getSegmentMemoryProtection("__LINKEDIT");
             try self.segments.append(self.gpa, .{
                 .cmdsize = @sizeOf(macho.segment_command_64),
                 .segname = makeStaticString("__LINKEDIT"),
@@ -1009,7 +1009,7 @@ pub const Zld = struct {
             pub fn lessThan(zld: *Zld, lhs: @This(), rhs: @This()) bool {
                 const lhs_header = zld.sections.items(.header)[lhs.index];
                 const rhs_header = zld.sections.items(.header)[rhs.index];
-                return getSectionPrecedence(lhs_header) < getSectionPrecedence(rhs_header);
+                return MachO.getSectionPrecedence(lhs_header) < MachO.getSectionPrecedence(rhs_header);
             }
         };
 
@@ -1317,49 +1317,6 @@ pub const Zld = struct {
         return index;
     }
 
-    fn getSegmentPrecedence(segname: []const u8) u4 {
-        if (mem.eql(u8, segname, "__PAGEZERO")) return 0x0;
-        if (mem.eql(u8, segname, "__TEXT")) return 0x1;
-        if (mem.eql(u8, segname, "__DATA_CONST")) return 0x2;
-        if (mem.eql(u8, segname, "__DATA")) return 0x3;
-        if (mem.eql(u8, segname, "__LINKEDIT")) return 0x5;
-        return 0x4;
-    }
-
-    fn getSegmentMemoryProtection(segname: []const u8) macho.vm_prot_t {
-        if (mem.eql(u8, segname, "__PAGEZERO")) return macho.PROT.NONE;
-        if (mem.eql(u8, segname, "__TEXT")) return macho.PROT.READ | macho.PROT.EXEC;
-        if (mem.eql(u8, segname, "__LINKEDIT")) return macho.PROT.READ;
-        return macho.PROT.READ | macho.PROT.WRITE;
-    }
-
-    fn getSectionPrecedence(header: macho.section_64) u8 {
-        const segment_precedence: u4 = getSegmentPrecedence(header.segName());
-        const section_precedence: u4 = blk: {
-            if (header.isCode()) {
-                if (mem.eql(u8, "__text", header.sectName())) break :blk 0x0;
-                if (header.type() == macho.S_SYMBOL_STUBS) break :blk 0x1;
-                break :blk 0x2;
-            }
-            switch (header.type()) {
-                macho.S_NON_LAZY_SYMBOL_POINTERS,
-                macho.S_LAZY_SYMBOL_POINTERS,
-                => break :blk 0x0,
-                macho.S_MOD_INIT_FUNC_POINTERS => break :blk 0x1,
-                macho.S_MOD_TERM_FUNC_POINTERS => break :blk 0x2,
-                macho.S_ZEROFILL => break :blk 0xf,
-                macho.S_THREAD_LOCAL_REGULAR => break :blk 0xd,
-                macho.S_THREAD_LOCAL_ZEROFILL => break :blk 0xe,
-                else => {
-                    if (mem.eql(u8, "__unwind_info", header.sectName())) break :blk 0xe;
-                    if (mem.eql(u8, "__eh_frame", header.sectName())) break :blk 0xf;
-                    break :blk 0x3;
-                },
-            }
-        };
-        return (@as(u8, @intCast(segment_precedence)) << 4) + section_precedence;
-    }
-
     fn writeSegmentHeaders(self: *Zld, writer: anytype) !void {
         for (self.segments.items, 0..) |seg, i| {
             const indexes = self.getSectionIndexes(@as(u8, @intCast(i)));
@@ -1626,7 +1583,7 @@ pub const Zld = struct {
         for (self.globals.items) |global| {
             const sym = self.getSymbol(global);
             if (sym.undf()) continue;
-            if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == MachO.N_DEAD) continue;
 
             const sym_name = self.getSymbolName(global);
             log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
@@ -1736,7 +1693,7 @@ pub const Zld = struct {
     fn addSymbolToFunctionStarts(self: *Zld, sym_loc: SymbolWithLoc, addresses: *std.ArrayList(u64)) !void {
         const sym = self.getSymbol(sym_loc);
         if (sym.n_strx == 0) return;
-        if (sym.n_desc == N_DEAD) return;
+        if (sym.n_desc == MachO.N_DEAD) return;
         if (self.symbolIsTemp(sym_loc)) return;
         try addresses.append(sym.n_value);
     }
@@ -1845,7 +1802,7 @@ pub const Zld = struct {
             for (object.exec_atoms.items) |atom_index| {
                 const atom = self.getAtom(atom_index);
                 const sym = self.getSymbol(atom.getSymbolWithLoc());
-                if (sym.n_desc == N_DEAD) continue;
+                if (sym.n_desc == MachO.N_DEAD) continue;
 
                 const source_addr = if (object.getSourceSymbol(atom.sym_index)) |source_sym|
                     source_sym.n_value
@@ -1903,7 +1860,7 @@ pub const Zld = struct {
     fn addLocalToSymtab(self: *Zld, sym_loc: SymbolWithLoc, locals: *std.ArrayList(macho.nlist_64)) !void {
         const sym = self.getSymbol(sym_loc);
         if (sym.n_strx == 0) return; // no name, skip
-        if (sym.n_desc == N_DEAD) return; // garbage-collected, skip
+        if (sym.n_desc == MachO.N_DEAD) return; // garbage-collected, skip
         if (sym.ext()) return; // an export lands in its own symtab section, skip
         if (self.symbolIsTemp(sym_loc)) return; // local temp symbol, skip
 
@@ -1937,7 +1894,7 @@ pub const Zld = struct {
         for (self.globals.items) |global| {
             const sym = self.getSymbol(global);
             if (sym.undf()) continue; // import, skip
-            if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == MachO.N_DEAD) continue;
 
             var out_sym = sym;
             out_sym.n_strx = try self.strtab.insert(gpa, self.getSymbolName(global));
@@ -1952,7 +1909,7 @@ pub const Zld = struct {
         for (self.globals.items) |global| {
             const sym = self.getSymbol(global);
             if (!sym.undf()) continue; // not an import, skip
-            if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == MachO.N_DEAD) continue;
 
             const new_index = @as(u32, @intCast(imports.items.len));
             var out_sym = sym;
@@ -2615,7 +2572,7 @@ pub const Zld = struct {
         for (self.globals.items, 0..) |global, i| {
             const sym = self.getSymbol(global);
             if (sym.undf()) continue;
-            if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == MachO.N_DEAD) continue;
             scoped_log.debug("    %{d}: {s} @{x} in sect({d}), {s} (def in object({?}))", .{
                 i,
                 self.getSymbolName(global),
@@ -2630,7 +2587,7 @@ pub const Zld = struct {
         for (self.globals.items, 0..) |global, i| {
             const sym = self.getSymbol(global);
             if (!sym.undf()) continue;
-            if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == MachO.N_DEAD) continue;
             const ord = @divTrunc(sym.n_desc, macho.N_SYMBOL_RESOLVER);
             scoped_log.debug("    %{d}: {s} @{x} in ord({d}), {s}", .{
                 i,
@@ -2737,26 +2694,6 @@ pub const Zld = struct {
                 });
             }
         }
-    }
-};
-
-pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
-
-const IndirectPointer = struct {
-    target: SymbolWithLoc,
-    atom_index: Atom.Index,
-
-    pub fn getTargetSymbol(self: @This(), zld: *Zld) macho.nlist_64 {
-        return zld.getSymbol(self.target);
-    }
-
-    pub fn getTargetSymbolName(self: @This(), zld: *Zld) []const u8 {
-        return zld.getSymbolName(self.target);
-    }
-
-    pub fn getAtomSymbol(self: @This(), zld: *Zld) macho.nlist_64 {
-        const atom = zld.getAtom(self.atom_index);
-        return zld.getSymbol(atom.getSymbolWithLoc());
     }
 };
 
