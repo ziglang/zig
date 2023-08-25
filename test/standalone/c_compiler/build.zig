@@ -5,17 +5,23 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    add(b, test_step, .Debug);
-    add(b, test_step, .ReleaseFast);
-    add(b, test_step, .ReleaseSmall);
-    add(b, test_step, .ReleaseSafe);
+    add(b, test_step, "test_c_Debug", "test_cpp_Debug", .Debug);
+    add(b, test_step, "test_c_ReleaseFast", "test_cpp_ReleaseFast", .ReleaseFast);
+    add(b, test_step, "test_c_ReleaseSmall", "test_cpp_ReleaseSmall", .ReleaseSmall);
+    add(b, test_step, "test_c_ReleaseSafe", "test_cpp_ReleaseSafe", .ReleaseSafe);
 }
 
-fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+fn add(
+    b: *std.Build,
+    test_step: *std.Build.Step,
+    c_name: []const u8,
+    cpp_name: []const u8,
+    optimize: std.builtin.OptimizeMode,
+) void {
     const target: std.zig.CrossTarget = .{};
 
     const exe_c = b.addExecutable(.{
-        .name = "test_c",
+        .name = c_name,
         .optimize = optimize,
         .target = target,
     });
@@ -23,7 +29,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe_c.linkLibC();
 
     const exe_cpp = b.addExecutable(.{
-        .name = "test_cpp",
+        .name = cpp_name,
         .optimize = optimize,
         .target = target,
     });
