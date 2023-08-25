@@ -12072,10 +12072,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}linksection{#endsyntax#}</pre>
           </th>
           <td>
-            The {#syntax#}linksection{#endsyntax#} keyword.
-            <ul>
-              <li>TODO add documentation for linksection</li>
-            </ul>
+            The {#syntax#}linksection{#endsyntax#} keyword can be used to specify what section the function or global variable will be put into (e.g. <code>.text</code>). Note that you can use your own linker script (see {#syntax#}std.Build.Step.Compile.setLinkerScript{#endsyntax#}) in order to arrange the sections in your own way.
           </td>
         </tr>
         <tr>
