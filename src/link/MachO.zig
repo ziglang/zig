@@ -3380,7 +3380,7 @@ fn collectExportData(self: *MachO, trie: *Trie) !void {
         const sym = self.getSymbol(global);
 
         if (sym.undf()) continue;
-        if (!sym.ext()) continue;
+        assert(sym.ext());
 
         const sym_name = self.getSymbolName(global);
         log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
