@@ -577,6 +577,10 @@ fn fetchAndUnpack(
 
         const content_type = req.response.headers.getFirstValue("Content-Type") orelse
             return report.fail(dep.url_tok, "Missing 'Content-Type' header", .{});
+        // Media type _may_ be followed by semicolon delimited parameters we don't care about
+        // https://www.rfc-editor.org/rfc/rfc9110#media.type
+        var content_type_fields = std.mem.splitScalar(u8, content_type, ';');
+        const media_type = content_type_fields.first();
 
         var prog_reader: ProgressReader(std.http.Client.Request.Reader) = .{
             .child_reader = req.reader(),
@@ -597,18 +601,18 @@ fn fetchAndUnpack(
         };
         pkg_prog_node.context.refresh();
 
-        if (ascii.eqlIgnoreCase(content_type, "application/gzip") or
-            ascii.eqlIgnoreCase(content_type, "application/x-gzip") or
-            ascii.eqlIgnoreCase(content_type, "application/tar+gzip"))
+        if (ascii.eqlIgnoreCase(media_type, "application/gzip") or
+            ascii.eqlIgnoreCase(media_type, "application/x-gzip") or
+            ascii.eqlIgnoreCase(media_type, "application/tar+gzip"))
         {
             // I observed the gzip stream to read 1 byte at a time, so I am using a
             // buffered reader on the front of it.
             try unpackTarball(gpa, prog_reader.reader(), tmp_directory.handle, std.compress.gzip);
-        } else if (ascii.eqlIgnoreCase(content_type, "application/x-xz")) {
+        } else if (ascii.eqlIgnoreCase(media_type, "application/x-xz")) {
             // I have not checked what buffer sizes the xz decompression implementation uses
             // by default, so the same logic applies for buffering the reader as for gzip.
             try unpackTarball(gpa, prog_reader.reader(), tmp_directory.handle, std.compress.xz);
-        } else if (ascii.eqlIgnoreCase(content_type, "application/octet-stream")) {
+        } else if (ascii.eqlIgnoreCase(media_type, "application/octet-stream")) {
             // support gitlab tarball urls such as https://gitlab.com/<namespace>/<project>/-/archive/<sha>/<project>-<sha>.tar.gz
             // whose content-disposition header is: 'attachment; filename="<project>-<sha>.tar.gz"'
             const content_disposition = req.response.headers.getFirstValue("Content-Disposition") orelse
@@ -617,7 +621,7 @@ fn fetchAndUnpack(
                 try unpackTarball(gpa, prog_reader.reader(), tmp_directory.handle, std.compress.gzip);
             } else return report.fail(dep.url_tok, "Unsupported 'Content-Disposition' header value: '{s}' for Content-Type=application/octet-stream", .{content_disposition});
         } else {
-            return report.fail(dep.url_tok, "Unsupported 'Content-Type' header value: '{s}'", .{content_type});
+            return report.fail(dep.url_tok, "Unsupported 'Content-Type' header media type: '{s}'", .{media_type});
         }
 
         // Download completed - stop showing downloaded amount as progress
