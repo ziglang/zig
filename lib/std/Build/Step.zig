@@ -45,10 +45,11 @@ pub const TestResults = struct {
     fail_count: u32 = 0,
     skip_count: u32 = 0,
     leak_count: u32 = 0,
+    log_err_count: u32 = 0,
     test_count: u32 = 0,
 
     pub fn isSuccess(tr: TestResults) bool {
-        return tr.fail_count == 0 and tr.leak_count == 0;
+        return tr.fail_count == 0 and tr.leak_count == 0 and tr.log_err_count == 0;
     }
 
     pub fn passCount(tr: TestResults) u32 {
