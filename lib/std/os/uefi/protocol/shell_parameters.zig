@@ -2,7 +2,7 @@ const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 const FileHandle = uefi.FileHandle;
 
-pub const ShellParametersProtocol = extern struct {
+pub const ShellParameters = extern struct {
     argv: [*][*:0]const u16,
     argc: usize,
     stdin: FileHandle,
