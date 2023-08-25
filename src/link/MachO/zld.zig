@@ -34,7 +34,6 @@ const Object = @import("Object.zig");
 const Section = MachO.Section;
 const StringTable = @import("../strtab.zig").StringTable;
 const SymbolWithLoc = MachO.SymbolWithLoc;
-const SymbolResolver = MachO.SymbolResolver;
 const TableSection = @import("../table_section.zig").TableSection;
 const Trie = @import("Trie.zig");
 const UnwindInfo = @import("UnwindInfo.zig");
@@ -76,6 +75,8 @@ pub const Zld = struct {
 
     locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
     globals: std.ArrayListUnmanaged(SymbolWithLoc) = .{},
+    resolver: std.StringHashMapUnmanaged(u32) = .{},
+    unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 
     entry_index: ?u32 = null,
     mh_execute_header_index: ?u32 = null,
@@ -327,53 +328,53 @@ pub const Zld = struct {
         }
     }
 
-    fn addUndefined(self: *Zld, name: []const u8, resolver: *SymbolResolver) !void {
+    fn addUndefined(self: *Zld, name: []const u8) !void {
         const sym_index = try self.allocateSymbol();
         const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
         const sym = self.getSymbolPtr(sym_loc);
         sym.n_strx = try self.strtab.insert(self.gpa, name);
         sym.n_type = macho.N_UNDF;
         const global_index = try self.addGlobal(sym_loc);
-        try resolver.table.putNoClobber(name, global_index);
-        try resolver.unresolved.putNoClobber(global_index, {});
+        try self.resolver.putNoClobber(self.gpa, name, global_index);
+        try self.unresolved.putNoClobber(self.gpa, global_index, {});
     }
 
-    fn resolveSymbols(self: *Zld, resolver: *SymbolResolver) !void {
+    fn resolveSymbols(self: *Zld) !void {
         // We add the specified entrypoint as the first unresolved symbols so that
         // we search for it in libraries should there be no object files specified
         // on the linker line.
         if (self.options.output_mode == .Exe) {
             const entry_name = self.options.entry orelse load_commands.default_entry_point;
-            try self.addUndefined(entry_name, resolver);
+            try self.addUndefined(entry_name);
         }
 
         // Force resolution of any symbols requested by the user.
         for (self.options.force_undefined_symbols.keys()) |sym_name| {
-            try self.addUndefined(sym_name, resolver);
+            try self.addUndefined(sym_name);
         }
 
         for (self.objects.items, 0..) |_, object_id| {
-            try self.resolveSymbolsInObject(@as(u32, @intCast(object_id)), resolver);
+            try self.resolveSymbolsInObject(@as(u32, @intCast(object_id)));
         }
 
-        try self.resolveSymbolsInArchives(resolver);
+        try self.resolveSymbolsInArchives();
 
         // Finally, force resolution of dyld_stub_binder if there are imports
         // requested.
-        if (resolver.unresolved.count() > 0) {
-            try self.addUndefined("dyld_stub_binder", resolver);
+        if (self.unresolved.count() > 0) {
+            try self.addUndefined("dyld_stub_binder");
         }
 
-        try self.resolveSymbolsInDylibs(resolver);
+        try self.resolveSymbolsInDylibs();
 
-        self.dyld_stub_binder_index = resolver.table.get("dyld_stub_binder");
+        self.dyld_stub_binder_index = self.resolver.get("dyld_stub_binder");
 
-        try self.createMhExecuteHeaderSymbol(resolver);
-        try self.createDsoHandleSymbol(resolver);
-        try self.resolveSymbolsAtLoading(resolver);
+        try self.createMhExecuteHeaderSymbol();
+        try self.createDsoHandleSymbol();
+        try self.resolveSymbolsAtLoading();
     }
 
-    fn resolveSymbolsInObject(self: *Zld, object_id: u32, resolver: *SymbolResolver) !void {
+    fn resolveSymbolsInObject(self: *Zld, object_id: u32) !void {
         const object = &self.objects.items[object_id];
         const in_symtab = object.in_symtab orelse return;
 
@@ -415,11 +416,11 @@ pub const Zld = struct {
 
             const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = object_id + 1 };
 
-            const global_index = resolver.table.get(sym_name) orelse {
+            const global_index = self.resolver.get(sym_name) orelse {
                 const global_index = try self.addGlobal(sym_loc);
-                try resolver.table.putNoClobber(sym_name, global_index);
+                try self.resolver.putNoClobber(self.gpa, sym_name, global_index);
                 if (sym.undf() and !sym.tentative()) {
-                    try resolver.unresolved.putNoClobber(global_index, {});
+                    try self.unresolved.putNoClobber(self.gpa, global_index, {});
                 }
                 continue;
             };
@@ -477,7 +478,7 @@ pub const Zld = struct {
                     const global_object = &self.objects.items[file];
                     global_object.globals_lookup[global.sym_index] = global_index;
                 }
-                _ = resolver.unresolved.swapRemove(resolver.table.get(sym_name).?);
+                _ = self.unresolved.swapRemove(self.resolver.get(sym_name).?);
                 global.* = sym_loc;
             } else {
                 object.globals_lookup[sym_index] = global_index;
@@ -485,14 +486,14 @@ pub const Zld = struct {
         }
     }
 
-    fn resolveSymbolsInArchives(self: *Zld, resolver: *SymbolResolver) !void {
+    fn resolveSymbolsInArchives(self: *Zld) !void {
         if (self.archives.items.len == 0) return;
 
         const gpa = self.gpa;
 
         var next_sym: usize = 0;
-        loop: while (next_sym < resolver.unresolved.count()) {
-            const global = self.globals.items[resolver.unresolved.keys()[next_sym]];
+        loop: while (next_sym < self.unresolved.count()) {
+            const global = self.globals.items[self.unresolved.keys()[next_sym]];
             const sym_name = self.getSymbolName(global);
 
             for (self.archives.items) |archive| {
@@ -506,7 +507,7 @@ pub const Zld = struct {
                 const object_id = @as(u16, @intCast(self.objects.items.len));
                 const object = try archive.parseObject(gpa, offsets.items[0]);
                 try self.objects.append(gpa, object);
-                try self.resolveSymbolsInObject(object_id, resolver);
+                try self.resolveSymbolsInObject(object_id);
 
                 continue :loop;
             }
@@ -515,12 +516,12 @@ pub const Zld = struct {
         }
     }
 
-    fn resolveSymbolsInDylibs(self: *Zld, resolver: *SymbolResolver) !void {
+    fn resolveSymbolsInDylibs(self: *Zld) !void {
         if (self.dylibs.items.len == 0) return;
 
         var next_sym: usize = 0;
-        loop: while (next_sym < resolver.unresolved.count()) {
-            const global_index = resolver.unresolved.keys()[next_sym];
+        loop: while (next_sym < self.unresolved.count()) {
+            const global_index = self.unresolved.keys()[next_sym];
             const global = self.globals.items[global_index];
             const sym = self.getSymbolPtr(global);
             const sym_name = self.getSymbolName(global);
@@ -541,7 +542,7 @@ pub const Zld = struct {
                     sym.n_desc |= macho.N_WEAK_REF;
                 }
 
-                assert(resolver.unresolved.swapRemove(global_index));
+                assert(self.unresolved.swapRemove(global_index));
                 continue :loop;
             }
 
@@ -549,14 +550,14 @@ pub const Zld = struct {
         }
     }
 
-    fn resolveSymbolsAtLoading(self: *Zld, resolver: *SymbolResolver) !void {
+    fn resolveSymbolsAtLoading(self: *Zld) !void {
         const is_lib = self.options.output_mode == .Lib;
         const is_dyn_lib = self.options.link_mode == .Dynamic and is_lib;
         const allow_undef = is_dyn_lib and (self.options.allow_shlib_undefined orelse false);
 
         var next_sym: usize = 0;
-        while (next_sym < resolver.unresolved.count()) {
-            const global_index = resolver.unresolved.keys()[next_sym];
+        while (next_sym < self.unresolved.count()) {
+            const global_index = self.unresolved.keys()[next_sym];
             const global = self.globals.items[global_index];
             const sym = self.getSymbolPtr(global);
 
@@ -568,7 +569,7 @@ pub const Zld = struct {
                     .n_desc = 0,
                     .n_value = 0,
                 };
-                _ = resolver.unresolved.swapRemove(global_index);
+                _ = self.unresolved.swapRemove(global_index);
                 continue;
             } else if (allow_undef) {
                 const n_desc = @as(
@@ -577,7 +578,7 @@ pub const Zld = struct {
                 );
                 sym.n_type = macho.N_EXT;
                 sym.n_desc = n_desc;
-                _ = resolver.unresolved.swapRemove(global_index);
+                _ = self.unresolved.swapRemove(global_index);
                 continue;
             }
 
@@ -585,9 +586,9 @@ pub const Zld = struct {
         }
     }
 
-    fn createMhExecuteHeaderSymbol(self: *Zld, resolver: *SymbolResolver) !void {
+    fn createMhExecuteHeaderSymbol(self: *Zld) !void {
         if (self.options.output_mode != .Exe) return;
-        if (resolver.table.get("__mh_execute_header")) |global_index| {
+        if (self.resolver.get("__mh_execute_header")) |global_index| {
             const global = self.globals.items[global_index];
             const sym = self.getSymbol(global);
             self.mh_execute_header_index = global_index;
@@ -602,7 +603,7 @@ pub const Zld = struct {
         sym.n_type = macho.N_SECT | macho.N_EXT;
         sym.n_desc = macho.REFERENCED_DYNAMICALLY;
 
-        if (resolver.table.get("__mh_execute_header")) |global_index| {
+        if (self.resolver.get("__mh_execute_header")) |global_index| {
             const global = &self.globals.items[global_index];
             const global_object = &self.objects.items[global.getFile().?];
             global_object.globals_lookup[global.sym_index] = global_index;
@@ -613,8 +614,8 @@ pub const Zld = struct {
         }
     }
 
-    fn createDsoHandleSymbol(self: *Zld, resolver: *SymbolResolver) !void {
-        const global_index = resolver.table.get("___dso_handle") orelse return;
+    fn createDsoHandleSymbol(self: *Zld) !void {
+        const global_index = self.resolver.get("___dso_handle") orelse return;
         const global = &self.globals.items[global_index];
         self.dso_handle_index = global_index;
         if (!self.getSymbol(global.*).undf()) return;
@@ -629,7 +630,7 @@ pub const Zld = struct {
 
         const global_object = &self.objects.items[global.getFile().?];
         global_object.globals_lookup[global.sym_index] = global_index;
-        _ = resolver.unresolved.swapRemove(resolver.table.get("___dso_handle").?);
+        _ = self.unresolved.swapRemove(self.resolver.get("___dso_handle").?);
         global.* = sym_loc;
     }
 
@@ -649,6 +650,8 @@ pub const Zld = struct {
         self.strtab.deinit(gpa);
         self.locals.deinit(gpa);
         self.globals.deinit(gpa);
+        self.resolver.deinit(gpa);
+        self.unresolved.deinit(gpa);
 
         for (self.objects.items) |*object| {
             object.deinit(gpa);
@@ -3066,17 +3069,12 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             log.err("parsing dependent libraries failed with err {s}", .{@errorName(err)});
         };
 
-        var resolver = SymbolResolver{
-            .arena = arena,
-            .table = std.StringHashMap(u32).init(arena),
-            .unresolved = std.AutoArrayHashMap(u32, void).init(arena),
-        };
-        try zld.resolveSymbols(&resolver);
-        try macho_file.reportUndefined(&zld, &resolver);
+        try zld.resolveSymbols();
+        try macho_file.reportUndefined(&zld);
 
         if (options.output_mode == .Exe) {
             const entry_name = options.entry orelse load_commands.default_entry_point;
-            const global_index = resolver.table.get(entry_name).?; // Error was flagged earlier
+            const global_index = zld.resolver.get(entry_name).?; // Error was flagged earlier
             zld.entry_index = global_index;
         }
 
@@ -3085,7 +3083,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
 
         if (gc_sections) {
-            try dead_strip.gcAtoms(&zld, &resolver);
+            try dead_strip.gcAtoms(&zld);
         }
 
         try zld.createDyldPrivateAtom();

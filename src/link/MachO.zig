@@ -297,12 +297,6 @@ pub const SymbolWithLoc = extern struct {
     }
 };
 
-pub const SymbolResolver = struct {
-    arena: Allocator,
-    table: std.StringHashMap(u32),
-    unresolved: std.AutoArrayHashMap(u32, void),
-};
-
 const HotUpdateState = struct {
     mach_task: ?std.os.darwin.MachTask = null,
 };
@@ -4092,15 +4086,15 @@ pub fn getSectionPrecedence(header: macho.section_64) u8 {
     return (@as(u8, @intCast(segment_precedence)) << 4) + section_precedence;
 }
 
-pub fn reportUndefined(self: *MachO, ctx: anytype, resolver: *const SymbolResolver) !void {
-    const count = resolver.unresolved.count();
+pub fn reportUndefined(self: *MachO, ctx: anytype) !void {
+    const count = ctx.unresolved.count();
     if (count == 0) return;
 
     const gpa = self.base.allocator;
 
     try self.misc_errors.ensureUnusedCapacity(gpa, count);
 
-    for (resolver.unresolved.keys()) |global_index| {
+    for (ctx.unresolved.keys()) |global_index| {
         const global = ctx.globals.items[global_index];
         const sym_name = ctx.getSymbolName(global);
 

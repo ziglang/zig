@@ -12,13 +12,12 @@ const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
 const MachO = @import("../MachO.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
-const SymbolResolver = MachO.SymbolResolver;
 const UnwindInfo = @import("UnwindInfo.zig");
 const Zld = @import("zld.zig").Zld;
 
 const AtomTable = std.AutoHashMap(Atom.Index, void);
 
-pub fn gcAtoms(zld: *Zld, resolver: *const SymbolResolver) !void {
+pub fn gcAtoms(zld: *Zld) !void {
     const gpa = zld.gpa;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -30,7 +29,7 @@ pub fn gcAtoms(zld: *Zld, resolver: *const SymbolResolver) !void {
     var alive = AtomTable.init(arena.allocator());
     try alive.ensureTotalCapacity(@as(u32, @intCast(zld.atoms.items.len)));
 
-    try collectRoots(zld, &roots, resolver);
+    try collectRoots(zld, &roots);
     try mark(zld, roots, &alive);
     prune(zld, alive);
 }
@@ -48,7 +47,7 @@ fn addRoot(zld: *Zld, roots: *AtomTable, file: u32, sym_loc: SymbolWithLoc) !voi
     _ = try roots.getOrPut(atom_index);
 }
 
-fn collectRoots(zld: *Zld, roots: *AtomTable, resolver: *const SymbolResolver) !void {
+fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
     log.debug("collecting roots", .{});
 
     switch (zld.options.output_mode) {
@@ -77,7 +76,7 @@ fn collectRoots(zld: *Zld, roots: *AtomTable, resolver: *const SymbolResolver) !
 
     // Add all symbols force-defined by the user.
     for (zld.options.force_undefined_symbols.keys()) |sym_name| {
-        const global_index = resolver.table.get(sym_name).?;
+        const global_index = zld.resolver.get(sym_name).?;
         const global = zld.globals.items[global_index];
         const sym = zld.getSymbol(global);
         assert(!sym.undf());
