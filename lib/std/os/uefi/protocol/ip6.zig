@@ -3,8 +3,8 @@ const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Event = uefi.Event;
 const Status = uefi.Status;
-const MacAddress = uefi.protocol.MacAddress;
-const ManagedNetworkConfigData = uefi.protocol.ManagedNetworkConfigData;
+const MacAddress = uefi.MacAddress;
+const ManagedNetworkConfigData = uefi.protocol.ManagedNetwork.Config;
 const SimpleNetworkMode = uefi.protocol.SimpleNetworkMode;
 const cc = uefi.cc;
 

@@ -6,7 +6,7 @@ const Handle = uefi.Handle;
 const Status = uefi.Status;
 const Time = uefi.Time;
 const SimpleNetworkMode = uefi.protocol.SimpleNetworkMode;
-const MacAddress = uefi.protocol.MacAddress;
+const MacAddress = uefi.MacAddress;
 const cc = uefi.cc;
 
 pub const ManagedNetwork = extern struct {
