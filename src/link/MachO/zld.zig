@@ -1456,94 +1456,85 @@ pub const Zld = struct {
         }
 
         // Finally, unpack the rest.
-        const slice = self.sections.slice();
-        for (slice.items(.header), 0..) |header, sect_id| {
-            switch (header.type()) {
-                macho.S_LITERAL_POINTERS,
-                macho.S_REGULAR,
-                macho.S_MOD_INIT_FUNC_POINTERS,
-                macho.S_MOD_TERM_FUNC_POINTERS,
-                => {},
-                else => continue,
-            }
-
-            const segment_index = slice.items(.segment_index)[sect_id];
-            const segment = self.getSegment(@as(u8, @intCast(sect_id)));
-            if (segment.maxprot & macho.PROT.WRITE == 0) continue;
-
-            const cpu_arch = self.options.target.cpu.arch;
-            var atom_index = slice.items(.first_atom_index)[sect_id] orelse continue;
-
-            log.debug("{s},{s}", .{ header.segName(), header.sectName() });
-
-            while (true) {
+        const cpu_arch = self.options.target.cpu.arch;
+        for (self.objects.items) |*object| {
+            for (object.atoms.items) |atom_index| {
                 const atom = self.getAtom(atom_index);
                 const sym = self.getSymbol(atom.getSymbolWithLoc());
+                if (sym.n_desc == MachO.N_DEAD) continue;
 
-                log.debug("  ATOM({d}, %{d}, '{s}')", .{ atom_index, atom.sym_index, self.getSymbolName(atom.getSymbolWithLoc()) });
-
-                const should_bind = blk: {
-                    if (atom_index == self.dyld_private_atom_index.?) break :blk false;
-                    break :blk true;
-                };
-
-                if (should_bind) {
-                    const code = Atom.getAtomCode(self, atom_index);
-                    const relocs = Atom.getAtomRelocs(self, atom_index);
-                    const ctx = Atom.getRelocContext(self, atom_index);
-
-                    for (relocs) |rel| {
-                        switch (cpu_arch) {
-                            .aarch64 => {
-                                const rel_type = @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type));
-                                if (rel_type != .ARM64_RELOC_UNSIGNED) continue;
-                                if (rel.r_length != 3) continue;
-                            },
-                            .x86_64 => {
-                                const rel_type = @as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type));
-                                if (rel_type != .X86_64_RELOC_UNSIGNED) continue;
-                                if (rel.r_length != 3) continue;
-                            },
-                            else => unreachable,
-                        }
-
-                        const global = Atom.parseRelocTarget(self, .{
-                            .object_id = atom.getFile().?,
-                            .rel = rel,
-                            .code = code,
-                            .base_offset = ctx.base_offset,
-                            .base_addr = ctx.base_addr,
-                        });
-                        const bind_sym_name = self.getSymbolName(global);
-                        const bind_sym = self.getSymbol(global);
-                        if (!bind_sym.undf()) continue;
-
-                        const base_offset = sym.n_value - segment.vmaddr;
-                        const rel_offset = @as(u32, @intCast(rel.r_address - ctx.base_offset));
-                        const offset = @as(u64, @intCast(base_offset + rel_offset));
-                        const addend = mem.readIntLittle(i64, code[rel_offset..][0..8]);
-
-                        const dylib_ordinal = @divTrunc(@as(i16, @bitCast(bind_sym.n_desc)), macho.N_SYMBOL_RESOLVER);
-                        log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
-                            base_offset,
-                            bind_sym_name,
-                            dylib_ordinal,
-                        });
-                        log.debug("    | with addend {x}", .{addend});
-                        if (bind_sym.weakRef()) {
-                            log.debug("    | marking as weak ref ", .{});
-                        }
-                        try bind.entries.append(self.gpa, .{
-                            .target = global,
-                            .offset = offset,
-                            .segment_id = segment_index,
-                            .addend = addend,
-                        });
-                    }
+                const sect_id = sym.n_sect - 1;
+                const section = self.sections.items(.header)[sect_id];
+                const segment_id = self.sections.items(.segment_index)[sect_id];
+                const segment = self.segments.items[segment_id];
+                if (segment.maxprot & macho.PROT.WRITE == 0) continue;
+                switch (section.type()) {
+                    macho.S_LITERAL_POINTERS,
+                    macho.S_REGULAR,
+                    macho.S_MOD_INIT_FUNC_POINTERS,
+                    macho.S_MOD_TERM_FUNC_POINTERS,
+                    => {},
+                    else => continue,
                 }
-                if (atom.next_index) |next_index| {
-                    atom_index = next_index;
-                } else break;
+
+                log.debug("  ATOM({d}, %{d}, '{s}')", .{
+                    atom_index,
+                    atom.sym_index,
+                    self.getSymbolName(atom.getSymbolWithLoc()),
+                });
+
+                const code = Atom.getAtomCode(self, atom_index);
+                const relocs = Atom.getAtomRelocs(self, atom_index);
+                const ctx = Atom.getRelocContext(self, atom_index);
+
+                for (relocs) |rel| {
+                    switch (cpu_arch) {
+                        .aarch64 => {
+                            const rel_type = @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type));
+                            if (rel_type != .ARM64_RELOC_UNSIGNED) continue;
+                            if (rel.r_length != 3) continue;
+                        },
+                        .x86_64 => {
+                            const rel_type = @as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type));
+                            if (rel_type != .X86_64_RELOC_UNSIGNED) continue;
+                            if (rel.r_length != 3) continue;
+                        },
+                        else => unreachable,
+                    }
+
+                    const global = Atom.parseRelocTarget(self, .{
+                        .object_id = atom.getFile().?,
+                        .rel = rel,
+                        .code = code,
+                        .base_offset = ctx.base_offset,
+                        .base_addr = ctx.base_addr,
+                    });
+                    const bind_sym_name = self.getSymbolName(global);
+                    const bind_sym = self.getSymbol(global);
+                    if (!bind_sym.undf()) continue;
+
+                    const base_offset = sym.n_value - segment.vmaddr;
+                    const rel_offset = @as(u32, @intCast(rel.r_address - ctx.base_offset));
+                    const offset = @as(u64, @intCast(base_offset + rel_offset));
+                    const addend = mem.readIntLittle(i64, code[rel_offset..][0..8]);
+
+                    const dylib_ordinal = @divTrunc(@as(i16, @bitCast(bind_sym.n_desc)), macho.N_SYMBOL_RESOLVER);
+                    log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
+                        base_offset,
+                        bind_sym_name,
+                        dylib_ordinal,
+                    });
+                    log.debug("    | with addend {x}", .{addend});
+                    if (bind_sym.weakRef()) {
+                        log.debug("    | marking as weak ref ", .{});
+                    }
+                    try bind.entries.append(self.gpa, .{
+                        .target = global,
+                        .offset = offset,
+                        .segment_id = segment_id,
+                        .addend = addend,
+                    });
+                }
             }
         }
 
