@@ -19,7 +19,7 @@ relocs: std.ArrayListUnmanaged(types.Relocation) = .{},
 /// Contains the binary data of an atom, which can be non-relocated
 code: std.ArrayListUnmanaged(u8) = .{},
 /// For code this is 1, for data this is set to the highest value of all segments
-alignment: u32,
+alignment: Wasm.Alignment,
 /// Offset into the section where the atom lives, this already accounts
 /// for alignment.
 offset: u32,
@@ -43,7 +43,7 @@ pub const Index = u32;
 
 /// Represents a default empty wasm `Atom`
 pub const empty: Atom = .{
-    .alignment = 1,
+    .alignment = .@"1",
     .file = null,
     .next = null,
     .offset = 0,

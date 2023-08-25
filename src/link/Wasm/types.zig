@@ -109,11 +109,13 @@ pub const SubsectionType = enum(u8) {
     WASM_SYMBOL_TABLE = 8,
 };
 
+pub const Alignment = @import("../../InternPool.zig").Alignment;
+
 pub const Segment = struct {
     /// Segment's name, encoded as UTF-8 bytes.
     name: []const u8,
     /// The required alignment of the segment, encoded as a power of 2
-    alignment: u32,
+    alignment: Alignment,
     /// Bitfield containing flags for a segment
     flags: u32,
 

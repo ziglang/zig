@@ -432,7 +432,7 @@ fn printAggregate(
             if (i != 0) try writer.writeAll(", ");
 
             const field_name = switch (ip.indexToKey(ty.toIntern())) {
-                .struct_type => |x| mod.structPtrUnwrap(x.index).?.fields.keys()[i].toOptional(),
+                .struct_type => |x| x.field_names.get(ip)[i].toOptional(),
                 .anon_struct_type => |x| if (x.isTuple()) .none else x.names.get(ip)[i].toOptional(),
                 else => unreachable,
             };

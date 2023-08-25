@@ -32,16 +32,17 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
                 if (ty.bitSize(mod) <= 64) return direct;
                 return .{ .direct, .direct };
             }
-            // When the struct type is non-scalar
-            if (ty.structFieldCount(mod) > 1) return memory;
-            // When the struct's alignment is non-natural
-            const field = ty.structFields(mod).values()[0];
-            if (field.abi_align != .none) {
-                if (field.abi_align.toByteUnitsOptional().? > field.ty.abiAlignment(mod)) {
-                    return memory;
-                }
+            if (ty.structFieldCount(mod) > 1) {
+                // The struct type is non-scalar.
+                return memory;
             }
-            return classifyType(field.ty, mod);
+            const field_ty = ty.structFieldType(0, mod);
+            const resolved_align = ty.structFieldAlign(0, mod);
+            if (resolved_align.compare(.gt, field_ty.abiAlignment(mod))) {
+                // The struct's alignment is greater than natural alignment.
+                return memory;
+            }
+            return classifyType(field_ty, mod);
         },
         .Int, .Enum, .ErrorSet, .Vector => {
             const int_bits = ty.intInfo(mod).bits;
@@ -101,15 +102,11 @@ pub fn scalarType(ty: Type, mod: *Module) Type {
     const ip = &mod.intern_pool;
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
-            switch (ty.containerLayout(mod)) {
-                .Packed => {
-                    const struct_obj = mod.typeToStruct(ty).?;
-                    return scalarType(struct_obj.backing_int_ty, mod);
-                },
-                else => {
-                    assert(ty.structFieldCount(mod) == 1);
-                    return scalarType(ty.structFieldType(0, mod), mod);
-                },
+            if (mod.typeToPackedStruct(ty)) |packed_struct| {
+                return scalarType(packed_struct.backingIntType(ip).toType(), mod);
+            } else {
+                assert(ty.structFieldCount(mod) == 1);
+                return scalarType(ty.structFieldType(0, mod), mod);
             }
         },
         .Union => {

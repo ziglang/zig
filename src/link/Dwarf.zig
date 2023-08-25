@@ -341,23 +341,22 @@ pub const DeclState = struct {
                             try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                         }
                     },
-                    .struct_type => |struct_type| s: {
-                        const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse break :s;
+                    .struct_type => |struct_type| {
                         // DW.AT.name, DW.FORM.string
                         try ty.print(dbg_info_buffer.writer(), mod);
                         try dbg_info_buffer.append(0);
 
-                        if (struct_obj.layout == .Packed) {
+                        if (struct_type.layout == .Packed) {
                             log.debug("TODO implement .debug_info for packed structs", .{});
                             break :blk;
                         }
 
                         for (
-                            struct_obj.fields.keys(),
-                            struct_obj.fields.values(),
-                            0..,
-                        ) |field_name_ip, field, field_index| {
-                            if (!field.ty.hasRuntimeBits(mod)) continue;
+                            struct_type.field_names.get(ip),
+                            struct_type.field_types.get(ip),
+                            struct_type.offsets.get(ip),
+                        ) |field_name_ip, field_ty, field_off| {
+                            if (!field_ty.toType().hasRuntimeBits(mod)) continue;
                             const field_name = ip.stringToSlice(field_name_ip);
                             // DW.AT.member
                             try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
@@ -368,9 +367,8 @@ pub const DeclState = struct {
                             // DW.AT.type, DW.FORM.ref4
                             var index = dbg_info_buffer.items.len;
                             try dbg_info_buffer.resize(index + 4);
-                            try self.addTypeRelocGlobal(atom_index, field.ty, @as(u32, @intCast(index)));
+                            try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
                             // DW.AT.data_member_location, DW.FORM.udata
-                            const field_off = ty.structFieldOffset(field_index, mod);
                             try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                         }
                     },
@@ -416,8 +414,8 @@ pub const DeclState = struct {
             .Union => {
                 const union_obj = mod.typeToUnion(ty).?;
                 const layout = mod.getUnionLayout(union_obj);
-                const payload_offset = if (layout.tag_align >= layout.payload_align) layout.tag_size else 0;
-                const tag_offset = if (layout.tag_align >= layout.payload_align) 0 else layout.payload_size;
+                const payload_offset = if (layout.tag_align.compare(.gte, layout.payload_align)) layout.tag_size else 0;
+                const tag_offset = if (layout.tag_align.compare(.gte, layout.payload_align)) 0 else layout.payload_size;
                 // TODO this is temporary to match current state of unions in Zig - we don't yet have
                 // safety checks implemented meaning the implicit tag is not yet stored and generated
                 // for untagged unions.
@@ -496,11 +494,11 @@ pub const DeclState = struct {
             .ErrorUnion => {
                 const error_ty = ty.errorUnionSet(mod);
                 const payload_ty = ty.errorUnionPayload(mod);
-                const payload_align = if (payload_ty.isNoReturn(mod)) 0 else payload_ty.abiAlignment(mod);
+                const payload_align = if (payload_ty.isNoReturn(mod)) .none else payload_ty.abiAlignment(mod);
                 const error_align = Type.anyerror.abiAlignment(mod);
                 const abi_size = ty.abiSize(mod);
-                const payload_off = if (error_align >= payload_align) Type.anyerror.abiSize(mod) else 0;
-                const error_off = if (error_align >= payload_align) 0 else payload_ty.abiSize(mod);
+                const payload_off = if (error_align.compare(.gte, payload_align)) Type.anyerror.abiSize(mod) else 0;
+                const error_off = if (error_align.compare(.gte, payload_align)) 0 else payload_ty.abiSize(mod);
 
                 // DW.AT.structure_type
                 try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_type));

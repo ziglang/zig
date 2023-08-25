@@ -792,24 +792,28 @@ pub const DeclGen = struct {
                     },
                     .vector_type => return dg.todo("indirect constant of type {}", .{ty.fmt(mod)}),
                     .struct_type => {
-                        const struct_ty = mod.typeToStruct(ty).?;
-                        if (struct_ty.layout == .Packed) {
+                        const struct_type = mod.typeToStruct(ty).?;
+                        if (struct_type.layout == .Packed) {
                             return dg.todo("packed struct constants", .{});
                         }
 
+                        // TODO iterate with runtime order instead so that struct field
+                        // reordering can be enabled for this backend.
                         const struct_begin = self.size;
-                        for (struct_ty.fields.values(), 0..) |field, i| {
-                            if (field.is_comptime or !field.ty.hasRuntimeBits(mod)) continue;
+                        for (struct_type.field_types.get(ip), 0..) |field_ty, i_usize| {
+                            const i: u32 = @intCast(i_usize);
+                            if (struct_type.fieldIsComptime(ip, i)) continue;
+                            if (!field_ty.toType().hasRuntimeBits(mod)) continue;
 
                             const field_val = switch (aggregate.storage) {
                                 .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
-                                    .ty = field.ty.toIntern(),
+                                    .ty = field_ty,
                                     .storage = .{ .u64 = bytes[i] },
                                 } }),
                                 .elems => |elems| elems[i],
                                 .repeated_elem => |elem| elem,
                             };
-                            try self.lower(field.ty, field_val.toValue());
+                            try self.lower(field_ty.toType(), field_val.toValue());
 
                             // Add padding if required.
                             // TODO: Add to type generation as well?
@@ -838,7 +842,7 @@ pub const DeclGen = struct {
                     const active_field_ty = union_obj.field_types.get(ip)[active_field].toType();
 
                     const has_tag = layout.tag_size != 0;
-                    const tag_first = layout.tag_align >= layout.payload_align;
+                    const tag_first = layout.tag_align.compare(.gte, layout.payload_align);
 
                     if (has_tag and tag_first) {
                         try self.lower(ty.unionTagTypeSafety(mod).?, un.tag.toValue());
@@ -1094,7 +1098,7 @@ pub const DeclGen = struct {
                     val,
                     .UniformConstant,
                     false,
-                    alignment,
+                    @intCast(alignment.toByteUnits(0)),
                 );
                 log.debug("indirect constant: index = {}", .{@intFromEnum(spv_decl_index)});
                 try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
@@ -1180,7 +1184,7 @@ pub const DeclGen = struct {
         var member_names = std.BoundedArray(CacheString, 4){};
 
         const has_tag = layout.tag_size != 0;
-        const tag_first = layout.tag_align >= layout.payload_align;
+        const tag_first = layout.tag_align.compare(.gte, layout.payload_align);
         const u8_ty_ref = try self.intType(.unsigned, 8); // TODO: What if Int8Type is not enabled?
 
         if (has_tag and tag_first) {
@@ -1333,7 +1337,7 @@ pub const DeclGen = struct {
                 } });
             },
             .Struct => {
-                const struct_ty = switch (ip.indexToKey(ty.toIntern())) {
+                const struct_type = switch (ip.indexToKey(ty.toIntern())) {
                     .anon_struct_type => |tuple| {
                         const member_types = try self.gpa.alloc(CacheRef, tuple.values.len);
                         defer self.gpa.free(member_types);
@@ -1350,13 +1354,12 @@ pub const DeclGen = struct {
                             .member_types = member_types[0..member_index],
                         } });
                     },
-                    .struct_type => |struct_ty| struct_ty,
+                    .struct_type => |struct_type| struct_type,
                     else => unreachable,
                 };
 
-                const struct_obj = mod.structPtrUnwrap(struct_ty.index).?;
-                if (struct_obj.layout == .Packed) {
-                    return try self.resolveType(struct_obj.backing_int_ty, .direct);
+                if (struct_type.layout == .Packed) {
+                    return try self.resolveType(struct_type.backingIntType(ip).toType(), .direct);
                 }
 
                 var member_types = std.ArrayList(CacheRef).init(self.gpa);
@@ -1365,16 +1368,15 @@ pub const DeclGen = struct {
                 var member_names = std.ArrayList(CacheString).init(self.gpa);
                 defer member_names.deinit();
 
-                var it = struct_obj.runtimeFieldIterator(mod);
-                while (it.next()) |field_and_index| {
-                    const field = field_and_index.field;
-                    const index = field_and_index.index;
-                    const field_name = ip.stringToSlice(struct_obj.fields.keys()[index]);
-                    try member_types.append(try self.resolveType(field.ty, .indirect));
+                var it = struct_type.iterateRuntimeOrder(ip);
+                while (it.next()) |field_index| {
+                    const field_ty = struct_type.field_types.get(ip)[field_index];
+                    const field_name = ip.stringToSlice(struct_type.field_names.get(ip)[field_index]);
+                    try member_types.append(try self.resolveType(field_ty.toType(), .indirect));
                     try member_names.append(try self.spv.resolveString(field_name));
                 }
 
-                const name = ip.stringToSlice(try struct_obj.getFullyQualifiedName(self.module));
+                const name = ip.stringToSlice(try mod.declPtr(struct_type.decl.unwrap().?).getFullyQualifiedName(mod));
 
                 return try self.spv.resolve(.{ .struct_type = .{
                     .name = try self.spv.resolveString(name),
@@ -1500,7 +1502,7 @@ pub const DeclGen = struct {
         const error_align = Type.anyerror.abiAlignment(mod);
         const payload_align = payload_ty.abiAlignment(mod);
 
-        const error_first = error_align > payload_align;
+        const error_first = error_align.compare(.gt, payload_align);
         return .{
             .payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime(mod),
             .error_first = error_first,
@@ -1662,7 +1664,7 @@ pub const DeclGen = struct {
                 init_val,
                 actual_storage_class,
                 final_storage_class == .Generic,
-                @as(u32, @intCast(decl.alignment.toByteUnits(0))),
+                @intCast(decl.alignment.toByteUnits(0)),
             );
         }
     }
@@ -2603,7 +2605,7 @@ pub const DeclGen = struct {
         if (layout.payload_size == 0) return union_handle;
 
         const tag_ty = un_ty.unionTagTypeSafety(mod).?;
-        const tag_index = @intFromBool(layout.tag_align < layout.payload_align);
+        const tag_index = @intFromBool(layout.tag_align.compare(.lt, layout.payload_align));
         return try self.extractField(tag_ty, union_handle, tag_index);
     }
 
