@@ -5,12 +5,12 @@ const Event = uefi.Event;
 const Handle = uefi.Handle;
 const Status = uefi.Status;
 const Time = uefi.Time;
-const SimpleNetworkMode = uefi.protocol.SimpleNetworkMode;
-const MacAddress = uefi.protocol.MacAddress;
+const SimpleNetwork = uefi.protocol.SimpleNetwork;
+const MacAddress = uefi.MacAddress;
 const cc = uefi.cc;
 
 pub const ManagedNetwork = extern struct {
-    _get_mode_data: *const fn (*const ManagedNetwork, ?*Config, ?*SimpleNetworkMode) callconv(cc) Status,
+    _get_mode_data: *const fn (*const ManagedNetwork, ?*Config, ?*SimpleNetwork) callconv(cc) Status,
     _configure: *const fn (*const ManagedNetwork, ?*const Config) callconv(cc) Status,
     _mcast_ip_to_mac: *const fn (*const ManagedNetwork, bool, *const anyopaque, *MacAddress) callconv(cc) Status,
     _groups: *const fn (*const ManagedNetwork, bool, ?*const MacAddress) callconv(cc) Status,
@@ -21,7 +21,7 @@ pub const ManagedNetwork = extern struct {
 
     /// Returns the operational parameters for the current MNP child driver.
     /// May also support returning the underlying SNP driver mode data.
-    pub fn getModeData(self: *const ManagedNetwork, mnp_config_data: ?*Config, snp_mode_data: ?*SimpleNetworkMode) Status {
+    pub fn getModeData(self: *const ManagedNetwork, mnp_config_data: ?*Config, snp_mode_data: ?*SimpleNetwork) Status {
         return self._get_mode_data(self, mnp_config_data, snp_mode_data);
     }
 
