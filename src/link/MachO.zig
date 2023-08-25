@@ -788,11 +788,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         try d_sym.flushModule(self);
     }
 
-    // if (build_options.enable_link_snapshots) {
-    //     if (self.base.options.enable_link_snapshots)
-    //         try self.snapshotState();
-    // }
-
     if (cache_miss) {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
