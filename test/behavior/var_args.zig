@@ -232,7 +232,10 @@ test "unused VaList arg" {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/16961
+        return error.SkipZigTest; // TODO
+    }
 
     const S = struct {
         fn thirdArg(dummy: c_int, ...) callconv(.C) c_int {
