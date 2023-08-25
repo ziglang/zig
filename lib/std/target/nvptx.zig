@@ -47,7 +47,6 @@ pub const Feature = enum {
     sm_87,
     sm_89,
     sm_90,
-    sm_90a,
 };
 
 pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
@@ -269,11 +268,6 @@ pub const all_features = blk: {
         .description = "Target SM 90",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.sm_90a)] = .{
-        .llvm_name = "sm_90a",
-        .description = "Target SM 90a",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
@@ -440,14 +434,6 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .ptx78,
             .sm_90,
-        }),
-    };
-    pub const sm_90a = CpuModel{
-        .name = "sm_90a",
-        .llvm_name = "sm_90a",
-        .features = featureSet(&[_]Feature{
-            .ptx80,
-            .sm_90a,
         }),
     };
 };
