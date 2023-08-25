@@ -3,8 +3,8 @@ const BootServices = uefi.tables.BootServices;
 const ConfigurationTable = uefi.tables.ConfigurationTable;
 const Handle = uefi.Handle;
 const RuntimeServices = uefi.tables.RuntimeServices;
-const SimpleTextInputProtocol = uefi.protocols.SimpleTextInputProtocol;
-const SimpleTextOutputProtocol = uefi.protocols.SimpleTextOutputProtocol;
+const SimpleTextInputProtocol = uefi.protocol.SimpleTextInput;
+const SimpleTextOutputProtocol = uefi.protocol.SimpleTextOutput;
 const TableHeader = uefi.tables.TableHeader;
 
 /// The EFI System Table contains pointers to the runtime and boot services tables.
