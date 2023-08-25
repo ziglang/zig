@@ -1,10 +1,10 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 
-pub const HIIHandle = *opaque {};
+pub const Handle = *opaque {};
 
 /// The header found at the start of each package.
-pub const HIIPackageHeader = packed struct(u32) {
+pub const PackageHeader = packed struct(u32) {
     length: u24,
     type: u8,
 
@@ -24,7 +24,7 @@ pub const HIIPackageHeader = packed struct(u32) {
 };
 
 /// The header found at the start of each package list.
-pub const HIIPackageList = extern struct {
+pub const PackageList = extern struct {
     package_list_guid: Guid,
 
     /// The size of the package list (in bytes), including the header.
@@ -33,13 +33,13 @@ pub const HIIPackageList = extern struct {
     // TODO implement iterator
 };
 
-pub const HIISimplifiedFontPackage = extern struct {
-    header: HIIPackageHeader,
+pub const SimplifiedFontPackage = extern struct {
+    header: PackageHeader,
     number_of_narrow_glyphs: u16,
     number_of_wide_glyphs: u16,
 
-    pub fn getNarrowGlyphs(self: *HIISimplifiedFontPackage) []NarrowGlyph {
-        return @as([*]NarrowGlyph, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self)) + @sizeOf(HIISimplifiedFontPackage))))[0..self.number_of_narrow_glyphs];
+    pub fn getNarrowGlyphs(self: *SimplifiedFontPackage) []NarrowGlyph {
+        return @as([*]NarrowGlyph, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self)) + @sizeOf(SimplifiedFontPackage))))[0..self.number_of_narrow_glyphs];
     }
 };
 
@@ -69,8 +69,8 @@ pub const WideGlyph = extern struct {
     _pad: [3]u8 = [_]u8{0} ** 3,
 };
 
-pub const HIIStringPackage = extern struct {
-    header: HIIPackageHeader,
+pub const StringPackage = extern struct {
+    header: PackageHeader,
     hdr_size: u32,
     string_info_offset: u32,
     language_window: [16]u16,

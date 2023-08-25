@@ -1,15 +1,15 @@
 const std = @import("std");
 const uefi = std.os.uefi;
 const Guid = uefi.Guid;
-const FileProtocol = uefi.protocols.FileProtocol;
+const FileProtocol = uefi.protocol.File;
 const Status = uefi.Status;
 const cc = uefi.cc;
 
-pub const SimpleFileSystemProtocol = extern struct {
+pub const SimpleFileSystem = extern struct {
     revision: u64,
-    _open_volume: *const fn (*const SimpleFileSystemProtocol, **const FileProtocol) callconv(cc) Status,
+    _open_volume: *const fn (*const SimpleFileSystem, **const FileProtocol) callconv(cc) Status,
 
-    pub fn openVolume(self: *const SimpleFileSystemProtocol, root: **const FileProtocol) Status {
+    pub fn openVolume(self: *const SimpleFileSystem, root: **const FileProtocol) Status {
         return self._open_volume(self, root);
     }
 
