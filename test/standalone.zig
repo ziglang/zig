@@ -253,6 +253,10 @@ pub const build_cases = [_]BuildCase{
         .build_root = "test/standalone/ios",
         .import = @import("standalone/ios/build.zig"),
     },
+    .{
+        .build_root = "test/standalone/panic_stack_trace",
+        .import = @import("standalone/panic_stack_trace/build.zig"),
+    },
 };
 
 const std = @import("std");
