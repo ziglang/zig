@@ -66,6 +66,13 @@ pub const Zld = struct {
     segments: std.ArrayListUnmanaged(macho.segment_command_64) = .{},
     sections: std.MultiArrayList(Section) = .{},
 
+    pagezero_segment_cmd_index: ?u8 = null,
+    header_segment_cmd_index: ?u8 = null,
+    text_segment_cmd_index: ?u8 = null,
+    data_const_segment_cmd_index: ?u8 = null,
+    data_segment_cmd_index: ?u8 = null,
+    linkedit_segment_cmd_index: ?u8 = null,
+
     text_section_index: ?u8 = null,
     got_section_index: ?u8 = null,
     tlv_ptr_section_index: ?u8 = null,
@@ -550,6 +557,7 @@ pub const Zld = struct {
                 log.warn("requested __PAGEZERO size (0x{x}) is not page aligned", .{pagezero_vmsize});
                 log.warn("  rounding down to 0x{x}", .{aligned_pagezero_vmsize});
             }
+            self.pagezero_segment_cmd_index = @intCast(self.segments.items.len);
             try self.segments.append(self.gpa, .{
                 .cmdsize = @sizeOf(macho.segment_command_64),
                 .segname = makeStaticString("__PAGEZERO"),
@@ -560,6 +568,8 @@ pub const Zld = struct {
         // __TEXT segment is non-optional
         {
             const protection = MachO.getSegmentMemoryProtection("__TEXT");
+            self.text_segment_cmd_index = @intCast(self.segments.items.len);
+            self.header_segment_cmd_index = self.text_segment_cmd_index.?;
             try self.segments.append(self.gpa, .{
                 .cmdsize = @sizeOf(macho.segment_command_64),
                 .segname = makeStaticString("__TEXT"),
@@ -590,9 +600,18 @@ pub const Zld = struct {
             self.sections.items(.segment_index)[sect_id] = segment_id;
         }
 
+        if (self.getSegmentByName("__DATA_CONST")) |index| {
+            self.data_const_segment_cmd_index = index;
+        }
+
+        if (self.getSegmentByName("__DATA")) |index| {
+            self.data_segment_cmd_index = index;
+        }
+
         // __LINKEDIT always comes last
         {
             const protection = MachO.getSegmentMemoryProtection("__LINKEDIT");
+            self.linkedit_segment_cmd_index = @intCast(self.segments.items.len);
             try self.segments.append(self.gpa, .{
                 .cmdsize = @sizeOf(macho.segment_command_64),
                 .segname = makeStaticString("__LINKEDIT"),
@@ -1154,13 +1173,26 @@ pub const Zld = struct {
     }
 
     fn writeLinkeditSegmentData(self: *Zld) !void {
+        const page_size = MachO.getPageSize(self.options.target.cpu.arch);
+        const seg = self.getLinkeditSegmentPtr();
+        seg.filesize = 0;
+        seg.vmsize = 0;
+
+        for (self.segments.items, 0..) |segment, id| {
+            if (self.linkedit_segment_cmd_index.? == @as(u8, @intCast(id))) continue;
+            if (seg.vmaddr < segment.vmaddr + segment.vmsize) {
+                seg.vmaddr = mem.alignForward(u64, segment.vmaddr + segment.vmsize, page_size);
+            }
+            if (seg.fileoff < segment.fileoff + segment.filesize) {
+                seg.fileoff = mem.alignForward(u64, segment.fileoff + segment.filesize, page_size);
+            }
+        }
         try self.writeDyldInfoData();
         try self.writeFunctionStarts();
         try self.writeDataInCode();
         try self.writeSymtabs();
 
-        const seg = self.getLinkeditSegmentPtr();
-        seg.vmsize = mem.alignForward(u64, seg.filesize, MachO.getPageSize(self.options.target.cpu.arch));
+        seg.vmsize = mem.alignForward(u64, seg.filesize, page_size);
     }
 
     fn collectRebaseData(self: *Zld, rebase: *Rebase) !void {
