@@ -1389,7 +1389,7 @@ fn markRelocsDirtyByAddress(self: *MachO, addr: u64) void {
     }
 }
 
-pub fn allocateSpecialSymbols(self: *MachO) !void {
+pub fn allocateSpecialSymbols(self: anytype) !void {
     for (&[_][]const u8{
         "___dso_handle",
         "__mh_execute_header",
@@ -1398,11 +1398,13 @@ pub fn allocateSpecialSymbols(self: *MachO) !void {
         if (global.getFile() != null) continue;
         const sym = self.getSymbolPtr(global);
         const seg = self.getSegment(self.text_section_index.?);
-        sym.n_sect = 1;
+        sym.n_sect = self.text_section_index.? + 1;
         sym.n_value = seg.vmaddr;
 
-        log.debug("allocating {s} at the start of {s}", .{
+        log.debug("allocating {s}(@0x{x},sect({d})) at the start of {s}", .{
             name,
+            sym.n_value,
+            sym.n_sect,
             seg.segName(),
         });
     }
@@ -1479,10 +1481,6 @@ fn createThreadLocalDescriptorAtom(self: *MachO, sym_name: []const u8, target: S
 
 fn createMhExecuteHeaderSymbol(self: *MachO) !void {
     if (self.base.options.output_mode != .Exe) return;
-    if (self.getGlobal("__mh_execute_header")) |global| {
-        const sym = self.getSymbol(global);
-        if (!sym.undf() and !(sym.pext() or sym.weakDef())) return;
-    }
 
     const gpa = self.base.allocator;
     const sym_index = try self.allocateSymbol();
@@ -3748,9 +3746,7 @@ fn addUndefined(self: *MachO, name: []const u8, action: ResolveAction.Kind) !u32
     const gop = try self.getOrPutGlobalPtr(name);
     const global_index = self.getGlobalIndex(name).?;
 
-    if (gop.found_existing) {
-        return global_index;
-    }
+    if (gop.found_existing) return global_index;
 
     const sym_index = try self.allocateSymbol();
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index };

@@ -78,9 +78,10 @@ pub const Zld = struct {
     resolver: std.StringHashMapUnmanaged(u32) = .{},
     unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 
+    locals_free_list: std.ArrayListUnmanaged(u32) = .{},
+    globals_free_list: std.ArrayListUnmanaged(u32) = .{},
+
     entry_index: ?u32 = null,
-    mh_execute_header_index: ?u32 = null,
-    dso_handle_index: ?u32 = null,
     dyld_stub_binder_index: ?u32 = null,
     dyld_private_atom_index: ?Atom.Index = null,
 
@@ -188,15 +189,23 @@ pub const Zld = struct {
         }
     }
 
-    fn addUndefined(self: *Zld, name: []const u8) !void {
+    fn addUndefined(self: *Zld, name: []const u8) !u32 {
+        const gop = try self.getOrPutGlobalPtr(name);
+        const global_index = self.getGlobalIndex(name).?;
+
+        if (gop.found_existing) return global_index;
+
         const sym_index = try self.allocateSymbol();
         const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
+        gop.value_ptr.* = sym_loc;
+
         const sym = self.getSymbolPtr(sym_loc);
         sym.n_strx = try self.strtab.insert(self.gpa, name);
         sym.n_type = macho.N_UNDF;
-        const global_index = try self.addGlobal(sym_loc);
-        try self.resolver.putNoClobber(self.gpa, name, global_index);
+
         try self.unresolved.putNoClobber(self.gpa, global_index, {});
+
+        return global_index;
     }
 
     fn resolveSymbols(self: *Zld) !void {
@@ -205,12 +214,12 @@ pub const Zld = struct {
         // on the linker line.
         if (self.options.output_mode == .Exe) {
             const entry_name = self.options.entry orelse load_commands.default_entry_point;
-            try self.addUndefined(entry_name);
+            _ = try self.addUndefined(entry_name);
         }
 
         // Force resolution of any symbols requested by the user.
         for (self.options.force_undefined_symbols.keys()) |sym_name| {
-            try self.addUndefined(sym_name);
+            _ = try self.addUndefined(sym_name);
         }
 
         for (self.objects.items, 0..) |_, object_id| {
@@ -222,12 +231,10 @@ pub const Zld = struct {
         // Finally, force resolution of dyld_stub_binder if there are imports
         // requested.
         if (self.unresolved.count() > 0) {
-            try self.addUndefined("dyld_stub_binder");
+            self.dyld_stub_binder_index = try self.addUndefined("dyld_stub_binder");
         }
 
         try self.resolveSymbolsInDylibs();
-
-        self.dyld_stub_binder_index = self.resolver.get("dyld_stub_binder");
 
         try self.createMhExecuteHeaderSymbol();
         try self.createDsoHandleSymbol();
@@ -276,15 +283,16 @@ pub const Zld = struct {
 
             const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = object_id + 1 };
 
-            const global_index = self.resolver.get(sym_name) orelse {
-                const global_index = try self.addGlobal(sym_loc);
-                try self.resolver.putNoClobber(self.gpa, sym_name, global_index);
+            const gop = try self.getOrPutGlobalPtr(sym_name);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = sym_loc;
                 if (sym.undf() and !sym.tentative()) {
-                    try self.unresolved.putNoClobber(self.gpa, global_index, {});
+                    try self.unresolved.putNoClobber(self.gpa, self.getGlobalIndex(sym_name).?, {});
                 }
                 continue;
-            };
-            const global = &self.globals.items[global_index];
+            }
+            const global_index = self.getGlobalIndex(sym_name).?;
+            const global = gop.value_ptr;
             const global_sym = self.getSymbol(global.*);
 
             // Cases to consider: sym vs global_sym
@@ -338,7 +346,7 @@ pub const Zld = struct {
                     const global_object = &self.objects.items[file];
                     global_object.globals_lookup[global.sym_index] = global_index;
                 }
-                _ = self.unresolved.swapRemove(self.resolver.get(sym_name).?);
+                _ = self.unresolved.swapRemove(global_index);
                 global.* = sym_loc;
             } else {
                 object.globals_lookup[sym_index] = global_index;
@@ -448,50 +456,51 @@ pub const Zld = struct {
 
     fn createMhExecuteHeaderSymbol(self: *Zld) !void {
         if (self.options.output_mode != .Exe) return;
-        if (self.resolver.get("__mh_execute_header")) |global_index| {
-            const global = self.globals.items[global_index];
-            const sym = self.getSymbol(global);
-            self.mh_execute_header_index = global_index;
-            if (!sym.undf() and !(sym.pext() or sym.weakDef())) return;
-        }
 
         const gpa = self.gpa;
         const sym_index = try self.allocateSymbol();
         const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
         const sym = self.getSymbolPtr(sym_loc);
-        sym.n_strx = try self.strtab.insert(gpa, "__mh_execute_header");
-        sym.n_type = macho.N_SECT | macho.N_EXT;
-        sym.n_desc = macho.REFERENCED_DYNAMICALLY;
+        sym.* = .{
+            .n_strx = try self.strtab.insert(gpa, "__mh_execute_header"),
+            .n_type = macho.N_SECT | macho.N_EXT,
+            .n_sect = 0,
+            .n_desc = macho.REFERENCED_DYNAMICALLY,
+            .n_value = 0,
+        };
 
-        if (self.resolver.get("__mh_execute_header")) |global_index| {
-            const global = &self.globals.items[global_index];
-            const global_object = &self.objects.items[global.getFile().?];
-            global_object.globals_lookup[global.sym_index] = global_index;
-            global.* = sym_loc;
-            self.mh_execute_header_index = global_index;
-        } else {
-            self.mh_execute_header_index = try self.addGlobal(sym_loc);
+        const gop = try self.getOrPutGlobalPtr("__mh_execute_header");
+        if (gop.found_existing) {
+            const global = gop.value_ptr.*;
+            if (global.getFile()) |file| {
+                const global_object = &self.objects.items[file];
+                global_object.globals_lookup[global.sym_index] = self.getGlobalIndex("__mh_execute_header").?;
+            }
         }
+        gop.value_ptr.* = sym_loc;
     }
 
     fn createDsoHandleSymbol(self: *Zld) !void {
-        const global_index = self.resolver.get("___dso_handle") orelse return;
-        const global = &self.globals.items[global_index];
-        self.dso_handle_index = global_index;
+        const global = self.getGlobalPtr("___dso_handle") orelse return;
         if (!self.getSymbol(global.*).undf()) return;
 
-        const gpa = self.gpa;
         const sym_index = try self.allocateSymbol();
         const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
         const sym = self.getSymbolPtr(sym_loc);
-        sym.n_strx = try self.strtab.insert(gpa, "___dso_handle");
-        sym.n_type = macho.N_SECT | macho.N_EXT;
-        sym.n_desc = macho.N_WEAK_DEF;
-
-        const global_object = &self.objects.items[global.getFile().?];
-        global_object.globals_lookup[global.sym_index] = global_index;
-        _ = self.unresolved.swapRemove(self.resolver.get("___dso_handle").?);
+        sym.* = .{
+            .n_strx = try self.strtab.insert(self.gpa, "___dso_handle"),
+            .n_type = macho.N_SECT | macho.N_EXT,
+            .n_sect = 0,
+            .n_desc = macho.N_WEAK_DEF,
+            .n_value = 0,
+        };
+        const global_index = self.getGlobalIndex("___dso_handle").?;
+        if (global.getFile()) |file| {
+            const global_object = &self.objects.items[file];
+            global_object.globals_lookup[global.sym_index] = global_index;
+        }
         global.* = sym_loc;
+        _ = self.unresolved.swapRemove(global_index);
     }
 
     pub fn deinit(self: *Zld) void {
@@ -512,6 +521,8 @@ pub const Zld = struct {
         self.globals.deinit(gpa);
         self.resolver.deinit(gpa);
         self.unresolved.deinit(gpa);
+        self.locals_free_list.deinit(gpa);
+        self.globals_free_list.deinit(gpa);
 
         for (self.objects.items) |*object| {
             object.deinit(gpa);
@@ -609,10 +620,24 @@ pub const Zld = struct {
         return index;
     }
 
-    fn addGlobal(self: *Zld, sym_loc: SymbolWithLoc) !u32 {
-        const global_index = @as(u32, @intCast(self.globals.items.len));
-        try self.globals.append(self.gpa, sym_loc);
-        return global_index;
+    fn allocateGlobal(self: *Zld) !u32 {
+        try self.globals.ensureUnusedCapacity(self.gpa, 1);
+
+        const index = blk: {
+            if (self.globals_free_list.popOrNull()) |index| {
+                log.debug("  (reusing global index {d})", .{index});
+                break :blk index;
+            } else {
+                log.debug("  (allocating symbol index {d})", .{self.globals.items.len});
+                const index = @as(u32, @intCast(self.globals.items.len));
+                _ = self.globals.addOneAssumeCapacity();
+                break :blk index;
+            }
+        };
+
+        self.globals.items[index] = .{ .sym_index = 0 };
+
+        return index;
     }
 
     pub fn addGotEntry(self: *Zld, target: SymbolWithLoc) !void {
@@ -652,27 +677,6 @@ pub const Zld = struct {
             });
             self.la_symbol_ptr_section_index = try MachO.initSection(self.gpa, self, "__DATA", "__la_symbol_ptr", .{
                 .flags = macho.S_LAZY_SYMBOL_POINTERS,
-            });
-        }
-    }
-
-    fn allocateSpecialSymbols(self: *Zld) !void {
-        for (&[_]?u32{
-            self.dso_handle_index,
-            self.mh_execute_header_index,
-        }) |maybe_index| {
-            const global_index = maybe_index orelse continue;
-            const global = self.globals.items[global_index];
-            if (global.getFile() != null) continue;
-            const name = self.getSymbolName(global);
-            const sym = self.getSymbolPtr(global);
-            const segment_index = self.getSegmentByName("__TEXT").?;
-            const seg = self.segments.items[segment_index];
-            sym.n_sect = 1;
-            sym.n_value = seg.vmaddr;
-            log.debug("allocating {s} at the start of {s}", .{
-                name,
-                seg.segName(),
             });
         }
     }
@@ -2037,6 +2041,36 @@ pub const Zld = struct {
         }
     }
 
+    pub fn getGlobalIndex(self: *const Zld, name: []const u8) ?u32 {
+        return self.resolver.get(name);
+    }
+
+    pub fn getGlobalPtr(self: *Zld, name: []const u8) ?*SymbolWithLoc {
+        const global_index = self.resolver.get(name) orelse return null;
+        return &self.globals.items[global_index];
+    }
+
+    pub fn getGlobal(self: *const Zld, name: []const u8) ?SymbolWithLoc {
+        const global_index = self.resolver.get(name) orelse return null;
+        return self.globals.items[global_index];
+    }
+
+    const GetOrPutGlobalPtrResult = struct {
+        found_existing: bool,
+        value_ptr: *SymbolWithLoc,
+    };
+
+    pub fn getOrPutGlobalPtr(self: *Zld, name: []const u8) !GetOrPutGlobalPtrResult {
+        if (self.getGlobalPtr(name)) |ptr| {
+            return GetOrPutGlobalPtrResult{ .found_existing = true, .value_ptr = ptr };
+        }
+        const global_index = try self.allocateGlobal();
+        const global_name = try self.gpa.dupe(u8, name);
+        _ = try self.resolver.put(self.gpa, global_name, global_index);
+        const ptr = &self.globals.items[global_index];
+        return GetOrPutGlobalPtrResult{ .found_existing = false, .value_ptr = ptr };
+    }
+
     pub fn getGotEntryAddress(self: *Zld, sym_with_loc: SymbolWithLoc) ?u64 {
         const index = self.got_table.lookup.get(sym_with_loc) orelse return null;
         const header = self.sections.items(.header)[self.got_section_index.?];
@@ -2934,7 +2968,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         try zld.createSegments();
         try zld.allocateSegments();
 
-        try zld.allocateSpecialSymbols();
+        try MachO.allocateSpecialSymbols(&zld);
 
         if (build_options.enable_logging) {
             zld.logSymtab();
