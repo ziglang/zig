@@ -1982,6 +1982,10 @@ pub const Alignment = enum(u6) {
         return if (self == .default) null else @as(u64, 1) << @intFromEnum(self);
     }
 
+    pub fn toLlvm(self: Alignment) u6 {
+        return if (self == .default) 0 else (@intFromEnum(self) + 1);
+    }
+
     pub fn format(
         self: Alignment,
         comptime prefix: []const u8,
