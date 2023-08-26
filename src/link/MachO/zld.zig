@@ -1152,33 +1152,6 @@ pub const Zld = struct {
         segment.vmsize = mem.alignForward(u64, segment.vmsize, page_size);
     }
 
-    fn writeSegmentHeaders(self: *Zld, writer: anytype) !void {
-        for (self.segments.items, 0..) |seg, i| {
-            const indexes = self.getSectionIndexes(@as(u8, @intCast(i)));
-            var out_seg = seg;
-            out_seg.cmdsize = @sizeOf(macho.segment_command_64);
-            out_seg.nsects = 0;
-
-            // Update section headers count; any section with size of 0 is excluded
-            // since it doesn't have any data in the final binary file.
-            for (self.sections.items(.header)[indexes.start..indexes.end]) |header| {
-                if (header.size == 0) continue;
-                out_seg.cmdsize += @sizeOf(macho.section_64);
-                out_seg.nsects += 1;
-            }
-
-            if (out_seg.nsects == 0 and
-                (mem.eql(u8, out_seg.segName(), "__DATA_CONST") or
-                mem.eql(u8, out_seg.segName(), "__DATA"))) continue;
-
-            try writer.writeStruct(out_seg);
-            for (self.sections.items(.header)[indexes.start..indexes.end]) |header| {
-                if (header.size == 0) continue;
-                try writer.writeStruct(header);
-            }
-        }
-    }
-
     fn writeLinkeditSegmentData(self: *Zld) !void {
         try self.writeDyldInfoData();
         try self.writeFunctionStarts();
@@ -3035,7 +3008,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         var lc_buffer = std.ArrayList(u8).init(arena);
         const lc_writer = lc_buffer.writer();
 
-        try zld.writeSegmentHeaders(lc_writer);
+        try MachO.writeSegmentHeaders(&zld, lc_writer);
         try lc_writer.writeStruct(zld.dyld_info_cmd);
         try lc_writer.writeStruct(zld.function_starts_cmd);
         try lc_writer.writeStruct(zld.data_in_code_cmd);
