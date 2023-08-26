@@ -1394,8 +1394,7 @@ pub const Zld = struct {
         // TODO handle macho.EXPORT_SYMBOL_FLAGS_REEXPORT and macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER.
         log.debug("collecting export data", .{});
 
-        const segment_index = self.getSegmentByName("__TEXT").?;
-        const exec_segment = self.segments.items[segment_index];
+        const exec_segment = self.segments.items[self.header_segment_cmd_index.?];
         const base_address = exec_segment.vmaddr;
 
         for (self.globals.items) |global| {
@@ -1517,10 +1516,8 @@ pub const Zld = struct {
     }
 
     fn writeFunctionStarts(self: *Zld) !void {
-        const text_seg_index = self.getSegmentByName("__TEXT") orelse return;
-        const text_seg = self.segments.items[text_seg_index];
-
         const gpa = self.gpa;
+        const seg = self.segments.items[self.header_segment_cmd_index.?];
 
         // We need to sort by address first
         var addresses = std.ArrayList(u64).init(gpa);
@@ -1547,7 +1544,7 @@ pub const Zld = struct {
 
         var last_off: u32 = 0;
         for (addresses.items) |addr| {
-            const offset = @as(u32, @intCast(addr - text_seg.vmaddr));
+            const offset = @as(u32, @intCast(addr - seg.vmaddr));
             const diff = offset - last_off;
 
             if (diff == 0) continue;
@@ -1908,7 +1905,7 @@ pub const Zld = struct {
     }
 
     fn writeCodeSignature(self: *Zld, comp: *const Compilation, code_sig: *CodeSignature) !void {
-        const seg_id = self.getSegmentByName("__TEXT").?;
+        const seg_id = self.header_segment_cmd_index.?;
         const seg = self.segments.items[seg_id];
 
         var buffer = std.ArrayList(u8).init(self.gpa);
@@ -3026,7 +3023,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // that the free space between the end of the last non-zerofill section of __DATA
         // segment and the beginning of __LINKEDIT segment is zerofilled as the loader will
         // copy-paste this space into memory for quicker zerofill operation.
-        if (zld.getSegmentByName("__DATA")) |data_seg_id| blk: {
+        if (zld.data_segment_cmd_index) |data_seg_id| blk: {
             var physical_zerofill_start: ?u64 = null;
             const section_indexes = zld.getSectionIndexes(data_seg_id);
             for (zld.sections.items(.header)[section_indexes.start..section_indexes.end]) |header| {
@@ -3080,7 +3077,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         try load_commands.writeDylinkerLC(lc_writer);
 
         if (zld.options.output_mode == .Exe) {
-            const seg_id = zld.getSegmentByName("__TEXT").?;
+            const seg_id = zld.header_segment_cmd_index.?;
             const seg = zld.segments.items[seg_id];
             const global = zld.getEntryPoint();
             const sym = zld.getSymbol(global);
