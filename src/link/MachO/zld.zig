@@ -112,32 +112,26 @@ pub const Zld = struct {
         self.sections.set(sym.n_sect - 1, section);
     }
 
-    pub fn createEmptyAtom(self: *Zld, sym_index: u32, size: u64, alignment: u32) !Atom.Index {
+    const CreateAtomOpts = struct {
+        size: u64 = 0,
+        alignment: u32 = 0,
+    };
+
+    pub fn createAtom(self: *Zld, sym_index: u32, opts: CreateAtomOpts) !Atom.Index {
         const gpa = self.gpa;
         const index = @as(Atom.Index, @intCast(self.atoms.items.len));
         const atom = try self.atoms.addOne(gpa);
-        atom.* = .{
-            .sym_index = 0,
-            .inner_sym_index = 0,
-            .inner_nsyms_trailing = 0,
-            .file = 0,
-            .size = 0,
-            .alignment = 0,
-            .prev_index = null,
-            .next_index = null,
-        };
+        atom.* = .{};
         atom.sym_index = sym_index;
-        atom.size = size;
-        atom.alignment = alignment;
-
+        atom.size = opts.size;
+        atom.alignment = opts.alignment;
         log.debug("creating ATOM(%{d}) at index {d}", .{ sym_index, index });
-
         return index;
     }
 
     fn createDyldPrivateAtom(self: *Zld) !void {
         const sym_index = try self.allocateSymbol();
-        const atom_index = try self.createEmptyAtom(sym_index, @sizeOf(u64), 3);
+        const atom_index = try self.createAtom(sym_index, .{ .size = @sizeOf(u64), .alignment = 3 });
         const sym = self.getSymbolPtr(.{ .sym_index = sym_index });
         sym.n_type = macho.N_SECT;
 
@@ -176,7 +170,10 @@ pub const Zld = struct {
                 .n_value = 0,
             };
 
-            const atom_index = try self.createEmptyAtom(global.sym_index, size, alignment);
+            const atom_index = try self.createAtom(global.sym_index, .{
+                .size = size,
+                .alignment = alignment,
+            });
             const atom = self.getAtomPtr(atom_index);
             atom.file = global.file;
 

@@ -573,7 +573,7 @@ fn createAtomFromSubsection(
     out_sect_id: u8,
 ) !Atom.Index {
     const gpa = zld.gpa;
-    const atom_index = try zld.createEmptyAtom(sym_index, size, alignment);
+    const atom_index = try zld.createAtom(sym_index, .{ .size = size, .alignment = alignment });
     const atom = zld.getAtomPtr(atom_index);
     atom.inner_sym_index = inner_sym_index;
     atom.inner_nsyms_trailing = inner_nsyms_trailing;

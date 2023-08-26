@@ -4,13 +4,13 @@
 /// a stub trampoline, it can be found in the linkers `locals` arraylist.
 /// If this field is 0 and file is 0, it means the codegen size = 0 and there is no symbol or
 /// offset table entry.
-sym_index: u32,
+sym_index: u32 = 0,
 
 /// 0 means an Atom is a synthetic Atom such as a GOT cell defined by the linker.
 /// Otherwise, it is the index into appropriate object file (indexing from 1).
 /// Prefer using `getFile()` helper to get the file index out rather than using
 /// the field directly.
-file: u32,
+file: u32 = 0,
 
 /// If this Atom is not a synthetic Atom, i.e., references a subsection in an
 /// Object file, `inner_sym_index` and `inner_nsyms_trailing` tell where and if
@@ -18,22 +18,22 @@ file: u32,
 /// address range. These could for example be an alias symbol which can be used
 /// internally by the relocation records, or if the Object file couldn't be split
 /// into subsections, this Atom may encompass an entire input section.
-inner_sym_index: u32,
-inner_nsyms_trailing: u32,
+inner_sym_index: u32 = 0,
+inner_nsyms_trailing: u32 = 0,
 
 /// Size and alignment of this atom
 /// Unlike in Elf, we need to store the size of this symbol as part of
 /// the atom since macho.nlist_64 lacks this information.
-size: u64,
+size: u64 = 0,
 
 /// Alignment of this atom as a power of 2.
 /// For instance, aligmment of 0 should be read as 2^0 = 1 byte aligned.
-alignment: u32,
+alignment: u32 = 0,
 
 /// Points to the previous and next neighbours
 /// TODO use the same trick as with symbols: reserve index 0 as null atom
-next_index: ?Index,
-prev_index: ?Index,
+next_index: ?Index = null,
+prev_index: ?Index = null,
 
 pub const Index = u32;
 

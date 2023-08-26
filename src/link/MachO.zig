@@ -1410,30 +1410,29 @@ pub fn allocateSpecialSymbols(self: anytype) !void {
     }
 }
 
-pub fn createAtom(self: *MachO) !Atom.Index {
+const CreateAtomOpts = struct {
+    size: u64 = 0,
+    alignment: u32 = 0,
+};
+
+pub fn createAtom(self: *MachO, sym_index: u32, opts: CreateAtomOpts) !Atom.Index {
     const gpa = self.base.allocator;
-    const atom_index = @as(Atom.Index, @intCast(self.atoms.items.len));
+    const index = @as(Atom.Index, @intCast(self.atoms.items.len));
     const atom = try self.atoms.addOne(gpa);
-    const sym_index = try self.allocateSymbol();
-    try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom_index);
-    atom.* = .{
-        .sym_index = sym_index,
-        .inner_sym_index = 0,
-        .inner_nsyms_trailing = 0,
-        .file = 0,
-        .size = 0,
-        .alignment = 0,
-        .prev_index = null,
-        .next_index = null,
-    };
-    log.debug("creating ATOM(%{d}) at index {d}", .{ sym_index, atom_index });
-    return atom_index;
+    atom.* = .{};
+    atom.sym_index = sym_index;
+    atom.size = opts.size;
+    atom.alignment = opts.alignment;
+    log.debug("creating ATOM(%{d}) at index {d}", .{ sym_index, index });
+    return index;
 }
 
 fn createDyldPrivateAtom(self: *MachO) !void {
     if (self.dyld_private_atom_index != null) return;
 
-    const atom_index = try self.createAtom();
+    const sym_index = try self.allocateSymbol();
+    const atom_index = try self.createAtom(sym_index, .{});
+    try self.atom_by_index_table.putNoClobber(self.base.allocator, sym_index, atom_index);
     const atom = self.getAtomPtr(atom_index);
     atom.size = @sizeOf(u64);
 
@@ -1452,7 +1451,9 @@ fn createThreadLocalDescriptorAtom(self: *MachO, sym_name: []const u8, target: S
     const gpa = self.base.allocator;
     const size = 3 * @sizeOf(u64);
     const required_alignment: u32 = 1;
-    const atom_index = try self.createAtom();
+    const sym_index = try self.allocateSymbol();
+    const atom_index = try self.createAtom(sym_index, .{});
+    try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom_index);
     self.getAtomPtr(atom_index).size = size;
 
     const sym = self.getAtom(atom_index).getSymbolPtr(self);
@@ -1936,7 +1937,9 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
 
     log.debug("allocating symbol indexes for {s}", .{name});
 
-    const atom_index = try self.createAtom();
+    const sym_index = try self.allocateSymbol();
+    const atom_index = try self.createAtom(sym_index, .{});
+    try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom_index);
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), typed_value, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
@@ -2138,7 +2141,11 @@ pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: File.LazySymbol) !Atom.In
         },
     };
     switch (metadata.state.*) {
-        .unused => metadata.atom.* = try self.createAtom(),
+        .unused => {
+            const sym_index = try self.allocateSymbol();
+            metadata.atom.* = try self.createAtom(sym_index, .{});
+            try self.atom_by_index_table.putNoClobber(self.base.allocator, sym_index, metadata.atom.*);
+        },
         .pending_flush => return metadata.atom.*,
         .flushed => {},
     }
@@ -2250,8 +2257,11 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
 pub fn getOrCreateAtomForDecl(self: *MachO, decl_index: Module.Decl.Index) !Atom.Index {
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
+        const sym_index = try self.allocateSymbol();
+        const atom_index = try self.createAtom(sym_index, .{});
+        try self.atom_by_index_table.putNoClobber(self.base.allocator, sym_index, atom_index);
         gop.value_ptr.* = .{
-            .atom = try self.createAtom(),
+            .atom = atom_index,
             .section = self.getDeclOutputSection(decl_index),
             .exports = .{},
         };

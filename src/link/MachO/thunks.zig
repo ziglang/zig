@@ -342,7 +342,7 @@ fn isReachable(
 
 fn createThunkAtom(zld: *Zld) !Atom.Index {
     const sym_index = try zld.allocateSymbol();
-    const atom_index = try zld.createEmptyAtom(sym_index, @sizeOf(u32) * 3, 2);
+    const atom_index = try zld.createAtom(sym_index, .{ .size = @sizeOf(u32) * 3, .alignment = 2 });
     const sym = zld.getSymbolPtr(.{ .sym_index = sym_index });
     sym.n_type = macho.N_SECT;
     sym.n_sect = zld.text_section_index.? + 1;
