@@ -1,99 +1,3 @@
-const MachO = @This();
-
-const std = @import("std");
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const dwarf = std.dwarf;
-const fs = std.fs;
-const log = std.log.scoped(.link);
-const macho = std.macho;
-const math = std.math;
-const mem = std.mem;
-const meta = std.meta;
-
-const aarch64 = @import("../arch/aarch64/bits.zig");
-const calcUuid = @import("MachO/uuid.zig").calcUuid;
-const codegen = @import("../codegen.zig");
-const dead_strip = @import("MachO/dead_strip.zig");
-const fat = @import("MachO/fat.zig");
-const link = @import("../link.zig");
-const llvm_backend = @import("../codegen/llvm.zig");
-const load_commands = @import("MachO/load_commands.zig");
-const stubs = @import("MachO/stubs.zig");
-const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
-const zld = @import("MachO/zld.zig");
-
-const Air = @import("../Air.zig");
-const Allocator = mem.Allocator;
-const Archive = @import("MachO/Archive.zig");
-pub const Atom = @import("MachO/Atom.zig");
-const Cache = std.Build.Cache;
-const CodeSignature = @import("MachO/CodeSignature.zig");
-const Compilation = @import("../Compilation.zig");
-const Dwarf = File.Dwarf;
-const Dylib = @import("MachO/Dylib.zig");
-const File = link.File;
-const Object = @import("MachO/Object.zig");
-const LibStub = @import("tapi.zig").LibStub;
-const Liveness = @import("../Liveness.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Md5 = std.crypto.hash.Md5;
-const Module = @import("../Module.zig");
-const InternPool = @import("../InternPool.zig");
-const Relocation = @import("MachO/Relocation.zig");
-const StringTable = @import("strtab.zig").StringTable;
-const TableSection = @import("table_section.zig").TableSection;
-const Trie = @import("MachO/Trie.zig");
-const Type = @import("../type.zig").Type;
-const TypedValue = @import("../TypedValue.zig");
-const Value = @import("../value.zig").Value;
-
-pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
-
-const Bind = @import("MachO/dyld_info/bind.zig").Bind(*const MachO, SymbolWithLoc);
-const LazyBind = @import("MachO/dyld_info/bind.zig").LazyBind(*const MachO, SymbolWithLoc);
-const Rebase = @import("MachO/dyld_info/Rebase.zig");
-
-pub const base_tag: File.Tag = File.Tag.macho;
-pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
-
-/// Mode of operation of the linker.
-pub const Mode = enum {
-    /// Incremental mode will preallocate segments/sections and is compatible with
-    /// watch and HCS modes of operation.
-    incremental,
-    /// Zld mode will link relocatables in a traditional, one-shot
-    /// fashion (default for LLVM backend). It acts as a drop-in replacement for
-    /// LLD.
-    zld,
-};
-
-pub const Section = struct {
-    header: macho.section_64,
-    segment_index: u8,
-    first_atom_index: ?Atom.Index = null,
-    last_atom_index: ?Atom.Index = null,
-
-    /// A list of atoms that have surplus capacity. This list can have false
-    /// positives, as functions grow and shrink over time, only sometimes being added
-    /// or removed from the freelist.
-    ///
-    /// An atom has surplus capacity when its overcapacity value is greater than
-    /// padToIdeal(minimum_atom_size). That is, when it has so
-    /// much extra capacity, that we could fit a small new symbol in it, itself with
-    /// ideal_capacity or more.
-    ///
-    /// Ideal capacity is defined by size + (size / ideal_factor).
-    ///
-    /// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
-    /// overcapacity can be negative. A simple way to have negative overcapacity is to
-    /// allocate a fresh atom, which will have ideal capacity, and then grow it
-    /// by 1 byte. It will then have -1 overcapacity.
-    free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
-};
-
 base: File,
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
@@ -153,6 +57,10 @@ strtab: StringTable(.strtab) = .{},
 
 got_table: TableSection(SymbolWithLoc) = .{},
 stub_table: TableSection(SymbolWithLoc) = .{},
+tlv_ptr_table: TableSection(SymbolWithLoc) = .{},
+
+thunk_table: std.AutoHashMapUnmanaged(Atom.Index, thunks.Thunk.Index) = .{},
+thunks: std.ArrayListUnmanaged(thunks.Thunk) = .{},
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 misc_errors: std.ArrayListUnmanaged(File.ErrorMsg) = .{},
@@ -224,101 +132,6 @@ tlv_table: TlvSymbolTable = .{},
 
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
-
-const is_hot_update_compatible = switch (builtin.target.os.tag) {
-    .macos => true,
-    else => false,
-};
-
-const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
-
-const LazySymbolMetadata = struct {
-    const State = enum { unused, pending_flush, flushed };
-    text_atom: Atom.Index = undefined,
-    data_const_atom: Atom.Index = undefined,
-    text_state: State = .unused,
-    data_const_state: State = .unused,
-};
-
-const TlvSymbolTable = std.AutoArrayHashMapUnmanaged(SymbolWithLoc, Atom.Index);
-
-const DeclMetadata = struct {
-    atom: Atom.Index,
-    section: u8,
-    /// A list of all exports aliases of this Decl.
-    /// TODO do we actually need this at all?
-    exports: std.ArrayListUnmanaged(u32) = .{},
-
-    fn getExport(m: DeclMetadata, macho_file: *const MachO, name: []const u8) ?u32 {
-        for (m.exports.items) |exp| {
-            if (mem.eql(u8, name, macho_file.getSymbolName(.{ .sym_index = exp }))) return exp;
-        }
-        return null;
-    }
-
-    fn getExportPtr(m: *DeclMetadata, macho_file: *MachO, name: []const u8) ?*u32 {
-        for (m.exports.items) |*exp| {
-            if (mem.eql(u8, name, macho_file.getSymbolName(.{ .sym_index = exp.* }))) return exp;
-        }
-        return null;
-    }
-};
-
-const BindingTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Binding));
-const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
-const RebaseTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
-const RelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
-
-const ResolveAction = struct {
-    kind: Kind,
-    target: SymbolWithLoc,
-
-    const Kind = enum {
-        none,
-        add_got,
-        add_stub,
-    };
-};
-
-pub const SymbolWithLoc = extern struct {
-    // Index into the respective symbol table.
-    sym_index: u32,
-
-    // 0 means it's a synthetic global.
-    file: u32 = 0,
-
-    pub fn getFile(self: SymbolWithLoc) ?u32 {
-        if (self.file == 0) return null;
-        return self.file - 1;
-    }
-
-    pub fn eql(self: SymbolWithLoc, other: SymbolWithLoc) bool {
-        return self.file == other.file and self.sym_index == other.sym_index;
-    }
-};
-
-const HotUpdateState = struct {
-    mach_task: ?std.os.darwin.MachTask = null,
-};
-
-/// When allocating, the ideal_capacity is calculated by
-/// actual_capacity + (actual_capacity / ideal_factor)
-const ideal_factor = 3;
-
-/// In order for a slice of bytes to be considered eligible to keep metadata pointing at
-/// it as a possible place to put new symbols, it must have enough room for this many bytes
-/// (plus extra for reserved capacity).
-const minimum_text_block_size = 64;
-pub const min_text_capacity = padToIdeal(minimum_text_block_size);
-
-/// Default virtual memory offset corresponds to the size of __PAGEZERO segment and
-/// start of __TEXT segment.
-pub const default_pagezero_vmsize: u64 = 0x100000000;
-
-/// We commit 0x1000 = 4096 bytes of space to the header and
-/// the table of load commands. This should be plenty for any
-/// potential future extensions.
-pub const default_headerpad_size: u32 = 0x1000;
 
 pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     assert(options.target.ofmt == .macho);
@@ -622,6 +435,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     defer actions.deinit();
     try self.resolveSymbolsInDylibs(&actions);
 
+    if (self.getEntryPoint() == null) {
+        self.error_flags.no_entry_point_found = true;
+    }
+
     if (self.unresolved.count() > 0) {
         for (self.unresolved.keys()) |index| {
             // TODO: convert into compiler errors.
@@ -640,6 +457,16 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     try self.createDyldPrivateAtom();
     try self.writeStubHelperPreamble();
+
+    if (self.base.options.output_mode == .Exe and self.getEntryPoint() != null) {
+        const global = self.getEntryPoint().?;
+        if (self.getSymbol(global).undf()) {
+            // We do one additional check here in case the entry point was found in one of the dylibs.
+            // (I actually have no idea what this would imply but it is a possible outcome and so we
+            // support it.)
+            try self.addStubEntry(global);
+        }
+    }
 
     try self.allocateSpecialSymbols();
 
@@ -732,16 +559,18 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         .Exe => blk: {
             const seg_id = self.header_segment_cmd_index.?;
             const seg = self.segments.items[seg_id];
-            const global = self.getEntryPoint() catch |err| switch (err) {
-                error.MissingMainEntrypoint => {
-                    self.error_flags.no_entry_point_found = true;
-                    break :blk;
-                },
-                else => |e| return e,
-            };
+            const global = self.getEntryPoint() orelse break :blk;
             const sym = self.getSymbol(global);
+
+            const addr: u64 = if (sym.undf())
+                // In this case, the symbol has been resolved in one of dylibs and so we point
+                // to the stub as its vmaddr value.
+                self.getStubsEntryAddress(global).?
+            else
+                sym.n_value;
+
             try lc_writer.writeStruct(macho.entry_point_command{
-                .entryoff = @as(u32, @intCast(sym.n_value - seg.vmaddr)),
+                .entryoff = @as(u32, @intCast(addr - seg.vmaddr)),
                 .stacksize = self.base.options.stack_size_override orelse 0,
             });
         },
@@ -1796,6 +1625,14 @@ pub fn deinit(self: *MachO) void {
 
     self.got_table.deinit(gpa);
     self.stub_table.deinit(gpa);
+    self.tlv_ptr_table.deinit(gpa);
+    self.thunk_table.deinit(gpa);
+
+    for (self.thunks.items) |*thunk| {
+        thunk.deinit(gpa);
+    }
+    self.thunks.deinit(gpa);
+
     self.strtab.deinit(gpa);
 
     self.locals.deinit(gpa);
@@ -4019,14 +3856,29 @@ pub fn getAtomIndexForSymbol(self: *MachO, sym_with_loc: SymbolWithLoc) ?Atom.In
     return self.atom_by_index_table.get(sym_with_loc.sym_index);
 }
 
-/// Returns symbol location corresponding to the set entrypoint.
+pub fn getGotEntryAddress(self: *MachO, sym_with_loc: SymbolWithLoc) ?u64 {
+    const index = self.got_table.lookup.get(sym_with_loc) orelse return null;
+    const header = self.sections.items(.header)[self.got_section_index.?];
+    return header.addr + @sizeOf(u64) * index;
+}
+
+pub fn getTlvPtrEntryAddress(self: *MachO, sym_with_loc: SymbolWithLoc) ?u64 {
+    const index = self.tlv_ptr_table.lookup.get(sym_with_loc) orelse return null;
+    const header = self.sections.items(.header)[self.tlv_ptr_section_index.?];
+    return header.addr + @sizeOf(u64) * index;
+}
+
+pub fn getStubsEntryAddress(self: *MachO, sym_with_loc: SymbolWithLoc) ?u64 {
+    const index = self.stub_table.lookup.get(sym_with_loc) orelse return null;
+    const header = self.sections.items(.header)[self.stubs_section_index.?];
+    return header.addr + stubs.stubSize(self.base.options.target.cpu.arch) * index;
+}
+
+/// Returns symbol location corresponding to the set entrypoint if any.
 /// Asserts output mode is executable.
-pub fn getEntryPoint(self: MachO) error{MissingMainEntrypoint}!SymbolWithLoc {
+pub fn getEntryPoint(self: MachO) ?SymbolWithLoc {
     const entry_name = self.base.options.entry orelse load_commands.default_entry_point;
-    const global = self.getGlobal(entry_name) orelse {
-        log.err("entrypoint '{s}' not found", .{entry_name});
-        return error.MissingMainEntrypoint;
-    };
+    const global = self.getGlobal(entry_name) orelse return null;
     return global;
 }
 
@@ -4258,3 +4110,195 @@ pub fn logAtom(self: *MachO, atom_index: Atom.Index) void {
         sym.n_sect + 1,
     });
 }
+
+const MachO = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const dwarf = std.dwarf;
+const fs = std.fs;
+const log = std.log.scoped(.link);
+const macho = std.macho;
+const math = std.math;
+const mem = std.mem;
+const meta = std.meta;
+
+const aarch64 = @import("../arch/aarch64/bits.zig");
+const calcUuid = @import("MachO/uuid.zig").calcUuid;
+const codegen = @import("../codegen.zig");
+const dead_strip = @import("MachO/dead_strip.zig");
+const fat = @import("MachO/fat.zig");
+const link = @import("../link.zig");
+const llvm_backend = @import("../codegen/llvm.zig");
+const load_commands = @import("MachO/load_commands.zig");
+const stubs = @import("MachO/stubs.zig");
+const target_util = @import("../target.zig");
+const thunks = @import("MachO/thunks.zig");
+const trace = @import("../tracy.zig").trace;
+const zld = @import("MachO/zld.zig");
+
+const Air = @import("../Air.zig");
+const Allocator = mem.Allocator;
+const Archive = @import("MachO/Archive.zig");
+pub const Atom = @import("MachO/Atom.zig");
+const Cache = std.Build.Cache;
+const CodeSignature = @import("MachO/CodeSignature.zig");
+const Compilation = @import("../Compilation.zig");
+const Dwarf = File.Dwarf;
+const Dylib = @import("MachO/Dylib.zig");
+const File = link.File;
+const Object = @import("MachO/Object.zig");
+const LibStub = @import("tapi.zig").LibStub;
+const Liveness = @import("../Liveness.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
+const Md5 = std.crypto.hash.Md5;
+const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
+const Relocation = @import("MachO/Relocation.zig");
+const StringTable = @import("strtab.zig").StringTable;
+const TableSection = @import("table_section.zig").TableSection;
+const Trie = @import("MachO/Trie.zig");
+const Type = @import("../type.zig").Type;
+const TypedValue = @import("../TypedValue.zig");
+const Value = @import("../value.zig").Value;
+
+pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
+
+const Bind = @import("MachO/dyld_info/bind.zig").Bind(*const MachO, SymbolWithLoc);
+const LazyBind = @import("MachO/dyld_info/bind.zig").LazyBind(*const MachO, SymbolWithLoc);
+const Rebase = @import("MachO/dyld_info/Rebase.zig");
+
+pub const base_tag: File.Tag = File.Tag.macho;
+pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
+
+/// Mode of operation of the linker.
+pub const Mode = enum {
+    /// Incremental mode will preallocate segments/sections and is compatible with
+    /// watch and HCS modes of operation.
+    incremental,
+    /// Zld mode will link relocatables in a traditional, one-shot
+    /// fashion (default for LLVM backend). It acts as a drop-in replacement for
+    /// LLD.
+    zld,
+};
+
+pub const Section = struct {
+    header: macho.section_64,
+    segment_index: u8,
+    first_atom_index: ?Atom.Index = null,
+    last_atom_index: ?Atom.Index = null,
+
+    /// A list of atoms that have surplus capacity. This list can have false
+    /// positives, as functions grow and shrink over time, only sometimes being added
+    /// or removed from the freelist.
+    ///
+    /// An atom has surplus capacity when its overcapacity value is greater than
+    /// padToIdeal(minimum_atom_size). That is, when it has so
+    /// much extra capacity, that we could fit a small new symbol in it, itself with
+    /// ideal_capacity or more.
+    ///
+    /// Ideal capacity is defined by size + (size / ideal_factor).
+    ///
+    /// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
+    /// overcapacity can be negative. A simple way to have negative overcapacity is to
+    /// allocate a fresh atom, which will have ideal capacity, and then grow it
+    /// by 1 byte. It will then have -1 overcapacity.
+    free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
+};
+
+const is_hot_update_compatible = switch (builtin.target.os.tag) {
+    .macos => true,
+    else => false,
+};
+
+const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
+
+const LazySymbolMetadata = struct {
+    const State = enum { unused, pending_flush, flushed };
+    text_atom: Atom.Index = undefined,
+    data_const_atom: Atom.Index = undefined,
+    text_state: State = .unused,
+    data_const_state: State = .unused,
+};
+
+const TlvSymbolTable = std.AutoArrayHashMapUnmanaged(SymbolWithLoc, Atom.Index);
+
+const DeclMetadata = struct {
+    atom: Atom.Index,
+    section: u8,
+    /// A list of all exports aliases of this Decl.
+    /// TODO do we actually need this at all?
+    exports: std.ArrayListUnmanaged(u32) = .{},
+
+    fn getExport(m: DeclMetadata, macho_file: *const MachO, name: []const u8) ?u32 {
+        for (m.exports.items) |exp| {
+            if (mem.eql(u8, name, macho_file.getSymbolName(.{ .sym_index = exp }))) return exp;
+        }
+        return null;
+    }
+
+    fn getExportPtr(m: *DeclMetadata, macho_file: *MachO, name: []const u8) ?*u32 {
+        for (m.exports.items) |*exp| {
+            if (mem.eql(u8, name, macho_file.getSymbolName(.{ .sym_index = exp.* }))) return exp;
+        }
+        return null;
+    }
+};
+
+const BindingTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Binding));
+const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
+const RebaseTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
+const RelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
+
+const ResolveAction = struct {
+    kind: Kind,
+    target: SymbolWithLoc,
+
+    const Kind = enum {
+        none,
+        add_got,
+        add_stub,
+    };
+};
+
+pub const SymbolWithLoc = extern struct {
+    // Index into the respective symbol table.
+    sym_index: u32,
+
+    // 0 means it's a synthetic global.
+    file: u32 = 0,
+
+    pub fn getFile(self: SymbolWithLoc) ?u32 {
+        if (self.file == 0) return null;
+        return self.file - 1;
+    }
+
+    pub fn eql(self: SymbolWithLoc, other: SymbolWithLoc) bool {
+        return self.file == other.file and self.sym_index == other.sym_index;
+    }
+};
+
+const HotUpdateState = struct {
+    mach_task: ?std.os.darwin.MachTask = null,
+};
+
+/// When allocating, the ideal_capacity is calculated by
+/// actual_capacity + (actual_capacity / ideal_factor)
+const ideal_factor = 3;
+
+/// In order for a slice of bytes to be considered eligible to keep metadata pointing at
+/// it as a possible place to put new symbols, it must have enough room for this many bytes
+/// (plus extra for reserved capacity).
+const minimum_text_block_size = 64;
+pub const min_text_capacity = padToIdeal(minimum_text_block_size);
+
+/// Default virtual memory offset corresponds to the size of __PAGEZERO segment and
+/// start of __TEXT segment.
+pub const default_pagezero_vmsize: u64 = 0x100000000;
+
+/// We commit 0x1000 = 4096 bytes of space to the header and
+/// the table of load commands. This should be plenty for any
+/// potential future extensions.
+pub const default_headerpad_size: u32 = 0x1000;
