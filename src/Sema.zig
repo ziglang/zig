@@ -849,7 +849,7 @@ fn resolveBody(
     body_inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
     const break_data = (try sema.analyzeBodyBreak(block, body)) orelse
-        return Air.Inst.Ref.unreachable_value;
+        return .unreachable_value;
     // For comptime control flow, we need to detect when `analyzeBody` reports
     // that we need to break from an outer block. In such case we
     // use Zig's error mechanism to send control flow up the stack until
@@ -1757,7 +1757,7 @@ fn analyzeBodyInner(
                     else => |e| return e,
                 };
                 if (break_inst != defer_body[defer_body.len - 1]) break always_noreturn;
-                break :blk Air.Inst.Ref.void_value;
+                break :blk .void_value;
             },
             .defer_err_code => blk: {
                 const inst_data = sema.code.instructions.items(.data)[inst].defer_err_code;
@@ -1770,7 +1770,7 @@ fn analyzeBodyInner(
                     else => |e| return e,
                 };
                 if (break_inst != defer_body[defer_body.len - 1]) break always_noreturn;
-                break :blk Air.Inst.Ref.void_value;
+                break :blk .void_value;
             },
         };
         if (sema.isNoReturn(air_inst)) {
@@ -2742,7 +2742,7 @@ fn coerceResultPtr(
             if (pointee_ty.eql(Type.null, sema.mod)) {
                 const null_inst = Air.internedToRef(Value.null.toIntern());
                 _ = try block.addBinOp(.store, new_ptr, null_inst);
-                return Air.Inst.Ref.void_value;
+                return .void_value;
             }
             return sema.bitCast(block, ptr_ty, new_ptr, src, null);
         }
@@ -5520,7 +5520,7 @@ fn zirCompileLog(
     if (!gop.found_existing) {
         gop.value_ptr.* = src_node;
     }
-    return Air.Inst.Ref.void_value;
+    return .void_value;
 }
 
 fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
@@ -5937,7 +5937,7 @@ fn analyzeBlockBody(
 
         sema.air_instructions.items(.tag)[br] = .block;
         sema.air_instructions.items(.data)[br] = .{ .ty_pl = .{
-            .ty = Air.Inst.Ref.noreturn_type,
+            .ty = .noreturn_type,
             .payload = sema.addExtraAssumeCapacity(Air.Block{
                 .body_len = sub_block_len,
             }),
@@ -6535,7 +6535,7 @@ fn popErrorReturnTrace(
             .tag = .block,
             .data = .{
                 .ty_pl = .{
-                    .ty = Air.Inst.Ref.void_type,
+                    .ty = .void_type,
                     .payload = undefined, // updated below
                 },
             },
@@ -6552,12 +6552,12 @@ fn popErrorReturnTrace(
         const field_name = try mod.intern_pool.getOrPutString(gpa, "index");
         const field_ptr = try sema.structFieldPtr(&then_block, src, err_return_trace, field_name, src, stack_trace_ty, true);
         try sema.storePtr2(&then_block, src, field_ptr, src, saved_error_trace_index, src, .store);
-        _ = try then_block.addBr(cond_block_inst, Air.Inst.Ref.void_value);
+        _ = try then_block.addBr(cond_block_inst, .void_value);
 
         // Otherwise, do nothing
         var else_block = block.makeSubBlock();
         defer else_block.instructions.deinit(gpa);
-        _ = try else_block.addBr(cond_block_inst, Air.Inst.Ref.void_value);
+        _ = try else_block.addBr(cond_block_inst, .void_value);
 
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
             then_block.instructions.items.len + else_block.instructions.items.len +
@@ -7549,11 +7549,11 @@ fn analyzeCall(
                 }
             }
             try sema.safetyPanic(block, call_src, .noreturn_returned);
-            return Air.Inst.Ref.unreachable_value;
+            return .unreachable_value;
         }
         if (func_ty_info.return_type == .noreturn_type) {
             _ = try block.addNoOp(.unreach);
-            return Air.Inst.Ref.unreachable_value;
+            return .unreachable_value;
         }
         break :res func_inst;
     };
@@ -7580,7 +7580,7 @@ fn handleTailCall(sema: *Sema, block: *Block, call_src: LazySrcLoc, func_ty: Typ
         });
     }
     _ = try block.addUnOp(.ret, result);
-    return Air.Inst.Ref.unreachable_value;
+    return .unreachable_value;
 }
 
 /// Usually, returns null. If an argument was noreturn, returns that ref (which should become the call result).
@@ -8010,7 +8010,7 @@ fn instantiateGenericCall(
     }
     if (func_ty.fnReturnType(mod).isNoReturn(mod)) {
         _ = try block.addNoOp(.unreach);
-        return Air.Inst.Ref.unreachable_value;
+        return .unreachable_value;
     }
     return result;
 }
@@ -8347,7 +8347,7 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
     return block.addInst(.{
         .tag = .bitcast,
         .data = .{ .ty_op = .{
-            .ty = Air.Inst.Ref.anyerror_type,
+            .ty = .anyerror_type,
             .operand = operand,
         } },
     });
@@ -8384,7 +8384,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
 
     // Anything merged with anyerror is anyerror.
     if (lhs_ty.toIntern() == .anyerror_type or rhs_ty.toIntern() == .anyerror_type) {
-        return Air.Inst.Ref.anyerror_type;
+        return .anyerror_type;
     }
 
     if (ip.isInferredErrorSetType(lhs_ty.toIntern())) {
@@ -10472,7 +10472,7 @@ const SwitchProngAnalysis = struct {
 
                 if (sema.typeOf(capture_ref).isNoReturn(sema.mod)) {
                     // This prong should be unreachable!
-                    return Air.Inst.Ref.unreachable_value;
+                    return .unreachable_value;
                 }
 
                 sema.inst_map.putAssumeCapacity(spa.switch_block_inst, capture_ref);
@@ -10641,7 +10641,7 @@ const SwitchProngAnalysis = struct {
                     return sema.bitCast(block, ty, spa.operand, operand_src, null);
                 } else {
                     try block.addUnreachable(operand_src, false);
-                    return Air.Inst.Ref.unreachable_value;
+                    return .unreachable_value;
                 },
                 else => return spa.operand,
             }
@@ -11771,7 +11771,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         }
         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, special.body, operand);
         if (empty_enum) {
-            return Air.Inst.Ref.void_value;
+            return .void_value;
         }
 
         return spa.resolveProngComptime(
@@ -11789,13 +11789,13 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
     if (scalar_cases_len + multi_cases_len == 0 and !special.is_inline) {
         if (empty_enum) {
-            return Air.Inst.Ref.void_value;
+            return .void_value;
         }
         if (special_prong == .none) {
             return sema.fail(block, src, "switch must handle all possibilities", .{});
         }
         if (err_set and try sema.maybeErrorUnwrap(block, special.body, operand, operand_src)) {
-            return Air.Inst.Ref.unreachable_value;
+            return .unreachable_value;
         }
         if (mod.backendSupportsFeature(.is_named_enum_value) and block.wantSafety() and operand_ty.zigTypeTag(mod) == .Enum and
             (!operand_ty.isNonexhaustiveEnum(mod) or union_originally))
@@ -12314,8 +12314,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                         special.body,
                         special.capture,
                         .special_capture,
-                        &.{Air.Inst.Ref.bool_true},
-                        Air.Inst.Ref.bool_true,
+                        &.{.bool_true},
+                        .bool_true,
                         special.has_tag_capture,
                     );
 
@@ -12340,8 +12340,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                         special.body,
                         special.capture,
                         .special_capture,
-                        &.{Air.Inst.Ref.bool_false},
-                        Air.Inst.Ref.bool_false,
+                        &.{.bool_false},
+                        .bool_false,
                         special.has_tag_capture,
                     );
 
@@ -12901,11 +12901,7 @@ fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             ty.fmt(mod),
         });
     };
-    if (has_field) {
-        return Air.Inst.Ref.bool_true;
-    } else {
-        return Air.Inst.Ref.bool_false;
-    }
+    return if (has_field) .bool_true else .bool_false;
 }
 
 fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12921,14 +12917,14 @@ fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     try sema.checkNamespaceType(block, lhs_src, container_type);
 
     const namespace = container_type.getNamespaceIndex(mod).unwrap() orelse
-        return Air.Inst.Ref.bool_false;
+        return .bool_false;
     if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |decl_index| {
         const decl = mod.declPtr(decl_index);
         if (decl.is_pub or decl.getFileScope(mod) == block.getFileScope(mod)) {
-            return Air.Inst.Ref.bool_true;
+            return .bool_true;
         }
     }
-    return Air.Inst.Ref.bool_false;
+    return .bool_false;
 }
 
 fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -15998,7 +15994,7 @@ fn zirAsm(
             return sema.fail(block, src, "volatile keyword is redundant on module-level assembly", .{});
         }
         try sema.mod.addGlobalAssembly(sema.owner_decl_index, asm_source);
-        return Air.Inst.Ref.void_value;
+        return .void_value;
     }
 
     if (block.is_comptime) {
@@ -16145,11 +16141,7 @@ fn zirCmpEq(
     const rhs_ty_tag = rhs_ty.zigTypeTag(mod);
     if (lhs_ty_tag == .Null and rhs_ty_tag == .Null) {
         // null == null, null != null
-        if (op == .eq) {
-            return Air.Inst.Ref.bool_true;
-        } else {
-            return Air.Inst.Ref.bool_false;
-        }
+        return if (op == .eq) .bool_true else .bool_false;
     }
 
     // comparing null with optionals
@@ -16181,11 +16173,10 @@ fn zirCmpEq(
                     }
                     const lkey = mod.intern_pool.indexToKey(lval.toIntern());
                     const rkey = mod.intern_pool.indexToKey(rval.toIntern());
-                    if ((lkey.err.name == rkey.err.name) == (op == .eq)) {
-                        return Air.Inst.Ref.bool_true;
-                    } else {
-                        return Air.Inst.Ref.bool_false;
-                    }
+                    return if ((lkey.err.name == rkey.err.name) == (op == .eq))
+                        .bool_true
+                    else
+                        .bool_false;
                 } else {
                     break :src rhs_src;
                 }
@@ -16199,11 +16190,7 @@ fn zirCmpEq(
     if (lhs_ty_tag == .Type and rhs_ty_tag == .Type) {
         const lhs_as_type = try sema.analyzeAsType(block, lhs_src, lhs);
         const rhs_as_type = try sema.analyzeAsType(block, rhs_src, rhs);
-        if (lhs_as_type.eql(rhs_as_type, mod) == (op == .eq)) {
-            return Air.Inst.Ref.bool_true;
-        } else {
-            return Air.Inst.Ref.bool_false;
-        }
+        return if (lhs_as_type.eql(rhs_as_type, mod) == (op == .eq)) .bool_true else .bool_false;
     }
     return sema.analyzeCmp(block, src, lhs, rhs, op, lhs_src, rhs_src, true);
 }
@@ -16239,7 +16226,7 @@ fn analyzeCmpUnionTag(
         if (enum_val.isUndef(mod)) return mod.undefRef(Type.bool);
         const field_ty = union_ty.unionFieldType(enum_val, mod);
         if (field_ty.zigTypeTag(mod) == .NoReturn) {
-            return Air.Inst.Ref.bool_false;
+            return .bool_false;
         }
     }
 
@@ -16347,11 +16334,10 @@ fn cmpSelf(
                     return Air.internedToRef(cmp_val.toIntern());
                 }
 
-                if (try sema.compareAll(lhs_val, op, rhs_val, resolved_type)) {
-                    return Air.Inst.Ref.bool_true;
-                } else {
-                    return Air.Inst.Ref.bool_false;
-                }
+                return if (try sema.compareAll(lhs_val, op, rhs_val, resolved_type))
+                    .bool_true
+                else
+                    .bool_false;
             } else {
                 if (resolved_type.zigTypeTag(mod) == .Bool) {
                     // We can lower bool eq/neq more efficiently.
@@ -18000,10 +17986,7 @@ fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
         return if (val.isUndef(mod))
             mod.undefRef(Type.bool)
-        else if (val.toBool())
-            Air.Inst.Ref.bool_false
-        else
-            Air.Inst.Ref.bool_true;
+        else if (val.toBool()) .bool_false else .bool_true;
     }
     try sema.requireRuntimeBlock(block, src, null);
     return block.addTyOp(.not, Type.bool, operand);
@@ -18029,9 +18012,9 @@ fn zirBoolBr(
 
     if (try sema.resolveDefinedValue(parent_block, lhs_src, lhs)) |lhs_val| {
         if (is_bool_or and lhs_val.toBool()) {
-            return Air.Inst.Ref.bool_true;
+            return .bool_true;
         } else if (!is_bool_or and !lhs_val.toBool()) {
-            return Air.Inst.Ref.bool_false;
+            return .bool_false;
         }
         // comptime-known left-hand side. No need for a block here; the result
         // is simply the rhs expression. Here we rely on there only being 1
@@ -18075,9 +18058,9 @@ fn zirBoolBr(
     if (!sema.typeOf(rhs_result).isNoReturn(mod)) {
         if (try sema.resolveDefinedValue(rhs_block, sema.src, rhs_result)) |rhs_val| {
             if (is_bool_or and rhs_val.toBool()) {
-                return Air.Inst.Ref.bool_true;
+                return .bool_true;
             } else if (!is_bool_or and !rhs_val.toBool()) {
-                return Air.Inst.Ref.bool_false;
+                return .bool_false;
             }
         }
     }
@@ -19732,7 +19715,7 @@ fn zirFieldType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         // generic poison should not result in a failed compilation, but the
         // generic poison type. This prevents unnecessary failures when
         // constructing types at compile-time.
-        error.GenericPoison => return Air.Inst.Ref.generic_poison_type,
+        error.GenericPoison => return .generic_poison_type,
         else => |e| return e,
     };
     const zir_field_name = sema.code.nullTerminatedString(extra.name_start);
@@ -20066,16 +20049,16 @@ fn zirReify(
     if (try union_val.val.toValue().anyUndef(mod)) return sema.failWithUseOfUndef(block, src);
     const tag_index = type_info_ty.unionTagFieldIndex(union_val.tag.toValue(), mod).?;
     switch (@as(std.builtin.TypeId, @enumFromInt(tag_index))) {
-        .Type => return Air.Inst.Ref.type_type,
-        .Void => return Air.Inst.Ref.void_type,
-        .Bool => return Air.Inst.Ref.bool_type,
-        .NoReturn => return Air.Inst.Ref.noreturn_type,
-        .ComptimeFloat => return Air.Inst.Ref.comptime_float_type,
-        .ComptimeInt => return Air.Inst.Ref.comptime_int_type,
-        .Undefined => return Air.Inst.Ref.undefined_type,
-        .Null => return Air.Inst.Ref.null_type,
+        .Type => return .type_type,
+        .Void => return .void_type,
+        .Bool => return .bool_type,
+        .NoReturn => return .noreturn_type,
+        .ComptimeFloat => return .comptime_float_type,
+        .ComptimeInt => return .comptime_int_type,
+        .Undefined => return .undefined_type,
+        .Null => return .null_type,
         .AnyFrame => return sema.failWithUseOfAsync(block, src),
-        .EnumLiteral => return Air.Inst.Ref.enum_literal_type,
+        .EnumLiteral => return .enum_literal_type,
         .Int => {
             const fields = ip.typeOf(union_val.val).toType().structFields(mod);
             const signedness_val = try union_val.val.toValue().fieldValue(
@@ -24566,7 +24549,7 @@ fn zirCUndef(
 
     const name = try sema.resolveConstString(block, src, extra.operand, "name of macro being undefined must be comptime-known");
     try block.c_import_buf.?.writer().print("#undef {s}\n", .{name});
-    return Air.Inst.Ref.void_value;
+    return .void_value;
 }
 
 fn zirCInclude(
@@ -24579,7 +24562,7 @@ fn zirCInclude(
 
     const name = try sema.resolveConstString(block, src, extra.operand, "path being included must be comptime-known");
     try block.c_import_buf.?.writer().print("#include <{s}>\n", .{name});
-    return Air.Inst.Ref.void_value;
+    return .void_value;
 }
 
 fn zirCDefine(
@@ -24600,7 +24583,7 @@ fn zirCDefine(
     } else {
         try block.c_import_buf.?.writer().print("#define {s}\n", .{name});
     }
-    return Air.Inst.Ref.void_value;
+    return .void_value;
 }
 
 fn zirWasmMemorySize(
@@ -24717,7 +24700,7 @@ fn zirPrefetch(
         });
     }
 
-    return Air.Inst.Ref.void_value;
+    return .void_value;
 }
 
 fn resolveExternOptions(
@@ -24902,11 +24885,7 @@ fn zirInComptime(
     block: *Block,
 ) CompileError!Air.Inst.Ref {
     _ = sema;
-    if (block.is_comptime) {
-        return Air.Inst.Ref.bool_true;
-    } else {
-        return Air.Inst.Ref.bool_false;
-    }
+    return if (block.is_comptime) .bool_true else .bool_false;
 }
 
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {
@@ -26723,7 +26702,7 @@ fn unionFieldPtr(
     }
     if (field_ty.zigTypeTag(mod) == .NoReturn) {
         _ = try block.addNoOp(.unreach);
-        return Air.Inst.Ref.unreachable_value;
+        return .unreachable_value;
     }
     return block.addStructFieldPtr(union_ptr, field_index, ptr_field_ty);
 }
@@ -26795,7 +26774,7 @@ fn unionFieldVal(
     }
     if (field_ty.zigTypeTag(mod) == .NoReturn) {
         _ = try block.addNoOp(.unreach);
-        return Air.Inst.Ref.unreachable_value;
+        return .unreachable_value;
     }
     return block.addStructFieldVal(union_byval, field_index, field_ty);
 }
@@ -31227,14 +31206,10 @@ fn analyzeIsNull(
         }
         const is_null = opt_val.isNull(mod);
         const bool_value = if (invert_logic) !is_null else is_null;
-        if (bool_value) {
-            return Air.Inst.Ref.bool_true;
-        } else {
-            return Air.Inst.Ref.bool_false;
-        }
+        return if (bool_value) .bool_true else .bool_false;
     }
 
-    const inverted_non_null_res = if (invert_logic) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
+    const inverted_non_null_res: Air.Inst.Ref = if (invert_logic) .bool_true else .bool_false;
     const operand_ty = sema.typeOf(operand);
     if (operand_ty.zigTypeTag(mod) == .Optional and operand_ty.optionalChild(mod).zigTypeTag(mod) == .NoReturn) {
         return inverted_non_null_res;
@@ -31259,14 +31234,14 @@ fn analyzePtrIsNonErrComptimeOnly(
     const child_ty = ptr_ty.childType(mod);
 
     const child_tag = child_ty.zigTypeTag(mod);
-    if (child_tag != .ErrorSet and child_tag != .ErrorUnion) return Air.Inst.Ref.bool_true;
-    if (child_tag == .ErrorSet) return Air.Inst.Ref.bool_false;
+    if (child_tag != .ErrorSet and child_tag != .ErrorUnion) return .bool_true;
+    if (child_tag == .ErrorSet) return .bool_false;
     assert(child_tag == .ErrorUnion);
 
     _ = block;
     _ = src;
 
-    return Air.Inst.Ref.none;
+    return .none;
 }
 
 fn analyzeIsNonErrComptimeOnly(
@@ -31888,11 +31863,11 @@ fn cmpNumeric(
                 // Compare ints: const vs. undefined (or vice versa)
                 if (!lhs_val.isUndef(mod) and (lhs_ty.isInt(mod) or lhs_ty_tag == .ComptimeInt) and rhs_ty.isInt(mod) and rhs_val.isUndef(mod)) {
                     if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(lhs_val), op, rhs_ty)) |res| {
-                        return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
+                        return if (res) .bool_true else .bool_false;
                     }
                 } else if (!rhs_val.isUndef(mod) and (rhs_ty.isInt(mod) or rhs_ty_tag == .ComptimeInt) and lhs_ty.isInt(mod) and lhs_val.isUndef(mod)) {
                     if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(rhs_val), op.reverse(), lhs_ty)) |res| {
-                        return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
+                        return if (res) .bool_true else .bool_false;
                     }
                 }
 
@@ -31900,22 +31875,17 @@ fn cmpNumeric(
                     return mod.undefRef(Type.bool);
                 }
                 if (lhs_val.isNan(mod) or rhs_val.isNan(mod)) {
-                    if (op == std.math.CompareOperator.neq) {
-                        return Air.Inst.Ref.bool_true;
-                    } else {
-                        return Air.Inst.Ref.bool_false;
-                    }
+                    return if (op == std.math.CompareOperator.neq) .bool_true else .bool_false;
                 }
-                if (try Value.compareHeteroAdvanced(lhs_val, op, rhs_val, mod, sema)) {
-                    return Air.Inst.Ref.bool_true;
-                } else {
-                    return Air.Inst.Ref.bool_false;
-                }
+                return if (try Value.compareHeteroAdvanced(lhs_val, op, rhs_val, mod, sema))
+                    .bool_true
+                else
+                    .bool_false;
             } else {
                 if (!lhs_val.isUndef(mod) and (lhs_ty.isInt(mod) or lhs_ty_tag == .ComptimeInt) and rhs_ty.isInt(mod)) {
                     // Compare ints: const vs. var
                     if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(lhs_val), op, rhs_ty)) |res| {
-                        return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
+                        return if (res) .bool_true else .bool_false;
                     }
                 }
                 break :src rhs_src;
@@ -31925,7 +31895,7 @@ fn cmpNumeric(
                 if (!rhs_val.isUndef(mod) and (rhs_ty.isInt(mod) or rhs_ty_tag == .ComptimeInt) and lhs_ty.isInt(mod)) {
                     // Compare ints: var vs. const
                     if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(rhs_val), op.reverse(), lhs_ty)) |res| {
-                        return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
+                        return if (res) .bool_true else .bool_false;
                     }
                 }
             }
@@ -31992,34 +31962,34 @@ fn cmpNumeric(
         if (lhs_val.isUndef(mod))
             return mod.undefRef(Type.bool);
         if (lhs_val.isNan(mod)) switch (op) {
-            .neq => return Air.Inst.Ref.bool_true,
-            else => return Air.Inst.Ref.bool_false,
+            .neq => return .bool_true,
+            else => return .bool_false,
         };
         if (lhs_val.isInf(mod)) switch (op) {
-            .neq => return Air.Inst.Ref.bool_true,
-            .eq => return Air.Inst.Ref.bool_false,
-            .gt, .gte => return if (lhs_val.isNegativeInf(mod)) Air.Inst.Ref.bool_false else Air.Inst.Ref.bool_true,
-            .lt, .lte => return if (lhs_val.isNegativeInf(mod)) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false,
+            .neq => return .bool_true,
+            .eq => return .bool_false,
+            .gt, .gte => return if (lhs_val.isNegativeInf(mod)) .bool_false else .bool_true,
+            .lt, .lte => return if (lhs_val.isNegativeInf(mod)) .bool_true else .bool_false,
         };
         if (!rhs_is_signed) {
             switch (lhs_val.orderAgainstZero(mod)) {
                 .gt => {},
                 .eq => switch (op) { // LHS = 0, RHS is unsigned
-                    .lte => return Air.Inst.Ref.bool_true,
-                    .gt => return Air.Inst.Ref.bool_false,
+                    .lte => return .bool_true,
+                    .gt => return .bool_false,
                     else => {},
                 },
                 .lt => switch (op) { // LHS < 0, RHS is unsigned
-                    .neq, .lt, .lte => return Air.Inst.Ref.bool_true,
-                    .eq, .gt, .gte => return Air.Inst.Ref.bool_false,
+                    .neq, .lt, .lte => return .bool_true,
+                    .eq, .gt, .gte => return .bool_false,
                 },
             }
         }
         if (lhs_is_float) {
             if (lhs_val.floatHasFraction(mod)) {
                 switch (op) {
-                    .eq => return Air.Inst.Ref.bool_false,
-                    .neq => return Air.Inst.Ref.bool_true,
+                    .eq => return .bool_false,
+                    .neq => return .bool_true,
                     else => {},
                 }
             }
@@ -32050,34 +32020,34 @@ fn cmpNumeric(
         if (rhs_val.isUndef(mod))
             return mod.undefRef(Type.bool);
         if (rhs_val.isNan(mod)) switch (op) {
-            .neq => return Air.Inst.Ref.bool_true,
-            else => return Air.Inst.Ref.bool_false,
+            .neq => return .bool_true,
+            else => return .bool_false,
         };
         if (rhs_val.isInf(mod)) switch (op) {
-            .neq => return Air.Inst.Ref.bool_true,
-            .eq => return Air.Inst.Ref.bool_false,
-            .gt, .gte => return if (rhs_val.isNegativeInf(mod)) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false,
-            .lt, .lte => return if (rhs_val.isNegativeInf(mod)) Air.Inst.Ref.bool_false else Air.Inst.Ref.bool_true,
+            .neq => return .bool_true,
+            .eq => return .bool_false,
+            .gt, .gte => return if (rhs_val.isNegativeInf(mod)) .bool_true else .bool_false,
+            .lt, .lte => return if (rhs_val.isNegativeInf(mod)) .bool_false else .bool_true,
         };
         if (!lhs_is_signed) {
             switch (rhs_val.orderAgainstZero(mod)) {
                 .gt => {},
                 .eq => switch (op) { // RHS = 0, LHS is unsigned
-                    .gte => return Air.Inst.Ref.bool_true,
-                    .lt => return Air.Inst.Ref.bool_false,
+                    .gte => return .bool_true,
+                    .lt => return .bool_false,
                     else => {},
                 },
                 .lt => switch (op) { // RHS < 0, LHS is unsigned
-                    .neq, .gt, .gte => return Air.Inst.Ref.bool_true,
-                    .eq, .lt, .lte => return Air.Inst.Ref.bool_false,
+                    .neq, .gt, .gte => return .bool_true,
+                    .eq, .lt, .lte => return .bool_false,
                 },
             }
         }
         if (rhs_is_float) {
             if (rhs_val.floatHasFraction(mod)) {
                 switch (op) {
-                    .eq => return Air.Inst.Ref.bool_false,
-                    .neq => return Air.Inst.Ref.bool_true,
+                    .eq => return .bool_false,
+                    .neq => return .bool_true,
                     else => {},
                 }
             }
