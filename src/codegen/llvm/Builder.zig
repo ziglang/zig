@@ -7119,9 +7119,9 @@ pub const FastMathKind = enum {
 };
 
 pub const Constant = enum(u32) {
+    none,
     false,
     true,
-    none,
     no_init = 1 << 31,
     _,
 
@@ -8084,9 +8084,9 @@ pub fn init(options: Options) InitError!Builder {
         assert(try self.fnAttrs(&.{}) == .none);
     }
 
+    assert(try self.noneConst(.token) == .none);
     assert(try self.intConst(.i1, 0) == .false);
     assert(try self.intConst(.i1, 1) == .true);
-    assert(try self.noneConst(.token) == .none);
 
     return self;
 }
