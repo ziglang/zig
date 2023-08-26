@@ -106,6 +106,7 @@ pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
 }
 
 pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
+    const gpa = zld.gpa;
     const segname = sect.segName();
     const sectname = sect.sectName();
     const res: ?u8 = blk: {
@@ -126,7 +127,9 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
 
         if (sect.isCode()) {
             if (zld.text_section_index == null) {
-                zld.text_section_index = try zld.initSection(
+                zld.text_section_index = try MachO.initSection(
+                    gpa,
+                    zld,
                     "__TEXT",
                     "__text",
                     .{
@@ -148,7 +151,9 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
             macho.S_8BYTE_LITERALS,
             macho.S_16BYTE_LITERALS,
             => {
-                break :blk zld.getSectionByName("__TEXT", "__const") orelse try zld.initSection(
+                break :blk zld.getSectionByName("__TEXT", "__const") orelse try MachO.initSection(
+                    gpa,
+                    zld,
                     "__TEXT",
                     "__const",
                     .{},
@@ -156,13 +161,17 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
             },
             macho.S_CSTRING_LITERALS => {
                 if (mem.startsWith(u8, sectname, "__objc")) {
-                    break :blk zld.getSectionByName(segname, sectname) orelse try zld.initSection(
+                    break :blk zld.getSectionByName(segname, sectname) orelse try MachO.initSection(
+                        gpa,
+                        zld,
                         segname,
                         sectname,
                         .{},
                     );
                 }
-                break :blk zld.getSectionByName("__TEXT", "__cstring") orelse try zld.initSection(
+                break :blk zld.getSectionByName("__TEXT", "__cstring") orelse try MachO.initSection(
+                    gpa,
+                    zld,
                     "__TEXT",
                     "__cstring",
                     .{ .flags = macho.S_CSTRING_LITERALS },
@@ -171,7 +180,9 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
             macho.S_MOD_INIT_FUNC_POINTERS,
             macho.S_MOD_TERM_FUNC_POINTERS,
             => {
-                break :blk zld.getSectionByName("__DATA_CONST", sectname) orelse try zld.initSection(
+                break :blk zld.getSectionByName("__DATA_CONST", sectname) orelse try MachO.initSection(
+                    gpa,
+                    zld,
                     "__DATA_CONST",
                     sectname,
                     .{ .flags = sect.flags },
@@ -184,14 +195,19 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
             macho.S_THREAD_LOCAL_REGULAR,
             macho.S_THREAD_LOCAL_ZEROFILL,
             => {
-                break :blk zld.getSectionByName(segname, sectname) orelse try zld.initSection(
+                break :blk zld.getSectionByName(segname, sectname) orelse try MachO.initSection(
+                    gpa,
+                    zld,
                     segname,
                     sectname,
                     .{ .flags = sect.flags },
                 );
             },
             macho.S_COALESCED => {
-                break :blk zld.getSectionByName(segname, sectname) orelse try zld.initSection(
+                break :blk zld.getSectionByName(segname, sectname) orelse try MachO.initSection(
+                    gpa,
+                    zld,
+
                     segname,
                     sectname,
                     .{},
@@ -205,7 +221,9 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
                         mem.eql(u8, sectname, "__gosymtab") or
                         mem.eql(u8, sectname, "__gopclntab"))
                     {
-                        break :blk zld.getSectionByName("__TEXT", sectname) orelse try zld.initSection(
+                        break :blk zld.getSectionByName("__TEXT", sectname) orelse try MachO.initSection(
+                            gpa,
+                            zld,
                             "__TEXT",
                             sectname,
                             .{},
@@ -218,20 +236,26 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
                         mem.eql(u8, sectname, "__objc_classlist") or
                         mem.eql(u8, sectname, "__objc_imageinfo"))
                     {
-                        break :blk zld.getSectionByName("__DATA_CONST", sectname) orelse try zld.initSection(
+                        break :blk zld.getSectionByName("__DATA_CONST", sectname) orelse try MachO.initSection(
+                            gpa,
+                            zld,
                             "__DATA_CONST",
                             sectname,
                             .{},
                         );
                     } else if (mem.eql(u8, sectname, "__data")) {
-                        break :blk zld.getSectionByName("__DATA", "__data") orelse try zld.initSection(
+                        break :blk zld.getSectionByName("__DATA", "__data") orelse try MachO.initSection(
+                            gpa,
+                            zld,
                             "__DATA",
                             "__data",
                             .{},
                         );
                     }
                 }
-                break :blk zld.getSectionByName(segname, sectname) orelse try zld.initSection(
+                break :blk zld.getSectionByName(segname, sectname) orelse try MachO.initSection(
+                    gpa,
+                    zld,
                     segname,
                     sectname,
                     .{},

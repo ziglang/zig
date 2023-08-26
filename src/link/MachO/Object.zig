@@ -685,11 +685,12 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
 
     log.debug("parsing __TEXT,__eh_frame section", .{});
 
+    const gpa = zld.gpa;
+
     if (zld.getSectionByName("__TEXT", "__eh_frame") == null) {
-        _ = try zld.initSection("__TEXT", "__eh_frame", .{});
+        _ = try MachO.initSection(gpa, zld, "__TEXT", "__eh_frame", .{});
     }
 
-    const gpa = zld.gpa;
     const cpu_arch = zld.options.target.cpu.arch;
     try self.parseRelocs(gpa, sect_id);
     const relocs = self.getRelocs(sect_id);
@@ -779,6 +780,8 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
 }
 
 fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
+    const gpa = zld.gpa;
+    const cpu_arch = zld.options.target.cpu.arch;
     const sect_id = self.unwind_info_sect_id orelse {
         // If it so happens that the object had `__eh_frame` section defined but no `__compact_unwind`,
         // we will try fully synthesising unwind info records to somewhat match Apple ld's
@@ -786,7 +789,7 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
         // we still create the output `__TEXT,__unwind_info` section.
         if (self.hasEhFrameRecords()) {
             if (zld.getSectionByName("__TEXT", "__unwind_info") == null) {
-                _ = try zld.initSection("__TEXT", "__unwind_info", .{});
+                _ = try MachO.initSection(gpa, zld, "__TEXT", "__unwind_info", .{});
             }
         }
         return;
@@ -794,11 +797,8 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
 
     log.debug("parsing unwind info in {s}", .{self.name});
 
-    const gpa = zld.gpa;
-    const cpu_arch = zld.options.target.cpu.arch;
-
     if (zld.getSectionByName("__TEXT", "__unwind_info") == null) {
-        _ = try zld.initSection("__TEXT", "__unwind_info", .{});
+        _ = try MachO.initSection(gpa, zld, "__TEXT", "__unwind_info", .{});
     }
 
     const unwind_records = self.getUnwindRecords();

@@ -2739,6 +2739,34 @@ fn calcPagezeroSize(self: *MachO) u64 {
     return aligned_pagezero_vmsize;
 }
 
+const InitSectionOpts = struct {
+    flags: u32 = macho.S_REGULAR,
+    reserved1: u32 = 0,
+    reserved2: u32 = 0,
+};
+
+pub fn initSection(
+    gpa: Allocator,
+    ctx: anytype,
+    segname: []const u8,
+    sectname: []const u8,
+    opts: InitSectionOpts,
+) !u8 {
+    log.debug("creating section '{s},{s}'", .{ segname, sectname });
+    const index = @as(u8, @intCast(ctx.sections.slice().len));
+    try ctx.sections.append(gpa, .{
+        .segment_index = undefined, // Segments will be created automatically later down the pipeline
+        .header = .{
+            .sectname = makeStaticString(sectname),
+            .segname = makeStaticString(segname),
+            .flags = opts.flags,
+            .reserved1 = opts.reserved1,
+            .reserved2 = opts.reserved2,
+        },
+    });
+    return index;
+}
+
 fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts: struct {
     size: u64 = 0,
     alignment: u32 = 0,
@@ -2751,7 +2779,6 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
     // In incremental context, we create one section per segment pairing. This way,
     // we can move the segment in raw file as we please.
     const segment_id = @as(u8, @intCast(self.segments.items.len));
-    const section_id = @as(u8, @intCast(self.sections.slice().len));
     const vmaddr = blk: {
         const prev_segment = self.segments.items[segment_id - 1];
         break :blk mem.alignForward(u64, prev_segment.vmaddr + prev_segment.vmsize, page_size);
@@ -2782,23 +2809,18 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
         .cmdsize = @sizeOf(macho.segment_command_64) + @sizeOf(macho.section_64),
     };
 
-    var section = macho.section_64{
-        .sectname = makeStaticString(sectname),
-        .segname = makeStaticString(segname),
-        .addr = mem.alignForward(u64, vmaddr, opts.alignment),
-        .offset = mem.alignForward(u32, @as(u32, @intCast(off)), opts.alignment),
-        .size = opts.size,
-        .@"align" = math.log2(opts.alignment),
+    const sect_id = try initSection(gpa, self, sectname, segname, .{
         .flags = opts.flags,
         .reserved2 = opts.reserved2,
-    };
+    });
+    const section = &self.sections.items(.header)[sect_id];
+    section.addr = mem.alignForward(u64, vmaddr, opts.alignment);
+    section.offset = mem.alignForward(u32, @as(u32, @intCast(off)), opts.alignment);
+    section.size = opts.size;
+    section.@"align" = math.log2(opts.alignment);
     assert(!section.isZerofill()); // TODO zerofill sections
 
-    try self.sections.append(gpa, .{
-        .segment_index = segment_id,
-        .header = section,
-    });
-    return section_id;
+    return sect_id;
 }
 
 fn growSection(self: *MachO, sect_id: u8, needed_size: u64) !void {

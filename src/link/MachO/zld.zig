@@ -141,7 +141,7 @@ pub const Zld = struct {
         sym.n_type = macho.N_SECT;
 
         const sect_id = self.getSectionByName("__DATA", "__data") orelse
-            try self.initSection("__DATA", "__data", .{});
+            try MachO.initSection(self.gpa, self, "__DATA", "__data", .{});
         sym.n_sect = sect_id + 1;
         self.dyld_private_atom_index = atom_index;
 
@@ -165,7 +165,7 @@ pub const Zld = struct {
             const size = sym.n_value;
             const alignment = (sym.n_desc >> 8) & 0x0f;
             const sect_id = self.getSectionByName("__DATA", "__bss") orelse
-                try self.initSection("__DATA", "__bss", .{ .flags = macho.S_ZEROFILL });
+                try MachO.initSection(gpa, self, "__DATA", "__bss", .{ .flags = macho.S_ZEROFILL });
 
             sym.* = .{
                 .n_strx = sym.n_strx,
@@ -619,7 +619,7 @@ pub const Zld = struct {
         if (self.got_table.lookup.contains(target)) return;
         _ = try self.got_table.allocateEntry(self.gpa, target);
         if (self.got_section_index == null) {
-            self.got_section_index = try self.initSection("__DATA_CONST", "__got", .{
+            self.got_section_index = try MachO.initSection(self.gpa, self, "__DATA_CONST", "__got", .{
                 .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
             });
         }
@@ -629,7 +629,7 @@ pub const Zld = struct {
         if (self.tlv_ptr_table.lookup.contains(target)) return;
         _ = try self.tlv_ptr_table.allocateEntry(self.gpa, target);
         if (self.tlv_ptr_section_index == null) {
-            self.tlv_ptr_section_index = try self.initSection("__DATA", "__thread_ptrs", .{
+            self.tlv_ptr_section_index = try MachO.initSection(self.gpa, self, "__DATA", "__thread_ptrs", .{
                 .flags = macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
             });
         }
@@ -639,18 +639,18 @@ pub const Zld = struct {
         if (self.stubs_table.lookup.contains(target)) return;
         _ = try self.stubs_table.allocateEntry(self.gpa, target);
         if (self.stubs_section_index == null) {
-            self.stubs_section_index = try self.initSection("__TEXT", "__stubs", .{
+            self.stubs_section_index = try MachO.initSection(self.gpa, self, "__TEXT", "__stubs", .{
                 .flags = macho.S_SYMBOL_STUBS |
                     macho.S_ATTR_PURE_INSTRUCTIONS |
                     macho.S_ATTR_SOME_INSTRUCTIONS,
                 .reserved2 = stubs.stubSize(self.options.target.cpu.arch),
             });
-            self.stub_helper_section_index = try self.initSection("__TEXT", "__stub_helper", .{
+            self.stub_helper_section_index = try MachO.initSection(self.gpa, self, "__TEXT", "__stub_helper", .{
                 .flags = macho.S_REGULAR |
                     macho.S_ATTR_PURE_INSTRUCTIONS |
                     macho.S_ATTR_SOME_INSTRUCTIONS,
             });
-            self.la_symbol_ptr_section_index = try self.initSection("__DATA", "__la_symbol_ptr", .{
+            self.la_symbol_ptr_section_index = try MachO.initSection(self.gpa, self, "__DATA", "__la_symbol_ptr", .{
                 .flags = macho.S_LAZY_SYMBOL_POINTERS,
             });
         }
@@ -1150,34 +1150,6 @@ pub const Zld = struct {
         const page_size = MachO.getPageSize(self.options.target.cpu.arch);
         segment.filesize = mem.alignForward(u64, segment.filesize, page_size);
         segment.vmsize = mem.alignForward(u64, segment.vmsize, page_size);
-    }
-
-    const InitSectionOpts = struct {
-        flags: u32 = macho.S_REGULAR,
-        reserved1: u32 = 0,
-        reserved2: u32 = 0,
-    };
-
-    pub fn initSection(
-        self: *Zld,
-        segname: []const u8,
-        sectname: []const u8,
-        opts: InitSectionOpts,
-    ) !u8 {
-        const gpa = self.gpa;
-        log.debug("creating section '{s},{s}'", .{ segname, sectname });
-        const index = @as(u8, @intCast(self.sections.slice().len));
-        try self.sections.append(gpa, .{
-            .segment_index = undefined, // Segments will be created automatically later down the pipeline
-            .header = .{
-                .sectname = makeStaticString(sectname),
-                .segname = makeStaticString(segname),
-                .flags = opts.flags,
-                .reserved1 = opts.reserved1,
-                .reserved2 = opts.reserved2,
-            },
-        });
-        return index;
     }
 
     fn writeSegmentHeaders(self: *Zld, writer: anytype) !void {
