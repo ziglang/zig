@@ -153,6 +153,10 @@ pub usingnamespace @import("linux/io_uring.zig");
 
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
+pub extern var _elf_aux_maybe: ?[*]std.elf.Auxv;
+comptime {
+    @export(elf_aux_maybe, .{ .name = "_elf_aux_maybe", .linkage = .Weak });
+}
 
 /// See `std.elf` for the constants.
 pub fn getauxval(index: usize) usize {
