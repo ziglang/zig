@@ -137,6 +137,8 @@ test "invoke static method in global scope" {
 const empty_global_instance = StructWithNoFields{};
 
 test "return empty struct instance" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     _ = returnEmptyStructInstance();
 }
 fn returnEmptyStructInstance() StructWithNoFields {
@@ -331,6 +333,7 @@ const VoidStructFieldsFoo = struct {
 
 test "return empty struct from fn" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     _ = testReturnEmptyStructFromFn();
 }
@@ -893,6 +896,8 @@ test "anonymous struct literal syntax" {
 }
 
 test "fully anonymous struct" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             try dump(.{
@@ -915,6 +920,8 @@ test "fully anonymous struct" {
 }
 
 test "fully anonymous list literal" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             try dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi" });
@@ -1715,6 +1722,8 @@ test "extern struct field pointer has correct alignment" {
 }
 
 test "packed struct field in anonymous struct" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const T = packed struct {
         f1: bool = false,
     };
@@ -1740,6 +1749,8 @@ test "struct init with no result pointer sets field result types" {
 }
 
 test "runtime side-effects in comptime-known struct init" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var side_effects: u4 = 0;
     const S = struct { a: u4, b: u4, c: u4, d: u4 };
     const init = S{

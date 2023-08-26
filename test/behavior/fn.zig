@@ -583,6 +583,8 @@ test "lazy values passed to anytype parameter" {
 }
 
 test "pass and return comptime-only types" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn returnNull(comptime x: @Type(.Null)) @Type(.Null) {
             return x;

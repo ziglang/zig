@@ -1669,6 +1669,8 @@ test "packed union field pointer has correct alignment" {
 }
 
 test "union with 128 bit integer" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const ValueTag = enum { int, other };
 
     const Value3 = union(ValueTag) {

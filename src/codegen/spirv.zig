@@ -1242,6 +1242,7 @@ pub const DeclGen = struct {
             },
             .Int => {
                 const int_info = ty.intInfo(mod);
+                // TODO: Integers in OpenCL kernels are always unsigned.
                 return try self.intType(int_info.signedness, int_info.bits);
             },
             .Enum => {

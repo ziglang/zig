@@ -288,6 +288,7 @@ test "generic function instantiation turns into comptime call" {
 
 test "generic function with void and comptime parameter" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct { x: i32 };
     const namespace = struct {

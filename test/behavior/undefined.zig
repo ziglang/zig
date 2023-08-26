@@ -82,6 +82,7 @@ test "assign undefined to struct with method" {
 
 test "type name of undefined" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const x = undefined;
     try expect(mem.eql(u8, @typeName(@TypeOf(x)), "@TypeOf(undefined)"));

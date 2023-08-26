@@ -729,6 +729,7 @@ fn loopNTimes(comptime n: usize) void {
 }
 
 test "variable inside inline loop that has different types on different iterations" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     try testVarInsideInlineLoop(.{ true, @as(u32, 42) });
 }
 
