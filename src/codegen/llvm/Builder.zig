@@ -178,20 +178,20 @@ pub const Type = enum(u32) {
         named_structure,
     };
 
-    pub const Simple = enum {
-        void,
-        half,
-        bfloat,
-        float,
-        double,
-        fp128,
-        x86_fp80,
-        ppc_fp128,
-        x86_amx,
-        x86_mmx,
-        label,
-        token,
-        metadata,
+    pub const Simple = enum(u5) {
+        void = 2,
+        half = 10,
+        bfloat = 23,
+        float = 3,
+        double = 4,
+        fp128 = 14,
+        x86_fp80 = 13,
+        ppc_fp128 = 15,
+        x86_amx = 24,
+        x86_mmx = 17,
+        label = 5,
+        token = 22,
+        metadata = 16,
     };
 
     pub const Function = struct {
