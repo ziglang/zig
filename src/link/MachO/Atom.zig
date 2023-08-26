@@ -1,23 +1,3 @@
-const Atom = @This();
-
-const std = @import("std");
-const build_options = @import("build_options");
-const aarch64 = @import("../../arch/aarch64/bits.zig");
-const assert = std.debug.assert;
-const log = std.log.scoped(.link);
-const macho = std.macho;
-const math = std.math;
-const mem = std.mem;
-const meta = std.meta;
-const trace = @import("../../tracy.zig").trace;
-
-const Allocator = mem.Allocator;
-const Arch = std.Target.Cpu.Arch;
-const MachO = @import("../MachO.zig");
-pub const Relocation = @import("Relocation.zig");
-const SymbolWithLoc = MachO.SymbolWithLoc;
-const Zld = @import("zld.zig").Zld;
-
 /// Each Atom always gets a symbol with the fully qualified name.
 /// The symbol can reside in any object file context structure in `symtab` array
 /// (see `Object`), or if the symbol is a synthetic symbol such as a GOT cell or
@@ -123,6 +103,144 @@ pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
     if (cap <= ideal_cap) return false;
     const surplus = cap - ideal_cap;
     return surplus >= MachO.min_text_capacity;
+}
+
+pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
+    const segname = sect.segName();
+    const sectname = sect.sectName();
+    const res: ?u8 = blk: {
+        if (mem.eql(u8, "__LLVM", segname)) {
+            log.debug("TODO LLVM section: type 0x{x}, name '{s},{s}'", .{
+                sect.flags, segname, sectname,
+            });
+            break :blk null;
+        }
+
+        // We handle unwind info separately.
+        if (mem.eql(u8, "__TEXT", segname) and mem.eql(u8, "__eh_frame", sectname)) {
+            break :blk null;
+        }
+        if (mem.eql(u8, "__LD", segname) and mem.eql(u8, "__compact_unwind", sectname)) {
+            break :blk null;
+        }
+
+        if (sect.isCode()) {
+            if (zld.text_section_index == null) {
+                zld.text_section_index = try zld.initSection(
+                    "__TEXT",
+                    "__text",
+                    .{
+                        .flags = macho.S_REGULAR |
+                            macho.S_ATTR_PURE_INSTRUCTIONS |
+                            macho.S_ATTR_SOME_INSTRUCTIONS,
+                    },
+                );
+            }
+            break :blk zld.text_section_index.?;
+        }
+
+        if (sect.isDebug()) {
+            break :blk null;
+        }
+
+        switch (sect.type()) {
+            macho.S_4BYTE_LITERALS,
+            macho.S_8BYTE_LITERALS,
+            macho.S_16BYTE_LITERALS,
+            => {
+                break :blk zld.getSectionByName("__TEXT", "__const") orelse try zld.initSection(
+                    "__TEXT",
+                    "__const",
+                    .{},
+                );
+            },
+            macho.S_CSTRING_LITERALS => {
+                if (mem.startsWith(u8, sectname, "__objc")) {
+                    break :blk zld.getSectionByName(segname, sectname) orelse try zld.initSection(
+                        segname,
+                        sectname,
+                        .{},
+                    );
+                }
+                break :blk zld.getSectionByName("__TEXT", "__cstring") orelse try zld.initSection(
+                    "__TEXT",
+                    "__cstring",
+                    .{ .flags = macho.S_CSTRING_LITERALS },
+                );
+            },
+            macho.S_MOD_INIT_FUNC_POINTERS,
+            macho.S_MOD_TERM_FUNC_POINTERS,
+            => {
+                break :blk zld.getSectionByName("__DATA_CONST", sectname) orelse try zld.initSection(
+                    "__DATA_CONST",
+                    sectname,
+                    .{ .flags = sect.flags },
+                );
+            },
+            macho.S_LITERAL_POINTERS,
+            macho.S_ZEROFILL,
+            macho.S_THREAD_LOCAL_VARIABLES,
+            macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
+            macho.S_THREAD_LOCAL_REGULAR,
+            macho.S_THREAD_LOCAL_ZEROFILL,
+            => {
+                break :blk zld.getSectionByName(segname, sectname) orelse try zld.initSection(
+                    segname,
+                    sectname,
+                    .{ .flags = sect.flags },
+                );
+            },
+            macho.S_COALESCED => {
+                break :blk zld.getSectionByName(segname, sectname) orelse try zld.initSection(
+                    segname,
+                    sectname,
+                    .{},
+                );
+            },
+            macho.S_REGULAR => {
+                if (mem.eql(u8, segname, "__TEXT")) {
+                    if (mem.eql(u8, sectname, "__rodata") or
+                        mem.eql(u8, sectname, "__typelink") or
+                        mem.eql(u8, sectname, "__itablink") or
+                        mem.eql(u8, sectname, "__gosymtab") or
+                        mem.eql(u8, sectname, "__gopclntab"))
+                    {
+                        break :blk zld.getSectionByName("__TEXT", sectname) orelse try zld.initSection(
+                            "__TEXT",
+                            sectname,
+                            .{},
+                        );
+                    }
+                }
+                if (mem.eql(u8, segname, "__DATA")) {
+                    if (mem.eql(u8, sectname, "__const") or
+                        mem.eql(u8, sectname, "__cfstring") or
+                        mem.eql(u8, sectname, "__objc_classlist") or
+                        mem.eql(u8, sectname, "__objc_imageinfo"))
+                    {
+                        break :blk zld.getSectionByName("__DATA_CONST", sectname) orelse try zld.initSection(
+                            "__DATA_CONST",
+                            sectname,
+                            .{},
+                        );
+                    } else if (mem.eql(u8, sectname, "__data")) {
+                        break :blk zld.getSectionByName("__DATA", "__data") orelse try zld.initSection(
+                            "__DATA",
+                            "__data",
+                            .{},
+                        );
+                    }
+                }
+                break :blk zld.getSectionByName(segname, sectname) orelse try zld.initSection(
+                    segname,
+                    sectname,
+                    .{},
+                );
+            },
+            else => break :blk null,
+        }
+    };
+    return res;
 }
 
 pub fn addRelocation(macho_file: *MachO, atom_index: Index, reloc: Relocation) !void {
@@ -1112,3 +1230,23 @@ pub fn relocIsStub(zld: *Zld, rel: macho.relocation_info) bool {
         else => unreachable,
     }
 }
+
+const Atom = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const aarch64 = @import("../../arch/aarch64/bits.zig");
+const assert = std.debug.assert;
+const log = std.log.scoped(.link);
+const macho = std.macho;
+const math = std.math;
+const mem = std.mem;
+const meta = std.meta;
+const trace = @import("../../tracy.zig").trace;
+
+const Allocator = mem.Allocator;
+const Arch = std.Target.Cpu.Arch;
+const MachO = @import("../MachO.zig");
+pub const Relocation = @import("Relocation.zig");
+const SymbolWithLoc = MachO.SymbolWithLoc;
+const Zld = @import("zld.zig").Zld;

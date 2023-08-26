@@ -95,144 +95,6 @@ pub const Zld = struct {
 
     atoms: std.ArrayListUnmanaged(Atom) = .{},
 
-    pub fn getOutputSection(self: *Zld, sect: macho.section_64) !?u8 {
-        const segname = sect.segName();
-        const sectname = sect.sectName();
-        const res: ?u8 = blk: {
-            if (mem.eql(u8, "__LLVM", segname)) {
-                log.debug("TODO LLVM section: type 0x{x}, name '{s},{s}'", .{
-                    sect.flags, segname, sectname,
-                });
-                break :blk null;
-            }
-
-            // We handle unwind info separately.
-            if (mem.eql(u8, "__TEXT", segname) and mem.eql(u8, "__eh_frame", sectname)) {
-                break :blk null;
-            }
-            if (mem.eql(u8, "__LD", segname) and mem.eql(u8, "__compact_unwind", sectname)) {
-                break :blk null;
-            }
-
-            if (sect.isCode()) {
-                if (self.text_section_index == null) {
-                    self.text_section_index = try self.initSection(
-                        "__TEXT",
-                        "__text",
-                        .{
-                            .flags = macho.S_REGULAR |
-                                macho.S_ATTR_PURE_INSTRUCTIONS |
-                                macho.S_ATTR_SOME_INSTRUCTIONS,
-                        },
-                    );
-                }
-                break :blk self.text_section_index.?;
-            }
-
-            if (sect.isDebug()) {
-                break :blk null;
-            }
-
-            switch (sect.type()) {
-                macho.S_4BYTE_LITERALS,
-                macho.S_8BYTE_LITERALS,
-                macho.S_16BYTE_LITERALS,
-                => {
-                    break :blk self.getSectionByName("__TEXT", "__const") orelse try self.initSection(
-                        "__TEXT",
-                        "__const",
-                        .{},
-                    );
-                },
-                macho.S_CSTRING_LITERALS => {
-                    if (mem.startsWith(u8, sectname, "__objc")) {
-                        break :blk self.getSectionByName(segname, sectname) orelse try self.initSection(
-                            segname,
-                            sectname,
-                            .{},
-                        );
-                    }
-                    break :blk self.getSectionByName("__TEXT", "__cstring") orelse try self.initSection(
-                        "__TEXT",
-                        "__cstring",
-                        .{ .flags = macho.S_CSTRING_LITERALS },
-                    );
-                },
-                macho.S_MOD_INIT_FUNC_POINTERS,
-                macho.S_MOD_TERM_FUNC_POINTERS,
-                => {
-                    break :blk self.getSectionByName("__DATA_CONST", sectname) orelse try self.initSection(
-                        "__DATA_CONST",
-                        sectname,
-                        .{ .flags = sect.flags },
-                    );
-                },
-                macho.S_LITERAL_POINTERS,
-                macho.S_ZEROFILL,
-                macho.S_THREAD_LOCAL_VARIABLES,
-                macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
-                macho.S_THREAD_LOCAL_REGULAR,
-                macho.S_THREAD_LOCAL_ZEROFILL,
-                => {
-                    break :blk self.getSectionByName(segname, sectname) orelse try self.initSection(
-                        segname,
-                        sectname,
-                        .{ .flags = sect.flags },
-                    );
-                },
-                macho.S_COALESCED => {
-                    break :blk self.getSectionByName(segname, sectname) orelse try self.initSection(
-                        segname,
-                        sectname,
-                        .{},
-                    );
-                },
-                macho.S_REGULAR => {
-                    if (mem.eql(u8, segname, "__TEXT")) {
-                        if (mem.eql(u8, sectname, "__rodata") or
-                            mem.eql(u8, sectname, "__typelink") or
-                            mem.eql(u8, sectname, "__itablink") or
-                            mem.eql(u8, sectname, "__gosymtab") or
-                            mem.eql(u8, sectname, "__gopclntab"))
-                        {
-                            break :blk self.getSectionByName("__TEXT", sectname) orelse try self.initSection(
-                                "__TEXT",
-                                sectname,
-                                .{},
-                            );
-                        }
-                    }
-                    if (mem.eql(u8, segname, "__DATA")) {
-                        if (mem.eql(u8, sectname, "__const") or
-                            mem.eql(u8, sectname, "__cfstring") or
-                            mem.eql(u8, sectname, "__objc_classlist") or
-                            mem.eql(u8, sectname, "__objc_imageinfo"))
-                        {
-                            break :blk self.getSectionByName("__DATA_CONST", sectname) orelse try self.initSection(
-                                "__DATA_CONST",
-                                sectname,
-                                .{},
-                            );
-                        } else if (mem.eql(u8, sectname, "__data")) {
-                            break :blk self.getSectionByName("__DATA", "__data") orelse try self.initSection(
-                                "__DATA",
-                                "__data",
-                                .{},
-                            );
-                        }
-                    }
-                    break :blk self.getSectionByName(segname, sectname) orelse try self.initSection(
-                        segname,
-                        sectname,
-                        .{},
-                    );
-                },
-                else => break :blk null,
-            }
-        };
-        return res;
-    }
-
     pub fn addAtomToSection(self: *Zld, atom_index: Atom.Index) void {
         const atom = self.getAtomPtr(atom_index);
         const sym = self.getSymbol(atom.getSymbolWithLoc());
@@ -278,7 +140,8 @@ pub const Zld = struct {
         const sym = self.getSymbolPtr(.{ .sym_index = sym_index });
         sym.n_type = macho.N_SECT;
 
-        const sect_id = self.getSectionByName("__DATA", "__data") orelse try self.initSection("__DATA", "__data", .{});
+        const sect_id = self.getSectionByName("__DATA", "__data") orelse
+            try self.initSection("__DATA", "__data", .{});
         sym.n_sect = sect_id + 1;
         self.dyld_private_atom_index = atom_index;
 
@@ -301,16 +164,13 @@ pub const Zld = struct {
             // text blocks for each tentative definition.
             const size = sym.n_value;
             const alignment = (sym.n_desc >> 8) & 0x0f;
-            const n_sect = (try self.getOutputSection(.{
-                .segname = makeStaticString("__DATA"),
-                .sectname = makeStaticString("__bss"),
-                .flags = macho.S_ZEROFILL,
-            })).? + 1;
+            const sect_id = self.getSectionByName("__DATA", "__bss") orelse
+                try self.initSection("__DATA", "__bss", .{ .flags = macho.S_ZEROFILL });
 
             sym.* = .{
                 .n_strx = sym.n_strx,
                 .n_type = macho.N_SECT | macho.N_EXT,
-                .n_sect = n_sect,
+                .n_sect = sect_id + 1,
                 .n_desc = 0,
                 .n_value = 0,
             };

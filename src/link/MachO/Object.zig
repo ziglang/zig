@@ -377,7 +377,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
     const sections = self.getSourceSections();
     for (sections, 0..) |sect, id| {
         if (sect.isDebug()) continue;
-        const out_sect_id = (try zld.getOutputSection(sect)) orelse {
+        const out_sect_id = (try Atom.getOutputSection(zld, sect)) orelse {
             log.debug("  unhandled section '{s},{s}'", .{ sect.segName(), sect.sectName() });
             continue;
         };
@@ -397,7 +397,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
     if (self.in_symtab == null) {
         for (sections, 0..) |sect, id| {
             if (sect.isDebug()) continue;
-            const out_sect_id = (try zld.getOutputSection(sect)) orelse continue;
+            const out_sect_id = (try Atom.getOutputSection(zld, sect)) orelse continue;
             if (sect.size == 0) continue;
 
             const sect_id = @as(u8, @intCast(id));
@@ -456,7 +456,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
         log.debug("splitting section '{s},{s}' into atoms", .{ sect.segName(), sect.sectName() });
 
         // Get output segment/section in the final artifact.
-        const out_sect_id = (try zld.getOutputSection(sect)) orelse continue;
+        const out_sect_id = (try Atom.getOutputSection(zld, sect)) orelse continue;
 
         log.debug("  output sect({d}, '{s},{s}')", .{
             out_sect_id + 1,
