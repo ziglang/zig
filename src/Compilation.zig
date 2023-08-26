@@ -2858,51 +2858,52 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
     var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .{};
     defer ref_traces.deinit(gpa);
 
-    for (module_err_msg.reference_trace) |module_reference| {
-        if (module_reference.hidden != 0) {
-            try ref_traces.append(gpa, .{
-                .decl_name = module_reference.hidden,
-                .src_loc = .none,
-            });
-            break;
-        } else if (module_reference.decl == .none) {
-            try ref_traces.append(gpa, .{
-                .decl_name = 0,
-                .src_loc = .none,
-            });
-            break;
+    const remaining_references: ?u32 = remaining: {
+        if (mod.comp.reference_trace) |_| {
+            if (module_err_msg.hidden_references > 0) break :remaining module_err_msg.hidden_references;
+        } else {
+            if (module_err_msg.reference_trace.len > 0) break :remaining 0;
         }
+        break :remaining null;
+    };
+    try ref_traces.ensureTotalCapacityPrecise(gpa, module_err_msg.reference_trace.len +
+        @intFromBool(remaining_references != null));
+
+    for (module_err_msg.reference_trace) |module_reference| {
         const source = try module_reference.src_loc.file_scope.getSource(gpa);
         const span = try module_reference.src_loc.span(gpa);
         const loc = std.zig.findLineColumn(source.bytes, span.main);
         const rt_file_path = try module_reference.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(rt_file_path);
-        try ref_traces.append(gpa, .{
-            .decl_name = try eb.addString(ip.stringToSliceUnwrap(module_reference.decl).?),
+        ref_traces.appendAssumeCapacity(.{
+            .decl_name = try eb.addString(ip.stringToSlice(module_reference.decl)),
             .src_loc = try eb.addSourceLocation(.{
                 .src_path = try eb.addString(rt_file_path),
                 .span_start = span.start,
                 .span_main = span.main,
                 .span_end = span.end,
-                .line = @as(u32, @intCast(loc.line)),
-                .column = @as(u32, @intCast(loc.column)),
+                .line = @intCast(loc.line),
+                .column = @intCast(loc.column),
                 .source_line = 0,
             }),
         });
     }
+    if (remaining_references) |remaining| ref_traces.appendAssumeCapacity(
+        .{ .decl_name = remaining, .src_loc = .none },
+    );
 
     const src_loc = try eb.addSourceLocation(.{
         .src_path = try eb.addString(file_path),
         .span_start = err_span.start,
         .span_main = err_span.main,
         .span_end = err_span.end,
-        .line = @as(u32, @intCast(err_loc.line)),
-        .column = @as(u32, @intCast(err_loc.column)),
+        .line = @intCast(err_loc.line),
+        .column = @intCast(err_loc.column),
         .source_line = if (module_err_msg.src_loc.lazy == .entire_file)
             0
         else
             try eb.addString(err_loc.source_line),
-        .reference_trace_len = @as(u32, @intCast(ref_traces.items.len)),
+        .reference_trace_len = @intCast(ref_traces.items.len),
     });
 
     for (ref_traces.items) |rt| {
@@ -2928,8 +2929,8 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
                 .span_start = span.start,
                 .span_main = span.main,
                 .span_end = span.end,
-                .line = @as(u32, @intCast(loc.line)),
-                .column = @as(u32, @intCast(loc.column)),
+                .line = @intCast(loc.line),
+                .column = @intCast(loc.column),
                 .source_line = if (err_loc.eql(loc)) 0 else try eb.addString(loc.source_line),
             }),
         }, .{ .eb = eb });
@@ -2938,7 +2939,7 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
         }
     }
 
-    const notes_len = @as(u32, @intCast(notes.entries.len));
+    const notes_len: u32 = @intCast(notes.entries.len);
 
     try eb.addRootErrorMessage(.{
         .msg = try eb.addString(module_err_msg.msg),

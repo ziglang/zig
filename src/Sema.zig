@@ -2396,80 +2396,69 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg)
     const gpa = sema.gpa;
     const mod = sema.mod;
 
-    if (crash_report.is_enabled and mod.comp.debug_compile_errors) {
-        if (err_msg.src_loc.lazy == .unneeded) return error.NeededSourceLocation;
-        var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-        wip_errors.init(gpa) catch unreachable;
-        Compilation.addModuleErrorMsg(mod, &wip_errors, err_msg.*) catch unreachable;
-        std.debug.print("compile error during Sema:\n", .{});
-        var error_bundle = wip_errors.toOwnedBundle("") catch unreachable;
-        error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
-        crash_report.compilerPanic("unexpected compile error occurred", null, null);
-    }
-
     ref: {
         errdefer err_msg.destroy(gpa);
-        if (err_msg.src_loc.lazy == .unneeded) {
-            return error.NeededSourceLocation;
+        if (err_msg.src_loc.lazy == .unneeded) return error.NeededSourceLocation;
+
+        if (crash_report.is_enabled and mod.comp.debug_compile_errors) {
+            var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+            wip_errors.init(gpa) catch unreachable;
+            Compilation.addModuleErrorMsg(mod, &wip_errors, err_msg.*) catch unreachable;
+            std.debug.print("compile error during Sema:\n", .{});
+            var error_bundle = wip_errors.toOwnedBundle("") catch unreachable;
+            error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
+            crash_report.compilerPanic("unexpected compile error occurred", null, null);
         }
+
         try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
         try mod.failed_files.ensureUnusedCapacity(gpa, 1);
 
-        var func_index: InternPool.Index = .none;
         if (block) |start_block| {
             var block_it = start_block;
             while (block_it.inlining) |inlining| {
-                func_index = inlining.func;
+                try sema.errNote(
+                    inlining.call_block,
+                    inlining.call_src,
+                    err_msg,
+                    "called from here",
+                    .{},
+                );
                 block_it = inlining.call_block;
-                try sema.errNote(block_it, inlining.call_src, err_msg, "called from here", .{});
             }
-        }
 
-        const max_references = blk: {
-            if (mod.comp.reference_trace) |num| break :blk num;
-            // Do not add multiple traces without explicit request.
-            if (mod.failed_decls.count() != 0) break :ref;
-            break :blk default_reference_trace_len;
-        };
+            const max_references = refs: {
+                if (mod.comp.reference_trace) |num| break :refs num;
+                // Do not add multiple traces without explicit request.
+                if (mod.failed_decls.count() > 0) break :ref;
+                break :refs default_reference_trace_len;
+            };
 
-        var referenced_by = if (sema.owner_func_index != .none)
-            mod.funcOwnerDeclIndex(sema.owner_func_index)
-        else
-            sema.owner_decl_index;
-        var reference_stack = std.ArrayList(Module.ErrorMsg.Trace).init(gpa);
-        defer reference_stack.deinit();
+            var referenced_by = if (sema.owner_func_index != .none)
+                mod.funcOwnerDeclIndex(sema.owner_func_index)
+            else
+                sema.owner_decl_index;
+            var reference_stack = std.ArrayList(Module.ErrorMsg.Trace).init(gpa);
+            defer reference_stack.deinit();
 
-        // Avoid infinite loops.
-        var seen = std.AutoHashMap(Decl.Index, void).init(gpa);
-        defer seen.deinit();
+            // Avoid infinite loops.
+            var seen = std.AutoHashMap(Decl.Index, void).init(gpa);
+            defer seen.deinit();
 
-        var cur_reference_trace: u32 = 0;
-        while (sema.mod.reference_table.get(referenced_by)) |ref| : (cur_reference_trace += 1) {
-            const gop = try seen.getOrPut(ref.referencer);
-            if (gop.found_existing) break;
-            if (cur_reference_trace < max_references) {
-                const decl = sema.mod.declPtr(ref.referencer);
-                try reference_stack.append(.{
-                    .decl = decl.name.toOptional(),
-                    .src_loc = ref.src.toSrcLoc(decl, mod),
-                });
+            while (mod.reference_table.get(referenced_by)) |ref| {
+                const gop = try seen.getOrPut(ref.referencer);
+                if (gop.found_existing) break;
+                if (reference_stack.items.len < max_references) {
+                    const decl = mod.declPtr(ref.referencer);
+                    try reference_stack.append(.{
+                        .decl = decl.name,
+                        .src_loc = ref.src.toSrcLoc(decl, mod),
+                    });
+                }
+                referenced_by = ref.referencer;
             }
-            referenced_by = ref.referencer;
+            err_msg.reference_trace = try reference_stack.toOwnedSlice();
+            err_msg.hidden_references = @intCast(seen.count() -| max_references);
         }
-        if (sema.mod.comp.reference_trace == null and cur_reference_trace > 0) {
-            try reference_stack.append(.{
-                .decl = .none,
-                .src_loc = undefined,
-                .hidden = 0,
-            });
-        } else if (cur_reference_trace > max_references) {
-            try reference_stack.append(.{
-                .decl = undefined,
-                .src_loc = undefined,
-                .hidden = cur_reference_trace - max_references,
-            });
-        }
-        err_msg.reference_trace = try reference_stack.toOwnedSlice();
     }
     const ip = &mod.intern_pool;
     if (sema.owner_func_index != .none) {
@@ -7399,7 +7388,8 @@ fn analyzeCall(
             var block_it = block;
             while (block_it.inlining) |parent_inlining| {
                 if (!parent_inlining.has_comptime_args and parent_inlining.func == module_fn_index) {
-                    return sema.fail(block, call_src, "inline call is recursive", .{});
+                    const err_msg = try sema.errMsg(block, call_src, "inline call is recursive", .{});
+                    return sema.failWithOwnedErrorMsg(null, err_msg);
                 }
                 block_it = parent_inlining.call_block;
             }
