@@ -130,6 +130,11 @@ pub const String = enum(u32) {
     };
 };
 
+pub const StrtabString = struct {
+    offset: usize,
+    size: usize,
+};
+
 pub const Type = enum(u32) {
     void,
     half,
@@ -2157,6 +2162,18 @@ pub const Global = struct {
 
         pub fn name(self: Index, builder: *const Builder) String {
             return builder.globals.keys()[@intFromEnum(self.unwrap(builder))];
+        }
+
+        pub fn strtab(self: Index, builder: *const Builder) StrtabString {
+            const name_index = self.name(builder).toIndex() orelse return .{
+                .offset = 0,
+                .size = 0,
+            };
+
+            return .{
+                .offset = builder.string_indices.items[name_index],
+                .size = builder.string_indices.items[name_index + 1] - builder.string_indices.items[name_index] - 1,
+            };
         }
 
         pub fn typeOf(self: Index, builder: *const Builder) Type {
