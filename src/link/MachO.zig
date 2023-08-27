@@ -1650,12 +1650,16 @@ fn resolveGlobalSymbol(self: *MachO, current: SymbolWithLoc) !void {
     const global_is_weak = global_sym.sect() and (global_sym.weakDef() or global_sym.pext());
 
     if (sym_is_strong and global_is_strong) {
-        log.err("symbol '{s}' defined multiple times", .{sym_name});
-        if (global.getFile()) |file| {
-            log.err("  first definition in '{s}'", .{self.objects.items[file].name});
-        }
-        if (current.getFile()) |file| {
-            log.err("  next definition in '{s}'", .{self.objects.items[file].name});
+        // TODO redo this logic with corresponding logic in updateDeclExports to avoid this
+        // ugly check.
+        if (self.mode == .zld) {
+            log.err("symbol '{s}' defined multiple times", .{sym_name});
+            if (global.getFile()) |file| {
+                log.err("  first definition in '{s}'", .{self.objects.items[file].name});
+            }
+            if (current.getFile()) |file| {
+                log.err("  next definition in '{s}'", .{self.objects.items[file].name});
+            }
         }
         return error.MultipleSymbolDefinitions;
     }
@@ -3079,6 +3083,7 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
     section.offset = mem.alignForward(u32, @as(u32, @intCast(off)), opts.alignment);
     section.size = opts.size;
     section.@"align" = math.log2(opts.alignment);
+    self.sections.items(.segment_index)[sect_id] = segment_id;
     assert(!section.isZerofill()); // TODO zerofill sections
 
     return sect_id;
@@ -4053,8 +4058,8 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
     // We generate stabs last in order to ensure that the strtab always has debug info
     // strings trailing
     if (!self.base.options.strip) {
-        assert(self.d_sym == null); // TODO
         for (self.objects.items) |object| {
+            assert(self.d_sym == null); // TODO
             try self.generateSymbolStabs(object, &locals);
         }
     }
