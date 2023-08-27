@@ -244,13 +244,16 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
                             .{},
                         );
                     } else if (mem.eql(u8, sectname, "__data")) {
-                        break :blk zld.getSectionByName("__DATA", "__data") orelse try MachO.initSection(
-                            gpa,
-                            zld,
-                            "__DATA",
-                            "__data",
-                            .{},
-                        );
+                        if (zld.data_section_index == null) {
+                            zld.data_section_index = try MachO.initSection(
+                                gpa,
+                                zld,
+                                "__DATA",
+                                "__data",
+                                .{},
+                            );
+                        }
+                        break :blk zld.data_section_index.?;
                     }
                 }
                 break :blk zld.getSectionByName(segname, sectname) orelse try MachO.initSection(
@@ -264,6 +267,35 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
             else => break :blk null,
         }
     };
+
+    // TODO we can do this directly in the selection logic above.
+    // Or is it not worth it?
+    if (zld.data_const_section_index == null) {
+        if (zld.getSectionByName("__DATA_CONST", "__const")) |index| {
+            zld.data_const_section_index = index;
+        }
+    }
+    if (zld.thread_vars_section_index == null) {
+        if (zld.getSectionByName("__DATA", "__thread_vars")) |index| {
+            zld.thread_vars_section_index = index;
+        }
+    }
+    if (zld.thread_data_section_index == null) {
+        if (zld.getSectionByName("__DATA", "__thread_data")) |index| {
+            zld.thread_data_section_index = index;
+        }
+    }
+    if (zld.thread_bss_section_index == null) {
+        if (zld.getSectionByName("__DATA", "__thread_bss")) |index| {
+            zld.thread_bss_section_index = index;
+        }
+    }
+    if (zld.bss_section_index == null) {
+        if (zld.getSectionByName("__DATA", "__bss")) |index| {
+            zld.bss_section_index = index;
+        }
+    }
+
     return res;
 }
 
@@ -662,9 +694,9 @@ pub fn getRelocTargetAddress(zld: *Zld, target: SymbolWithLoc, is_tlv: bool) !u6
         // * wrt to __thread_data if defined, then
         // * wrt to __thread_bss
         const sect_id: u16 = sect_id: {
-            if (zld.getSectionByName("__DATA", "__thread_data")) |i| {
+            if (zld.thread_data_section_index) |i| {
                 break :sect_id i;
-            } else if (zld.getSectionByName("__DATA", "__thread_bss")) |i| {
+            } else if (zld.thread_bss_section_index) |i| {
                 break :sect_id i;
             } else {
                 log.err("threadlocal variables present but no initializer sections found", .{});

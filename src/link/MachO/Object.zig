@@ -687,8 +687,8 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
 
     const gpa = zld.gpa;
 
-    if (zld.getSectionByName("__TEXT", "__eh_frame") == null) {
-        _ = try MachO.initSection(gpa, zld, "__TEXT", "__eh_frame", .{});
+    if (zld.eh_frame_section_index == null) {
+        zld.eh_frame_section_index = try MachO.initSection(gpa, zld, "__TEXT", "__eh_frame", .{});
     }
 
     const cpu_arch = zld.options.target.cpu.arch;
@@ -788,8 +788,14 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
         // approach. However, we will only synthesise DWARF records and nothing more. For this reason,
         // we still create the output `__TEXT,__unwind_info` section.
         if (self.hasEhFrameRecords()) {
-            if (zld.getSectionByName("__TEXT", "__unwind_info") == null) {
-                _ = try MachO.initSection(gpa, zld, "__TEXT", "__unwind_info", .{});
+            if (zld.unwind_info_section_index == null) {
+                zld.unwind_info_section_index = try MachO.initSection(
+                    gpa,
+                    zld,
+                    "__TEXT",
+                    "__unwind_info",
+                    .{},
+                );
             }
         }
         return;
@@ -797,8 +803,8 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
 
     log.debug("parsing unwind info in {s}", .{self.name});
 
-    if (zld.getSectionByName("__TEXT", "__unwind_info") == null) {
-        _ = try MachO.initSection(gpa, zld, "__TEXT", "__unwind_info", .{});
+    if (zld.unwind_info_section_index == null) {
+        zld.unwind_info_section_index = try MachO.initSection(gpa, zld, "__TEXT", "__unwind_info", .{});
     }
 
     const unwind_records = self.getUnwindRecords();

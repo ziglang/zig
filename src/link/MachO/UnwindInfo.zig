@@ -204,7 +204,7 @@ pub fn deinit(info: *UnwindInfo) void {
 }
 
 pub fn scanRelocs(zld: *Zld) !void {
-    if (zld.getSectionByName("__TEXT", "__unwind_info") == null) return;
+    if (zld.unwind_info_section_index == null) return;
 
     const cpu_arch = zld.options.target.cpu.arch;
     for (zld.objects.items, 0..) |*object, object_id| {
@@ -233,7 +233,7 @@ pub fn scanRelocs(zld: *Zld) !void {
 }
 
 pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
-    if (zld.getSectionByName("__TEXT", "__unwind_info") == null) return;
+    if (zld.unwind_info_section_index == null) return;
 
     const cpu_arch = zld.options.target.cpu.arch;
 
@@ -551,7 +551,7 @@ fn collectPersonalityFromDwarf(
 }
 
 pub fn calcSectionSize(info: UnwindInfo, zld: *Zld) !void {
-    const sect_id = zld.getSectionByName("__TEXT", "__unwind_info") orelse return;
+    const sect_id = zld.unwind_info_section_index orelse return;
     const sect = &zld.sections.items(.header)[sect_id];
     sect.@"align" = 2;
     sect.size = info.calcRequiredSize();
@@ -570,7 +570,7 @@ fn calcRequiredSize(info: UnwindInfo) usize {
 }
 
 pub fn write(info: *UnwindInfo, zld: *Zld) !void {
-    const sect_id = zld.getSectionByName("__TEXT", "__unwind_info") orelse return;
+    const sect_id = zld.unwind_info_section_index orelse return;
     const sect = &zld.sections.items(.header)[sect_id];
     const seg_id = zld.sections.items(.segment_index)[sect_id];
     const seg = zld.segments.items[seg_id];

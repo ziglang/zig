@@ -46,7 +46,7 @@ pub fn scanRelocs(zld: *Zld) !void {
 }
 
 pub fn calcSectionSize(zld: *Zld, unwind_info: *const UnwindInfo) !void {
-    const sect_id = zld.getSectionByName("__TEXT", "__eh_frame") orelse return;
+    const sect_id = zld.eh_frame_section_index orelse return;
     const sect = &zld.sections.items(.header)[sect_id];
     sect.@"align" = 3;
     sect.size = 0;
@@ -97,7 +97,7 @@ pub fn calcSectionSize(zld: *Zld, unwind_info: *const UnwindInfo) !void {
 }
 
 pub fn write(zld: *Zld, unwind_info: *UnwindInfo) !void {
-    const sect_id = zld.getSectionByName("__TEXT", "__eh_frame") orelse return;
+    const sect_id = zld.eh_frame_section_index orelse return;
     const sect = zld.sections.items(.header)[sect_id];
     const seg_id = zld.sections.items(.segment_index)[sect_id];
     const seg = zld.segments.items[seg_id];

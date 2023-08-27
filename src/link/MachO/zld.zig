@@ -74,6 +74,14 @@ pub const Zld = struct {
     linkedit_segment_cmd_index: ?u8 = null,
 
     text_section_index: ?u8 = null,
+    data_const_section_index: ?u8 = null,
+    data_section_index: ?u8 = null,
+    bss_section_index: ?u8 = null,
+    thread_vars_section_index: ?u8 = null,
+    thread_data_section_index: ?u8 = null,
+    thread_bss_section_index: ?u8 = null,
+    eh_frame_section_index: ?u8 = null,
+    unwind_info_section_index: ?u8 = null,
     got_section_index: ?u8 = null,
     tlv_ptr_section_index: ?u8 = null,
     stubs_section_index: ?u8 = null,
@@ -142,9 +150,10 @@ pub const Zld = struct {
         const sym = self.getSymbolPtr(.{ .sym_index = sym_index });
         sym.n_type = macho.N_SECT;
 
-        const sect_id = self.getSectionByName("__DATA", "__data") orelse
-            try MachO.initSection(self.gpa, self, "__DATA", "__data", .{});
-        sym.n_sect = sect_id + 1;
+        if (self.data_section_index == null) {
+            self.data_section_index = try MachO.initSection(self.gpa, self, "__DATA", "__data", .{});
+        }
+        sym.n_sect = self.data_section_index.? + 1;
         self.dyld_private_atom_index = atom_index;
 
         self.addAtomToSection(atom_index);
@@ -166,13 +175,17 @@ pub const Zld = struct {
             // text blocks for each tentative definition.
             const size = sym.n_value;
             const alignment = (sym.n_desc >> 8) & 0x0f;
-            const sect_id = self.getSectionByName("__DATA", "__bss") orelse
-                try MachO.initSection(gpa, self, "__DATA", "__bss", .{ .flags = macho.S_ZEROFILL });
+
+            if (self.bss_section_index == null) {
+                self.bss_section_index = try MachO.initSection(gpa, self, "__DATA", "__bss", .{
+                    .flags = macho.S_ZEROFILL,
+                });
+            }
 
             sym.* = .{
                 .n_strx = sym.n_strx,
                 .n_type = macho.N_SECT | macho.N_EXT,
-                .n_sect = sect_id + 1,
+                .n_sect = self.bss_section_index.? + 1,
                 .n_desc = 0,
                 .n_value = 0,
             };
@@ -768,7 +781,7 @@ pub const Zld = struct {
         const atom_index = self.dyld_private_atom_index orelse return;
         const atom = self.getAtom(atom_index);
         const sym = self.getSymbol(atom.getSymbolWithLoc());
-        const sect_id = self.getSectionByName("__DATA", "__data").?;
+        const sect_id = self.data_section_index.?;
         const header = self.sections.items(.header)[sect_id];
         const offset = sym.n_value - header.addr + header.offset;
         log.debug("writing __dyld_private at offset 0x{x}", .{offset});
@@ -918,6 +931,14 @@ pub const Zld = struct {
                 });
                 for (&[_]*?u8{
                     &self.text_section_index,
+                    &self.data_const_section_index,
+                    &self.data_section_index,
+                    &self.bss_section_index,
+                    &self.thread_vars_section_index,
+                    &self.thread_data_section_index,
+                    &self.thread_bss_section_index,
+                    &self.eh_frame_section_index,
+                    &self.unwind_info_section_index,
                     &self.got_section_index,
                     &self.tlv_ptr_section_index,
                     &self.stubs_section_index,
@@ -951,6 +972,14 @@ pub const Zld = struct {
 
         for (&[_]*?u8{
             &self.text_section_index,
+            &self.data_const_section_index,
+            &self.data_section_index,
+            &self.bss_section_index,
+            &self.thread_vars_section_index,
+            &self.thread_data_section_index,
+            &self.thread_bss_section_index,
+            &self.eh_frame_section_index,
+            &self.unwind_info_section_index,
             &self.got_section_index,
             &self.tlv_ptr_section_index,
             &self.stubs_section_index,
@@ -1964,7 +1993,7 @@ pub const Zld = struct {
             else => unreachable,
         }
 
-        if (self.getSectionByName("__DATA", "__thread_vars")) |sect_id| {
+        if (self.thread_vars_section_index) |sect_id| {
             header.flags |= macho.MH_HAS_TLV_DESCRIPTORS;
             if (self.sections.items(.header)[sect_id].size > 0) {
                 header.flags |= macho.MH_HAS_TLV_DESCRIPTORS;
