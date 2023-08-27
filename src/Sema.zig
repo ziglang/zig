@@ -1023,6 +1023,7 @@ fn analyzeBodyInner(
             .elem_val_node                => try sema.zirElemValNode(block, inst),
             .elem_type_index              => try sema.zirElemTypeIndex(block, inst),
             .elem_type                    => try sema.zirElemType(block, inst),
+            .indexable_ptr_elem_type      => try sema.zirIndexablePtrElemType(block, inst),
             .vector_elem_type             => try sema.zirVectorElemType(block, inst),
             .enum_literal                 => try sema.zirEnumLiteral(block, inst),
             .int_from_enum                => try sema.zirIntFromEnum(block, inst),
@@ -8104,6 +8105,22 @@ fn zirElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const ptr_ty = try sema.resolveType(block, .unneeded, un_node.operand);
     assert(ptr_ty.zigTypeTag(mod) == .Pointer); // validated by a previous instruction
     return Air.internedToRef(ptr_ty.childType(mod).toIntern());
+}
+
+fn zirIndexablePtrElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const un_node = sema.code.instructions.items(.data)[inst].un_node;
+    const src = un_node.src();
+    const ptr_ty = sema.resolveType(block, src, un_node.operand) catch |err| switch (err) {
+        error.GenericPoison => return .generic_poison_type,
+        else => |e| return e,
+    };
+    try sema.checkMemOperand(block, src, ptr_ty);
+    const elem_ty = switch (ptr_ty.ptrSize(mod)) {
+        .Slice, .Many, .C => ptr_ty.childType(mod),
+        .One => ptr_ty.childType(mod).childType(mod),
+    };
+    return Air.internedToRef(elem_ty.toIntern());
 }
 
 fn zirVectorElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
