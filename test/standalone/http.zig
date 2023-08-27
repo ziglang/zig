@@ -20,7 +20,7 @@ var server: Server = undefined;
 fn handleRequest(res: *Server.Response) !void {
     const log = std.log.scoped(.server);
 
-    log.info("{s} {s} {s}", .{ @tagName(res.request.method), @tagName(res.request.version), res.request.target });
+    log.info("{} {s} {s}", .{ res.request.method, @tagName(res.request.version), res.request.target });
 
     if (res.request.headers.contains("expect")) {
         if (mem.eql(u8, res.request.headers.getFirstValue("expect").?, "100-continue")) {

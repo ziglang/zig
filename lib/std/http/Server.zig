@@ -185,8 +185,10 @@ pub const Request = struct {
             return error.HttpHeadersInvalid;
 
         const method_end = mem.indexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
+        if (method_end > 24) return error.HttpHeadersInvalid;
+
         const method_str = first_line[0..method_end];
-        const method = std.meta.stringToEnum(http.Method, method_str) orelse return error.UnknownHttpMethod;
+        const method: http.Method = @enumFromInt(http.Method.parse(method_str));
 
         const version_start = mem.lastIndexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
         if (version_start == method_end) return error.HttpHeadersInvalid;
@@ -467,11 +469,11 @@ pub const Response = struct {
         try buffered.flush();
     }
 
-    pub const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
+    const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
 
-    pub const TransferReader = std.io.Reader(*Response, TransferReadError, transferRead);
+    const TransferReader = std.io.Reader(*Response, TransferReadError, transferRead);
 
-    pub fn transferReader(res: *Response) TransferReader {
+    fn transferReader(res: *Response) TransferReader {
         return .{ .context = res };
     }
 

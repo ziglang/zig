@@ -545,7 +545,7 @@ pub const Request = struct {
         var buffered = std.io.bufferedWriter(req.connection.?.data.writer());
         const w = buffered.writer();
 
-        try w.writeAll(@tagName(req.method));
+        try req.method.write(w);
         try w.writeByte(' ');
 
         if (req.method == .CONNECT) {
@@ -627,15 +627,15 @@ pub const Request = struct {
         try buffered.flush();
     }
 
-    pub const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
+    const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
 
-    pub const TransferReader = std.io.Reader(*Request, TransferReadError, transferRead);
+    const TransferReader = std.io.Reader(*Request, TransferReadError, transferRead);
 
-    pub fn transferReader(req: *Request) TransferReader {
+    fn transferReader(req: *Request) TransferReader {
         return .{ .context = req };
     }
 
-    pub fn transferRead(req: *Request, buf: []u8) TransferReadError!usize {
+    fn transferRead(req: *Request, buf: []u8) TransferReadError!usize {
         if (req.response.parser.done) return 0;
 
         var index: usize = 0;

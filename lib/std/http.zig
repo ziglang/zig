@@ -1,3 +1,5 @@
+const std = @import("std.zig");
+
 pub const Client = @import("http/Client.zig");
 pub const Server = @import("http/Server.zig");
 pub const protocol = @import("http/protocol.zig");
@@ -14,16 +16,36 @@ pub const Version = enum {
 /// https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods
 /// https://datatracker.ietf.org/doc/html/rfc7231#section-4 Initial definition
 /// https://datatracker.ietf.org/doc/html/rfc5789#section-2 PATCH
-pub const Method = enum {
-    GET,
-    HEAD,
-    POST,
-    PUT,
-    DELETE,
-    CONNECT,
-    OPTIONS,
-    TRACE,
-    PATCH,
+pub const Method = enum(u64) { // TODO: should be u192 or u256, but neither is supported by the C backend, and therefore cannot pass CI
+    GET = parse("GET"),
+    HEAD = parse("HEAD"),
+    POST = parse("POST"),
+    PUT = parse("PUT"),
+    DELETE = parse("DELETE"),
+    CONNECT = parse("CONNECT"),
+    OPTIONS = parse("OPTIONS"),
+    TRACE = parse("TRACE"),
+    PATCH = parse("PATCH"),
+
+    _,
+
+    /// Converts `s` into a type that may be used as a `Method` field.
+    /// Asserts that `s` is 24 or fewer bytes.
+    pub fn parse(s: []const u8) u64 {
+        var x: u64 = 0;
+        @memcpy(std.mem.asBytes(&x)[0..s.len], s);
+        return x;
+    }
+
+    pub fn write(self: Method, w: anytype) !void {
+        const bytes = std.mem.asBytes(&@intFromEnum(self));
+        const str = std.mem.sliceTo(bytes, 0);
+        try w.writeAll(str);
+    }
+
+    pub fn format(value: Method, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
+        return try value.write(writer);
+    }
 
     /// Returns true if a request of this method is allowed to have a body
     /// Actual behavior from servers may vary and should still be checked
@@ -31,6 +53,7 @@ pub const Method = enum {
         return switch (self) {
             .POST, .PUT, .PATCH => true,
             .GET, .HEAD, .DELETE, .CONNECT, .OPTIONS, .TRACE => false,
+            else => true,
         };
     }
 
@@ -40,6 +63,7 @@ pub const Method = enum {
         return switch (self) {
             .GET, .POST, .DELETE, .CONNECT, .OPTIONS, .PATCH => true,
             .HEAD, .PUT, .TRACE => false,
+            else => true,
         };
     }
 
@@ -50,6 +74,7 @@ pub const Method = enum {
         return switch (self) {
             .GET, .HEAD, .OPTIONS, .TRACE => true,
             .POST, .PUT, .DELETE, .CONNECT, .PATCH => false,
+            else => false,
         };
     }
 
@@ -60,6 +85,7 @@ pub const Method = enum {
         return switch (self) {
             .GET, .HEAD, .PUT, .DELETE, .OPTIONS, .TRACE => true,
             .CONNECT, .POST, .PATCH => false,
+            else => false,
         };
     }
 
@@ -70,6 +96,7 @@ pub const Method = enum {
         return switch (self) {
             .GET, .HEAD => true,
             .POST, .PUT, .DELETE, .CONNECT, .OPTIONS, .TRACE, .PATCH => false,
+            else => false,
         };
     }
 };
@@ -268,8 +295,6 @@ pub const Connection = enum {
     keep_alive,
     close,
 };
-
-const std = @import("std.zig");
 
 test {
     _ = Client;
