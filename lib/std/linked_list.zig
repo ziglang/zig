@@ -4,7 +4,7 @@ const assert = debug.assert;
 const testing = std.testing;
 
 /// A singly-linked list is headed by a single forward pointer. The elements
-/// are singly linked for minimum space and pointer manipulation overhead at
+/// are singly-linked for minimum space and pointer manipulation overhead at
 /// the expense of O(n) removal for arbitrary elements. New elements can be
 /// added to the list after an existing element or at the head of the list.
 /// A singly-linked list may only be traversed in the forward direction.
@@ -171,13 +171,20 @@ test "basic SinglyLinkedList test" {
     try testing.expect(list.first.?.next.?.next == null);
 }
 
-/// A tail queue is headed by a pair of pointers, one to the head of the
-/// list and the other to the tail of the list. The elements are doubly
-/// linked so that an arbitrary element can be removed without a need to
-/// traverse the list. New elements can be added to the list before or
-/// after an existing element, at the head of the list, or at the end of
-/// the list. A tail queue may be traversed in either direction.
-pub fn TailQueue(comptime T: type) type {
+/// deprecated: use `DoublyLinkedList`.
+pub const TailQueue = DoublyLinkedList;
+
+/// A doubly-linked list has a pair of pointers to both the head and
+/// tail of the list. List elements have pointers to both the previous
+/// and next elements in the sequence. The list can be traversed both
+/// forward and backward. Some operations that take linear O(n) time
+/// with a singly-linked list can be done without traversal in constant
+/// O(1) time with a doubly-linked list:
+///
+/// - Removing an element.
+/// - Inserting a new element before an existing element.
+/// - Pushing or popping an element from the end of the list.
+pub fn DoublyLinkedList(comptime T: type) type {
     return struct {
         const Self = @This();
 
@@ -336,8 +343,8 @@ pub fn TailQueue(comptime T: type) type {
     };
 }
 
-test "basic TailQueue test" {
-    const L = TailQueue(u32);
+test "basic DoublyLinkedList test" {
+    const L = DoublyLinkedList(u32);
     var list = L{};
 
     var one = L.Node{ .data = 1 };
@@ -381,8 +388,8 @@ test "basic TailQueue test" {
     try testing.expect(list.len == 2);
 }
 
-test "TailQueue concatenation" {
-    const L = TailQueue(u32);
+test "DoublyLinkedList concatenation" {
+    const L = DoublyLinkedList(u32);
     var list1 = L{};
     var list2 = L{};
 
