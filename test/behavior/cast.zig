@@ -1155,6 +1155,8 @@ fn foobar(func: PFN_void) !void {
 }
 
 test "cast function with an opaque parameter" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     const Container = struct {
         const Ctx = opaque {};
         ctx: *Ctx,
@@ -2493,4 +2495,15 @@ test "@intFromBool on vector" {
 
     try S.doTheTest();
     try comptime S.doTheTest();
+}
+
+test "numeric coercions with undefined" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const from: i32 = undefined;
+    var to: f32 = from;
+    to = @floatFromInt(from);
+    to = 42.0;
+    try expectEqual(@as(f32, 42.0), to);
 }
