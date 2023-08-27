@@ -2441,6 +2441,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .array_type_sentinel,
             .elem_type_index,
             .elem_type,
+            .indexable_ptr_elem_type,
             .vector_elem_type,
             .vector_type,
             .indexable_ptr_len,
@@ -8302,9 +8303,12 @@ fn builtinCall(
             return rvalue(gz, ri, .void_value, node);
         },
         .memset => {
+            const lhs = try expr(gz, scope, .{ .rl = .none }, params[0]);
+            const lhs_ty = try gz.addUnNode(.typeof, lhs, params[0]);
+            const elem_ty = try gz.addUnNode(.indexable_ptr_elem_type, lhs_ty, params[0]);
             _ = try gz.addPlNode(.memset, node, Zir.Inst.Bin{
-                .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
-                .rhs = try expr(gz, scope, .{ .rl = .none }, params[1]),
+                .lhs = lhs,
+                .rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = elem_ty } }, params[1]),
             });
             return rvalue(gz, ri, .void_value, node);
         },
