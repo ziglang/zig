@@ -9,7 +9,7 @@ const testing = std.testing;
 /// runtime, but whose maximum size is known at comptime, without requiring
 /// an `Allocator`.
 ///
-/// ```zig
+/// ```
 /// var actual_size = 32;
 /// var a = try BoundedArray(u8, 64).init(actual_size);
 /// var slice = a.slice(); // a slice of the 64-byte array
@@ -25,12 +25,13 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
 /// Useful to pass around small explicitly-aligned arrays whose exact size is
 /// only known at runtime, but whose maximum size is known at comptime, without
 /// requiring an `Allocator`.
-/// ```zig
-//  var a = try BoundedArrayAligned(u8, 16, 2).init(0);
-//  try a.append(255);
-//  try a.append(255);
-//  const b = @ptrCast(*const [1]u16, a.constSlice().ptr);
-//  try testing.expectEqual(@as(u16, 65535), b[0]);
+///
+/// ```
+/// var a = BoundedArrayAligned(u8, 16, 2){};
+/// try a.append(255);
+/// try a.append(255);
+/// const b: *const [1]u16 = @ptrCast(a.constSlice().ptr);
+/// try testing.expectEqual(@as(u16, 65535), b[0]);
 /// ```
 pub fn BoundedArrayAligned(
     comptime T: type,
@@ -39,10 +40,10 @@ pub fn BoundedArrayAligned(
 ) type {
     return struct {
         const Self = @This();
-        const Len = std.math.IntFittingRange(0, buffer_capacity);
 
         buffer: [buffer_capacity]T align(alignment) = undefined,
-        len: Len = 0,
+        len: std.math.IntFittingRange(0, buffer_capacity) = 0,
+        comptime capacity: usize = buffer_capacity,
 
         /// Set the actual length of the slice.
         /// Returns error.Overflow if it exceeds the length of the backing array.
@@ -87,11 +88,6 @@ pub fn BoundedArrayAligned(
         /// Set the value of the element at index `i` of the slice.
         pub fn set(self: *Self, i: usize, item: T) void {
             self.slice()[i] = item;
-        }
-
-        /// Return the maximum length of a slice.
-        pub fn capacity(self: Self) usize {
-            return self.buffer.len;
         }
 
         /// Check that the slice can hold at least `additional_count` items.
@@ -287,10 +283,11 @@ pub fn BoundedArrayAligned(
     };
 }
 
-test "BoundedArray" {
+test BoundedArray {
     var a = try BoundedArray(u8, 64).init(32);
 
-    try testing.expectEqual(a.capacity(), 64);
+    try testing.expectEqual(a.capacity, 64);
+    try testing.expectEqual(a.len, 32);
     try testing.expectEqual(a.slice().len, 32);
     try testing.expectEqual(a.constSlice().len, 32);
 
@@ -310,9 +307,9 @@ test "BoundedArray" {
     try testing.expectError(error.Overflow, BoundedArray(u8, x.len - 1).fromSlice(&x));
 
     try a.resize(0);
-    try a.ensureUnusedCapacity(a.capacity());
+    try a.ensureUnusedCapacity(a.capacity);
     (try a.addOne()).* = 0;
-    try a.ensureUnusedCapacity(a.capacity() - 1);
+    try a.ensureUnusedCapacity(a.capacity - 1);
     try testing.expectEqual(a.len, 1);
 
     const uninitialized = try a.addManyAsArray(4);
@@ -334,7 +331,7 @@ test "BoundedArray" {
     @memset(unused[0..8], 2);
     unused[8] = 3;
     unused[9] = 4;
-    try testing.expectEqual(unused.len, a.capacity());
+    try testing.expectEqual(unused.len, a.capacity);
     try a.resize(10);
 
     try a.insert(5, 0xaa);
@@ -389,7 +386,7 @@ test "BoundedArray" {
     try testing.expectEqualStrings(s, a.constSlice());
 }
 
-test "BoundedArray sizeOf" {
+test "@sizeOf(BoundedArray)" {
     // Just sanity check size on one CPU
     if (@import("builtin").cpu.arch != .x86_64)
         return;
@@ -401,8 +398,14 @@ test "BoundedArray sizeOf" {
     try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 16), undefined).len), u5);
 }
 
-test "BoundedArrayAligned" {
-    var a = try BoundedArrayAligned(u8, 16, 4).init(0);
+test "comptime-known capacity" {
+    var a = BoundedArray(u8, 6){};
+    var i: std.math.IntFittingRange(0, a.capacity) = 0;
+    _ = i;
+}
+
+test BoundedArrayAligned {
+    var a = BoundedArrayAligned(u8, 16, 4){};
     try a.append(0);
     try a.append(0);
     try a.append(255);

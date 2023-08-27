@@ -99,7 +99,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
         pub fn fromPrimitive(comptime T: type, x_: T) OverflowError!Self {
             var x = x_;
             var out = Self.zero;
-            for (0..out.limbs.capacity()) |i| {
+            for (0..out.limbs.capacity) |i| {
                 const t = if (@bitSizeOf(T) > t_bits) @as(TLimb, @truncate(x)) else x;
                 out.limbs.set(i, t);
                 x = math.shr(T, x, t_bits);
