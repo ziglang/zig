@@ -3070,7 +3070,7 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
         .cmdsize = @sizeOf(macho.segment_command_64) + @sizeOf(macho.section_64),
     };
 
-    const sect_id = try self.initSection(sectname, segname, .{
+    const sect_id = try self.initSection(segname, sectname, .{
         .flags = opts.flags,
         .reserved2 = opts.reserved2,
     });
