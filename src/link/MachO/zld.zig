@@ -401,7 +401,7 @@ pub fn linkWithZld(
         try macho_file.createDyldPrivateAtom();
         try macho_file.createTentativeDefAtoms();
 
-        if (macho_file.options.output_mode == .Exe) {
+        if (macho_file.base.options.output_mode == .Exe) {
             const global = macho_file.getEntryPoint().?;
             if (macho_file.getSymbol(global).undf()) {
                 // We do one additional check here in case the entry point was found in one of the dylibs.
@@ -429,7 +429,7 @@ pub fn linkWithZld(
         if (macho_file.dyld_stub_binder_index) |index|
             try macho_file.addGotEntry(macho_file.globals.items[index]);
 
-        try macho_file.calcSectionSizes();
+        try calcSectionSizes(macho_file);
 
         var unwind_info = UnwindInfo{ .gpa = gpa };
         defer unwind_info.deinit();
@@ -461,9 +461,9 @@ pub fn linkWithZld(
             try writeLaSymbolPtrs(macho_file);
         }
         if (macho_file.got_section_index) |sect_id|
-            try macho_file.writePointerEntries(sect_id, &macho_file.got_table);
+            try writePointerEntries(macho_file, sect_id, &macho_file.got_table);
         if (macho_file.tlv_ptr_section_index) |sect_id|
-            try macho_file.writePointerEntries(sect_id, &macho_file.tlv_ptr_table);
+            try writePointerEntries(macho_file, sect_id, &macho_file.tlv_ptr_table);
 
         try eh_frame.write(macho_file, &unwind_info);
         try unwind_info.write(macho_file);
@@ -546,11 +546,11 @@ pub fn linkWithZld(
             else => {},
         }
 
-        try load_commands.writeRpathLCs(gpa, macho_file.base.options, lc_writer);
+        try load_commands.writeRpathLCs(gpa, &macho_file.base.options, lc_writer);
         try lc_writer.writeStruct(macho.source_version_command{
             .version = 0,
         });
-        try load_commands.writeBuildVersionLC(macho_file.base.options, lc_writer);
+        try load_commands.writeBuildVersionLC(&macho_file.base.options, lc_writer);
 
         const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + @as(u32, @intCast(lc_buffer.items.len));
         try lc_writer.writeStruct(macho_file.uuid_cmd);
@@ -1053,11 +1053,14 @@ fn allocateSegments(macho_file: *MachO) !void {
     const gpa = macho_file.base.allocator;
     for (macho_file.segments.items, 0..) |*segment, segment_index| {
         const is_text_segment = mem.eql(u8, segment.segName(), "__TEXT");
-        const base_size = if (is_text_segment) try load_commands.calcMinHeaderPad(gpa, macho_file.base.options, .{
-            .segments = macho_file.segments.items,
-            .dylibs = macho_file.dylibs.items,
-            .referenced_dylibs = macho_file.referenced_dylibs.keys(),
-        }) else 0;
+        const base_size = if (is_text_segment)
+            try load_commands.calcMinHeaderPad(gpa, &macho_file.base.options, .{
+                .segments = macho_file.segments.items,
+                .dylibs = macho_file.dylibs.items,
+                .referenced_dylibs = macho_file.referenced_dylibs.keys(),
+            })
+        else
+            0;
         try allocateSegment(macho_file, @as(u8, @intCast(segment_index)), base_size);
     }
 }

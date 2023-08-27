@@ -1455,7 +1455,7 @@ pub fn createTentativeDefAtoms(self: *MachO) !void {
     }
 }
 
-fn createDyldPrivateAtom(self: *MachO) !void {
+pub fn createDyldPrivateAtom(self: *MachO) !void {
     if (self.dyld_private_atom_index != null) return;
 
     const sym_index = try self.allocateSymbol();
@@ -2015,7 +2015,7 @@ fn growAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignment:
     return self.allocateAtom(atom_index, new_atom_size, alignment);
 }
 
-fn allocateSymbol(self: *MachO) !u32 {
+pub fn allocateSymbol(self: *MachO) !u32 {
     try self.locals.ensureUnusedCapacity(self.base.allocator, 1);
 
     const index = blk: {
@@ -2104,7 +2104,7 @@ pub fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
 
 pub fn addTlvPtrEntry(self: *MachO, target: SymbolWithLoc) !void {
     if (self.tlv_ptr_table.lookup.contains(target)) return;
-    _ = try self.tlv_ptr_table.allocateEntry(self.gpa, target);
+    _ = try self.tlv_ptr_table.allocateEntry(self.base.allocator, target);
     if (self.tlv_ptr_section_index == null) {
         self.tlv_ptr_section_index = try self.initSection("__DATA", "__thread_ptrs", .{
             .flags = macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
@@ -3490,7 +3490,7 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
                 const offset = @as(u64, @intCast(base_offset + rel_offset));
                 log.debug("    | rebase at {x}", .{offset});
 
-                try rebase.entries.append(self.gpa, .{
+                try rebase.entries.append(gpa, .{
                     .offset = offset,
                     .segment_id = segment_id,
                 });
@@ -3656,7 +3656,7 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
                 if (bind_sym.weakRef()) {
                     log.debug("    | marking as weak ref ", .{});
                 }
-                try bind.entries.append(self.gpa, .{
+                try bind.entries.append(gpa, .{
                     .target = global,
                     .offset = offset,
                     .segment_id = segment_id,
@@ -4004,8 +4004,8 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
     var locals = std.ArrayList(macho.nlist_64).init(gpa);
     defer locals.deinit();
 
-    for (0..self.locals.items) |sym_id| {
-        try self.addLocalToSymtab(.{ .sym_index = @intCast(sym_id) });
+    for (0..self.locals.items.len) |sym_id| {
+        try self.addLocalToSymtab(.{ .sym_index = @intCast(sym_id) }, &locals);
     }
 
     for (self.objects.items) |object| {
@@ -4611,7 +4611,7 @@ pub fn makeStaticString(bytes: []const u8) [16]u8 {
     return buf;
 }
 
-fn getSegmentByName(self: MachO, segname: []const u8) ?u8 {
+pub fn getSegmentByName(self: MachO, segname: []const u8) ?u8 {
     for (self.segments.items, 0..) |seg, i| {
         if (mem.eql(u8, segname, seg.segName())) return @as(u8, @intCast(i));
     } else return null;
@@ -5024,7 +5024,7 @@ pub fn logSymtab(self: *MachO) void {
     scoped_log.debug("{}", .{self.tlv_ptr_table});
 
     scoped_log.debug("stubs entries:", .{});
-    scoped_log.debug("{}", .{self.stubs_table});
+    scoped_log.debug("{}", .{self.stub_table});
 
     scoped_log.debug("thunks:", .{});
     for (self.thunks.items, 0..) |thunk, i| {
@@ -5151,7 +5151,7 @@ const Cache = std.Build.Cache;
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = File.Dwarf;
-const DwarfInfo = @import("DwarfInfo.zig");
+const DwarfInfo = @import("MachO/DwarfInfo.zig");
 const Dylib = @import("MachO/Dylib.zig");
 const File = link.File;
 const Object = @import("MachO/Object.zig");
@@ -5170,10 +5170,9 @@ const TypedValue = @import("../TypedValue.zig");
 const Value = @import("../value.zig").Value;
 
 pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
-
-const Bind = @import("MachO/dyld_info/bind.zig").Bind(*const MachO, SymbolWithLoc);
-const LazyBind = @import("MachO/dyld_info/bind.zig").LazyBind(*const MachO, SymbolWithLoc);
-const Rebase = @import("MachO/dyld_info/Rebase.zig");
+pub const Bind = @import("MachO/dyld_info/bind.zig").Bind(*const MachO, SymbolWithLoc);
+pub const LazyBind = @import("MachO/dyld_info/bind.zig").LazyBind(*const MachO, SymbolWithLoc);
+pub const Rebase = @import("MachO/dyld_info/Rebase.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
@@ -5257,7 +5256,7 @@ const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.A
 const RebaseTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
 const RelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
 
-const ResolveAction = struct {
+pub const ResolveAction = struct {
     kind: Kind,
     target: SymbolWithLoc,
 

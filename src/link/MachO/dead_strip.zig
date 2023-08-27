@@ -36,11 +36,12 @@ fn collectRoots(macho_file: *MachO, roots: *AtomTable) !void {
     switch (macho_file.base.options.output_mode) {
         .Exe => {
             // Add entrypoint as GC root
-            const global: SymbolWithLoc = macho_file.getEntryPoint();
-            if (global.getFile()) |file| {
-                try addRoot(macho_file, roots, file, global);
-            } else {
-                assert(macho_file.getSymbol(global).undf()); // Stub as our entrypoint is in a dylib.
+            if (macho_file.getEntryPoint()) |global| {
+                if (global.getFile()) |file| {
+                    try addRoot(macho_file, roots, file, global);
+                } else {
+                    assert(macho_file.getSymbol(global).undf()); // Stub as our entrypoint is in a dylib.
+                }
             }
         },
         else => |other| {
@@ -116,7 +117,7 @@ fn markLive(macho_file: *MachO, atom_index: Atom.Index, alive: *AtomTable) void 
 
     alive.putAssumeCapacityNoClobber(atom_index, {});
 
-    const cpu_arch = macho_file.options.target.cpu.arch;
+    const cpu_arch = macho_file.base.options.target.cpu.arch;
 
     const sym = macho_file.getSymbol(atom.getSymbolWithLoc());
     const header = macho_file.sections.items(.header)[sym.n_sect - 1];
