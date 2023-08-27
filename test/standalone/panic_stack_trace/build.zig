@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) void {
     exe.linkLibrary(lib);
     b.installArtifact(exe);
 
-    const dest_path = this_dir();
+    const dest_path = "test/standalone/panic_stack_trace";
     b.install_prefix = dest_path;
     b.install_path = dest_path;
     const install_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "." } } });
@@ -42,8 +42,4 @@ pub fn build(b: *std.Build) void {
     run.expectExitCode(0);
     run.skip_foreign_checks = true;
     test_step.dependOn(&run.step);
-}
-
-fn this_dir() []const u8 {
-    return std.fs.path.dirname(@src().file) orelse ".";
 }
