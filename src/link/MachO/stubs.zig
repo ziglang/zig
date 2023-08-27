@@ -25,7 +25,7 @@ pub inline fn stubSize(cpu_arch: std.Target.Cpu.Arch) u8 {
 pub inline fn stubAlignment(cpu_arch: std.Target.Cpu.Arch) u8 {
     return switch (cpu_arch) {
         .x86_64 => 1,
-        .aarch64 => 2,
+        .aarch64 => 4,
         else => unreachable, // unhandled architecture type
     };
 }

@@ -2912,11 +2912,7 @@ fn populateMissingMetadata(self: *MachO) !void {
     if (self.stub_helper_section_index == null) {
         self.stub_helper_section_index = try self.allocateSection("__TEXT3", "__stub_helper", .{
             .size = @sizeOf(u32),
-            .alignment = switch (cpu_arch) {
-                .x86_64 => 1,
-                .aarch64 => @sizeOf(u32),
-                else => unreachable, // unhandled architecture type
-            },
+            .alignment = stubs.stubAlignment(cpu_arch),
             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
             .prot = macho.PROT.READ | macho.PROT.EXEC,
         });

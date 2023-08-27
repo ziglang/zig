@@ -1032,14 +1032,14 @@ fn calcSectionSizes(macho_file: *MachO) !void {
     if (macho_file.stubs_section_index) |sect_id| {
         const header = &macho_file.sections.items(.header)[sect_id];
         header.size = macho_file.stub_table.count() * stubs.stubSize(cpu_arch);
-        header.@"align" = stubs.stubAlignment(cpu_arch);
+        header.@"align" = math.log2(stubs.stubAlignment(cpu_arch));
     }
 
     if (macho_file.stub_helper_section_index) |sect_id| {
         const header = &macho_file.sections.items(.header)[sect_id];
         header.size = macho_file.stub_table.count() * stubs.stubHelperSize(cpu_arch) +
             stubs.stubHelperPreambleSize(cpu_arch);
-        header.@"align" = stubs.stubAlignment(cpu_arch);
+        header.@"align" = math.log2(stubs.stubAlignment(cpu_arch));
     }
 
     if (macho_file.la_symbol_ptr_section_index) |sect_id| {
