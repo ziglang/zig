@@ -167,7 +167,9 @@ fn getauxvalImpl(index: usize) callconv(.C) usize {
     return 0;
 }
 comptime {
-    @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .Weak });
+    if (!builtin.link_libc) {
+        @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .Weak });
+    }
 }
 
 // Some architectures (and some syscalls) require 64bit parameters to be passed
