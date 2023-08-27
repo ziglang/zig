@@ -9837,7 +9837,7 @@ pub const FuncGen = struct {
         }
 
         _ = try self.wip.callIntrinsic(.normal, .none, .prefetch, &.{.ptr}, &.{
-            try self.resolveInst(prefetch.ptr),
+            try self.sliceOrArrayPtr(try self.resolveInst(prefetch.ptr), self.typeOf(prefetch.ptr)),
             try o.builder.intValue(.i32, prefetch.rw),
             try o.builder.intValue(.i32, prefetch.locality),
             try o.builder.intValue(.i32, prefetch.cache),
