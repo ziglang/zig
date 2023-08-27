@@ -2409,8 +2409,8 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
             break :blk default_reference_trace_len;
         };
 
-        var referenced_by = if (sema.func_index != .none)
-            mod.funcOwnerDeclIndex(sema.func_index)
+        var referenced_by = if (sema.owner_func_index != .none)
+            mod.funcOwnerDeclIndex(sema.owner_func_index)
         else
             sema.owner_decl_index;
         var reference_stack = std.ArrayList(Module.ErrorMsg.Trace).init(gpa);
@@ -7430,7 +7430,6 @@ fn analyzeCall(
                         const err_msg = sema.err orelse return err;
                         if (mem.eql(u8, err_msg.msg, recursive_msg)) return err;
                         try sema.errNote(block, call_src, err_msg, "called from here", .{});
-                        err_msg.clearTrace(gpa);
                         return err;
                     },
                     else => |e| return e,

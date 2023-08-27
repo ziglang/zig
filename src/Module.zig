@@ -1566,12 +1566,6 @@ pub const ErrorMsg = struct {
         gpa.free(err_msg.reference_trace);
         err_msg.* = undefined;
     }
-
-    pub fn clearTrace(err_msg: *ErrorMsg, gpa: Allocator) void {
-        if (err_msg.reference_trace.len == 0) return;
-        gpa.free(err_msg.reference_trace);
-        err_msg.reference_trace = &.{};
-    }
 };
 
 /// Canonical reference to a position within a source file.
