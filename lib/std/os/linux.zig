@@ -153,13 +153,11 @@ pub usingnamespace @import("linux/io_uring.zig");
 
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
-pub extern var _elf_aux_maybe: ?[*]std.elf.Auxv;
-comptime {
-    @export(elf_aux_maybe, .{ .name = "_elf_aux_maybe", .linkage = .Weak });
-}
 
 /// See `std.elf` for the constants.
-pub fn getauxval(index: usize) usize {
+/// This matches the libc getauxval function.
+pub extern fn getauxval(index: usize) usize;
+fn getauxvalImpl(index: usize) callconv(.C) usize {
     const auxv = elf_aux_maybe orelse return 0;
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -167,6 +165,9 @@ pub fn getauxval(index: usize) usize {
             return auxv[i].a_un.a_val;
     }
     return 0;
+}
+comptime {
+    @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .Weak });
 }
 
 // Some architectures (and some syscalls) require 64bit parameters to be passed
