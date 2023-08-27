@@ -1,8 +1,3 @@
-const std = @import("std");
-const aarch64 = @import("../../arch/aarch64/bits.zig");
-
-const Relocation = @import("Relocation.zig");
-
 pub inline fn stubHelperPreambleSize(cpu_arch: std.Target.Cpu.Arch) u8 {
     return switch (cpu_arch) {
         .x86_64 => 15,
@@ -167,3 +162,8 @@ pub fn writeStubCode(args: struct {
         else => unreachable,
     }
 }
+
+const std = @import("std");
+const aarch64 = @import("../../arch/aarch64/bits.zig");
+
+const Relocation = @import("Relocation.zig");

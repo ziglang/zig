@@ -105,8 +105,7 @@ pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
     return surplus >= MachO.min_text_capacity;
 }
 
-pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
-    const gpa = zld.gpa;
+pub fn getOutputSection(macho_file: *MachO, sect: macho.section_64) !?u8 {
     const segname = sect.segName();
     const sectname = sect.sectName();
     const res: ?u8 = blk: {
@@ -126,20 +125,14 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
         }
 
         if (sect.isCode()) {
-            if (zld.text_section_index == null) {
-                zld.text_section_index = try MachO.initSection(
-                    gpa,
-                    zld,
-                    "__TEXT",
-                    "__text",
-                    .{
-                        .flags = macho.S_REGULAR |
-                            macho.S_ATTR_PURE_INSTRUCTIONS |
-                            macho.S_ATTR_SOME_INSTRUCTIONS,
-                    },
-                );
+            if (macho_file.text_section_index == null) {
+                macho_file.text_section_index = try macho_file.initSection("__TEXT", "__text", .{
+                    .flags = macho.S_REGULAR |
+                        macho.S_ATTR_PURE_INSTRUCTIONS |
+                        macho.S_ATTR_SOME_INSTRUCTIONS,
+                });
             }
-            break :blk zld.text_section_index.?;
+            break :blk macho_file.text_section_index.?;
         }
 
         if (sect.isDebug()) {
@@ -151,42 +144,26 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
             macho.S_8BYTE_LITERALS,
             macho.S_16BYTE_LITERALS,
             => {
-                break :blk zld.getSectionByName("__TEXT", "__const") orelse try MachO.initSection(
-                    gpa,
-                    zld,
-                    "__TEXT",
-                    "__const",
-                    .{},
-                );
+                break :blk macho_file.getSectionByName("__TEXT", "__const") orelse
+                    try macho_file.initSection("__TEXT", "__const", .{});
             },
             macho.S_CSTRING_LITERALS => {
                 if (mem.startsWith(u8, sectname, "__objc")) {
-                    break :blk zld.getSectionByName(segname, sectname) orelse try MachO.initSection(
-                        gpa,
-                        zld,
-                        segname,
-                        sectname,
-                        .{},
-                    );
+                    break :blk macho_file.getSectionByName(segname, sectname) orelse
+                        try macho_file.initSection(segname, sectname, .{});
                 }
-                break :blk zld.getSectionByName("__TEXT", "__cstring") orelse try MachO.initSection(
-                    gpa,
-                    zld,
-                    "__TEXT",
-                    "__cstring",
-                    .{ .flags = macho.S_CSTRING_LITERALS },
-                );
+                break :blk macho_file.getSectionByName("__TEXT", "__cstring") orelse
+                    try macho_file.initSection("__TEXT", "__cstring", .{
+                    .flags = macho.S_CSTRING_LITERALS,
+                });
             },
             macho.S_MOD_INIT_FUNC_POINTERS,
             macho.S_MOD_TERM_FUNC_POINTERS,
             => {
-                break :blk zld.getSectionByName("__DATA_CONST", sectname) orelse try MachO.initSection(
-                    gpa,
-                    zld,
-                    "__DATA_CONST",
-                    sectname,
-                    .{ .flags = sect.flags },
-                );
+                break :blk macho_file.getSectionByName("__DATA_CONST", sectname) orelse
+                    try macho_file.initSection("__DATA_CONST", sectname, .{
+                    .flags = sect.flags,
+                });
             },
             macho.S_LITERAL_POINTERS,
             macho.S_ZEROFILL,
@@ -195,23 +172,14 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
             macho.S_THREAD_LOCAL_REGULAR,
             macho.S_THREAD_LOCAL_ZEROFILL,
             => {
-                break :blk zld.getSectionByName(segname, sectname) orelse try MachO.initSection(
-                    gpa,
-                    zld,
-                    segname,
-                    sectname,
-                    .{ .flags = sect.flags },
-                );
+                break :blk macho_file.getSectionByName(segname, sectname) orelse
+                    try macho_file.initSection(segname, sectname, .{
+                    .flags = sect.flags,
+                });
             },
             macho.S_COALESCED => {
-                break :blk zld.getSectionByName(segname, sectname) orelse try MachO.initSection(
-                    gpa,
-                    zld,
-
-                    segname,
-                    sectname,
-                    .{},
-                );
+                break :blk macho_file.getSectionByName(segname, sectname) orelse
+                    try macho_file.initSection(segname, sectname, .{});
             },
             macho.S_REGULAR => {
                 if (mem.eql(u8, segname, "__TEXT")) {
@@ -221,13 +189,8 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
                         mem.eql(u8, sectname, "__gosymtab") or
                         mem.eql(u8, sectname, "__gopclntab"))
                     {
-                        break :blk zld.getSectionByName("__TEXT", sectname) orelse try MachO.initSection(
-                            gpa,
-                            zld,
-                            "__TEXT",
-                            sectname,
-                            .{},
-                        );
+                        break :blk macho_file.getSectionByName("__TEXT", sectname) orelse
+                            try macho_file.initSection("__TEXT", sectname, .{});
                     }
                 }
                 if (mem.eql(u8, segname, "__DATA")) {
@@ -236,33 +199,17 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
                         mem.eql(u8, sectname, "__objc_classlist") or
                         mem.eql(u8, sectname, "__objc_imageinfo"))
                     {
-                        break :blk zld.getSectionByName("__DATA_CONST", sectname) orelse try MachO.initSection(
-                            gpa,
-                            zld,
-                            "__DATA_CONST",
-                            sectname,
-                            .{},
-                        );
+                        break :blk macho_file.getSectionByName("__DATA_CONST", sectname) orelse
+                            try macho_file.initSection("__DATA_CONST", sectname, .{});
                     } else if (mem.eql(u8, sectname, "__data")) {
-                        if (zld.data_section_index == null) {
-                            zld.data_section_index = try MachO.initSection(
-                                gpa,
-                                zld,
-                                "__DATA",
-                                "__data",
-                                .{},
-                            );
+                        if (macho_file.data_section_index == null) {
+                            macho_file.data_section_index = try macho_file.initSection("__DATA", "__data", .{});
                         }
-                        break :blk zld.data_section_index.?;
+                        break :blk macho_file.data_section_index.?;
                     }
                 }
-                break :blk zld.getSectionByName(segname, sectname) orelse try MachO.initSection(
-                    gpa,
-                    zld,
-                    segname,
-                    sectname,
-                    .{},
-                );
+                break :blk macho_file.getSectionByName(segname, sectname) orelse
+                    try macho_file.initSection(segname, sectname, .{});
             },
             else => break :blk null,
         }
@@ -270,29 +217,29 @@ pub fn getOutputSection(zld: *Zld, sect: macho.section_64) !?u8 {
 
     // TODO we can do this directly in the selection logic above.
     // Or is it not worth it?
-    if (zld.data_const_section_index == null) {
-        if (zld.getSectionByName("__DATA_CONST", "__const")) |index| {
-            zld.data_const_section_index = index;
+    if (macho_file.data_const_section_index == null) {
+        if (macho_file.getSectionByName("__DATA_CONST", "__const")) |index| {
+            macho_file.data_const_section_index = index;
         }
     }
-    if (zld.thread_vars_section_index == null) {
-        if (zld.getSectionByName("__DATA", "__thread_vars")) |index| {
-            zld.thread_vars_section_index = index;
+    if (macho_file.thread_vars_section_index == null) {
+        if (macho_file.getSectionByName("__DATA", "__thread_vars")) |index| {
+            macho_file.thread_vars_section_index = index;
         }
     }
-    if (zld.thread_data_section_index == null) {
-        if (zld.getSectionByName("__DATA", "__thread_data")) |index| {
-            zld.thread_data_section_index = index;
+    if (macho_file.thread_data_section_index == null) {
+        if (macho_file.getSectionByName("__DATA", "__thread_data")) |index| {
+            macho_file.thread_data_section_index = index;
         }
     }
-    if (zld.thread_bss_section_index == null) {
-        if (zld.getSectionByName("__DATA", "__thread_bss")) |index| {
-            zld.thread_bss_section_index = index;
+    if (macho_file.thread_bss_section_index == null) {
+        if (macho_file.getSectionByName("__DATA", "__thread_bss")) |index| {
+            macho_file.thread_bss_section_index = index;
         }
     }
-    if (zld.bss_section_index == null) {
-        if (zld.getSectionByName("__DATA", "__bss")) |index| {
-            zld.bss_section_index = index;
+    if (macho_file.bss_section_index == null) {
+        if (macho_file.getSectionByName("__DATA", "__bss")) |index| {
+            macho_file.bss_section_index = index;
         }
     }
 
@@ -383,8 +330,8 @@ const InnerSymIterator = struct {
 
 /// Returns an iterator over potentially contained symbols.
 /// Panics when called on a synthetic Atom.
-pub fn getInnerSymbolsIterator(zld: *Zld, atom_index: Index) InnerSymIterator {
-    const atom = zld.getAtom(atom_index);
+pub fn getInnerSymbolsIterator(macho_file: *MachO, atom_index: Index) InnerSymIterator {
+    const atom = macho_file.getAtom(atom_index);
     assert(atom.getFile() != null);
     return .{
         .sym_index = atom.inner_sym_index,
@@ -397,11 +344,11 @@ pub fn getInnerSymbolsIterator(zld: *Zld, atom_index: Index) InnerSymIterator {
 /// An alias symbol is used to represent the start of an input section
 /// if there were no symbols defined within that range.
 /// Alias symbols are only used on x86_64.
-pub fn getSectionAlias(zld: *Zld, atom_index: Index) ?SymbolWithLoc {
-    const atom = zld.getAtom(atom_index);
+pub fn getSectionAlias(macho_file: *MachO, atom_index: Index) ?SymbolWithLoc {
+    const atom = macho_file.getAtom(atom_index);
     assert(atom.getFile() != null);
 
-    const object = zld.objects.items[atom.getFile().?];
+    const object = macho_file.objects.items[atom.getFile().?];
     const nbase = @as(u32, @intCast(object.in_symtab.?.len));
     const ntotal = @as(u32, @intCast(object.symtab.len));
     var sym_index: u32 = nbase;
@@ -418,13 +365,13 @@ pub fn getSectionAlias(zld: *Zld, atom_index: Index) ?SymbolWithLoc {
 
 /// Given an index into a contained symbol within, calculates an offset wrt
 /// the start of this Atom.
-pub fn calcInnerSymbolOffset(zld: *Zld, atom_index: Index, sym_index: u32) u64 {
-    const atom = zld.getAtom(atom_index);
+pub fn calcInnerSymbolOffset(macho_file: *MachO, atom_index: Index, sym_index: u32) u64 {
+    const atom = macho_file.getAtom(atom_index);
     assert(atom.getFile() != null);
 
     if (atom.sym_index == sym_index) return 0;
 
-    const object = zld.objects.items[atom.getFile().?];
+    const object = macho_file.objects.items[atom.getFile().?];
     const source_sym = object.getSourceSymbol(sym_index).?;
     const base_addr = if (object.getSourceSymbol(atom.sym_index)) |sym|
         sym.n_value
@@ -437,14 +384,14 @@ pub fn calcInnerSymbolOffset(zld: *Zld, atom_index: Index, sym_index: u32) u64 {
     return source_sym.n_value - base_addr;
 }
 
-pub fn scanAtomRelocs(zld: *Zld, atom_index: Index, relocs: []align(1) const macho.relocation_info) !void {
-    const arch = zld.options.target.cpu.arch;
-    const atom = zld.getAtom(atom_index);
+pub fn scanAtomRelocs(macho_file: *MachO, atom_index: Index, relocs: []align(1) const macho.relocation_info) !void {
+    const arch = macho_file.base.options.target.cpu.arch;
+    const atom = macho_file.getAtom(atom_index);
     assert(atom.getFile() != null); // synthetic atoms do not have relocs
 
     return switch (arch) {
-        .aarch64 => scanAtomRelocsArm64(zld, atom_index, relocs),
-        .x86_64 => scanAtomRelocsX86(zld, atom_index, relocs),
+        .aarch64 => scanAtomRelocsArm64(macho_file, atom_index, relocs),
+        .x86_64 => scanAtomRelocsX86(macho_file, atom_index, relocs),
         else => unreachable,
     };
 }
@@ -454,11 +401,11 @@ const RelocContext = struct {
     base_offset: i32 = 0,
 };
 
-pub fn getRelocContext(zld: *Zld, atom_index: Index) RelocContext {
-    const atom = zld.getAtom(atom_index);
+pub fn getRelocContext(macho_file: *MachO, atom_index: Index) RelocContext {
+    const atom = macho_file.getAtom(atom_index);
     assert(atom.getFile() != null); // synthetic atoms do not have relocs
 
-    const object = zld.objects.items[atom.getFile().?];
+    const object = macho_file.objects.items[atom.getFile().?];
     if (object.getSourceSymbol(atom.sym_index)) |source_sym| {
         const source_sect = object.getSourceSection(source_sym.n_sect - 1);
         return .{
@@ -475,7 +422,7 @@ pub fn getRelocContext(zld: *Zld, atom_index: Index) RelocContext {
     };
 }
 
-pub fn parseRelocTarget(zld: *Zld, ctx: struct {
+pub fn parseRelocTarget(macho_file: *MachO, ctx: struct {
     object_id: u32,
     rel: macho.relocation_info,
     code: []const u8,
@@ -485,7 +432,7 @@ pub fn parseRelocTarget(zld: *Zld, ctx: struct {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const object = &zld.objects.items[ctx.object_id];
+    const object = &macho_file.objects.items[ctx.object_id];
     log.debug("parsing reloc target in object({d}) '{s}' ", .{ ctx.object_id, object.name });
 
     const sym_index = if (ctx.rel.r_extern == 0) sym_index: {
@@ -498,7 +445,7 @@ pub fn parseRelocTarget(zld: *Zld, ctx: struct {
             else
                 mem.readIntLittle(u32, ctx.code[rel_offset..][0..4]);
         } else blk: {
-            assert(zld.options.target.cpu.arch == .x86_64);
+            assert(macho_file.base.options.target.cpu.arch == .x86_64);
             const correction: u3 = switch (@as(macho.reloc_type_x86_64, @enumFromInt(ctx.rel.r_type))) {
                 .X86_64_RELOC_SIGNED => 0,
                 .X86_64_RELOC_SIGNED_1 => 1,
@@ -517,35 +464,39 @@ pub fn parseRelocTarget(zld: *Zld, ctx: struct {
     } else object.reverse_symtab_lookup[ctx.rel.r_symbolnum];
 
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = ctx.object_id + 1 };
-    const sym = zld.getSymbol(sym_loc);
+    const sym = macho_file.getSymbol(sym_loc);
     const target = if (sym.sect() and !sym.ext())
         sym_loc
     else if (object.getGlobal(sym_index)) |global_index|
-        zld.globals.items[global_index]
+        macho_file.globals.items[global_index]
     else
         sym_loc;
     log.debug("  | target %{d} ('{s}') in object({?d})", .{
         target.sym_index,
-        zld.getSymbolName(target),
+        macho_file.getSymbolName(target),
         target.getFile(),
     });
     return target;
 }
 
-pub fn getRelocTargetAtomIndex(zld: *Zld, target: SymbolWithLoc) ?Index {
+pub fn getRelocTargetAtomIndex(macho_file: *MachO, target: SymbolWithLoc) ?Index {
     if (target.getFile() == null) {
-        const target_sym_name = zld.getSymbolName(target);
+        const target_sym_name = macho_file.getSymbolName(target);
         if (mem.eql(u8, "__mh_execute_header", target_sym_name)) return null;
         if (mem.eql(u8, "___dso_handle", target_sym_name)) return null;
 
         unreachable; // referenced symbol not found
     }
 
-    const object = zld.objects.items[target.getFile().?];
+    const object = macho_file.objects.items[target.getFile().?];
     return object.getAtomIndexForSymbol(target.sym_index);
 }
 
-fn scanAtomRelocsArm64(zld: *Zld, atom_index: Index, relocs: []align(1) const macho.relocation_info) !void {
+fn scanAtomRelocsArm64(
+    macho_file: *MachO,
+    atom_index: Index,
+    relocs: []align(1) const macho.relocation_info,
+) !void {
     for (relocs) |rel| {
         const rel_type = @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type));
 
@@ -556,8 +507,8 @@ fn scanAtomRelocsArm64(zld: *Zld, atom_index: Index, relocs: []align(1) const ma
 
         if (rel.r_extern == 0) continue;
 
-        const atom = zld.getAtom(atom_index);
-        const object = &zld.objects.items[atom.getFile().?];
+        const atom = macho_file.getAtom(atom_index);
+        const object = &macho_file.objects.items[atom.getFile().?];
         const sym_index = object.reverse_symtab_lookup[rel.r_symbolnum];
         const sym_loc = SymbolWithLoc{
             .sym_index = sym_index,
@@ -565,35 +516,39 @@ fn scanAtomRelocsArm64(zld: *Zld, atom_index: Index, relocs: []align(1) const ma
         };
 
         const target = if (object.getGlobal(sym_index)) |global_index|
-            zld.globals.items[global_index]
+            macho_file.globals.items[global_index]
         else
             sym_loc;
 
         switch (rel_type) {
             .ARM64_RELOC_BRANCH26 => {
                 // TODO rewrite relocation
-                const sym = zld.getSymbol(target);
-                if (sym.undf()) try zld.addStubEntry(target);
+                const sym = macho_file.getSymbol(target);
+                if (sym.undf()) try macho_file.addStubEntry(target);
             },
             .ARM64_RELOC_GOT_LOAD_PAGE21,
             .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
             .ARM64_RELOC_POINTER_TO_GOT,
             => {
                 // TODO rewrite relocation
-                try zld.addGotEntry(target);
+                try macho_file.addGotEntry(target);
             },
             .ARM64_RELOC_TLVP_LOAD_PAGE21,
             .ARM64_RELOC_TLVP_LOAD_PAGEOFF12,
             => {
-                const sym = zld.getSymbol(target);
-                if (sym.undf()) try zld.addTlvPtrEntry(target);
+                const sym = macho_file.getSymbol(target);
+                if (sym.undf()) try macho_file.addTlvPtrEntry(target);
             },
             else => {},
         }
     }
 }
 
-fn scanAtomRelocsX86(zld: *Zld, atom_index: Index, relocs: []align(1) const macho.relocation_info) !void {
+fn scanAtomRelocsX86(
+    macho_file: *MachO,
+    atom_index: Index,
+    relocs: []align(1) const macho.relocation_info,
+) !void {
     for (relocs) |rel| {
         const rel_type = @as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type));
 
@@ -604,8 +559,8 @@ fn scanAtomRelocsX86(zld: *Zld, atom_index: Index, relocs: []align(1) const mach
 
         if (rel.r_extern == 0) continue;
 
-        const atom = zld.getAtom(atom_index);
-        const object = &zld.objects.items[atom.getFile().?];
+        const atom = macho_file.getAtom(atom_index);
+        const object = &macho_file.objects.items[atom.getFile().?];
         const sym_index = object.reverse_symtab_lookup[rel.r_symbolnum];
         const sym_loc = SymbolWithLoc{
             .sym_index = sym_index,
@@ -613,23 +568,23 @@ fn scanAtomRelocsX86(zld: *Zld, atom_index: Index, relocs: []align(1) const mach
         };
 
         const target = if (object.getGlobal(sym_index)) |global_index|
-            zld.globals.items[global_index]
+            macho_file.globals.items[global_index]
         else
             sym_loc;
 
         switch (rel_type) {
             .X86_64_RELOC_BRANCH => {
                 // TODO rewrite relocation
-                const sym = zld.getSymbol(target);
-                if (sym.undf()) try zld.addStubEntry(target);
+                const sym = macho_file.getSymbol(target);
+                if (sym.undf()) try macho_file.addStubEntry(target);
             },
             .X86_64_RELOC_GOT, .X86_64_RELOC_GOT_LOAD => {
                 // TODO rewrite relocation
-                try zld.addGotEntry(target);
+                try macho_file.addGotEntry(target);
             },
             .X86_64_RELOC_TLV => {
-                const sym = zld.getSymbol(target);
-                if (sym.undf()) try zld.addTlvPtrEntry(target);
+                const sym = macho_file.getSymbol(target);
+                if (sym.undf()) try macho_file.addTlvPtrEntry(target);
             },
             else => {},
         }
@@ -637,53 +592,53 @@ fn scanAtomRelocsX86(zld: *Zld, atom_index: Index, relocs: []align(1) const mach
 }
 
 pub fn resolveRelocs(
-    zld: *Zld,
+    macho_file: *MachO,
     atom_index: Index,
     atom_code: []u8,
     atom_relocs: []align(1) const macho.relocation_info,
 ) !void {
-    const arch = zld.options.target.cpu.arch;
-    const atom = zld.getAtom(atom_index);
+    const arch = macho_file.base.options.target.cpu.arch;
+    const atom = macho_file.getAtom(atom_index);
     assert(atom.getFile() != null); // synthetic atoms do not have relocs
 
     log.debug("resolving relocations in ATOM(%{d}, '{s}')", .{
         atom.sym_index,
-        zld.getSymbolName(atom.getSymbolWithLoc()),
+        macho_file.getSymbolName(atom.getSymbolWithLoc()),
     });
 
-    const ctx = getRelocContext(zld, atom_index);
+    const ctx = getRelocContext(macho_file, atom_index);
 
     return switch (arch) {
-        .aarch64 => resolveRelocsArm64(zld, atom_index, atom_code, atom_relocs, ctx),
-        .x86_64 => resolveRelocsX86(zld, atom_index, atom_code, atom_relocs, ctx),
+        .aarch64 => resolveRelocsArm64(macho_file, atom_index, atom_code, atom_relocs, ctx),
+        .x86_64 => resolveRelocsX86(macho_file, atom_index, atom_code, atom_relocs, ctx),
         else => unreachable,
     };
 }
 
-pub fn getRelocTargetAddress(zld: *Zld, target: SymbolWithLoc, is_tlv: bool) !u64 {
-    const target_atom_index = getRelocTargetAtomIndex(zld, target) orelse {
+pub fn getRelocTargetAddress(macho_file: *MachO, target: SymbolWithLoc, is_tlv: bool) !u64 {
+    const target_atom_index = getRelocTargetAtomIndex(macho_file, target) orelse {
         // If there is no atom for target, we still need to check for special, atom-less
         // symbols such as `___dso_handle`.
-        const target_name = zld.getSymbolName(target);
-        const atomless_sym = zld.getSymbol(target);
+        const target_name = macho_file.getSymbolName(target);
+        const atomless_sym = macho_file.getSymbol(target);
         log.debug("    | atomless target '{s}'", .{target_name});
         return atomless_sym.n_value;
     };
-    const target_atom = zld.getAtom(target_atom_index);
+    const target_atom = macho_file.getAtom(target_atom_index);
     log.debug("    | target ATOM(%{d}, '{s}') in object({?})", .{
         target_atom.sym_index,
-        zld.getSymbolName(target_atom.getSymbolWithLoc()),
+        macho_file.getSymbolName(target_atom.getSymbolWithLoc()),
         target_atom.getFile(),
     });
 
-    const target_sym = zld.getSymbol(target_atom.getSymbolWithLoc());
+    const target_sym = macho_file.getSymbol(target_atom.getSymbolWithLoc());
     assert(target_sym.n_desc != MachO.N_DEAD);
 
     // If `target` is contained within the target atom, pull its address value.
     const offset = if (target_atom.getFile() != null) blk: {
-        const object = zld.objects.items[target_atom.getFile().?];
+        const object = macho_file.objects.items[target_atom.getFile().?];
         break :blk if (object.getSourceSymbol(target.sym_index)) |_|
-            Atom.calcInnerSymbolOffset(zld, target_atom_index, target.sym_index)
+            Atom.calcInnerSymbolOffset(macho_file, target_atom_index, target.sym_index)
         else
             0; // section alias
     } else 0;
@@ -694,9 +649,9 @@ pub fn getRelocTargetAddress(zld: *Zld, target: SymbolWithLoc, is_tlv: bool) !u6
         // * wrt to __thread_data if defined, then
         // * wrt to __thread_bss
         const sect_id: u16 = sect_id: {
-            if (zld.thread_data_section_index) |i| {
+            if (macho_file.thread_data_section_index) |i| {
                 break :sect_id i;
-            } else if (zld.thread_bss_section_index) |i| {
+            } else if (macho_file.thread_bss_section_index) |i| {
                 break :sect_id i;
             } else {
                 log.err("threadlocal variables present but no initializer sections found", .{});
@@ -705,20 +660,20 @@ pub fn getRelocTargetAddress(zld: *Zld, target: SymbolWithLoc, is_tlv: bool) !u6
                 return error.FailedToResolveRelocationTarget;
             }
         };
-        break :base_address zld.sections.items(.header)[sect_id].addr;
+        break :base_address macho_file.sections.items(.header)[sect_id].addr;
     } else 0;
     return target_sym.n_value + offset - base_address;
 }
 
 fn resolveRelocsArm64(
-    zld: *Zld,
+    macho_file: *MachO,
     atom_index: Index,
     atom_code: []u8,
     atom_relocs: []align(1) const macho.relocation_info,
     context: RelocContext,
 ) !void {
-    const atom = zld.getAtom(atom_index);
-    const object = zld.objects.items[atom.getFile().?];
+    const atom = macho_file.getAtom(atom_index);
+    const object = macho_file.objects.items[atom.getFile().?];
 
     var addend: ?i64 = null;
     var subtractor: ?SymbolWithLoc = null;
@@ -745,7 +700,7 @@ fn resolveRelocsArm64(
                     atom.getFile(),
                 });
 
-                subtractor = parseRelocTarget(zld, .{
+                subtractor = parseRelocTarget(macho_file, .{
                     .object_id = atom.getFile().?,
                     .rel = rel,
                     .code = atom_code,
@@ -757,7 +712,7 @@ fn resolveRelocsArm64(
             else => {},
         }
 
-        const target = parseRelocTarget(zld, .{
+        const target = parseRelocTarget(macho_file, .{
             .object_id = atom.getFile().?,
             .rel = rel,
             .code = atom_code,
@@ -770,26 +725,26 @@ fn resolveRelocsArm64(
             @tagName(rel_type),
             rel.r_address,
             target.sym_index,
-            zld.getSymbolName(target),
+            macho_file.getSymbolName(target),
             target.getFile(),
         });
 
         const source_addr = blk: {
-            const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
+            const source_sym = macho_file.getSymbol(atom.getSymbolWithLoc());
             break :blk source_sym.n_value + rel_offset;
         };
         const target_addr = blk: {
-            if (relocRequiresGot(zld, rel)) break :blk zld.getGotEntryAddress(target).?;
-            if (relocIsTlv(zld, rel) and zld.getSymbol(target).undf())
-                break :blk zld.getTlvPtrEntryAddress(target).?;
-            if (relocIsStub(zld, rel) and zld.getSymbol(target).undf())
-                break :blk zld.getStubsEntryAddress(target).?;
+            if (relocRequiresGot(macho_file, rel)) break :blk macho_file.getGotEntryAddress(target).?;
+            if (relocIsTlv(macho_file, rel) and macho_file.getSymbol(target).undf())
+                break :blk macho_file.getTlvPtrEntryAddress(target).?;
+            if (relocIsStub(macho_file, rel) and macho_file.getSymbol(target).undf())
+                break :blk macho_file.getStubsEntryAddress(target).?;
             const is_tlv = is_tlv: {
-                const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
-                const header = zld.sections.items(.header)[source_sym.n_sect - 1];
+                const source_sym = macho_file.getSymbol(atom.getSymbolWithLoc());
+                const header = macho_file.sections.items(.header)[source_sym.n_sect - 1];
                 break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
             };
-            break :blk try getRelocTargetAddress(zld, target, is_tlv);
+            break :blk try getRelocTargetAddress(macho_file, target, is_tlv);
         };
 
         log.debug("    | source_addr = 0x{x}", .{source_addr});
@@ -797,9 +752,9 @@ fn resolveRelocsArm64(
         switch (rel_type) {
             .ARM64_RELOC_BRANCH26 => {
                 log.debug("  source {s} (object({?})), target {s}", .{
-                    zld.getSymbolName(atom.getSymbolWithLoc()),
+                    macho_file.getSymbolName(atom.getSymbolWithLoc()),
                     atom.getFile(),
-                    zld.getSymbolName(target),
+                    macho_file.getSymbolName(target),
                 });
 
                 const displacement = if (Relocation.calcPcRelativeDisplacementArm64(
@@ -809,13 +764,13 @@ fn resolveRelocsArm64(
                     log.debug("    | target_addr = 0x{x}", .{target_addr});
                     break :blk disp;
                 } else |_| blk: {
-                    const thunk_index = zld.thunk_table.get(atom_index).?;
-                    const thunk = zld.thunks.items[thunk_index];
-                    const thunk_sym_loc = if (zld.getSymbol(target).undf())
-                        thunk.getTrampoline(zld, .stub, target).?
+                    const thunk_index = macho_file.thunk_table.get(atom_index).?;
+                    const thunk = macho_file.thunks.items[thunk_index];
+                    const thunk_sym_loc = if (macho_file.getSymbol(target).undf())
+                        thunk.getTrampoline(macho_file, .stub, target).?
                     else
-                        thunk.getTrampoline(zld, .atom, target).?;
-                    const thunk_addr = zld.getSymbol(thunk_sym_loc).n_value;
+                        thunk.getTrampoline(macho_file, .atom, target).?;
+                    const thunk_addr = macho_file.getSymbol(thunk_sym_loc).n_value;
                     log.debug("    | target_addr = 0x{x} (thunk)", .{thunk_addr});
                     break :blk try Relocation.calcPcRelativeDisplacementArm64(source_addr, thunk_addr);
                 };
@@ -944,7 +899,7 @@ fn resolveRelocsArm64(
                     }
                 };
 
-                var inst = if (zld.tlv_ptr_table.lookup.contains(target)) aarch64.Instruction{
+                var inst = if (macho_file.tlv_ptr_table.lookup.contains(target)) aarch64.Instruction{
                     .load_store_register = .{
                         .rt = reg_info.rd,
                         .rn = reg_info.rn,
@@ -992,7 +947,7 @@ fn resolveRelocsArm64(
 
                 const result = blk: {
                     if (subtractor) |sub| {
-                        const sym = zld.getSymbol(sub);
+                        const sym = macho_file.getSymbol(sub);
                         break :blk @as(i64, @intCast(target_addr)) - @as(i64, @intCast(sym.n_value)) + ptr_addend;
                     } else {
                         break :blk @as(i64, @intCast(target_addr)) + ptr_addend;
@@ -1016,14 +971,14 @@ fn resolveRelocsArm64(
 }
 
 fn resolveRelocsX86(
-    zld: *Zld,
+    macho_file: *MachO,
     atom_index: Index,
     atom_code: []u8,
     atom_relocs: []align(1) const macho.relocation_info,
     context: RelocContext,
 ) !void {
-    const atom = zld.getAtom(atom_index);
-    const object = zld.objects.items[atom.getFile().?];
+    const atom = macho_file.getAtom(atom_index);
+    const object = macho_file.objects.items[atom.getFile().?];
 
     var subtractor: ?SymbolWithLoc = null;
 
@@ -1041,7 +996,7 @@ fn resolveRelocsX86(
                     atom.getFile(),
                 });
 
-                subtractor = parseRelocTarget(zld, .{
+                subtractor = parseRelocTarget(macho_file, .{
                     .object_id = atom.getFile().?,
                     .rel = rel,
                     .code = atom_code,
@@ -1053,7 +1008,7 @@ fn resolveRelocsX86(
             else => {},
         }
 
-        const target = parseRelocTarget(zld, .{
+        const target = parseRelocTarget(macho_file, .{
             .object_id = atom.getFile().?,
             .rel = rel,
             .code = atom_code,
@@ -1066,26 +1021,26 @@ fn resolveRelocsX86(
             @tagName(rel_type),
             rel.r_address,
             target.sym_index,
-            zld.getSymbolName(target),
+            macho_file.getSymbolName(target),
             target.getFile(),
         });
 
         const source_addr = blk: {
-            const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
+            const source_sym = macho_file.getSymbol(atom.getSymbolWithLoc());
             break :blk source_sym.n_value + rel_offset;
         };
         const target_addr = blk: {
-            if (relocRequiresGot(zld, rel)) break :blk zld.getGotEntryAddress(target).?;
-            if (relocIsStub(zld, rel) and zld.getSymbol(target).undf())
-                break :blk zld.getStubsEntryAddress(target).?;
-            if (relocIsTlv(zld, rel) and zld.getSymbol(target).undf())
-                break :blk zld.getTlvPtrEntryAddress(target).?;
+            if (relocRequiresGot(macho_file, rel)) break :blk macho_file.getGotEntryAddress(target).?;
+            if (relocIsStub(macho_file, rel) and macho_file.getSymbol(target).undf())
+                break :blk macho_file.getStubsEntryAddress(target).?;
+            if (relocIsTlv(macho_file, rel) and macho_file.getSymbol(target).undf())
+                break :blk macho_file.getTlvPtrEntryAddress(target).?;
             const is_tlv = is_tlv: {
-                const source_sym = zld.getSymbol(atom.getSymbolWithLoc());
-                const header = zld.sections.items(.header)[source_sym.n_sect - 1];
+                const source_sym = macho_file.getSymbol(atom.getSymbolWithLoc());
+                const header = macho_file.sections.items(.header)[source_sym.n_sect - 1];
                 break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
             };
-            break :blk try getRelocTargetAddress(zld, target, is_tlv);
+            break :blk try getRelocTargetAddress(macho_file, target, is_tlv);
         };
 
         log.debug("    | source_addr = 0x{x}", .{source_addr});
@@ -1115,7 +1070,7 @@ fn resolveRelocsX86(
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
                 const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
 
-                if (zld.tlv_ptr_table.lookup.get(target) == null) {
+                if (macho_file.tlv_ptr_table.lookup.get(target) == null) {
                     // We need to rewrite the opcode from movq to leaq.
                     atom_code[rel_offset - 2] = 0x8d;
                 }
@@ -1170,7 +1125,7 @@ fn resolveRelocsX86(
 
                 const result = blk: {
                     if (subtractor) |sub| {
-                        const sym = zld.getSymbol(sub);
+                        const sym = macho_file.getSymbol(sub);
                         break :blk @as(i64, @intCast(target_addr)) - @as(i64, @intCast(sym.n_value)) + addend;
                     } else {
                         break :blk @as(i64, @intCast(target_addr)) + addend;
@@ -1192,10 +1147,10 @@ fn resolveRelocsX86(
     }
 }
 
-pub fn getAtomCode(zld: *Zld, atom_index: Index) []const u8 {
-    const atom = zld.getAtom(atom_index);
+pub fn getAtomCode(macho_file: *MachO, atom_index: Index) []const u8 {
+    const atom = macho_file.getAtom(atom_index);
     assert(atom.getFile() != null); // Synthetic atom shouldn't need to inquire for code.
-    const object = zld.objects.items[atom.getFile().?];
+    const object = macho_file.objects.items[atom.getFile().?];
     const source_sym = object.getSourceSymbol(atom.sym_index) orelse {
         // If there was no matching symbol present in the source symtab, this means
         // we are dealing with either an entire section, or part of it, but also
@@ -1216,10 +1171,10 @@ pub fn getAtomCode(zld: *Zld, atom_index: Index) []const u8 {
     return code[offset..][0..code_len];
 }
 
-pub fn getAtomRelocs(zld: *Zld, atom_index: Index) []const macho.relocation_info {
-    const atom = zld.getAtom(atom_index);
+pub fn getAtomRelocs(macho_file: *MachO, atom_index: Index) []const macho.relocation_info {
+    const atom = macho_file.getAtom(atom_index);
     assert(atom.getFile() != null); // Synthetic atom shouldn't need to unique for relocs.
-    const object = zld.objects.items[atom.getFile().?];
+    const object = macho_file.objects.items[atom.getFile().?];
     const cache = object.relocs_lookup[atom.sym_index];
 
     const source_sect_id = if (object.getSourceSymbol(atom.sym_index)) |source_sym| blk: {
@@ -1238,8 +1193,8 @@ pub fn getAtomRelocs(zld: *Zld, atom_index: Index) []const macho.relocation_info
     return relocs[cache.start..][0..cache.len];
 }
 
-pub fn relocRequiresGot(zld: *Zld, rel: macho.relocation_info) bool {
-    switch (zld.options.target.cpu.arch) {
+pub fn relocRequiresGot(macho_file: *MachO, rel: macho.relocation_info) bool {
+    switch (macho_file.base.options.target.cpu.arch) {
         .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
             .ARM64_RELOC_GOT_LOAD_PAGE21,
             .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
@@ -1257,8 +1212,8 @@ pub fn relocRequiresGot(zld: *Zld, rel: macho.relocation_info) bool {
     }
 }
 
-pub fn relocIsTlv(zld: *Zld, rel: macho.relocation_info) bool {
-    switch (zld.options.target.cpu.arch) {
+pub fn relocIsTlv(macho_file: *MachO, rel: macho.relocation_info) bool {
+    switch (macho_file.base.options.target.cpu.arch) {
         .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
             .ARM64_RELOC_TLVP_LOAD_PAGE21,
             .ARM64_RELOC_TLVP_LOAD_PAGEOFF12,
@@ -1273,8 +1228,8 @@ pub fn relocIsTlv(zld: *Zld, rel: macho.relocation_info) bool {
     }
 }
 
-pub fn relocIsStub(zld: *Zld, rel: macho.relocation_info) bool {
-    switch (zld.options.target.cpu.arch) {
+pub fn relocIsStub(macho_file: *MachO, rel: macho.relocation_info) bool {
+    switch (macho_file.base.options.target.cpu.arch) {
         .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
             .ARM64_RELOC_BRANCH26 => return true,
             else => return false,
@@ -1305,4 +1260,3 @@ const Arch = std.Target.Cpu.Arch;
 const MachO = @import("../MachO.zig");
 pub const Relocation = @import("Relocation.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
-const Zld = @import("zld.zig").Zld;

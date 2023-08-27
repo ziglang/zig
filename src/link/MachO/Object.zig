@@ -2,31 +2,6 @@
 //! Each Object is fully loaded into memory for easier
 //! access into different data within.
 
-const Object = @This();
-
-const std = @import("std");
-const build_options = @import("build_options");
-const assert = std.debug.assert;
-const dwarf = std.dwarf;
-const eh_frame = @import("eh_frame.zig");
-const fs = std.fs;
-const io = std.io;
-const log = std.log.scoped(.link);
-const macho = std.macho;
-const math = std.math;
-const mem = std.mem;
-const sort = std.sort;
-const trace = @import("../../tracy.zig").trace;
-
-const Allocator = mem.Allocator;
-const Atom = @import("Atom.zig");
-const DwarfInfo = @import("DwarfInfo.zig");
-const LoadCommandIterator = macho.LoadCommandIterator;
-const MachO = @import("../MachO.zig");
-const SymbolWithLoc = MachO.SymbolWithLoc;
-const UnwindInfo = @import("UnwindInfo.zig");
-const Zld = @import("zld.zig").Zld;
-
 name: []const u8,
 mtime: u64,
 contents: []align(@alignOf(u64)) const u8,
@@ -359,25 +334,25 @@ fn sectionLessThanByAddress(ctx: void, lhs: SortedSection, rhs: SortedSection) b
     return lhs.header.addr < rhs.header.addr;
 }
 
-pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u32) !void {
+pub fn splitIntoAtoms(self: *Object, macho_file: *MachO, object_id: u32) !void {
     log.debug("splitting object({d}, {s}) into atoms", .{ object_id, self.name });
 
-    try self.splitRegularSections(zld, object_id);
-    try self.parseEhFrameSection(zld, object_id);
-    try self.parseUnwindInfo(zld, object_id);
-    try self.parseDataInCode(zld.gpa);
+    try self.splitRegularSections(macho_file, object_id);
+    try self.parseEhFrameSection(macho_file, object_id);
+    try self.parseUnwindInfo(macho_file, object_id);
+    try self.parseDataInCode(macho_file.base.allocator);
 }
 
 /// Splits input regular sections into Atoms.
 /// If the Object was compiled with `MH_SUBSECTIONS_VIA_SYMBOLS`, splits section
 /// into subsections where each subsection then represents an Atom.
-pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
-    const gpa = zld.gpa;
+pub fn splitRegularSections(self: *Object, macho_file: *MachO, object_id: u32) !void {
+    const gpa = macho_file.base.allocator;
 
     const sections = self.getSourceSections();
     for (sections, 0..) |sect, id| {
         if (sect.isDebug()) continue;
-        const out_sect_id = (try Atom.getOutputSection(zld, sect)) orelse {
+        const out_sect_id = (try Atom.getOutputSection(macho_file, sect)) orelse {
             log.debug("  unhandled section '{s},{s}'", .{ sect.segName(), sect.sectName() });
             continue;
         };
@@ -397,13 +372,13 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
     if (self.in_symtab == null) {
         for (sections, 0..) |sect, id| {
             if (sect.isDebug()) continue;
-            const out_sect_id = (try Atom.getOutputSection(zld, sect)) orelse continue;
+            const out_sect_id = (try Atom.getOutputSection(macho_file, sect)) orelse continue;
             if (sect.size == 0) continue;
 
             const sect_id = @as(u8, @intCast(id));
             const sym_index = self.getSectionAliasSymbolIndex(sect_id);
             const atom_index = try self.createAtomFromSubsection(
-                zld,
+                macho_file,
                 object_id,
                 sym_index,
                 sym_index,
@@ -412,7 +387,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                 sect.@"align",
                 out_sect_id,
             );
-            zld.addAtomToSection(atom_index);
+            macho_file.addAtomToSection(atom_index);
         }
         return;
     }
@@ -456,17 +431,17 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
         log.debug("splitting section '{s},{s}' into atoms", .{ sect.segName(), sect.sectName() });
 
         // Get output segment/section in the final artifact.
-        const out_sect_id = (try Atom.getOutputSection(zld, sect)) orelse continue;
+        const out_sect_id = (try Atom.getOutputSection(macho_file, sect)) orelse continue;
 
         log.debug("  output sect({d}, '{s},{s}')", .{
             out_sect_id + 1,
-            zld.sections.items(.header)[out_sect_id].segName(),
-            zld.sections.items(.header)[out_sect_id].sectName(),
+            macho_file.sections.items(.header)[out_sect_id].segName(),
+            macho_file.sections.items(.header)[out_sect_id].sectName(),
         });
 
         try self.parseRelocs(gpa, section.id);
 
-        const cpu_arch = zld.options.target.cpu.arch;
+        const cpu_arch = macho_file.base.options.target.cpu.arch;
         const sect_loc = filterSymbolsBySection(symtab[sect_sym_index..], sect_id + 1);
         const sect_start_index = sect_sym_index + sect_loc.index;
 
@@ -482,7 +457,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                 const sym_index = self.getSectionAliasSymbolIndex(sect_id);
                 const atom_size = first_sym.n_value - sect.addr;
                 const atom_index = try self.createAtomFromSubsection(
-                    zld,
+                    macho_file,
                     object_id,
                     sym_index,
                     sym_index,
@@ -492,9 +467,9 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                     out_sect_id,
                 );
                 if (!sect.isZerofill()) {
-                    try self.cacheRelocs(zld, atom_index);
+                    try self.cacheRelocs(macho_file, atom_index);
                 }
-                zld.addAtomToSection(atom_index);
+                macho_file.addAtomToSection(atom_index);
             }
 
             var next_sym_index = sect_start_index;
@@ -518,7 +493,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                     sect.@"align";
 
                 const atom_index = try self.createAtomFromSubsection(
-                    zld,
+                    macho_file,
                     object_id,
                     atom_sym_index,
                     atom_sym_index,
@@ -537,14 +512,14 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                     self.atom_by_index_table[alias_index] = atom_index;
                 }
                 if (!sect.isZerofill()) {
-                    try self.cacheRelocs(zld, atom_index);
+                    try self.cacheRelocs(macho_file, atom_index);
                 }
-                zld.addAtomToSection(atom_index);
+                macho_file.addAtomToSection(atom_index);
             }
         } else {
             const alias_index = self.getSectionAliasSymbolIndex(sect_id);
             const atom_index = try self.createAtomFromSubsection(
-                zld,
+                macho_file,
                 object_id,
                 alias_index,
                 sect_start_index,
@@ -554,16 +529,16 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
                 out_sect_id,
             );
             if (!sect.isZerofill()) {
-                try self.cacheRelocs(zld, atom_index);
+                try self.cacheRelocs(macho_file, atom_index);
             }
-            zld.addAtomToSection(atom_index);
+            macho_file.addAtomToSection(atom_index);
         }
     }
 }
 
 fn createAtomFromSubsection(
     self: *Object,
-    zld: *Zld,
+    macho_file: *MachO,
     object_id: u32,
     sym_index: u32,
     inner_sym_index: u32,
@@ -572,9 +547,9 @@ fn createAtomFromSubsection(
     alignment: u32,
     out_sect_id: u8,
 ) !Atom.Index {
-    const gpa = zld.gpa;
-    const atom_index = try zld.createAtom(sym_index, .{ .size = size, .alignment = alignment });
-    const atom = zld.getAtomPtr(atom_index);
+    const gpa = macho_file.base.allocator;
+    const atom_index = try macho_file.createAtom(sym_index, .{ .size = size, .alignment = alignment });
+    const atom = macho_file.getAtomPtr(atom_index);
     atom.inner_sym_index = inner_sym_index;
     atom.inner_nsyms_trailing = inner_nsyms_trailing;
     atom.file = object_id + 1;
@@ -584,22 +559,22 @@ fn createAtomFromSubsection(
         sym_index,
         self.getSymbolName(sym_index),
         out_sect_id + 1,
-        zld.sections.items(.header)[out_sect_id].segName(),
-        zld.sections.items(.header)[out_sect_id].sectName(),
+        macho_file.sections.items(.header)[out_sect_id].segName(),
+        macho_file.sections.items(.header)[out_sect_id].sectName(),
         object_id,
     });
 
     try self.atoms.append(gpa, atom_index);
     self.atom_by_index_table[sym_index] = atom_index;
 
-    var it = Atom.getInnerSymbolsIterator(zld, atom_index);
+    var it = Atom.getInnerSymbolsIterator(macho_file, atom_index);
     while (it.next()) |sym_loc| {
-        const inner = zld.getSymbolPtr(sym_loc);
+        const inner = macho_file.getSymbolPtr(sym_loc);
         inner.n_sect = out_sect_id + 1;
         self.atom_by_index_table[sym_loc.sym_index] = atom_index;
     }
 
-    const out_sect = zld.sections.items(.header)[out_sect_id];
+    const out_sect = macho_file.sections.items(.header)[out_sect_id];
     if (out_sect.isCode() and
         mem.eql(u8, "__TEXT", out_sect.segName()) and
         mem.eql(u8, "__text", out_sect.sectName()))
@@ -651,8 +626,8 @@ fn parseRelocs(self: *Object, gpa: Allocator, sect_id: u8) !void {
     self.section_relocs_lookup.items[sect_id] = start;
 }
 
-fn cacheRelocs(self: *Object, zld: *Zld, atom_index: Atom.Index) !void {
-    const atom = zld.getAtom(atom_index);
+fn cacheRelocs(self: *Object, macho_file: *MachO, atom_index: Atom.Index) !void {
+    const atom = macho_file.getAtom(atom_index);
 
     const source_sect_id = if (self.getSourceSymbol(atom.sym_index)) |source_sym| blk: {
         break :blk source_sym.n_sect - 1;
@@ -679,19 +654,19 @@ fn relocGreaterThan(ctx: void, lhs: macho.relocation_info, rhs: macho.relocation
     return lhs.r_address > rhs.r_address;
 }
 
-fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
+fn parseEhFrameSection(self: *Object, macho_file: *MachO, object_id: u32) !void {
     const sect_id = self.eh_frame_sect_id orelse return;
     const sect = self.getSourceSection(sect_id);
 
     log.debug("parsing __TEXT,__eh_frame section", .{});
 
-    const gpa = zld.gpa;
+    const gpa = macho_file.base.allocator;
 
-    if (zld.eh_frame_section_index == null) {
-        zld.eh_frame_section_index = try MachO.initSection(gpa, zld, "__TEXT", "__eh_frame", .{});
+    if (macho_file.eh_frame_section_index == null) {
+        macho_file.eh_frame_section_index = try macho_file.initSection("__TEXT", "__eh_frame", .{});
     }
 
-    const cpu_arch = zld.options.target.cpu.arch;
+    const cpu_arch = macho_file.base.options.target.cpu.arch;
     try self.parseRelocs(gpa, sect_id);
     const relocs = self.getRelocs(sect_id);
 
@@ -729,7 +704,7 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
                                 @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type)) == .ARM64_RELOC_UNSIGNED)
                                 break rel;
                         } else unreachable;
-                        const target = Atom.parseRelocTarget(zld, .{
+                        const target = Atom.parseRelocTarget(macho_file, .{
                             .object_id = object_id,
                             .rel = rel,
                             .code = it.data[offset..],
@@ -744,7 +719,7 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
                         });
                         const target_sym_index = self.getSymbolByAddress(target_address, null);
                         const target = if (self.getGlobal(target_sym_index)) |global_index|
-                            zld.globals.items[global_index]
+                            macho_file.globals.items[global_index]
                         else
                             SymbolWithLoc{ .sym_index = target_sym_index, .file = object_id + 1 };
                         break :blk target;
@@ -770,7 +745,7 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
                     };
                     log.debug("FDE at offset {x} tracks {s}", .{
                         offset,
-                        zld.getSymbolName(actual_target),
+                        macho_file.getSymbolName(actual_target),
                     });
                     try self.eh_frame_records_lookup.putNoClobber(gpa, actual_target, offset);
                 }
@@ -779,19 +754,17 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
     }
 }
 
-fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
-    const gpa = zld.gpa;
-    const cpu_arch = zld.options.target.cpu.arch;
+fn parseUnwindInfo(self: *Object, macho_file: *MachO, object_id: u32) !void {
+    const gpa = macho_file.base.allocator;
+    const cpu_arch = macho_file.base.options.target.cpu.arch;
     const sect_id = self.unwind_info_sect_id orelse {
         // If it so happens that the object had `__eh_frame` section defined but no `__compact_unwind`,
         // we will try fully synthesising unwind info records to somewhat match Apple ld's
         // approach. However, we will only synthesise DWARF records and nothing more. For this reason,
         // we still create the output `__TEXT,__unwind_info` section.
         if (self.hasEhFrameRecords()) {
-            if (zld.unwind_info_section_index == null) {
-                zld.unwind_info_section_index = try MachO.initSection(
-                    gpa,
-                    zld,
+            if (macho_file.unwind_info_section_index == null) {
+                macho_file.unwind_info_section_index = try macho_file.initSection(
                     "__TEXT",
                     "__unwind_info",
                     .{},
@@ -803,8 +776,8 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
 
     log.debug("parsing unwind info in {s}", .{self.name});
 
-    if (zld.unwind_info_section_index == null) {
-        zld.unwind_info_section_index = try MachO.initSection(gpa, zld, "__TEXT", "__unwind_info", .{});
+    if (macho_file.unwind_info_section_index == null) {
+        macho_file.unwind_info_section_index = try macho_file.initSection("__TEXT", "__unwind_info", .{});
     }
 
     const unwind_records = self.getUnwindRecords();
@@ -839,7 +812,7 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
 
         // Find function symbol that this record describes
         const rel = relocs[rel_pos.start..][rel_pos.len - 1];
-        const target = Atom.parseRelocTarget(zld, .{
+        const target = Atom.parseRelocTarget(macho_file, .{
             .object_id = object_id,
             .rel = rel,
             .code = mem.asBytes(&record),
@@ -863,7 +836,7 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
                 };
                 log.debug("unwind record {d} tracks {s}", .{
                     record_id,
-                    zld.getSymbolName(actual_target),
+                    macho_file.getSymbolName(actual_target),
                 });
                 try self.unwind_records_lookup.putNoClobber(gpa, actual_target, @intCast(record_id));
             }
@@ -1094,3 +1067,27 @@ pub fn getEhFrameRecordsIterator(self: Object) eh_frame.Iterator {
 pub fn hasDataInCode(self: Object) bool {
     return self.data_in_code.items.len > 0;
 }
+
+const Object = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const assert = std.debug.assert;
+const dwarf = std.dwarf;
+const eh_frame = @import("eh_frame.zig");
+const fs = std.fs;
+const io = std.io;
+const log = std.log.scoped(.link);
+const macho = std.macho;
+const math = std.math;
+const mem = std.mem;
+const sort = std.sort;
+const trace = @import("../../tracy.zig").trace;
+
+const Allocator = mem.Allocator;
+const Atom = @import("Atom.zig");
+const DwarfInfo = @import("DwarfInfo.zig");
+const LoadCommandIterator = macho.LoadCommandIterator;
+const MachO = @import("../MachO.zig");
+const SymbolWithLoc = MachO.SymbolWithLoc;
+const UnwindInfo = @import("UnwindInfo.zig");

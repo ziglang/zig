@@ -1,23 +1,3 @@
-const Dylib = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const fs = std.fs;
-const fmt = std.fmt;
-const log = std.log.scoped(.link);
-const macho = std.macho;
-const math = std.math;
-const mem = std.mem;
-const fat = @import("fat.zig");
-const tapi = @import("../tapi.zig");
-
-const Allocator = mem.Allocator;
-const CrossTarget = std.zig.CrossTarget;
-const LibStub = tapi.LibStub;
-const LoadCommandIterator = macho.LoadCommandIterator;
-const MachO = @import("../MachO.zig");
-const Tbd = tapi.Tbd;
-
 id: ?Id = null,
 weak: bool = false,
 /// Header is only set if Dylib is parsed directly from a binary and not a stub file.
@@ -546,3 +526,23 @@ pub fn parseFromStub(
         }
     }
 }
+
+const Dylib = @This();
+
+const std = @import("std");
+const assert = std.debug.assert;
+const fs = std.fs;
+const fmt = std.fmt;
+const log = std.log.scoped(.link);
+const macho = std.macho;
+const math = std.math;
+const mem = std.mem;
+const fat = @import("fat.zig");
+const tapi = @import("../tapi.zig");
+
+const Allocator = mem.Allocator;
+const CrossTarget = std.zig.CrossTarget;
+const LibStub = tapi.LibStub;
+const LoadCommandIterator = macho.LoadCommandIterator;
+const MachO = @import("../MachO.zig");
+const Tbd = tapi.Tbd;

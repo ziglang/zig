@@ -1,15 +1,3 @@
-const Archive = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const fs = std.fs;
-const log = std.log.scoped(.link);
-const macho = std.macho;
-const mem = std.mem;
-
-const Allocator = mem.Allocator;
-const Object = @import("Object.zig");
-
 file: fs.File,
 fat_offset: u64,
 name: []const u8,
@@ -215,3 +203,15 @@ pub fn parseObject(self: Archive, gpa: Allocator, offset: u32) !Object {
 
     return object;
 }
+
+const Archive = @This();
+
+const std = @import("std");
+const assert = std.debug.assert;
+const fs = std.fs;
+const log = std.log.scoped(.link);
+const macho = std.macho;
+const mem = std.mem;
+
+const Allocator = mem.Allocator;
+const Object = @import("Object.zig");

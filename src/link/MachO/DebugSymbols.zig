@@ -1,26 +1,3 @@
-const DebugSymbols = @This();
-
-const std = @import("std");
-const build_options = @import("build_options");
-const assert = std.debug.assert;
-const fs = std.fs;
-const link = @import("../../link.zig");
-const load_commands = @import("load_commands.zig");
-const log = std.log.scoped(.dsym);
-const macho = std.macho;
-const makeStaticString = MachO.makeStaticString;
-const math = std.math;
-const mem = std.mem;
-const padToIdeal = MachO.padToIdeal;
-const trace = @import("../../tracy.zig").trace;
-
-const Allocator = mem.Allocator;
-const Dwarf = @import("../Dwarf.zig");
-const MachO = @import("../MachO.zig");
-const Module = @import("../../Module.zig");
-const StringTable = @import("../strtab.zig").StringTable;
-const Type = @import("../../type.zig").Type;
-
 allocator: Allocator,
 dwarf: Dwarf,
 file: fs.File,
@@ -569,3 +546,26 @@ pub fn getSection(self: DebugSymbols, sect: u8) macho.section_64 {
     assert(sect < self.sections.items.len);
     return self.sections.items[sect];
 }
+
+const DebugSymbols = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const assert = std.debug.assert;
+const fs = std.fs;
+const link = @import("../../link.zig");
+const load_commands = @import("load_commands.zig");
+const log = std.log.scoped(.dsym);
+const macho = std.macho;
+const makeStaticString = MachO.makeStaticString;
+const math = std.math;
+const mem = std.mem;
+const padToIdeal = MachO.padToIdeal;
+const trace = @import("../../tracy.zig").trace;
+
+const Allocator = mem.Allocator;
+const Dwarf = @import("../Dwarf.zig");
+const MachO = @import("../MachO.zig");
+const Module = @import("../../Module.zig");
+const StringTable = @import("../strtab.zig").StringTable;
+const Type = @import("../../type.zig").Type;

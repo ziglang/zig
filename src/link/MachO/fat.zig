@@ -1,9 +1,3 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const log = std.log.scoped(.archive);
-const macho = std.macho;
-const mem = std.mem;
-
 pub fn isFatLibrary(file: std.fs.File) bool {
     const reader = file.reader();
     const hdr = reader.readStructBig(macho.fat_header) catch return false;
@@ -38,3 +32,9 @@ pub fn parseArchs(file: std.fs.File, buffer: *[2]Arch) ![]const Arch {
 
     return buffer[0..count];
 }
+
+const std = @import("std");
+const assert = std.debug.assert;
+const log = std.log.scoped(.archive);
+const macho = std.macho;
+const mem = std.mem;
