@@ -48,7 +48,7 @@ pub const Header = struct {
     /// Return value may point into Header buffer, or might point into the
     /// argument buffer.
     /// TODO: check against "../" and other nefarious things
-    pub fn fullFileName(header: Header, buffer: *[255]u8) ![]const u8 {
+    pub fn fullFileName(header: Header, buffer: *[std.fs.MAX_PATH_BYTES]u8) ![]const u8 {
         const n = name(header);
         if (!is_ustar(header))
             return n;
@@ -83,6 +83,44 @@ pub const Header = struct {
     }
 };
 
+const Buffer = struct {
+    buffer: [512 * 8]u8 = undefined,
+    start: usize = 0,
+    end: usize = 0,
+
+    pub fn readChunk(b: *Buffer, reader: anytype, count: usize) ![]const u8 {
+        b.ensureCapacity(1024);
+
+        const ask = @min(b.buffer.len - b.end, count -| (b.end - b.start));
+        b.end += try reader.readAtLeast(b.buffer[b.end..], ask);
+
+        return b.buffer[b.start..b.end];
+    }
+
+    pub fn advance(b: *Buffer, count: usize) void {
+        b.start += count;
+        assert(b.start <= b.end);
+    }
+
+    pub fn skip(b: *Buffer, reader: anytype, count: usize) !void {
+        if (b.start + count > b.end) {
+            try reader.skipBytes(b.start + count - b.end, .{});
+            b.start = b.end;
+        } else {
+            b.advance(count);
+        }
+    }
+
+    inline fn ensureCapacity(b: *Buffer, count: usize) void {
+        if (b.buffer.len - b.start < count) {
+            const dest_end = b.end - b.start;
+            @memcpy(b.buffer[0..dest_end], b.buffer[b.start..b.end]);
+            b.end = dest_end;
+            b.start = 0;
+        }
+    }
+};
+
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !void {
     switch (options.mode_mode) {
         .ignore => {},
@@ -95,30 +133,27 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
             @panic("TODO: unimplemented: tar ModeMode.executable_bit_only");
         },
     }
-    var file_name_buffer: [255]u8 = undefined;
-    var buffer: [512 * 8]u8 = undefined;
-    var start: usize = 0;
-    var end: usize = 0;
+    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var file_name_override_len: usize = 0;
+    var buffer: Buffer = .{};
     header: while (true) {
-        if (buffer.len - start < 1024) {
-            const dest_end = end - start;
-            @memcpy(buffer[0..dest_end], buffer[start..end]);
-            end = dest_end;
-            start = 0;
-        }
-        const ask_header = @min(buffer.len - end, 1024 -| (end - start));
-        end += try reader.readAtLeast(buffer[end..], ask_header);
-        switch (end - start) {
+        const chunk = try buffer.readChunk(reader, 1024);
+        switch (chunk.len) {
             0 => return,
             1...511 => return error.UnexpectedEndOfStream,
             else => {},
         }
-        const header: Header = .{ .bytes = buffer[start..][0..512] };
-        start += 512;
+        buffer.advance(512);
+
+        const header: Header = .{ .bytes = chunk[0..512] };
         const file_size = try header.fileSize();
         const rounded_file_size = std.mem.alignForward(u64, file_size, 512);
         const pad_len = @as(usize, @intCast(rounded_file_size - file_size));
-        const unstripped_file_name = try header.fullFileName(&file_name_buffer);
+        const unstripped_file_name = if (file_name_override_len > 0)
+            file_name_buffer[0..file_name_override_len]
+        else
+            try header.fullFileName(&file_name_buffer);
+        file_name_override_len = 0;
         switch (header.fileType()) {
             .directory => {
                 const file_name = try stripComponents(unstripped_file_name, options.strip_components);
@@ -138,36 +173,59 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
 
                 var file_off: usize = 0;
                 while (true) {
-                    if (buffer.len - start < 1024) {
-                        const dest_end = end - start;
-                        @memcpy(buffer[0..dest_end], buffer[start..end]);
-                        end = dest_end;
-                        start = 0;
-                    }
-                    // Ask for the rounded up file size + 512 for the next header.
-                    // TODO: https://github.com/ziglang/zig/issues/14039
-                    const ask = @as(usize, @intCast(@min(
-                        buffer.len - end,
-                        rounded_file_size + 512 - file_off -| (end - start),
-                    )));
-                    end += try reader.readAtLeast(buffer[end..], ask);
-                    if (end - start < ask) return error.UnexpectedEndOfStream;
-                    // TODO: https://github.com/ziglang/zig/issues/14039
-                    const slice = buffer[start..@as(usize, @intCast(@min(file_size - file_off + start, end)))];
+                    const temp = try buffer.readChunk(reader, @intCast(rounded_file_size + 512 - file_off));
+                    if (temp.len == 0) return error.UnexpectedEndOfStream;
+                    const slice = temp[0..@as(usize, @intCast(@min(file_size - file_off, temp.len)))];
                     try file.writeAll(slice);
+
                     file_off += slice.len;
-                    start += slice.len;
+                    buffer.advance(slice.len);
                     if (file_off >= file_size) {
-                        start += pad_len;
-                        // Guaranteed since we use a buffer divisible by 512.
-                        assert(start <= end);
+                        buffer.advance(pad_len);
                         continue :header;
                     }
                 }
             },
-            .global_extended_header, .extended_header => {
-                if (start + rounded_file_size > end) return error.TarHeadersTooBig;
-                start = @as(usize, @intCast(start + rounded_file_size));
+            .extended_header => {
+                if (file_size == 0) {
+                    buffer.advance(@intCast(rounded_file_size));
+                    continue;
+                }
+
+                const chunk_size: usize = @intCast(rounded_file_size + 512);
+                var data_off: usize = 0;
+                file_name_override_len = while (data_off < file_size) {
+                    const slice = try buffer.readChunk(reader, chunk_size - data_off);
+                    if (slice.len == 0) return error.UnexpectedEndOfStream;
+                    const remaining_size: usize = @intCast(file_size - data_off);
+                    const attr_info = try parsePaxAttribute(slice[0..@min(remaining_size, slice.len)], remaining_size);
+
+                    if (std.mem.eql(u8, attr_info.key, "path")) {
+                        if (attr_info.value_len > file_name_buffer.len) return error.NameTooLong;
+                        buffer.advance(attr_info.value_off);
+                        data_off += attr_info.value_off;
+                        break attr_info.value_len;
+                    }
+
+                    try buffer.skip(reader, attr_info.size);
+                    data_off += attr_info.size;
+                } else 0;
+
+                var i: usize = 0;
+                while (i < file_name_override_len) {
+                    const slice = try buffer.readChunk(reader, chunk_size - data_off - i);
+                    if (slice.len == 0) return error.UnexpectedEndOfStream;
+                    const copy_size: usize = @intCast(@min(file_name_override_len - i, slice.len));
+                    @memcpy(file_name_buffer[i .. i + copy_size], slice[0..copy_size]);
+                    buffer.advance(copy_size);
+                    i += copy_size;
+                }
+
+                try buffer.skip(reader, @intCast(rounded_file_size - data_off - file_name_override_len));
+                continue :header;
+            },
+            .global_extended_header => {
+                buffer.skip(reader, @intCast(rounded_file_size)) catch return error.TarHeadersTooBig;
             },
             .hard_link => return error.TarUnsupportedFileType,
             .symbolic_link => return error.TarUnsupportedFileType,
@@ -194,6 +252,45 @@ test stripComponents {
     try expectEqualStrings("a/b/c", try stripComponents("a/b/c", 0));
     try expectEqualStrings("b/c", try stripComponents("a/b/c", 1));
     try expectEqualStrings("c", try stripComponents("a/b/c", 2));
+}
+
+const PaxAttributeInfo = struct {
+    size: usize,
+    key: []const u8,
+    value_off: usize,
+    value_len: usize,
+};
+
+fn parsePaxAttribute(data: []const u8, max_size: usize) !PaxAttributeInfo {
+    const pos_space = std.mem.indexOfScalar(u8, data, ' ') orelse return error.InvalidPaxAttribute;
+    const pos_equals = std.mem.indexOfScalarPos(u8, data, pos_space, '=') orelse return error.InvalidPaxAttribute;
+    const kv_size = try std.fmt.parseInt(usize, data[0..pos_space], 10);
+    if (kv_size > max_size) {
+        return error.InvalidPaxAttribute;
+    }
+    return .{
+        .size = kv_size,
+        .key = data[pos_space + 1 .. pos_equals],
+        .value_off = pos_equals + 1,
+        .value_len = kv_size - pos_equals - 2,
+    };
+}
+
+test parsePaxAttribute {
+    const expectEqual = std.testing.expectEqual;
+    const expectEqualStrings = std.testing.expectEqualStrings;
+    const expectError = std.testing.expectError;
+    const prefix = "1011 path=";
+    const file_name = "0123456789" ** 100;
+    const header = prefix ++ file_name ++ "\n";
+    const attr_info = try parsePaxAttribute(header, 1011);
+    try expectEqual(@as(usize, 1011), attr_info.size);
+    try expectEqualStrings("path", attr_info.key);
+    try expectEqual(prefix.len, attr_info.value_off);
+    try expectEqual(file_name.len, attr_info.value_len);
+    try expectEqual(attr_info, try parsePaxAttribute(header, 1012));
+    try expectError(error.InvalidPaxAttribute, parsePaxAttribute(header, 1010));
+    try expectError(error.InvalidPaxAttribute, parsePaxAttribute("", 0));
 }
 
 const std = @import("std.zig");
