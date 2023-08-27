@@ -6360,7 +6360,7 @@ pub fn errorSetFromUnsortedNames(
 
 /// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
-    assert(ty.zigTypeTag(mod) == .Pointer);
+    assert(ty.zigTypeTag(mod) == .Pointer and !ty.isSlice(mod));
     const i = try intern(mod, .{ .ptr = .{
         .ty = ty.toIntern(),
         .addr = .{ .int = (try mod.intValue_u64(Type.usize, x)).toIntern() },

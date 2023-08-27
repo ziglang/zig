@@ -17282,12 +17282,13 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             for (enum_field_vals, 0..) |*field_val, i| {
                 const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
                 const value_val = if (enum_type.values.len > 0)
-                    try mod.intern_pool.getCoerced(gpa, enum_type.values.get(ip)[i], .comptime_int_type)
+                    try mod.intern_pool.getCoercedInts(
+                        mod.gpa,
+                        mod.intern_pool.indexToKey(enum_type.values.get(ip)[i]).int,
+                        .comptime_int_type,
+                    )
                 else
-                    try mod.intern(.{ .int = .{
-                        .ty = .comptime_int_type,
-                        .storage = .{ .u64 = @intCast(i) },
-                    } });
+                    (try mod.intValue(Type.comptime_int, i)).toIntern();
                 // TODO: write something like getCoercedInts to avoid needing to dupe
                 const name = try sema.arena.dupe(u8, ip.stringToSlice(enum_type.names.get(ip)[i]));
                 const name_val = v: {
@@ -21259,7 +21260,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     try sema.checkFloatType(block, operand_src, operand_scalar_ty);
 
     if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
-        const result_val = try sema.intFromFloat(block, operand_src, operand_val, operand_ty, dest_ty);
+        const result_val = try sema.intFromFloat(block, operand_src, operand_val, operand_ty, dest_ty, .truncate);
         return Air.internedToRef(result_val.toIntern());
     } else if (dest_scalar_ty.zigTypeTag(mod) == .ComptimeInt) {
         return sema.failWithNeededComptime(block, operand_src, .{
@@ -27575,21 +27576,21 @@ fn coerceExtra(
         return block.addBitCast(dest_ty, inst);
     }
 
-    const is_undef = inst_ty.zigTypeTag(mod) == .Undefined;
-
     switch (dest_ty.zigTypeTag(mod)) {
         .Optional => optional: {
-            // undefined sets the optional bit also to undefined.
-            if (is_undef) {
-                return mod.undefRef(dest_ty);
-            }
+            if (maybe_inst_val) |val| {
+                // undefined sets the optional bit also to undefined.
+                if (val.toIntern() == .undef) {
+                    return mod.undefRef(dest_ty);
+                }
 
-            // null to ?T
-            if (inst_ty.zigTypeTag(mod) == .Null) {
-                return Air.internedToRef((try mod.intern(.{ .opt = .{
-                    .ty = dest_ty.toIntern(),
-                    .val = .none,
-                } })));
+                // null to ?T
+                if (val.toIntern() == .null_value) {
+                    return Air.internedToRef((try mod.intern(.{ .opt = .{
+                        .ty = dest_ty.toIntern(),
+                        .val = .none,
+                    } })));
+                }
             }
 
             // cast from ?*T and ?[*]T to ?*anyopaque
@@ -27681,7 +27682,9 @@ fn coerceExtra(
 
                 if (dest_info.sentinel != .none) {
                     if (array_ty.sentinel(mod)) |inst_sent| {
-                        if (dest_info.sentinel != (try mod.getCoerced(inst_sent, dst_elem_type)).toIntern()) {
+                        if (Air.internedToRef(dest_info.sentinel) !=
+                            try sema.coerceInMemory(inst_sent, dst_elem_type))
+                        {
                             in_memory_result = .{ .ptr_sentinel = .{
                                 .actual = inst_sent,
                                 .wanted = dest_info.sentinel.toValue(),
@@ -27758,9 +27761,10 @@ fn coerceExtra(
             switch (dest_info.flags.size) {
                 // coercion to C pointer
                 .C => switch (inst_ty.zigTypeTag(mod)) {
-                    .Null => {
-                        return Air.internedToRef((try mod.getCoerced(Value.null, dest_ty)).toIntern());
-                    },
+                    .Null => return Air.internedToRef(try mod.intern(.{ .ptr = .{
+                        .ty = dest_ty.toIntern(),
+                        .addr = .{ .int = .zero_usize },
+                    } })),
                     .ComptimeInt => {
                         const addr = sema.coerceExtra(block, Type.usize, inst, inst_src, .{ .report_err = false }) catch |err| switch (err) {
                             error.NotCoercible => break :pointer,
@@ -27865,10 +27869,19 @@ fn coerceExtra(
                         // we use a dummy pointer value with the required alignment.
                         return Air.internedToRef((try mod.intern(.{ .ptr = .{
                             .ty = dest_ty.toIntern(),
-                            .addr = .{ .int = (if (dest_info.flags.alignment != .none)
-                                try mod.intValue(Type.usize, dest_info.flags.alignment.toByteUnitsOptional().?)
+                            .addr = .{ .int = if (dest_info.flags.alignment != .none)
+                                (try mod.intValue(
+                                    Type.usize,
+                                    dest_info.flags.alignment.toByteUnitsOptional().?,
+                                )).toIntern()
                             else
-                                try mod.getCoerced(try dest_info.child.toType().lazyAbiAlignment(mod), Type.usize)).toIntern() },
+                                try mod.intern_pool.getCoercedInts(
+                                    mod.gpa,
+                                    mod.intern_pool.indexToKey(
+                                        (try dest_info.child.toType().lazyAbiAlignment(mod)).toIntern(),
+                                    ).int,
+                                    .usize_type,
+                                ) },
                             .len = (try mod.intValue(Type.usize, 0)).toIntern(),
                         } })));
                     }
@@ -27904,8 +27917,8 @@ fn coerceExtra(
                     }
 
                     if (dest_info.sentinel == .none or inst_info.sentinel == .none or
-                        dest_info.sentinel !=
-                        try mod.intern_pool.getCoerced(sema.gpa, inst_info.sentinel, dest_info.child))
+                        Air.internedToRef(dest_info.sentinel) !=
+                        try sema.coerceInMemory(inst_info.sentinel.toValue(), dest_info.child.toType()))
                         break :p;
 
                     const slice_ptr = try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty);
@@ -27915,10 +27928,7 @@ fn coerceExtra(
         },
         .Int, .ComptimeInt => switch (inst_ty.zigTypeTag(mod)) {
             .Float, .ComptimeFloat => float: {
-                if (is_undef) {
-                    return mod.undefRef(dest_ty);
-                }
-                const val = (try sema.resolveMaybeUndefVal(inst)) orelse {
+                const val = maybe_inst_val orelse {
                     if (dest_ty.zigTypeTag(mod) == .ComptimeInt) {
                         if (!opts.report_err) return error.NotCoercible;
                         return sema.failWithNeededComptime(block, inst_src, .{
@@ -27927,29 +27937,23 @@ fn coerceExtra(
                     }
                     break :float;
                 };
-
-                if (val.floatHasFraction(mod)) {
-                    return sema.fail(
-                        block,
-                        inst_src,
-                        "fractional component prevents float value '{}' from coercion to type '{}'",
-                        .{ val.fmtValue(inst_ty, mod), dest_ty.fmt(mod) },
-                    );
-                }
-                const result_val = try sema.intFromFloat(block, inst_src, val, inst_ty, dest_ty);
+                const result_val = try sema.intFromFloat(block, inst_src, val, inst_ty, dest_ty, .exact);
                 return Air.internedToRef(result_val.toIntern());
             },
             .Int, .ComptimeInt => {
-                if (is_undef) {
-                    return mod.undefRef(dest_ty);
-                }
-                if (try sema.resolveMaybeUndefVal(inst)) |val| {
+                if (maybe_inst_val) |val| {
                     // comptime-known integer to other number
                     if (!(try sema.intFitsInType(val, dest_ty, null))) {
                         if (!opts.report_err) return error.NotCoercible;
                         return sema.fail(block, inst_src, "type '{}' cannot represent integer value '{}'", .{ dest_ty.fmt(mod), val.fmtValue(inst_ty, mod) });
                     }
-                    return Air.internedToRef((try mod.getCoerced(val, dest_ty)).toIntern());
+                    return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+                        .undef => try mod.undefRef(dest_ty),
+                        .int => |int| Air.internedToRef(
+                            try mod.intern_pool.getCoercedInts(mod.gpa, int, dest_ty.toIntern()),
+                        ),
+                        else => unreachable,
+                    };
                 }
                 if (dest_ty.zigTypeTag(mod) == .ComptimeInt) {
                     if (!opts.report_err) return error.NotCoercible;
@@ -27970,9 +27974,6 @@ fn coerceExtra(
                     return block.addTyOp(.intcast, dest_ty, inst);
                 }
             },
-            .Undefined => {
-                return mod.undefRef(dest_ty);
-            },
             else => {},
         },
         .Float, .ComptimeFloat => switch (inst_ty.zigTypeTag(mod)) {
@@ -27982,10 +27983,7 @@ fn coerceExtra(
                 return Air.internedToRef(result_val.toIntern());
             },
             .Float => {
-                if (is_undef) {
-                    return mod.undefRef(dest_ty);
-                }
-                if (try sema.resolveMaybeUndefVal(inst)) |val| {
+                if (maybe_inst_val) |val| {
                     const result_val = try val.floatCast(dest_ty, mod);
                     if (!val.eql(try result_val.floatCast(inst_ty, mod), inst_ty, mod)) {
                         return sema.fail(
@@ -28012,10 +28010,7 @@ fn coerceExtra(
                 }
             },
             .Int, .ComptimeInt => int: {
-                if (is_undef) {
-                    return mod.undefRef(dest_ty);
-                }
-                const val = (try sema.resolveMaybeUndefVal(inst)) orelse {
+                const val = maybe_inst_val orelse {
                     if (dest_ty.zigTypeTag(mod) == .ComptimeFloat) {
                         if (!opts.report_err) return error.NotCoercible;
                         return sema.failWithNeededComptime(block, inst_src, .{
@@ -28036,9 +28031,6 @@ fn coerceExtra(
                 //    );
                 //}
                 return Air.internedToRef(result_val.toIntern());
-            },
-            .Undefined => {
-                return mod.undefRef(dest_ty);
             },
             else => {},
         },
@@ -28069,9 +28061,6 @@ fn coerceExtra(
                 if (union_tag_ty.eql(dest_ty, mod)) {
                     return sema.unionToTag(block, dest_ty, inst, inst_src);
                 }
-            },
-            .Undefined => {
-                return mod.undefRef(dest_ty);
             },
             else => {},
         },
@@ -28107,9 +28096,6 @@ fn coerceExtra(
                 // E to E!T
                 return sema.wrapErrorUnionSet(block, dest_ty, inst, inst_src);
             },
-            .Undefined => {
-                return mod.undefRef(dest_ty);
-            },
             else => eu: {
                 // T to E!T
                 return sema.wrapErrorUnionPayload(block, dest_ty, inst, inst_src) catch |err| switch (err) {
@@ -28125,9 +28111,6 @@ fn coerceExtra(
                     return sema.coerceAnonStructToUnion(block, dest_ty, dest_ty_src, inst, inst_src);
                 }
             },
-            .Undefined => {
-                return mod.undefRef(dest_ty);
-            },
             else => {},
         },
         .Array => switch (inst_ty.zigTypeTag(mod)) {
@@ -28140,9 +28123,6 @@ fn coerceExtra(
                     return sema.coerceTupleToArray(block, dest_ty, dest_ty_src, inst, inst_src);
                 }
             },
-            .Undefined => {
-                return mod.undefRef(dest_ty);
-            },
             else => {},
         },
         .Vector => switch (inst_ty.zigTypeTag(mod)) {
@@ -28151,9 +28131,6 @@ fn coerceExtra(
                 if (inst_ty.isTuple(mod)) {
                     return sema.coerceTupleToArray(block, dest_ty, dest_ty_src, inst, inst_src);
                 }
-            },
-            .Undefined => {
-                return mod.undefRef(dest_ty);
             },
             else => {},
         },
@@ -28174,9 +28151,7 @@ fn coerceExtra(
     // undefined to anything. We do this after the big switch above so that
     // special logic has a chance to run first, such as `*[N]T` to `[]T` which
     // should initialize the length field of the slice.
-    if (is_undef) {
-        return mod.undefRef(dest_ty);
-    }
+    if (maybe_inst_val) |val| if (val.toIntern() == .undef) return mod.undefRef(dest_ty);
 
     if (!opts.report_err) return error.NotCoercible;
 
@@ -34043,10 +34018,10 @@ fn resolveLazyValue(sema: *Sema, val: Value) CompileError!Value {
     switch (mod.intern_pool.indexToKey(val.toIntern())) {
         .int => |int| switch (int.storage) {
             .u64, .i64, .big_int => return val,
-            .lazy_align, .lazy_size => return (try mod.intern(.{ .int = .{
-                .ty = int.ty,
-                .storage = .{ .u64 = (try val.getUnsignedIntAdvanced(mod, sema)).? },
-            } })).toValue(),
+            .lazy_align, .lazy_size => return mod.intValue(
+                int.ty.toType(),
+                (try val.getUnsignedIntAdvanced(mod, sema)).?,
+            ),
         },
         .ptr => |ptr| {
             const resolved_len = switch (ptr.len) {
@@ -36217,20 +36192,21 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                     .auto, .explicit => {
                         if (enum_type.tag_ty.toType().hasRuntimeBits(mod)) return null;
 
-                        switch (enum_type.names.len) {
-                            0 => {
-                                const only = try mod.intern(.{ .empty_enum_value = ty.toIntern() });
-                                return only.toValue();
-                            },
-                            1 => return try mod.getCoerced((if (enum_type.values.len == 0)
-                                try mod.intern(.{ .int = .{
-                                    .ty = enum_type.tag_ty,
-                                    .storage = .{ .u64 = 0 },
-                                } })
-                            else
-                                enum_type.values.get(ip)[0]).toValue(), ty),
+                        return switch (enum_type.names.len) {
+                            0 => try mod.intern(.{ .empty_enum_value = ty.toIntern() }),
+                            1 => try mod.intern(.{ .enum_tag = .{
+                                .ty = ty.toIntern(),
+                                .int = if (enum_type.values.len == 0)
+                                    (try mod.intValue(enum_type.tag_ty.toType(), 0)).toIntern()
+                                else
+                                    try mod.intern_pool.getCoercedInts(
+                                        mod.gpa,
+                                        mod.intern_pool.indexToKey(enum_type.values.get(ip)[0]).int,
+                                        enum_type.tag_ty,
+                                    ),
+                            } }),
                             else => return null,
-                        }
+                        }.toValue();
                     },
                 },
 
@@ -37069,6 +37045,8 @@ fn intSubWithOverflowScalar(
     };
 }
 
+const IntFromFloatMode = enum { exact, truncate };
+
 fn intFromFloat(
     sema: *Sema,
     block: *Block,
@@ -37076,6 +37054,7 @@ fn intFromFloat(
     val: Value,
     float_ty: Type,
     int_ty: Type,
+    mode: IntFromFloatMode,
 ) CompileError!Value {
     const mod = sema.mod;
     if (float_ty.zigTypeTag(mod) == .Vector) {
@@ -37084,14 +37063,14 @@ fn intFromFloat(
         const scalar_ty = int_ty.scalarType(mod);
         for (result_data, 0..) |*scalar, i| {
             const elem_val = try val.elemValue(sema.mod, i);
-            scalar.* = try (try sema.intFromFloatScalar(block, src, elem_val, elem_ty, int_ty.scalarType(mod))).intern(scalar_ty, mod);
+            scalar.* = try (try sema.intFromFloatScalar(block, src, elem_val, elem_ty, int_ty.scalarType(mod), mode)).intern(scalar_ty, mod);
         }
         return (try mod.intern(.{ .aggregate = .{
             .ty = int_ty.toIntern(),
             .storage = .{ .elems = result_data },
         } })).toValue();
     }
-    return sema.intFromFloatScalar(block, src, val, float_ty, int_ty);
+    return sema.intFromFloatScalar(block, src, val, float_ty, int_ty, mode);
 }
 
 // float is expected to be finite and non-NaN
@@ -37126,8 +37105,18 @@ fn intFromFloatScalar(
     val: Value,
     float_ty: Type,
     int_ty: Type,
+    mode: IntFromFloatMode,
 ) CompileError!Value {
     const mod = sema.mod;
+
+    if (val.isUndef(mod)) return sema.failWithUseOfUndef(block, src);
+
+    if (mode == .exact and val.floatHasFraction(mod)) return sema.fail(
+        block,
+        src,
+        "fractional component prevents float value '{}' from coercion to type '{}'",
+        .{ val.fmtValue(float_ty, mod), int_ty.fmt(mod) },
+    );
 
     const float = val.toFloat(f128, mod);
     if (std.math.isNan(float)) {
