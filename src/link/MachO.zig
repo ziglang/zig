@@ -927,9 +927,7 @@ fn parseDylib(
     const self_cpu_arch = link_options.target.cpu.arch;
 
     const file_stat = try file.stat();
-    var file_size = math.cast(usize, file_stat.size) orelse return error.Overflow;
-
-    file_size -= offset;
+    const file_size = math.cast(usize, file_stat.size - offset) orelse return error.Overflow;
 
     const contents = try file.readToEndAllocOptions(gpa, file_size, file_size, @alignOf(u64), null);
     defer gpa.free(contents);

@@ -703,7 +703,8 @@ fn writeAtoms(macho_file: *MachO) !void {
                     log.debug("    (with padding {x})", .{padding_size});
                 }
 
-                const offset = this_sym.n_value - header.addr;
+                const offset = math.cast(usize, this_sym.n_value - header.addr) orelse
+                    return error.Overflow;
                 log.debug("  (at offset 0x{x})", .{offset});
 
                 const code = Atom.getAtomCode(macho_file, atom_index);
@@ -749,7 +750,8 @@ fn writeThunks(macho_file: *MachO) !void {
 
     for (macho_file.thunks.items, 0..) |*thunk, i| {
         if (thunk.getSize() == 0) continue;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, thunk.getSize());
+        const thunk_size = math.cast(usize, thunk.getSize()) orelse return error.Overflow;
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, thunk_size);
         defer buffer.deinit();
         try thunks.writeThunkCode(macho_file, thunk, buffer.writer());
         const thunk_atom = macho_file.getAtom(thunk.getStartAtomIndex());
@@ -763,7 +765,8 @@ fn writeThunks(macho_file: *MachO) !void {
 fn writePointerEntries(macho_file: *MachO, sect_id: u8, table: anytype) !void {
     const gpa = macho_file.base.allocator;
     const header = macho_file.sections.items(.header)[sect_id];
-    var buffer = try std.ArrayList(u8).initCapacity(gpa, header.size);
+    const capacity = math.cast(usize, header.size) orelse return error.Overflow;
+    var buffer = try std.ArrayList(u8).initCapacity(gpa, capacity);
     defer buffer.deinit();
     for (table.entries.items) |entry| {
         const sym = macho_file.getSymbol(entry);
@@ -779,7 +782,8 @@ fn writeStubs(macho_file: *MachO) !void {
     const stubs_header = macho_file.sections.items(.header)[macho_file.stubs_section_index.?];
     const la_symbol_ptr_header = macho_file.sections.items(.header)[macho_file.la_symbol_ptr_section_index.?];
 
-    var buffer = try std.ArrayList(u8).initCapacity(gpa, stubs_header.size);
+    const capacity = math.cast(usize, stubs_header.size) orelse return error.Overflow;
+    var buffer = try std.ArrayList(u8).initCapacity(gpa, capacity);
     defer buffer.deinit();
 
     for (0..macho_file.stub_table.count()) |index| {
@@ -799,7 +803,8 @@ fn writeStubHelpers(macho_file: *MachO) !void {
     const cpu_arch = macho_file.base.options.target.cpu.arch;
     const stub_helper_header = macho_file.sections.items(.header)[macho_file.stub_helper_section_index.?];
 
-    var buffer = try std.ArrayList(u8).initCapacity(gpa, stub_helper_header.size);
+    const capacity = math.cast(usize, stub_helper_header.size) orelse return error.Overflow;
+    var buffer = try std.ArrayList(u8).initCapacity(gpa, capacity);
     defer buffer.deinit();
 
     {
@@ -842,7 +847,8 @@ fn writeLaSymbolPtrs(macho_file: *MachO) !void {
     const la_symbol_ptr_header = macho_file.sections.items(.header)[macho_file.la_symbol_ptr_section_index.?];
     const stub_helper_header = macho_file.sections.items(.header)[macho_file.stub_helper_section_index.?];
 
-    var buffer = try std.ArrayList(u8).initCapacity(gpa, la_symbol_ptr_header.size);
+    const capacity = math.cast(usize, la_symbol_ptr_header.size) orelse return error.Overflow;
+    var buffer = try std.ArrayList(u8).initCapacity(gpa, capacity);
     defer buffer.deinit();
 
     for (0..macho_file.stub_table.count()) |index| {
