@@ -428,10 +428,13 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     var actions = std.ArrayList(ResolveAction).init(self.base.allocator);
     defer actions.deinit();
     try self.resolveSymbols(&actions);
-    try self.reportUndefined();
 
     if (self.getEntryPoint() == null) {
         self.error_flags.no_entry_point_found = true;
+    }
+    if (self.unresolved.count() > 0) {
+        try self.reportUndefined();
+        return error.FlushFailure;
     }
 
     for (actions.items) |action| switch (action.kind) {
@@ -1642,13 +1645,7 @@ fn resolveGlobalSymbol(self: *MachO, current: SymbolWithLoc) !void {
         // TODO redo this logic with corresponding logic in updateDeclExports to avoid this
         // ugly check.
         if (self.mode == .zld) {
-            log.err("symbol '{s}' defined multiple times", .{sym_name});
-            if (global.getFile()) |file| {
-                log.err("  first definition in '{s}'", .{self.objects.items[file].name});
-            }
-            if (current.getFile()) |file| {
-                log.err("  next definition in '{s}'", .{self.objects.items[file].name});
-            }
+            try self.reportSymbolCollision(global, current);
         }
         return error.MultipleSymbolDefinitions;
     }
@@ -1714,7 +1711,13 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u32) !void {
             continue;
         }
 
-        try self.resolveGlobalSymbol(.{ .sym_index = sym_index, .file = object_id + 1 });
+        self.resolveGlobalSymbol(.{
+            .sym_index = sym_index,
+            .file = object_id + 1,
+        }) catch |err| switch (err) {
+            error.MultipleSymbolDefinitions => return error.FlushFailure,
+            else => |e| return e,
+        };
     }
 }
 
@@ -4833,20 +4836,16 @@ pub fn getSectionPrecedence(header: macho.section_64) u8 {
     return (@as(u8, @intCast(segment_precedence)) << 4) + section_precedence;
 }
 
-pub fn reportUndefined(self: *MachO) !void {
-    const count = self.unresolved.count();
-    if (count == 0) return;
-
+pub fn reportUndefined(self: *MachO) error{OutOfMemory}!void {
     const gpa = self.base.allocator;
-
+    const count = self.unresolved.count();
     try self.misc_errors.ensureUnusedCapacity(gpa, count);
 
     for (self.unresolved.keys()) |global_index| {
         const global = self.globals.items[global_index];
         const sym_name = self.getSymbolName(global);
 
-        const nnotes: usize = if (global.getFile() == null) @as(usize, 0) else 1;
-        var notes = try std.ArrayList(File.ErrorMsg).initCapacity(gpa, nnotes);
+        var notes = try std.ArrayList(File.ErrorMsg).initCapacity(gpa, 1);
         defer notes.deinit();
 
         if (global.getFile()) |file| {
@@ -4863,8 +4862,38 @@ pub fn reportUndefined(self: *MachO) !void {
 
         self.misc_errors.appendAssumeCapacity(err_msg);
     }
+}
 
-    return error.FlushFailure;
+fn reportSymbolCollision(
+    self: *MachO,
+    first: SymbolWithLoc,
+    other: SymbolWithLoc,
+) error{OutOfMemory}!void {
+    const gpa = self.base.allocator;
+    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+
+    var notes = try std.ArrayList(File.ErrorMsg).initCapacity(gpa, 2);
+    defer notes.deinit();
+
+    if (first.getFile()) |file| {
+        const note = try std.fmt.allocPrint(gpa, "first definition in {s}", .{
+            self.objects.items[file].name,
+        });
+        notes.appendAssumeCapacity(.{ .msg = note });
+    }
+    if (other.getFile()) |file| {
+        const note = try std.fmt.allocPrint(gpa, "next definition in {s}", .{
+            self.objects.items[file].name,
+        });
+        notes.appendAssumeCapacity(.{ .msg = note });
+    }
+
+    var err_msg = File.ErrorMsg{ .msg = try std.fmt.allocPrint(gpa, "symbol {s} defined multiple times", .{
+        self.getSymbolName(first),
+    }) };
+    err_msg.notes = try notes.toOwnedSlice();
+
+    self.misc_errors.appendAssumeCapacity(err_msg);
 }
 
 /// Binary search

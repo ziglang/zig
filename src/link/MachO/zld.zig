@@ -388,7 +388,10 @@ pub fn linkWithZld(
         var actions = std.ArrayList(MachO.ResolveAction).init(gpa);
         defer actions.deinit();
         try macho_file.resolveSymbols(&actions);
-        try macho_file.reportUndefined();
+        if (macho_file.unresolved.count() > 0) {
+            try macho_file.reportUndefined();
+            return error.FlushFailure;
+        }
 
         for (macho_file.objects.items, 0..) |*object, object_id| {
             try object.splitIntoAtoms(macho_file, @as(u32, @intCast(object_id)));
