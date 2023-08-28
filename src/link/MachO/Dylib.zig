@@ -320,7 +320,7 @@ pub fn parseFromStub(
     dependent_libs: anytype,
     name: []const u8,
 ) !void {
-    if (lib_stub.inner.len == 0) return error.EmptyStubFile;
+    if (lib_stub.inner.len == 0) return error.NotLibStub;
 
     log.debug("parsing shared library from stub '{s}'", .{name});
 

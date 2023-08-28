@@ -419,6 +419,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                 &dependent_libs,
                 &parse_error_ctx,
             ) catch |err| switch (err) {
+                error.DylibAlreadyExists => {},
                 error.UnknownFileType => try self.reportParseError(path, "unknown file type", .{}),
                 error.MissingArchFatLib => try self.reportParseError(
                     path,
@@ -723,6 +724,22 @@ fn resolveLib(
     return full_path;
 }
 
+const ParseError = error{
+    UnknownFileType,
+    MissingArchFatLib,
+    InvalidArch,
+    DylibAlreadyExists,
+    IncompatibleDylibVersion,
+    OutOfMemory,
+    Overflow,
+    InputOutput,
+    MalformedArchive,
+    NotLibStub,
+    EndOfStream,
+    FileSystem,
+    NotSupported,
+} || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError || tapi.TapiError;
+
 pub fn parsePositional(
     self: *MachO,
     file: std.fs.File,
@@ -730,7 +747,7 @@ pub fn parsePositional(
     must_link: bool,
     dependent_libs: anytype,
     error_ctx: anytype,
-) !void {
+) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -750,7 +767,7 @@ fn parseObject(
     file: std.fs.File,
     path: []const u8,
     error_ctx: anytype,
-) !void {
+) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -793,7 +810,7 @@ pub fn parseLibrary(
     must_link: bool,
     dependent_libs: anytype,
     error_ctx: anytype,
-) !void {
+) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -829,7 +846,7 @@ pub fn parseLibrary(
     }
 }
 
-pub fn parseFatLibrary(self: *MachO, file: std.fs.File, cpu_arch: std.Target.Cpu.Arch) !u64 {
+pub fn parseFatLibrary(self: *MachO, file: std.fs.File, cpu_arch: std.Target.Cpu.Arch) ParseError!u64 {
     _ = self;
     var buffer: [2]fat.Arch = undefined;
     const fat_archs = try fat.parseArchs(file, &buffer);
@@ -846,7 +863,7 @@ fn parseArchive(
     must_link: bool,
     cpu_arch: std.Target.Cpu.Arch,
     error_ctx: anytype,
-) !void {
+) ParseError!void {
     const gpa = self.base.allocator;
 
     // We take ownership of the file so that we can store it for the duration of symbol resolution.
@@ -915,7 +932,7 @@ fn parseDylib(
     dependent_libs: anytype,
     dylib_options: DylibOpts,
     error_ctx: anytype,
-) !void {
+) ParseError!void {
     const gpa = self.base.allocator;
     const self_cpu_arch = self.base.options.target.cpu.arch;
 
@@ -948,13 +965,10 @@ fn parseDylib(
 
     // TODO verify platform
 
-    self.addDylib(dylib, .{
+    try self.addDylib(dylib, .{
         .needed = dylib_options.needed,
         .weak = dylib_options.weak,
-    }) catch |err| switch (err) {
-        error.DylibAlreadyExists => dylib.deinit(gpa),
-        else => |e| return e,
-    };
+    });
 }
 
 fn parseLibStub(
@@ -963,7 +977,7 @@ fn parseLibStub(
     path: []const u8,
     dependent_libs: anytype,
     dylib_options: DylibOpts,
-) !void {
+) ParseError!void {
     const gpa = self.base.allocator;
     var lib_stub = try LibStub.loadFromFile(gpa, file);
     defer lib_stub.deinit();
@@ -984,16 +998,13 @@ fn parseLibStub(
         path,
     );
 
-    self.addDylib(dylib, .{
+    try self.addDylib(dylib, .{
         .needed = dylib_options.needed,
         .weak = dylib_options.weak,
-    }) catch |err| switch (err) {
-        error.DylibAlreadyExists => dylib.deinit(gpa),
-        else => |e| return e,
-    };
+    });
 }
 
-fn addDylib(self: *MachO, dylib: Dylib, dylib_options: DylibOpts) !void {
+fn addDylib(self: *MachO, dylib: Dylib, dylib_options: DylibOpts) ParseError!void {
     if (dylib_options.id) |id| {
         if (dylib.id.?.current_version < id.compatibility_version) {
             // TODO convert into an error
@@ -1022,7 +1033,7 @@ fn addDylib(self: *MachO, dylib: Dylib, dylib_options: DylibOpts) !void {
     }
 }
 
-pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype, error_ctx: anytype) !void {
+pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype, error_ctx: anytype) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -5145,6 +5156,7 @@ const link = @import("../link.zig");
 const llvm_backend = @import("../codegen/llvm.zig");
 const load_commands = @import("MachO/load_commands.zig");
 const stubs = @import("MachO/stubs.zig");
+const tapi = @import("tapi.zig");
 const target_util = @import("../target.zig");
 const thunks = @import("MachO/thunks.zig");
 const trace = @import("../tracy.zig").trace;
@@ -5162,7 +5174,7 @@ const DwarfInfo = @import("MachO/DwarfInfo.zig");
 const Dylib = @import("MachO/Dylib.zig");
 const File = link.File;
 const Object = @import("MachO/Object.zig");
-const LibStub = @import("tapi.zig").LibStub;
+const LibStub = tapi.LibStub;
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Md5 = std.crypto.hash.Md5;

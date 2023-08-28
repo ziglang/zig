@@ -361,6 +361,7 @@ pub fn linkWithZld(
                 &dependent_libs,
                 &parse_error_ctx,
             ) catch |err| switch (err) {
+                error.DylibAlreadyExists => {},
                 error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type", .{}),
                 error.MissingArchFatLib => try macho_file.reportParseError(
                     obj.path,
@@ -392,6 +393,7 @@ pub fn linkWithZld(
                 &dependent_libs,
                 &parse_error_ctx,
             ) catch |err| switch (err) {
+                error.DylibAlreadyExists => {},
                 error.UnknownFileType => try macho_file.reportParseError(path, "unknown file type", .{}),
                 error.MissingArchFatLib => try macho_file.reportParseError(
                     path,
