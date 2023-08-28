@@ -278,7 +278,11 @@ pub fn writeBuildVersionLC(options: *const link.Options, lc_writer: anytype) !vo
         const platform_version = @as(u32, @intCast(ver.major << 16 | ver.minor << 8));
         break :blk platform_version;
     };
-    const sdk_version: u32 = if (options.darwin_sdk_version) |ver|
+    const sdk_version: ?std.SemanticVersion = options.darwin_sdk_version orelse blk: {
+        if (options.sysroot) |path| break :blk inferSdkVersionFromSdkPath(path);
+        break :blk null;
+    };
+    const sdk_version_value: u32 = if (sdk_version) |ver|
         @intCast(ver.major << 16 | ver.minor << 8)
     else
         platform_version;
@@ -293,7 +297,7 @@ pub fn writeBuildVersionLC(options: *const link.Options, lc_writer: anytype) !vo
             else => unreachable,
         },
         .minos = platform_version,
-        .sdk = sdk_version,
+        .sdk = sdk_version_value,
         .ntools = 1,
     });
     try lc_writer.writeAll(mem.asBytes(&macho.build_tool_version{
@@ -314,4 +318,59 @@ pub fn writeLoadDylibLCs(dylibs: []const Dylib, referenced: []u16, lc_writer: an
             .compatibility_version = dylib_id.compatibility_version,
         }, lc_writer);
     }
+}
+
+fn inferSdkVersionFromSdkPath(path: []const u8) ?std.SemanticVersion {
+    const stem = std.fs.path.stem(path);
+    const start = for (stem, 0..) |c, i| {
+        if (std.ascii.isDigit(c)) break i;
+    } else stem.len;
+    const end = for (stem[start..], start..) |c, i| {
+        if (std.ascii.isDigit(c) or c == '.') continue;
+        break i;
+    } else stem.len;
+    return parseSdkVersion(stem[start..end]);
+}
+
+// Versions reported by Apple aren't exactly semantically valid as they usually omit
+// the patch component, so we parse SDK value by hand.
+fn parseSdkVersion(raw: []const u8) ?std.SemanticVersion {
+    var parsed: std.SemanticVersion = .{
+        .major = 0,
+        .minor = 0,
+        .patch = 0,
+    };
+
+    const parseNext = struct {
+        fn parseNext(it: anytype) ?u16 {
+            const nn = it.next() orelse return null;
+            return std.fmt.parseInt(u16, nn, 10) catch null;
+        }
+    }.parseNext;
+
+    var it = std.mem.splitAny(u8, raw, ".");
+    parsed.major = parseNext(&it) orelse return null;
+    parsed.minor = parseNext(&it) orelse return null;
+    parsed.patch = parseNext(&it) orelse 0;
+    return parsed;
+}
+
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
+
+fn testParseSdkVersionSuccess(exp: std.SemanticVersion, raw: []const u8) !void {
+    const maybe_ver = parseSdkVersion(raw);
+    try expect(maybe_ver != null);
+    const ver = maybe_ver.?;
+    try expectEqual(exp.major, ver.major);
+    try expectEqual(exp.minor, ver.minor);
+    try expectEqual(exp.patch, ver.patch);
+}
+
+test "parseSdkVersion" {
+    try testParseSdkVersionSuccess(.{ .major = 13, .minor = 4, .patch = 0 }, "13.4");
+    try testParseSdkVersionSuccess(.{ .major = 13, .minor = 4, .patch = 1 }, "13.4.1");
+    try testParseSdkVersionSuccess(.{ .major = 11, .minor = 15, .patch = 0 }, "11.15");
+
+    try expect(parseSdkVersion("11") == null);
 }
