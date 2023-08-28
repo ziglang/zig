@@ -17,6 +17,7 @@ pub const BufSet = @import("buf_set.zig").BufSet;
 /// Deprecated: use `process.Child`.
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const ComptimeStringMap = @import("comptime_string_map.zig").ComptimeStringMap;
+pub const DoublyLinkedList = @import("linked_list.zig").DoublyLinkedList;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const DynamicBitSet = bit_set.DynamicBitSet;
 pub const DynamicBitSetUnmanaged = bit_set.DynamicBitSetUnmanaged;
@@ -43,7 +44,8 @@ pub const StringHashMap = hash_map.StringHashMap;
 pub const StringHashMapUnmanaged = hash_map.StringHashMapUnmanaged;
 pub const StringArrayHashMap = array_hash_map.StringArrayHashMap;
 pub const StringArrayHashMapUnmanaged = array_hash_map.StringArrayHashMapUnmanaged;
-pub const DoublyLinkedList = @import("linked_list.zig").DoublyLinkedList;
+/// deprecated: use `DoublyLinkedList`.
+pub const TailQueue = DoublyLinkedList;
 pub const Target = @import("target.zig").Target;
 pub const Thread = @import("Thread.zig");
 pub const Treap = @import("treap.zig").Treap;
