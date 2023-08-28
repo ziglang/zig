@@ -405,7 +405,9 @@ pub const Block = struct {
     /// It is shared among all the blocks in an inline or comptime called
     /// function.
     pub const Inlining = struct {
-        /// Might be `none`.
+        call_block: *Block,
+        call_src: LazySrcLoc,
+        has_comptime_args: bool,
         func: InternPool.Index,
         comptime_result: Air.Inst.Ref,
         merges: Merges,
@@ -2390,7 +2392,6 @@ pub fn fail(
 }
 
 fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg) CompileError {
-    _ = block;
     @setCold(true);
     const gpa = sema.gpa;
     const mod = sema.mod;
@@ -2413,6 +2414,16 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg)
         }
         try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
         try mod.failed_files.ensureUnusedCapacity(gpa, 1);
+
+        var func_index: InternPool.Index = .none;
+        if (block) |start_block| {
+            var block_it = start_block;
+            while (block_it.inlining) |inlining| {
+                func_index = inlining.func;
+                block_it = inlining.call_block;
+                try sema.errNote(block_it, inlining.call_src, err_msg, "called from here", .{});
+            }
+        }
 
         const max_references = blk: {
             if (mod.comp.reference_trace) |num| break :blk num;
@@ -7268,7 +7279,10 @@ fn analyzeCall(
         // This one is shared among sub-blocks within the same callee, but not
         // shared among the entire inline/comptime call stack.
         var inlining: Block.Inlining = .{
-            .func = .none,
+            .call_block = block,
+            .call_src = call_src,
+            .has_comptime_args = false,
+            .func = module_fn_index,
             .comptime_result = undefined,
             .merges = .{
                 .src_locs = .{},
@@ -7352,7 +7366,6 @@ fn analyzeCall(
         const fn_info = ics.callee().code.getFnInfo(module_fn.zir_body_inst);
         try ics.callee().inst_map.ensureSpaceForInstructions(gpa, fn_info.param_body);
 
-        var has_comptime_args = false;
         var arg_i: u32 = 0;
         for (fn_info.param_body) |inst| {
             const opt_noreturn_ref = try analyzeInlineCallArg(
@@ -7368,7 +7381,6 @@ fn analyzeCall(
                 memoized_arg_values,
                 func_ty_info,
                 func,
-                &has_comptime_args,
             );
             if (opt_noreturn_ref) |ref| {
                 // Analyzing this argument gave a ref of a noreturn type. Terminate argument analysis here.
@@ -7380,19 +7392,18 @@ fn analyzeCall(
         // can just use `sema` directly.
         _ = ics.callee();
 
-        if (!has_comptime_args and module_fn.analysis(ip).state == .sema_failure)
-            return error.AnalysisFail;
+        if (!inlining.has_comptime_args) {
+            if (module_fn.analysis(ip).state == .sema_failure)
+                return error.AnalysisFail;
 
-        const recursive_msg = "inline call is recursive";
-        var head = if (!has_comptime_args) block else null;
-        while (head) |some| {
-            const parent_inlining = some.inlining orelse break;
-            if (parent_inlining.func == module_fn_index) {
-                return sema.fail(block, call_src, recursive_msg, .{});
+            var block_it = block;
+            while (block_it.inlining) |parent_inlining| {
+                if (!parent_inlining.has_comptime_args and parent_inlining.func == module_fn_index) {
+                    return sema.fail(block, call_src, "inline call is recursive", .{});
+                }
+                block_it = parent_inlining.call_block;
             }
-            head = some.parent;
         }
-        if (!has_comptime_args) inlining.func = module_fn_index;
 
         // In case it is a generic function with an expression for the return type that depends
         // on parameters, we must now do the same for the return type as we just did with
@@ -7462,12 +7473,6 @@ fn analyzeCall(
             const result = result: {
                 sema.analyzeBody(&child_block, fn_info.body) catch |err| switch (err) {
                     error.ComptimeReturn => break :result inlining.comptime_result,
-                    error.AnalysisFail => {
-                        const err_msg = sema.err orelse return err;
-                        if (mem.eql(u8, err_msg.msg, recursive_msg)) return err;
-                        try sema.errNote(block, call_src, err_msg, "called from here", .{});
-                        return err;
-                    },
                     else => |e| return e,
                 };
                 break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);
@@ -7632,13 +7637,12 @@ fn analyzeInlineCallArg(
     memoized_arg_values: []InternPool.Index,
     func_ty_info: InternPool.Key.FuncType,
     func_inst: Air.Inst.Ref,
-    has_comptime_args: *bool,
 ) !?Air.Inst.Ref {
     const mod = ics.sema.mod;
     const ip = &mod.intern_pool;
     const zir_tags = ics.callee().code.instructions.items(.tag);
     switch (zir_tags[inst]) {
-        .param_comptime, .param_anytype_comptime => has_comptime_args.* = true,
+        .param_comptime, .param_anytype_comptime => param_block.inlining.?.has_comptime_args = true,
         else => {},
     }
     switch (zir_tags[inst]) {
@@ -7698,7 +7702,7 @@ fn analyzeInlineCallArg(
             }
 
             if (try ics.caller().resolveMaybeUndefVal(casted_arg)) |_| {
-                has_comptime_args.* = true;
+                param_block.inlining.?.has_comptime_args = true;
             }
 
             arg_i.* += 1;
@@ -7742,7 +7746,7 @@ fn analyzeInlineCallArg(
             }
 
             if (try ics.caller().resolveMaybeUndefVal(uncasted_arg)) |_| {
-                has_comptime_args.* = true;
+                param_block.inlining.?.has_comptime_args = true;
             }
 
             arg_i.* += 1;
