@@ -257,30 +257,28 @@ pub fn Reader(
             return bytes;
         }
 
-        /// Reads bytes until `bounded.len` is equal to `num_bytes`,
+        /// Reads bytes until `bounded_array.len` is equal to `bounded_array.capacity`
         /// or the stream ends.
-        ///
-        /// * it is assumed that `num_bytes` will not exceed `bounded.capacity`
         pub fn readIntoBoundedBytes(
             self: Self,
-            comptime num_bytes: usize,
-            bounded: *std.BoundedArray(u8, num_bytes),
+            /// `*std.BoundedArray(u8, capacity)`
+            bounded_array: anytype,
         ) Error!void {
-            while (bounded.len < num_bytes) {
-                // get at most the number of bytes free in the bounded array
-                const bytes_read = try self.read(bounded.unusedCapacitySlice());
+            while (bounded_array.len < bounded_array.capacity) {
+                // Get at most the number of bytes free in the bounded array.
+                const bytes_read = try self.read(bounded_array.unusedCapacitySlice());
                 if (bytes_read == 0) return;
 
-                // bytes_read will never be larger than @TypeOf(bounded.len)
-                // due to `self.read` being bounded by `bounded.unusedCapacitySlice()`
-                bounded.len += @as(@TypeOf(bounded.len), @intCast(bytes_read));
+                // `bytes_read` will never be larger than `@TypeOf(bounded_array.len)`
+                // due to `self.read` being bounded by `bounded_array.unusedCapacitySlice()`.
+                bounded_array.len += @as(@TypeOf(bounded_array.len), @intCast(bytes_read));
             }
         }
 
         /// Reads at most `num_bytes` and returns as a bounded array.
         pub fn readBoundedBytes(self: Self, comptime num_bytes: usize) Error!std.BoundedArray(u8, num_bytes) {
             var result = std.BoundedArray(u8, num_bytes){};
-            try self.readIntoBoundedBytes(num_bytes, &result);
+            try self.readIntoBoundedBytes(&result);
             return result;
         }
 
@@ -751,7 +749,7 @@ test "Reader.readIntoBoundedBytes correctly reads into a provided bounded array"
 
     var bounded_array = std.BoundedArray(u8, 10000){};
 
-    // compile time error if the size is not the same at the provided `bounded.capacity`
-    try reader.readIntoBoundedBytes(10000, &bounded_array);
+    // Compile-time error if the size is not the same at the provided `bounded.capacity`.
+    try reader.readIntoBoundedBytes(&bounded_array);
     try testing.expectEqualStrings(bounded_array.slice(), test_string);
 }
