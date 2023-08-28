@@ -428,19 +428,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     var actions = std.ArrayList(ResolveAction).init(self.base.allocator);
     defer actions.deinit();
     try self.resolveSymbols(&actions);
+    try self.reportUndefined();
 
     if (self.getEntryPoint() == null) {
         self.error_flags.no_entry_point_found = true;
-    }
-
-    if (self.unresolved.count() > 0) {
-        for (self.unresolved.keys()) |index| {
-            // TODO: convert into compiler errors.
-            const global = self.globals.items[index];
-            const sym_name = self.getSymbolName(global);
-            log.err("undefined symbol reference '{s}'", .{sym_name});
-        }
-        return error.UndefinedSymbolReference;
     }
 
     for (actions.items) |action| switch (action.kind) {
