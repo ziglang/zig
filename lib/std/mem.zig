@@ -642,9 +642,12 @@ test "lessThan" {
 
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
-    return a.ptr == b.ptr or a.len == b.len and for (a, b) |a_elem, b_elem| {
-        if (a_elem != b_elem) break false;
-    } else true;
+    if (a.ptr == b.ptr) return true;
+    if (a.len != b.len) return false;
+    for (a, b) |a_elem, b_elem| {
+        if (a_elem != b_elem) return false;
+    }
+    return true;
 }
 
 /// Compares two slices and returns the index of the first inequality.
@@ -958,14 +961,16 @@ test "len" {
 /// Returns the index of the sentinel from the sentinel-terminated pointer.
 pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
     var i: usize = 0;
-    return while (ptr[i] != sentinel) : (i += 1) {} else i;
+    while (ptr[i] != sentinel) : (i += 1) {}
+    return i;
 }
 
 /// Returns true if all elements in a slice are equal to the scalar value provided.
 pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
-    return for (slice) |item| {
-        if (item != scalar) break false;
-    } else true;
+    for (slice) |item| {
+        if (item != scalar) return false;
+    }
+    return true;
 }
 
 /// Remove a set of values from the beginning of a slice.
@@ -1006,16 +1011,18 @@ pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
 /// Linear search for the last index of a scalar value inside a slice.
 pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
     var i: usize = slice.len;
-    return while (i != 0) {
+    while (i != 0) {
         i -= 1;
-        if (slice[i] == value) break i;
-    } else null;
+        if (slice[i] == value) return i;
+    }
+    return null;
 }
 
 pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
-    return for (start_index..slice.len) |i| {
-        if (slice[i] == value) break i;
-    } else null;
+    for (start_index..slice.len) |i| {
+        if (slice[i] == value) return i;
+    }
+    return null;
 }
 
 pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
@@ -1023,8 +1030,9 @@ pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize 
 }
 
 pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
-    var i: usize = slice.len - 1;
-    while (i != 0) : (i -= 1) {
+    var i: usize = slice.len;
+    while (i != 0) {
+        i -= 1;
         for (values) |value| {
             if (slice[i] == value) return i;
         }
@@ -1052,13 +1060,15 @@ pub fn indexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize
 ///
 /// Like `strspn` in the C standard library, but searches from the end.
 pub fn lastIndexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize {
-    var i: usize = slice.len - 1;
-    return outer: while (i != 0) : (i -= 1) {
+    var i: usize = slice.len;
+    outer: while (i != 0) {
+        i -= 1;
         for (values) |value| {
             if (slice[i] == value) continue :outer;
         }
-        break i;
-    } else null;
+        return i;
+    }
+    return null;
 }
 
 /// Find the first item in `slice[start_index..]` which is not contained in `values`.
@@ -1066,12 +1076,13 @@ pub fn lastIndexOfNone(comptime T: type, slice: []const T, values: []const T) ?u
 ///
 /// Comparable to `strspn` in the C standard library.
 pub fn indexOfNonePos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
-    return outer: for (start_index..slice.len) |i| {
+    outer: for (start_index..slice.len) |i| {
         for (values) |value| {
             if (slice[i] == value) continue :outer;
         }
-        break i;
-    } else null;
+        return i;
+    }
+    return null;
 }
 
 test "indexOfNone" {
@@ -1096,10 +1107,10 @@ pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize 
 /// more sophisticated algorithm on larger inputs.
 pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     var i: usize = haystack.len - needle.len;
-    return while (true) : (i -= 1) {
-        if (eql(T, haystack[i .. i + needle.len], needle)) break i;
-        if (i == 0) break null;
-    };
+    while (true) : (i -= 1) {
+        if (eql(T, haystack[i .. i + needle.len], needle)) return i;
+        if (i == 0) return null;
+    }
 }
 
 /// Consider using `indexOfPos` instead of this, which will automatically use a
@@ -1107,9 +1118,10 @@ pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const 
 pub fn indexOfPosLinear(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
     var i: usize = start_index;
     const end = haystack.len - needle.len;
-    return while (i <= end) : (i += 1) {
-        if (eql(T, haystack[i .. i + needle.len], needle)) break i;
-    } else null;
+    while (i <= end) : (i += 1) {
+        if (eql(T, haystack[i .. i + needle.len], needle)) return i;
+    }
+    return null;
 }
 
 fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: *[256]usize) void {

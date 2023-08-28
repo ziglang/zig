@@ -179,12 +179,20 @@ pub fn isASCII(c: u8) bool {
 
 /// Uppercases the character and returns it as-is if already uppercase or not a letter.
 pub fn toUpper(c: u8) u8 {
-    return if (isLower(c)) c & 0b11011111 else c;
+    if (isLower(c)) {
+        return c & 0b11011111;
+    } else {
+        return c;
+    }
 }
 
 /// Lowercases the character and returns it as-is if already lowercase or not a letter.
 pub fn toLower(c: u8) u8 {
-    return if (isUpper(c)) c | 0b00100000 else c;
+    if (isUpper(c)) {
+        return c | 0b00100000;
+    } else {
+        return c;
+    }
 }
 
 test "ASCII character classes" {
@@ -320,9 +328,12 @@ test "allocUpperString" {
 
 /// Compares strings `a` and `b` case-insensitively and returns whether they are equal.
 pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
-    return a.ptr == b.ptr or a.len == b.len and for (a, b) |a_c, b_c| {
-        if (toLower(a_c) != toLower(b_c)) break false;
-    } else true;
+    if (a.ptr == b.ptr) return true;
+    if (a.len != b.len) return false;
+    for (a, b) |a_c, b_c| {
+        if (toLower(a_c) != toLower(b_c)) return false;
+    }
+    return true;
 }
 
 test "eqlIgnoreCase" {
