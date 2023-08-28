@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
-const mem = @This();
 const meta = std.meta;
 const trait = meta.trait;
 const testing = std.testing;
@@ -73,7 +72,7 @@ pub fn ValidationAllocator(comptime T: type) type {
             const underlying = self.getUnderlyingAllocatorPtr();
             const result = underlying.rawAlloc(n, log2_ptr_align, ret_addr) orelse
                 return null;
-            assert(mem.isAlignedLog2(@intFromPtr(result), log2_ptr_align));
+            assert(isAlignedLog2(@intFromPtr(result), log2_ptr_align));
             return result;
         }
 
@@ -462,10 +461,10 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                         } else {
                             switch (@typeInfo(field.type)) {
                                 .Struct => {
-                                    @field(value, field.name) = std.mem.zeroInit(field.type, .{});
+                                    @field(value, field.name) = zeroInit(field.type, .{});
                                 },
                                 else => {
-                                    @field(value, field.name) = std.mem.zeroes(@TypeOf(@field(value, field.name)));
+                                    @field(value, field.name) = zeroes(@TypeOf(@field(value, field.name)));
                                 },
                             }
                         }
@@ -643,12 +642,9 @@ test "lessThan" {
 
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
-    if (a.len != b.len) return false;
-    if (a.ptr == b.ptr) return true;
-    for (a, b) |a_elem, b_elem| {
-        if (a_elem != b_elem) return false;
-    }
-    return true;
+    return a.ptr == b.ptr or a.len == b.len and for (a, b) |a_elem, b_elem| {
+        if (a_elem != b_elem) break false;
+    } else true;
 }
 
 /// Compares two slices and returns the index of the first inequality.
@@ -959,20 +955,17 @@ test "len" {
     try testing.expect(len(c_ptr) == 2);
 }
 
+/// Returns the index of the sentinel from the sentinel-terminated pointer.
 pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
     var i: usize = 0;
-    while (ptr[i] != sentinel) {
-        i += 1;
-    }
-    return i;
+    return while (ptr[i] != sentinel) : (i += 1) {} else i;
 }
 
-/// Returns true if all elements in a slice are equal to the scalar value provided
+/// Returns true if all elements in a slice are equal to the scalar value provided.
 pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
-    for (slice) |item| {
-        if (item != scalar) return false;
-    }
-    return true;
+    return for (slice) |item| {
+        if (item != scalar) break false;
+    } else true;
 }
 
 /// Remove a set of values from the beginning of a slice.
@@ -1013,19 +1006,16 @@ pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
 /// Linear search for the last index of a scalar value inside a slice.
 pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
     var i: usize = slice.len;
-    while (i != 0) {
+    return while (i != 0) {
         i -= 1;
-        if (slice[i] == value) return i;
-    }
-    return null;
+        if (slice[i] == value) break i;
+    } else null;
 }
 
 pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
-    var i: usize = start_index;
-    while (i < slice.len) : (i += 1) {
-        if (slice[i] == value) return i;
-    }
-    return null;
+    return for (start_index..slice.len) |i| {
+        if (slice[i] == value) break i;
+    } else null;
 }
 
 pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
@@ -1033,9 +1023,8 @@ pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize 
 }
 
 pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
-    var i: usize = slice.len;
-    while (i != 0) {
-        i -= 1;
+    var i: usize = slice.len - 1;
+    while (i != 0) : (i -= 1) {
         for (values) |value| {
             if (slice[i] == value) return i;
         }
@@ -1044,8 +1033,7 @@ pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?us
 }
 
 pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
-    var i: usize = start_index;
-    while (i < slice.len) : (i += 1) {
+    for (start_index..slice.len) |i| {
         for (values) |value| {
             if (slice[i] == value) return i;
         }
@@ -1064,15 +1052,13 @@ pub fn indexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize
 ///
 /// Like `strspn` in the C standard library, but searches from the end.
 pub fn lastIndexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize {
-    var i: usize = slice.len;
-    outer: while (i != 0) {
-        i -= 1;
+    var i: usize = slice.len - 1;
+    return outer: while (i != 0) : (i -= 1) {
         for (values) |value| {
             if (slice[i] == value) continue :outer;
         }
-        return i;
-    }
-    return null;
+        break i;
+    } else null;
 }
 
 /// Find the first item in `slice[start_index..]` which is not contained in `values`.
@@ -1080,14 +1066,12 @@ pub fn lastIndexOfNone(comptime T: type, slice: []const T, values: []const T) ?u
 ///
 /// Comparable to `strspn` in the C standard library.
 pub fn indexOfNonePos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
-    var i: usize = start_index;
-    outer: while (i < slice.len) : (i += 1) {
+    return outer: for (start_index..slice.len) |i| {
         for (values) |value| {
             if (slice[i] == value) continue :outer;
         }
-        return i;
-    }
-    return null;
+        break i;
+    } else null;
 }
 
 test "indexOfNone" {
@@ -1101,6 +1085,7 @@ test "indexOfNone" {
     try testing.expect(indexOfNonePos(u8, "abc123", 3, "321") == null);
 }
 
+/// Find the index in a slice of a sub-slice, starting at index 0.
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     return indexOfPos(T, haystack, 0, needle);
 }
@@ -1111,10 +1096,10 @@ pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize 
 /// more sophisticated algorithm on larger inputs.
 pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     var i: usize = haystack.len - needle.len;
-    while (true) : (i -= 1) {
-        if (mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
-        if (i == 0) return null;
-    }
+    return while (true) : (i -= 1) {
+        if (eql(T, haystack[i .. i + needle.len], needle)) break i;
+        if (i == 0) break null;
+    };
 }
 
 /// Consider using `indexOfPos` instead of this, which will automatically use a
@@ -1122,10 +1107,9 @@ pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const 
 pub fn indexOfPosLinear(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
     var i: usize = start_index;
     const end = haystack.len - needle.len;
-    while (i <= end) : (i += 1) {
-        if (eql(T, haystack[i .. i + needle.len], needle)) return i;
-    }
-    return null;
+    return while (i <= end) : (i += 1) {
+        if (eql(T, haystack[i .. i + needle.len], needle)) break i;
+    } else null;
 }
 
 fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: *[256]usize) void {
@@ -1173,7 +1157,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 
     var i: usize = haystack_bytes.len - needle_bytes.len;
     while (true) {
-        if (i % @sizeOf(T) == 0 and mem.eql(u8, haystack_bytes[i .. i + needle_bytes.len], needle_bytes)) {
+        if (i % @sizeOf(T) == 0 and eql(u8, haystack_bytes[i .. i + needle_bytes.len], needle_bytes)) {
             return @divExact(i, @sizeOf(T));
         }
         const skip = skip_table[haystack_bytes[i]];
@@ -1200,7 +1184,7 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
 
     var i: usize = start_index * @sizeOf(T);
     while (i <= haystack_bytes.len - needle_bytes.len) {
-        if (i % @sizeOf(T) == 0 and mem.eql(u8, haystack_bytes[i .. i + needle_bytes.len], needle_bytes)) {
+        if (i % @sizeOf(T) == 0 and eql(u8, haystack_bytes[i .. i + needle_bytes.len], needle_bytes)) {
             return @divExact(i, @sizeOf(T));
         }
         i += skip_table[haystack_bytes[i + needle_bytes.len - 1]];
@@ -2738,6 +2722,7 @@ pub fn WindowIterator(comptime T: type) type {
     };
 }
 
+/// Returns true if the `haystack` starts with slice `needle`.
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return if (needle.len > haystack.len) false else eql(T, haystack[0..needle.len], needle);
 }
@@ -2747,6 +2732,7 @@ test "startsWith" {
     try testing.expect(!startsWith(u8, "Needle in haystack", "haystack"));
 }
 
+/// Returns true if the `haystack` ends with slice `needle`.
 pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len ..], needle);
 }
@@ -3441,13 +3427,14 @@ test "indexOfMinMax" {
     try testing.expectEqual(indexOfMinMax(u8, "a"), .{ .index_min = 0, .index_max = 0 });
 }
 
+/// Swaps the two values.
 pub fn swap(comptime T: type, a: *T, b: *T) void {
     const tmp = a.*;
     a.* = b.*;
     b.* = tmp;
 }
 
-/// In-place order reversal of a slice
+/// In-place order reversal of a slice.
 pub fn reverse(comptime T: type, items: []T) void {
     var i: usize = 0;
     const end = items.len / 2;
@@ -3594,7 +3581,7 @@ pub fn replace(comptime T: type, input: []const T, needle: []const T, replacemen
     var slide: usize = 0;
     var replacements: usize = 0;
     while (slide < input.len) {
-        if (mem.startsWith(T, input[slide..], needle)) {
+        if (startsWith(T, input[slide..], needle)) {
             @memcpy(output[i..][0..replacement.len], replacement);
             i += replacement.len;
             slide += needle.len;
@@ -3671,7 +3658,7 @@ pub fn collapseRepeats(comptime T: type, slice: []T, elem: T) []T {
 fn testCollapseRepeats(str: []const u8, elem: u8, expected: []const u8) !void {
     const mutable = try std.testing.allocator.dupe(u8, str);
     defer std.testing.allocator.free(mutable);
-    try testing.expect(std.mem.eql(u8, collapseRepeats(u8, mutable, elem), expected));
+    try testing.expect(eql(u8, collapseRepeats(u8, mutable, elem), expected));
 }
 test "collapseRepeats" {
     try testCollapseRepeats("", '/', "");
@@ -3696,7 +3683,7 @@ pub fn replacementSize(comptime T: type, input: []const T, needle: []const T, re
     var i: usize = 0;
     var size: usize = input.len;
     while (i < input.len) {
-        if (mem.startsWith(T, input[i..], needle)) {
+        if (startsWith(T, input[i..], needle)) {
             size = size - needle.len + replacement.len;
             i += needle.len;
         } else {
@@ -4120,7 +4107,7 @@ test "bytesAsSlice with specified alignment" {
         0x33,
         0x33,
     };
-    const slice: []u32 = std.mem.bytesAsSlice(u32, bytes[0..]);
+    const slice: []u32 = bytesAsSlice(u32, bytes[0..]);
     try testing.expect(slice[0] == 0x33333333);
 }
 
@@ -4460,7 +4447,7 @@ pub fn alignInBytes(bytes: []u8, comptime new_alignment: usize) ?[]align(new_ali
     const begin_address = @intFromPtr(bytes.ptr);
     const end_address = begin_address + bytes.len;
 
-    const begin_address_aligned = mem.alignForward(usize, begin_address, new_alignment);
+    const begin_address_aligned = alignForward(usize, begin_address, new_alignment);
     const new_length = std.math.sub(usize, end_address, begin_address_aligned) catch |e| switch (e) {
         error.Overflow => return null,
     };
