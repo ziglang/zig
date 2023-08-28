@@ -488,7 +488,7 @@ pub fn linkWithZld(
         }
 
         try writeAtoms(macho_file);
-        if (macho_file.requiresThunks()) try writeThunks(macho_file);
+        if (macho_file.base.options.target.cpu.arch == .aarch64) try writeThunks(macho_file);
         try writeDyldPrivateAtom(macho_file);
 
         if (macho_file.stubs_section_index) |_| {
@@ -778,7 +778,7 @@ fn writeDyldPrivateAtom(macho_file: *MachO) !void {
 }
 
 fn writeThunks(macho_file: *MachO) !void {
-    assert(macho_file.requiresThunks());
+    assert(macho_file.base.options.target.cpu.arch == .aarch64);
     const gpa = macho_file.base.allocator;
 
     const sect_id = macho_file.text_section_index orelse return;
@@ -991,7 +991,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
     for (slice.items(.header), 0..) |*header, sect_id| {
         if (header.size == 0) continue;
         if (macho_file.text_section_index) |txt| {
-            if (txt == sect_id and macho_file.requiresThunks()) continue;
+            if (txt == sect_id and macho_file.base.options.target.cpu.arch == .aarch64) continue;
         }
 
         var atom_index = slice.items(.first_atom_index)[sect_id] orelse continue;
@@ -1017,7 +1017,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
         }
     }
 
-    if (macho_file.text_section_index != null and macho_file.requiresThunks()) {
+    if (macho_file.text_section_index != null and macho_file.base.options.target.cpu.arch == .aarch64) {
         // Create jump/branch range extenders if needed.
         try thunks.createThunks(macho_file, macho_file.text_section_index.?);
     }

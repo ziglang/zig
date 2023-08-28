@@ -4767,10 +4767,6 @@ pub inline fn getPageSize(cpu_arch: std.Target.Cpu.Arch) u16 {
     };
 }
 
-pub inline fn requiresThunks(self: MachO) bool {
-    return self.base.options.target.cpu.arch == .aarch64;
-}
-
 pub fn requiresCodeSignature(self: MachO) bool {
     if (self.base.options.entitlements) |_| return true;
     const cpu_arch = self.base.options.target.cpu.arch;
