@@ -345,6 +345,11 @@ pub fn linkWithZld(
             parent: u16,
         }, .Dynamic).init(arena);
 
+        var parse_error_ctx: union {
+            none: void,
+            detected_arch: std.Target.Cpu.Arch,
+        } = .{ .none = {} };
+
         for (positionals.items) |obj| {
             const in_file = try std.fs.cwd().openFile(obj.path, .{});
             defer in_file.close();
@@ -354,11 +359,24 @@ pub fn linkWithZld(
                 obj.path,
                 obj.must_link,
                 &dependent_libs,
-                options,
-            ) catch |err| {
-                // TODO convert to error
-                log.err("{s}: parsing positional failed with err {s}", .{ obj.path, @errorName(err) });
-                continue;
+                &parse_error_ctx,
+            ) catch |err| switch (err) {
+                error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type", .{}),
+                error.MissingArchFatLib => try macho_file.reportParseError(
+                    obj.path,
+                    "missing architecture in universal file, expected '{s}'",
+                    .{@tagName(cpu_arch)},
+                ),
+                error.InvalidArch => try macho_file.reportParseError(
+                    obj.path,
+                    "invalid architecture '{s}', expected '{s}'",
+                    .{ @tagName(parse_error_ctx.detected_arch), @tagName(cpu_arch) },
+                ),
+                else => |e| try macho_file.reportParseError(
+                    obj.path,
+                    "parsing positional argument failed with error '{s}'",
+                    .{@errorName(e)},
+                ),
             };
         }
 
@@ -372,15 +390,28 @@ pub fn linkWithZld(
                 lib,
                 false,
                 &dependent_libs,
-                options,
-            ) catch |err| {
-                // TODO convert to error
-                log.err("{s}: parsing library failed with err {s}", .{ path, @errorName(err) });
-                continue;
+                &parse_error_ctx,
+            ) catch |err| switch (err) {
+                error.UnknownFileType => try macho_file.reportParseError(path, "unknown file type", .{}),
+                error.MissingArchFatLib => try macho_file.reportParseError(
+                    path,
+                    "missing architecture in universal file, expected '{s}'",
+                    .{@tagName(cpu_arch)},
+                ),
+                error.InvalidArch => try macho_file.reportParseError(
+                    path,
+                    "invalid architecture '{s}', expected '{s}'",
+                    .{ @tagName(parse_error_ctx.detected_arch), @tagName(cpu_arch) },
+                ),
+                else => |e| try macho_file.reportParseError(
+                    path,
+                    "parsing library failed with error '{s}'",
+                    .{@errorName(e)},
+                ),
             };
         }
 
-        macho_file.parseDependentLibs(&dependent_libs, options) catch |err| {
+        macho_file.parseDependentLibs(&dependent_libs, &parse_error_ctx) catch |err| {
             // TODO convert to error
             log.err("parsing dependent libraries failed with err {s}", .{@errorName(err)});
         };
