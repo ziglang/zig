@@ -610,7 +610,7 @@ pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
 /// Compares two many-item pointers with NUL-termination lexicographically.
 pub fn orderZ(comptime T: type, lhs: [*:0]const T, rhs: [*:0]const T) math.Order {
     var i: usize = 0;
-    while (lhs[i] == rhs[i] and lhs[i] != 0) : (i += 1) {}
+    while (lhs[i] == rhs[i] and lhs[i] != 0) i += 1;
     return math.order(lhs[i], rhs[i]);
 }
 
@@ -642,8 +642,8 @@ test "lessThan" {
 
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
-    if (a.ptr == b.ptr) return true;
     if (a.len != b.len) return false;
+    if (a.ptr == b.ptr) return true;
     for (a, b) |a_elem, b_elem| {
         if (a_elem != b_elem) return false;
     }
@@ -961,7 +961,7 @@ test "len" {
 /// Returns the index of the sentinel from the sentinel-terminated pointer.
 pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
     var i: usize = 0;
-    while (ptr[i] != sentinel) : (i += 1) {}
+    while (ptr[i] != sentinel) i += 1;
     return i;
 }
 
@@ -976,14 +976,14 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
 /// Remove a set of values from the beginning of a slice.
 pub fn trimLeft(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var begin: usize = 0;
-    while (begin < slice.len and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
+    while (begin < slice.len and indexOfScalar(T, values_to_strip, slice[begin]) != null) begin += 1;
     return slice[begin..];
 }
 
 /// Remove a set of values from the end of a slice.
 pub fn trimRight(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var end: usize = slice.len;
-    while (end > 0 and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
+    while (end > 0 and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) end -= 1;
     return slice[0..end];
 }
 
@@ -991,8 +991,8 @@ pub fn trimRight(comptime T: type, slice: []const T, values_to_strip: []const T)
 pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var begin: usize = 0;
     var end: usize = slice.len;
-    while (begin < end and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
-    while (end > begin and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
+    while (begin < end and indexOfScalar(T, values_to_strip, slice[begin]) != null) begin += 1;
+    while (end > begin and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) end -= 1;
     return slice[begin..end];
 }
 
@@ -2779,10 +2779,10 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
         /// complete. Does not advance to the next token.
         pub fn peek(self: *Self) ?[]const T {
             // move to beginning of token
-            while (self.index < self.buffer.len and self.isDelimiter(self.index)) : (self.index += switch (delimiter_type) {
+            while (self.index < self.buffer.len and self.isDelimiter(self.index)) self.index += switch (delimiter_type) {
                 .sequence => self.delimiter.len,
                 .any, .scalar => 1,
-            }) {}
+            };
             const start = self.index;
             if (start == self.buffer.len) {
                 return null;
@@ -2790,7 +2790,7 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
 
             // move to end of token
             var end = start;
-            while (end < self.buffer.len and !self.isDelimiter(end)) : (end += 1) {}
+            while (end < self.buffer.len and !self.isDelimiter(end)) end += 1;
 
             return self.buffer[start..end];
         }
@@ -2799,10 +2799,10 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
         pub fn rest(self: Self) []const T {
             // move to beginning of token
             var index: usize = self.index;
-            while (index < self.buffer.len and self.isDelimiter(index)) : (index += switch (delimiter_type) {
+            while (index < self.buffer.len and self.isDelimiter(index)) index += switch (delimiter_type) {
                 .sequence => self.delimiter.len,
                 .any, .scalar => 1,
-            }) {}
+            };
             return self.buffer[index..];
         }
 
@@ -3439,7 +3439,7 @@ test "indexOfMinMax" {
     try testing.expectEqual(indexOfMinMax(u8, "a"), .{ .index_min = 0, .index_max = 0 });
 }
 
-/// Swaps the two values.
+/// Swaps the value pointed to by `a` with the value pointed to by `b`.
 pub fn swap(comptime T: type, a: *T, b: *T) void {
     const tmp = a.*;
     a.* = b.*;
