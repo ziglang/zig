@@ -529,7 +529,7 @@ pub fn linkWithZld(
         }
 
         // Write code signature padding if required
-        var codesig: ?CodeSignature = if (macho_file.requiresCodeSignature()) blk: {
+        var codesig: ?CodeSignature = if (MachO.requiresCodeSignature(&macho_file.base.options)) blk: {
             // Preallocate space for the code signature.
             // We need to do this at this stage so that we have the load commands with proper values
             // written out to the file.

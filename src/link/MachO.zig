@@ -530,7 +530,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     try self.writeLinkeditSegmentData();
 
-    var codesig: ?CodeSignature = if (self.requiresCodeSignature()) blk: {
+    var codesig: ?CodeSignature = if (requiresCodeSignature(&self.base.options)) blk: {
         // Preallocate space for the code signature.
         // We need to do this at this stage so that we have the load commands with proper values
         // written out to the file.
@@ -4767,11 +4767,11 @@ pub inline fn getPageSize(cpu_arch: std.Target.Cpu.Arch) u16 {
     };
 }
 
-pub fn requiresCodeSignature(self: MachO) bool {
-    if (self.base.options.entitlements) |_| return true;
-    const cpu_arch = self.base.options.target.cpu.arch;
-    const os_tag = self.base.options.target.os.tag;
-    const abi = self.base.options.target.abi;
+pub fn requiresCodeSignature(options: *const link.Options) bool {
+    if (options.entitlements) |_| return true;
+    const cpu_arch = options.target.cpu.arch;
+    const os_tag = options.target.os.tag;
+    const abi = options.target.abi;
     if (cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator)) return true;
     return false;
 }

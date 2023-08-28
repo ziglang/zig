@@ -91,17 +91,8 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
         );
     }
     // LC_CODE_SIGNATURE
-    {
-        const target = options.target;
-        const requires_codesig = blk: {
-            if (options.entitlements) |_| break :blk true;
-            if (target.cpu.arch == .aarch64 and (target.os.tag == .macos or target.abi == .simulator))
-                break :blk true;
-            break :blk false;
-        };
-        if (requires_codesig) {
-            sizeofcmds += @sizeOf(macho.linkedit_data_command);
-        }
+    if (MachO.requiresCodeSignature(options)) {
+        sizeofcmds += @sizeOf(macho.linkedit_data_command);
     }
 
     return @as(u32, @intCast(sizeofcmds));
@@ -374,3 +365,4 @@ const mem = std.mem;
 
 const Allocator = mem.Allocator;
 const Dylib = @import("Dylib.zig");
+const MachO = @import("../MachO.zig");
