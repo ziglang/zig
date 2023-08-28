@@ -345,10 +345,13 @@ pub fn linkWithZld(
             parent: u16,
         }, .Dynamic).init(arena);
 
-        var parse_error_ctx: union {
-            none: void,
+        var parse_error_ctx: struct {
             detected_arch: std.Target.Cpu.Arch,
-        } = .{ .none = {} };
+            detected_os: std.Target.Os.Tag,
+        } = .{
+            .detected_arch = undefined,
+            .detected_os = undefined,
+        };
 
         for (positionals.items) |obj| {
             const in_file = try std.fs.cwd().openFile(obj.path, .{});
@@ -586,7 +589,18 @@ pub fn linkWithZld(
         try lc_writer.writeStruct(macho.source_version_command{
             .version = 0,
         });
-        try load_commands.writeBuildVersionLC(&macho_file.base.options, lc_writer);
+        {
+            const platform = load_commands.Platform.fromOptions(&macho_file.base.options);
+            const sdk_version: ?std.SemanticVersion = macho_file.base.options.darwin_sdk_version orelse blk: {
+                if (macho_file.base.options.sysroot) |path| break :blk load_commands.inferSdkVersionFromSdkPath(path);
+                break :blk null;
+            };
+            if (platform.isBuildVersionCompatible()) {
+                try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
+            } else {
+                try load_commands.writeVersionMinLC(platform, sdk_version, lc_writer);
+            }
+        }
 
         const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + @as(u32, @intCast(lc_buffer.items.len));
         try lc_writer.writeStruct(macho_file.uuid_cmd);

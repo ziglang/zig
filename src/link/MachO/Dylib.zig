@@ -217,7 +217,7 @@ const TargetMatcher = struct {
     target: CrossTarget,
     target_strings: std.ArrayListUnmanaged([]const u8) = .{},
 
-    fn init(allocator: Allocator, target: CrossTarget) !TargetMatcher {
+    pub fn init(allocator: Allocator, target: CrossTarget) !TargetMatcher {
         var self = TargetMatcher{
             .allocator = allocator,
             .target = target,
@@ -239,7 +239,7 @@ const TargetMatcher = struct {
         return self;
     }
 
-    fn deinit(self: *TargetMatcher) void {
+    pub fn deinit(self: *TargetMatcher) void {
         for (self.target_strings.items) |t| {
             self.allocator.free(t);
         }
@@ -263,7 +263,7 @@ const TargetMatcher = struct {
         };
     }
 
-    fn targetToAppleString(allocator: Allocator, target: CrossTarget) ![]const u8 {
+    pub fn targetToAppleString(allocator: Allocator, target: CrossTarget) ![]const u8 {
         const cpu_arch = cpuArchToAppleString(target.cpu_arch.?);
         const os_tag = @tagName(target.os_tag.?);
         const target_abi = abiToAppleString(target.abi orelse .none);
@@ -291,7 +291,7 @@ const TargetMatcher = struct {
         return hasValue(archs, cpuArchToAppleString(self.target.cpu_arch.?));
     }
 
-    fn matchesTargetTbd(self: TargetMatcher, tbd: Tbd) !bool {
+    pub fn matchesTargetTbd(self: TargetMatcher, tbd: Tbd) !bool {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
 

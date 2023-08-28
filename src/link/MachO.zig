@@ -585,7 +585,18 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     try lc_writer.writeStruct(macho.source_version_command{
         .version = 0,
     });
-    try load_commands.writeBuildVersionLC(&self.base.options, lc_writer);
+    {
+        const platform = load_commands.Platform.fromOptions(&self.base.options);
+        const sdk_version: ?std.SemanticVersion = self.base.options.darwin_sdk_version orelse blk: {
+            if (self.base.options.sysroot) |path| break :blk load_commands.inferSdkVersionFromSdkPath(path);
+            break :blk null;
+        };
+        if (platform.isBuildVersionCompatible()) {
+            try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
+        } else {
+            try load_commands.writeVersionMinLC(platform, sdk_version, lc_writer);
+        }
+    }
 
     const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + @as(u32, @intCast(lc_buffer.items.len));
     try lc_writer.writeStruct(self.uuid_cmd);
@@ -797,7 +808,7 @@ fn parseObject(
     const self_cpu_arch = self.base.options.target.cpu.arch;
 
     if (self_cpu_arch != cpu_arch) {
-        error_ctx.* = .{ .detected_arch = cpu_arch };
+        error_ctx.detected_arch = cpu_arch;
         return error.InvalidArch;
     }
 }
@@ -894,7 +905,7 @@ fn parseArchive(
             else => unreachable,
         };
         if (cpu_arch != parsed_cpu_arch) {
-            error_ctx.* = .{ .detected_arch = parsed_cpu_arch };
+            error_ctx.detected_arch = parsed_cpu_arch;
             return error.InvalidArch;
         }
     }
@@ -959,7 +970,7 @@ fn parseDylib(
         else => unreachable,
     };
     if (self_cpu_arch != cpu_arch) {
-        error_ctx.* = .{ .detected_arch = cpu_arch };
+        error_ctx.detected_arch = cpu_arch;
         return error.InvalidArch;
     }
 

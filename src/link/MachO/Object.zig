@@ -940,6 +940,26 @@ pub fn parseDwarfInfo(self: Object) DwarfInfo {
     return di;
 }
 
+/// Returns Options.Platform composed from the first encountered build version type load command:
+/// either LC_BUILD_VERSION or LC_VERSION_MIN_*.
+pub fn getPlatform(self: Object) ?Platform {
+    var it = LoadCommandIterator{
+        .ncmds = self.header.ncmds,
+        .buffer = self.contents[@sizeOf(macho.mach_header_64)..][0..self.header.sizeofcmds],
+    };
+    while (it.next()) |cmd| {
+        switch (cmd.cmd()) {
+            .BUILD_VERSION,
+            .VERSION_MIN_MACOSX,
+            .VERSION_MIN_IPHONEOS,
+            .VERSION_MIN_TVOS,
+            .VERSION_MIN_WATCHOS,
+            => return Platform.fromLoadCommand(cmd),
+            else => {},
+        }
+    } else return null;
+}
+
 pub fn getSectionContents(self: Object, sect: macho.section_64) []const u8 {
     const size = @as(usize, @intCast(sect.size));
     return self.contents[sect.offset..][0..size];
@@ -1089,5 +1109,6 @@ const Atom = @import("Atom.zig");
 const DwarfInfo = @import("DwarfInfo.zig");
 const LoadCommandIterator = macho.LoadCommandIterator;
 const MachO = @import("../MachO.zig");
+const Platform = @import("load_commands.zig").Platform;
 const SymbolWithLoc = MachO.SymbolWithLoc;
 const UnwindInfo = @import("UnwindInfo.zig");
