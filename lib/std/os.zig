@@ -4047,13 +4047,22 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
 }
 
 pub const WaitPidResult = struct {
+    /// Process ID for the changed status
     pid: pid_t,
+    /// Current status of the identified process
     status: u32,
+};
+
+/// Error group that can be returned when calling any of the wait functions.
+pub const WaitError = error{
+    /// Calling process doesn't have any unwaited-for children. Or the specified
+    /// pid doesn't exist.
+    CHILD,
 };
 
 /// Use this version of the `waitpid` wrapper if you spawned your child process using explicit
 /// `fork` and `execve` method.
-pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
+pub fn waitpid(pid: pid_t, flags: u32) WaitError!WaitPidResult {
     const Status = if (builtin.link_libc) c_int else u32;
     var status: Status = undefined;
     const coerced_flags = if (builtin.link_libc) @as(c_int, @intCast(flags)) else flags;
@@ -4065,14 +4074,14 @@ pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
                 .status = @as(u32, @bitCast(status)),
             },
             .INTR => continue,
-            .CHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
+            .CHILD => return WaitError.CHILD,
             .INVAL => unreachable, // Invalid flags.
             else => unreachable,
         }
     }
 }
 
-pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
+pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitError!WaitPidResult {
     const Status = if (builtin.link_libc) c_int else u32;
     var status: Status = undefined;
     const coerced_flags = if (builtin.link_libc) @as(c_int, @intCast(flags)) else flags;
@@ -4084,7 +4093,7 @@ pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
                 .status = @as(u32, @bitCast(status)),
             },
             .INTR => continue,
-            .CHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
+            .CHILD => return WaitError.CHILD,
             .INVAL => unreachable, // Invalid flags.
             else => unreachable,
         }

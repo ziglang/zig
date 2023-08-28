@@ -393,7 +393,9 @@ pub const ChildProcess = struct {
                 switch (builtin.os.tag) {
                     .linux, .macos, .ios => {
                         var ru: std.os.rusage = undefined;
-                        const res = os.wait4(self.id, 0, &ru);
+                        // see next comment, catch unreachable duplicates
+                        // previous wait4 behavior
+                        const res = os.wait4(self.id, 0, &ru) catch unreachable;
                         self.resource_usage_statistics.rusage = ru;
                         break :res res;
                     },
@@ -401,7 +403,9 @@ pub const ChildProcess = struct {
                 }
             }
 
-            break :res os.waitpid(self.id, 0);
+            // Catch unreachable here to duplicate the previous behavior where
+            // it should be impossible for this pid not to exist at this point.
+            break :res os.waitpid(self.id, 0) catch unreachable;
         };
         const status = res.status;
         self.cleanupStreams();
