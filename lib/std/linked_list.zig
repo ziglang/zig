@@ -171,9 +171,6 @@ test "basic SinglyLinkedList test" {
     try testing.expect(list.first.?.next.?.next == null);
 }
 
-/// deprecated: use `DoublyLinkedList`.
-pub const TailQueue = DoublyLinkedList;
-
 /// A doubly-linked list has a pair of pointers to both the head and
 /// tail of the list. List elements have pointers to both the previous
 /// and next elements in the sequence. The list can be traversed both
