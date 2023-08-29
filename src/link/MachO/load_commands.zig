@@ -269,7 +269,7 @@ pub fn writeVersionMinLC(platform: Platform, sdk_version: ?std.SemanticVersion, 
     try lc_writer.writeAll(mem.asBytes(&macho.version_min_command{
         .cmd = cmd,
         .version = platform.toAppleVersion(),
-        .sdk = if (sdk_version) |ver| Platform.semanticVersionToAppleVersion(ver) else platform.toAppleVersion(),
+        .sdk = if (sdk_version) |ver| semanticVersionToAppleVersion(ver) else platform.toAppleVersion(),
     }));
 }
 
@@ -279,7 +279,7 @@ pub fn writeBuildVersionLC(platform: Platform, sdk_version: ?std.SemanticVersion
         .cmdsize = cmdsize,
         .platform = platform.toApplePlatform(),
         .minos = platform.toAppleVersion(),
-        .sdk = if (sdk_version) |ver| Platform.semanticVersionToAppleVersion(ver) else platform.toAppleVersion(),
+        .sdk = if (sdk_version) |ver| semanticVersionToAppleVersion(ver) else platform.toAppleVersion(),
         .ntools = 1,
     });
     try lc_writer.writeAll(mem.asBytes(&macho.build_tool_version{
@@ -383,21 +383,6 @@ pub const Platform = struct {
         }
         return false;
     }
-
-    pub inline fn semanticVersionToAppleVersion(version: std.SemanticVersion) u32 {
-        const major = version.major;
-        const minor = version.minor;
-        const patch = version.patch;
-        return (@as(u32, @intCast(major)) << 16) | (@as(u32, @intCast(minor)) << 8) | @as(u32, @intCast(patch));
-    }
-
-    inline fn appleVersionToSemanticVersion(version: u32) std.SemanticVersion {
-        return .{
-            .major = @as(u16, @truncate(version >> 16)),
-            .minor = @as(u8, @truncate(version >> 8)),
-            .patch = @as(u8, @truncate(version)),
-        };
-    }
 };
 
 const SupportedPlatforms = struct {
@@ -418,6 +403,21 @@ const supported_platforms = [_]SupportedPlatforms{
     .{ .tvos, .simulator, 0xD0000, 0x80000, null },
     .{ .watchos, .simulator, 0x60000, 0x20000, null },
 };
+
+pub inline fn semanticVersionToAppleVersion(version: std.SemanticVersion) u32 {
+    const major = version.major;
+    const minor = version.minor;
+    const patch = version.patch;
+    return (@as(u32, @intCast(major)) << 16) | (@as(u32, @intCast(minor)) << 8) | @as(u32, @intCast(patch));
+}
+
+inline fn appleVersionToSemanticVersion(version: u32) std.SemanticVersion {
+    return .{
+        .major = @as(u16, @truncate(version >> 16)),
+        .minor = @as(u8, @truncate(version >> 8)),
+        .patch = @as(u8, @truncate(version)),
+    };
+}
 
 pub fn inferSdkVersionFromSdkPath(path: []const u8) ?std.SemanticVersion {
     const stem = std.fs.path.stem(path);
