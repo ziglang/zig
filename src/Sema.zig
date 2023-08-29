@@ -15145,7 +15145,7 @@ fn zirDivFloor(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
 fn zirDivCeil(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
     sema.src = src;
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
@@ -15176,8 +15176,8 @@ fn zirDivCeil(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .div_ceil);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(casted_lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
+    const maybe_lhs_val = try sema.resolveValueIntable(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(casted_rhs);
 
     const runtime_src = rs: {
         // For integers:
