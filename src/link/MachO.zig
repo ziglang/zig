@@ -716,6 +716,7 @@ fn resolveLib(
 const ParseError = error{
     UnknownFileType,
     InvalidTarget,
+    InvalidTargetFatLibrary,
     DylibAlreadyExists,
     IncompatibleDylibVersion,
     OutOfMemory,
@@ -856,7 +857,7 @@ pub fn parseFatLibrary(
         for (fat_archs) |arch| {
             ctx.detected_targets.appendAssumeCapacity(try ctx.arena.dupe(u8, @tagName(arch.tag)));
         }
-        return error.InvalidTarget;
+        return error.InvalidTargetFatLibrary;
     };
     return offset;
 }
@@ -4871,7 +4872,7 @@ pub fn handleAndReportParseError(
     switch (err) {
         error.DylibAlreadyExists => {},
         error.UnknownFileType => try self.reportParseError(path, "unknown file type", .{}),
-        error.InvalidTarget => {
+        error.InvalidTarget, error.InvalidTargetFatLibrary => {
             var targets_string = std.ArrayList(u8).init(self.base.allocator);
             defer targets_string.deinit();
             try targets_string.writer().writeAll("(");
@@ -4880,10 +4881,20 @@ pub fn handleAndReportParseError(
             }
             try targets_string.resize(targets_string.items.len - 2);
             try targets_string.writer().writeAll(")");
-            try self.reportParseError(path, "invalid target: expected '{}', but found '{s}'", .{
-                Platform.fromTarget(self.base.options.target).fmtTarget(cpu_arch),
-                targets_string.items,
-            });
+
+            switch (err) {
+                error.InvalidTarget => try self.reportParseError(
+                    path,
+                    "invalid target: expected '{}', but found '{s}'",
+                    .{ Platform.fromTarget(self.base.options.target).fmtTarget(cpu_arch), targets_string.items },
+                ),
+                error.InvalidTargetFatLibrary => try self.reportParseError(
+                    path,
+                    "invalid architecture in univeral library: expected '{s}', but found '{s}'",
+                    .{ @tagName(cpu_arch), targets_string.items },
+                ),
+                else => unreachable,
+            }
         },
         else => |e| try self.reportParseError(path, "{s}: parsing object failed", .{@errorName(e)}),
     }
