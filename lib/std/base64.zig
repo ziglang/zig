@@ -100,21 +100,24 @@ pub const Base64Encoder = struct {
         const out_len = encoder.calcSize(source.len);
         assert(dest.len >= out_len);
 
-        var acc: u12 = 0;
-        var acc_len: u4 = 0;
+        var idx: usize = 0;
         var out_idx: usize = 0;
-        for (source) |v| {
-            acc = (acc << 8) + v;
-            acc_len += 8;
-            while (acc_len >= 6) {
-                acc_len -= 6;
-                dest[out_idx] = encoder.alphabet_chars[@as(u6, @truncate((acc >> acc_len)))];
-                out_idx += 1;
-            }
+        while (idx + 2 < source.len) : (idx += 3) {
+            dest[out_idx] = encoder.alphabet_chars[source[idx] >> 2];
+            dest[out_idx + 1] = encoder.alphabet_chars[((source[idx] & 0x3) << 4) | (source[idx + 1] >> 4)];
+            dest[out_idx + 2] = encoder.alphabet_chars[(source[idx + 1] & 0xf) << 2 | (source[idx + 2] >> 6)];
+            dest[out_idx + 3] = encoder.alphabet_chars[source[idx + 2] & 0x3f];
+            out_idx += 4;
         }
-        if (acc_len > 0) {
-            dest[out_idx] = encoder.alphabet_chars[@as(u6, @truncate((acc << 6 - acc_len)))];
-            out_idx += 1;
+        if (idx + 1 < source.len) {
+            dest[out_idx] = encoder.alphabet_chars[source[idx] >> 2];
+            dest[out_idx + 1] = encoder.alphabet_chars[((source[idx] & 0x3) << 4) | (source[idx + 1] >> 4)];
+            dest[out_idx + 2] = encoder.alphabet_chars[(source[idx + 1] & 0xf) << 2];
+            out_idx += 3;
+        } else if (idx < source.len) {
+            dest[out_idx] = encoder.alphabet_chars[source[idx] >> 2];
+            dest[out_idx + 1] = encoder.alphabet_chars[(source[idx] & 0x3) << 4];
+            out_idx += 2;
         }
         if (encoder.pad_char) |pad_char| {
             for (dest[out_idx..out_len]) |*pad| {
