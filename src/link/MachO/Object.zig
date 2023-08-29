@@ -940,7 +940,7 @@ pub fn parseDwarfInfo(self: Object) DwarfInfo {
     return di;
 }
 
-/// Returns Options.Platform composed from the first encountered build version type load command:
+/// Returns Platform composed from the first encountered build version type load command:
 /// either LC_BUILD_VERSION or LC_VERSION_MIN_*.
 pub fn getPlatform(self: Object) ?Platform {
     var it = LoadCommandIterator{

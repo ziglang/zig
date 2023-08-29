@@ -396,16 +396,24 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         self.dylibs_map.clearRetainingCapacity();
         self.referenced_dylibs.clearRetainingCapacity();
 
-        const cpu_arch = self.base.options.target.cpu.arch;
         var dependent_libs = std.fifo.LinearFifo(struct {
             id: Dylib.Id,
             parent: u16,
         }, .Dynamic).init(arena);
 
-        var parse_error_ctx: union {
-            none: void,
+        var parse_error_ctx: struct {
             detected_arch: std.Target.Cpu.Arch,
-        } = .{ .none = {} };
+            detected_platform: ?Platform,
+            detected_stub_targets: []const []const u8,
+        } = .{
+            .detected_arch = undefined,
+            .detected_platform = null,
+            .detected_stub_targets = &[0][]const u8{},
+        };
+        defer {
+            for (parse_error_ctx.detected_stub_targets) |target| self.base.allocator.free(target);
+            self.base.allocator.free(parse_error_ctx.detected_stub_targets);
+        }
 
         for (libs.keys(), libs.values()) |path, lib| {
             const in_file = try std.fs.cwd().openFile(path, .{});
@@ -418,25 +426,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                 false,
                 &dependent_libs,
                 &parse_error_ctx,
-            ) catch |err| switch (err) {
-                error.DylibAlreadyExists => {},
-                error.UnknownFileType => try self.reportParseError(path, "unknown file type", .{}),
-                error.MissingArchFatLib => try self.reportParseError(
-                    path,
-                    "missing architecture in universal file, expected '{s}'",
-                    .{@tagName(cpu_arch)},
-                ),
-                error.InvalidArch => try self.reportParseError(
-                    path,
-                    "invalid architecture '{s}', expected '{s}'",
-                    .{ @tagName(parse_error_ctx.detected_arch), @tagName(cpu_arch) },
-                ),
-                else => |e| try self.reportParseError(
-                    path,
-                    "parsing library failed with error '{s}'",
-                    .{@errorName(e)},
-                ),
-            };
+            ) catch |err| try self.handleAndReportParseError(path, err, parse_error_ctx);
         }
 
         self.parseDependentLibs(&dependent_libs, &parse_error_ctx) catch |err| {
@@ -586,7 +576,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         .version = 0,
     });
     {
-        const platform = load_commands.Platform.fromOptions(&self.base.options);
+        const platform = Platform.fromTarget(self.base.options.target);
         const sdk_version: ?std.SemanticVersion = if (self.base.options.sysroot) |path|
             load_commands.inferSdkVersionFromSdkPath(path)
         else
@@ -738,7 +728,8 @@ fn resolveLib(
 const ParseError = error{
     UnknownFileType,
     MissingArchFatLib,
-    InvalidArch,
+    InvalidTarget,
+    InvalidLibStubTargets,
     DylibAlreadyExists,
     IncompatibleDylibVersion,
     OutOfMemory,
@@ -798,19 +789,24 @@ fn parseObject(
     };
     errdefer object.deinit(gpa);
     try object.parse(gpa);
-    try self.objects.append(gpa, object);
 
     const cpu_arch: std.Target.Cpu.Arch = switch (object.header.cputype) {
         macho.CPU_TYPE_ARM64 => .aarch64,
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => unreachable,
     };
-    const self_cpu_arch = self.base.options.target.cpu.arch;
+    error_ctx.detected_arch = cpu_arch;
 
-    if (self_cpu_arch != cpu_arch) {
-        error_ctx.detected_arch = cpu_arch;
-        return error.InvalidArch;
+    if (object.getPlatform()) |platform| {
+        error_ctx.detected_platform = platform;
     }
+
+    if (self.base.options.target.cpu.arch != cpu_arch) return error.InvalidTarget;
+    if (error_ctx.detected_platform) |platform| {
+        if (!Platform.fromTarget(self.base.options.target).eqlTarget(platform)) return error.InvalidTarget;
+    }
+
+    try self.objects.append(gpa, object);
 }
 
 pub fn parseLibrary(
@@ -825,14 +821,12 @@ pub fn parseLibrary(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const cpu_arch = self.base.options.target.cpu.arch;
-
     if (fat.isFatLibrary(file)) {
-        const offset = try self.parseFatLibrary(file, cpu_arch);
+        const offset = try self.parseFatLibrary(file, self.base.options.target.cpu.arch);
         try file.seekTo(offset);
 
         if (Archive.isArchive(file, offset)) {
-            try self.parseArchive(path, offset, must_link, cpu_arch, error_ctx);
+            try self.parseArchive(path, offset, must_link, error_ctx);
         } else if (Dylib.isDylib(file, offset)) {
             try self.parseDylib(file, path, offset, dependent_libs, .{
                 .needed = lib.needed,
@@ -840,7 +834,7 @@ pub fn parseLibrary(
             }, error_ctx);
         } else return error.UnknownFileType;
     } else if (Archive.isArchive(file, 0)) {
-        try self.parseArchive(path, 0, must_link, cpu_arch, error_ctx);
+        try self.parseArchive(path, 0, must_link, error_ctx);
     } else if (Dylib.isDylib(file, 0)) {
         try self.parseDylib(file, path, 0, dependent_libs, .{
             .needed = lib.needed,
@@ -850,7 +844,7 @@ pub fn parseLibrary(
         self.parseLibStub(file, path, dependent_libs, .{
             .needed = lib.needed,
             .weak = lib.weak,
-        }) catch |err| switch (err) {
+        }, error_ctx) catch |err| switch (err) {
             error.NotLibStub, error.UnexpectedToken => return error.UnknownFileType,
             else => |e| return e,
         };
@@ -872,7 +866,6 @@ fn parseArchive(
     path: []const u8,
     fat_offset: u64,
     must_link: bool,
-    cpu_arch: std.Target.Cpu.Arch,
     error_ctx: anytype,
 ) ParseError!void {
     const gpa = self.base.allocator;
@@ -899,14 +892,20 @@ fn parseArchive(
         var object = try archive.parseObject(gpa, off); // TODO we are doing all this work to pull the header only!
         defer object.deinit(gpa);
 
-        const parsed_cpu_arch: std.Target.Cpu.Arch = switch (object.header.cputype) {
+        const cpu_arch: std.Target.Cpu.Arch = switch (object.header.cputype) {
             macho.CPU_TYPE_ARM64 => .aarch64,
             macho.CPU_TYPE_X86_64 => .x86_64,
             else => unreachable,
         };
-        if (cpu_arch != parsed_cpu_arch) {
-            error_ctx.detected_arch = parsed_cpu_arch;
-            return error.InvalidArch;
+        error_ctx.detected_arch = cpu_arch;
+
+        if (object.getPlatform()) |platform| {
+            error_ctx.detected_platform = platform;
+        }
+
+        if (self.base.options.target.cpu.arch != cpu_arch) return error.InvalidTarget;
+        if (error_ctx.detected_platform) |platform| {
+            if (!Platform.fromTarget(self.base.options.target).eqlTarget(platform)) return error.InvalidTarget;
         }
     }
 
@@ -945,8 +944,6 @@ fn parseDylib(
     error_ctx: anytype,
 ) ParseError!void {
     const gpa = self.base.allocator;
-    const self_cpu_arch = self.base.options.target.cpu.arch;
-
     const file_stat = try file.stat();
     const file_size = math.cast(usize, file_stat.size - offset) orelse return error.Overflow;
 
@@ -969,12 +966,16 @@ fn parseDylib(
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => unreachable,
     };
-    if (self_cpu_arch != cpu_arch) {
-        error_ctx.detected_arch = cpu_arch;
-        return error.InvalidArch;
+    error_ctx.detected_arch = cpu_arch;
+
+    if (dylib.getPlatform(contents)) |platform| {
+        error_ctx.detected_platform = platform;
     }
 
-    // TODO verify platform
+    if (self.base.options.target.cpu.arch != cpu_arch) return error.InvalidTarget;
+    if (error_ctx.detected_platform) |platform| {
+        if (!Platform.fromTarget(self.base.options.target).eqlTarget(platform)) return error.InvalidTarget;
+    }
 
     try self.addDylib(dylib, .{
         .needed = dylib_options.needed,
@@ -988,6 +989,7 @@ fn parseLibStub(
     path: []const u8,
     dependent_libs: anytype,
     dylib_options: DylibOpts,
+    error_ctx: anytype,
 ) ParseError!void {
     const gpa = self.base.allocator;
     var lib_stub = try LibStub.loadFromFile(gpa, file);
@@ -995,7 +997,20 @@ fn parseLibStub(
 
     if (lib_stub.inner.len == 0) return error.NotLibStub;
 
-    // TODO verify platform
+    // Verify target
+    {
+        var matcher = try Dylib.TargetMatcher.init(gpa, self.base.options.target);
+        defer matcher.deinit();
+
+        const first_tbd = lib_stub.inner[0];
+        const targets = try first_tbd.targets(gpa);
+        if (!matcher.matchesTarget(targets)) {
+            error_ctx.detected_stub_targets = targets;
+            return error.InvalidLibStubTargets;
+        }
+        for (targets) |t| gpa.free(t);
+        gpa.free(targets);
+    }
 
     var dylib = Dylib{ .weak = dylib_options.weak };
     errdefer dylib.deinit(gpa);
@@ -1104,7 +1119,7 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype, error_ctx: anyt
                 self.parseLibStub(file, full_path, dependent_libs, .{
                     .dependent = true,
                     .weak = weak,
-                }) catch |err| switch (err) {
+                }, error_ctx) catch |err| switch (err) {
                     error.NotLibStub, error.UnexpectedToken => continue,
                     else => |e| return e,
                 };
@@ -4830,6 +4845,53 @@ pub fn getSectionPrecedence(header: macho.section_64) u8 {
     return (@as(u8, @intCast(segment_precedence)) << 4) + section_precedence;
 }
 
+pub fn handleAndReportParseError(self: *MachO, path: []const u8, err: ParseError, parse_error_ctx: anytype) !void {
+    const cpu_arch = self.base.options.target.cpu.arch;
+    switch (err) {
+        error.DylibAlreadyExists => {},
+        error.UnknownFileType => try self.reportParseError(path, "unknown file type", .{}),
+        error.MissingArchFatLib => try self.reportParseError(
+            path,
+            "missing architecture in universal file, expected '{s}'",
+            .{@tagName(cpu_arch)},
+        ),
+        error.InvalidTarget => if (parse_error_ctx.detected_platform) |platform| {
+            try self.reportParseError(path, "invalid target '{s}-{}', expected '{s}-{}'", .{
+                @tagName(parse_error_ctx.detected_arch),
+                platform.fmtTarget(),
+                @tagName(cpu_arch),
+                Platform.fromTarget(self.base.options.target).fmtTarget(),
+            });
+        } else {
+            try self.reportParseError(
+                path,
+                "invalid architecture '{s}', expected '{s}'",
+                .{ @tagName(parse_error_ctx.detected_arch), @tagName(cpu_arch) },
+            );
+        },
+        error.InvalidLibStubTargets => {
+            var targets_string = std.ArrayList(u8).init(self.base.allocator);
+            defer targets_string.deinit();
+            try targets_string.writer().writeAll("(");
+            for (parse_error_ctx.detected_stub_targets) |t| {
+                try targets_string.writer().print("{s}, ", .{t});
+            }
+            try targets_string.resize(targets_string.items.len - 2);
+            try targets_string.writer().writeAll(")");
+            try self.reportParseError(path, "invalid targets '{s}', expected '{s}-{}'", .{
+                targets_string.items,
+                @tagName(cpu_arch),
+                Platform.fromTarget(self.base.options.target).fmtTarget(),
+            });
+        },
+        else => |e| try self.reportParseError(
+            path,
+            "parsing positional argument failed with error '{s}'",
+            .{@errorName(e)},
+        ),
+    }
+}
+
 pub fn reportParseError(self: *MachO, path: []const u8, comptime format: []const u8, args: anytype) !void {
     const gpa = self.base.allocator;
     try self.misc_errors.ensureUnusedCapacity(gpa, 1);
@@ -5140,66 +5202,6 @@ pub fn logAtom(self: *MachO, atom_index: Atom.Index, logger: anytype) void {
     }
 }
 
-const MachO = @This();
-
-const std = @import("std");
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const dwarf = std.dwarf;
-const fs = std.fs;
-const log = std.log.scoped(.link);
-const macho = std.macho;
-const math = std.math;
-const mem = std.mem;
-const meta = std.meta;
-
-const aarch64 = @import("../arch/aarch64/bits.zig");
-const calcUuid = @import("MachO/uuid.zig").calcUuid;
-const codegen = @import("../codegen.zig");
-const dead_strip = @import("MachO/dead_strip.zig");
-const fat = @import("MachO/fat.zig");
-const link = @import("../link.zig");
-const llvm_backend = @import("../codegen/llvm.zig");
-const load_commands = @import("MachO/load_commands.zig");
-const stubs = @import("MachO/stubs.zig");
-const tapi = @import("tapi.zig");
-const target_util = @import("../target.zig");
-const thunks = @import("MachO/thunks.zig");
-const trace = @import("../tracy.zig").trace;
-const zld = @import("MachO/zld.zig");
-
-const Air = @import("../Air.zig");
-const Allocator = mem.Allocator;
-const Archive = @import("MachO/Archive.zig");
-pub const Atom = @import("MachO/Atom.zig");
-const Cache = std.Build.Cache;
-const CodeSignature = @import("MachO/CodeSignature.zig");
-const Compilation = @import("../Compilation.zig");
-const Dwarf = File.Dwarf;
-const DwarfInfo = @import("MachO/DwarfInfo.zig");
-const Dylib = @import("MachO/Dylib.zig");
-const File = link.File;
-const Object = @import("MachO/Object.zig");
-const LibStub = tapi.LibStub;
-const Liveness = @import("../Liveness.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Md5 = std.crypto.hash.Md5;
-const Module = @import("../Module.zig");
-const InternPool = @import("../InternPool.zig");
-const Relocation = @import("MachO/Relocation.zig");
-const StringTable = @import("strtab.zig").StringTable;
-const TableSection = @import("table_section.zig").TableSection;
-const Trie = @import("MachO/Trie.zig");
-const Type = @import("../type.zig").Type;
-const TypedValue = @import("../TypedValue.zig");
-const Value = @import("../value.zig").Value;
-
-pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
-pub const Bind = @import("MachO/dyld_info/bind.zig").Bind(*const MachO, SymbolWithLoc);
-pub const LazyBind = @import("MachO/dyld_info/bind.zig").LazyBind(*const MachO, SymbolWithLoc);
-pub const Rebase = @import("MachO/dyld_info/Rebase.zig");
-
 pub const base_tag: File.Tag = File.Tag.macho;
 pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
 
@@ -5332,3 +5334,64 @@ pub const default_pagezero_vmsize: u64 = 0x100000000;
 /// the table of load commands. This should be plenty for any
 /// potential future extensions.
 pub const default_headerpad_size: u32 = 0x1000;
+
+const MachO = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const dwarf = std.dwarf;
+const fs = std.fs;
+const log = std.log.scoped(.link);
+const macho = std.macho;
+const math = std.math;
+const mem = std.mem;
+const meta = std.meta;
+
+const aarch64 = @import("../arch/aarch64/bits.zig");
+const calcUuid = @import("MachO/uuid.zig").calcUuid;
+const codegen = @import("../codegen.zig");
+const dead_strip = @import("MachO/dead_strip.zig");
+const fat = @import("MachO/fat.zig");
+const link = @import("../link.zig");
+const llvm_backend = @import("../codegen/llvm.zig");
+const load_commands = @import("MachO/load_commands.zig");
+const stubs = @import("MachO/stubs.zig");
+const tapi = @import("tapi.zig");
+const target_util = @import("../target.zig");
+const thunks = @import("MachO/thunks.zig");
+const trace = @import("../tracy.zig").trace;
+const zld = @import("MachO/zld.zig");
+
+const Air = @import("../Air.zig");
+const Allocator = mem.Allocator;
+const Archive = @import("MachO/Archive.zig");
+pub const Atom = @import("MachO/Atom.zig");
+const Cache = std.Build.Cache;
+const CodeSignature = @import("MachO/CodeSignature.zig");
+const Compilation = @import("../Compilation.zig");
+const Dwarf = File.Dwarf;
+const DwarfInfo = @import("MachO/DwarfInfo.zig");
+const Dylib = @import("MachO/Dylib.zig");
+const File = link.File;
+const Object = @import("MachO/Object.zig");
+const LibStub = tapi.LibStub;
+const Liveness = @import("../Liveness.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
+const Md5 = std.crypto.hash.Md5;
+const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
+const Platform = load_commands.Platform;
+const Relocation = @import("MachO/Relocation.zig");
+const StringTable = @import("strtab.zig").StringTable;
+const TableSection = @import("table_section.zig").TableSection;
+const Trie = @import("MachO/Trie.zig");
+const Type = @import("../type.zig").Type;
+const TypedValue = @import("../TypedValue.zig");
+const Value = @import("../value.zig").Value;
+
+pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
+pub const Bind = @import("MachO/dyld_info/bind.zig").Bind(*const MachO, SymbolWithLoc);
+pub const LazyBind = @import("MachO/dyld_info/bind.zig").LazyBind(*const MachO, SymbolWithLoc);
+pub const Rebase = @import("MachO/dyld_info/Rebase.zig");

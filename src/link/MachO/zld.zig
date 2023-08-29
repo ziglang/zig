@@ -347,11 +347,17 @@ pub fn linkWithZld(
 
         var parse_error_ctx: struct {
             detected_arch: std.Target.Cpu.Arch,
-            detected_os: std.Target.Os.Tag,
+            detected_platform: ?Platform,
+            detected_stub_targets: []const []const u8,
         } = .{
             .detected_arch = undefined,
-            .detected_os = undefined,
+            .detected_platform = null,
+            .detected_stub_targets = &[0][]const u8{},
         };
+        defer {
+            for (parse_error_ctx.detected_stub_targets) |t| gpa.free(t);
+            gpa.free(parse_error_ctx.detected_stub_targets);
+        }
 
         for (positionals.items) |obj| {
             const in_file = try std.fs.cwd().openFile(obj.path, .{});
@@ -363,25 +369,7 @@ pub fn linkWithZld(
                 obj.must_link,
                 &dependent_libs,
                 &parse_error_ctx,
-            ) catch |err| switch (err) {
-                error.DylibAlreadyExists => {},
-                error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type", .{}),
-                error.MissingArchFatLib => try macho_file.reportParseError(
-                    obj.path,
-                    "missing architecture in universal file, expected '{s}'",
-                    .{@tagName(cpu_arch)},
-                ),
-                error.InvalidArch => try macho_file.reportParseError(
-                    obj.path,
-                    "invalid architecture '{s}', expected '{s}'",
-                    .{ @tagName(parse_error_ctx.detected_arch), @tagName(cpu_arch) },
-                ),
-                else => |e| try macho_file.reportParseError(
-                    obj.path,
-                    "parsing positional argument failed with error '{s}'",
-                    .{@errorName(e)},
-                ),
-            };
+            ) catch |err| try macho_file.handleAndReportParseError(obj.path, err, parse_error_ctx);
         }
 
         for (libs.keys(), libs.values()) |path, lib| {
@@ -395,25 +383,7 @@ pub fn linkWithZld(
                 false,
                 &dependent_libs,
                 &parse_error_ctx,
-            ) catch |err| switch (err) {
-                error.DylibAlreadyExists => {},
-                error.UnknownFileType => try macho_file.reportParseError(path, "unknown file type", .{}),
-                error.MissingArchFatLib => try macho_file.reportParseError(
-                    path,
-                    "missing architecture in universal file, expected '{s}'",
-                    .{@tagName(cpu_arch)},
-                ),
-                error.InvalidArch => try macho_file.reportParseError(
-                    path,
-                    "invalid architecture '{s}', expected '{s}'",
-                    .{ @tagName(parse_error_ctx.detected_arch), @tagName(cpu_arch) },
-                ),
-                else => |e| try macho_file.reportParseError(
-                    path,
-                    "parsing library failed with error '{s}'",
-                    .{@errorName(e)},
-                ),
-            };
+            ) catch |err| try macho_file.handleAndReportParseError(path, err, parse_error_ctx);
         }
 
         macho_file.parseDependentLibs(&dependent_libs, &parse_error_ctx) catch |err| {
@@ -590,7 +560,7 @@ pub fn linkWithZld(
             .version = 0,
         });
         {
-            const platform = load_commands.Platform.fromOptions(&macho_file.base.options);
+            const platform = Platform.fromTarget(macho_file.base.options.target);
             const sdk_version: ?std.SemanticVersion = if (macho_file.base.options.sysroot) |path|
                 load_commands.inferSdkVersionFromSdkPath(path)
             else
@@ -1252,6 +1222,7 @@ const MachO = @import("../MachO.zig");
 const Md5 = std.crypto.hash.Md5;
 const LibStub = @import("../tapi.zig").LibStub;
 const Object = @import("Object.zig");
+const Platform = load_commands.Platform;
 const Section = MachO.Section;
 const StringTable = @import("../strtab.zig").StringTable;
 const SymbolWithLoc = MachO.SymbolWithLoc;

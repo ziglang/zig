@@ -77,7 +77,7 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
     // LC_SOURCE_VERSION
     sizeofcmds += @sizeOf(macho.source_version_command);
     // LC_BUILD_VERSION or LC_VERSION_MIN_
-    if (Platform.fromOptions(options).isBuildVersionCompatible()) {
+    if (Platform.fromTarget(options.target).isBuildVersionCompatible()) {
         // LC_BUILD_VERSION
         sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
     } else {
@@ -353,11 +353,11 @@ pub const Platform = struct {
         }
     }
 
-    pub fn fromOptions(options: *const link.Options) Platform {
+    pub fn fromTarget(target: std.Target) Platform {
         return .{
-            .os_tag = options.target.os.tag,
-            .abi = options.target.abi,
-            .version = options.target.os.version_range.semver.min,
+            .os_tag = target.os.tag,
+            .abi = target.abi,
+            .version = target.os.version_range.semver.min,
         };
     }
 
@@ -382,6 +382,28 @@ pub const Platform = struct {
             }
         }
         return false;
+    }
+
+    pub fn fmtTarget(plat: Platform) std.fmt.Formatter(formatTarget) {
+        return .{ .data = plat };
+    }
+
+    pub fn formatTarget(
+        plat: Platform,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        try writer.print("{s}", .{@tagName(plat.os_tag)});
+        if (plat.abi != .none) {
+            try writer.print("-{s}", .{@tagName(plat.abi)});
+        }
+    }
+
+    pub fn eqlTarget(plat: Platform, other: Platform) bool {
+        return plat.os_tag == other.os_tag and plat.abi == other.abi;
     }
 };
 
