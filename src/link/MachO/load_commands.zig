@@ -390,19 +390,20 @@ const SupportedPlatforms = struct {
     std.Target.Abi,
     u32, // Min platform version for which to emit LC_BUILD_VERSION
     u32, // Min supported platform version
-    ?[]const u8, // Env var to look for
 };
 
 // Source: https://github.com/apple-oss-distributions/ld64/blob/59a99ab60399c5e6c49e6945a9e1049c42b71135/src/ld/PlatformSupport.cpp#L52
+// zig fmt: off
 const supported_platforms = [_]SupportedPlatforms{
-    .{ .macos, .none, 0xA0E00, 0xA0800, "MACOSX_DEPLOYMENT_TARGET" },
-    .{ .ios, .none, 0xC0000, 0x70000, "IPHONEOS_DEPLOYMENT_TARGET" },
-    .{ .tvos, .none, 0xC0000, 0x70000, "TVOS_DEPLOYMENT_TARGET" },
-    .{ .watchos, .none, 0x50000, 0x20000, "WATCHOS_DEPLOYMENT_TARGET" },
-    .{ .ios, .simulator, 0xD0000, 0x80000, null },
-    .{ .tvos, .simulator, 0xD0000, 0x80000, null },
-    .{ .watchos, .simulator, 0x60000, 0x20000, null },
+    .{ .macos,   .none,      0xA0E00, 0xA0800 },
+    .{ .ios,     .none,      0xC0000, 0x70000 },
+    .{ .tvos,    .none,      0xC0000, 0x70000 },
+    .{ .watchos, .none,      0x50000, 0x20000 },
+    .{ .ios,     .simulator, 0xD0000, 0x80000 },
+    .{ .tvos,    .simulator, 0xD0000, 0x80000 },
+    .{ .watchos, .simulator, 0x60000, 0x20000 },
 };
+// zig fmt: on
 
 pub inline fn semanticVersionToAppleVersion(version: std.SemanticVersion) u32 {
     const major = version.major;
