@@ -397,7 +397,7 @@ test "skipValue" {
 }
 
 fn testEnsureStackCapacity(do_ensure: bool) !void {
-    var fail_alloc = std.testing.FailingAllocator.init(std.testing.allocator, 1);
+    var fail_alloc = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
     const failing_allocator = fail_alloc.allocator();
 
     const nestings = 999; // intentionally not a power of 2.
