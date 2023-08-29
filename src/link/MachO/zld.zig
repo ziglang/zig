@@ -591,10 +591,10 @@ pub fn linkWithZld(
         });
         {
             const platform = load_commands.Platform.fromOptions(&macho_file.base.options);
-            const sdk_version: ?std.SemanticVersion = macho_file.base.options.darwin_sdk_version orelse blk: {
-                if (macho_file.base.options.sysroot) |path| break :blk load_commands.inferSdkVersionFromSdkPath(path);
-                break :blk null;
-            };
+            const sdk_version: ?std.SemanticVersion = if (macho_file.base.options.sysroot) |path|
+                load_commands.inferSdkVersionFromSdkPath(path)
+            else
+                null;
             if (platform.isBuildVersionCompatible()) {
                 try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
             } else {

@@ -587,10 +587,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     });
     {
         const platform = load_commands.Platform.fromOptions(&self.base.options);
-        const sdk_version: ?std.SemanticVersion = self.base.options.darwin_sdk_version orelse blk: {
-            if (self.base.options.sysroot) |path| break :blk load_commands.inferSdkVersionFromSdkPath(path);
-            break :blk null;
-        };
+        const sdk_version: ?std.SemanticVersion = if (self.base.options.sysroot) |path|
+            load_commands.inferSdkVersionFromSdkPath(path)
+        else
+            null;
         if (platform.isBuildVersionCompatible()) {
             try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
         } else {

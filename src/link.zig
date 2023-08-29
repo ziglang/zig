@@ -228,7 +228,6 @@ pub const Options = struct {
 
     version: ?std.SemanticVersion,
     compatibility_version: ?std.SemanticVersion,
-    darwin_sdk_version: ?std.SemanticVersion = null,
     libc_installation: ?*const LibCInstallation,
 
     dwarf_format: ?std.dwarf.Format,
