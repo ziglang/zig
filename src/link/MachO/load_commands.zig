@@ -384,22 +384,35 @@ pub const Platform = struct {
         return false;
     }
 
-    pub fn fmtTarget(plat: Platform) std.fmt.Formatter(formatTarget) {
-        return .{ .data = plat };
+    pub fn fmtTarget(plat: Platform, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(formatTarget) {
+        return .{ .data = .{ .platform = plat, .cpu_arch = cpu_arch } };
     }
 
+    const FmtCtx = struct {
+        platform: Platform,
+        cpu_arch: std.Target.Cpu.Arch,
+    };
+
     pub fn formatTarget(
-        plat: Platform,
+        ctx: FmtCtx,
         comptime unused_fmt_string: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
         _ = unused_fmt_string;
         _ = options;
-        try writer.print("{s}", .{@tagName(plat.os_tag)});
-        if (plat.abi != .none) {
-            try writer.print("-{s}", .{@tagName(plat.abi)});
+        try writer.print("{s}-{s}", .{ @tagName(ctx.cpu_arch), @tagName(ctx.platform.os_tag) });
+        if (ctx.platform.abi != .none) {
+            try writer.print("-{s}", .{@tagName(ctx.platform.abi)});
         }
+    }
+
+    /// Caller owns the memory.
+    pub fn allocPrintTarget(plat: Platform, gpa: Allocator, cpu_arch: std.Target.Cpu.Arch) error{OutOfMemory}![]u8 {
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+        try buffer.writer().print("{}", .{plat.fmtTarget(cpu_arch)});
+        return buffer.toOwnedSlice();
     }
 
     pub fn eqlTarget(plat: Platform, other: Platform) bool {

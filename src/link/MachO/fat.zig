@@ -10,12 +10,15 @@ pub const Arch = struct {
     offset: u64,
 };
 
-pub fn parseArchs(file: std.fs.File, buffer: *[2]Arch) ![]const Arch {
+/// Caller owns the memory.
+pub fn parseArchs(gpa: Allocator, file: std.fs.File) ![]const Arch {
     const reader = file.reader();
     const fat_header = try reader.readStructBig(macho.fat_header);
     assert(fat_header.magic == macho.FAT_MAGIC);
 
-    var count: usize = 0;
+    var archs = try std.ArrayList(Arch).initCapacity(gpa, fat_header.nfat_arch);
+    defer archs.deinit();
+
     var fat_arch_index: u32 = 0;
     while (fat_arch_index < fat_header.nfat_arch) : (fat_arch_index += 1) {
         const fat_arch = try reader.readStructBig(macho.fat_arch);
@@ -26,11 +29,11 @@ pub fn parseArchs(file: std.fs.File, buffer: *[2]Arch) ![]const Arch {
             macho.CPU_TYPE_X86_64 => if (fat_arch.cpusubtype == macho.CPU_SUBTYPE_X86_64_ALL) .x86_64 else continue,
             else => continue,
         };
-        buffer[count] = .{ .tag = arch, .offset = fat_arch.offset };
-        count += 1;
+
+        archs.appendAssumeCapacity(.{ .tag = arch, .offset = fat_arch.offset });
     }
 
-    return buffer[0..count];
+    return archs.toOwnedSlice();
 }
 
 const std = @import("std");
@@ -38,3 +41,4 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.archive);
 const macho = std.macho;
 const mem = std.mem;
+const Allocator = mem.Allocator;

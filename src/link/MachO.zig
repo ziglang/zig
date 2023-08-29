@@ -401,35 +401,23 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
             parent: u16,
         }, .Dynamic).init(arena);
 
-        var parse_error_ctx: struct {
-            detected_arch: std.Target.Cpu.Arch,
-            detected_platform: ?Platform,
-            detected_stub_targets: []const []const u8,
-        } = .{
-            .detected_arch = undefined,
-            .detected_platform = null,
-            .detected_stub_targets = &[0][]const u8{},
-        };
-        defer {
-            for (parse_error_ctx.detected_stub_targets) |target| self.base.allocator.free(target);
-            self.base.allocator.free(parse_error_ctx.detected_stub_targets);
-        }
+        var parse_ctx = ParseErrorCtx.init(arena);
 
         for (libs.keys(), libs.values()) |path, lib| {
             const in_file = try std.fs.cwd().openFile(path, .{});
             defer in_file.close();
-
+            defer parse_ctx.detected_targets.clearRetainingCapacity();
             self.parseLibrary(
                 in_file,
                 path,
                 lib,
                 false,
                 &dependent_libs,
-                &parse_error_ctx,
-            ) catch |err| try self.handleAndReportParseError(path, err, parse_error_ctx);
+                &parse_ctx,
+            ) catch |err| try self.handleAndReportParseError(path, err, &parse_ctx);
         }
 
-        self.parseDependentLibs(&dependent_libs, &parse_error_ctx) catch |err| {
+        self.parseDependentLibs(&dependent_libs, &parse_ctx) catch |err| {
             // TODO convert to error
             log.err("parsing dependent libraries failed with err {s}", .{@errorName(err)});
         };
@@ -727,9 +715,7 @@ fn resolveLib(
 
 const ParseError = error{
     UnknownFileType,
-    MissingArchFatLib,
     InvalidTarget,
-    InvalidLibStubTargets,
     DylibAlreadyExists,
     IncompatibleDylibVersion,
     OutOfMemory,
@@ -748,19 +734,19 @@ pub fn parsePositional(
     path: []const u8,
     must_link: bool,
     dependent_libs: anytype,
-    error_ctx: anytype,
+    ctx: *ParseErrorCtx,
 ) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     if (Object.isObject(file)) {
-        try self.parseObject(file, path, error_ctx);
+        try self.parseObject(file, path, ctx);
     } else {
         try self.parseLibrary(file, path, .{
             .path = null,
             .needed = false,
             .weak = false,
-        }, must_link, dependent_libs, error_ctx);
+        }, must_link, dependent_libs, ctx);
     }
 }
 
@@ -768,7 +754,7 @@ fn parseObject(
     self: *MachO,
     file: std.fs.File,
     path: []const u8,
-    error_ctx: anytype,
+    ctx: *ParseErrorCtx,
 ) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -790,20 +776,21 @@ fn parseObject(
     errdefer object.deinit(gpa);
     try object.parse(gpa);
 
-    const cpu_arch: std.Target.Cpu.Arch = switch (object.header.cputype) {
+    const detected_cpu_arch: std.Target.Cpu.Arch = switch (object.header.cputype) {
         macho.CPU_TYPE_ARM64 => .aarch64,
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => unreachable,
     };
-    error_ctx.detected_arch = cpu_arch;
+    const detected_platform = object.getPlatform();
+    const this_cpu_arch = self.base.options.target.cpu.arch;
+    const this_platform = Platform.fromTarget(self.base.options.target);
 
-    if (object.getPlatform()) |platform| {
-        error_ctx.detected_platform = platform;
-    }
-
-    if (self.base.options.target.cpu.arch != cpu_arch) return error.InvalidTarget;
-    if (error_ctx.detected_platform) |platform| {
-        if (!Platform.fromTarget(self.base.options.target).eqlTarget(platform)) return error.InvalidTarget;
+    if (this_cpu_arch != detected_cpu_arch or
+        (detected_platform != null and !detected_platform.?.eqlTarget(this_platform)))
+    {
+        const platform = detected_platform orelse this_platform;
+        try ctx.detected_targets.append(try platform.allocPrintTarget(ctx.arena, detected_cpu_arch));
+        return error.InvalidTarget;
     }
 
     try self.objects.append(gpa, object);
@@ -816,48 +803,61 @@ pub fn parseLibrary(
     lib: link.SystemLib,
     must_link: bool,
     dependent_libs: anytype,
-    error_ctx: anytype,
+    ctx: *ParseErrorCtx,
 ) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     if (fat.isFatLibrary(file)) {
-        const offset = try self.parseFatLibrary(file, self.base.options.target.cpu.arch);
+        const offset = try self.parseFatLibrary(file, self.base.options.target.cpu.arch, ctx);
         try file.seekTo(offset);
 
         if (Archive.isArchive(file, offset)) {
-            try self.parseArchive(path, offset, must_link, error_ctx);
+            try self.parseArchive(path, offset, must_link, ctx);
         } else if (Dylib.isDylib(file, offset)) {
             try self.parseDylib(file, path, offset, dependent_libs, .{
                 .needed = lib.needed,
                 .weak = lib.weak,
-            }, error_ctx);
+            }, ctx);
         } else return error.UnknownFileType;
     } else if (Archive.isArchive(file, 0)) {
-        try self.parseArchive(path, 0, must_link, error_ctx);
+        try self.parseArchive(path, 0, must_link, ctx);
     } else if (Dylib.isDylib(file, 0)) {
         try self.parseDylib(file, path, 0, dependent_libs, .{
             .needed = lib.needed,
             .weak = lib.weak,
-        }, error_ctx);
+        }, ctx);
     } else {
         self.parseLibStub(file, path, dependent_libs, .{
             .needed = lib.needed,
             .weak = lib.weak,
-        }, error_ctx) catch |err| switch (err) {
+        }, ctx) catch |err| switch (err) {
             error.NotLibStub, error.UnexpectedToken => return error.UnknownFileType,
             else => |e| return e,
         };
     }
 }
 
-pub fn parseFatLibrary(self: *MachO, file: std.fs.File, cpu_arch: std.Target.Cpu.Arch) ParseError!u64 {
-    _ = self;
-    var buffer: [2]fat.Arch = undefined;
-    const fat_archs = try fat.parseArchs(file, &buffer);
+pub fn parseFatLibrary(
+    self: *MachO,
+    file: std.fs.File,
+    cpu_arch: std.Target.Cpu.Arch,
+    ctx: *ParseErrorCtx,
+) ParseError!u64 {
+    const gpa = self.base.allocator;
+
+    const fat_archs = try fat.parseArchs(gpa, file);
+    defer gpa.free(fat_archs);
+
     const offset = for (fat_archs) |arch| {
         if (arch.tag == cpu_arch) break arch.offset;
-    } else return error.MissingArchFatLib;
+    } else {
+        try ctx.detected_targets.ensureTotalCapacityPrecise(fat_archs.len);
+        for (fat_archs) |arch| {
+            ctx.detected_targets.appendAssumeCapacity(try ctx.arena.dupe(u8, @tagName(arch.tag)));
+        }
+        return error.InvalidTarget;
+    };
     return offset;
 }
 
@@ -866,7 +866,7 @@ fn parseArchive(
     path: []const u8,
     fat_offset: u64,
     must_link: bool,
-    error_ctx: anytype,
+    ctx: *ParseErrorCtx,
 ) ParseError!void {
     const gpa = self.base.allocator;
 
@@ -892,20 +892,21 @@ fn parseArchive(
         var object = try archive.parseObject(gpa, off); // TODO we are doing all this work to pull the header only!
         defer object.deinit(gpa);
 
-        const cpu_arch: std.Target.Cpu.Arch = switch (object.header.cputype) {
+        const detected_cpu_arch: std.Target.Cpu.Arch = switch (object.header.cputype) {
             macho.CPU_TYPE_ARM64 => .aarch64,
             macho.CPU_TYPE_X86_64 => .x86_64,
             else => unreachable,
         };
-        error_ctx.detected_arch = cpu_arch;
+        const detected_platform = object.getPlatform();
+        const this_cpu_arch = self.base.options.target.cpu.arch;
+        const this_platform = Platform.fromTarget(self.base.options.target);
 
-        if (object.getPlatform()) |platform| {
-            error_ctx.detected_platform = platform;
-        }
-
-        if (self.base.options.target.cpu.arch != cpu_arch) return error.InvalidTarget;
-        if (error_ctx.detected_platform) |platform| {
-            if (!Platform.fromTarget(self.base.options.target).eqlTarget(platform)) return error.InvalidTarget;
+        if (this_cpu_arch != detected_cpu_arch or
+            (detected_platform != null and !detected_platform.?.eqlTarget(this_platform)))
+        {
+            const platform = detected_platform orelse this_platform;
+            try ctx.detected_targets.append(try platform.allocPrintTarget(gpa, detected_cpu_arch));
+            return error.InvalidTarget;
         }
     }
 
@@ -941,7 +942,7 @@ fn parseDylib(
     offset: u64,
     dependent_libs: anytype,
     dylib_options: DylibOpts,
-    error_ctx: anytype,
+    ctx: *ParseErrorCtx,
 ) ParseError!void {
     const gpa = self.base.allocator;
     const file_stat = try file.stat();
@@ -961,20 +962,21 @@ fn parseDylib(
         contents,
     );
 
-    const cpu_arch: std.Target.Cpu.Arch = switch (dylib.header.?.cputype) {
+    const detected_cpu_arch: std.Target.Cpu.Arch = switch (dylib.header.?.cputype) {
         macho.CPU_TYPE_ARM64 => .aarch64,
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => unreachable,
     };
-    error_ctx.detected_arch = cpu_arch;
+    const detected_platform = dylib.getPlatform(contents);
+    const this_cpu_arch = self.base.options.target.cpu.arch;
+    const this_platform = Platform.fromTarget(self.base.options.target);
 
-    if (dylib.getPlatform(contents)) |platform| {
-        error_ctx.detected_platform = platform;
-    }
-
-    if (self.base.options.target.cpu.arch != cpu_arch) return error.InvalidTarget;
-    if (error_ctx.detected_platform) |platform| {
-        if (!Platform.fromTarget(self.base.options.target).eqlTarget(platform)) return error.InvalidTarget;
+    if (this_cpu_arch != detected_cpu_arch or
+        (detected_platform != null and !detected_platform.?.eqlTarget(this_platform)))
+    {
+        const platform = detected_platform orelse this_platform;
+        try ctx.detected_targets.append(try platform.allocPrintTarget(ctx.arena, detected_cpu_arch));
+        return error.InvalidTarget;
     }
 
     try self.addDylib(dylib, .{
@@ -989,7 +991,7 @@ fn parseLibStub(
     path: []const u8,
     dependent_libs: anytype,
     dylib_options: DylibOpts,
-    error_ctx: anytype,
+    ctx: *ParseErrorCtx,
 ) ParseError!void {
     const gpa = self.base.allocator;
     var lib_stub = try LibStub.loadFromFile(gpa, file);
@@ -1004,12 +1006,17 @@ fn parseLibStub(
 
         const first_tbd = lib_stub.inner[0];
         const targets = try first_tbd.targets(gpa);
-        if (!matcher.matchesTarget(targets)) {
-            error_ctx.detected_stub_targets = targets;
-            return error.InvalidLibStubTargets;
+        defer {
+            for (targets) |t| gpa.free(t);
+            gpa.free(targets);
         }
-        for (targets) |t| gpa.free(t);
-        gpa.free(targets);
+        if (!matcher.matchesTarget(targets)) {
+            try ctx.detected_targets.ensureUnusedCapacity(targets.len);
+            for (targets) |t| {
+                ctx.detected_targets.appendAssumeCapacity(try ctx.arena.dupe(u8, t));
+            }
+            return error.InvalidTarget;
+        }
     }
 
     var dylib = Dylib{ .weak = dylib_options.weak };
@@ -1059,7 +1066,7 @@ fn addDylib(self: *MachO, dylib: Dylib, dylib_options: DylibOpts) ParseError!voi
     }
 }
 
-pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype, error_ctx: anytype) ParseError!void {
+pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1105,7 +1112,7 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype, error_ctx: anyt
             log.debug("trying dependency at fully resolved path {s}", .{full_path});
 
             const offset: u64 = if (fat.isFatLibrary(file)) blk: {
-                const offset = try self.parseFatLibrary(file, self.base.options.target.cpu.arch);
+                const offset = try self.parseFatLibrary(file, self.base.options.target.cpu.arch, ctx);
                 try file.seekTo(offset);
                 break :blk offset;
             } else 0;
@@ -1114,12 +1121,12 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype, error_ctx: anyt
                 try self.parseDylib(file, full_path, offset, dependent_libs, .{
                     .dependent = true,
                     .weak = weak,
-                }, error_ctx);
+                }, ctx);
             } else {
                 self.parseLibStub(file, full_path, dependent_libs, .{
                     .dependent = true,
                     .weak = weak,
-                }, error_ctx) catch |err| switch (err) {
+                }, ctx) catch |err| switch (err) {
                     error.NotLibStub, error.UnexpectedToken => continue,
                     else => |e| return e,
                 };
@@ -4845,50 +4852,40 @@ pub fn getSectionPrecedence(header: macho.section_64) u8 {
     return (@as(u8, @intCast(segment_precedence)) << 4) + section_precedence;
 }
 
-pub fn handleAndReportParseError(self: *MachO, path: []const u8, err: ParseError, parse_error_ctx: anytype) !void {
+pub const ParseErrorCtx = struct {
+    arena: Allocator,
+    detected_targets: std.ArrayList([]const u8),
+
+    pub fn init(arena: Allocator) ParseErrorCtx {
+        return .{ .arena = arena, .detected_targets = std.ArrayList([]const u8).init(arena) };
+    }
+};
+
+pub fn handleAndReportParseError(
+    self: *MachO,
+    path: []const u8,
+    err: ParseError,
+    ctx: *const ParseErrorCtx,
+) !void {
     const cpu_arch = self.base.options.target.cpu.arch;
     switch (err) {
         error.DylibAlreadyExists => {},
         error.UnknownFileType => try self.reportParseError(path, "unknown file type", .{}),
-        error.MissingArchFatLib => try self.reportParseError(
-            path,
-            "missing architecture in universal file, expected '{s}'",
-            .{@tagName(cpu_arch)},
-        ),
-        error.InvalidTarget => if (parse_error_ctx.detected_platform) |platform| {
-            try self.reportParseError(path, "invalid target '{s}-{}', expected '{s}-{}'", .{
-                @tagName(parse_error_ctx.detected_arch),
-                platform.fmtTarget(),
-                @tagName(cpu_arch),
-                Platform.fromTarget(self.base.options.target).fmtTarget(),
-            });
-        } else {
-            try self.reportParseError(
-                path,
-                "invalid architecture '{s}', expected '{s}'",
-                .{ @tagName(parse_error_ctx.detected_arch), @tagName(cpu_arch) },
-            );
-        },
-        error.InvalidLibStubTargets => {
+        error.InvalidTarget => {
             var targets_string = std.ArrayList(u8).init(self.base.allocator);
             defer targets_string.deinit();
             try targets_string.writer().writeAll("(");
-            for (parse_error_ctx.detected_stub_targets) |t| {
+            for (ctx.detected_targets.items) |t| {
                 try targets_string.writer().print("{s}, ", .{t});
             }
             try targets_string.resize(targets_string.items.len - 2);
             try targets_string.writer().writeAll(")");
-            try self.reportParseError(path, "invalid targets '{s}', expected '{s}-{}'", .{
+            try self.reportParseError(path, "invalid target: expected '{}', but found '{s}'", .{
+                Platform.fromTarget(self.base.options.target).fmtTarget(cpu_arch),
                 targets_string.items,
-                @tagName(cpu_arch),
-                Platform.fromTarget(self.base.options.target).fmtTarget(),
             });
         },
-        else => |e| try self.reportParseError(
-            path,
-            "parsing positional argument failed with error '{s}'",
-            .{@errorName(e)},
-        ),
+        else => |e| try self.reportParseError(path, "{s}: parsing object failed", .{@errorName(e)}),
     }
 }
 

@@ -345,48 +345,36 @@ pub fn linkWithZld(
             parent: u16,
         }, .Dynamic).init(arena);
 
-        var parse_error_ctx: struct {
-            detected_arch: std.Target.Cpu.Arch,
-            detected_platform: ?Platform,
-            detected_stub_targets: []const []const u8,
-        } = .{
-            .detected_arch = undefined,
-            .detected_platform = null,
-            .detected_stub_targets = &[0][]const u8{},
-        };
-        defer {
-            for (parse_error_ctx.detected_stub_targets) |t| gpa.free(t);
-            gpa.free(parse_error_ctx.detected_stub_targets);
-        }
+        var parse_ctx = MachO.ParseErrorCtx.init(arena);
 
         for (positionals.items) |obj| {
             const in_file = try std.fs.cwd().openFile(obj.path, .{});
             defer in_file.close();
-
+            defer parse_ctx.detected_targets.clearRetainingCapacity();
             macho_file.parsePositional(
                 in_file,
                 obj.path,
                 obj.must_link,
                 &dependent_libs,
-                &parse_error_ctx,
-            ) catch |err| try macho_file.handleAndReportParseError(obj.path, err, parse_error_ctx);
+                &parse_ctx,
+            ) catch |err| try macho_file.handleAndReportParseError(obj.path, err, &parse_ctx);
         }
 
         for (libs.keys(), libs.values()) |path, lib| {
             const in_file = try std.fs.cwd().openFile(path, .{});
             defer in_file.close();
-
+            defer parse_ctx.detected_targets.clearRetainingCapacity();
             macho_file.parseLibrary(
                 in_file,
                 path,
                 lib,
                 false,
                 &dependent_libs,
-                &parse_error_ctx,
-            ) catch |err| try macho_file.handleAndReportParseError(path, err, parse_error_ctx);
+                &parse_ctx,
+            ) catch |err| try macho_file.handleAndReportParseError(path, err, &parse_ctx);
         }
 
-        macho_file.parseDependentLibs(&dependent_libs, &parse_error_ctx) catch |err| {
+        macho_file.parseDependentLibs(&dependent_libs, &parse_ctx) catch |err| {
             // TODO convert to error
             log.err("parsing dependent libraries failed with err {s}", .{@errorName(err)});
         };
