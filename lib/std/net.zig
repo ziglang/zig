@@ -406,6 +406,9 @@ pub const Ip6Address = extern struct {
         if (!saw_any_digits and !abbrv) {
             return error.Incomplete;
         }
+        if (!abbrv and index < 14) {
+            return error.Incomplete;
+        }
 
         if (index == 14) {
             ip_slice[14] = @as(u8, @truncate(x >> 8));
