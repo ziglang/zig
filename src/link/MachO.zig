@@ -267,8 +267,11 @@ pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) li
         if (build_options.have_llvm) {
             return self.base.linkAsArchive(comp, prog_node);
         } else {
-            log.err("TODO: non-LLVM archiver for MachO object files", .{});
-            return error.TODOImplementWritingStaticLibFiles;
+            try self.misc_errors.ensureUnusedCapacity(self.base.allocator, 1);
+            self.misc_errors.appendAssumeCapacity(.{
+                .msg = try self.base.allocator.dupe(u8, "TODO: non-LLVM archiver for MachO object files"),
+            });
+            return error.FlushFailure;
         }
     }
 
@@ -2233,7 +2236,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
-            log.err("{s}", .{em.msg});
+            log.debug("{s}", .{em.msg});
             return error.CodegenFail;
         },
     };
@@ -2388,7 +2391,7 @@ fn updateLazySymbolAtom(
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
-            log.err("{s}", .{em.msg});
+            log.debug("{s}", .{em.msg});
             return error.CodegenFail;
         },
     };
