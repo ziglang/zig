@@ -29,12 +29,18 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     b.installArtifact(lib);
 
+    // Standard testing options allow the person running `zig build` to set
+    // a string that will be used for filtering tests. Here we do not hardcode this filter,
+    // which means person can choose any using `-Dtest-filter=name` option.
+    const testing_options = b.standardTestingOptions(.{});
+
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const main_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
+        .filter = testing_options.test_filter,
     });
 
     const run_main_tests = b.addRunArtifact(main_tests);

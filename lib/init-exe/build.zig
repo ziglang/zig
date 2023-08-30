@@ -52,12 +52,18 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    // Standard testing options allow the person running `zig build` to set
+    // a string that will be used for filtering tests. Here we do not hardcode this filter,
+    // which means person can choose any using `-Dtest-filter=name` option.
+    const testing_options = b.standardTestingOptions(.{});
+
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const unit_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
+        .filter = testing_options.test_filter,
     });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);

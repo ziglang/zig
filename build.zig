@@ -28,6 +28,7 @@ pub fn build(b: *std.Build) !void {
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
+    const testing_options = b.standardTestingOptions(.{});
     const test_step = b.step("test", "Run all the tests");
     const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
@@ -373,7 +374,7 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
+    const test_filter = testing_options.test_filter;
 
     const test_cases_options = b.addOptions();
     check_case_exe.addOptions("build_options", test_cases_options);
