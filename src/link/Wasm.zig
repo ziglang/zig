@@ -2817,14 +2817,10 @@ fn setupExports(wasm: *Wasm) !void {
 }
 
 fn setupStart(wasm: *Wasm) !void {
+    if (wasm.base.options.no_entry) return;
     const entry_name = wasm.base.options.entry orelse "_start";
 
     const symbol_loc = wasm.findGlobalSymbol(entry_name) orelse {
-        if (wasm.base.options.output_mode == .Exe) {
-            if (wasm.base.options.wasi_exec_model == .reactor) return; // Not required for reactors
-        } else {
-            return; // No entry point needed for non-executable wasm files
-        }
         log.err("Entry symbol '{s}' missing", .{entry_name});
         return error.MissingSymbol;
     };
@@ -4544,22 +4540,12 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
         try argv.append(arg);
 
-        if (wasm.base.options.output_mode == .Exe) {
-            if (wasm.base.options.wasi_exec_model == .reactor) {
-                // Reactor execution model does not have _start so lld doesn't look for it.
-                try argv.append("--no-entry");
-                // Make sure "_initialize" and other used-defined functions are exported if this is WASI reactor.
-                // If rdynamic is true, it will already be appended, so only verify if the user did not specify
-                // the flag in which case, we ensure `--export-dynamic` is called.
-                if (!wasm.base.options.rdynamic) {
-                    try argv.append("--export-dynamic");
-                }
-            }
-        } else if (wasm.base.options.entry == null) {
-            try argv.append("--no-entry"); // So lld doesn't look for _start.
-        }
         if (wasm.base.options.import_symbols) {
             try argv.append("--allow-undefined");
+        }
+
+        if (wasm.base.options.no_entry) {
+            try argv.append("--no-entry");
         }
 
         // XXX - TODO: add when wasm-ld supports --build-id.

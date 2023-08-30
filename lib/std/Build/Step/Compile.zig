@@ -64,6 +64,8 @@ initial_memory: ?u64 = null,
 max_memory: ?u64 = null,
 shared_memory: bool = false,
 global_base: ?u64 = null,
+/// For WebAssembly only. Tells the linker to not output an entry point.
+no_entry: ?bool = null,
 c_std: std.Build.CStd,
 /// Set via options; intended to be read-only after that.
 zig_lib_dir: ?LazyPath,
@@ -1851,6 +1853,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.global_base) |global_base| {
         try zig_args.append(b.fmt("--global-base={d}", .{global_base}));
     }
+    try addFlag(&zig_args, "entry", self.no_entry);
 
     if (self.code_model != .default) {
         try zig_args.append("-mcmodel");

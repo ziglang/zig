@@ -577,6 +577,8 @@ const usage_build_generic =
     \\  --shared-memory                (WebAssembly) use shared linear memory
     \\  --global-base=[addr]           (WebAssembly) where to start to place global data
     \\  --export=[value]               (WebAssembly) Force a symbol to be exported
+    \\  -fentry                        (WebAssembly) Force output an entry point
+    \\  -fno-entry                     (WebAssembly) Do not output any entry point
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match filter
@@ -835,6 +837,7 @@ fn buildOutputType(
     var linker_import_symbols: bool = false;
     var linker_import_table: bool = false;
     var linker_export_table: bool = false;
+    var linker_no_entry: ?bool = null;
     var linker_initial_memory: ?u64 = null;
     var linker_max_memory: ?u64 = null;
     var linker_shared_memory: bool = false;
@@ -1503,6 +1506,10 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "--import-memory")) {
                         linker_import_memory = true;
+                    } else if (mem.eql(u8, arg, "-fentry")) {
+                        linker_no_entry = false;
+                    } else if (mem.eql(u8, arg, "-fno-entry")) {
+                        linker_no_entry = true;
                     } else if (mem.eql(u8, arg, "--export-memory")) {
                         linker_export_memory = true;
                     } else if (mem.eql(u8, arg, "--import-symbols")) {
@@ -2134,6 +2141,8 @@ fn buildOutputType(
                     linker_import_table = true;
                 } else if (mem.eql(u8, arg, "--export-table")) {
                     linker_export_table = true;
+                } else if (mem.eql(u8, arg, "--no-entry")) {
+                    linker_no_entry = true;
                 } else if (mem.eql(u8, arg, "--initial-memory")) {
                     const next_arg = linker_args_it.nextOrFatal();
                     linker_initial_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
@@ -2617,6 +2626,25 @@ fn buildOutputType(
     if (target_info.target.cpu.arch.isWasm()) blk: {
         if (single_threaded == null) {
             single_threaded = true;
+        }
+        if (wasi_exec_model) |model| {
+            if (model == .reactor) {
+                if (linker_no_entry != null and !linker_no_entry.?) {
+                    fatal("WASI exucution model 'reactor' incompatible with flag '-fentry'. Reactor execution model has no entry point", .{});
+                }
+                if (entry) |entry_name| {
+                    if (!mem.eql(u8, "_initialize", entry_name)) {
+                        fatal("the entry symbol of the reactor model must be '_initialize', but found '{s}'", .{entry_name});
+                    }
+                } else {
+                    entry = "_initialize";
+                }
+            }
+        }
+        if (linker_no_entry) |no_entry| {
+            if (no_entry and entry != null) {
+                fatal("combination of '--entry' and `-fno-entry` are incompatible", .{});
+            }
         }
         if (linker_shared_memory) {
             if (output_mode == .Obj) {
@@ -3465,6 +3493,7 @@ fn buildOutputType(
         .linker_import_symbols = linker_import_symbols,
         .linker_import_table = linker_import_table,
         .linker_export_table = linker_export_table,
+        .linker_no_entry = linker_no_entry orelse false,
         .linker_initial_memory = linker_initial_memory,
         .linker_max_memory = linker_max_memory,
         .linker_shared_memory = linker_shared_memory,
