@@ -4946,7 +4946,7 @@ fn reportDependencyError(
     });
 }
 
-fn reportParseError(
+pub fn reportParseError(
     self: *MachO,
     path: []const u8,
     comptime format: []const u8,

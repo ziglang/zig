@@ -388,7 +388,19 @@ pub fn linkWithZld(
         }
 
         for (macho_file.objects.items, 0..) |*object, object_id| {
-            try object.splitIntoAtoms(macho_file, @as(u32, @intCast(object_id)));
+            object.splitIntoAtoms(macho_file, @as(u32, @intCast(object_id))) catch |err| switch (err) {
+                error.MissingEhFrameSection => try macho_file.reportParseError(
+                    object.name,
+                    "missing section: '__TEXT,__eh_frame' is required but could not be found",
+                    .{},
+                ),
+                error.BadDwarfCfi => try macho_file.reportParseError(
+                    object.name,
+                    "invalid DWARF: failed to parse '__TEXT,__eh_frame' section",
+                    .{},
+                ),
+                else => |e| return e,
+            };
         }
 
         if (gc_sections) {
@@ -433,7 +445,7 @@ pub fn linkWithZld(
         try unwind_info.collect(macho_file);
 
         try eh_frame.calcSectionSize(macho_file, &unwind_info);
-        try unwind_info.calcSectionSize(macho_file);
+        unwind_info.calcSectionSize(macho_file);
 
         try pruneAndSortSections(macho_file);
         try createSegments(macho_file);

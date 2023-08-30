@@ -13,7 +13,7 @@ pub fn gcAtoms(macho_file: *MachO) !void {
     try alive.ensureTotalCapacity(@as(u32, @intCast(macho_file.atoms.items.len)));
 
     try collectRoots(macho_file, &roots);
-    try mark(macho_file, roots, &alive);
+    mark(macho_file, roots, &alive);
     prune(macho_file, alive);
 }
 
@@ -227,7 +227,7 @@ fn refersLive(macho_file: *MachO, atom_index: Atom.Index, alive: AtomTable) bool
     return false;
 }
 
-fn mark(macho_file: *MachO, roots: AtomTable, alive: *AtomTable) !void {
+fn mark(macho_file: *MachO, roots: AtomTable, alive: *AtomTable) void {
     var it = roots.keyIterator();
     while (it.next()) |root| {
         markLive(macho_file, root.*, alive);
@@ -264,11 +264,11 @@ fn mark(macho_file: *MachO, roots: AtomTable, alive: *AtomTable) !void {
     for (macho_file.objects.items, 0..) |_, object_id| {
         // Traverse unwind and eh_frame records noting if the source symbol has been marked, and if so,
         // marking all references as live.
-        try markUnwindRecords(macho_file, @as(u32, @intCast(object_id)), alive);
+        markUnwindRecords(macho_file, @as(u32, @intCast(object_id)), alive);
     }
 }
 
-fn markUnwindRecords(macho_file: *MachO, object_id: u32, alive: *AtomTable) !void {
+fn markUnwindRecords(macho_file: *MachO, object_id: u32, alive: *AtomTable) void {
     const object = &macho_file.objects.items[object_id];
     const cpu_arch = macho_file.base.options.target.cpu.arch;
 
@@ -280,7 +280,7 @@ fn markUnwindRecords(macho_file: *MachO, object_id: u32, alive: *AtomTable) !voi
         if (!object.hasUnwindRecords()) {
             if (alive.contains(atom_index)) {
                 // Mark references live and continue.
-                try markEhFrameRecords(macho_file, object_id, atom_index, alive);
+                markEhFrameRecords(macho_file, object_id, atom_index, alive);
             } else {
                 while (inner_syms_it.next()) |sym| {
                     if (object.eh_frame_records_lookup.get(sym)) |fde_offset| {
@@ -306,7 +306,7 @@ fn markUnwindRecords(macho_file: *MachO, object_id: u32, alive: *AtomTable) !voi
 
             const record = unwind_records[record_id];
             if (UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
-                try markEhFrameRecords(macho_file, object_id, atom_index, alive);
+                markEhFrameRecords(macho_file, object_id, atom_index, alive);
             } else {
                 if (UnwindInfo.getPersonalityFunctionReloc(macho_file, object_id, record_id)) |rel| {
                     const target = Atom.parseRelocTarget(macho_file, .{
@@ -339,7 +339,7 @@ fn markUnwindRecords(macho_file: *MachO, object_id: u32, alive: *AtomTable) !voi
     }
 }
 
-fn markEhFrameRecords(macho_file: *MachO, object_id: u32, atom_index: Atom.Index, alive: *AtomTable) !void {
+fn markEhFrameRecords(macho_file: *MachO, object_id: u32, atom_index: Atom.Index, alive: *AtomTable) void {
     const cpu_arch = macho_file.base.options.target.cpu.arch;
     const object = &macho_file.objects.items[object_id];
     var it = object.getEhFrameRecordsIterator();
@@ -348,12 +348,12 @@ fn markEhFrameRecords(macho_file: *MachO, object_id: u32, atom_index: Atom.Index
     while (inner_syms_it.next()) |sym| {
         const fde_offset = object.eh_frame_records_lookup.get(sym) orelse continue; // Continue in case we hit a temp symbol alias
         it.seekTo(fde_offset);
-        const fde = (try it.next()).?;
+        const fde = (it.next() catch continue).?; // We don't care about the error at this point since it was already handled
 
         const cie_ptr = fde.getCiePointerSource(object_id, macho_file, fde_offset);
         const cie_offset = fde_offset + 4 - cie_ptr;
         it.seekTo(cie_offset);
-        const cie = (try it.next()).?;
+        const cie = (it.next() catch continue).?; // We don't care about the error at this point since it was already handled
 
         switch (cpu_arch) {
             .aarch64 => {
@@ -377,10 +377,10 @@ fn markEhFrameRecords(macho_file: *MachO, object_id: u32, atom_index: Atom.Index
             },
             .x86_64 => {
                 const sect = object.getSourceSection(object.eh_frame_sect_id.?);
-                const lsda_ptr = try fde.getLsdaPointer(cie, .{
+                const lsda_ptr = fde.getLsdaPointer(cie, .{
                     .base_addr = sect.addr,
                     .base_offset = fde_offset,
-                });
+                }) catch continue; // We don't care about the error at this point since it was already handled
                 if (lsda_ptr) |lsda_address| {
                     // Mark LSDA record as live
                     const sym_index = object.getSymbolByAddress(lsda_address, null);

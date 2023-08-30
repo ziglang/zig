@@ -240,7 +240,7 @@ pub fn collect(info: *UnwindInfo, macho_file: *MachO) !void {
                     var record = unwind_records[record_id];
 
                     if (UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
-                        try info.collectPersonalityFromDwarf(macho_file, @as(u32, @intCast(object_id)), symbol, &record);
+                        info.collectPersonalityFromDwarf(macho_file, @as(u32, @intCast(object_id)), symbol, &record);
                     } else {
                         if (getPersonalityFunctionReloc(
                             macho_file,
@@ -288,7 +288,7 @@ pub fn collect(info: *UnwindInfo, macho_file: *MachO) !void {
                         if (object.eh_frame_records_lookup.get(symbol)) |fde_offset| {
                             if (object.eh_frame_relocs_lookup.get(fde_offset).?.dead) continue;
                             var record = nullRecord();
-                            try info.collectPersonalityFromDwarf(macho_file, @as(u32, @intCast(object_id)), symbol, &record);
+                            info.collectPersonalityFromDwarf(macho_file, @as(u32, @intCast(object_id)), symbol, &record);
                             switch (cpu_arch) {
                                 .aarch64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_ARM64_MODE.DWARF),
                                 .x86_64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_X86_64_MODE.DWARF),
@@ -500,16 +500,16 @@ fn collectPersonalityFromDwarf(
     object_id: u32,
     sym_loc: SymbolWithLoc,
     record: *macho.compact_unwind_entry,
-) !void {
+) void {
     const object = &macho_file.objects.items[object_id];
     var it = object.getEhFrameRecordsIterator();
     const fde_offset = object.eh_frame_records_lookup.get(sym_loc).?;
     it.seekTo(fde_offset);
-    const fde = (try it.next()).?;
+    const fde = (it.next() catch return).?; // We don't care about the error since we already handled it
     const cie_ptr = fde.getCiePointerSource(object_id, macho_file, fde_offset);
     const cie_offset = fde_offset + 4 - cie_ptr;
     it.seekTo(cie_offset);
-    const cie = (try it.next()).?;
+    const cie = (it.next() catch return).?; // We don't care about the error since we already handled it
 
     if (cie.getPersonalityPointerReloc(
         macho_file,
@@ -528,7 +528,7 @@ fn collectPersonalityFromDwarf(
     }
 }
 
-pub fn calcSectionSize(info: UnwindInfo, macho_file: *MachO) !void {
+pub fn calcSectionSize(info: UnwindInfo, macho_file: *MachO) void {
     const sect_id = macho_file.unwind_info_section_index orelse return;
     const sect = &macho_file.sections.items(.header)[sect_id];
     sect.@"align" = 2;

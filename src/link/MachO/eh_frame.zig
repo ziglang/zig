@@ -13,7 +13,7 @@ pub fn scanRelocs(macho_file: *MachO) !void {
                 const fde_offset = object.eh_frame_records_lookup.get(sym) orelse continue;
                 if (object.eh_frame_relocs_lookup.get(fde_offset).?.dead) continue;
                 it.seekTo(fde_offset);
-                const fde = (try it.next()).?;
+                const fde = (it.next() catch continue).?; // We don't care about this error since we already handled it
 
                 const cie_ptr = fde.getCiePointerSource(@intCast(object_id), macho_file, fde_offset);
                 const cie_offset = fde_offset + 4 - cie_ptr;
@@ -21,7 +21,7 @@ pub fn scanRelocs(macho_file: *MachO) !void {
                 if (!cies.contains(cie_offset)) {
                     try cies.putNoClobber(cie_offset, {});
                     it.seekTo(cie_offset);
-                    const cie = (try it.next()).?;
+                    const cie = (it.next() catch continue).?; // We don't care about this error since we already handled it
                     try cie.scanRelocs(macho_file, @as(u32, @intCast(object_id)), cie_offset);
                 }
             }
@@ -29,7 +29,7 @@ pub fn scanRelocs(macho_file: *MachO) !void {
     }
 }
 
-pub fn calcSectionSize(macho_file: *MachO, unwind_info: *const UnwindInfo) !void {
+pub fn calcSectionSize(macho_file: *MachO, unwind_info: *const UnwindInfo) error{OutOfMemory}!void {
     const sect_id = macho_file.eh_frame_section_index orelse return;
     const sect = &macho_file.sections.items(.header)[sect_id];
     sect.@"align" = 3;
@@ -59,7 +59,7 @@ pub fn calcSectionSize(macho_file: *MachO, unwind_info: *const UnwindInfo) !void
                 if (!is_dwarf) continue;
 
                 eh_it.seekTo(fde_record_offset);
-                const source_fde_record = (try eh_it.next()).?;
+                const source_fde_record = (eh_it.next() catch continue).?; // We already handled this error
 
                 const cie_ptr = source_fde_record.getCiePointerSource(@intCast(object_id), macho_file, fde_record_offset);
                 const cie_offset = fde_record_offset + 4 - cie_ptr;
@@ -67,7 +67,7 @@ pub fn calcSectionSize(macho_file: *MachO, unwind_info: *const UnwindInfo) !void
                 const gop = try cies.getOrPut(cie_offset);
                 if (!gop.found_existing) {
                     eh_it.seekTo(cie_offset);
-                    const source_cie_record = (try eh_it.next()).?;
+                    const source_cie_record = (eh_it.next() catch continue).?; // We already handled this error
                     gop.value_ptr.* = size;
                     size += source_cie_record.getSize();
                 }
@@ -121,7 +121,7 @@ pub fn write(macho_file: *MachO, unwind_info: *UnwindInfo) !void {
                 if (!is_dwarf) continue;
 
                 eh_it.seekTo(fde_record_offset);
-                const source_fde_record = (try eh_it.next()).?;
+                const source_fde_record = (eh_it.next() catch continue).?; // We already handled this error
 
                 const cie_ptr = source_fde_record.getCiePointerSource(@intCast(object_id), macho_file, fde_record_offset);
                 const cie_offset = fde_record_offset + 4 - cie_ptr;
@@ -129,7 +129,7 @@ pub fn write(macho_file: *MachO, unwind_info: *UnwindInfo) !void {
                 const gop = try cies.getOrPut(cie_offset);
                 if (!gop.found_existing) {
                     eh_it.seekTo(cie_offset);
-                    const source_cie_record = (try eh_it.next()).?;
+                    const source_cie_record = (eh_it.next() catch continue).?; // We already handled this error
                     var cie_record = try source_cie_record.toOwned(gpa);
                     try cie_record.relocate(macho_file, @as(u32, @intCast(object_id)), .{
                         .source_offset = cie_offset,
@@ -164,17 +164,17 @@ pub fn write(macho_file: *MachO, unwind_info: *UnwindInfo) !void {
                             eh_frame_offset + 4 - fde_record.getCiePointer(),
                         ).?;
                         const eh_frame_sect = object.getSourceSection(object.eh_frame_sect_id.?);
-                        const source_lsda_ptr = try fde_record.getLsdaPointer(cie_record, .{
+                        const source_lsda_ptr = fde_record.getLsdaPointer(cie_record, .{
                             .base_addr = eh_frame_sect.addr,
                             .base_offset = fde_record_offset,
-                        });
+                        }) catch continue; // We already handled this error
                         if (source_lsda_ptr) |ptr| {
                             const sym_index = object.getSymbolByAddress(ptr, null);
                             const sym = object.symtab[sym_index];
-                            try fde_record.setLsdaPointer(cie_record, sym.n_value, .{
+                            fde_record.setLsdaPointer(cie_record, sym.n_value, .{
                                 .base_addr = sect.addr,
                                 .base_offset = eh_frame_offset,
-                            });
+                            }) catch continue; // We already handled this error
                         }
                     },
                     else => unreachable,
@@ -191,10 +191,10 @@ pub fn write(macho_file: *MachO, unwind_info: *UnwindInfo) !void {
                 const cie_record = eh_records.get(
                     eh_frame_offset + 4 - fde_record.getCiePointer(),
                 ).?;
-                const lsda_ptr = try fde_record.getLsdaPointer(cie_record, .{
+                const lsda_ptr = fde_record.getLsdaPointer(cie_record, .{
                     .base_addr = sect.addr,
                     .base_offset = eh_frame_offset,
-                });
+                }) catch continue; // We already handled this error
                 if (lsda_ptr) |ptr| {
                     record.lsda = ptr - seg.vmaddr;
                 }
@@ -588,7 +588,7 @@ pub const Iterator = struct {
 
         var size = try reader.readIntLittle(u32);
         if (size == 0xFFFFFFFF) {
-            log.err("MachO doesn't support 64bit DWARF CFI __eh_frame records", .{});
+            log.debug("MachO doesn't support 64bit DWARF CFI __eh_frame records", .{});
             return error.BadDwarfCfi;
         }
 

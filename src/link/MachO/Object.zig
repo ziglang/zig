@@ -334,7 +334,14 @@ fn sectionLessThanByAddress(ctx: void, lhs: SortedSection, rhs: SortedSection) b
     return lhs.header.addr < rhs.header.addr;
 }
 
-pub fn splitIntoAtoms(self: *Object, macho_file: *MachO, object_id: u32) !void {
+pub const SplitIntoAtomsError = error{
+    OutOfMemory,
+    EndOfStream,
+    MissingEhFrameSection,
+    BadDwarfCfi,
+};
+
+pub fn splitIntoAtoms(self: *Object, macho_file: *MachO, object_id: u32) SplitIntoAtomsError!void {
     log.debug("splitting object({d}, {s}) into atoms", .{ object_id, self.name });
 
     try self.splitRegularSections(macho_file, object_id);
@@ -788,11 +795,7 @@ fn parseUnwindInfo(self: *Object, macho_file: *MachO, object_id: u32) !void {
         if (UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) break true;
     } else false;
 
-    if (needs_eh_frame and !self.hasEhFrameRecords()) {
-        log.err("missing __TEXT,__eh_frame section", .{});
-        log.err("  in object {s}", .{self.name});
-        return error.MissingSection;
-    }
+    if (needs_eh_frame and !self.hasEhFrameRecords()) return error.MissingEhFrameSection;
 
     try self.parseRelocs(gpa, sect_id);
     const relocs = self.getRelocs(sect_id);
