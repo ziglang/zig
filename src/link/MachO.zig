@@ -1709,26 +1709,14 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u32) !void {
     while (sym_index < in_symtab.len) : (sym_index += 1) {
         const sym = &object.symtab[sym_index];
         const sym_name = object.getSymbolName(sym_index);
+        const sym_with_loc = SymbolWithLoc{
+            .sym_index = sym_index,
+            .file = object_id + 1,
+        };
 
-        if (sym.stab()) {
-            log.err("unhandled symbol type: stab", .{});
-            log.err("  symbol '{s}'", .{sym_name});
-            log.err("  first definition in '{s}'", .{object.name});
-            return error.UnhandledSymbolType;
-        }
-
-        if (sym.indr()) {
-            log.err("unhandled symbol type: indirect", .{});
-            log.err("  symbol '{s}'", .{sym_name});
-            log.err("  first definition in '{s}'", .{object.name});
-            return error.UnhandledSymbolType;
-        }
-
-        if (sym.abs()) {
-            log.err("unhandled symbol type: absolute", .{});
-            log.err("  symbol '{s}'", .{sym_name});
-            log.err("  first definition in '{s}'", .{object.name});
-            return error.UnhandledSymbolType;
+        if (sym.stab() or sym.indr() or sym.abs()) {
+            try self.reportUnhandledSymbolType(sym_with_loc);
+            continue;
         }
 
         if (sym.sect() and !sym.ext()) {
@@ -4892,7 +4880,7 @@ pub fn handleAndReportParseError(
     path: []const u8,
     err: ParseError,
     ctx: *const ParseErrorCtx,
-) !void {
+) error{OutOfMemory}!void {
     const cpu_arch = self.base.options.target.cpu.arch;
     switch (err) {
         error.DylibAlreadyExists => {},
@@ -4943,7 +4931,7 @@ fn reportDependencyError(
     path: ?[]const u8,
     comptime format: []const u8,
     args: anytype,
-) !void {
+) error{OutOfMemory}!void {
     const gpa = self.base.allocator;
     try self.misc_errors.ensureUnusedCapacity(gpa, 1);
     var notes = try std.ArrayList(File.ErrorMsg).initCapacity(gpa, 2);
@@ -4958,7 +4946,12 @@ fn reportDependencyError(
     });
 }
 
-fn reportParseError(self: *MachO, path: []const u8, comptime format: []const u8, args: anytype) !void {
+fn reportParseError(
+    self: *MachO,
+    path: []const u8,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
     const gpa = self.base.allocator;
     try self.misc_errors.ensureUnusedCapacity(gpa, 1);
     var notes = try gpa.alloc(File.ErrorMsg, 1);
@@ -5028,6 +5021,35 @@ fn reportSymbolCollision(
     err_msg.notes = try notes.toOwnedSlice();
 
     self.misc_errors.appendAssumeCapacity(err_msg);
+}
+
+fn reportUnhandledSymbolType(self: *MachO, sym_with_loc: SymbolWithLoc) error{OutOfMemory}!void {
+    const gpa = self.base.allocator;
+    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+
+    const notes = try gpa.alloc(File.ErrorMsg, 1);
+    errdefer gpa.free(notes);
+
+    const file = sym_with_loc.getFile().?;
+    notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "defined in {s}", .{self.objects.items[file].name}) };
+
+    const sym = self.getSymbol(sym_with_loc);
+    const sym_type = if (sym.stab())
+        "stab"
+    else if (sym.indr())
+        "indirect"
+    else if (sym.abs())
+        "absolute"
+    else
+        unreachable;
+
+    self.misc_errors.appendAssumeCapacity(.{
+        .msg = try std.fmt.allocPrint(gpa, "unhandled symbol type: '{s}' has type {s}", .{
+            self.getSymbolName(sym_with_loc),
+            sym_type,
+        }),
+        .notes = notes,
+    });
 }
 
 /// Binary search
