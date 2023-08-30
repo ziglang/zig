@@ -401,26 +401,25 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
             parent: u16,
         }, .Dynamic).init(arena);
 
-        var parse_ctx = ParseErrorCtx.init(arena);
-
         for (libs.keys(), libs.values()) |path, lib| {
             const in_file = try std.fs.cwd().openFile(path, .{});
             defer in_file.close();
-            defer parse_ctx.detected_targets.clearRetainingCapacity();
+
+            var parse_ctx = ParseErrorCtx.init(self.base.allocator);
+            defer parse_ctx.deinit();
+
             self.parseLibrary(
                 in_file,
                 path,
                 lib,
+                false,
                 false,
                 &dependent_libs,
                 &parse_ctx,
             ) catch |err| try self.handleAndReportParseError(path, err, &parse_ctx);
         }
 
-        self.parseDependentLibs(&dependent_libs, &parse_ctx) catch |err| {
-            // TODO convert to error
-            log.err("parsing dependent libraries failed with err {s}", .{@errorName(err)});
-        };
+        try self.parseDependentLibs(&dependent_libs);
     }
 
     var actions = std.ArrayList(ResolveAction).init(self.base.allocator);
@@ -674,7 +673,7 @@ fn resolveLibSystemInDirs(arena: Allocator, dirs: []const []const u8, out_libs: 
     // Try stub file first. If we hit it, then we're done as the stub file
     // re-exports every single symbol definition.
     for (dirs) |dir| {
-        if (try resolveLib(arena, dir, "System", ".tbd")) |full_path| {
+        if (try resolveLib(arena, dir, "libSystem", ".tbd")) |full_path| {
             try out_libs.put(full_path, .{ .needed = true, .weak = false, .path = full_path });
             return true;
         }
@@ -682,8 +681,8 @@ fn resolveLibSystemInDirs(arena: Allocator, dirs: []const []const u8, out_libs: 
     // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
     // doesn't export libc.dylib which we'll need to resolve subsequently also.
     for (dirs) |dir| {
-        if (try resolveLib(arena, dir, "System", ".dylib")) |libsystem_path| {
-            if (try resolveLib(arena, dir, "c", ".dylib")) |libc_path| {
+        if (try resolveLib(arena, dir, "libSystem", ".dylib")) |libsystem_path| {
+            if (try resolveLib(arena, dir, "libc", ".dylib")) |libc_path| {
                 try out_libs.put(libsystem_path, .{ .needed = true, .weak = false, .path = libsystem_path });
                 try out_libs.put(libc_path, .{ .needed = true, .weak = false, .path = libc_path });
                 return true;
@@ -700,7 +699,7 @@ fn resolveLib(
     name: []const u8,
     ext: []const u8,
 ) !?[]const u8 {
-    const search_name = try std.fmt.allocPrint(arena, "lib{s}{s}", .{ name, ext });
+    const search_name = try std.fmt.allocPrint(arena, "{s}{s}", .{ name, ext });
     const full_path = try fs.path.join(arena, &[_][]const u8{ search_dir, search_name });
 
     // Check if the file exists.
@@ -747,7 +746,7 @@ pub fn parsePositional(
             .path = null,
             .needed = false,
             .weak = false,
-        }, must_link, dependent_libs, ctx);
+        }, must_link, false, dependent_libs, ctx);
     }
 }
 
@@ -790,7 +789,7 @@ fn parseObject(
         (detected_platform != null and !detected_platform.?.eqlTarget(this_platform)))
     {
         const platform = detected_platform orelse this_platform;
-        try ctx.detected_targets.append(try platform.allocPrintTarget(ctx.arena, detected_cpu_arch));
+        try ctx.detected_targets.append(try platform.allocPrintTarget(ctx.arena(), detected_cpu_arch));
         return error.InvalidTarget;
     }
 
@@ -803,6 +802,7 @@ pub fn parseLibrary(
     path: []const u8,
     lib: link.SystemLib,
     must_link: bool,
+    is_dependent: bool,
     dependent_libs: anytype,
     ctx: *ParseErrorCtx,
 ) ParseError!void {
@@ -819,6 +819,7 @@ pub fn parseLibrary(
             try self.parseDylib(file, path, offset, dependent_libs, .{
                 .needed = lib.needed,
                 .weak = lib.weak,
+                .dependent = is_dependent,
             }, ctx);
         } else return error.UnknownFileType;
     } else if (Archive.isArchive(file, 0)) {
@@ -827,11 +828,13 @@ pub fn parseLibrary(
         try self.parseDylib(file, path, 0, dependent_libs, .{
             .needed = lib.needed,
             .weak = lib.weak,
+            .dependent = is_dependent,
         }, ctx);
     } else {
         self.parseLibStub(file, path, dependent_libs, .{
             .needed = lib.needed,
             .weak = lib.weak,
+            .dependent = is_dependent,
         }, ctx) catch |err| switch (err) {
             error.NotLibStub, error.UnexpectedToken => return error.UnknownFileType,
             else => |e| return e,
@@ -853,9 +856,9 @@ pub fn parseFatLibrary(
     const offset = for (fat_archs) |arch| {
         if (arch.tag == cpu_arch) break arch.offset;
     } else {
-        try ctx.detected_targets.ensureTotalCapacityPrecise(fat_archs.len);
+        try ctx.detected_targets.ensureUnusedCapacity(fat_archs.len);
         for (fat_archs) |arch| {
-            ctx.detected_targets.appendAssumeCapacity(try ctx.arena.dupe(u8, @tagName(arch.tag)));
+            ctx.detected_targets.appendAssumeCapacity(try ctx.arena().dupe(u8, @tagName(arch.tag)));
         }
         return error.InvalidTargetFatLibrary;
     };
@@ -952,7 +955,7 @@ fn parseDylib(
     const contents = try file.readToEndAllocOptions(gpa, file_size, file_size, @alignOf(u64), null);
     defer gpa.free(contents);
 
-    var dylib = Dylib{ .weak = dylib_options.weak };
+    var dylib = Dylib{ .path = try gpa.dupe(u8, path), .weak = dylib_options.weak };
     errdefer dylib.deinit(gpa);
 
     try dylib.parseFromBinary(
@@ -976,7 +979,7 @@ fn parseDylib(
         (detected_platform != null and !detected_platform.?.eqlTarget(this_platform)))
     {
         const platform = detected_platform orelse this_platform;
-        try ctx.detected_targets.append(try platform.allocPrintTarget(ctx.arena, detected_cpu_arch));
+        try ctx.detected_targets.append(try platform.allocPrintTarget(ctx.arena(), detected_cpu_arch));
         return error.InvalidTarget;
     }
 
@@ -1014,13 +1017,13 @@ fn parseLibStub(
         if (!matcher.matchesTarget(targets)) {
             try ctx.detected_targets.ensureUnusedCapacity(targets.len);
             for (targets) |t| {
-                ctx.detected_targets.appendAssumeCapacity(try ctx.arena.dupe(u8, t));
+                ctx.detected_targets.appendAssumeCapacity(try ctx.arena().dupe(u8, t));
             }
             return error.InvalidTarget;
         }
     }
 
-    var dylib = Dylib{ .weak = dylib_options.weak };
+    var dylib = Dylib{ .path = try gpa.dupe(u8, path), .weak = dylib_options.weak };
     errdefer dylib.deinit(gpa);
 
     try dylib.parseFromStub(
@@ -1067,7 +1070,7 @@ fn addDylib(self: *MachO, dylib: Dylib, dylib_options: DylibOpts) ParseError!voi
     }
 }
 
-pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype, ctx: *ParseErrorCtx) ParseError!void {
+pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1081,12 +1084,13 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype, ctx: *ParseErro
     const arena = arena_alloc.allocator();
     defer arena_alloc.deinit();
 
-    outer: while (dependent_libs.readItem()) |dep_id| {
+    while (dependent_libs.readItem()) |dep_id| {
         defer dep_id.id.deinit(gpa);
 
         if (self.dylibs_map.contains(dep_id.id.name)) continue;
 
-        const weak = self.dylibs.items[dep_id.parent].weak;
+        const parent = &self.dylibs.items[dep_id.parent];
+        const weak = parent.weak;
         const has_ext = blk: {
             const basename = fs.path.basename(dep_id.id.name);
             break :blk mem.lastIndexOfScalar(u8, basename, '.') != null;
@@ -1097,46 +1101,50 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype, ctx: *ParseErro
             break :blk dep_id.id.name[0..index];
         } else dep_id.id.name;
 
-        for (&[_][]const u8{ extension, ".tbd" }) |ext| {
-            const with_ext = try std.fmt.allocPrint(arena, "{s}{s}", .{ without_ext, ext });
-            const full_path = if (self.base.options.sysroot) |root|
-                try fs.path.join(arena, &.{ root, with_ext })
-            else
-                with_ext;
-
-            const file = std.fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
-                error.FileNotFound => continue,
-                else => |e| return e,
-            };
-            defer file.close();
-
-            log.debug("trying dependency at fully resolved path {s}", .{full_path});
-
-            const offset: u64 = if (fat.isFatLibrary(file)) blk: {
-                const offset = try self.parseFatLibrary(file, self.base.options.target.cpu.arch, ctx);
-                try file.seekTo(offset);
-                break :blk offset;
-            } else 0;
-
-            if (Dylib.isDylib(file, offset)) {
-                try self.parseDylib(file, full_path, offset, dependent_libs, .{
-                    .dependent = true,
-                    .weak = weak,
-                }, ctx);
-            } else {
-                self.parseLibStub(file, full_path, dependent_libs, .{
-                    .dependent = true,
-                    .weak = weak,
-                }, ctx) catch |err| switch (err) {
-                    error.NotLibStub, error.UnexpectedToken => continue,
-                    else => |e| return e,
-                };
+        const maybe_full_path = full_path: {
+            if (self.base.options.sysroot) |root| {
+                for (&[_][]const u8{ extension, ".tbd" }) |ext| {
+                    if (try resolveLib(arena, root, without_ext, ext)) |full_path| break :full_path full_path;
+                }
             }
-            continue :outer;
-        }
 
-        // TODO convert into an error
-        log.err("{s}: unable to resolve dependency", .{dep_id.id.name});
+            for (&[_][]const u8{ extension, ".tbd" }) |ext| {
+                if (try resolveLib(arena, "", without_ext, ext)) |full_path| break :full_path full_path;
+            }
+
+            break :full_path null;
+        };
+
+        const full_path = maybe_full_path orelse {
+            try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+            var notes = try gpa.alloc(File.ErrorMsg, 1);
+            errdefer gpa.free(notes);
+            const parent_name = if (parent.id) |id| id.name else parent.path;
+            notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "a dependency of {s}", .{parent_name}) };
+            self.misc_errors.appendAssumeCapacity(.{
+                .msg = try std.fmt.allocPrint(gpa, "missing dynamic library dependency: '{s}'", .{dep_id.id.name}),
+                .notes = notes,
+            });
+            continue;
+        };
+
+        const file = try std.fs.cwd().openFile(full_path, .{});
+        defer file.close();
+
+        log.debug("parsing dependency {s} at fully resolved path {s}", .{ dep_id.id.name, full_path });
+
+        var parse_ctx = ParseErrorCtx.init(gpa);
+        defer parse_ctx.deinit();
+
+        self.parseLibrary(file, full_path, .{
+            .path = null,
+            .needed = false,
+            .weak = weak,
+        }, false, true, dependent_libs, &parse_ctx) catch |err|
+            try self.handleAndReportParseError(full_path, err, &parse_ctx);
+
+        // TODO I think that it would be nice to rewrite this error to include metadata for failed dependency
+        // in addition to parsing error
     }
 }
 
@@ -4854,11 +4862,23 @@ pub fn getSectionPrecedence(header: macho.section_64) u8 {
 }
 
 pub const ParseErrorCtx = struct {
-    arena: Allocator,
+    arena_allocator: std.heap.ArenaAllocator,
     detected_targets: std.ArrayList([]const u8),
 
-    pub fn init(arena: Allocator) ParseErrorCtx {
-        return .{ .arena = arena, .detected_targets = std.ArrayList([]const u8).init(arena) };
+    pub fn init(gpa: Allocator) ParseErrorCtx {
+        return .{
+            .arena_allocator = std.heap.ArenaAllocator.init(gpa),
+            .detected_targets = std.ArrayList([]const u8).init(gpa),
+        };
+    }
+
+    pub fn deinit(ctx: *ParseErrorCtx) void {
+        ctx.arena_allocator.deinit();
+        ctx.detected_targets.deinit();
+    }
+
+    pub fn arena(ctx: *ParseErrorCtx) Allocator {
+        return ctx.arena_allocator.allocator();
     }
 };
 
@@ -4890,7 +4910,7 @@ pub fn handleAndReportParseError(
                 ),
                 error.InvalidTargetFatLibrary => try self.reportParseError(
                     path,
-                    "invalid architecture in univeral library: expected '{s}', but found '{s}'",
+                    "invalid architecture in universal library: expected '{s}', but found '{s}'",
                     .{ @tagName(cpu_arch), targets_string.items },
                 ),
                 else => unreachable,

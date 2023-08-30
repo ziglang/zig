@@ -1,3 +1,4 @@
+path: []const u8,
 id: ?Id = null,
 weak: bool = false,
 /// Header is only set if Dylib is parsed directly from a binary and not a stub file.
@@ -106,6 +107,7 @@ pub fn isDylib(file: std.fs.File, fat_offset: u64) bool {
 }
 
 pub fn deinit(self: *Dylib, allocator: Allocator) void {
+    allocator.free(self.path);
     for (self.symbols.keys()) |key| {
         allocator.free(key);
     }
