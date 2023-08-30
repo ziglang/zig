@@ -444,7 +444,8 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
         },
 
         else => {
-            log.err("unhandled DW_FORM_* value with identifier {x}", .{form});
+            // TODO figure out how to handle this
+            log.debug("unhandled DW_FORM_* value with identifier {x}", .{form});
             return error.UnhandledDwFormValue;
         },
     }

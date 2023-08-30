@@ -751,7 +751,6 @@ pub const File = struct {
         UnexpectedRemainder,
         UnexpectedTable,
         UnexpectedValue,
-        UnhandledDwFormValue,
         UnknownFeature,
         Unseekable,
         UnsupportedCpuArchitecture,

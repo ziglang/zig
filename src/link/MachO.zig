@@ -4101,6 +4101,9 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
     };
 }
 
+// TODO this function currently skips generating symbol stabs in case errors are encountered in DWARF data.
+// I think we should actually report those errors to the user and let them decide if they want to strip debug info
+// in that case or not.
 fn generateSymbolStabs(
     self: *MachO,
     object: Object,
@@ -4127,10 +4130,14 @@ fn generateSymbolStabs(
     };
 
     var abbrev_it = compile_unit.getAbbrevEntryIterator(debug_info);
-    const cu_entry: DwarfInfo.AbbrevEntry = while (try abbrev_it.next(lookup)) |entry| switch (entry.tag) {
-        dwarf.TAG.compile_unit => break entry,
-        else => continue,
-    } else {
+    const maybe_cu_entry: ?DwarfInfo.AbbrevEntry = blk: {
+        while (abbrev_it.next(lookup) catch break :blk null) |entry| switch (entry.tag) {
+            dwarf.TAG.compile_unit => break :blk entry,
+            else => continue,
+        } else break :blk null;
+    };
+
+    const cu_entry = maybe_cu_entry orelse {
         log.debug("missing DWARF_TAG_compile_unit tag in {s}; skipping", .{object.name});
         return;
     };
@@ -4139,11 +4146,13 @@ fn generateSymbolStabs(
     var maybe_tu_comp_dir: ?[]const u8 = null;
     var attr_it = cu_entry.getAttributeIterator(debug_info, compile_unit.cuh);
 
-    while (try attr_it.next()) |attr| switch (attr.name) {
-        dwarf.AT.comp_dir => maybe_tu_comp_dir = attr.getString(debug_info, compile_unit.cuh) orelse continue,
-        dwarf.AT.name => maybe_tu_name = attr.getString(debug_info, compile_unit.cuh) orelse continue,
-        else => continue,
-    };
+    blk: {
+        while (attr_it.next() catch break :blk) |attr| switch (attr.name) {
+            dwarf.AT.comp_dir => maybe_tu_comp_dir = attr.getString(debug_info, compile_unit.cuh) orelse continue,
+            dwarf.AT.name => maybe_tu_name = attr.getString(debug_info, compile_unit.cuh) orelse continue,
+            else => continue,
+        };
+    }
 
     if (maybe_tu_name == null or maybe_tu_comp_dir == null) {
         log.debug("missing DWARF_AT_comp_dir and DWARF_AT_name attributes {s}; skipping", .{object.name});
@@ -4183,7 +4192,10 @@ fn generateSymbolStabs(
         var name_lookup = DwarfInfo.SubprogramLookupByName.init(gpa);
         errdefer name_lookup.deinit();
         try name_lookup.ensureUnusedCapacity(@as(u32, @intCast(object.atoms.items.len)));
-        try debug_info.genSubprogramLookupByName(compile_unit, lookup, &name_lookup);
+        debug_info.genSubprogramLookupByName(compile_unit, lookup, &name_lookup) catch |err| switch (err) {
+            error.UnhandledDwFormValue => {}, // TODO I don't like the fact we constantly re-iterate and hit this; we should validate once a priori
+            else => |e| return e,
+        };
         break :blk name_lookup;
     } else null;
     defer if (name_lookup) |*nl| nl.deinit();
