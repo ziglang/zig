@@ -4912,12 +4912,17 @@ pub fn handleAndReportParseError(
         error.InvalidTarget, error.InvalidTargetFatLibrary => {
             var targets_string = std.ArrayList(u8).init(self.base.allocator);
             defer targets_string.deinit();
-            try targets_string.writer().writeAll("(");
-            for (ctx.detected_targets.items) |t| {
-                try targets_string.writer().print("{s}, ", .{t});
+
+            if (ctx.detected_targets.items.len > 1) {
+                try targets_string.writer().writeAll("(");
+                for (ctx.detected_targets.items) |t| {
+                    try targets_string.writer().print("{s}, ", .{t});
+                }
+                try targets_string.resize(targets_string.items.len - 2);
+                try targets_string.writer().writeAll(")");
+            } else {
+                try targets_string.writer().writeAll(ctx.detected_targets.items[0]);
             }
-            try targets_string.resize(targets_string.items.len - 2);
-            try targets_string.writer().writeAll(")");
 
             switch (err) {
                 error.InvalidTarget => try self.reportParseError(
