@@ -340,10 +340,7 @@ pub fn linkWithZld(
             Compilation.dump_argv(argv.items);
         }
 
-        var dependent_libs = std.fifo.LinearFifo(struct {
-            id: Dylib.Id,
-            parent: u16,
-        }, .Dynamic).init(arena);
+        var dependent_libs = std.fifo.LinearFifo(MachO.DylibReExportInfo, .Dynamic).init(arena);
 
         for (positionals.items) |obj| {
             const in_file = try std.fs.cwd().openFile(obj.path, .{});
@@ -374,6 +371,7 @@ pub fn linkWithZld(
                 lib,
                 false,
                 false,
+                null,
                 &dependent_libs,
                 &parse_ctx,
             ) catch |err| try macho_file.handleAndReportParseError(path, err, &parse_ctx);

@@ -440,14 +440,14 @@ const supported_platforms = [_]SupportedPlatforms{
 };
 // zig fmt: on
 
-pub inline fn semanticVersionToAppleVersion(version: std.SemanticVersion) u32 {
+inline fn semanticVersionToAppleVersion(version: std.SemanticVersion) u32 {
     const major = version.major;
     const minor = version.minor;
     const patch = version.patch;
     return (@as(u32, @intCast(major)) << 16) | (@as(u32, @intCast(minor)) << 8) | @as(u32, @intCast(patch));
 }
 
-inline fn appleVersionToSemanticVersion(version: u32) std.SemanticVersion {
+pub inline fn appleVersionToSemanticVersion(version: u32) std.SemanticVersion {
     return .{
         .major = @as(u16, @truncate(version >> 16)),
         .minor = @as(u8, @truncate(version >> 8)),

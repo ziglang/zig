@@ -734,8 +734,6 @@ pub const File = struct {
         MissingEndForBody,
         MissingEndForExpression,
         /// TODO: this should be removed from the error set in favor of using ErrorFlags
-        MissingMainEntrypoint,
-        /// TODO: this should be removed from the error set in favor of using ErrorFlags
         MissingSection,
         MissingSymbol,
         MissingTableSymbols,

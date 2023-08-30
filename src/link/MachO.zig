@@ -399,10 +399,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         self.dylibs_map.clearRetainingCapacity();
         self.referenced_dylibs.clearRetainingCapacity();
 
-        var dependent_libs = std.fifo.LinearFifo(struct {
-            id: Dylib.Id,
-            parent: u16,
-        }, .Dynamic).init(arena);
+        var dependent_libs = std.fifo.LinearFifo(DylibReExportInfo, .Dynamic).init(arena);
 
         for (libs.keys(), libs.values()) |path, lib| {
             const in_file = try std.fs.cwd().openFile(path, .{});
@@ -417,6 +414,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                 lib,
                 false,
                 false,
+                null,
                 &dependent_libs,
                 &parse_ctx,
             ) catch |err| try self.handleAndReportParseError(path, err, &parse_ctx);
@@ -749,7 +747,7 @@ pub fn parsePositional(
             .path = null,
             .needed = false,
             .weak = false,
-        }, must_link, false, dependent_libs, ctx);
+        }, must_link, false, null, dependent_libs, ctx);
     }
 }
 
@@ -806,6 +804,7 @@ pub fn parseLibrary(
     lib: link.SystemLib,
     must_link: bool,
     is_dependent: bool,
+    reexport_info: ?DylibReExportInfo,
     dependent_libs: anytype,
     ctx: *ParseErrorCtx,
 ) ParseError!void {
@@ -823,6 +822,7 @@ pub fn parseLibrary(
                 .needed = lib.needed,
                 .weak = lib.weak,
                 .dependent = is_dependent,
+                .reexport_info = reexport_info,
             }, ctx);
         } else return error.UnknownFileType;
     } else if (Archive.isArchive(file, 0)) {
@@ -832,12 +832,14 @@ pub fn parseLibrary(
             .needed = lib.needed,
             .weak = lib.weak,
             .dependent = is_dependent,
+            .reexport_info = reexport_info,
         }, ctx);
     } else {
         self.parseLibStub(file, path, dependent_libs, .{
             .needed = lib.needed,
             .weak = lib.weak,
             .dependent = is_dependent,
+            .reexport_info = reexport_info,
         }, ctx) catch |err| switch (err) {
             error.NotLibStub, error.UnexpectedToken => return error.UnknownFileType,
             else => |e| return e,
@@ -935,8 +937,13 @@ fn parseArchive(
     }
 }
 
+pub const DylibReExportInfo = struct {
+    id: Dylib.Id,
+    parent: u16,
+};
+
 const DylibOpts = struct {
-    id: ?Dylib.Id = null,
+    reexport_info: ?DylibReExportInfo = null,
     dependent: bool = false,
     needed: bool = false,
     weak: bool = false,
@@ -986,10 +993,7 @@ fn parseDylib(
         return error.InvalidTarget;
     }
 
-    try self.addDylib(dylib, .{
-        .needed = dylib_options.needed,
-        .weak = dylib_options.weak,
-    });
+    try self.addDylib(dylib, dylib_options, ctx);
 }
 
 fn parseLibStub(
@@ -1038,20 +1042,17 @@ fn parseLibStub(
         path,
     );
 
-    try self.addDylib(dylib, .{
-        .needed = dylib_options.needed,
-        .weak = dylib_options.weak,
-    });
+    try self.addDylib(dylib, dylib_options, ctx);
 }
 
-fn addDylib(self: *MachO, dylib: Dylib, dylib_options: DylibOpts) ParseError!void {
-    if (dylib_options.id) |id| {
-        if (dylib.id.?.current_version < id.compatibility_version) {
-            // TODO convert into an error
-            log.warn("found dylib is incompatible with the required minimum version", .{});
-            log.warn("  dylib: {s}", .{id.name});
-            log.warn("  required minimum version: {}", .{id.compatibility_version});
-            log.warn("  dylib version: {}", .{dylib.id.?.current_version});
+fn addDylib(self: *MachO, dylib: Dylib, dylib_options: DylibOpts, ctx: *ParseErrorCtx) ParseError!void {
+    if (dylib_options.reexport_info) |reexport_info| {
+        if (dylib.id.?.current_version < reexport_info.id.compatibility_version) {
+            ctx.detected_dylib_id = .{
+                .parent = reexport_info.parent,
+                .required_version = reexport_info.id.compatibility_version,
+                .found_version = dylib.id.?.current_version,
+            };
             return error.IncompatibleDylibVersion;
         }
     }
@@ -1119,14 +1120,9 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype) !void {
         };
 
         const full_path = maybe_full_path orelse {
-            try self.misc_errors.ensureUnusedCapacity(gpa, 1);
-            var notes = try gpa.alloc(File.ErrorMsg, 1);
-            errdefer gpa.free(notes);
             const parent_name = if (parent.id) |id| id.name else parent.path;
-            notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "a dependency of {s}", .{parent_name}) };
-            self.misc_errors.appendAssumeCapacity(.{
-                .msg = try std.fmt.allocPrint(gpa, "missing dynamic library dependency: '{s}'", .{dep_id.id.name}),
-                .notes = notes,
+            try self.reportDependencyError(parent_name, null, "missing dynamic library dependency: '{s}'", .{
+                dep_id.id.name,
             });
             continue;
         };
@@ -1143,7 +1139,7 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype) !void {
             .path = null,
             .needed = false,
             .weak = weak,
-        }, false, true, dependent_libs, &parse_ctx) catch |err|
+        }, false, true, dep_id, dependent_libs, &parse_ctx) catch |err|
             try self.handleAndReportParseError(full_path, err, &parse_ctx);
 
         // TODO I think that it would be nice to rewrite this error to include metadata for failed dependency
@@ -4498,7 +4494,7 @@ pub fn writeHeader(self: *MachO, ncmds: u32, sizeofcmds: u32) !void {
             header.cputype = macho.CPU_TYPE_X86_64;
             header.cpusubtype = macho.CPU_SUBTYPE_X86_64_ALL;
         },
-        else => return error.UnsupportedCpuArchitecture,
+        else => unreachable,
     }
 
     switch (self.base.options.output_mode) {
@@ -4866,11 +4862,17 @@ pub fn getSectionPrecedence(header: macho.section_64) u8 {
 
 pub const ParseErrorCtx = struct {
     arena_allocator: std.heap.ArenaAllocator,
+    detected_dylib_id: struct {
+        parent: u16,
+        required_version: u32,
+        found_version: u32,
+    },
     detected_targets: std.ArrayList([]const u8),
 
     pub fn init(gpa: Allocator) ParseErrorCtx {
         return .{
             .arena_allocator = std.heap.ArenaAllocator.init(gpa),
+            .detected_dylib_id = undefined,
             .detected_targets = std.ArrayList([]const u8).init(gpa),
         };
     }
@@ -4894,6 +4896,18 @@ pub fn handleAndReportParseError(
     const cpu_arch = self.base.options.target.cpu.arch;
     switch (err) {
         error.DylibAlreadyExists => {},
+        error.IncompatibleDylibVersion => {
+            const parent = &self.dylibs.items[ctx.detected_dylib_id.parent];
+            try self.reportDependencyError(
+                if (parent.id) |id| id.name else parent.path,
+                path,
+                "incompatible dylib version: expected at least '{}', but found '{}'",
+                .{
+                    load_commands.appleVersionToSemanticVersion(ctx.detected_dylib_id.required_version),
+                    load_commands.appleVersionToSemanticVersion(ctx.detected_dylib_id.found_version),
+                },
+            );
+        },
         error.UnknownFileType => try self.reportParseError(path, "unknown file type", .{}),
         error.InvalidTarget, error.InvalidTargetFatLibrary => {
             var targets_string = std.ArrayList(u8).init(self.base.allocator);
@@ -4923,7 +4937,28 @@ pub fn handleAndReportParseError(
     }
 }
 
-pub fn reportParseError(self: *MachO, path: []const u8, comptime format: []const u8, args: anytype) !void {
+fn reportDependencyError(
+    self: *MachO,
+    parent: []const u8,
+    path: ?[]const u8,
+    comptime format: []const u8,
+    args: anytype,
+) !void {
+    const gpa = self.base.allocator;
+    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    var notes = try std.ArrayList(File.ErrorMsg).initCapacity(gpa, 2);
+    defer notes.deinit();
+    if (path) |p| {
+        notes.appendAssumeCapacity(.{ .msg = try std.fmt.allocPrint(gpa, "while parsing {s}", .{p}) });
+    }
+    notes.appendAssumeCapacity(.{ .msg = try std.fmt.allocPrint(gpa, "a dependency of {s}", .{parent}) });
+    self.misc_errors.appendAssumeCapacity(.{
+        .msg = try std.fmt.allocPrint(gpa, format, args),
+        .notes = try notes.toOwnedSlice(),
+    });
+}
+
+fn reportParseError(self: *MachO, path: []const u8, comptime format: []const u8, args: anytype) !void {
     const gpa = self.base.allocator;
     try self.misc_errors.ensureUnusedCapacity(gpa, 1);
     var notes = try gpa.alloc(File.ErrorMsg, 1);
