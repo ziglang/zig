@@ -1308,6 +1308,27 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
     return selected_target;
 }
 
+pub const StandardTestingOptionsArgs = struct {
+    // TODO what should go here?
+};
+
+pub const StandardTestingOptions = struct {
+    test_filter: ?[]const u8 = null,
+    test_evented_io: bool = false,
+    // TODO maybe more?
+};
+
+pub fn standardTestingOptions(self: *Build, args: StandardTestingOptionsArgs) StandardTestingOptions {
+    // See TODO above
+    _ = args;
+    const test_filter = self.option([]const u8, "test-filter", "Tests which name contains this filter will be skipped (by default none)");
+    const test_evented_io = self.option(bool, "test-evented-io", "Test with .evented I/O mode (by default false)") orelse false;
+    return .{
+        .test_filter = test_filter,
+        .test_evented_io = test_evented_io,
+    };
+}
+
 pub fn addUserInputOption(self: *Build, name_raw: []const u8, value_raw: []const u8) !bool {
     const name = self.dupe(name_raw);
     const value = self.dupe(value_raw);
