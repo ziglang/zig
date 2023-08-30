@@ -128,7 +128,7 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
     defer allocator.free(symtab);
 
     reader.readNoEof(symtab) catch {
-        log.err("incomplete symbol table: expected symbol table of length 0x{x}", .{symtab_size});
+        log.debug("incomplete symbol table: expected symbol table of length 0x{x}", .{symtab_size});
         return error.MalformedArchive;
     };
 
@@ -137,7 +137,7 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
     defer allocator.free(strtab);
 
     reader.readNoEof(strtab) catch {
-        log.err("incomplete symbol table: expected string table of length 0x{x}", .{strtab_size});
+        log.debug("incomplete symbol table: expected string table of length 0x{x}", .{strtab_size});
         return error.MalformedArchive;
     };
 

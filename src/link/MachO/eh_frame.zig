@@ -347,7 +347,7 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
                             },
                             .ARM64_RELOC_UNSIGNED => {
                                 assert(rel.r_extern == 1);
-                                const target_addr = try Atom.getRelocTargetAddress(macho_file, target, false);
+                                const target_addr = Atom.getRelocTargetAddress(macho_file, target, false);
                                 const result = @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr));
                                 mem.writeIntLittle(i64, rec.data[rel_offset..][0..8], @as(i64, @intCast(result)));
                             },

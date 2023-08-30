@@ -615,7 +615,7 @@ pub fn resolveRelocs(
     };
 }
 
-pub fn getRelocTargetAddress(macho_file: *MachO, target: SymbolWithLoc, is_tlv: bool) !u64 {
+pub fn getRelocTargetAddress(macho_file: *MachO, target: SymbolWithLoc, is_tlv: bool) u64 {
     const target_atom_index = getRelocTargetAtomIndex(macho_file, target) orelse {
         // If there is no atom for target, we still need to check for special, atom-less
         // symbols such as `___dso_handle`.
@@ -648,17 +648,13 @@ pub fn getRelocTargetAddress(macho_file: *MachO, target: SymbolWithLoc, is_tlv: 
         // defined TLV template init section in the following order:
         // * wrt to __thread_data if defined, then
         // * wrt to __thread_bss
+        // TODO remember to check what the mechanism was prior to HAS_TLV_INITIALIZERS in earlier versions of macOS
         const sect_id: u16 = sect_id: {
             if (macho_file.thread_data_section_index) |i| {
                 break :sect_id i;
             } else if (macho_file.thread_bss_section_index) |i| {
                 break :sect_id i;
-            } else {
-                log.err("threadlocal variables present but no initializer sections found", .{});
-                log.err("  __thread_data not found", .{});
-                log.err("  __thread_bss not found", .{});
-                return error.FailedToResolveRelocationTarget;
-            }
+            } else break :base_address 0;
         };
         break :base_address macho_file.sections.items(.header)[sect_id].addr;
     } else 0;
@@ -744,7 +740,7 @@ fn resolveRelocsArm64(
                 const header = macho_file.sections.items(.header)[source_sym.n_sect - 1];
                 break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
             };
-            break :blk try getRelocTargetAddress(macho_file, target, is_tlv);
+            break :blk getRelocTargetAddress(macho_file, target, is_tlv);
         };
 
         log.debug("    | source_addr = 0x{x}", .{source_addr});
@@ -1040,7 +1036,7 @@ fn resolveRelocsX86(
                 const header = macho_file.sections.items(.header)[source_sym.n_sect - 1];
                 break :is_tlv header.type() == macho.S_THREAD_LOCAL_VARIABLES;
             };
-            break :blk try getRelocTargetAddress(macho_file, target, is_tlv);
+            break :blk getRelocTargetAddress(macho_file, target, is_tlv);
         };
 
         log.debug("    | source_addr = 0x{x}", .{source_addr});

@@ -700,7 +700,6 @@ pub const File = struct {
         DllImportLibraryNotFound,
         ExpectedFuncType,
         FailedToEmit,
-        FailedToResolveRelocationTarget,
         FileSystem,
         FilesOpenedWithWrongFlags,
         FlushFailure,

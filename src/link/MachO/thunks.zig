@@ -317,7 +317,7 @@ fn isReachable(
     const target_addr = if (Atom.relocRequiresGot(macho_file, rel))
         macho_file.getGotEntryAddress(target).?
     else
-        Atom.getRelocTargetAddress(macho_file, target, false) catch unreachable;
+        Atom.getRelocTargetAddress(macho_file, target, false);
     _ = Relocation.calcPcRelativeDisplacementArm64(source_addr, target_addr) catch
         return false;
 
