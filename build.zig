@@ -24,8 +24,9 @@ pub fn build(b: *std.Build) !void {
 
     const optimize = b.standardOptimizeOption(.{});
 
+    const compiling_options = b.standardCompilingOptions(.{});
     const flat = b.option(bool, "flat", "Put files into the installation prefix in a manner suited for upstream distribution rather than a posix file system hierarchy standard") orelse false;
-    const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
+    const single_threaded = compiling_options.single_threaded;
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     const testing_options = b.standardTestingOptions(.{});
@@ -183,8 +184,8 @@ pub fn build(b: *std.Build) !void {
     const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or only_c);
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
-    const strip = b.option(bool, "strip", "Omit debug information");
-    const pie = b.option(bool, "pie", "Produce a Position Independent Executable");
+    const strip = compiling_options.strip;
+    const pie = compiling_options.pie;
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
@@ -199,11 +200,7 @@ pub fn build(b: *std.Build) !void {
     exe.sanitize_thread = sanitize_thread;
     exe.entitlements = entitlements;
 
-    exe.build_id = b.option(
-        std.Build.Step.Compile.BuildId,
-        "build-id",
-        "Request creation of '.note.gnu.build-id' section",
-    );
+    exe.build_id = compiling_options.build_id;
 
     if (no_bin) {
         b.getInstallStep().dependOn(&exe.step);
