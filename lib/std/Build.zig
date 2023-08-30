@@ -1308,6 +1308,33 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
     return selected_target;
 }
 
+pub const StandardCompilingOptionsArgs = struct {
+    // TODO what should go here?
+};
+
+pub const StandardCompilingOptions = struct {
+    build_id: ?Step.Compile.BuildId = null,
+    single_threaded: ?bool = null,
+    strip: ?bool = null,
+    pie: ?bool = null,
+    // TODO maybe more/less?
+};
+
+pub fn standardCompilingOptions(self: *Build, args: StandardCompilingOptionsArgs) StandardCompilingOptions {
+    // See TODO above
+    _ = args;
+    const build_id = self.option(Step.Compile.BuildId, "build-id", "Request creation of '.note.gnu.build-id' section (by default none)");
+    const single_threaded = self.option(bool, "single-threaded", "Build artifacts that run in single-threaded mode (default varies)");
+    const strip = self.option(bool, "strip", "Omit debug information (default varies)");
+    const pie = self.option(bool, "pie", "Build Position-Independent Executable (default varies)");
+    return .{
+        .build_id = build_id,
+        .single_threaded = single_threaded,
+        .strip = strip,
+        .pie = pie,
+    };
+}
+
 pub const StandardTestingOptionsArgs = struct {
     // TODO what should go here?
 };
