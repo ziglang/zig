@@ -747,6 +747,7 @@ const DocData = struct {
         @"&": usize, // index in `exprs`
         type: usize, // index in `types`
         this: usize, // index in `types`
+        import: Import,
         declRef: *Scope.DeclStatus,
         declIndex: usize, // index into `decls`, alternative repr for `declRef`
         declName: []const u8, // unresolved decl name
@@ -844,6 +845,11 @@ const DocData = struct {
         const FieldVal = struct {
             name: []const u8,
             val: WalkResult,
+        };
+
+        const Import = struct {
+            path: []const u8,
+            value: usize, // index in `exprs`
         };
 
         pub fn jsonStringify(self: Expr, jsw: anytype) !void {
@@ -973,9 +979,15 @@ fn walkInstruction(
                 }
 
                 if (result.found_existing) {
-                    return DocData.WalkResult{
+                    const wr = DocData.WalkResult{
                         .typeRef = .{ .type = @intFromEnum(Ref.type_type) },
                         .expr = .{ .type = result.value_ptr.main },
+                    };
+                    const expr_idx = self.exprs.items.len;
+                    try self.exprs.append(self.arena, wr.expr);
+                    return DocData.WalkResult{
+                        .typeRef = wr.typeRef,
+                        .expr = .{ .import = .{ .path = path, .value = expr_idx } },
                     };
                 }
 
@@ -1010,7 +1022,7 @@ fn walkInstruction(
                     .docs = maybe_tldoc_comment,
                 });
                 try self.files.put(self.arena, new_file, main_type_index);
-                return self.walkInstruction(
+                const wr = try self.walkInstruction(
                     new_file,
                     &root_scope,
                     .{},
@@ -1018,14 +1030,32 @@ fn walkInstruction(
                     false,
                     call_ctx,
                 );
+
+                const expr_idx = self.exprs.items.len;
+                try self.exprs.append(self.arena, wr.expr);
+                return DocData.WalkResult{
+                    .typeRef = wr.typeRef,
+                    .expr = .{ .import = .{ .path = path, .value = expr_idx } },
+                };
             }
 
             const new_file = self.comp_module.importFile(file, path) catch unreachable;
             const result = try self.files.getOrPut(self.arena, new_file.file);
             if (result.found_existing) {
-                return DocData.WalkResult{
+                const wr = DocData.WalkResult{
                     .typeRef = .{ .type = @intFromEnum(Ref.type_type) },
                     .expr = .{ .type = result.value_ptr.* },
+                };
+                const expr_idx = self.exprs.items.len;
+                try self.exprs.append(self.arena, wr.expr);
+                return DocData.WalkResult{
+                    .typeRef = wr.typeRef,
+                    .expr = .{
+                        .import = .{
+                            .path = path,
+                            .value = expr_idx,
+                        },
+                    },
                 };
             }
 
@@ -1042,7 +1072,7 @@ fn walkInstruction(
                 .enclosing_type = null,
             };
 
-            return self.walkInstruction(
+            const wr = try self.walkInstruction(
                 new_file.file,
                 &new_scope,
                 .{},
@@ -1050,6 +1080,12 @@ fn walkInstruction(
                 need_type,
                 call_ctx,
             );
+            const expr_idx = self.exprs.items.len;
+            try self.exprs.append(self.arena, wr.expr);
+            return DocData.WalkResult{
+                .typeRef = wr.typeRef,
+                .expr = .{ .import = .{ .path = path, .value = expr_idx } },
+            };
         },
         .ret_type => {
             return DocData.WalkResult{
@@ -4052,12 +4088,17 @@ fn tryResolveRefPath(
                         },
                     }
                 },
+                .import => |imp| {
+                    const value = self.exprs.items[imp.value];
+                    resolved_parent = value;
+                    continue;
+                },
             }
         } else {
             panicWithContext(
                 file,
                 inst_index,
-                "exhausted eval quota for `{}`in tryResolveRefPath\n",
+                "exhausted eval quota for `{}` in tryResolveRefPath\n",
                 .{resolved_parent},
             );
         }
@@ -4069,7 +4110,7 @@ fn tryResolveRefPath(
                 printWithContext(
                     file,
                     inst_index,
-                    "TODO: handle `{s}`in tryResolveRefPath\nInfo: {}",
+                    "TODO: handle `{s}` in tryResolveRefPath\nInfo: {}",
                     .{ @tagName(resolved_parent), resolved_parent },
                 );
                 // path[i + 1] = (try self.cteTodo("<match failure>")).expr;
@@ -4445,6 +4486,18 @@ fn findNameInUnsDecls(
                             //       always re-start the search from scratch
                             return .Pending;
                         },
+                    }
+                },
+                .import => |imp| blk: {
+                    const value = self.exprs.items[imp.value];
+                    if (value == .type) {
+                        break :blk value.type;
+                    } else {
+                        log.debug(
+                            "Handle `{s}` in findNameInUnsDecls (first switch).import",
+                            .{@tagName(value)},
+                        );
+                        return .{ .Found = .{ .comptimeExpr = 0 } };
                     }
                 },
                 else => {
