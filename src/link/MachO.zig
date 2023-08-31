@@ -1112,20 +1112,23 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype) !void {
 
         const parent = &self.dylibs.items[dep_id.parent];
         const weak = parent.weak;
+        const dirname = fs.path.dirname(dep_id.id.name) orelse "";
         const basename = fs.path.basename(dep_id.id.name);
 
-        var test_path = std.ArrayList(u8).init(gpa);
-        defer test_path.deinit();
+        var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
 
-        var checked_paths = std.ArrayList([]const u8).init(gpa);
-        defer checked_paths.deinit();
+        var test_path = std.ArrayList(u8).init(arena);
+        var checked_paths = std.ArrayList([]const u8).init(arena);
 
         success: {
             if (self.base.options.sysroot) |root| {
-                if (try accessLibPath(gpa, &test_path, &checked_paths, root, basename)) break :success;
+                const dir = try fs.path.join(arena, &[_][]const u8{ root, dirname });
+                if (try accessLibPath(gpa, &test_path, &checked_paths, dir, basename)) break :success;
             }
 
-            if (try accessLibPath(gpa, &test_path, &checked_paths, "", basename)) break :success;
+            if (try accessLibPath(gpa, &test_path, &checked_paths, dirname, basename)) break :success;
 
             try self.reportMissingLibraryError(
                 checked_paths.items,
