@@ -1018,6 +1018,7 @@ fn analyzeBodyInner(
             .elem_ptr_imm                 => try sema.zirElemPtrImm(block, inst),
             .elem_val                     => try sema.zirElemVal(block, inst),
             .elem_val_node                => try sema.zirElemValNode(block, inst),
+            .elem_val_imm                 => try sema.zirElemValImm(block, inst),
             .elem_type_index              => try sema.zirElemTypeIndex(block, inst),
             .elem_type                    => try sema.zirElemType(block, inst),
             .indexable_ptr_elem_type      => try sema.zirIndexablePtrElemType(block, inst),
@@ -1376,6 +1377,11 @@ fn analyzeBodyInner(
             },
             .validate_deref => {
                 try sema.zirValidateDeref(block, inst);
+                i += 1;
+                continue;
+            },
+            .validate_destructure => {
+                try sema.zirValidateDestructure(block, inst);
                 i += 1;
                 continue;
             },
@@ -5175,6 +5181,43 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
+    }
+}
+
+fn zirValidateDestructure(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const mod = sema.mod;
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.ValidateDestructure, inst_data.payload_index).data;
+    const src = inst_data.src();
+    const destructure_src = LazySrcLoc.nodeOffset(extra.destructure_node);
+    const operand = try sema.resolveInst(extra.operand);
+    const operand_ty = sema.typeOf(operand);
+
+    const can_destructure = switch (operand_ty.zigTypeTag(mod)) {
+        .Array => true,
+        .Struct => operand_ty.isTuple(mod),
+        else => false,
+    };
+
+    if (!can_destructure) {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(block, src, "type '{}' cannot be destructured", .{operand_ty.fmt(mod)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, destructure_src, msg, "result destructured here", .{});
+            break :msg msg;
+        });
+    }
+
+    if (operand_ty.arrayLen(mod) != extra.expect_len) {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(block, src, "expected {} elements for destructure, found {}", .{
+                extra.expect_len,
+                operand_ty.arrayLen(mod),
+            });
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, destructure_src, msg, "result destructured here", .{});
+            break :msg msg;
+        });
     }
 }
 
@@ -10302,6 +10345,17 @@ fn zirElemValNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const array = try sema.resolveInst(extra.lhs);
     const elem_index = try sema.resolveInst(extra.rhs);
     return sema.elemVal(block, src, array, elem_index, elem_index_src, true);
+}
+
+fn zirElemValImm(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const mod = sema.mod;
+    const inst_data = sema.code.instructions.items(.data)[inst].elem_val_imm;
+    const array = try sema.resolveInst(inst_data.operand);
+    const elem_index = try mod.intRef(Type.usize, inst_data.idx);
+    return sema.elemVal(block, .unneeded, array, elem_index, .unneeded, false);
 }
 
 fn zirElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
