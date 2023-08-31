@@ -214,7 +214,7 @@ pub fn linkWithZld(
             });
         }
 
-        try MachO.resolveLibSystem(arena, comp, options.sysroot, target, options.lib_dirs, &libs);
+        try macho_file.resolveLibSystem(arena, comp, options.lib_dirs, &libs);
 
         if (options.verbose_link) {
             var argv = std.ArrayList([]const u8).init(arena);
