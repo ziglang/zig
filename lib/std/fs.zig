@@ -2653,21 +2653,17 @@ pub const Dir = struct {
     ///
     /// `sub_path` may be absolute, in which case `self` is ignored.
     pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
-        switch (builtin.os.tag) {
-            .windows => {
-                var file = try self.openFile(sub_path, .{});
-                defer file.close();
-                return file.stat();
-            },
-            .wasi => {
-                const st = try os.fstatatWasi(self.fd, sub_path, os.wasi.LOOKUP_SYMLINK_FOLLOW);
-                return Stat.fromSystem(st);
-            },
-            else => {
-                const st = try os.fstatat(self.fd, sub_path, 0);
-                return Stat.fromSystem(st);
-            },
+        if (builtin.os.tag == .windows) {
+            var file = try self.openFile(sub_path, .{});
+            defer file.close();
+            return file.stat();
         }
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
+            const st = try os.fstatatWasi(self.fd, sub_path, os.wasi.LOOKUP_SYMLINK_FOLLOW);
+            return Stat.fromSystem(st);
+        }
+        const st = try os.fstatat(self.fd, sub_path, 0);
+        return Stat.fromSystem(st);
     }
 
     const Permissions = File.Permissions;

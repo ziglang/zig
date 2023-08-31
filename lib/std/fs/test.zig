@@ -569,6 +569,21 @@ test "readAllAlloc" {
     try testing.expectError(error.FileTooBig, file.readToEndAlloc(testing.allocator, write_buf.len - 1));
 }
 
+test "Dir.statFile" {
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const test_file_name = try ctx.transformPath("test_file");
+
+            try testing.expectError(error.FileNotFound, ctx.dir.statFile(test_file_name));
+
+            try ctx.dir.writeFile(test_file_name, "");
+
+            const stat = try ctx.dir.statFile(test_file_name);
+            try testing.expectEqual(File.Kind.file, stat.kind);
+        }
+    }.impl);
+}
+
 test "directory operations on files" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
