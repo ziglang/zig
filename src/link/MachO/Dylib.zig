@@ -1,25 +1,8 @@
-const Dylib = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const fs = std.fs;
-const fmt = std.fmt;
-const log = std.log.scoped(.link);
-const macho = std.macho;
-const math = std.math;
-const mem = std.mem;
-const fat = @import("fat.zig");
-const tapi = @import("../tapi.zig");
-
-const Allocator = mem.Allocator;
-const CrossTarget = std.zig.CrossTarget;
-const LibStub = tapi.LibStub;
-const LoadCommandIterator = macho.LoadCommandIterator;
-const MachO = @import("../MachO.zig");
-const Tbd = tapi.Tbd;
-
+path: []const u8,
 id: ?Id = null,
 weak: bool = false,
+/// Header is only set if Dylib is parsed directly from a binary and not a stub file.
+header: ?macho.mach_header_64 = null,
 
 /// Parsed symbol table represented as hash map of symbols'
 /// names. We can and should defer creating *Symbols until
@@ -116,7 +99,15 @@ pub const Id = struct {
     }
 };
 
+pub fn isDylib(file: std.fs.File, fat_offset: u64) bool {
+    const reader = file.reader();
+    const hdr = reader.readStruct(macho.mach_header_64) catch return false;
+    defer file.seekTo(fat_offset) catch {};
+    return hdr.filetype == macho.MH_DYLIB;
+}
+
 pub fn deinit(self: *Dylib, allocator: Allocator) void {
+    allocator.free(self.path);
     for (self.symbols.keys()) |key| {
         allocator.free(key);
     }
@@ -129,7 +120,6 @@ pub fn deinit(self: *Dylib, allocator: Allocator) void {
 pub fn parseFromBinary(
     self: *Dylib,
     allocator: Allocator,
-    cpu_arch: std.Target.Cpu.Arch,
     dylib_id: u16,
     dependent_libs: anytype,
     name: []const u8,
@@ -140,27 +130,12 @@ pub fn parseFromBinary(
 
     log.debug("parsing shared library '{s}'", .{name});
 
-    const header = try reader.readStruct(macho.mach_header_64);
+    self.header = try reader.readStruct(macho.mach_header_64);
 
-    if (header.filetype != macho.MH_DYLIB) {
-        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{ macho.MH_DYLIB, header.filetype });
-        return error.NotDylib;
-    }
-
-    const this_arch: std.Target.Cpu.Arch = try fat.decodeArch(header.cputype, true);
-
-    if (this_arch != cpu_arch) {
-        log.err("mismatched cpu architecture: expected {s}, found {s}", .{
-            @tagName(cpu_arch),
-            @tagName(this_arch),
-        });
-        return error.MismatchedCpuArchitecture;
-    }
-
-    const should_lookup_reexports = header.flags & macho.MH_NO_REEXPORTED_DYLIBS == 0;
+    const should_lookup_reexports = self.header.?.flags & macho.MH_NO_REEXPORTED_DYLIBS == 0;
     var it = LoadCommandIterator{
-        .ncmds = header.ncmds,
-        .buffer = data[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds],
+        .ncmds = self.header.?.ncmds,
+        .buffer = data[@sizeOf(macho.mach_header_64)..][0..self.header.?.sizeofcmds],
     };
     while (it.next()) |cmd| {
         switch (cmd.cmd()) {
@@ -205,6 +180,26 @@ pub fn parseFromBinary(
     }
 }
 
+/// Returns Platform composed from the first encountered build version type load command:
+/// either LC_BUILD_VERSION or LC_VERSION_MIN_*.
+pub fn getPlatform(self: Dylib, data: []align(@alignOf(u64)) const u8) ?Platform {
+    var it = LoadCommandIterator{
+        .ncmds = self.header.?.ncmds,
+        .buffer = data[@sizeOf(macho.mach_header_64)..][0..self.header.?.sizeofcmds],
+    };
+    while (it.next()) |cmd| {
+        switch (cmd.cmd()) {
+            .BUILD_VERSION,
+            .VERSION_MIN_MACOSX,
+            .VERSION_MIN_IPHONEOS,
+            .VERSION_MIN_TVOS,
+            .VERSION_MIN_WATCHOS,
+            => return Platform.fromLoadCommand(cmd),
+            else => {},
+        }
+    } else return null;
+}
+
 fn addObjCClassSymbol(self: *Dylib, allocator: Allocator, sym_name: []const u8) !void {
     const expanded = &[_][]const u8{
         try std.fmt.allocPrint(allocator, "_OBJC_CLASS_$_{s}", .{sym_name}),
@@ -239,41 +234,41 @@ fn addWeakSymbol(self: *Dylib, allocator: Allocator, sym_name: []const u8) !void
     try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), true);
 }
 
-const TargetMatcher = struct {
+pub const TargetMatcher = struct {
     allocator: Allocator,
-    target: CrossTarget,
+    cpu_arch: std.Target.Cpu.Arch,
+    os_tag: std.Target.Os.Tag,
+    abi: std.Target.Abi,
     target_strings: std.ArrayListUnmanaged([]const u8) = .{},
 
-    fn init(allocator: Allocator, target: CrossTarget) !TargetMatcher {
+    pub fn init(allocator: Allocator, target: std.Target) !TargetMatcher {
         var self = TargetMatcher{
             .allocator = allocator,
-            .target = target,
+            .cpu_arch = target.cpu.arch,
+            .os_tag = target.os.tag,
+            .abi = target.abi,
         };
-        const apple_string = try targetToAppleString(allocator, target);
+        const apple_string = try toAppleTargetTriple(allocator, self.cpu_arch, self.os_tag, self.abi);
         try self.target_strings.append(allocator, apple_string);
 
-        const abi = target.abi orelse .none;
-        if (abi == .simulator) {
+        if (self.abi == .simulator) {
             // For Apple simulator targets, linking gets tricky as we need to link against the simulator
             // hosts dylibs too.
-            const host_target = try targetToAppleString(allocator, .{
-                .cpu_arch = target.cpu_arch.?,
-                .os_tag = .macos,
-            });
+            const host_target = try toAppleTargetTriple(allocator, self.cpu_arch, .macos, .none);
             try self.target_strings.append(allocator, host_target);
         }
 
         return self;
     }
 
-    fn deinit(self: *TargetMatcher) void {
+    pub fn deinit(self: *TargetMatcher) void {
         for (self.target_strings.items) |t| {
             self.allocator.free(t);
         }
         self.target_strings.deinit(self.allocator);
     }
 
-    inline fn cpuArchToAppleString(cpu_arch: std.Target.Cpu.Arch) []const u8 {
+    inline fn fmtCpuArch(cpu_arch: std.Target.Cpu.Arch) []const u8 {
         return switch (cpu_arch) {
             .aarch64 => "arm64",
             .x86_64 => "x86_64",
@@ -281,7 +276,7 @@ const TargetMatcher = struct {
         };
     }
 
-    inline fn abiToAppleString(abi: std.Target.Abi) ?[]const u8 {
+    inline fn fmtAbi(abi: std.Target.Abi) ?[]const u8 {
         return switch (abi) {
             .none => null,
             .simulator => "simulator",
@@ -290,14 +285,18 @@ const TargetMatcher = struct {
         };
     }
 
-    fn targetToAppleString(allocator: Allocator, target: CrossTarget) ![]const u8 {
-        const cpu_arch = cpuArchToAppleString(target.cpu_arch.?);
-        const os_tag = @tagName(target.os_tag.?);
-        const target_abi = abiToAppleString(target.abi orelse .none);
-        if (target_abi) |abi| {
-            return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ cpu_arch, os_tag, abi });
+    pub fn toAppleTargetTriple(
+        allocator: Allocator,
+        cpu_arch: std.Target.Cpu.Arch,
+        os_tag: std.Target.Os.Tag,
+        abi: std.Target.Abi,
+    ) ![]const u8 {
+        const cpu_arch_s = fmtCpuArch(cpu_arch);
+        const os_tag_s = @tagName(os_tag);
+        if (fmtAbi(abi)) |abi_s| {
+            return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ cpu_arch_s, os_tag_s, abi_s });
         }
-        return std.fmt.allocPrint(allocator, "{s}-{s}", .{ cpu_arch, os_tag });
+        return std.fmt.allocPrint(allocator, "{s}-{s}", .{ cpu_arch_s, os_tag_s });
     }
 
     fn hasValue(stack: []const []const u8, needle: []const u8) bool {
@@ -307,7 +306,7 @@ const TargetMatcher = struct {
         return false;
     }
 
-    fn matchesTarget(self: TargetMatcher, targets: []const []const u8) bool {
+    pub fn matchesTarget(self: TargetMatcher, targets: []const []const u8) bool {
         for (self.target_strings.items) |t| {
             if (hasValue(targets, t)) return true;
         }
@@ -315,26 +314,7 @@ const TargetMatcher = struct {
     }
 
     fn matchesArch(self: TargetMatcher, archs: []const []const u8) bool {
-        return hasValue(archs, cpuArchToAppleString(self.target.cpu_arch.?));
-    }
-
-    fn matchesTargetTbd(self: TargetMatcher, tbd: Tbd) !bool {
-        var arena = std.heap.ArenaAllocator.init(self.allocator);
-        defer arena.deinit();
-
-        const targets = switch (tbd) {
-            .v3 => |v3| blk: {
-                var targets = std.ArrayList([]const u8).init(arena.allocator());
-                for (v3.archs) |arch| {
-                    const target = try std.fmt.allocPrint(arena.allocator(), "{s}-{s}", .{ arch, v3.platform });
-                    try targets.append(target);
-                }
-                break :blk targets.items;
-            },
-            .v4 => |v4| v4.targets,
-        };
-
-        return self.matchesTarget(targets);
+        return hasValue(archs, fmtCpuArch(self.cpu_arch));
     }
 };
 
@@ -347,7 +327,7 @@ pub fn parseFromStub(
     dependent_libs: anytype,
     name: []const u8,
 ) !void {
-    if (lib_stub.inner.len == 0) return error.EmptyStubFile;
+    if (lib_stub.inner.len == 0) return error.NotLibStub;
 
     log.debug("parsing shared library from stub '{s}'", .{name});
 
@@ -369,15 +349,16 @@ pub fn parseFromStub(
 
     log.debug("  (install_name '{s}')", .{umbrella_lib.installName()});
 
-    var matcher = try TargetMatcher.init(allocator, .{
-        .cpu_arch = target.cpu.arch,
-        .os_tag = target.os.tag,
-        .abi = target.abi,
-    });
+    var matcher = try TargetMatcher.init(allocator, target);
     defer matcher.deinit();
 
     for (lib_stub.inner, 0..) |elem, stub_index| {
-        if (!(try matcher.matchesTargetTbd(elem))) continue;
+        const targets = try elem.targets(allocator);
+        defer {
+            for (targets) |t| allocator.free(t);
+            allocator.free(targets);
+        }
+        if (!matcher.matchesTarget(targets)) continue;
 
         if (stub_index > 0) {
             // TODO I thought that we could switch on presence of `parent-umbrella` map;
@@ -553,3 +534,23 @@ pub fn parseFromStub(
         }
     }
 }
+
+const Dylib = @This();
+
+const std = @import("std");
+const assert = std.debug.assert;
+const fs = std.fs;
+const fmt = std.fmt;
+const log = std.log.scoped(.link);
+const macho = std.macho;
+const math = std.math;
+const mem = std.mem;
+const fat = @import("fat.zig");
+const tapi = @import("../tapi.zig");
+
+const Allocator = mem.Allocator;
+const LibStub = tapi.LibStub;
+const LoadCommandIterator = macho.LoadCommandIterator;
+const MachO = @import("../MachO.zig");
+const Platform = @import("load_commands.zig").Platform;
+const Tbd = tapi.Tbd;

@@ -2609,6 +2609,9 @@ pub fn totalErrorCount(self: *Compilation) u32 {
     }
     total += @intFromBool(self.link_error_flags.missing_libc);
 
+    // Misc linker errors
+    total += self.bin_file.miscErrors().len;
+
     // Compile log errors only count if there are no other errors.
     if (total == 0) {
         if (self.bin_file.options.module) |module| {
@@ -2757,6 +2760,19 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         bundle.extra.items[notes_start + 1] = @intFromEnum(try bundle.addErrorMessage(.{
             .msg = try bundle.addString("run 'zig targets' to see the targets for which zig can always provide libc"),
         }));
+    }
+
+    for (self.bin_file.miscErrors()) |link_err| {
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString(link_err.msg),
+            .notes_len = @intCast(link_err.notes.len),
+        });
+        const notes_start = try bundle.reserveNotes(@intCast(link_err.notes.len));
+        for (link_err.notes, 0..) |note, i| {
+            bundle.extra.items[notes_start + i] = @intFromEnum(try bundle.addErrorMessage(.{
+                .msg = try bundle.addString(note.msg),
+            }));
+        }
     }
 
     if (self.bin_file.options.module) |module| {

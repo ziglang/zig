@@ -1,13 +1,3 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const link = @import("../../link.zig");
-const log = std.log.scoped(.link);
-const macho = std.macho;
-const mem = std.mem;
-
-const Allocator = mem.Allocator;
-const Dylib = @import("Dylib.zig");
-
 /// Default implicit entrypoint symbol name.
 pub const default_entry_point: []const u8 = "_main";
 
@@ -86,8 +76,14 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
     }
     // LC_SOURCE_VERSION
     sizeofcmds += @sizeOf(macho.source_version_command);
-    // LC_BUILD_VERSION
-    sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
+    // LC_BUILD_VERSION or LC_VERSION_MIN_
+    if (Platform.fromTarget(options.target).isBuildVersionCompatible()) {
+        // LC_BUILD_VERSION
+        sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
+    } else {
+        // LC_VERSION_MIN_
+        sizeofcmds += @sizeOf(macho.version_min_command);
+    }
     // LC_UUID
     sizeofcmds += @sizeOf(macho.uuid_command);
     // LC_LOAD_DYLIB
@@ -101,17 +97,8 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
         );
     }
     // LC_CODE_SIGNATURE
-    {
-        const target = options.target;
-        const requires_codesig = blk: {
-            if (options.entitlements) |_| break :blk true;
-            if (target.cpu.arch == .aarch64 and (target.os.tag == .macos or target.abi == .simulator))
-                break :blk true;
-            break :blk false;
-        };
-        if (requires_codesig) {
-            sizeofcmds += @sizeOf(macho.linkedit_data_command);
-        }
+    if (MachO.requiresCodeSignature(options)) {
+        sizeofcmds += @sizeOf(macho.linkedit_data_command);
     }
 
     return @as(u32, @intCast(sizeofcmds));
@@ -271,33 +258,28 @@ pub fn writeRpathLCs(gpa: Allocator, options: *const link.Options, lc_writer: an
     }
 }
 
-pub fn writeBuildVersionLC(options: *const link.Options, lc_writer: anytype) !void {
+pub fn writeVersionMinLC(platform: Platform, sdk_version: ?std.SemanticVersion, lc_writer: anytype) !void {
+    const cmd: macho.LC = switch (platform.os_tag) {
+        .macos => .VERSION_MIN_MACOSX,
+        .ios => .VERSION_MIN_IPHONEOS,
+        .tvos => .VERSION_MIN_TVOS,
+        .watchos => .VERSION_MIN_WATCHOS,
+        else => unreachable,
+    };
+    try lc_writer.writeAll(mem.asBytes(&macho.version_min_command{
+        .cmd = cmd,
+        .version = platform.toAppleVersion(),
+        .sdk = if (sdk_version) |ver| semanticVersionToAppleVersion(ver) else platform.toAppleVersion(),
+    }));
+}
+
+pub fn writeBuildVersionLC(platform: Platform, sdk_version: ?std.SemanticVersion, lc_writer: anytype) !void {
     const cmdsize = @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
-    const platform_version = blk: {
-        const ver = options.target.os.version_range.semver.min;
-        const platform_version = @as(u32, @intCast(ver.major << 16 | ver.minor << 8));
-        break :blk platform_version;
-    };
-    const sdk_version: ?std.SemanticVersion = options.darwin_sdk_version orelse blk: {
-        if (options.sysroot) |path| break :blk inferSdkVersionFromSdkPath(path);
-        break :blk null;
-    };
-    const sdk_version_value: u32 = if (sdk_version) |ver|
-        @intCast(ver.major << 16 | ver.minor << 8)
-    else
-        platform_version;
-    const is_simulator_abi = options.target.abi == .simulator;
     try lc_writer.writeStruct(macho.build_version_command{
         .cmdsize = cmdsize,
-        .platform = switch (options.target.os.tag) {
-            .macos => .MACOS,
-            .ios => if (is_simulator_abi) macho.PLATFORM.IOSSIMULATOR else macho.PLATFORM.IOS,
-            .watchos => if (is_simulator_abi) macho.PLATFORM.WATCHOSSIMULATOR else macho.PLATFORM.WATCHOS,
-            .tvos => if (is_simulator_abi) macho.PLATFORM.TVOSSIMULATOR else macho.PLATFORM.TVOS,
-            else => unreachable,
-        },
-        .minos = platform_version,
-        .sdk = sdk_version_value,
+        .platform = platform.toApplePlatform(),
+        .minos = platform.toAppleVersion(),
+        .sdk = if (sdk_version) |ver| semanticVersionToAppleVersion(ver) else platform.toAppleVersion(),
         .ntools = 1,
     });
     try lc_writer.writeAll(mem.asBytes(&macho.build_tool_version{
@@ -320,7 +302,160 @@ pub fn writeLoadDylibLCs(dylibs: []const Dylib, referenced: []u16, lc_writer: an
     }
 }
 
-fn inferSdkVersionFromSdkPath(path: []const u8) ?std.SemanticVersion {
+pub const Platform = struct {
+    os_tag: std.Target.Os.Tag,
+    abi: std.Target.Abi,
+    version: std.SemanticVersion,
+
+    /// Using Apple's ld64 as our blueprint, `min_version` as well as `sdk_version` are set to
+    /// the extracted minimum platform version.
+    pub fn fromLoadCommand(lc: macho.LoadCommandIterator.LoadCommand) Platform {
+        switch (lc.cmd()) {
+            .BUILD_VERSION => {
+                const cmd = lc.cast(macho.build_version_command).?;
+                return .{
+                    .os_tag = switch (cmd.platform) {
+                        .MACOS => .macos,
+                        .IOS, .IOSSIMULATOR => .ios,
+                        .TVOS, .TVOSSIMULATOR => .tvos,
+                        .WATCHOS, .WATCHOSSIMULATOR => .watchos,
+                        else => @panic("TODO"),
+                    },
+                    .abi = switch (cmd.platform) {
+                        .IOSSIMULATOR,
+                        .TVOSSIMULATOR,
+                        .WATCHOSSIMULATOR,
+                        => .simulator,
+                        else => .none,
+                    },
+                    .version = appleVersionToSemanticVersion(cmd.minos),
+                };
+            },
+            .VERSION_MIN_MACOSX,
+            .VERSION_MIN_IPHONEOS,
+            .VERSION_MIN_TVOS,
+            .VERSION_MIN_WATCHOS,
+            => {
+                const cmd = lc.cast(macho.version_min_command).?;
+                return .{
+                    .os_tag = switch (lc.cmd()) {
+                        .VERSION_MIN_MACOSX => .macos,
+                        .VERSION_MIN_IPHONEOS => .ios,
+                        .VERSION_MIN_TVOS => .tvos,
+                        .VERSION_MIN_WATCHOS => .watchos,
+                        else => unreachable,
+                    },
+                    .abi = .none,
+                    .version = appleVersionToSemanticVersion(cmd.version),
+                };
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn fromTarget(target: std.Target) Platform {
+        return .{
+            .os_tag = target.os.tag,
+            .abi = target.abi,
+            .version = target.os.version_range.semver.min,
+        };
+    }
+
+    pub fn toAppleVersion(plat: Platform) u32 {
+        return semanticVersionToAppleVersion(plat.version);
+    }
+
+    pub fn toApplePlatform(plat: Platform) macho.PLATFORM {
+        return switch (plat.os_tag) {
+            .macos => .MACOS,
+            .ios => if (plat.abi == .simulator) .IOSSIMULATOR else .IOS,
+            .tvos => if (plat.abi == .simulator) .TVOSSIMULATOR else .TVOS,
+            .watchos => if (plat.abi == .simulator) .WATCHOSSIMULATOR else .WATCHOS,
+            else => unreachable,
+        };
+    }
+
+    pub fn isBuildVersionCompatible(plat: Platform) bool {
+        inline for (supported_platforms) |sup_plat| {
+            if (sup_plat[0] == plat.os_tag and sup_plat[1] == plat.abi) {
+                return sup_plat[2] <= plat.toAppleVersion();
+            }
+        }
+        return false;
+    }
+
+    pub fn fmtTarget(plat: Platform, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(formatTarget) {
+        return .{ .data = .{ .platform = plat, .cpu_arch = cpu_arch } };
+    }
+
+    const FmtCtx = struct {
+        platform: Platform,
+        cpu_arch: std.Target.Cpu.Arch,
+    };
+
+    pub fn formatTarget(
+        ctx: FmtCtx,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        try writer.print("{s}-{s}", .{ @tagName(ctx.cpu_arch), @tagName(ctx.platform.os_tag) });
+        if (ctx.platform.abi != .none) {
+            try writer.print("-{s}", .{@tagName(ctx.platform.abi)});
+        }
+    }
+
+    /// Caller owns the memory.
+    pub fn allocPrintTarget(plat: Platform, gpa: Allocator, cpu_arch: std.Target.Cpu.Arch) error{OutOfMemory}![]u8 {
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+        try buffer.writer().print("{}", .{plat.fmtTarget(cpu_arch)});
+        return buffer.toOwnedSlice();
+    }
+
+    pub fn eqlTarget(plat: Platform, other: Platform) bool {
+        return plat.os_tag == other.os_tag and plat.abi == other.abi;
+    }
+};
+
+const SupportedPlatforms = struct {
+    std.Target.Os.Tag,
+    std.Target.Abi,
+    u32, // Min platform version for which to emit LC_BUILD_VERSION
+    u32, // Min supported platform version
+};
+
+// Source: https://github.com/apple-oss-distributions/ld64/blob/59a99ab60399c5e6c49e6945a9e1049c42b71135/src/ld/PlatformSupport.cpp#L52
+// zig fmt: off
+const supported_platforms = [_]SupportedPlatforms{
+    .{ .macos,   .none,      0xA0E00, 0xA0800 },
+    .{ .ios,     .none,      0xC0000, 0x70000 },
+    .{ .tvos,    .none,      0xC0000, 0x70000 },
+    .{ .watchos, .none,      0x50000, 0x20000 },
+    .{ .ios,     .simulator, 0xD0000, 0x80000 },
+    .{ .tvos,    .simulator, 0xD0000, 0x80000 },
+    .{ .watchos, .simulator, 0x60000, 0x20000 },
+};
+// zig fmt: on
+
+inline fn semanticVersionToAppleVersion(version: std.SemanticVersion) u32 {
+    const major = version.major;
+    const minor = version.minor;
+    const patch = version.patch;
+    return (@as(u32, @intCast(major)) << 16) | (@as(u32, @intCast(minor)) << 8) | @as(u32, @intCast(patch));
+}
+
+pub inline fn appleVersionToSemanticVersion(version: u32) std.SemanticVersion {
+    return .{
+        .major = @as(u16, @truncate(version >> 16)),
+        .minor = @as(u8, @truncate(version >> 8)),
+        .patch = @as(u8, @truncate(version)),
+    };
+}
+
+pub fn inferSdkVersionFromSdkPath(path: []const u8) ?std.SemanticVersion {
     const stem = std.fs.path.stem(path);
     const start = for (stem, 0..) |c, i| {
         if (std.ascii.isDigit(c)) break i;
@@ -374,3 +509,14 @@ test "parseSdkVersion" {
 
     try expect(parseSdkVersion("11") == null);
 }
+
+const std = @import("std");
+const assert = std.debug.assert;
+const link = @import("../../link.zig");
+const log = std.log.scoped(.link);
+const macho = std.macho;
+const mem = std.mem;
+
+const Allocator = mem.Allocator;
+const Dylib = @import("Dylib.zig");
+const MachO = @import("../MachO.zig");

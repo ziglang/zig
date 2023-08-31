@@ -670,7 +670,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         // Add relocation to the decl.
-        const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+        const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = relocation.atom_index }).?;
         const target = macho_file.getGlobalByIndex(relocation.sym_index);
         try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
             .type = .branch,
@@ -885,9 +885,9 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         const Atom = link.File.MachO.Atom;
         const Relocation = Atom.Relocation;
-        const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
+        const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index }).?;
         try Atom.addRelocations(macho_file, atom_index, &[_]Relocation{ .{
-            .target = .{ .sym_index = data.sym_index, .file = null },
+            .target = .{ .sym_index = data.sym_index },
             .offset = offset,
             .addend = 0,
             .pcrel = true,
@@ -898,7 +898,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
                 else => unreachable,
             },
         }, .{
-            .target = .{ .sym_index = data.sym_index, .file = null },
+            .target = .{ .sym_index = data.sym_index },
             .offset = offset + 4,
             .addend = 0,
             .pcrel = false,
