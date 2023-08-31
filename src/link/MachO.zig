@@ -657,17 +657,17 @@ pub fn resolveLibSystem(
     if (try resolveLibSystemInDirs(arena, search_dirs, out_libs)) return;
 
     // As a fallback, try linking against Zig shipped stub.
-    const libsystem_name = try std.fmt.allocPrint(arena, "libSystem.{d}.tbd", .{
+    const libsystem_name = try std.fmt.allocPrint(arena, "libSystem.{d}", .{
         target.os.version_range.semver.min.major,
     });
-    const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-        "libc", "darwin", libsystem_name,
-    });
-    try out_libs.put(full_path, .{
-        .needed = true,
-        .weak = false,
-        .path = full_path,
-    });
+    const full_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "darwin" });
+    if (try resolveLib(arena, full_dir_path, libsystem_name, ".tbd")) |full_path| {
+        try out_libs.put(full_path, .{
+            .needed = true,
+            .weak = false,
+            .path = full_path,
+        });
+    }
 }
 
 fn resolveLibSystemInDirs(arena: Allocator, dirs: []const []const u8, out_libs: anytype) !bool {
