@@ -4548,6 +4548,13 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append("--no-entry");
         }
 
+        if (wasm.base.options.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic) {
+            try argv.append("--shared");
+        }
+        if (wasm.base.options.pie) {
+            try argv.append("--pie");
+        }
+
         // XXX - TODO: add when wasm-ld supports --build-id.
         // if (wasm.base.options.build_id) {
         //     try argv.append("--build-id=tree");

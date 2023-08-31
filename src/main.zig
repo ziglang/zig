@@ -2627,6 +2627,16 @@ fn buildOutputType(
         if (single_threaded == null) {
             single_threaded = true;
         }
+        if (link_mode) |mode| {
+            if (mode == .Dynamic) {
+                if (linker_export_memory != null and linker_export_memory.?) {
+                    fatal("flags '-dynamic' and '--export-memory' are incompatible", .{});
+                }
+                // User did not supply `--export-memory` which is incompatible with -dynamic, therefore
+                // set the flag to false to ensure it does not get enabled by default.
+                linker_export_memory = false;
+            }
+        }
         if (wasi_exec_model) |model| {
             if (model == .reactor) {
                 if (linker_no_entry != null and !linker_no_entry.?) {
