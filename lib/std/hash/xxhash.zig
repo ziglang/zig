@@ -461,6 +461,10 @@ test "xxhash64" {
     try expectEqual(verify.smhasher(H.hash), 0x024B7CF4);
 }
 
+test "xxhash64 iterative api" {
+    try verify.iterativeApi(XxHash64);
+}
+
 test "xxhash32" {
     const H = XxHash32;
 
@@ -473,4 +477,8 @@ test "xxhash32" {
     try testExpect(H, 0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890", 0x9c05f475);
 
     try expectEqual(verify.smhasher(H.hash), 0xBA88B743);
+}
+
+test "xxhash32 iterative api" {
+    try verify.iterativeApi(XxHash32);
 }

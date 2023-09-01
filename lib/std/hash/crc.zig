@@ -5,7 +5,7 @@
 // - Crc32SmallWithPoly uses only 64 bytes of memory but is slower. Be aware that this is
 //   still moderately fast just slow relative to the slicing approach.
 
-const std = @import("../std.zig");
+const std = @import("std");
 const builtin = @import("builtin");
 const debug = std.debug;
 const testing = std.testing;
@@ -194,6 +194,8 @@ pub fn Crc32WithPoly(comptime poly: Polynomial) type {
     };
 }
 
+const verify = @import("verify.zig");
+
 test "crc32 ieee" {
     const Crc32Ieee = Crc32WithPoly(.IEEE);
 
@@ -208,6 +210,10 @@ test "crc32 castagnoli" {
     try testing.expect(Crc32Castagnoli.hash("") == 0x00000000);
     try testing.expect(Crc32Castagnoli.hash("a") == 0xc1d04330);
     try testing.expect(Crc32Castagnoli.hash("abc") == 0x364b3fb7);
+}
+
+test "crc32 iterative" {
+    try verify.iterativeApi(Crc32WithPoly(.IEEE));
 }
 
 // half-byte lookup table implementation.
@@ -256,6 +262,10 @@ pub fn Crc32SmallWithPoly(comptime poly: Polynomial) type {
             return c.final();
         }
     };
+}
+
+test "small crc32 iterative" {
+    try verify.iterativeApi(Crc32SmallWithPoly(.IEEE));
 }
 
 test "small crc32 ieee" {
