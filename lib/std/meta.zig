@@ -1091,6 +1091,114 @@ test "ArgsTuple forwarding" {
     }
 }
 
+inline fn uniqueAppend(
+    comptime T: type,
+    comptime field_name: []const u8,
+    len: usize,
+    list: []T,
+    items: []const T,
+) usize {
+    var newlen = len;
+    outer: for (items) |item| {
+        for (0..newlen) |i| {
+            const existing = @field(list[i], field_name);
+            const new = @field(item, field_name);
+            if (std.mem.eql(u8, existing, new)) {
+                list[i] = item;
+                continue :outer;
+            }
+        }
+        list[newlen] = item;
+        newlen += 1;
+    }
+    return newlen;
+}
+
+pub fn merge(comptime type_list: anytype) type {
+    const T = std.builtin.Type;
+    const tinfo0: T.Struct = switch (@typeInfo(type_list[0])) {
+        .Struct => |case| case,
+        else => @compileError("Only structs are supported"),
+    };
+    if (tinfo0.layout != .Auto or tinfo0.is_tuple) {
+        @compileError("Only structs with auto layout are supported");
+    }
+
+    const max_len = comptime cap: {
+        var fields_len: usize = tinfo0.fields.len;
+        var decls_len: usize = tinfo0.decls.len;
+        for (1..type_list.len) |i| {
+            const tinfo: T.Struct = @typeInfo(type_list[i]).Struct;
+            if (tinfo0.layout != tinfo.layout) {
+                @compileError("All types must have the same layout");
+            }
+            fields_len += tinfo.fields.len;
+            decls_len += tinfo.decls.len;
+        }
+        break :cap .{ .fields = fields_len, .decls = decls_len };
+    };
+
+    const proto = comptime blk: {
+        var struct_fields: [max_len.fields]T.StructField = undefined;
+        var decls: [max_len.decls]T.Declaration = undefined;
+        var flen: usize = 0;
+        var dlen: usize = 0;
+
+        for (type_list) |t| {
+            const ti: T.Struct = @typeInfo(t).Struct;
+            flen = uniqueAppend(T.StructField, "name", flen, &struct_fields, ti.fields);
+            // TODO: Blocked by https://github.com/ziglang/zig/issues/6709
+            // dlen = unique_append(T.Declaration, "name", dlen, &decls, ti.decls);
+        }
+
+        break :blk T.Struct{
+            .fields = struct_fields[0..flen],
+            .decls = decls[0..dlen],
+            .layout = .Auto,
+            .is_tuple = false,
+        };
+    };
+
+    return @Type(.{ .Struct = proto });
+}
+
+fn TestMergeStruct(comptime T: type) type {
+    const Base = struct { always: u8, often: T };
+    const Extended = switch (T) {
+        u8 => struct {
+            sometimes: usize = 2,
+        },
+        else => struct { often: ?T = null },
+    };
+
+    return merge(.{ Base, Extended });
+}
+
+test "std.meta.merge" {
+    const S1 = TestMergeStruct(u8);
+    const s1 = S1{ .always = 1, .often = 2 };
+
+    try std.testing.expect(s1.always == 1);
+    try std.testing.expect(s1.often == 2);
+    try std.testing.expect(s1.sometimes == 2);
+    try std.testing.expect(@TypeOf(s1.always) == u8);
+    try std.testing.expect(@TypeOf(s1.often) == u8);
+    try std.testing.expect(@TypeOf(s1.sometimes) == usize);
+    try std.testing.expect(fields(@TypeOf(s1)).len == 3);
+
+    const S2 = TestMergeStruct(bool);
+    const s2 = S2{
+        .always = 1,
+        .often = true,
+    };
+
+    try std.testing.expect(s2.always == 1);
+    try std.testing.expect(s2.often == true);
+    try std.testing.expect(@TypeOf(s2.always) == u8);
+    try std.testing.expect(@TypeOf(s2.often) == ?bool);
+    try std.testing.expect(fields(@TypeOf(s2)).len == 2);
+}
+
 /// TODO: https://github.com/ziglang/zig/issues/425
 pub fn globalOption(comptime name: []const u8, comptime T: type) ?T {
     if (!@hasDecl(root, name))
