@@ -1042,6 +1042,14 @@ pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
     return syscall2(.nanosleep, @intFromPtr(req), @intFromPtr(rem));
 }
 
+pub fn pause() usize {
+    if (@hasField(SYS, "pause")) {
+        return syscall0(.pause);
+    } else {
+        return syscall4(.ppoll, 0, 0, 0, 0);
+    }
+}
+
 pub fn setuid(uid: uid_t) usize {
     if (@hasField(SYS, "setuid32")) {
         return syscall1(.setuid32, uid);
