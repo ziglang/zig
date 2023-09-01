@@ -663,7 +663,6 @@ pub const DeclState = struct {
         switch (loc) {
             .register => |reg| {
                 try dbg_info.ensureUnusedCapacity(4);
-                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevKind.parameter));
                 // DW.AT.location, DW.FORM.exprloc
                 var expr_len = std.io.countingWriter(std.io.null_writer);
                 if (reg < 32) {
@@ -683,7 +682,6 @@ pub const DeclState = struct {
 
             .stack => |info| {
                 try dbg_info.ensureUnusedCapacity(9);
-                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevKind.parameter));
                 // DW.AT.location, DW.FORM.exprloc
                 var expr_len = std.io.countingWriter(std.io.null_writer);
                 if (info.fp_register < 32) {
