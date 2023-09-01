@@ -8180,7 +8180,9 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@compileError(comptime msg: []const u8) noreturn{#endsyntax#}</pre>
       <p>
       This function, when semantically analyzed, causes a compile error with the
-      message {#syntax#}msg{#endsyntax#}.
+      message {#syntax#}msg{#endsyntax#}. You can use compileError when you want
+      to be informed if the respective branch ends up being compiled, i.e., when
+      you intend it not to be compiled.
       </p>
       <p>
       There are several ways that code avoids being semantically checked, such as
