@@ -329,14 +329,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     }
 
     var libs = std.StringArrayHashMap(link.SystemLib).init(arena);
-    try resolveLibSystem(
-        arena,
-        comp,
-        self.base.options.sysroot,
-        self.base.options.target,
-        &.{},
-        &libs,
-    );
+    try self.resolveLibSystem(arena, comp, &.{}, &libs);
 
     const id_symlink_basename = "link.id";
 
@@ -640,77 +633,104 @@ inline fn conformUuid(out: *[Md5.digest_length]u8) void {
 }
 
 pub fn resolveLibSystem(
+    self: *MachO,
     arena: Allocator,
     comp: *Compilation,
-    syslibroot: ?[]const u8,
-    target: std.Target,
     search_dirs: []const []const u8,
     out_libs: anytype,
 ) !void {
-    // If we were given the sysroot, try to look there first for libSystem.B.{dylib, tbd}.
-    if (syslibroot) |root| {
-        const full_dir_path = try std.fs.path.join(arena, &.{ root, "usr", "lib" });
-        if (try resolveLibSystemInDirs(arena, &.{full_dir_path}, out_libs)) return;
+    var tmp_arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
+    defer tmp_arena_allocator.deinit();
+    const tmp_arena = tmp_arena_allocator.allocator();
+
+    var test_path = std.ArrayList(u8).init(tmp_arena);
+    var checked_paths = std.ArrayList([]const u8).init(tmp_arena);
+
+    success: {
+        if (self.base.options.sysroot) |root| {
+            const dir = try fs.path.join(tmp_arena, &[_][]const u8{ root, "usr", "lib" });
+            if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
+        }
+
+        for (search_dirs) |dir| if (try accessLibPath(
+            tmp_arena,
+            &test_path,
+            &checked_paths,
+            dir,
+            "libSystem",
+        )) break :success;
+
+        const dir = try comp.zig_lib_directory.join(tmp_arena, &[_][]const u8{ "libc", "darwin" });
+        const lib_name = try std.fmt.allocPrint(tmp_arena, "libSystem.{d}", .{
+            self.base.options.target.os.version_range.semver.min.major,
+        });
+        if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, lib_name)) break :success;
+
+        try self.reportMissingLibraryError(checked_paths.items, "unable to find libSystem system library", .{});
+        return;
     }
 
-    // Next, try input search dirs if we are linking on a custom host such as Nix.
-    if (try resolveLibSystemInDirs(arena, search_dirs, out_libs)) return;
-
-    // As a fallback, try linking against Zig shipped stub.
-    const libsystem_name = try std.fmt.allocPrint(arena, "libSystem.{d}.tbd", .{
-        target.os.version_range.semver.min.major,
-    });
-    const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-        "libc", "darwin", libsystem_name,
-    });
-    try out_libs.put(full_path, .{
+    const libsystem_path = try arena.dupe(u8, test_path.items);
+    try out_libs.put(libsystem_path, .{
         .needed = true,
         .weak = false,
-        .path = full_path,
+        .path = libsystem_path,
     });
-}
 
-fn resolveLibSystemInDirs(arena: Allocator, dirs: []const []const u8, out_libs: anytype) !bool {
-    // Try stub file first. If we hit it, then we're done as the stub file
-    // re-exports every single symbol definition.
-    for (dirs) |dir| {
-        if (try resolveLib(arena, dir, "libSystem", ".tbd")) |full_path| {
-            try out_libs.put(full_path, .{ .needed = true, .weak = false, .path = full_path });
-            return true;
+    const ext = fs.path.extension(libsystem_path);
+    if (mem.eql(u8, ext, ".dylib")) {
+        // We found 'libSystem.dylib', so now we also need to look for 'libc.dylib'.
+        success: {
+            if (self.base.options.sysroot) |root| {
+                const dir = try fs.path.join(tmp_arena, &[_][]const u8{ root, "usr", "lib" });
+                if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libc")) break :success;
+            }
+
+            for (search_dirs) |dir| if (try accessLibPath(
+                tmp_arena,
+                &test_path,
+                &checked_paths,
+                dir,
+                "libc",
+            )) break :success;
+
+            try self.reportMissingLibraryError(checked_paths.items, "unable to find libc system library", .{});
         }
     }
-    // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
-    // doesn't export libc.dylib which we'll need to resolve subsequently also.
-    for (dirs) |dir| {
-        if (try resolveLib(arena, dir, "libSystem", ".dylib")) |libsystem_path| {
-            if (try resolveLib(arena, dir, "libc", ".dylib")) |libc_path| {
-                try out_libs.put(libsystem_path, .{ .needed = true, .weak = false, .path = libsystem_path });
-                try out_libs.put(libc_path, .{ .needed = true, .weak = false, .path = libc_path });
-                return true;
-            }
-        }
+}
+
+fn accessLibPath(
+    gpa: Allocator,
+    test_path: *std.ArrayList(u8),
+    checked_paths: *std.ArrayList([]const u8),
+    search_dir: []const u8,
+    lib_name: []const u8,
+) !bool {
+    const sep = fs.path.sep_str;
+
+    tbd: {
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "{s}.tbd", .{ search_dir, lib_name });
+        try checked_paths.append(try gpa.dupe(u8, test_path.items));
+        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :tbd,
+            else => |e| return e,
+        };
+        return true;
+    }
+
+    dylib: {
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "{s}.dylib", .{ search_dir, lib_name });
+        try checked_paths.append(try gpa.dupe(u8, test_path.items));
+        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :dylib,
+            else => |e| return e,
+        };
+        return true;
     }
 
     return false;
-}
-
-fn resolveLib(
-    arena: Allocator,
-    search_dir: []const u8,
-    name: []const u8,
-    ext: []const u8,
-) !?[]const u8 {
-    const search_name = try std.fmt.allocPrint(arena, "{s}{s}", .{ name, ext });
-    const full_path = try fs.path.join(arena, &[_][]const u8{ search_dir, search_name });
-
-    // Check if the file exists.
-    const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return null,
-        else => |e| return e,
-    };
-    defer tmp.close();
-
-    return full_path;
 }
 
 const ParseError = error{
@@ -1084,9 +1104,6 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype) !void {
     // TODO this should not be performed if the user specifies `-flat_namespace` flag.
     // See ld64 manpages.
     const gpa = self.base.allocator;
-    var arena_alloc = std.heap.ArenaAllocator.init(gpa);
-    const arena = arena_alloc.allocator();
-    defer arena_alloc.deinit();
 
     while (dependent_libs.readItem()) |dep_id| {
         defer dep_id.id.deinit(gpa);
@@ -1095,38 +1112,33 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype) !void {
 
         const parent = &self.dylibs.items[dep_id.parent];
         const weak = parent.weak;
-        const has_ext = blk: {
-            const basename = fs.path.basename(dep_id.id.name);
-            break :blk mem.lastIndexOfScalar(u8, basename, '.') != null;
-        };
-        const extension = if (has_ext) fs.path.extension(dep_id.id.name) else "";
-        const without_ext = if (has_ext) blk: {
-            const index = mem.lastIndexOfScalar(u8, dep_id.id.name, '.') orelse unreachable;
-            break :blk dep_id.id.name[0..index];
-        } else dep_id.id.name;
+        const dirname = fs.path.dirname(dep_id.id.name) orelse "";
+        const stem = fs.path.stem(dep_id.id.name);
 
-        const maybe_full_path = full_path: {
+        var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
+
+        var test_path = std.ArrayList(u8).init(arena);
+        var checked_paths = std.ArrayList([]const u8).init(arena);
+
+        success: {
             if (self.base.options.sysroot) |root| {
-                for (&[_][]const u8{ extension, ".tbd" }) |ext| {
-                    if (try resolveLib(arena, root, without_ext, ext)) |full_path| break :full_path full_path;
-                }
+                const dir = try fs.path.join(arena, &[_][]const u8{ root, dirname });
+                if (try accessLibPath(gpa, &test_path, &checked_paths, dir, stem)) break :success;
             }
 
-            for (&[_][]const u8{ extension, ".tbd" }) |ext| {
-                if (try resolveLib(arena, "", without_ext, ext)) |full_path| break :full_path full_path;
-            }
+            if (try accessLibPath(gpa, &test_path, &checked_paths, dirname, stem)) break :success;
 
-            break :full_path null;
-        };
-
-        const full_path = maybe_full_path orelse {
-            const parent_name = if (parent.id) |id| id.name else parent.path;
-            try self.reportDependencyError(parent_name, null, "missing dynamic library dependency: '{s}'", .{
-                dep_id.id.name,
-            });
+            try self.reportMissingLibraryError(
+                checked_paths.items,
+                "missing dynamic library dependency: '{s}'",
+                .{dep_id.id.name},
+            );
             continue;
-        };
+        }
 
+        const full_path = test_path.items;
         const file = try std.fs.cwd().openFile(full_path, .{});
         defer file.close();
 
@@ -4940,6 +4952,25 @@ pub fn handleAndReportParseError(
         },
         else => |e| try self.reportParseError(path, "{s}: parsing object failed", .{@errorName(e)}),
     }
+}
+
+fn reportMissingLibraryError(
+    self: *MachO,
+    checked_paths: []const []const u8,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    const gpa = self.base.allocator;
+    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    var notes = try gpa.alloc(File.ErrorMsg, checked_paths.len);
+    errdefer gpa.free(notes);
+    for (checked_paths, notes) |path, *note| {
+        note.* = .{ .msg = try std.fmt.allocPrint(gpa, "tried {s}", .{path}) };
+    }
+    self.misc_errors.appendAssumeCapacity(.{
+        .msg = try std.fmt.allocPrint(gpa, format, args),
+        .notes = notes,
+    });
 }
 
 fn reportDependencyError(
