@@ -438,6 +438,8 @@ fn validateType(comptime T: type) void {
     }
 }
 
+const verify = @import("verify.zig");
+
 fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64) !void {
     try expectEqual(expected, H.hash(0, input));
 
@@ -455,6 +457,8 @@ test "xxhash64" {
     try testExpect(H, 0, "abcdefghijklmnopqrstuvwxyz", 0xcfe1f278fa89835c);
     try testExpect(H, 0, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 0xaaa46907d3047814);
     try testExpect(H, 0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890", 0xe04a477f19ee145d);
+
+    try expectEqual(verify.smhasher(H.hash), 0x024B7CF4);
 }
 
 test "xxhash32" {
@@ -467,4 +471,6 @@ test "xxhash32" {
     try testExpect(H, 0, "abcdefghijklmnopqrstuvwxyz", 0x63a14d5f);
     try testExpect(H, 0, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 0x9c285e64);
     try testExpect(H, 0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890", 0x9c05f475);
+
+    try expectEqual(verify.smhasher(H.hash), 0xBA88B743);
 }

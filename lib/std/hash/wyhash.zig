@@ -196,6 +196,7 @@ pub const Wyhash = struct {
     }
 };
 
+const verify = @import("verify.zig");
 const expectEqual = std.testing.expectEqual;
 
 const TestVector = struct {
@@ -227,6 +228,10 @@ test "test vectors at comptime" {
             try expectEqual(e.expected, Wyhash.hash(e.seed, e.input));
         }
     }
+}
+
+test "smhasher" {
+    try expectEqual(verify.smhasher(Wyhash.hash), 0xBD5E840C);
 }
 
 test "test vectors streaming" {
