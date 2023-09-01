@@ -1853,7 +1853,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.global_base) |global_base| {
         try zig_args.append(b.fmt("--global-base={d}", .{global_base}));
     }
-    try addFlag(&zig_args, "entry", self.no_entry);
+    // invert the value due to naming so when `no_entry` is set to 'true'
+    // we actually emit the flag `-fno_entry`.
+    if (self.no_entry) |no_entry| {
+        try addFlag(&zig_args, "entry", !no_entry);
+    }
 
     if (self.code_model != .default) {
         try zig_args.append("-mcmodel");
