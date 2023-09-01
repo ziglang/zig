@@ -567,6 +567,87 @@ test "zeroInit" {
     }, nested_baz);
 }
 
+/// Initializes all fields of the struct with their default value.
+/// If a field is present in the provided initial values, it will have that value instead.
+/// If a field is neither present in the provided initial values, nor does it have a default value, a compile error will be raised.
+pub fn defaultInit(comptime T: type, init: anytype) T {
+    const Init = @TypeOf(init);
+
+    switch (@typeInfo(T)) {
+        .Struct => |struct_info| {
+            switch (@typeInfo(Init)) {
+                .Struct => |init_info| {
+                    if (init_info.is_tuple) {
+                        if (init_info.fields.len > struct_info.fields.len) {
+                            @compileError("Tuple initializer has more elements than there are fields in `" ++ @typeName(T) ++ "`");
+                        }
+                    } else {
+                        inline for (init_info.fields) |field| {
+                            if (!@hasField(T, field.name)) {
+                                @compileError("Encountered an initializer for `" ++ field.name ++ "`, but it is not a field of " ++ @typeName(T));
+                            }
+                        }
+                    }
+
+                    var value: T = if (struct_info.layout == .Extern) zeroes(T) else undefined;
+
+                    inline for (struct_info.fields, 0..) |field, i| {
+                        if (field.is_comptime) {
+                            continue;
+                        }
+
+                        if (init_info.is_tuple and init_info.fields.len > i) {
+                            @field(value, field.name) = @field(init, init_info.fields[i].name);
+                        } else if (@hasField(@TypeOf(init), field.name)) {
+                            @field(value, field.name) = @field(init, field.name);
+                        } else if (field.default_value) |default_value_ptr| {
+                            const default_value = @as(*align(1) const field.type, @ptrCast(default_value_ptr)).*;
+                            @field(value, field.name) = default_value;
+                        } else {
+                            @compileError("Field '" ++ field.name ++ "' has neither default value nor given value");
+                        }
+                    }
+
+                    return value;
+                },
+                else => {
+                    @compileError("The initializer must be a struct");
+                },
+            }
+        },
+        else => {
+            @compileError("Can't default init a " ++ @typeName(T));
+        },
+    }
+}
+
+test "defaultInit" {
+    const Foo = struct {
+        foo: u8 = 69,
+        bar: u8,
+    };
+
+    const f0 = defaultInit(Foo, .{ .bar = 42 });
+    try testing.expectEqual(Foo{
+        .foo = 69,
+        .bar = 42,
+    }, f0);
+
+    const f1 = defaultInit(Foo, .{ .foo = 10, .bar = 42 });
+    try testing.expectEqual(Foo{
+        .foo = 10,
+        .bar = 42,
+    }, f1);
+
+    // would be compile error
+
+    // const f9 = defaultInit(Foo, .{});
+    // try testing.expectEqual(Foo{
+    //     .foo = 69,
+    //     .bar = 0,
+    // }, f9);
+}
+
 pub fn sort(
     comptime T: type,
     items: []T,
