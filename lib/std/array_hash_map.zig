@@ -154,13 +154,16 @@ pub fn ArrayHashMap(
             return self.unmanaged.count();
         }
 
-        /// Returns the backing array of keys in this map.
-        /// Modifying the map may invalidate this array.
+        /// Returns the backing array of keys in this map. Modifying the map may
+        /// invalidate this array. Modifying this array in a way that changes
+        /// key hashes or key equality puts the map into an unusable state until
+        /// `reIndex` is called.
         pub fn keys(self: Self) []K {
             return self.unmanaged.keys();
         }
-        /// Returns the backing array of values in this map.
-        /// Modifying the map may invalidate this array.
+        /// Returns the backing array of values in this map. Modifying the map
+        /// may invalidate this array. It is permitted to modify the values in
+        /// this array.
         pub fn values(self: Self) []V {
             return self.unmanaged.values();
         }
@@ -407,8 +410,16 @@ pub fn ArrayHashMap(
             return result;
         }
 
-        /// Rebuilds the key indexes. If the underlying entries has been modified directly, users
-        /// can call `reIndex` to update the indexes to account for these new entries.
+        /// Recomputes stored hashes and rebuilds the key indexes. If the
+        /// underlying keys have been modified directly, call this method to
+        /// recompute the denormalized metadata necessary for the operation of
+        /// the methods of this map that lookup entries by key.
+        ///
+        /// One use case for this is directly calling `entries.resize()` to grow
+        /// the underlying storage, and then setting the `keys` and `values`
+        /// directly without going through the methods of this map.
+        ///
+        /// The time complexity of this operation is O(n).
         pub fn reIndex(self: *Self) !void {
             return self.unmanaged.reIndexContext(self.allocator, self.ctx);
         }
@@ -477,6 +488,7 @@ pub fn ArrayHashMapUnmanaged(
 ) type {
     return struct {
         /// It is permitted to access this field directly.
+        /// After any modification to the keys, consider calling `reIndex`.
         entries: DataList = .{},
 
         /// When entries length is less than `linear_scan_max`, this remains `null`.
@@ -599,13 +611,16 @@ pub fn ArrayHashMapUnmanaged(
             return self.entries.len;
         }
 
-        /// Returns the backing array of keys in this map.
-        /// Modifying the map may invalidate this array.
+        /// Returns the backing array of keys in this map. Modifying the map may
+        /// invalidate this array. Modifying this array in a way that changes
+        /// key hashes or key equality puts the map into an unusable state until
+        /// `reIndex` is called.
         pub fn keys(self: Self) []K {
             return self.entries.items(.key);
         }
-        /// Returns the backing array of values in this map.
-        /// Modifying the map may invalidate this array.
+        /// Returns the backing array of values in this map. Modifying the map
+        /// may invalidate this array. It is permitted to modify the values in
+        /// this array.
         pub fn values(self: Self) []V {
             return self.entries.items(.value);
         }
@@ -1175,8 +1190,16 @@ pub fn ArrayHashMapUnmanaged(
             return result;
         }
 
-        /// Rebuilds the key indexes. If the underlying entries has been modified directly, users
-        /// can call `reIndex` to update the indexes to account for these new entries.
+        /// Recomputes stored hashes and rebuilds the key indexes. If the
+        /// underlying keys have been modified directly, call this method to
+        /// recompute the denormalized metadata necessary for the operation of
+        /// the methods of this map that lookup entries by key.
+        ///
+        /// One use case for this is directly calling `entries.resize()` to grow
+        /// the underlying storage, and then setting the `keys` and `values`
+        /// directly without going through the methods of this map.
+        ///
+        /// The time complexity of this operation is O(n).
         pub fn reIndex(self: *Self, allocator: Allocator) !void {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call reIndexContext instead.");
@@ -1184,14 +1207,23 @@ pub fn ArrayHashMapUnmanaged(
         }
 
         pub fn reIndexContext(self: *Self, allocator: Allocator, ctx: Context) !void {
-            if (self.entries.capacity <= linear_scan_max) return;
-            // We're going to rebuild the index header and replace the existing one (if any). The
-            // indexes should sized such that they will be at most 60% full.
-            const bit_index = try IndexHeader.findBitIndex(self.entries.capacity);
-            const new_header = try IndexHeader.alloc(allocator, bit_index);
-            if (self.index_header) |header| header.free(allocator);
-            self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
-            self.index_header = new_header;
+            // Recompute all hashes.
+            if (store_hash) {
+                for (self.keys(), self.entries.items(.hash)) |key, *hash| {
+                    const h = checkedHash(ctx, key);
+                    hash.* = h;
+                }
+            }
+            // Rebuild the index.
+            if (self.entries.capacity > linear_scan_max) {
+                // We're going to rebuild the index header and replace the existing one (if any). The
+                // indexes should sized such that they will be at most 60% full.
+                const bit_index = try IndexHeader.findBitIndex(self.entries.capacity);
+                const new_header = try IndexHeader.alloc(allocator, bit_index);
+                if (self.index_header) |header| header.free(allocator);
+                self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
+                self.index_header = new_header;
+            }
         }
 
         /// Sorts the entries and then rebuilds the index.
@@ -2247,16 +2279,12 @@ test "reIndex" {
     // Make sure we allocated an index header.
     try testing.expect(map.unmanaged.index_header != null);
 
-    // Now write to the underlying array list directly.
+    // Now write to the arrays directly.
     const num_unindexed_entries = 20;
-    const hash = getAutoHashFn(i32, void);
-    var al = &map.unmanaged.entries;
-    while (i < num_indexed_entries + num_unindexed_entries) : (i += 1) {
-        try al.append(std.testing.allocator, .{
-            .key = i,
-            .value = i * 10,
-            .hash = hash({}, i),
-        });
+    try map.unmanaged.entries.resize(std.testing.allocator, num_indexed_entries + num_unindexed_entries);
+    for (map.keys()[num_indexed_entries..], map.values()[num_indexed_entries..], num_indexed_entries..) |*key, *value, j| {
+        key.* = @intCast(j);
+        value.* = @intCast(j * 10);
     }
 
     // After reindexing, we should see everything.
