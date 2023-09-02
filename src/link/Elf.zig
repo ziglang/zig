@@ -129,8 +129,10 @@ phdr_load_rw_index: ?u16 = null,
 entry_addr: ?u64 = null,
 page_size: u32,
 
+/// .shstrtab buffer
 shstrtab: StringTable(.strtab) = .{},
-shstrtab_index: ?u16 = null,
+/// .strtab buffer
+strtab: StringTable(.strtab) = .{},
 
 symtab_section_index: ?u16 = null,
 text_section_index: ?u16 = null,
@@ -142,6 +144,8 @@ debug_abbrev_section_index: ?u16 = null,
 debug_str_section_index: ?u16 = null,
 debug_aranges_section_index: ?u16 = null,
 debug_line_section_index: ?u16 = null,
+shstrtab_section_index: ?u16 = null,
+strtab_section_index: ?u16 = null,
 
 /// The same order as in the file. ELF requires global symbols to all be after the
 /// local symbols, they cannot be mixed. So we must buffer all the global symbols and
@@ -158,6 +162,7 @@ got_table: TableSection(u32) = .{},
 phdr_table_dirty: bool = false,
 shdr_table_dirty: bool = false,
 shstrtab_dirty: bool = false,
+strtab_dirty: bool = false,
 got_table_count_dirty: bool = false,
 
 debug_strtab_dirty: bool = false,
@@ -323,6 +328,7 @@ pub fn deinit(self: *Elf) void {
 
     self.program_headers.deinit(gpa);
     self.shstrtab.deinit(gpa);
+    self.strtab.deinit(gpa);
     self.local_symbols.deinit(gpa);
     self.global_symbols.deinit(gpa);
     self.global_symbol_free_list.deinit(gpa);
@@ -581,12 +587,12 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.phdr_table_dirty = true;
     }
 
-    if (self.shstrtab_index == null) {
-        self.shstrtab_index = @as(u16, @intCast(self.sections.slice().len));
+    if (self.shstrtab_section_index == null) {
+        self.shstrtab_section_index = @as(u16, @intCast(self.sections.slice().len));
         assert(self.shstrtab.buffer.items.len == 0);
         try self.shstrtab.buffer.append(gpa, 0); // need a 0 at position 0
         const off = self.findFreeSpace(self.shstrtab.buffer.items.len, 1);
-        log.debug("found shstrtab free space 0x{x} to 0x{x}", .{ off, off + self.shstrtab.buffer.items.len });
+        log.debug("found .shstrtab free space 0x{x} to 0x{x}", .{ off, off + self.shstrtab.buffer.items.len });
         try self.sections.append(gpa, .{
             .shdr = .{
                 .sh_name = try self.shstrtab.insert(gpa, ".shstrtab"),
@@ -603,6 +609,31 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .phdr_index = undefined,
         });
         self.shstrtab_dirty = true;
+        self.shdr_table_dirty = true;
+    }
+
+    if (self.strtab_section_index == null) {
+        self.strtab_section_index = @as(u16, @intCast(self.sections.slice().len));
+        assert(self.strtab.buffer.items.len == 0);
+        try self.strtab.buffer.append(gpa, 0); // need a 0 at position 0
+        const off = self.findFreeSpace(self.strtab.buffer.items.len, 1);
+        log.debug("found .strtab free space 0x{x} to 0x{x}", .{ off, off + self.strtab.buffer.items.len });
+        try self.sections.append(gpa, .{
+            .shdr = .{
+                .sh_name = try self.shstrtab.insert(gpa, ".strtab"),
+                .sh_type = elf.SHT_STRTAB,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = self.strtab.buffer.items.len,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = 1,
+                .sh_entsize = 0,
+            },
+            .phdr_index = undefined,
+        });
+        self.strtab_dirty = true;
         self.shdr_table_dirty = true;
     }
 
@@ -711,7 +742,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
                 .sh_offset = off,
                 .sh_size = file_size,
                 // The section header index of the associated string table.
-                .sh_link = self.shstrtab_index.?,
+                .sh_link = self.strtab_section_index.?,
                 .sh_info = @as(u32, @intCast(self.local_symbols.items.len)),
                 .sh_addralign = min_align,
                 .sh_entsize = each_size,
@@ -1076,7 +1107,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             const source_sym = atom.getSymbol(self);
             const source_shdr = self.sections.items(.shdr)[source_sym.st_shndx];
 
-            log.debug("relocating '{?s}'", .{self.shstrtab.get(source_sym.st_name)});
+            log.debug("relocating '{?s}'", .{self.strtab.get(source_sym.st_name)});
 
             for (relocs.items) |*reloc| {
                 const target_sym = self.local_symbols.items[reloc.target];
@@ -1090,7 +1121,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 log.debug("  ({x}: [() => 0x{x}] ({?s}))", .{
                     reloc.offset,
                     target_vaddr,
-                    self.shstrtab.get(target_sym.st_name),
+                    self.strtab.get(target_sym.st_name),
                 });
 
                 switch (self.ptr_width) {
@@ -1212,12 +1243,22 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     {
-        const shdr_index = self.shstrtab_index.?;
+        const shdr_index = self.shstrtab_section_index.?;
         if (self.shstrtab_dirty or self.shstrtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
             try self.growNonAllocSection(shdr_index, self.shstrtab.buffer.items.len, 1, false);
             const shstrtab_sect = self.sections.items(.shdr)[shdr_index];
             try self.base.file.?.pwriteAll(self.shstrtab.buffer.items, shstrtab_sect.sh_offset);
             self.shstrtab_dirty = false;
+        }
+    }
+
+    {
+        const shdr_index = self.strtab_section_index.?;
+        if (self.strtab_dirty or self.strtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
+            try self.growNonAllocSection(shdr_index, self.strtab.buffer.items.len, 1, false);
+            const strtab_sect = self.sections.items(.shdr)[shdr_index];
+            try self.base.file.?.pwriteAll(self.strtab.buffer.items, strtab_sect.sh_offset);
+            self.strtab_dirty = false;
         }
     }
 
@@ -1298,6 +1339,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     assert(!self.phdr_table_dirty);
     assert(!self.shdr_table_dirty);
     assert(!self.shstrtab_dirty);
+    assert(!self.strtab_dirty);
     assert(!self.debug_strtab_dirty);
     assert(!self.got_table_count_dirty);
 }
@@ -2115,7 +2157,7 @@ fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u16, hdr_buf[index..][0..2], e_shnum, endian);
     index += 2;
 
-    mem.writeInt(u16, hdr_buf[index..][0..2], self.shstrtab_index.?, endian);
+    mem.writeInt(u16, hdr_buf[index..][0..2], self.shstrtab_section_index.?, endian);
     index += 2;
 
     assert(index == e_ehsize);
@@ -2485,7 +2527,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     const shdr_index = decl_metadata.shdr;
     if (atom.getSymbol(self).st_size != 0 and self.base.child_pid == null) {
         const local_sym = atom.getSymbolPtr(self);
-        local_sym.st_name = try self.shstrtab.insert(gpa, decl_name);
+        local_sym.st_name = try self.strtab.insert(gpa, decl_name);
         local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
         local_sym.st_other = 0;
         local_sym.st_shndx = shdr_index;
@@ -2515,7 +2557,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     } else {
         const local_sym = atom.getSymbolPtr(self);
         local_sym.* = .{
-            .st_name = try self.shstrtab.insert(gpa, decl_name),
+            .st_name = try self.strtab.insert(gpa, decl_name),
             .st_info = (elf.STB_LOCAL << 4) | stt_bits,
             .st_other = 0,
             .st_shndx = shdr_index,
@@ -2716,9 +2758,9 @@ fn updateLazySymbolAtom(
             sym.ty.fmt(mod),
         });
         defer gpa.free(name);
-        break :blk try self.shstrtab.insert(gpa, name);
+        break :blk try self.strtab.insert(gpa, name);
     };
-    const name = self.shstrtab.get(name_str_index).?;
+    const name = self.strtab.get(name_str_index).?;
 
     const atom = self.getAtom(atom_index);
     const local_sym_index = atom.getSymbolIndex().?;
@@ -2793,9 +2835,9 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
         const index = unnamed_consts.items.len;
         const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
         defer gpa.free(name);
-        break :blk try self.shstrtab.insert(gpa, name);
+        break :blk try self.strtab.insert(gpa, name);
     };
-    const name = self.shstrtab.get(name_str_index).?;
+    const name = self.strtab.get(name_str_index).?;
 
     const atom_index = try self.createAtom();
 
@@ -2900,7 +2942,7 @@ pub fn updateDeclExports(
         if (decl_metadata.getExport(self, exp_name)) |i| {
             const sym = &self.global_symbols.items[i];
             sym.* = .{
-                .st_name = try self.shstrtab.insert(gpa, exp_name),
+                .st_name = try self.strtab.insert(gpa, exp_name),
                 .st_info = (stb_bits << 4) | stt_bits,
                 .st_other = 0,
                 .st_shndx = shdr_index,
@@ -2914,7 +2956,7 @@ pub fn updateDeclExports(
             };
             try decl_metadata.exports.append(gpa, @as(u32, @intCast(i)));
             self.global_symbols.items[i] = .{
-                .st_name = try self.shstrtab.insert(gpa, exp_name),
+                .st_name = try self.strtab.insert(gpa, exp_name),
                 .st_info = (stb_bits << 4) | stt_bits,
                 .st_other = 0,
                 .st_shndx = shdr_index,
@@ -3080,7 +3122,7 @@ fn writeSymbol(self: *Elf, index: usize) !void {
         .p64 => syms_sect.sh_offset + @sizeOf(elf.Elf64_Sym) * index,
     };
     const local = self.local_symbols.items[index];
-    log.debug("writing symbol {d}, '{?s}' at 0x{x}", .{ index, self.shstrtab.get(local.st_name), off });
+    log.debug("writing symbol {d}, '{?s}' at 0x{x}", .{ index, self.strtab.get(local.st_name), off });
     log.debug("  ({})", .{local});
     switch (self.ptr_width) {
         .p32 => {
@@ -3460,11 +3502,11 @@ const CsuObjects = struct {
 fn logSymtab(self: Elf) void {
     log.debug("locals:", .{});
     for (self.local_symbols.items, 0..) |sym, id| {
-        log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.shstrtab.get(sym.st_name), sym.st_value, sym.st_shndx });
+        log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.strtab.get(sym.st_name), sym.st_value, sym.st_shndx });
     }
     log.debug("globals:", .{});
     for (self.global_symbols.items, 0..) |sym, id| {
-        log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.shstrtab.get(sym.st_name), sym.st_value, sym.st_shndx });
+        log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.strtab.get(sym.st_name), sym.st_value, sym.st_shndx });
     }
 }
 
@@ -3491,13 +3533,13 @@ pub fn getSymbol(self: *const Elf, sym_index: u32) elf.Elf64_Sym {
 /// Returns name of the symbol at sym_index.
 pub fn getSymbolName(self: *const Elf, sym_index: u32) []const u8 {
     const sym = self.local_symbols.items[sym_index];
-    return self.shstrtab.get(sym.st_name).?;
+    return self.strtab.get(sym.st_name).?;
 }
 
 /// Returns name of the global symbol at index.
 pub fn getGlobalName(self: *const Elf, index: u32) []const u8 {
     const sym = self.global_symbols.items[index];
-    return self.shstrtab.get(sym.st_name).?;
+    return self.strtab.get(sym.st_name).?;
 }
 
 pub fn getAtom(self: *const Elf, atom_index: Atom.Index) Atom {
