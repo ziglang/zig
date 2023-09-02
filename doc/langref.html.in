@@ -728,7 +728,7 @@ pub fn main() void {
         </tr>
         <tr>
             <th scope="row">{#syntax#}isize{#endsyntax#}</th>
-          <td><code class="c">intptr_t</code></td>
+          <td><code class="c">intptr_t</code>, <code class="c">ssize_t</code></td>
           <td>signed pointer sized integer</td>
         </tr>
         <tr>
