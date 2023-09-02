@@ -3100,7 +3100,6 @@ fn elf32SymFromSym(sym: elf.Elf64_Sym, out: *elf.Elf32_Sym) void {
 
 fn writeSymbols(self: *Elf) !void {
     const gpa = self.base.allocator;
-    const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
     const sym_size: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Sym),
         .p64 => @sizeOf(elf.Elf64_Sym),
@@ -3109,7 +3108,11 @@ fn writeSymbols(self: *Elf) !void {
         .p32 => @alignOf(elf.Elf32_Sym),
         .p64 => @alignOf(elf.Elf64_Sym),
     };
+
+    const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
     shdr.sh_info = @intCast(self.local_symbols.items.len);
+    self.markDirty(self.symtab_section_index.?, null);
+
     const nsyms = self.local_symbols.items.len + self.global_symbols.items.len;
     const needed_size = nsyms * sym_size;
     try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
