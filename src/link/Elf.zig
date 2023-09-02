@@ -3109,6 +3109,7 @@ fn writeSymbols(self: *Elf) !void {
         .p32 => @alignOf(elf.Elf32_Sym),
         .p64 => @alignOf(elf.Elf64_Sym),
     };
+    shdr.sh_info = @intCast(self.local_symbols.items.len);
     const nsyms = self.local_symbols.items.len + self.global_symbols.items.len;
     const needed_size = nsyms * sym_size;
     try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
