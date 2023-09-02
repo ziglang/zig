@@ -2631,7 +2631,13 @@ pub fn renameatW(
 
     var need_fallback = true;
     var rc: windows.NTSTATUS = undefined;
-    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
+    // FILE_RENAME_INFORMATION_EX and FILE_RENAME_POSIX_SEMANTICS require >= win10_rs1,
+    // but FILE_RENAME_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5. We check >= rs5 here
+    // so that we only use POSIX_SEMANTICS when we know IGNORE_READONLY_ATTRIBUTE will also be
+    // supported in order to avoid either (1) using a redundant call that we can know in advance will return
+    // STATUS_NOT_SUPPORTED or (2) only setting IGNORE_READONLY_ATTRIBUTE when >= rs5
+    // and therefore having different behavior when the Windows version is >= rs1 but < rs5.
+    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs5)) {
         const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) + (MAX_PATH_BYTES - 1);
         var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION_EX)) = undefined;
         const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) - 1 + new_path_w.len * 2;
