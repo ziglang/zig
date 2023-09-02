@@ -350,13 +350,27 @@ fn CityHash32hashIgnoreSeed(str: []const u8, seed: u32) u32 {
 const verify = @import("verify.zig");
 
 test "cityhash32" {
-    // Note: SMHasher doesn't provide a 32bit version of the algorithm.
-    // Note: The implementation was verified against the Google Abseil version.
-    try std.testing.expectEqual(verify.smhasher(CityHash32hashIgnoreSeed), 0x68254F81);
+    const Test = struct {
+        fn do() !void {
+            // SMHasher doesn't provide a 32bit version of the algorithm.
+            // The implementation was verified against the Google Abseil version.
+            try std.testing.expectEqual(verify.smhasher(CityHash32hashIgnoreSeed), 0x68254F81);
+        }
+    };
+    try Test.do();
+    @setEvalBranchQuota(75000);
+    try comptime Test.do();
 }
 
 test "cityhash64" {
-    // Note: This is not compliant with the SMHasher implementation of CityHash64!
-    // Note: The implementation was verified against the Google Abseil version.
-    try std.testing.expectEqual(verify.smhasher(CityHash64.hashWithSeed), 0x5FABC5C5);
+    const Test = struct {
+        fn do() !void {
+            // This is not compliant with the SMHasher implementation of CityHash64!
+            // The implementation was verified against the Google Abseil version.
+            try std.testing.expectEqual(verify.smhasher(CityHash64.hashWithSeed), 0x5FABC5C5);
+        }
+    };
+    try Test.do();
+    @setEvalBranchQuota(75000);
+    try comptime Test.do();
 }

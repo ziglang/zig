@@ -66,7 +66,7 @@ pub const Wyhash = struct {
     }
 
     pub fn final(self: *Wyhash) u64 {
-        var input = self.buf[0..self.buf_len];
+        var input: []const u8 = self.buf[0..self.buf_len];
         var newSelf = self.shallowCopy(); // ensure idempotency
 
         if (self.total_len <= 16) {
@@ -231,11 +231,25 @@ test "test vectors at comptime" {
 }
 
 test "smhasher" {
-    try expectEqual(verify.smhasher(Wyhash.hash), 0xBD5E840C);
+    const Test = struct {
+        fn do() !void {
+            try expectEqual(verify.smhasher(Wyhash.hash), 0xBD5E840C);
+        }
+    };
+    try Test.do();
+    @setEvalBranchQuota(50000);
+    try comptime Test.do();
 }
 
 test "iterative api" {
-    try verify.iterativeApi(Wyhash);
+    const Test = struct {
+        fn do() !void {
+            try verify.iterativeApi(Wyhash);
+        }
+    };
+    try Test.do();
+    @setEvalBranchQuota(50000);
+    try comptime Test.do();
 }
 
 test "iterative maintains last sixteen" {

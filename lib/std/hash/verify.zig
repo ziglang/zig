@@ -22,7 +22,7 @@ fn initMaybeSeed(comptime Hash: anytype, seed: anytype) Hash {
     }
 }
 
-// Returns a verification code, the same as user by SMHasher.
+// Returns a verification code, the same as used by SMHasher.
 //
 // Hash keys of the form {0}, {0,1}, {0,1,2}... up to N=255, using 256-N as seed.
 // First four-bytes of the hash, interpreted as little-endian is the verification code.
