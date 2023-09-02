@@ -1,99 +1,3 @@
-const Elf = @This();
-
-const std = @import("std");
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const elf = std.elf;
-const fs = std.fs;
-const log = std.log.scoped(.link);
-const math = std.math;
-const mem = std.mem;
-
-const codegen = @import("../codegen.zig");
-const glibc = @import("../glibc.zig");
-const link = @import("../link.zig");
-const lldMain = @import("../main.zig").lldMain;
-const musl = @import("../musl.zig");
-const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
-
-const Air = @import("../Air.zig");
-const Allocator = std.mem.Allocator;
-pub const Atom = @import("Elf/Atom.zig");
-const Cache = std.Build.Cache;
-const Compilation = @import("../Compilation.zig");
-const Dwarf = @import("Dwarf.zig");
-const File = link.File;
-const Liveness = @import("../Liveness.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Module = @import("../Module.zig");
-const InternPool = @import("../InternPool.zig");
-const Package = @import("../Package.zig");
-const StringTable = @import("strtab.zig").StringTable;
-const TableSection = @import("table_section.zig").TableSection;
-const Type = @import("../type.zig").Type;
-const TypedValue = @import("../TypedValue.zig");
-const Value = @import("../value.zig").Value;
-
-const default_entry_addr = 0x8000000;
-
-pub const base_tag: File.Tag = .elf;
-
-const Section = struct {
-    shdr: elf.Elf64_Shdr,
-    phdr_index: u16,
-
-    /// Index of the last allocated atom in this section.
-    last_atom_index: ?Atom.Index = null,
-
-    /// A list of atoms that have surplus capacity. This list can have false
-    /// positives, as functions grow and shrink over time, only sometimes being added
-    /// or removed from the freelist.
-    ///
-    /// An atom has surplus capacity when its overcapacity value is greater than
-    /// padToIdeal(minimum_atom_size). That is, when it has so
-    /// much extra capacity, that we could fit a small new symbol in it, itself with
-    /// ideal_capacity or more.
-    ///
-    /// Ideal capacity is defined by size + (size / ideal_factor)
-    ///
-    /// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
-    /// overcapacity can be negative. A simple way to have negative overcapacity is to
-    /// allocate a fresh text block, which will have ideal capacity, and then grow it
-    /// by 1 byte. It will then have -1 overcapacity.
-    free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
-};
-
-const LazySymbolMetadata = struct {
-    const State = enum { unused, pending_flush, flushed };
-    text_atom: Atom.Index = undefined,
-    rodata_atom: Atom.Index = undefined,
-    text_state: State = .unused,
-    rodata_state: State = .unused,
-};
-
-const DeclMetadata = struct {
-    atom: Atom.Index,
-    shdr: u16,
-    /// A list of all exports aliases of this Decl.
-    exports: std.ArrayListUnmanaged(u32) = .{},
-
-    fn getExport(m: DeclMetadata, elf_file: *const Elf, name: []const u8) ?u32 {
-        for (m.exports.items) |exp| {
-            if (mem.eql(u8, name, elf_file.getGlobalName(exp))) return exp;
-        }
-        return null;
-    }
-
-    fn getExportPtr(m: *DeclMetadata, elf_file: *Elf, name: []const u8) ?*u32 {
-        for (m.exports.items) |*exp| {
-            if (mem.eql(u8, name, elf_file.getGlobalName(exp.*))) return exp;
-        }
-        return null;
-    }
-};
-
 base: File,
 dwarf: ?Dwarf = null,
 
@@ -151,11 +55,13 @@ strtab_section_index: ?u16 = null,
 /// local symbols, they cannot be mixed. So we must buffer all the global symbols and
 /// write them at the end. These are only the local symbols. The length of this array
 /// is the value used for sh_info in the .symtab section.
-local_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
-global_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
+locals: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
+globals: std.ArrayListUnmanaged(u32) = .{},
+resolver: std.StringHashMapUnmanaged(u32) = .{},
+unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 
-local_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
-global_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
+locals_free_list: std.ArrayListUnmanaged(u32) = .{},
+globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 got_table: TableSection(u32) = .{},
 
@@ -247,14 +153,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     self.shdr_table_dirty = true;
 
     // Index 0 is always a null symbol.
-    try self.local_symbols.append(allocator, .{
-        .st_name = 0,
-        .st_info = 0,
-        .st_other = 0,
-        .st_shndx = 0,
-        .st_value = 0,
-        .st_size = 0,
-    });
+    try self.locals.append(allocator, null_sym);
 
     // There must always be a null section in index 0
     try self.sections.append(allocator, .{
@@ -329,11 +228,20 @@ pub fn deinit(self: *Elf) void {
     self.program_headers.deinit(gpa);
     self.shstrtab.deinit(gpa);
     self.strtab.deinit(gpa);
-    self.local_symbols.deinit(gpa);
-    self.global_symbols.deinit(gpa);
-    self.global_symbol_free_list.deinit(gpa);
-    self.local_symbol_free_list.deinit(gpa);
+    self.locals.deinit(gpa);
+    self.globals.deinit(gpa);
+    self.globals_free_list.deinit(gpa);
+    self.locals_free_list.deinit(gpa);
     self.got_table.deinit(gpa);
+    self.unresolved.deinit(gpa);
+
+    {
+        var it = self.resolver.keyIterator();
+        while (it.next()) |key_ptr| {
+            gpa.free(key_ptr.*);
+        }
+        self.resolver.deinit(gpa);
+    }
 
     {
         var it = self.decls.iterator();
@@ -743,7 +651,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
                 .sh_size = file_size,
                 // The section header index of the associated string table.
                 .sh_link = self.strtab_section_index.?,
-                .sh_info = @as(u32, @intCast(self.local_symbols.items.len)),
+                .sh_info = @as(u32, @intCast(self.locals.items.len)),
                 .sh_addralign = min_align,
                 .sh_entsize = each_size,
             },
@@ -908,7 +816,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 
     {
         // Iterate over symbols, populating free_list and last_text_block.
-        if (self.local_symbols.items.len != 1) {
+        if (self.locals.items.len != 1) {
             @panic("TODO implement setting up free_list and last_text_block from existing ELF file");
         }
         // We are starting with an empty file. The default values are correct, null and empty list.
@@ -1109,7 +1017,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             log.debug("relocating '{?s}'", .{self.strtab.get(source_sym.st_name)});
 
             for (relocs.items) |*reloc| {
-                const target_sym = self.local_symbols.items[reloc.target];
+                const target_sym = self.locals.items[reloc.target];
                 const target_vaddr = target_sym.st_value + reloc.addend;
 
                 if (target_vaddr == reloc.prev_vaddr) continue;
@@ -2219,22 +2127,14 @@ fn freeAtom(self: *Elf, atom_index: Atom.Index) void {
     }
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
-    const local_sym_index = atom.getSymbolIndex().?;
+    const sym_index = atom.getSymbolIndex().?;
 
-    log.debug("adding %{d} to local symbols free list", .{local_sym_index});
-    self.local_symbol_free_list.append(gpa, local_sym_index) catch {};
-    self.local_symbols.items[local_sym_index] = .{
-        .st_name = 0,
-        .st_info = 0,
-        .st_other = 0,
-        .st_shndx = 0,
-        .st_value = 0,
-        .st_size = 0,
-    };
-    _ = self.atom_by_index_table.remove(local_sym_index);
-    self.getAtomPtr(atom_index).local_sym_index = 0;
-
-    self.got_table.freeEntry(gpa, local_sym_index);
+    log.debug("adding %{d} to local symbols free list", .{sym_index});
+    self.locals_free_list.append(gpa, sym_index) catch {};
+    self.locals.items[sym_index] = null_sym;
+    _ = self.atom_by_index_table.remove(sym_index);
+    self.getAtomPtr(atom_index).sym_index = 0;
+    self.got_table.freeEntry(gpa, sym_index);
 }
 
 fn shrinkAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64) void {
@@ -2256,14 +2156,14 @@ pub fn createAtom(self: *Elf) !Atom.Index {
     const gpa = self.base.allocator;
     const atom_index = @as(Atom.Index, @intCast(self.atoms.items.len));
     const atom = try self.atoms.addOne(gpa);
-    const local_sym_index = try self.allocateLocalSymbol();
-    try self.atom_by_index_table.putNoClobber(gpa, local_sym_index, atom_index);
+    const sym_index = try self.allocateSymbol();
+    try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom_index);
     atom.* = .{
-        .local_sym_index = local_sym_index,
+        .sym_index = sym_index,
         .prev_index = null,
         .next_index = null,
     };
-    log.debug("creating ATOM(%{d}) at index {d}", .{ local_sym_index, atom_index });
+    log.debug("creating ATOM(%{d}) at index {d}", .{ sym_index, atom_index });
     return atom_index;
 }
 
@@ -2389,22 +2289,20 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
     return vaddr;
 }
 
-pub fn allocateLocalSymbol(self: *Elf) !u32 {
-    try self.local_symbols.ensureUnusedCapacity(self.base.allocator, 1);
-
+pub fn allocateSymbol(self: *Elf) !u32 {
+    try self.locals.ensureUnusedCapacity(self.base.allocator, 1);
     const index = blk: {
-        if (self.local_symbol_free_list.popOrNull()) |index| {
+        if (self.locals_free_list.popOrNull()) |index| {
             log.debug("  (reusing symbol index {d})", .{index});
             break :blk index;
         } else {
-            log.debug("  (allocating symbol index {d})", .{self.local_symbols.items.len});
-            const index = @as(u32, @intCast(self.local_symbols.items.len));
-            _ = self.local_symbols.addOneAssumeCapacity();
+            log.debug("  (allocating symbol index {d})", .{self.locals.items.len});
+            const index = @as(u32, @intCast(self.locals.items.len));
+            _ = self.locals.addOneAssumeCapacity();
             break :blk index;
         }
     };
-
-    self.local_symbols.items[index] = .{
+    self.locals.items[index] = .{
         .st_name = 0,
         .st_info = 0,
         .st_other = 0,
@@ -2412,7 +2310,23 @@ pub fn allocateLocalSymbol(self: *Elf) !u32 {
         .st_value = 0,
         .st_size = 0,
     };
+    return index;
+}
 
+fn allocateGlobal(self: *Elf) !u32 {
+    try self.globals.ensureUnusedCapacity(self.base.allocator, 1);
+    const index = blk: {
+        if (self.globals_free_list.popOrNull()) |index| {
+            log.debug("  (reusing global index {d})", .{index});
+            break :blk index;
+        } else {
+            log.debug("  (allocating symbol index {d})", .{self.globals.items.len});
+            const index = @as(u32, @intCast(self.globals.items.len));
+            _ = self.globals.addOneAssumeCapacity();
+            break :blk index;
+        }
+    };
+    self.globals.items[index] = 0;
     return index;
 }
 
@@ -2896,8 +2810,6 @@ pub fn updateDeclExports(
     const decl_metadata = self.decls.getPtr(decl_index).?;
     const shdr_index = decl_metadata.shdr;
 
-    try self.global_symbols.ensureUnusedCapacity(gpa, exports.len);
-
     for (exports) |exp| {
         const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
         if (exp.opts.section.unwrap()) |section_name| {
@@ -2905,7 +2817,7 @@ pub fn updateDeclExports(
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
                 mod.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(mod), "Unimplemented: ExportOptions.section", .{}),
+                    try Module.ErrorMsg.create(gpa, decl.srcLoc(mod), "Unimplemented: ExportOptions.section", .{}),
                 );
                 continue;
             }
@@ -2924,37 +2836,30 @@ pub fn updateDeclExports(
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
                 mod.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(mod), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
+                    try Module.ErrorMsg.create(gpa, decl.srcLoc(mod), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
                 );
                 continue;
             },
         };
         const stt_bits: u8 = @as(u4, @truncate(decl_sym.st_info));
-        if (decl_metadata.getExport(self, exp_name)) |i| {
-            const sym = &self.global_symbols.items[i];
-            sym.* = .{
-                .st_name = try self.strtab.insert(gpa, exp_name),
-                .st_info = (stb_bits << 4) | stt_bits,
-                .st_other = 0,
-                .st_shndx = shdr_index,
-                .st_value = decl_sym.st_value,
-                .st_size = decl_sym.st_size,
-            };
-        } else {
-            const i = if (self.global_symbol_free_list.popOrNull()) |i| i else blk: {
-                _ = self.global_symbols.addOneAssumeCapacity();
-                break :blk self.global_symbols.items.len - 1;
-            };
-            try decl_metadata.exports.append(gpa, @as(u32, @intCast(i)));
-            self.global_symbols.items[i] = .{
-                .st_name = try self.strtab.insert(gpa, exp_name),
-                .st_info = (stb_bits << 4) | stt_bits,
-                .st_other = 0,
-                .st_shndx = shdr_index,
-                .st_value = decl_sym.st_value,
-                .st_size = decl_sym.st_size,
-            };
-        }
+
+        const sym_index = decl_metadata.getExport(self, exp_name) orelse blk: {
+            const sym_index = try self.allocateSymbol();
+            try decl_metadata.exports.append(gpa, sym_index);
+            break :blk sym_index;
+        };
+        const sym = self.getSymbolPtr(sym_index);
+        sym.* = .{
+            .st_name = try self.strtab.insert(gpa, exp_name),
+            .st_info = (stb_bits << 4) | stt_bits,
+            .st_other = 0,
+            .st_shndx = shdr_index,
+            .st_value = decl_sym.st_value,
+            .st_size = decl_sym.st_size,
+        };
+        const sym_name = self.getSymbolName(sym_index);
+        const gop = try self.getOrPutGlobalPtr(sym_name);
+        gop.value_ptr.* = sym_index;
     }
 }
 
@@ -2981,10 +2886,20 @@ pub fn deleteDeclExport(
 ) void {
     if (self.llvm_object) |_| return;
     const metadata = self.decls.getPtr(decl_index) orelse return;
+    const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
-    const sym_index = metadata.getExportPtr(self, mod.intern_pool.stringToSlice(name)) orelse return;
-    self.global_symbol_free_list.append(self.base.allocator, sym_index.*) catch {};
-    self.global_symbols.items[sym_index.*].st_info = 0;
+    const exp_name = mod.intern_pool.stringToSlice(name);
+    const sym_index = metadata.getExportPtr(self, exp_name) orelse return;
+    const sym = self.getSymbolPtr(sym_index.*);
+    log.debug("deleting export '{s}'", .{exp_name});
+    sym.* = null_sym;
+    self.locals_free_list.append(gpa, sym_index.*) catch {};
+
+    if (self.resolver.fetchRemove(exp_name)) |entry| {
+        self.globals_free_list.append(gpa, entry.value) catch {};
+        self.globals.items[entry.value] = 0;
+    }
+
     sym_index.* = 0;
 }
 
@@ -3110,10 +3025,10 @@ fn writeSymbols(self: *Elf) !void {
     };
 
     const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
-    shdr.sh_info = @intCast(self.local_symbols.items.len);
+    shdr.sh_info = @intCast(self.locals.items.len);
     self.markDirty(self.symtab_section_index.?, null);
 
-    const nsyms = self.local_symbols.items.len + self.global_symbols.items.len;
+    const nsyms = self.locals.items.len + self.globals.items.len;
     const needed_size = nsyms * sym_size;
     try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
 
@@ -3124,15 +3039,15 @@ fn writeSymbols(self: *Elf) !void {
             const buf = try gpa.alloc(elf.Elf32_Sym, nsyms);
             defer gpa.free(buf);
 
-            for (buf[0..self.local_symbols.items.len], self.local_symbols.items) |*sym, local| {
+            for (buf[0..self.locals.items.len], self.locals.items) |*sym, local| {
                 elf32SymFromSym(local, sym);
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf32_Sym, sym);
                 }
             }
 
-            for (buf[self.local_symbols.items.len..], self.global_symbols.items) |*sym, global| {
-                elf32SymFromSym(global, sym);
+            for (buf[self.locals.items.len..], self.globals.items) |*sym, global| {
+                elf32SymFromSym(self.getSymbol(global), sym);
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf32_Sym, sym);
                 }
@@ -3142,15 +3057,15 @@ fn writeSymbols(self: *Elf) !void {
         .p64 => {
             const buf = try gpa.alloc(elf.Elf64_Sym, nsyms);
             defer gpa.free(buf);
-            for (buf[0..self.local_symbols.items.len], self.local_symbols.items) |*sym, local| {
+            for (buf[0..self.locals.items.len], self.locals.items) |*sym, local| {
                 sym.* = local;
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf64_Sym, sym);
                 }
             }
 
-            for (buf[self.local_symbols.items.len..], self.global_symbols.items) |*sym, global| {
-                sym.* = global;
+            for (buf[self.locals.items.len..], self.globals.items) |*sym, global| {
+                sym.* = self.getSymbol(global);
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf64_Sym, sym);
                 }
@@ -3450,11 +3365,12 @@ const CsuObjects = struct {
 
 fn logSymtab(self: Elf) void {
     log.debug("locals:", .{});
-    for (self.local_symbols.items, 0..) |sym, id| {
+    for (self.locals.items, 0..) |sym, id| {
         log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.strtab.get(sym.st_name), sym.st_value, sym.st_shndx });
     }
     log.debug("globals:", .{});
-    for (self.global_symbols.items, 0..) |sym, id| {
+    for (self.globals.items, 0..) |global, id| {
+        const sym = self.getSymbol(global);
         log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.strtab.get(sym.st_name), sym.st_value, sym.st_shndx });
     }
 }
@@ -3471,24 +3387,61 @@ pub fn getProgramHeaderPtr(self: *Elf, shdr_index: u16) *elf.Elf64_Phdr {
 
 /// Returns pointer-to-symbol described at sym_index.
 pub fn getSymbolPtr(self: *Elf, sym_index: u32) *elf.Elf64_Sym {
-    return &self.local_symbols.items[sym_index];
+    return &self.locals.items[sym_index];
 }
 
 /// Returns symbol at sym_index.
 pub fn getSymbol(self: *const Elf, sym_index: u32) elf.Elf64_Sym {
-    return self.local_symbols.items[sym_index];
+    return self.locals.items[sym_index];
 }
 
 /// Returns name of the symbol at sym_index.
 pub fn getSymbolName(self: *const Elf, sym_index: u32) []const u8 {
-    const sym = self.local_symbols.items[sym_index];
+    const sym = self.locals.items[sym_index];
     return self.strtab.get(sym.st_name).?;
 }
 
-/// Returns name of the global symbol at index.
-pub fn getGlobalName(self: *const Elf, index: u32) []const u8 {
-    const sym = self.global_symbols.items[index];
-    return self.strtab.get(sym.st_name).?;
+/// Returns pointer to the global entry for `name` if one exists.
+pub fn getGlobalPtr(self: *Elf, name: []const u8) ?*u32 {
+    const global_index = self.resolver.get(name) orelse return null;
+    return &self.globals.items[global_index];
+}
+
+/// Returns the global entry for `name` if one exists.
+pub fn getGlobal(self: *const Elf, name: []const u8) ?u32 {
+    const global_index = self.resolver.get(name) orelse return null;
+    return self.globals.items[global_index];
+}
+
+/// Returns the index of the global entry for `name` if one exists.
+pub fn getGlobalIndex(self: *const Elf, name: []const u8) ?u32 {
+    return self.resolver.get(name);
+}
+
+/// Returns global entry at `index`.
+pub fn getGlobalByIndex(self: *const Elf, index: u32) u32 {
+    assert(index < self.globals.items.len);
+    return self.globals.items[index];
+}
+
+const GetOrPutGlobalPtrResult = struct {
+    found_existing: bool,
+    value_ptr: *u32,
+};
+
+/// Return pointer to the global entry for `name` if one exists.
+/// Puts a new global entry for `name` if one doesn't exist, and
+/// returns a pointer to it.
+pub fn getOrPutGlobalPtr(self: *Elf, name: []const u8) !GetOrPutGlobalPtrResult {
+    if (self.getGlobalPtr(name)) |ptr| {
+        return GetOrPutGlobalPtrResult{ .found_existing = true, .value_ptr = ptr };
+    }
+    const gpa = self.base.allocator;
+    const global_index = try self.allocateGlobal();
+    const global_name = try gpa.dupe(u8, name);
+    _ = try self.resolver.put(gpa, global_name, global_index);
+    const ptr = &self.globals.items[global_index];
+    return GetOrPutGlobalPtrResult{ .found_existing = false, .value_ptr = ptr };
 }
 
 pub fn getAtom(self: *const Elf, atom_index: Atom.Index) Atom {
@@ -3506,3 +3459,108 @@ pub fn getAtomPtr(self: *Elf, atom_index: Atom.Index) *Atom {
 pub fn getAtomIndexForSymbol(self: *Elf, sym_index: u32) ?Atom.Index {
     return self.atom_by_index_table.get(sym_index);
 }
+
+pub const null_sym = elf.Elf64_Sym{
+    .st_name = 0,
+    .st_info = 0,
+    .st_other = 0,
+    .st_shndx = 0,
+    .st_value = 0,
+    .st_size = 0,
+};
+
+const default_entry_addr = 0x8000000;
+
+pub const base_tag: File.Tag = .elf;
+
+const Section = struct {
+    shdr: elf.Elf64_Shdr,
+    phdr_index: u16,
+
+    /// Index of the last allocated atom in this section.
+    last_atom_index: ?Atom.Index = null,
+
+    /// A list of atoms that have surplus capacity. This list can have false
+    /// positives, as functions grow and shrink over time, only sometimes being added
+    /// or removed from the freelist.
+    ///
+    /// An atom has surplus capacity when its overcapacity value is greater than
+    /// padToIdeal(minimum_atom_size). That is, when it has so
+    /// much extra capacity, that we could fit a small new symbol in it, itself with
+    /// ideal_capacity or more.
+    ///
+    /// Ideal capacity is defined by size + (size / ideal_factor)
+    ///
+    /// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
+    /// overcapacity can be negative. A simple way to have negative overcapacity is to
+    /// allocate a fresh text block, which will have ideal capacity, and then grow it
+    /// by 1 byte. It will then have -1 overcapacity.
+    free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
+};
+
+const LazySymbolMetadata = struct {
+    const State = enum { unused, pending_flush, flushed };
+    text_atom: Atom.Index = undefined,
+    rodata_atom: Atom.Index = undefined,
+    text_state: State = .unused,
+    rodata_state: State = .unused,
+};
+
+const DeclMetadata = struct {
+    atom: Atom.Index,
+    shdr: u16,
+    /// A list of all exports aliases of this Decl.
+    exports: std.ArrayListUnmanaged(u32) = .{},
+
+    fn getExport(m: DeclMetadata, elf_file: *const Elf, name: []const u8) ?u32 {
+        for (m.exports.items) |exp| {
+            if (mem.eql(u8, name, elf_file.getSymbolName(exp))) return exp;
+        }
+        return null;
+    }
+
+    fn getExportPtr(m: *DeclMetadata, elf_file: *Elf, name: []const u8) ?*u32 {
+        for (m.exports.items) |*exp| {
+            if (mem.eql(u8, name, elf_file.getSymbolName(exp.*))) return exp;
+        }
+        return null;
+    }
+};
+
+const Elf = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const elf = std.elf;
+const fs = std.fs;
+const log = std.log.scoped(.link);
+const math = std.math;
+const mem = std.mem;
+
+const codegen = @import("../codegen.zig");
+const glibc = @import("../glibc.zig");
+const link = @import("../link.zig");
+const lldMain = @import("../main.zig").lldMain;
+const musl = @import("../musl.zig");
+const target_util = @import("../target.zig");
+const trace = @import("../tracy.zig").trace;
+
+const Air = @import("../Air.zig");
+const Allocator = std.mem.Allocator;
+pub const Atom = @import("Elf/Atom.zig");
+const Cache = std.Build.Cache;
+const Compilation = @import("../Compilation.zig");
+const Dwarf = @import("Dwarf.zig");
+const File = link.File;
+const Liveness = @import("../Liveness.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
+const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
+const Package = @import("../Package.zig");
+const StringTable = @import("strtab.zig").StringTable;
+const TableSection = @import("table_section.zig").TableSection;
+const Type = @import("../type.zig").Type;
+const TypedValue = @import("../TypedValue.zig");
+const Value = @import("../value.zig").Value;

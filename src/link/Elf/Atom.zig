@@ -1,18 +1,10 @@
-const Atom = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const elf = std.elf;
-
-const Elf = @import("../Elf.zig");
-
 /// Each decl always gets a local symbol with the fully qualified name.
 /// The vaddr and size are found here directly.
 /// The file offset is found by computing the vaddr offset from the section vaddr
 /// the symbol references, and adding that to the file offset of the section.
 /// If this field is 0, it means the codegen size = 0 and there is no symbol or
 /// offset table entry.
-local_sym_index: u32,
+sym_index: u32,
 
 /// Points to the previous and next neighbors, based on the `text_offset`.
 /// This can be used to find, for example, the capacity of this `TextBlock`.
@@ -29,8 +21,8 @@ pub const Reloc = struct {
 };
 
 pub fn getSymbolIndex(self: Atom) ?u32 {
-    if (self.local_sym_index == 0) return null;
-    return self.local_sym_index;
+    if (self.sym_index == 0) return null;
+    return self.sym_index;
 }
 
 pub fn getSymbol(self: Atom, elf_file: *const Elf) elf.Elf64_Sym {
@@ -106,3 +98,11 @@ pub fn freeRelocations(elf_file: *Elf, atom_index: Index) void {
     var removed_relocs = elf_file.relocs.fetchRemove(atom_index);
     if (removed_relocs) |*relocs| relocs.value.deinit(elf_file.base.allocator);
 }
+
+const Atom = @This();
+
+const std = @import("std");
+const assert = std.debug.assert;
+const elf = std.elf;
+
+const Elf = @import("../Elf.zig");
