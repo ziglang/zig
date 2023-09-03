@@ -750,7 +750,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .phdr_index = undefined,
         });
         self.shdr_table_dirty = true;
-        try self.writeSymbol(0);
     }
 
     if (self.dwarf) |*dw| {
@@ -1134,9 +1133,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
     }
 
-    // Unfortunately these have to be buffered and done at the end because ELF does not allow
-    // mixing local and global symbols within a symbol table.
-    try self.writeAllGlobalSymbols();
+    try self.writeSymbols();
 
     if (build_options.enable_logging) {
         self.logSymtab();
@@ -2551,9 +2548,6 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
             self.shrinkAtom(atom_index, code.len);
         }
         local_sym.st_size = code.len;
-
-        // TODO this write could be avoided if no fields of the symbol were changed.
-        try self.writeSymbol(local_sym_index);
     } else {
         const local_sym = atom.getSymbolPtr(self);
         local_sym.* = .{
@@ -2571,7 +2565,6 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
         local_sym.st_value = vaddr;
         local_sym.st_size = code.len;
 
-        try self.writeSymbol(local_sym_index);
         const got_entry_index = try atom.getOrCreateOffsetTableEntry(self);
         try self.writeOffsetTableEntry(got_entry_index);
     }
@@ -2807,7 +2800,6 @@ fn updateLazySymbolAtom(
     local_sym.st_value = vaddr;
     local_sym.st_size = code.len;
 
-    try self.writeSymbol(local_sym_index);
     const got_entry_index = try atom.getOrCreateOffsetTableEntry(self);
     try self.writeOffsetTableEntry(got_entry_index);
 
@@ -2870,7 +2862,6 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
 
     log.debug("allocated text block for {s} at 0x{x}", .{ name, local_sym.st_value });
 
-    try self.writeSymbol(self.getAtom(atom_index).getSymbolIndex().?);
     try unnamed_consts.append(gpa, atom_index);
 
     const section_offset = local_sym.st_value - self.program_headers.items[phdr_index].p_vaddr;
@@ -3096,63 +3087,19 @@ fn writeOffsetTableEntry(self: *Elf, index: @TypeOf(self.got_table).Index) !void
     }
 }
 
-fn writeSymbol(self: *Elf, index: usize) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const syms_sect = &self.sections.items(.shdr)[self.symtab_section_index.?];
-    // Make sure we are not pointlessly writing symbol data that will have to get relocated
-    // due to running out of space.
-    if (self.local_symbols.items.len != syms_sect.sh_info) {
-        const sym_size: u64 = switch (self.ptr_width) {
-            .p32 => @sizeOf(elf.Elf32_Sym),
-            .p64 => @sizeOf(elf.Elf64_Sym),
-        };
-        const sym_align: u16 = switch (self.ptr_width) {
-            .p32 => @alignOf(elf.Elf32_Sym),
-            .p64 => @alignOf(elf.Elf64_Sym),
-        };
-        const needed_size = (self.local_symbols.items.len + self.global_symbols.items.len) * sym_size;
-        try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
-        syms_sect.sh_info = @as(u32, @intCast(self.local_symbols.items.len));
-    }
-    const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
-    const off = switch (self.ptr_width) {
-        .p32 => syms_sect.sh_offset + @sizeOf(elf.Elf32_Sym) * index,
-        .p64 => syms_sect.sh_offset + @sizeOf(elf.Elf64_Sym) * index,
+fn elf32SymFromSym(sym: elf.Elf64_Sym, out: *elf.Elf32_Sym) void {
+    out.* = .{
+        .st_name = sym.st_name,
+        .st_value = @as(u32, @intCast(sym.st_value)),
+        .st_size = @as(u32, @intCast(sym.st_size)),
+        .st_info = sym.st_info,
+        .st_other = sym.st_other,
+        .st_shndx = sym.st_shndx,
     };
-    const local = self.local_symbols.items[index];
-    log.debug("writing symbol {d}, '{?s}' at 0x{x}", .{ index, self.strtab.get(local.st_name), off });
-    log.debug("  ({})", .{local});
-    switch (self.ptr_width) {
-        .p32 => {
-            var sym = [1]elf.Elf32_Sym{
-                .{
-                    .st_name = local.st_name,
-                    .st_value = @as(u32, @intCast(local.st_value)),
-                    .st_size = @as(u32, @intCast(local.st_size)),
-                    .st_info = local.st_info,
-                    .st_other = local.st_other,
-                    .st_shndx = local.st_shndx,
-                },
-            };
-            if (foreign_endian) {
-                mem.byteSwapAllFields(elf.Elf32_Sym, &sym[0]);
-            }
-            try self.base.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
-        },
-        .p64 => {
-            var sym = [1]elf.Elf64_Sym{local};
-            if (foreign_endian) {
-                mem.byteSwapAllFields(elf.Elf64_Sym, &sym[0]);
-            }
-            try self.base.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
-        },
-    }
 }
 
-fn writeAllGlobalSymbols(self: *Elf) !void {
-    const syms_sect = &self.sections.items(.shdr)[self.symtab_section_index.?];
+fn writeSymbols(self: *Elf) !void {
+    const gpa = self.base.allocator;
     const sym_size: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Sym),
         .p64 => @sizeOf(elf.Elf64_Sym),
@@ -3161,52 +3108,54 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
         .p32 => @alignOf(elf.Elf32_Sym),
         .p64 => @alignOf(elf.Elf64_Sym),
     };
-    const needed_size = (self.local_symbols.items.len + self.global_symbols.items.len) * sym_size;
+
+    const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
+    shdr.sh_info = @intCast(self.local_symbols.items.len);
+    self.markDirty(self.symtab_section_index.?, null);
+
+    const nsyms = self.local_symbols.items.len + self.global_symbols.items.len;
+    const needed_size = nsyms * sym_size;
     try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
-    const global_syms_off = syms_sect.sh_offset + self.local_symbols.items.len * sym_size;
-    log.debug("writing {d} global symbols at 0x{x}", .{ self.global_symbols.items.len, global_syms_off });
+    log.debug("writing {d} symbols at 0x{x}", .{ nsyms, shdr.sh_offset });
     switch (self.ptr_width) {
         .p32 => {
-            const buf = try self.base.allocator.alloc(elf.Elf32_Sym, self.global_symbols.items.len);
-            defer self.base.allocator.free(buf);
+            const buf = try gpa.alloc(elf.Elf32_Sym, nsyms);
+            defer gpa.free(buf);
 
-            for (buf, 0..) |*sym, i| {
-                const global = self.global_symbols.items[i];
-                sym.* = .{
-                    .st_name = global.st_name,
-                    .st_value = @as(u32, @intCast(global.st_value)),
-                    .st_size = @as(u32, @intCast(global.st_size)),
-                    .st_info = global.st_info,
-                    .st_other = global.st_other,
-                    .st_shndx = global.st_shndx,
-                };
+            for (buf[0..self.local_symbols.items.len], self.local_symbols.items) |*sym, local| {
+                elf32SymFromSym(local, sym);
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf32_Sym, sym);
                 }
             }
-            try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);
+
+            for (buf[self.local_symbols.items.len..], self.global_symbols.items) |*sym, global| {
+                elf32SymFromSym(global, sym);
+                if (foreign_endian) {
+                    mem.byteSwapAllFields(elf.Elf32_Sym, sym);
+                }
+            }
+            try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), shdr.sh_offset);
         },
         .p64 => {
-            const buf = try self.base.allocator.alloc(elf.Elf64_Sym, self.global_symbols.items.len);
-            defer self.base.allocator.free(buf);
-
-            for (buf, 0..) |*sym, i| {
-                const global = self.global_symbols.items[i];
-                sym.* = .{
-                    .st_name = global.st_name,
-                    .st_value = global.st_value,
-                    .st_size = global.st_size,
-                    .st_info = global.st_info,
-                    .st_other = global.st_other,
-                    .st_shndx = global.st_shndx,
-                };
+            const buf = try gpa.alloc(elf.Elf64_Sym, nsyms);
+            defer gpa.free(buf);
+            for (buf[0..self.local_symbols.items.len], self.local_symbols.items) |*sym, local| {
+                sym.* = local;
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf64_Sym, sym);
                 }
             }
-            try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);
+
+            for (buf[self.local_symbols.items.len..], self.global_symbols.items) |*sym, global| {
+                sym.* = global;
+                if (foreign_endian) {
+                    mem.byteSwapAllFields(elf.Elf64_Sym, sym);
+                }
+            }
+            try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), shdr.sh_offset);
         },
     }
 }

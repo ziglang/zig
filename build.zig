@@ -632,16 +632,14 @@ fn addCmakeCfgOptionsToExe(
         const lib_suffix = if (static) exe.target.staticLibSuffix()[1..] else exe.target.dynamicLibSuffix()[1..];
         switch (exe.target.getOsTag()) {
             .linux => {
-                // First we try to link against system libstdc++ or libc++.
-                // If that doesn't work, we fall to -lc++ and cross our fingers.
-                const found = for ([_][]const u8{ "stdc++", "c++" }) |name| {
-                    addCxxKnownPath(b, cfg, exe, b.fmt("lib{s}.{s}", .{ name, lib_suffix }), "", need_cpp_includes) catch |err| switch (err) {
-                        error.RequiredLibraryNotFound => continue,
-                        else => |e| return e,
-                    };
-                    break true;
-                } else false;
-                if (!found) exe.linkLibCpp();
+                // First we try to link against the detected libcxx name. If that doesn't work, we fall
+                // back to -lc++ and cross our fingers.
+                addCxxKnownPath(b, cfg, exe, b.fmt("lib{s}.{s}", .{ cfg.system_libcxx, lib_suffix }), "", need_cpp_includes) catch |err| switch (err) {
+                    error.RequiredLibraryNotFound => {
+                        exe.linkLibCpp();
+                    },
+                    else => |e| return e,
+                };
                 exe.linkSystemLibrary("unwind");
             },
             .ios, .macos, .watchos, .tvos => {
@@ -775,6 +773,7 @@ const CMakeConfig = struct {
     llvm_include_dir: []const u8,
     llvm_libraries: []const u8,
     dia_guids_lib: []const u8,
+    system_libcxx: []const u8,
 };
 
 const max_config_h_bytes = 1 * 1024 * 1024;
@@ -840,6 +839,7 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
         .llvm_include_dir = undefined,
         .llvm_libraries = undefined,
         .dia_guids_lib = undefined,
+        .system_libcxx = undefined,
     };
 
     const mappings = [_]struct { prefix: []const u8, field: []const u8 }{
@@ -890,6 +890,10 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
         .{
             .prefix = "#define ZIG_LLVM_LIB_PATH ",
             .field = "llvm_lib_dir",
+        },
+        .{
+            .prefix = "#define ZIG_SYSTEM_LIBCXX",
+            .field = "system_libcxx",
         },
         // .prefix = ZIG_LLVM_LINK_MODE parsed manually below
     };
