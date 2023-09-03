@@ -564,7 +564,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
             null;
         if (platform.isBuildVersionCompatible()) {
             try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
-        } else {
+        } else if (platform.isVersionMinCompatible()) {
             try load_commands.writeVersionMinLC(platform, sdk_version, lc_writer);
         }
     }
