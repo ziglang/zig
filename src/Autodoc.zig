@@ -775,7 +775,9 @@ const DocData = struct {
         sizeOf: usize, // index in `exprs`
         bitSizeOf: usize, // index in `exprs`
         intFromEnum: usize, // index in `exprs`
-        compileError: usize, //index in `exprs`
+        compileError: usize, // index in `exprs`
+        optionalPayload: usize, // index in `exprs`
+        elemVal: ElemVal,
         errorSets: usize,
         string: []const u8, // direct value
         sliceIndex: usize,
@@ -791,6 +793,7 @@ const DocData = struct {
         switchOp: SwitchOp,
         binOp: BinOp,
         binOpIndex: usize,
+        load: usize, // index in `exprs`
         const BinOp = struct {
             lhs: usize, // index in `exprs`
             rhs: usize, // index in `exprs`
@@ -844,6 +847,11 @@ const DocData = struct {
         const FieldVal = struct {
             name: []const u8,
             val: WalkResult,
+        };
+
+        const ElemVal = struct {
+            lhs: usize, // index in `exprs`
+            rhs: usize, // index in `exprs`
         };
 
         pub fn jsonStringify(self: Expr, jsw: anytype) !void {
@@ -1460,6 +1468,38 @@ fn walkInstruction(
             return DocData.WalkResult{
                 .typeRef = typeRef,
                 .expr = .{ .sliceIndex = slice_index },
+            };
+        },
+
+        .load => {
+            const un_node = data[inst_index].un_node;
+            const operand = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                un_node.operand,
+                need_type,
+                call_ctx,
+            );
+            const load_idx = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
+            var typeRef: ?DocData.Expr = null;
+            if (operand.typeRef) |ref| {
+                switch (ref) {
+                    .type => |t_index| {
+                        switch (self.types.items[t_index]) {
+                            .Pointer => |p| typeRef = p.child,
+                            else => {},
+                        }
+                    },
+                    else => {},
+                }
+            }
+
+            return DocData.WalkResult{
+                .typeRef = typeRef,
+                .expr = .{ .load = load_idx },
             };
         },
 
@@ -2861,6 +2901,72 @@ fn walkInstruction(
             );
 
             return result;
+        },
+        .optional_payload_safe, .optional_payload_unsafe => {
+            const un_node = data[inst_index].un_node;
+            const operand = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                un_node.operand,
+                need_type,
+                call_ctx,
+            );
+            const optional_idx = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
+            var typeRef: ?DocData.Expr = null;
+            if (operand.typeRef) |ref| {
+                switch (ref) {
+                    .type => |t_index| {
+                        const t = self.types.items[t_index];
+                        switch (t) {
+                            .Optional => |opt| typeRef = opt.child,
+                            else => {
+                                printWithContext(file, inst_index, "Invalid type for optional_payload_*: {}\n", .{t});
+                            },
+                        }
+                    },
+                    else => {},
+                }
+            }
+
+            return DocData.WalkResult{
+                .typeRef = typeRef,
+                .expr = .{ .optionalPayload = optional_idx },
+            };
+        },
+        .elem_val_node => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
+            const lhs = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.lhs,
+                need_type,
+                call_ctx,
+            );
+            const rhs = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.rhs,
+                need_type,
+                call_ctx,
+            );
+            const lhs_idx = self.exprs.items.len;
+            try self.exprs.append(self.arena, lhs.expr);
+            const rhs_idx = self.exprs.items.len;
+            try self.exprs.append(self.arena, rhs.expr);
+            return DocData.WalkResult{
+                .expr = .{
+                    .elemVal = .{
+                        .lhs = lhs_idx,
+                        .rhs = rhs_idx,
+                    },
+                },
+            };
         },
         .extended => {
             const extended = data[inst_index].extended;
