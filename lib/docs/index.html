@@ -818,7 +818,8 @@
       pre {
         --zig-keyword: #333;
         --zig-builtin: #0086b3;
-        --zig-identifier: 'black';
+        --zig-identifier: black;
+        --zig-decl-identifier: #0086b3;
         --zig-string-literal: #d14;
         --zig-type: #458;
         --zig-fn: #900;
@@ -828,13 +829,13 @@
         pre {
           --zig-keyword: #eee;
           --zig-builtin: #ff894c;
-          --zig-identifier: 'purple';
+          --zig-identifier: #bbbbbb;
+          --zig-decl-identifier: lightblue;
           --zig-string-literal: #2e5;
           --zig-type: #68f;
           --zig-fn: #e33;
         }
       }
-    
 
     .zig_keyword_addrspace,
     .zig_keyword_align,
@@ -912,6 +913,11 @@
 
     .zig_identifier {
       color: var(--zig-identifier);
+      font-weight: bold;
+    }
+    
+    .zig_decl_identifier {
+      color: var(--zig-decl-identifier);
       font-weight: bold;
     }
 
