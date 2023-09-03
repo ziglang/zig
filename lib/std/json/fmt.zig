@@ -27,7 +27,7 @@ pub fn Formatter(comptime T: type) type {
     };
 }
 
-test "json fmt" {
+test fmt {
     const expectFmt = std.testing.expectFmt;
     try expectFmt("123", "{}", .{fmt(@as(u32, 123), .{})});
     try expectFmt(
