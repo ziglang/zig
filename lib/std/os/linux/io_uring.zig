@@ -374,7 +374,7 @@ pub const IO_Uring = struct {
     /// Queues (but does not submit) an SQE to perform a `read(2)` or `preadv` depending on the buffer type.
     /// * Reading into a `ReadBuffer.buffer` uses `read(2)`
     /// * Reading into a `ReadBuffer.iovecs` uses `preadv(2)`
-    ///   If you want to do a `preadv2()` then set `rw_flags` on the returned SQE. See https://linux.die.net/man/2/preadv.
+    ///   If you want to do a `preadv(2)` then set `rw_flags` on the returned SQE. See https://linux.die.net/man/2/preadv.
     ///
     /// Returns a pointer to the SQE.
     pub fn read(
