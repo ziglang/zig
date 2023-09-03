@@ -10,11 +10,11 @@ test "super basic invocations" {
         }
     }.foo;
     try expect(@call(.auto, foo, .{}) == 1234);
-    comptime try expect(@call(.always_inline, foo, .{}) == 1234);
+    try comptime expect(@call(.always_inline, foo, .{}) == 1234);
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        comptime try expect(result);
+        try comptime expect(result);
     }
 }
 
@@ -42,7 +42,7 @@ test "basic invocations" {
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        comptime try expect(result);
+        try comptime expect(result);
     }
     {
         // call of non comptime-known function
@@ -71,7 +71,7 @@ test "tuple parameters" {
     try expect(@call(.auto, add, .{ a, b }) == 46);
     try expect(@call(.auto, add, .{ 12, 34 }) == 46);
     if (false) {
-        comptime try expect(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
+        try comptime expect(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
     }
     try expect(comptime @call(.auto, add, .{ 12, 34 }) == 46);
     {
@@ -344,7 +344,7 @@ test "inline call doesn't re-evaluate non generic struct" {
     };
     const ArgTuple = std.meta.ArgsTuple(@TypeOf(S.foo));
     try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
-    comptime try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
+    try comptime @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
 }
 
 test "Enum constructed by @Type passed as generic argument" {
@@ -364,11 +364,11 @@ test "Enum constructed by @Type passed as generic argument" {
             alive: bool,
         });
         fn foo(comptime a: E, b: u32) !void {
-            try expect(@enumToInt(a) == b);
+            try expect(@intFromEnum(a) == b);
         }
     };
     inline for (@typeInfo(S.E).Enum.fields, 0..) |_, i| {
-        try S.foo(@intToEnum(S.E, i), i);
+        try S.foo(@as(S.E, @enumFromInt(i)), i);
     }
 }
 
@@ -414,4 +414,80 @@ test "inline while with @call" {
         @call(.auto, S.inc, .{&a});
     }
     try expect(a == 10);
+}
+
+test "method call as parameter type" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn foo(x: anytype, y: @TypeOf(x).Inner()) @TypeOf(y) {
+            return y;
+        }
+        fn Inner() type {
+            return u64;
+        }
+    };
+    try expectEqual(@as(u64, 123), S.foo(S{}, 123));
+    try expectEqual(@as(u64, 500), S.foo(S{}, 500));
+}
+
+test "non-anytype generic parameters provide result type" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn f(comptime T: type, y: T) !void {
+            try expectEqual(@as(T, 123), y);
+        }
+
+        fn g(x: anytype, y: @TypeOf(x)) !void {
+            try expectEqual(@as(@TypeOf(x), 0x222), y);
+        }
+    };
+
+    var rt_u16: u16 = 123;
+    var rt_u32: u32 = 0x10000222;
+
+    try S.f(u8, @intCast(rt_u16));
+    try S.f(u8, @intCast(123));
+
+    try S.g(rt_u16, @truncate(rt_u32));
+    try S.g(rt_u16, @truncate(0x10000222));
+
+    try comptime S.f(u8, @intCast(123));
+    try comptime S.g(@as(u16, undefined), @truncate(0x99990222));
+}
+
+test "argument to generic function has correct result type" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo(_: anytype, e: enum { a, b }) bool {
+            return e == .b;
+        }
+
+        fn doTheTest() !void {
+            var t = true;
+
+            // Since the enum literal passes through a runtime conditional here, these can only
+            // compile if RLS provides the correct result type to the argument
+            try expect(foo({}, if (!t) .a else .b));
+            try expect(!foo("dummy", if (t) .a else .b));
+            try expect(foo({}, if (t) .b else .a));
+            try expect(!foo(123, if (t) .a else .a));
+            try expect(foo(123, if (t) .b else .b));
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }

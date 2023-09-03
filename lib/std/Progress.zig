@@ -68,6 +68,7 @@ pub const Node = struct {
     context: *Progress,
     parent: ?*Node,
     name: []const u8,
+    unit: []const u8 = "",
     /// Must be handled atomically to be thread-safe.
     recently_updated_child: ?*Node = null,
     /// Must be handled atomically to be thread-safe. 0 means null.
@@ -132,6 +133,21 @@ pub const Node = struct {
         progress.update_mutex.lock();
         defer progress.update_mutex.unlock();
         self.name = name;
+        if (self.parent) |parent| {
+            @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
+            if (parent.parent) |grand_parent| {
+                @atomicStore(?*Node, &grand_parent.recently_updated_child, parent, .Release);
+            }
+            if (progress.timer) |*timer| progress.maybeRefreshWithHeldLock(timer);
+        }
+    }
+
+    /// Thread-safe.
+    pub fn setUnit(self: *Node, unit: []const u8) void {
+        const progress = self.context;
+        progress.update_mutex.lock();
+        defer progress.update_mutex.unlock();
+        self.unit = unit;
         if (self.parent) |parent| {
             @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
             if (parent.parent) |grand_parent| {
@@ -232,14 +248,14 @@ fn clearWithHeldLock(p: *Progress, end_ptr: *usize) void {
             }
 
             var cursor_pos = windows.COORD{
-                .X = info.dwCursorPosition.X - @intCast(windows.SHORT, p.columns_written),
+                .X = info.dwCursorPosition.X - @as(windows.SHORT, @intCast(p.columns_written)),
                 .Y = info.dwCursorPosition.Y,
             };
 
             if (cursor_pos.X < 0)
                 cursor_pos.X = 0;
 
-            const fill_chars = @intCast(windows.DWORD, info.dwSize.X - cursor_pos.X);
+            const fill_chars = @as(windows.DWORD, @intCast(info.dwSize.X - cursor_pos.X));
 
             var written: windows.DWORD = undefined;
             if (windows.kernel32.FillConsoleOutputAttribute(
@@ -307,11 +323,11 @@ fn refreshWithHeldLock(self: *Progress) void {
                 }
                 if (eti > 0) {
                     if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}/{d}] ", .{ current_item, eti });
+                    self.bufWrite(&end, "[{d}/{d}{s}] ", .{ current_item, eti, node.unit });
                     need_ellipse = false;
                 } else if (completed_items != 0) {
                     if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}] ", .{current_item});
+                    self.bufWrite(&end, "[{d}{s}] ", .{ current_item, node.unit });
                     need_ellipse = false;
                 }
             }

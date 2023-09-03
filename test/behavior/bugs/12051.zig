@@ -30,8 +30,8 @@ const Y = struct {
         return .{
             .a = 0,
             .b = false,
-            .c = @bitCast(Z, @as(u32, 0)),
-            .d = @bitCast(Z, @as(u32, 0)),
+            .c = @as(Z, @bitCast(@as(u32, 0))),
+            .d = @as(Z, @bitCast(@as(u32, 0))),
         };
     }
 };

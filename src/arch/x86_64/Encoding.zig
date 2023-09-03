@@ -56,7 +56,7 @@ pub fn findByMnemonic(
 
     var shortest_enc: ?Encoding = null;
     var shortest_len: ?usize = null;
-    next: for (mnemonic_to_encodings_map[@enumToInt(mnemonic)]) |data| {
+    next: for (mnemonic_to_encodings_map[@intFromEnum(mnemonic)]) |data| {
         switch (data.mode) {
             .none, .short => if (rex_required) continue,
             .rex, .rex_short => if (!rex_required) continue,
@@ -85,7 +85,7 @@ pub fn findByOpcode(opc: []const u8, prefixes: struct {
     rex: Rex,
 }, modrm_ext: ?u3) ?Encoding {
     for (mnemonic_to_encodings_map, 0..) |encs, mnemonic_int| for (encs) |data| {
-        const enc = Encoding{ .mnemonic = @intToEnum(Mnemonic, mnemonic_int), .data = data };
+        const enc = Encoding{ .mnemonic = @as(Mnemonic, @enumFromInt(mnemonic_int)), .data = data };
         if (modrm_ext) |ext| if (ext != data.modrm_ext) continue;
         if (!std.mem.eql(u8, opc, enc.opcode())) continue;
         if (prefixes.rex.w) {
@@ -763,16 +763,16 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 
     var cwriter = std.io.countingWriter(std.io.null_writer);
     inst.encode(cwriter.writer(), .{ .allow_frame_loc = true }) catch unreachable; // Not allowed to fail here unless OOM.
-    return @intCast(usize, cwriter.bytes_written);
+    return @as(usize, @intCast(cwriter.bytes_written));
 }
 
 const mnemonic_to_encodings_map = init: {
-    @setEvalBranchQuota(30_000);
+    @setEvalBranchQuota(50_000);
     const encodings = @import("encodings.zig");
     var entries = encodings.table;
     std.mem.sort(encodings.Entry, &entries, {}, struct {
         fn lessThan(_: void, lhs: encodings.Entry, rhs: encodings.Entry) bool {
-            return @enumToInt(lhs[0]) < @enumToInt(rhs[0]);
+            return @intFromEnum(lhs[0]) < @intFromEnum(rhs[0]);
         }
     }.lessThan);
     var data_storage: [entries.len]Data = undefined;
@@ -794,7 +794,7 @@ const mnemonic_to_encodings_map = init: {
         std.mem.copyForwards(Op, &data.ops, entry[2]);
         std.mem.copyForwards(u8, &data.opc, entry[3]);
 
-        while (mnemonic_int < @enumToInt(entry[0])) : (mnemonic_int += 1) {
+        while (mnemonic_int < @intFromEnum(entry[0])) : (mnemonic_int += 1) {
             mnemonic_map[mnemonic_int] = data_storage[mnemonic_start..data_index];
             mnemonic_start = data_index;
         }

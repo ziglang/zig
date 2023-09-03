@@ -5,6 +5,7 @@ air: Air,
 liveness: Liveness,
 live: LiveMap = .{},
 blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, LiveMap) = .{},
+intern_pool: *const InternPool,
 
 pub const Error = error{ LivenessInvalid, OutOfMemory };
 
@@ -27,10 +28,11 @@ pub fn verify(self: *Verify) Error!void {
 const LiveMap = std.AutoHashMapUnmanaged(Air.Inst.Index, void);
 
 fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
+    const ip = self.intern_pool;
     const tag = self.air.instructions.items(.tag);
     const data = self.air.instructions.items(.data);
     for (body) |inst| {
-        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst)) {
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) {
             // This instruction will not be lowered and should be ignored.
             continue;
         }
@@ -39,9 +41,9 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             // no operands
             .arg,
             .alloc,
+            .inferred_alloc,
+            .inferred_alloc_comptime,
             .ret_ptr,
-            .constant,
-            .const_ty,
             .breakpoint,
             .dbg_stmt,
             .dbg_inline_begin,
@@ -58,10 +60,10 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .work_item_id,
             .work_group_size,
             .work_group_id,
-            => try self.verifyInst(inst, .{ .none, .none, .none }),
+            => try self.verifyInstOperands(inst, .{ .none, .none, .none }),
 
             .trap, .unreach => {
-                try self.verifyInst(inst, .{ .none, .none, .none });
+                try self.verifyInstOperands(inst, .{ .none, .none, .none });
                 // This instruction terminates the function, so everything should be dead
                 if (self.live.count() > 0) return invalid("%{}: instructions still alive", .{inst});
             },
@@ -94,9 +96,9 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .struct_field_ptr_index_2,
             .struct_field_ptr_index_3,
             .array_to_slice,
-            .float_to_int,
-            .float_to_int_optimized,
-            .int_to_float,
+            .int_from_float,
+            .int_from_float_optimized,
+            .float_from_int,
             .get_union_tag,
             .clz,
             .ctz,
@@ -110,7 +112,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .c_va_copy,
             => {
                 const ty_op = data[inst].ty_op;
-                try self.verifyInst(inst, .{ ty_op.operand, .none, .none });
+                try self.verifyInstOperands(inst, .{ ty_op.operand, .none, .none });
             },
             .is_null,
             .is_non_null,
@@ -120,8 +122,8 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .is_non_err,
             .is_err_ptr,
             .is_non_err_ptr,
-            .ptrtoint,
-            .bool_to_int,
+            .int_from_ptr,
+            .int_from_bool,
             .is_named_enum_value,
             .tag_name,
             .error_name,
@@ -146,13 +148,13 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .c_va_end,
             => {
                 const un_op = data[inst].un_op;
-                try self.verifyInst(inst, .{ un_op, .none, .none });
+                try self.verifyInstOperands(inst, .{ un_op, .none, .none });
             },
             .ret,
             .ret_load,
             => {
                 const un_op = data[inst].un_op;
-                try self.verifyInst(inst, .{ un_op, .none, .none });
+                try self.verifyInstOperands(inst, .{ un_op, .none, .none });
                 // This instruction terminates the function, so everything should be dead
                 if (self.live.count() > 0) return invalid("%{}: instructions still alive", .{inst});
             },
@@ -161,53 +163,53 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .wasm_memory_grow,
             => {
                 const pl_op = data[inst].pl_op;
-                try self.verifyInst(inst, .{ pl_op.operand, .none, .none });
+                try self.verifyInstOperands(inst, .{ pl_op.operand, .none, .none });
             },
             .prefetch => {
                 const prefetch = data[inst].prefetch;
-                try self.verifyInst(inst, .{ prefetch.ptr, .none, .none });
+                try self.verifyInstOperands(inst, .{ prefetch.ptr, .none, .none });
             },
             .reduce,
             .reduce_optimized,
             => {
                 const reduce = data[inst].reduce;
-                try self.verifyInst(inst, .{ reduce.operand, .none, .none });
+                try self.verifyInstOperands(inst, .{ reduce.operand, .none, .none });
             },
             .union_init => {
                 const ty_pl = data[inst].ty_pl;
                 const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
-                try self.verifyInst(inst, .{ extra.init, .none, .none });
+                try self.verifyInstOperands(inst, .{ extra.init, .none, .none });
             },
             .struct_field_ptr, .struct_field_val => {
                 const ty_pl = data[inst].ty_pl;
                 const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-                try self.verifyInst(inst, .{ extra.struct_operand, .none, .none });
+                try self.verifyInstOperands(inst, .{ extra.struct_operand, .none, .none });
             },
             .field_parent_ptr => {
                 const ty_pl = data[inst].ty_pl;
                 const extra = self.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
-                try self.verifyInst(inst, .{ extra.field_ptr, .none, .none });
+                try self.verifyInstOperands(inst, .{ extra.field_ptr, .none, .none });
             },
             .atomic_load => {
                 const atomic_load = data[inst].atomic_load;
-                try self.verifyInst(inst, .{ atomic_load.ptr, .none, .none });
+                try self.verifyInstOperands(inst, .{ atomic_load.ptr, .none, .none });
             },
 
             // binary
             .add,
+            .add_safe,
             .add_optimized,
-            .addwrap,
-            .addwrap_optimized,
+            .add_wrap,
             .add_sat,
             .sub,
+            .sub_safe,
             .sub_optimized,
-            .subwrap,
-            .subwrap_optimized,
+            .sub_wrap,
             .sub_sat,
             .mul,
+            .mul_safe,
             .mul_optimized,
-            .mulwrap,
-            .mulwrap_optimized,
+            .mul_wrap,
             .mul_sat,
             .div_float,
             .div_float_optimized,
@@ -260,7 +262,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .memcpy,
             => {
                 const bin_op = data[inst].bin_op;
-                try self.verifyInst(inst, .{ bin_op.lhs, bin_op.rhs, .none });
+                try self.verifyInstOperands(inst, .{ bin_op.lhs, bin_op.rhs, .none });
             },
             .add_with_overflow,
             .sub_with_overflow,
@@ -274,69 +276,69 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             => {
                 const ty_pl = data[inst].ty_pl;
                 const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-                try self.verifyInst(inst, .{ extra.lhs, extra.rhs, .none });
+                try self.verifyInstOperands(inst, .{ extra.lhs, extra.rhs, .none });
             },
             .shuffle => {
                 const ty_pl = data[inst].ty_pl;
                 const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
-                try self.verifyInst(inst, .{ extra.a, extra.b, .none });
+                try self.verifyInstOperands(inst, .{ extra.a, extra.b, .none });
             },
             .cmp_vector,
             .cmp_vector_optimized,
             => {
                 const ty_pl = data[inst].ty_pl;
                 const extra = self.air.extraData(Air.VectorCmp, ty_pl.payload).data;
-                try self.verifyInst(inst, .{ extra.lhs, extra.rhs, .none });
+                try self.verifyInstOperands(inst, .{ extra.lhs, extra.rhs, .none });
             },
             .atomic_rmw => {
                 const pl_op = data[inst].pl_op;
                 const extra = self.air.extraData(Air.AtomicRmw, pl_op.payload).data;
-                try self.verifyInst(inst, .{ pl_op.operand, extra.operand, .none });
+                try self.verifyInstOperands(inst, .{ pl_op.operand, extra.operand, .none });
             },
 
             // ternary
             .select => {
                 const pl_op = data[inst].pl_op;
                 const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
-                try self.verifyInst(inst, .{ pl_op.operand, extra.lhs, extra.rhs });
+                try self.verifyInstOperands(inst, .{ pl_op.operand, extra.lhs, extra.rhs });
             },
             .mul_add => {
                 const pl_op = data[inst].pl_op;
                 const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
-                try self.verifyInst(inst, .{ extra.lhs, extra.rhs, pl_op.operand });
+                try self.verifyInstOperands(inst, .{ extra.lhs, extra.rhs, pl_op.operand });
             },
             .vector_store_elem => {
                 const vector_store_elem = data[inst].vector_store_elem;
                 const extra = self.air.extraData(Air.Bin, vector_store_elem.payload).data;
-                try self.verifyInst(inst, .{ vector_store_elem.vector_ptr, extra.lhs, extra.rhs });
+                try self.verifyInstOperands(inst, .{ vector_store_elem.vector_ptr, extra.lhs, extra.rhs });
             },
             .cmpxchg_strong,
             .cmpxchg_weak,
             => {
                 const ty_pl = data[inst].ty_pl;
                 const extra = self.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
-                try self.verifyInst(inst, .{ extra.ptr, extra.expected_value, extra.new_value });
+                try self.verifyInstOperands(inst, .{ extra.ptr, extra.expected_value, extra.new_value });
             },
 
             // big tombs
             .aggregate_init => {
                 const ty_pl = data[inst].ty_pl;
                 const aggregate_ty = self.air.getRefType(ty_pl.ty);
-                const len = @intCast(usize, aggregate_ty.arrayLen());
-                const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+                const len = @as(usize, @intCast(aggregate_ty.arrayLenIp(ip)));
+                const elements = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[ty_pl.payload..][0..len]));
 
                 var bt = self.liveness.iterateBigTomb(inst);
                 for (elements) |element| {
                     try self.verifyOperand(inst, element, bt.feed());
                 }
-                try self.verifyInst(inst, .{ .none, .none, .none });
+                try self.verifyInst(inst);
             },
             .call, .call_always_tail, .call_never_tail, .call_never_inline => {
                 const pl_op = data[inst].pl_op;
                 const extra = self.air.extraData(Air.Call, pl_op.payload);
-                const args = @ptrCast(
+                const args = @as(
                     []const Air.Inst.Ref,
-                    self.air.extra[extra.end..][0..extra.data.args_len],
+                    @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]),
                 );
 
                 var bt = self.liveness.iterateBigTomb(inst);
@@ -344,20 +346,20 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 for (args) |arg| {
                     try self.verifyOperand(inst, arg, bt.feed());
                 }
-                try self.verifyInst(inst, .{ .none, .none, .none });
+                try self.verifyInst(inst);
             },
             .assembly => {
                 const ty_pl = data[inst].ty_pl;
                 const extra = self.air.extraData(Air.Asm, ty_pl.payload);
                 var extra_i = extra.end;
-                const outputs = @ptrCast(
+                const outputs = @as(
                     []const Air.Inst.Ref,
-                    self.air.extra[extra_i..][0..extra.data.outputs_len],
+                    @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]),
                 );
                 extra_i += outputs.len;
-                const inputs = @ptrCast(
+                const inputs = @as(
                     []const Air.Inst.Ref,
-                    self.air.extra[extra_i..][0..extra.data.inputs_len],
+                    @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]),
                 );
                 extra_i += inputs.len;
 
@@ -370,7 +372,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 for (inputs) |input| {
                     try self.verifyOperand(inst, input, bt.feed());
                 }
-                try self.verifyInst(inst, .{ .none, .none, .none });
+                try self.verifyInst(inst);
             },
 
             // control flow
@@ -394,7 +396,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 for (cond_br_liveness.then_deaths) |death| try self.verifyDeath(inst, death);
 
-                try self.verifyInst(inst, .{ .none, .none, .none });
+                try self.verifyInst(inst);
             },
             .try_ptr => {
                 const ty_pl = data[inst].ty_pl;
@@ -416,7 +418,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 for (cond_br_liveness.then_deaths) |death| try self.verifyDeath(inst, death);
 
-                try self.verifyInst(inst, .{ .none, .none, .none });
+                try self.verifyInst(inst);
             },
             .br => {
                 const br = data[inst].br;
@@ -428,7 +430,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 } else {
                     gop.value_ptr.* = try self.live.clone(self.gpa);
                 }
-                try self.verifyInst(inst, .{ .none, .none, .none });
+                try self.verifyInst(inst);
             },
             .block => {
                 const ty_pl = data[inst].ty_pl;
@@ -450,7 +452,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 for (block_liveness.deaths) |death| try self.verifyDeath(inst, death);
 
-                if (block_ty.isNoReturn()) {
+                if (ip.isNoReturn(block_ty.toIntern())) {
                     assert(!self.blocks.contains(inst));
                 } else {
                     var live = self.blocks.fetchRemove(inst).?.value;
@@ -459,7 +461,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                     try self.verifyMatchingLiveness(inst, live);
                 }
 
-                try self.verifyInst(inst, .{ .none, .none, .none });
+                try self.verifyInstOperands(inst, .{ .none, .none, .none });
             },
             .loop => {
                 const ty_pl = data[inst].ty_pl;
@@ -474,7 +476,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 // The same stuff should be alive after the loop as before it
                 try self.verifyMatchingLiveness(inst, live);
 
-                try self.verifyInst(inst, .{ .none, .none, .none });
+                try self.verifyInstOperands(inst, .{ .none, .none, .none });
             },
             .cond_br => {
                 const pl_op = data[inst].pl_op;
@@ -497,7 +499,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 for (cond_br_liveness.else_deaths) |death| try self.verifyDeath(inst, death);
                 try self.verifyBody(else_body);
 
-                try self.verifyInst(inst, .{ .none, .none, .none });
+                try self.verifyInst(inst);
             },
             .switch_br => {
                 const pl_op = data[inst].pl_op;
@@ -518,9 +520,9 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 while (case_i < switch_br.data.cases_len) : (case_i += 1) {
                     const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-                    const items = @ptrCast(
+                    const items = @as(
                         []const Air.Inst.Ref,
-                        self.air.extra[case.end..][0..case.data.items_len],
+                        @ptrCast(self.air.extra[case.end..][0..case.data.items_len]),
                     );
                     const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
                     extra_index = case.end + items.len + case_body.len;
@@ -541,7 +543,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                     try self.verifyBody(else_body);
                 }
 
-                try self.verifyInst(inst, .{ .none, .none, .none });
+                try self.verifyInst(inst);
             },
         }
     }
@@ -552,38 +554,34 @@ fn verifyDeath(self: *Verify, inst: Air.Inst.Index, operand: Air.Inst.Index) Err
 }
 
 fn verifyOperand(self: *Verify, inst: Air.Inst.Index, op_ref: Air.Inst.Ref, dies: bool) Error!void {
-    const operand = Air.refToIndex(op_ref) orelse return;
-    switch (self.air.instructions.items(.tag)[operand]) {
-        .constant, .const_ty => {},
-        else => {
-            if (dies) {
-                if (!self.live.remove(operand)) return invalid("%{}: dead operand %{} reused and killed again", .{ inst, operand });
-            } else {
-                if (!self.live.contains(operand)) return invalid("%{}: dead operand %{} reused", .{ inst, operand });
-            }
-        },
+    const operand = Air.refToIndexAllowNone(op_ref) orelse {
+        assert(!dies);
+        return;
+    };
+    if (dies) {
+        if (!self.live.remove(operand)) return invalid("%{}: dead operand %{} reused and killed again", .{ inst, operand });
+    } else {
+        if (!self.live.contains(operand)) return invalid("%{}: dead operand %{} reused", .{ inst, operand });
     }
 }
 
-fn verifyInst(
+fn verifyInstOperands(
     self: *Verify,
     inst: Air.Inst.Index,
     operands: [Liveness.bpi - 1]Air.Inst.Ref,
 ) Error!void {
     for (operands, 0..) |operand, operand_index| {
-        const dies = self.liveness.operandDies(inst, @intCast(Liveness.OperandInt, operand_index));
+        const dies = self.liveness.operandDies(inst, @as(Liveness.OperandInt, @intCast(operand_index)));
         try self.verifyOperand(inst, operand, dies);
     }
-    const tag = self.air.instructions.items(.tag);
-    switch (tag[inst]) {
-        .constant, .const_ty => unreachable,
-        else => {
-            if (self.liveness.isUnused(inst)) {
-                assert(!self.live.contains(inst));
-            } else {
-                try self.live.putNoClobber(self.gpa, inst, {});
-            }
-        },
+    try self.verifyInst(inst);
+}
+
+fn verifyInst(self: *Verify, inst: Air.Inst.Index) Error!void {
+    if (self.liveness.isUnused(inst)) {
+        assert(!self.live.contains(inst));
+    } else {
+        try self.live.putNoClobber(self.gpa, inst, {});
     }
 }
 
@@ -604,4 +602,5 @@ const log = std.log.scoped(.liveness_verify);
 
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
+const InternPool = @import("../InternPool.zig");
 const Verify = @This();

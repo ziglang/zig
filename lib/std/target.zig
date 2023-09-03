@@ -1,11 +1,8 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
-const Version = std.builtin.Version;
+const Version = std.SemanticVersion;
 
-/// TODO Nearly all the functions in this namespace would be
-/// better off if https://github.com/ziglang/zig/issues/425
-/// was solved.
 pub const Target = struct {
     cpu: Cpu,
     os: Os,
@@ -62,14 +59,14 @@ pub const Target = struct {
             plan9,
             other,
 
-            pub fn isDarwin(tag: Tag) bool {
+            pub inline fn isDarwin(tag: Tag) bool {
                 return switch (tag) {
                     .ios, .macos, .watchos, .tvos => true,
                     else => false,
                 };
             }
 
-            pub fn isBSD(tag: Tag) bool {
+            pub inline fn isBSD(tag: Tag) bool {
                 return tag.isDarwin() or switch (tag) {
                     .kfreebsd, .freebsd, .openbsd, .netbsd, .dragonfly => true,
                     else => false,
@@ -138,23 +135,23 @@ pub const Target = struct {
             };
 
             /// Returns whether the first version `self` is newer (greater) than or equal to the second version `ver`.
-            pub fn isAtLeast(self: WindowsVersion, ver: WindowsVersion) bool {
-                return @enumToInt(self) >= @enumToInt(ver);
+            pub inline fn isAtLeast(self: WindowsVersion, ver: WindowsVersion) bool {
+                return @intFromEnum(self) >= @intFromEnum(ver);
             }
 
             pub const Range = struct {
                 min: WindowsVersion,
                 max: WindowsVersion,
 
-                pub fn includesVersion(self: Range, ver: WindowsVersion) bool {
-                    return @enumToInt(ver) >= @enumToInt(self.min) and @enumToInt(ver) <= @enumToInt(self.max);
+                pub inline fn includesVersion(self: Range, ver: WindowsVersion) bool {
+                    return @intFromEnum(ver) >= @intFromEnum(self.min) and @intFromEnum(ver) <= @intFromEnum(self.max);
                 }
 
                 /// Checks if system is guaranteed to be at least `version` or older than `version`.
                 /// Returns `null` if a runtime check is required.
-                pub fn isAtLeast(self: Range, ver: WindowsVersion) ?bool {
-                    if (@enumToInt(self.min) >= @enumToInt(ver)) return true;
-                    if (@enumToInt(self.max) < @enumToInt(ver)) return false;
+                pub inline fn isAtLeast(self: Range, ver: WindowsVersion) ?bool {
+                    if (@intFromEnum(self.min) >= @intFromEnum(ver)) return true;
+                    if (@intFromEnum(self.max) < @intFromEnum(ver)) return false;
                     return null;
                 }
             };
@@ -168,17 +165,17 @@ pub const Target = struct {
                 out_stream: anytype,
             ) !void {
                 if (comptime std.mem.eql(u8, fmt, "s")) {
-                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
+                    if (@intFromEnum(self) >= @intFromEnum(WindowsVersion.nt4) and @intFromEnum(self) <= @intFromEnum(WindowsVersion.latest)) {
                         try std.fmt.format(out_stream, ".{s}", .{@tagName(self)});
                     } else {
                         // TODO this code path breaks zig triples, but it is used in `builtin`
-                        try std.fmt.format(out_stream, "@intToEnum(Target.Os.WindowsVersion, 0x{X:0>8})", .{@enumToInt(self)});
+                        try std.fmt.format(out_stream, "@enumFromInt(Target.Os.WindowsVersion, 0x{X:0>8})", .{@intFromEnum(self)});
                     }
                 } else if (fmt.len == 0) {
-                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
+                    if (@intFromEnum(self) >= @intFromEnum(WindowsVersion.nt4) and @intFromEnum(self) <= @intFromEnum(WindowsVersion.latest)) {
                         try std.fmt.format(out_stream, "WindowsVersion.{s}", .{@tagName(self)});
                     } else {
-                        try std.fmt.format(out_stream, "WindowsVersion(0x{X:0>8})", .{@enumToInt(self)});
+                        try std.fmt.format(out_stream, "WindowsVersion(0x{X:0>8})", .{@intFromEnum(self)});
                     }
                 } else {
                     std.fmt.invalidFmtError(fmt, self);
@@ -190,13 +187,13 @@ pub const Target = struct {
             range: Version.Range,
             glibc: Version,
 
-            pub fn includesVersion(self: LinuxVersionRange, ver: Version) bool {
+            pub inline fn includesVersion(self: LinuxVersionRange, ver: Version) bool {
                 return self.range.includesVersion(ver);
             }
 
             /// Checks if system is guaranteed to be at least `version` or older than `version`.
             /// Returns `null` if a runtime check is required.
-            pub fn isAtLeast(self: LinuxVersionRange, ver: Version) ?bool {
+            pub inline fn isAtLeast(self: LinuxVersionRange, ver: Version) ?bool {
                 return self.range.isAtLeast(ver);
             }
         };
@@ -272,75 +269,75 @@ pub const Target = struct {
 
                     .freebsd => return .{
                         .semver = Version.Range{
-                            .min = .{ .major = 12, .minor = 0 },
-                            .max = .{ .major = 13, .minor = 1 },
+                            .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                            .max = .{ .major = 13, .minor = 1, .patch = 0 },
                         },
                     },
                     .macos => return switch (arch) {
                         .aarch64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3 },
+                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
                             },
                         },
                         .x86_64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3 },
+                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
                             },
                         },
                         else => unreachable,
                     },
                     .ios => return .{
                         .semver = .{
-                            .min = .{ .major = 12, .minor = 0 },
+                            .min = .{ .major = 12, .minor = 0, .patch = 0 },
                             .max = .{ .major = 13, .minor = 4, .patch = 0 },
                         },
                     },
                     .watchos => return .{
                         .semver = .{
-                            .min = .{ .major = 6, .minor = 0 },
+                            .min = .{ .major = 6, .minor = 0, .patch = 0 },
                             .max = .{ .major = 6, .minor = 2, .patch = 0 },
                         },
                     },
                     .tvos => return .{
                         .semver = .{
-                            .min = .{ .major = 13, .minor = 0 },
+                            .min = .{ .major = 13, .minor = 0, .patch = 0 },
                             .max = .{ .major = 13, .minor = 4, .patch = 0 },
                         },
                     },
                     .netbsd => return .{
                         .semver = .{
-                            .min = .{ .major = 8, .minor = 0 },
-                            .max = .{ .major = 10, .minor = 0 },
+                            .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                            .max = .{ .major = 10, .minor = 0, .patch = 0 },
                         },
                     },
                     .openbsd => return .{
                         .semver = .{
-                            .min = .{ .major = 6, .minor = 8 },
-                            .max = .{ .major = 7, .minor = 2 },
+                            .min = .{ .major = 6, .minor = 8, .patch = 0 },
+                            .max = .{ .major = 7, .minor = 2, .patch = 0 },
                         },
                     },
                     .dragonfly => return .{
                         .semver = .{
-                            .min = .{ .major = 5, .minor = 8 },
-                            .max = .{ .major = 6, .minor = 4 },
+                            .min = .{ .major = 5, .minor = 8, .patch = 0 },
+                            .max = .{ .major = 6, .minor = 4, .patch = 0 },
                         },
                     },
                     .solaris => return .{
                         .semver = .{
-                            .min = .{ .major = 5, .minor = 11 },
-                            .max = .{ .major = 5, .minor = 11 },
+                            .min = .{ .major = 5, .minor = 11, .patch = 0 },
+                            .max = .{ .major = 5, .minor = 11, .patch = 0 },
                         },
                     },
 
                     .linux => return .{
                         .linux = .{
                             .range = .{
-                                .min = .{ .major = 3, .minor = 16 },
+                                .min = .{ .major = 3, .minor = 16, .patch = 0 },
                                 .max = .{ .major = 5, .minor = 10, .patch = 81 },
                             },
-                            .glibc = .{ .major = 2, .minor = 19 },
+                            .glibc = .{ .major = 2, .minor = 19, .patch = 0 },
                         },
                     },
 
@@ -363,7 +360,7 @@ pub const Target = struct {
 
         /// Provides a tagged union. `Target` does not store the tag because it is
         /// redundant with the OS tag; this function abstracts that part away.
-        pub fn getVersionRange(self: Os) TaggedVersionRange {
+        pub inline fn getVersionRange(self: Os) TaggedVersionRange {
             switch (self.tag) {
                 .linux => return TaggedVersionRange{ .linux = self.version_range.linux },
                 .windows => return TaggedVersionRange{ .windows = self.version_range.windows },
@@ -385,7 +382,7 @@ pub const Target = struct {
 
         /// Checks if system is guaranteed to be at least `version` or older than `version`.
         /// Returns `null` if a runtime check is required.
-        pub fn isAtLeast(self: Os, comptime tag: Tag, version: anytype) ?bool {
+        pub inline fn isAtLeast(self: Os, comptime tag: Tag, version: anytype) ?bool {
             if (self.tag != tag) return false;
 
             return switch (tag) {
@@ -398,7 +395,7 @@ pub const Target = struct {
         /// On Darwin, we always link libSystem which contains libc.
         /// Similarly on FreeBSD and NetBSD we always link system libc
         /// since this is the stable syscall interface.
-        pub fn requiresLibC(os: Os) bool {
+        pub inline fn requiresLibC(os: Os) bool {
             return switch (os.tag) {
                 .freebsd,
                 .netbsd,
@@ -572,21 +569,21 @@ pub const Target = struct {
             }
         }
 
-        pub fn isGnu(abi: Abi) bool {
+        pub inline fn isGnu(abi: Abi) bool {
             return switch (abi) {
                 .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
                 else => false,
             };
         }
 
-        pub fn isMusl(abi: Abi) bool {
+        pub inline fn isMusl(abi: Abi) bool {
             return switch (abi) {
                 .musl, .musleabi, .musleabihf => true,
                 else => false,
             };
         }
 
-        pub fn floatAbi(abi: Abi) FloatAbi {
+        pub inline fn floatAbi(abi: Abi) FloatAbi {
             return switch (abi) {
                 .gnueabihf,
                 .eabihf,
@@ -711,14 +708,14 @@ pub const Target = struct {
 
                 pub fn isEnabled(set: Set, arch_feature_index: Index) bool {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
-                    const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
+                    const bit_index = @as(ShiftInt, @intCast(arch_feature_index % @bitSizeOf(usize)));
                     return (set.ints[usize_index] & (@as(usize, 1) << bit_index)) != 0;
                 }
 
                 /// Adds the specified feature but not its dependencies.
                 pub fn addFeature(set: *Set, arch_feature_index: Index) void {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
-                    const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
+                    const bit_index = @as(ShiftInt, @intCast(arch_feature_index % @bitSizeOf(usize)));
                     set.ints[usize_index] |= @as(usize, 1) << bit_index;
                 }
 
@@ -730,7 +727,7 @@ pub const Target = struct {
                 /// Removes the specified feature but not its dependents.
                 pub fn removeFeature(set: *Set, arch_feature_index: Index) void {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
-                    const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
+                    const bit_index = @as(ShiftInt, @intCast(arch_feature_index % @bitSizeOf(usize)));
                     set.ints[usize_index] &= ~(@as(usize, 1) << bit_index);
                 }
 
@@ -745,7 +742,7 @@ pub const Target = struct {
                     var old = set.ints;
                     while (true) {
                         for (all_features_list, 0..) |feature, index_usize| {
-                            const index = @intCast(Index, index_usize);
+                            const index = @as(Index, @intCast(index_usize));
                             if (set.isEnabled(index)) {
                                 set.addFeatureSet(feature.dependencies);
                             }
@@ -757,7 +754,7 @@ pub const Target = struct {
                 }
 
                 pub fn asBytes(set: *const Set) *const [byte_count]u8 {
-                    return @ptrCast(*const [byte_count]u8, &set.ints);
+                    return @as(*const [byte_count]u8, @ptrCast(&set.ints));
                 }
 
                 pub fn eql(set: Set, other_set: Set) bool {
@@ -778,21 +775,21 @@ pub const Target = struct {
                     pub fn featureSet(features: []const F) Set {
                         var x = Set.empty;
                         for (features) |feature| {
-                            x.addFeature(@enumToInt(feature));
+                            x.addFeature(@intFromEnum(feature));
                         }
                         return x;
                     }
 
                     /// Returns true if the specified feature is enabled.
                     pub fn featureSetHas(set: Set, feature: F) bool {
-                        return set.isEnabled(@enumToInt(feature));
+                        return set.isEnabled(@intFromEnum(feature));
                     }
 
                     /// Returns true if any specified feature is enabled.
                     pub fn featureSetHasAny(set: Set, features: anytype) bool {
                         comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
                         inline for (features) |feature| {
-                            if (set.isEnabled(@enumToInt(@as(F, feature)))) return true;
+                            if (set.isEnabled(@intFromEnum(@as(F, feature)))) return true;
                         }
                         return false;
                     }
@@ -801,7 +798,7 @@ pub const Target = struct {
                     pub fn featureSetHasAll(set: Set, features: anytype) bool {
                         comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
                         inline for (features) |feature| {
-                            if (!set.isEnabled(@enumToInt(@as(F, feature)))) return false;
+                            if (!set.isEnabled(@intFromEnum(@as(F, feature)))) return false;
                         }
                         return true;
                     }
@@ -874,91 +871,95 @@ pub const Target = struct {
             // map one-to-one with the ZigLLVM_ArchType enum.
             spu_2,
 
-            pub fn isX86(arch: Arch) bool {
+            pub inline fn isX86(arch: Arch) bool {
                 return switch (arch) {
                     .x86, .x86_64 => true,
                     else => false,
                 };
             }
 
-            pub fn isARM(arch: Arch) bool {
+            pub inline fn isARM(arch: Arch) bool {
                 return switch (arch) {
                     .arm, .armeb => true,
                     else => false,
                 };
             }
 
-            pub fn isAARCH64(arch: Arch) bool {
+            pub inline fn isAARCH64(arch: Arch) bool {
                 return switch (arch) {
                     .aarch64, .aarch64_be, .aarch64_32 => true,
                     else => false,
                 };
             }
 
-            pub fn isThumb(arch: Arch) bool {
+            pub inline fn isThumb(arch: Arch) bool {
                 return switch (arch) {
                     .thumb, .thumbeb => true,
                     else => false,
                 };
             }
 
-            pub fn isWasm(arch: Arch) bool {
+            pub inline fn isArmOrThumb(arch: Arch) bool {
+                return arch.isARM() or arch.isThumb();
+            }
+
+            pub inline fn isWasm(arch: Arch) bool {
                 return switch (arch) {
                     .wasm32, .wasm64 => true,
                     else => false,
                 };
             }
 
-            pub fn isRISCV(arch: Arch) bool {
+            pub inline fn isRISCV(arch: Arch) bool {
                 return switch (arch) {
                     .riscv32, .riscv64 => true,
                     else => false,
                 };
             }
 
-            pub fn isMIPS(arch: Arch) bool {
+            pub inline fn isMIPS(arch: Arch) bool {
                 return switch (arch) {
                     .mips, .mipsel, .mips64, .mips64el => true,
                     else => false,
                 };
             }
 
-            pub fn isPPC(arch: Arch) bool {
+            pub inline fn isPPC(arch: Arch) bool {
                 return switch (arch) {
                     .powerpc, .powerpcle => true,
                     else => false,
                 };
             }
 
-            pub fn isPPC64(arch: Arch) bool {
+            pub inline fn isPPC64(arch: Arch) bool {
                 return switch (arch) {
                     .powerpc64, .powerpc64le => true,
                     else => false,
                 };
             }
 
-            pub fn isSPARC(arch: Arch) bool {
+            pub inline fn isSPARC(arch: Arch) bool {
                 return switch (arch) {
                     .sparc, .sparcel, .sparc64 => true,
                     else => false,
                 };
             }
 
-            pub fn isSpirV(arch: Arch) bool {
+            pub inline fn isSpirV(arch: Arch) bool {
                 return switch (arch) {
                     .spirv32, .spirv64 => true,
                     else => false,
                 };
             }
 
-            pub fn isBpf(arch: Arch) bool {
+            pub inline fn isBpf(arch: Arch) bool {
                 return switch (arch) {
                     .bpfel, .bpfeb => true,
                     else => false,
                 };
             }
 
-            pub fn isNvptx(arch: Arch) bool {
+            pub inline fn isNvptx(arch: Arch) bool {
                 return switch (arch) {
                     .nvptx, .nvptx64 => true,
                     else => false,
@@ -974,7 +975,7 @@ pub const Target = struct {
                 return error.UnknownCpuModel;
             }
 
-            pub fn toElfMachine(arch: Arch) std.elf.EM {
+            pub inline fn toElfMachine(arch: Arch) std.elf.EM {
                 return switch (arch) {
                     .avr => .AVR,
                     .msp430 => .MSP430,
@@ -1039,7 +1040,7 @@ pub const Target = struct {
                 };
             }
 
-            pub fn toCoffMachine(arch: Arch) std.coff.MachineType {
+            pub inline fn toCoffMachine(arch: Arch) std.coff.MachineType {
                 return switch (arch) {
                     .avr => .Unknown,
                     .msp430 => .Unknown,
@@ -1104,7 +1105,7 @@ pub const Target = struct {
                 };
             }
 
-            pub fn endian(arch: Arch) std.builtin.Endian {
+            pub inline fn endian(arch: Arch) std.builtin.Endian {
                 return switch (arch) {
                     .avr,
                     .arm,
@@ -1153,9 +1154,9 @@ pub const Target = struct {
                     .dxil,
                     .loongarch32,
                     .loongarch64,
+                    .arc,
                     => .Little,
 
-                    .arc,
                     .armeb,
                     .aarch64_be,
                     .bpfeb,
@@ -1175,7 +1176,7 @@ pub const Target = struct {
             }
 
             /// Returns whether this architecture supports the address space
-            pub fn supportsAddressSpace(arch: Arch, address_space: std.builtin.AddressSpace) bool {
+            pub inline fn supportsAddressSpace(arch: Arch, address_space: std.builtin.AddressSpace) bool {
                 const is_nvptx = arch == .nvptx or arch == .nvptx64;
                 const is_spirv = arch == .spirv32 or arch == .spirv64;
                 const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
@@ -1357,8 +1358,6 @@ pub const Target = struct {
         }
     };
 
-    pub const stack_align = 16;
-
     pub fn zigTriple(self: Target, allocator: mem.Allocator) ![]u8 {
         return std.zig.CrossTarget.fromTarget(self).zigTriple(allocator);
     }
@@ -1419,51 +1418,51 @@ pub const Target = struct {
         return libPrefix_os_abi(self.os.tag, self.abi);
     }
 
-    pub fn isMinGW(self: Target) bool {
+    pub inline fn isMinGW(self: Target) bool {
         return self.os.tag == .windows and self.isGnu();
     }
 
-    pub fn isGnu(self: Target) bool {
+    pub inline fn isGnu(self: Target) bool {
         return self.abi.isGnu();
     }
 
-    pub fn isMusl(self: Target) bool {
+    pub inline fn isMusl(self: Target) bool {
         return self.abi.isMusl();
     }
 
-    pub fn isAndroid(self: Target) bool {
+    pub inline fn isAndroid(self: Target) bool {
         return self.abi == .android;
     }
 
-    pub fn isWasm(self: Target) bool {
+    pub inline fn isWasm(self: Target) bool {
         return self.cpu.arch.isWasm();
     }
 
-    pub fn isDarwin(self: Target) bool {
+    pub inline fn isDarwin(self: Target) bool {
         return self.os.tag.isDarwin();
     }
 
-    pub fn isBSD(self: Target) bool {
+    pub inline fn isBSD(self: Target) bool {
         return self.os.tag.isBSD();
     }
 
-    pub fn isBpfFreestanding(self: Target) bool {
+    pub inline fn isBpfFreestanding(self: Target) bool {
         return self.cpu.arch.isBpf() and self.os.tag == .freestanding;
     }
 
-    pub fn isGnuLibC_os_tag_abi(os_tag: Os.Tag, abi: Abi) bool {
+    pub inline fn isGnuLibC_os_tag_abi(os_tag: Os.Tag, abi: Abi) bool {
         return os_tag == .linux and abi.isGnu();
     }
 
-    pub fn isGnuLibC(self: Target) bool {
+    pub inline fn isGnuLibC(self: Target) bool {
         return isGnuLibC_os_tag_abi(self.os.tag, self.abi);
     }
 
-    pub fn supportsNewStackCall(self: Target) bool {
+    pub inline fn supportsNewStackCall(self: Target) bool {
         return !self.cpu.arch.isWasm();
     }
 
-    pub fn isSpirV(self: Target) bool {
+    pub inline fn isSpirV(self: Target) bool {
         return self.cpu.arch.isSpirV();
     }
 
@@ -1473,11 +1472,11 @@ pub const Target = struct {
         soft_fp,
     };
 
-    pub fn getFloatAbi(self: Target) FloatAbi {
+    pub inline fn getFloatAbi(self: Target) FloatAbi {
         return self.abi.floatAbi();
     }
 
-    pub fn hasDynamicLinker(self: Target) bool {
+    pub inline fn hasDynamicLinker(self: Target) bool {
         if (self.cpu.arch.isWasm()) {
             return false;
         }
@@ -1526,7 +1525,7 @@ pub const Target = struct {
         pub fn set(self: *DynamicLinker, dl_or_null: ?[]const u8) void {
             if (dl_or_null) |dl| {
                 @memcpy(self.buffer[0..dl.len], dl);
-                self.max_byte = @intCast(u8, dl.len - 1);
+                self.max_byte = @as(u8, @intCast(dl.len - 1));
             } else {
                 self.max_byte = null;
             }
@@ -1537,12 +1536,12 @@ pub const Target = struct {
         var result: DynamicLinker = .{};
         const S = struct {
             fn print(r: *DynamicLinker, comptime fmt: []const u8, args: anytype) DynamicLinker {
-                r.max_byte = @intCast(u8, (std.fmt.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1);
+                r.max_byte = @as(u8, @intCast((std.fmt.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1));
                 return r.*;
             }
             fn copy(r: *DynamicLinker, s: []const u8) DynamicLinker {
                 @memcpy(r.buffer[0..s.len], s);
-                r.max_byte = @intCast(u8, s.len - 1);
+                r.max_byte = @as(u8, @intCast(s.len - 1));
                 return r.*;
             }
         };
@@ -1833,7 +1832,7 @@ pub const Target = struct {
         };
     }
 
-    pub fn ptrBitWidth(target: std.Target) u16 {
+    pub inline fn ptrBitWidth(target: Target) u16 {
         switch (target.abi) {
             .gnux32, .muslx32, .gnuabin32, .gnuilp32 => return 32,
             .gnuabi64 => return 64,
@@ -1910,6 +1909,75 @@ pub const Target = struct {
         }
     }
 
+    pub inline fn stackAlignment(target: Target) u16 {
+        return switch (target.cpu.arch) {
+            .m68k => 2,
+            .amdgcn => 4,
+            .x86 => switch (target.os.tag) {
+                .windows, .uefi => 4,
+                else => 16,
+            },
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            .mips,
+            .mipsel,
+            .sparc,
+            .sparcel,
+            => 8,
+            .aarch64,
+            .aarch64_be,
+            .aarch64_32,
+            .bpfeb,
+            .bpfel,
+            .mips64,
+            .mips64el,
+            .riscv32,
+            .riscv64,
+            .sparc64,
+            .x86_64,
+            .ve,
+            .wasm32,
+            .wasm64,
+            => 16,
+            .powerpc64,
+            .powerpc64le,
+            => switch (target.os.tag) {
+                else => 8,
+                .linux => 16,
+            },
+            else => @divExact(target.ptrBitWidth(), 8),
+        };
+    }
+
+    /// Default signedness of `char` for the native C compiler for this target
+    /// Note that char signedness is implementation-defined and many compilers provide
+    /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
+    pub inline fn charSignedness(target: Target) std.builtin.Signedness {
+        switch (target.cpu.arch) {
+            .aarch64,
+            .aarch64_32,
+            .aarch64_be,
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            => return if (target.os.tag.isDarwin() or target.os.tag == .windows) .signed else .unsigned,
+            .powerpc, .powerpc64 => return if (target.os.tag.isDarwin()) .signed else .unsigned,
+            .powerpcle,
+            .powerpc64le,
+            .s390x,
+            .xcore,
+            .arc,
+            .msp430,
+            .riscv32,
+            .riscv64,
+            => return .unsigned,
+            else => return .signed,
+        }
+    }
+
     pub const CType = enum {
         char,
         short,
@@ -1925,7 +1993,7 @@ pub const Target = struct {
         longdouble,
     };
 
-    pub fn c_type_byte_size(t: Target, c_type: CType) u16 {
+    pub inline fn c_type_byte_size(t: Target, c_type: CType) u16 {
         return switch (c_type) {
             .char,
             .short,
@@ -1944,14 +2012,14 @@ pub const Target = struct {
                 16 => 2,
                 32 => 4,
                 64 => 8,
-                80 => @intCast(u16, mem.alignForward(10, c_type_alignment(t, .longdouble))),
+                80 => @as(u16, @intCast(mem.alignForward(usize, 10, c_type_alignment(t, .longdouble)))),
                 128 => 16,
                 else => unreachable,
             },
         };
     }
 
-    pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
+    pub inline fn c_type_bit_size(target: Target, c_type: CType) u16 {
         switch (target.os.tag) {
             .freestanding, .other => switch (target.cpu.arch) {
                 .msp430 => switch (c_type) {
@@ -2236,6 +2304,15 @@ pub const Target = struct {
                 .longdouble => return 128,
             },
 
+            .ps4, .ps5 => switch (c_type) {
+                .char => return 8,
+                .short, .ushort => return 16,
+                .int, .uint, .float => return 32,
+                .long, .ulong => return 64,
+                .longlong, .ulonglong, .double => return 64,
+                .longdouble => return 80,
+            },
+
             .cloudabi,
             .kfreebsd,
             .lv2,
@@ -2243,8 +2320,6 @@ pub const Target = struct {
             .rtems,
             .nacl,
             .aix,
-            .ps4,
-            .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,
@@ -2258,7 +2333,7 @@ pub const Target = struct {
         }
     }
 
-    pub fn c_type_alignment(target: Target, c_type: CType) u16 {
+    pub inline fn c_type_alignment(target: Target, c_type: CType) u16 {
         // Overrides for unusual alignments
         switch (target.cpu.arch) {
             .avr => return 1,
@@ -2365,7 +2440,7 @@ pub const Target = struct {
         );
     }
 
-    pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
+    pub inline fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
         // Overrides for unusual alignments
         switch (target.cpu.arch) {
             .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
@@ -2395,7 +2470,7 @@ pub const Target = struct {
                 else => {},
             },
             .avr => switch (c_type) {
-                .int, .uint, .long, .ulong, .float, .longdouble => return 1,
+                .char, .int, .uint, .long, .ulong, .float, .longdouble => return 1,
                 .short, .ushort => return 2,
                 .double => return 4,
                 .longlong, .ulonglong => return 8,

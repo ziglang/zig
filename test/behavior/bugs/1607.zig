@@ -17,5 +17,5 @@ test "slices pointing at the same address as global array." {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try checkAddress(&a);
-    comptime try checkAddress(&a);
+    try comptime checkAddress(&a);
 }

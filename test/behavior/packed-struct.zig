@@ -166,7 +166,7 @@ test "correct sizeOf and offsets in packed structs" {
     try expectEqual(4, @sizeOf(PStruct));
 
     if (native_endian == .Little) {
-        const s1 = @bitCast(PStruct, @as(u32, 0x12345678));
+        const s1 = @as(PStruct, @bitCast(@as(u32, 0x12345678)));
         try expectEqual(false, s1.bool_a);
         try expectEqual(false, s1.bool_b);
         try expectEqual(false, s1.bool_c);
@@ -180,7 +180,7 @@ test "correct sizeOf and offsets in packed structs" {
         try expectEqual(@as(u10, 0b1101000101), s1.u10_a);
         try expectEqual(@as(u10, 0b0001001000), s1.u10_b);
 
-        const s2 = @bitCast(packed struct { x: u1, y: u7, z: u24 }, @as(u32, 0xd5c71ff4));
+        const s2 = @as(packed struct { x: u1, y: u7, z: u24 }, @bitCast(@as(u32, 0xd5c71ff4)));
         try expectEqual(@as(u1, 0), s2.x);
         try expectEqual(@as(u7, 0b1111010), s2.y);
         try expectEqual(@as(u24, 0xd5c71f), s2.z);
@@ -207,7 +207,7 @@ test "nested packed structs" {
     try expectEqual(24, @bitOffsetOf(S3, "y"));
 
     if (native_endian == .Little) {
-        const s3 = @bitCast(S3Padded, @as(u64, 0xe952d5c71ff4)).s3;
+        const s3 = @as(S3Padded, @bitCast(@as(u64, 0xe952d5c71ff4))).s3;
         try expectEqual(@as(u8, 0xf4), s3.x.a);
         try expectEqual(@as(u8, 0x1f), s3.x.b);
         try expectEqual(@as(u8, 0xc7), s3.x.c);
@@ -351,7 +351,7 @@ test "byte-aligned field pointer offsets" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "load pointer from packed struct" {
@@ -375,8 +375,7 @@ test "load pointer from packed struct" {
     }
 }
 
-test "@ptrToInt on a packed struct field" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+test "@intFromPtr on a packed struct field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -394,7 +393,7 @@ test "@ptrToInt on a packed struct field" {
             .z = 0,
         };
     };
-    try expect(@ptrToInt(&S.p0.z) - @ptrToInt(&S.p0.x) == 2);
+    try expect(@intFromPtr(&S.p0.z) - @intFromPtr(&S.p0.x) == 2);
 }
 
 test "optional pointer in packed struct" {
@@ -529,6 +528,100 @@ test "nested packed struct field access test" {
     try std.testing.expect(arg.g.i == 8);
 }
 
+test "nested packed struct at non-zero offset" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Pair = packed struct(u24) {
+        a: u16 = 0,
+        b: u8 = 0,
+    };
+    const A = packed struct {
+        p1: Pair,
+        p2: Pair,
+    };
+
+    var k: u8 = 123;
+    var v: A = .{
+        .p1 = .{ .a = k + 1, .b = k },
+        .p2 = .{ .a = k + 1, .b = k },
+    };
+
+    try expect(v.p1.a == k + 1 and v.p1.b == k);
+    try expect(v.p2.a == k + 1 and v.p2.b == k);
+
+    v.p2.a -= v.p1.a;
+    v.p2.b -= v.p1.b;
+    try expect(v.p2.a == 0 and v.p2.b == 0);
+    try expect(v.p1.a == k + 1 and v.p1.b == k);
+}
+
+test "nested packed struct at non-zero offset 2" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    const S = struct {
+        const Pair = packed struct(u40) {
+            a: u32 = 0,
+            b: u8 = 0,
+        };
+        const A = packed struct {
+            p1: Pair,
+            p2: Pair,
+            c: C,
+        };
+        const C = packed struct {
+            p1: Pair,
+            pad1: u5,
+            p2: Pair,
+            pad2: u3,
+            last: i16,
+        };
+
+        fn doTheTest() !void {
+            var k: u8 = 123;
+            var v: A = .{
+                .p1 = .{ .a = k + 1, .b = k },
+                .p2 = .{ .a = k + 1, .b = k },
+                .c = .{
+                    .pad1 = 11,
+                    .pad2 = 2,
+                    .p1 = .{ .a = k + 1, .b = k },
+                    .p2 = .{ .a = k + 1, .b = k },
+                    .last = -12345,
+                },
+            };
+
+            try expect(v.p1.a == k + 1 and v.p1.b == k);
+            try expect(v.p2.a == k + 1 and v.p2.b == k);
+            try expect(v.c.p2.a == k + 1 and v.c.p2.b == k);
+            try expect(v.c.p2.a == k + 1 and v.c.p2.b == k);
+            try expect(v.c.last == -12345);
+            try expect(v.c.pad1 == 11 and v.c.pad2 == 2);
+
+            v.p2.a -= v.p1.a;
+            v.p2.b -= v.p1.b;
+            v.c.p2.a -= v.c.p1.a;
+            v.c.p2.b -= v.c.p1.b;
+            v.c.last -|= 32000;
+            try expect(v.p2.a == 0 and v.p2.b == 0);
+            try expect(v.p1.a == k + 1 and v.p1.b == k);
+            try expect(v.c.p2.a == 0 and v.c.p2.b == 0);
+            try expect(v.c.p1.a == k + 1 and v.c.p1.b == k);
+            try expect(v.c.last == -32768);
+            try expect(v.c.pad1 == 11 and v.c.pad2 == 2);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
 test "runtime init of unnamed packed struct type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -600,7 +693,7 @@ test "packed struct initialized in bitcast" {
 
     const T = packed struct { val: u8 };
     var val: u8 = 123;
-    const t = @bitCast(u8, T{ .val = val });
+    const t = @as(u8, @bitCast(T{ .val = val }));
     try expect(t == val);
 }
 
@@ -608,7 +701,6 @@ test "pointer to container level packed struct field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -627,18 +719,27 @@ test "pointer to container level packed struct field" {
         },
         var arr = [_]u32{0} ** 2;
     };
-    @ptrCast(*S, &S.arr[0]).other_bits.enable_3 = true;
+    @as(*S, @ptrCast(&S.arr[0])).other_bits.enable_3 = true;
     try expect(S.arr[0] == 0x10000000);
 }
 
 test "store undefined to packed result location" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     var x: u4 = 0;
     var s = packed struct { x: u4, y: u4 }{ .x = x, .y = if (x > 0) x else undefined };
     try expectEqual(x, s.x);
+}
+
+test "bitcast back and forth" {
+    // Originally reported at https://github.com/ziglang/zig/issues/9914
+    const S = packed struct { one: u6, two: u1 };
+    const s = S{ .one = 0b110101, .two = 0b1 };
+    const u: u7 = @bitCast(s);
+    const s2: S = @bitCast(u);
+    try expect(s.one == s2.one);
+    try expect(s.two == s2.two);
 }

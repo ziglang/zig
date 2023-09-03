@@ -6,7 +6,6 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
 const elf = std.elf;
-const tlcsprng = @import("crypto/tlcsprng.zig");
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 
@@ -18,7 +17,6 @@ const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 // Until then, we have simplified logic here for self-hosted. TODO remove this once
 // self-hosted is capable enough to handle all of the real start.zig logic.
 pub const simplified_logic =
-    (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .plan9) or
     builtin.zig_backend == .stage2_x86 or
     builtin.zig_backend == .stage2_aarch64 or
     builtin.zig_backend == .stage2_arm or
@@ -103,7 +101,7 @@ fn main2() callconv(.C) c_int {
     return 0;
 }
 
-fn _start2() callconv(.Naked) noreturn {
+fn _start2() noreturn {
     callMain2();
 }
 
@@ -168,30 +166,9 @@ fn exit2(code: usize) noreturn {
             else => @compileError("TODO"),
         },
         // exits(0)
-        .plan9 => switch (builtin.cpu.arch) {
-            .x86_64 => {
-                asm volatile (
-                    \\push $0
-                    \\push $0
-                    \\syscall
-                    :
-                    : [syscall_number] "{rbp}" (8),
-                    : "rcx", "r11", "memory"
-                );
-            },
-            // TODO once we get stack setting with assembly on
-            // arm, exit with 0 instead of stack garbage
-            .aarch64 => {
-                asm volatile ("svc #0"
-                    :
-                    : [exit] "{x0}" (0x08),
-                    : "memory", "cc"
-                );
-            },
-            else => @compileError("TODO"),
-        },
+        .plan9 => std.os.plan9.exits(null),
         .windows => {
-            ExitProcess(@truncate(u32, code));
+            ExitProcess(@as(u32, @truncate(code)));
         },
         else => @compileError("TODO"),
     }
@@ -249,123 +226,106 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
             return root.main();
         },
         uefi.Status => {
-            return @enumToInt(root.main());
+            return @intFromEnum(root.main());
         },
         else => @compileError("expected return type of main to be 'void', 'noreturn', 'usize', or 'std.os.uefi.Status'"),
     }
 }
 
 fn _start() callconv(.Naked) noreturn {
-    switch (builtin.zig_backend) {
-        .stage2_c => {
-            @export(argc_argv_ptr, .{ .name = "argc_argv_ptr" });
-            @export(posixCallMainAndExit, .{ .name = "_posixCallMainAndExit" });
-            switch (native_arch) {
-                .x86_64 => asm volatile (
-                    \\ xorl %%ebp, %%ebp
-                    \\ movq %%rsp, argc_argv_ptr
-                    \\ andq $-16, %%rsp
-                    \\ call _posixCallMainAndExit
-                ),
-                .x86 => asm volatile (
-                    \\ xorl %%ebp, %%ebp
-                    \\ movl %%esp, argc_argv_ptr
-                    \\ andl $-16, %%esp
-                    \\ jmp _posixCallMainAndExit
-                ),
-                .aarch64, .aarch64_be => asm volatile (
-                    \\ mov fp, #0
-                    \\ mov lr, #0
-                    \\ mov x0, sp
-                    \\ adrp x1, argc_argv_ptr
-                    \\ str x0, [x1, :lo12:argc_argv_ptr]
-                    \\ b _posixCallMainAndExit
-                ),
-                .arm, .armeb, .thumb => asm volatile (
-                    \\ mov fp, #0
-                    \\ mov lr, #0
-                    \\ str sp, argc_argv_ptr
-                    \\ and sp, #-16
-                    \\ b _posixCallMainAndExit
-                ),
-                else => @compileError("unsupported arch"),
-            }
-            unreachable;
-        },
-        else => switch (native_arch) {
-            .x86_64 => {
-                argc_argv_ptr = asm volatile (
-                    \\ xor %%ebp, %%ebp
-                    : [argc] "={rsp}" (-> [*]usize),
-                );
-            },
-            .x86 => {
-                argc_argv_ptr = asm volatile (
-                    \\ xor %%ebp, %%ebp
-                    : [argc] "={esp}" (-> [*]usize),
-                );
-            },
-            .aarch64, .aarch64_be, .arm, .armeb, .thumb => {
-                argc_argv_ptr = asm volatile (
-                    \\ mov fp, #0
-                    \\ mov lr, #0
-                    : [argc] "={sp}" (-> [*]usize),
-                );
-            },
-            .riscv64 => {
-                argc_argv_ptr = asm volatile (
-                    \\ li s0, 0
-                    \\ li ra, 0
-                    : [argc] "={sp}" (-> [*]usize),
-                );
-            },
-            .mips, .mipsel, .mips64, .mips64el => {
-                // The lr is already zeroed on entry, as specified by the ABI.
-                argc_argv_ptr = asm volatile (
-                    \\ move $fp, $0
-                    : [argc] "={sp}" (-> [*]usize),
-                );
-            },
-            .powerpc => {
-                // Setup the initial stack frame and clear the back chain pointer.
-                argc_argv_ptr = asm volatile (
-                    \\ mr 4, 1
-                    \\ li 0, 0
-                    \\ stwu 1,-16(1)
-                    \\ stw 0, 0(1)
-                    \\ mtlr 0
-                    : [argc] "={r4}" (-> [*]usize),
-                    :
-                    : "r0"
-                );
-            },
-            .powerpc64le => {
-                // Setup the initial stack frame and clear the back chain pointer.
-                // TODO: Support powerpc64 (big endian) on ELFv2.
-                argc_argv_ptr = asm volatile (
-                    \\ mr 4, 1
-                    \\ li 0, 0
-                    \\ stdu 0, -32(1)
-                    \\ mtlr 0
-                    : [argc] "={r4}" (-> [*]usize),
-                    :
-                    : "r0"
-                );
-            },
-            .sparc64 => {
-                // argc is stored after a register window (16 registers) plus stack bias
-                argc_argv_ptr = asm (
-                    \\ mov %%g0, %%i6
-                    \\ add %%o6, 2175, %[argc]
-                    : [argc] "=r" (-> [*]usize),
-                );
-            },
-            else => @compileError("unsupported arch"),
-        },
+    // TODO set Top of Stack on non x86_64-plan9
+    if (native_os == .plan9 and native_arch == .x86_64) {
+        // from /sys/src/libc/amd64/main9.s
+        std.os.plan9.tos = asm volatile (""
+            : [tos] "={rax}" (-> *std.os.plan9.Tos),
+        );
     }
-    // If LLVM inlines stack variables into _start, they will overwrite
-    // the command line argument data.
-    @call(.never_inline, posixCallMainAndExit, .{});
+    asm volatile (switch (native_arch) {
+            .x86_64 =>
+            \\ xorl %%ebp, %%ebp
+            \\ movq %%rsp, %[argc_argv_ptr]
+            \\ andq $-16, %%rsp
+            \\ callq %[posixCallMainAndExit:P]
+            ,
+            .x86 =>
+            \\ xorl %%ebp, %%ebp
+            \\ movl %%esp, %[argc_argv_ptr]
+            \\ andl $-16, %%esp
+            \\ calll %[posixCallMainAndExit:P]
+            ,
+            .aarch64, .aarch64_be =>
+            \\ mov fp, #0
+            \\ mov lr, #0
+            \\ mov x0, sp
+            \\ str x0, %[argc_argv_ptr]
+            \\ b %[posixCallMainAndExit]
+            ,
+            .arm, .armeb, .thumb, .thumbeb =>
+            \\ mov fp, #0
+            \\ mov lr, #0
+            \\ str sp, %[argc_argv_ptr]
+            \\ and sp, #-16
+            \\ b %[posixCallMainAndExit]
+            ,
+            .riscv64 =>
+            \\ li s0, 0
+            \\ li ra, 0
+            \\ sd sp, %[argc_argv_ptr]
+            \\ andi sp, sp, -16
+            \\ tail %[posixCallMainAndExit]@plt
+            ,
+            .mips, .mipsel =>
+            // The lr is already zeroed on entry, as specified by the ABI.
+            \\ addiu $fp, $zero, 0
+            \\ sw $sp, %[argc_argv_ptr]
+            \\ .set push
+            \\ .set noat
+            \\ addiu $1, $zero, -16
+            \\ and $sp, $sp, $1
+            \\ .set pop
+            \\ j %[posixCallMainAndExit]
+            ,
+            .mips64, .mips64el =>
+            // The lr is already zeroed on entry, as specified by the ABI.
+            \\ addiu $fp, $zero, 0
+            \\ sd $sp, %[argc_argv_ptr]
+            \\ .set push
+            \\ .set noat
+            \\ daddiu $1, $zero, -16
+            \\ and $sp, $sp, $1
+            \\ .set pop
+            \\ j %[posixCallMainAndExit]
+            ,
+            .powerpc, .powerpcle =>
+            // Setup the initial stack frame and clear the back chain pointer.
+            \\ stw 1, %[argc_argv_ptr]
+            \\ li 0, 0
+            \\ stwu 1, -16(1)
+            \\ stw 0, 0(1)
+            \\ mtlr 0
+            \\ b %[posixCallMainAndExit]
+            ,
+            .powerpc64, .powerpc64le =>
+            // Setup the initial stack frame and clear the back chain pointer.
+            // TODO: Support powerpc64 (big endian) on ELFv2.
+            \\ std 1, %[argc_argv_ptr]
+            \\ li 0, 0
+            \\ stdu 0, -32(1)
+            \\ mtlr 0
+            \\ b %[posixCallMainAndExit]
+            ,
+            .sparc64 =>
+            // argc is stored after a register window (16 registers) plus stack bias
+            \\ mov %%g0, %%i6
+            \\ add %%o6, 2175, %%l0
+            \\ stx %%l0, %[argc_argv_ptr]
+            \\ ba %[posixCallMainAndExit]
+            ,
+            else => @compileError("unsupported arch"),
+        }
+        : [argc_argv_ptr] "=m" (argc_argv_ptr),
+        : [posixCallMainAndExit] "X" (&posixCallMainAndExit),
+    );
 }
 
 fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
@@ -388,23 +348,21 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.debug.maybeEnableSegfaultHandler();
 
     const result: std.os.windows.INT = initEventLoopAndCallWinMain();
-    std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
+    std.os.windows.kernel32.ExitProcess(@as(std.os.windows.UINT, @bitCast(result)));
 }
 
 fn posixCallMainAndExit() callconv(.C) noreturn {
-    @setAlignStack(16);
-
     const argc = argc_argv_ptr[0];
-    const argv = @ptrCast([*][*:0]u8, argc_argv_ptr + 1);
+    const argv = @as([*][*:0]u8, @ptrCast(argc_argv_ptr + 1));
 
-    const envp_optional = @ptrCast([*:null]?[*:0]u8, @alignCast(@alignOf(usize), argv + argc + 1));
+    const envp_optional: [*:null]?[*:0]u8 = @ptrCast(@alignCast(argv + argc + 1));
     var envp_count: usize = 0;
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
-    const envp = @ptrCast([*][*:0]u8, envp_optional)[0..envp_count];
+    const envp = @as([*][*:0]u8, @ptrCast(envp_optional))[0..envp_count];
 
     if (native_os == .linux) {
         // Find the beginning of the auxiliary vector
-        const auxv = @ptrCast([*]elf.Auxv, @alignCast(@alignOf(usize), envp.ptr + envp_count + 1));
+        const auxv: [*]elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
         std.os.linux.elf_aux_maybe = auxv;
 
         var at_hwcap: usize = 0;
@@ -420,7 +378,7 @@ fn posixCallMainAndExit() callconv(.C) noreturn {
                     else => continue,
                 }
             }
-            break :init @intToPtr([*]elf.Phdr, at_phdr)[0..at_phnum];
+            break :init @as([*]elf.Phdr, @ptrFromInt(at_phdr))[0..at_phnum];
         };
 
         // Apply the initial relocations as early as possible in the startup
@@ -460,22 +418,29 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
             elf.PT_GNU_STACK => {
-                const wanted_stack_size = phdr.p_memsz;
-                assert(wanted_stack_size % std.mem.page_size == 0);
+                assert(phdr.p_memsz % std.mem.page_size == 0);
 
-                std.os.setrlimit(.STACK, .{
-                    .cur = wanted_stack_size,
-                    .max = wanted_stack_size,
-                }) catch {
-                    // Because we could not increase the stack size to the upper bound,
-                    // depending on what happens at runtime, a stack overflow may occur.
-                    // However it would cause a segmentation fault, thanks to stack probing,
-                    // so we do not have a memory safety issue here.
-                    // This is intentional silent failure.
-                    // This logic should be revisited when the following issues are addressed:
-                    // https://github.com/ziglang/zig/issues/157
-                    // https://github.com/ziglang/zig/issues/1006
-                };
+                // Silently fail if we are unable to get limits.
+                const limits = std.os.getrlimit(.STACK) catch break;
+
+                // Clamp to limits.max .
+                const wanted_stack_size = @min(phdr.p_memsz, limits.max);
+
+                if (wanted_stack_size > limits.cur) {
+                    std.os.setrlimit(.STACK, .{
+                        .cur = wanted_stack_size,
+                        .max = limits.max,
+                    }) catch {
+                        // Because we could not increase the stack size to the upper bound,
+                        // depending on what happens at runtime, a stack overflow may occur.
+                        // However it would cause a segmentation fault, thanks to stack probing,
+                        // so we do not have a memory safety issue here.
+                        // This is intentional silent failure.
+                        // This logic should be revisited when the following issues are addressed:
+                        // https://github.com/ziglang/zig/issues/157
+                        // https://github.com/ziglang/zig/issues/1006
+                    };
+                }
                 break;
             },
             else => {},
@@ -496,20 +461,20 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
 fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.C) c_int {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
-    const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
+    const envp = @as([*][*:0]u8, @ptrCast(c_envp))[0..env_count];
 
     if (builtin.os.tag == .linux) {
         const at_phdr = std.c.getauxval(elf.AT_PHDR);
         const at_phnum = std.c.getauxval(elf.AT_PHNUM);
-        const phdrs = (@intToPtr([*]elf.Phdr, at_phdr))[0..at_phnum];
+        const phdrs = (@as([*]elf.Phdr, @ptrFromInt(at_phdr)))[0..at_phnum];
         expandStackSize(phdrs);
     }
 
-    return @call(.always_inline, callMainWithArgs, .{ @intCast(usize, c_argc), @ptrCast([*][*:0]u8, c_argv), envp });
+    return @call(.always_inline, callMainWithArgs, .{ @as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), envp });
 }
 
 fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
-    std.os.argv = @ptrCast([*][*:0]u8, c_argv)[0..@intCast(usize, c_argc)];
+    std.os.argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@as(usize, @intCast(c_argc))];
     return @call(.always_inline, callMain, .{});
 }
 
@@ -630,7 +595,7 @@ pub fn callMain() u8 {
 
 pub fn call_wWinMain() std.os.windows.INT {
     const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.params[0].type.?;
-    const hInstance = @ptrCast(MAIN_HINSTANCE, std.os.windows.kernel32.GetModuleHandleW(null).?);
+    const hInstance = @as(MAIN_HINSTANCE, @ptrCast(std.os.windows.kernel32.GetModuleHandleW(null).?));
     const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();
 
     // There's no (documented) way to get the nCmdShow parameter, so we're

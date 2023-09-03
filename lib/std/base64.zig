@@ -100,21 +100,24 @@ pub const Base64Encoder = struct {
         const out_len = encoder.calcSize(source.len);
         assert(dest.len >= out_len);
 
-        var acc: u12 = 0;
-        var acc_len: u4 = 0;
+        var idx: usize = 0;
         var out_idx: usize = 0;
-        for (source) |v| {
-            acc = (acc << 8) + v;
-            acc_len += 8;
-            while (acc_len >= 6) {
-                acc_len -= 6;
-                dest[out_idx] = encoder.alphabet_chars[@truncate(u6, (acc >> acc_len))];
-                out_idx += 1;
-            }
+        while (idx + 2 < source.len) : (idx += 3) {
+            dest[out_idx] = encoder.alphabet_chars[source[idx] >> 2];
+            dest[out_idx + 1] = encoder.alphabet_chars[((source[idx] & 0x3) << 4) | (source[idx + 1] >> 4)];
+            dest[out_idx + 2] = encoder.alphabet_chars[(source[idx + 1] & 0xf) << 2 | (source[idx + 2] >> 6)];
+            dest[out_idx + 3] = encoder.alphabet_chars[source[idx + 2] & 0x3f];
+            out_idx += 4;
         }
-        if (acc_len > 0) {
-            dest[out_idx] = encoder.alphabet_chars[@truncate(u6, (acc << 6 - acc_len))];
-            out_idx += 1;
+        if (idx + 1 < source.len) {
+            dest[out_idx] = encoder.alphabet_chars[source[idx] >> 2];
+            dest[out_idx + 1] = encoder.alphabet_chars[((source[idx] & 0x3) << 4) | (source[idx + 1] >> 4)];
+            dest[out_idx + 2] = encoder.alphabet_chars[(source[idx + 1] & 0xf) << 2];
+            out_idx += 3;
+        } else if (idx < source.len) {
+            dest[out_idx] = encoder.alphabet_chars[source[idx] >> 2];
+            dest[out_idx + 1] = encoder.alphabet_chars[(source[idx] & 0x3) << 4];
+            out_idx += 2;
         }
         if (encoder.pad_char) |pad_char| {
             for (dest[out_idx..out_len]) |*pad| {
@@ -144,7 +147,7 @@ pub const Base64Decoder = struct {
             assert(!char_in_alphabet[c]);
             assert(pad_char == null or c != pad_char.?);
 
-            result.char_to_index[c] = @intCast(u8, i);
+            result.char_to_index[c] = @as(u8, @intCast(i));
             char_in_alphabet[c] = true;
         }
         return result;
@@ -196,7 +199,7 @@ pub const Base64Decoder = struct {
             acc_len += 6;
             if (acc_len >= 8) {
                 acc_len -= 8;
-                dest[dest_idx] = @truncate(u8, acc >> acc_len);
+                dest[dest_idx] = @as(u8, @truncate(acc >> acc_len));
                 dest_idx += 1;
             }
         }
@@ -271,7 +274,7 @@ pub const Base64DecoderWithIgnore = struct {
             if (acc_len >= 8) {
                 if (dest_idx == dest.len) return error.NoSpaceLeft;
                 acc_len -= 8;
-                dest[dest_idx] = @truncate(u8, acc >> acc_len);
+                dest[dest_idx] = @as(u8, @truncate(acc >> acc_len));
                 dest_idx += 1;
             }
         }
@@ -302,7 +305,7 @@ pub const Base64DecoderWithIgnore = struct {
 test "base64" {
     @setEvalBranchQuota(8000);
     try testBase64();
-    comptime try testAllApis(standard, "comptime", "Y29tcHRpbWU=");
+    try comptime testAllApis(standard, "comptime", "Y29tcHRpbWU=");
 }
 
 test "base64 padding dest overflow" {
@@ -322,7 +325,7 @@ test "base64 padding dest overflow" {
 test "base64 url_safe_no_pad" {
     @setEvalBranchQuota(8000);
     try testBase64UrlSafeNoPad();
-    comptime try testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
+    try comptime testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
 }
 
 fn testBase64() !void {

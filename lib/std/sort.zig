@@ -34,8 +34,12 @@ pub fn insertion(
 
 /// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case.
 /// O(1) memory (no allocator required).
-/// Sorts in ascending order with respect to the given `lessThan` function.
+/// `context` must have methods `swap` and `lessThan`,
+/// which each take 2 `usize` parameters indicating the index of an item.
+/// Sorts in ascending order with respect to `lessThan`.
 pub fn insertionContext(a: usize, b: usize, context: anytype) void {
+    assert(a <= b);
+
     var i = a + 1;
     while (i < b) : (i += 1) {
         var j = i;
@@ -71,40 +75,54 @@ pub fn heap(
 
 /// Unstable in-place sort. O(n*log(n)) best case, worst case and average case.
 /// O(1) memory (no allocator required).
-/// Sorts in ascending order with respect to the given `lessThan` function.
+/// `context` must have methods `swap` and `lessThan`,
+/// which each take 2 `usize` parameters indicating the index of an item.
+/// Sorts in ascending order with respect to `lessThan`.
 pub fn heapContext(a: usize, b: usize, context: anytype) void {
+    assert(a <= b);
     // build the heap in linear time.
-    var i = b / 2;
-    while (i > a) : (i -= 1) {
-        siftDown(i - 1, b, context);
+    var i = a + (b - a) / 2;
+    while (i > a) {
+        i -= 1;
+        siftDown(a, i, b, context);
     }
 
     // pop maximal elements from the heap.
     i = b;
-    while (i > a) : (i -= 1) {
-        context.swap(a, i - 1);
-        siftDown(a, i - 1, context);
+    while (i > a) {
+        i -= 1;
+        context.swap(a, i);
+        siftDown(a, a, i, context);
     }
 }
 
-fn siftDown(root: usize, n: usize, context: anytype) void {
-    var node = root;
+fn siftDown(a: usize, target: usize, b: usize, context: anytype) void {
+    var cur = target;
     while (true) {
-        var child = 2 * node + 1;
-        if (child >= n) break;
+        // When we don't overflow from the multiply below, the following expression equals (2*cur) - (2*a) + a + 1
+        // The `+ a + 1` is safe because:
+        //  for `a > 0` then `2a >= a + 1`.
+        //  for `a = 0`, the expression equals `2*cur+1`. `2*cur` is an even number, therefore adding 1 is safe.
+        var child = (math.mul(usize, cur - a, 2) catch break) + a + 1;
 
-        // choose the greater child.
-        if (child + 1 < n and context.lessThan(child, child + 1)) {
-            child += 1;
+        // stop if we overshot the boundary
+        if (!(child < b)) break;
+
+        // `next_child` is at most `b`, therefore no overflow is possible
+        const next_child = child + 1;
+
+        // store the greater child in `child`
+        if (next_child < b and context.lessThan(child, next_child)) {
+            child = next_child;
         }
 
-        // stop if the invariant holds at `node`.
-        if (!context.lessThan(node, child)) break;
+        // stop if the Heap invariant holds at `cur`.
+        if (context.lessThan(child, cur)) break;
 
-        // swap `node` with the greater child,
+        // swap `cur` with the greater child,
         // move one step down, and continue sifting.
-        context.swap(node, child);
-        node = child;
+        context.swap(child, cur);
+        cur = child;
     }
 }
 
@@ -136,6 +154,13 @@ const sort_funcs = &[_]fn (comptime type, anytype, anytype, comptime anytype) vo
     pdq,
     insertion,
     heap,
+};
+
+const context_sort_funcs = &[_]fn (usize, usize, anytype) void{
+    // blockContext,
+    pdqContext,
+    insertionContext,
+    heapContext,
 };
 
 const IdAndValue = struct {
@@ -248,11 +273,15 @@ test "sort" {
             &[_]i32{ 2, 1, 3 },
             &[_]i32{ 1, 2, 3 },
         },
+        &[_][]const i32{
+            &[_]i32{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 55, 32, 39, 58, 21, 88, 43, 22, 59 },
+            &[_]i32{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 21, 22, 32, 39, 43, 55, 58, 59, 88 },
+        },
     };
 
     inline for (sort_funcs) |sortFn| {
         for (u8cases) |case| {
-            var buf: [8]u8 = undefined;
+            var buf: [20]u8 = undefined;
             const slice = buf[0..case[0].len];
             @memcpy(slice, case[0]);
             sortFn(u8, slice, {}, asc_u8);
@@ -260,7 +289,7 @@ test "sort" {
         }
 
         for (i32cases) |case| {
-            var buf: [8]i32 = undefined;
+            var buf: [20]i32 = undefined;
             const slice = buf[0..case[0].len];
             @memcpy(slice, case[0]);
             sortFn(i32, slice, {}, asc_i32);
@@ -304,6 +333,45 @@ test "sort descending" {
             @memcpy(slice, case[0]);
             sortFn(i32, slice, {}, desc_i32);
             try testing.expect(mem.eql(i32, slice, case[1]));
+        }
+    }
+}
+
+test "sort with context in the middle of a slice" {
+    const Context = struct {
+        items: []i32,
+
+        pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+            return ctx.items[a] < ctx.items[b];
+        }
+
+        pub fn swap(ctx: @This(), a: usize, b: usize) void {
+            return mem.swap(i32, &ctx.items[a], &ctx.items[b]);
+        }
+    };
+
+    const i32cases = [_][]const []const i32{
+        &[_][]const i32{
+            &[_]i32{ 0, 1, 8, 3, 6, 5, 4, 2, 9, 7, 10, 55, 32, 39, 58, 21, 88, 43, 22, 59 },
+            &[_]i32{ 50, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 21, 22, 32, 39, 43, 55, 58, 59, 88 },
+        },
+    };
+
+    const ranges = [_]struct { start: usize, end: usize }{
+        .{ .start = 10, .end = 20 },
+        .{ .start = 1, .end = 11 },
+        .{ .start = 3, .end = 7 },
+    };
+
+    inline for (context_sort_funcs) |sortFn| {
+        for (i32cases) |case| {
+            for (ranges) |range| {
+                var buf: [20]i32 = undefined;
+                const slice = buf[0..case[0].len];
+                @memcpy(slice, case[0]);
+                sortFn(range.start, range.end, Context{ .items = slice });
+                try testing.expectEqualSlices(i32, case[1][range.start..range.end], slice[range.start..range.end]);
+            }
         }
     }
 }

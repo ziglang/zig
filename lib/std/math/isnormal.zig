@@ -15,7 +15,7 @@ pub fn isNormal(x: anytype) bool {
     // The sign bit is removed because all ones would overflow into it.
     // For f80, even though it has an explicit integer part stored,
     // the exponent effectively takes priority if mismatching.
-    const value = @bitCast(TBits, x) +% increment_exp;
+    const value = @as(TBits, @bitCast(x)) +% increment_exp;
     return value & remove_sign >= (increment_exp << 1);
 }
 
@@ -35,7 +35,7 @@ test "math.isNormal" {
         try expect(!isNormal(@as(T, math.floatTrueMin(T))));
 
         // largest subnormal
-        try expect(!isNormal(@bitCast(T, ~(~@as(TBits, 0) << math.floatFractionalBits(T)))));
+        try expect(!isNormal(@as(T, @bitCast(~(~@as(TBits, 0) << math.floatFractionalBits(T))))));
 
         // non-finite numbers
         try expect(!isNormal(-math.inf(T)));
@@ -43,6 +43,6 @@ test "math.isNormal" {
         try expect(!isNormal(math.nan(T)));
 
         // overflow edge-case (described in implementation, also see #10133)
-        try expect(!isNormal(@bitCast(T, ~@as(TBits, 0))));
+        try expect(!isNormal(@as(T, @bitCast(~@as(TBits, 0)))));
     }
 }

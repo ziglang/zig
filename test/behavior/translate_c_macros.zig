@@ -60,7 +60,7 @@ test "cast negative integer to pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    try expectEqual(@intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))), h.MAP_FAILED);
+    try expectEqual(@as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))), h.MAP_FAILED);
 }
 
 test "casting to union with a macro" {
@@ -89,7 +89,7 @@ test "casting or calling a value with a paren-surrounded macro" {
 
     const l: c_long = 42;
     const casted = h.CAST_OR_CALL_WITH_PARENS(c_int, l);
-    try expect(casted == @intCast(c_int, l));
+    try expect(casted == @as(c_int, @intCast(l)));
 
     const Helper = struct {
         fn foo(n: c_int) !void {

@@ -1,5 +1,9 @@
-fn f(a: noreturn) void { _ = a; }
-export fn entry() void { f(); }
+fn f(a: noreturn) void {
+    _ = a;
+}
+export fn entry() void {
+    f();
+}
 
 // error
 // backend=stage2

@@ -1,7 +1,7 @@
 //! CSPRNG based on the Reverie construction, a permutation-based PRNG
 //! with forward security, instantiated with the Ascon(128,12,8) permutation.
 //!
-//! Compared to ChaCha, this PRNG is has a much smaller state, and can be
+//! Compared to ChaCha, this PRNG has a much smaller state, and can be
 //! a better choice for constrained environments.
 //!
 //! References:
@@ -9,7 +9,6 @@
 //! - Ascon https://ascon.iaik.tugraz.at/files/asconv12-nist.pdf
 
 const std = @import("std");
-const min = std.math.min;
 const mem = std.mem;
 const Random = std.rand.Random;
 const Self = @This();
@@ -50,7 +49,7 @@ pub fn fill(self: *Self, buf: []u8) void {
     var i: usize = 0;
     while (true) {
         const left = buf.len - i;
-        const n = min(left, rate);
+        const n = @min(left, rate);
         self.state.extractBytes(buf[i..][0..n]);
         if (left == 0) break;
         self.state.permuteR(8);

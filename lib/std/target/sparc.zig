@@ -35,97 +35,97 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
-    result[@enumToInt(Feature.deprecated_v8)] = .{
+    result[@intFromEnum(Feature.deprecated_v8)] = .{
         .llvm_name = "deprecated-v8",
         .description = "Enable deprecated V8 instructions in V9 mode",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.detectroundchange)] = .{
+    result[@intFromEnum(Feature.detectroundchange)] = .{
         .llvm_name = "detectroundchange",
         .description = "LEON3 erratum detection: Detects any rounding mode change request: use only the round-to-nearest rounding mode",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.fixallfdivsqrt)] = .{
+    result[@intFromEnum(Feature.fixallfdivsqrt)] = .{
         .llvm_name = "fixallfdivsqrt",
         .description = "LEON erratum fix: Fix FDIVS/FDIVD/FSQRTS/FSQRTD instructions with NOPs and floating-point store",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.hard_quad_float)] = .{
+    result[@intFromEnum(Feature.hard_quad_float)] = .{
         .llvm_name = "hard-quad-float",
         .description = "Enable quad-word floating point instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.hasleoncasa)] = .{
+    result[@intFromEnum(Feature.hasleoncasa)] = .{
         .llvm_name = "hasleoncasa",
         .description = "Enable CASA instruction for LEON3 and LEON4 processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.hasumacsmac)] = .{
+    result[@intFromEnum(Feature.hasumacsmac)] = .{
         .llvm_name = "hasumacsmac",
         .description = "Enable UMAC and SMAC for LEON3 and LEON4 processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.insertnopload)] = .{
+    result[@intFromEnum(Feature.insertnopload)] = .{
         .llvm_name = "insertnopload",
         .description = "LEON3 erratum fix: Insert a NOP instruction after every single-cycle load instruction when the next instruction is another load/store instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.leon)] = .{
+    result[@intFromEnum(Feature.leon)] = .{
         .llvm_name = "leon",
         .description = "Enable LEON extensions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.leoncyclecounter)] = .{
+    result[@intFromEnum(Feature.leoncyclecounter)] = .{
         .llvm_name = "leoncyclecounter",
         .description = "Use the Leon cycle counter register",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.leonpwrpsr)] = .{
+    result[@intFromEnum(Feature.leonpwrpsr)] = .{
         .llvm_name = "leonpwrpsr",
         .description = "Enable the PWRPSR instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.no_fmuls)] = .{
+    result[@intFromEnum(Feature.no_fmuls)] = .{
         .llvm_name = "no-fmuls",
         .description = "Disable the fmuls instruction.",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.no_fsmuld)] = .{
+    result[@intFromEnum(Feature.no_fsmuld)] = .{
         .llvm_name = "no-fsmuld",
         .description = "Disable the fsmuld instruction.",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.popc)] = .{
+    result[@intFromEnum(Feature.popc)] = .{
         .llvm_name = "popc",
         .description = "Use the popc (population count) instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.soft_float)] = .{
+    result[@intFromEnum(Feature.soft_float)] = .{
         .llvm_name = "soft-float",
         .description = "Use software emulation for floating point",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.soft_mul_div)] = .{
+    result[@intFromEnum(Feature.soft_mul_div)] = .{
         .llvm_name = "soft-mul-div",
         .description = "Use software emulation for integer multiply and divide",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.v9)] = .{
+    result[@intFromEnum(Feature.v9)] = .{
         .llvm_name = "v9",
         .description = "Enable SPARC-V9 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.vis)] = .{
+    result[@intFromEnum(Feature.vis)] = .{
         .llvm_name = "vis",
         .description = "Enable UltraSPARC Visual Instruction Set extensions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.vis2)] = .{
+    result[@intFromEnum(Feature.vis2)] = .{
         .llvm_name = "vis2",
         .description = "Enable Visual Instruction Set extensions II",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.vis3)] = .{
+    result[@intFromEnum(Feature.vis3)] = .{
         .llvm_name = "vis3",
         .description = "Enable Visual Instruction Set extensions III",
         .dependencies = featureSet(&[_]Feature{}),

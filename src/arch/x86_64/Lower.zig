@@ -188,7 +188,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_probe_align_ri_s => {
                 try lower.emit(.none, .@"test", &.{
                     .{ .reg = inst.data.ri.r1 },
-                    .{ .imm = Immediate.s(@bitCast(i32, inst.data.ri.i)) },
+                    .{ .imm = Immediate.s(@as(i32, @bitCast(inst.data.ri.i))) },
                 });
                 try lower.emit(.none, .jz, &.{
                     .{ .imm = lower.reloc(.{ .inst = index + 1 }) },
@@ -213,7 +213,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             },
             .pseudo_probe_adjust_unrolled_ri_s => {
                 var offset = page_size;
-                while (offset < @bitCast(i32, inst.data.ri.i)) : (offset += page_size) {
+                while (offset < @as(i32, @bitCast(inst.data.ri.i))) : (offset += page_size) {
                     try lower.emit(.none, .@"test", &.{
                         .{ .mem = Memory.sib(.dword, .{
                             .base = .{ .reg = inst.data.ri.r1 },
@@ -224,14 +224,14 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 }
                 try lower.emit(.none, .sub, &.{
                     .{ .reg = inst.data.ri.r1 },
-                    .{ .imm = Immediate.s(@bitCast(i32, inst.data.ri.i)) },
+                    .{ .imm = Immediate.s(@as(i32, @bitCast(inst.data.ri.i))) },
                 });
                 assert(lower.result_insts_len <= pseudo_probe_adjust_unrolled_max_insts);
             },
             .pseudo_probe_adjust_setup_rri_s => {
                 try lower.emit(.none, .mov, &.{
                     .{ .reg = inst.data.rri.r2.to32() },
-                    .{ .imm = Immediate.s(@bitCast(i32, inst.data.rri.i)) },
+                    .{ .imm = Immediate.s(@as(i32, @bitCast(inst.data.rri.i))) },
                 });
                 try lower.emit(.none, .sub, &.{
                     .{ .reg = inst.data.rri.r1 },
@@ -289,7 +289,7 @@ fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .i_s,
         .mi_sib_s,
         .mi_rip_s,
-        => Immediate.s(@bitCast(i32, i)),
+        => Immediate.s(@as(i32, @bitCast(i))),
 
         .rrri,
         .rri_u,

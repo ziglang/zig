@@ -9,4 +9,3 @@ comptime {
 // target=native
 //
 // :3:18: error: no error named 'Bar' in 'error{A}'
-// :1:13: note: error set declared here

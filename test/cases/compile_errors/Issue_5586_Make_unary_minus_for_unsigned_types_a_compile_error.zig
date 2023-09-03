@@ -2,8 +2,7 @@ export fn f1(x: u32) u32 {
     const y = -%x;
     return -y;
 }
-const V = @import("std").meta.Vector;
-export fn f2(x: V(4, u32)) V(4, u32) {
+export fn f2(x: @Vector(4, u32)) @Vector(4, u32) {
     const y = -%x;
     return -y;
 }
@@ -13,4 +12,4 @@ export fn f2(x: V(4, u32)) V(4, u32) {
 // target=native
 //
 // :3:12: error: negation of type 'u32'
-// :8:12: error: negation of type '@Vector(4, u32)'
+// :7:12: error: negation of type '@Vector(4, u32)'

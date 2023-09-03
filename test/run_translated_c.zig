@@ -1,6 +1,6 @@
 const std = @import("std");
 const tests = @import("tests.zig");
-const nl = std.cstr.line_sep;
+const nl = if (@import("builtin").os.tag == .windows) "\r\n" else "\n";
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
     cases.add("dereference address of",
@@ -1550,6 +1550,24 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    const INT_LIST *const c_int_list = int_list;
         \\    const int *const ints = int_list->items;
         \\    for (int i = 0; i < SIZE; i++) if (ints[i] != i) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Flexible array with typedefed flexible item, issue #16838",
+        \\#include <stdlib.h>
+        \\#include <assert.h>
+        \\typedef int MARKER[0];
+        \\typedef struct { int x; MARKER y; } Flexible;
+        \\#define SIZE 10
+        \\int main(void) {
+        \\    Flexible *flex = malloc(sizeof(Flexible) + SIZE * sizeof(int));
+        \\    for (int i = 0; i < SIZE; i++) {
+        \\        flex->y[i] = i;
+        \\    }
+        \\    for (int i = 0; i < SIZE; i++) {
+        \\        assert(flex->y[i] == i);
+        \\    }
         \\    return 0;
         \\}
     , "");

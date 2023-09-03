@@ -144,7 +144,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     var xe = r2.exponent;
     var x1 = r2.significand;
 
-    var i = @floatToInt(std.meta.Int(.signed, @typeInfo(T).Float.bits), yi);
+    var i = @as(std.meta.Int(.signed, @typeInfo(T).Float.bits), @intFromFloat(yi));
     while (i != 0) : (i >>= 1) {
         const overflow_shift = math.floatExponentBits(T) + 1;
         if (xe < -(1 << overflow_shift) or (1 << overflow_shift) < xe) {
@@ -179,7 +179,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
 
 fn isOddInteger(x: f64) bool {
     const r = math.modf(x);
-    return r.fpart == 0.0 and @floatToInt(i64, r.ipart) & 1 == 1;
+    return r.fpart == 0.0 and @as(i64, @intFromFloat(r.ipart)) & 1 == 1;
 }
 
 test "math.pow" {
@@ -209,8 +209,8 @@ test "math.pow.special" {
     try expect(pow(f32, -45, 1.0) == -45);
     try expect(math.isNan(pow(f32, math.nan(f32), 5.0)));
     try expect(math.isPositiveInf(pow(f32, -math.inf(f32), 0.5)));
-    try expect(math.isPositiveInf(pow(f32, -0, -0.5)));
-    try expect(pow(f32, -0, 0.5) == 0);
+    try expect(math.isPositiveInf(pow(f32, -0.0, -0.5)));
+    try expect(pow(f32, -0.0, 0.5) == 0);
     try expect(math.isNan(pow(f32, 5.0, math.nan(f32))));
     try expect(math.isPositiveInf(pow(f32, 0.0, -1.0)));
     //expect(math.isNegativeInf(pow(f32, -0.0, -3.0))); TODO is this required?

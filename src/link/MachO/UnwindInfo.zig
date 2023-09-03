@@ -1,32 +1,9 @@
-const UnwindInfo = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const eh_frame = @import("eh_frame.zig");
-const fs = std.fs;
-const leb = std.leb;
-const log = std.log.scoped(.unwind_info);
-const macho = std.macho;
-const math = std.math;
-const mem = std.mem;
-const trace = @import("../../tracy.zig").trace;
-
-const Allocator = mem.Allocator;
-const Atom = @import("ZldAtom.zig");
-const AtomIndex = @import("zld.zig").AtomIndex;
-const EhFrameRecord = eh_frame.EhFrameRecord;
-const Object = @import("Object.zig");
-const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
-const Zld = @import("zld.zig").Zld;
-
-const N_DEAD = @import("zld.zig").N_DEAD;
-
 gpa: Allocator,
 
 /// List of all unwind records gathered from all objects and sorted
 /// by source function address.
 records: std.ArrayListUnmanaged(macho.compact_unwind_entry) = .{},
-records_lookup: std.AutoHashMapUnmanaged(AtomIndex, RecordIndex) = .{},
+records_lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, RecordIndex) = .{},
 
 /// List of all personalities referenced by either unwind info entries
 /// or __eh_frame entries.
@@ -43,6 +20,9 @@ lsdas_lookup: std.AutoHashMapUnmanaged(RecordIndex, u32) = .{},
 
 /// List of second level pages.
 pages: std.ArrayListUnmanaged(Page) = .{},
+
+/// Upper bound (exclusive) of all the record ranges
+end_boundary: u64 = 0,
 
 const RecordIndex = u32;
 
@@ -87,7 +67,7 @@ const Page = struct {
             const record_id = page.page_encodings[index];
             const record = info.records.items[record_id];
             if (record.compactUnwindEncoding == enc) {
-                return @intCast(u8, index);
+                return @as(u8, @intCast(index));
             }
         }
         return null;
@@ -150,14 +130,14 @@ const Page = struct {
 
                 for (info.records.items[page.start..][0..page.count]) |record| {
                     try writer.writeStruct(macho.unwind_info_regular_second_level_entry{
-                        .functionOffset = @intCast(u32, record.rangeStart),
+                        .functionOffset = @as(u32, @intCast(record.rangeStart)),
                         .encoding = record.compactUnwindEncoding,
                     });
                 }
             },
             .compressed => {
                 const entry_offset = @sizeOf(macho.unwind_info_compressed_second_level_page_header) +
-                    @intCast(u16, page.page_encodings_count) * @sizeOf(u32);
+                    @as(u16, @intCast(page.page_encodings_count)) * @sizeOf(u32);
                 try writer.writeStruct(macho.unwind_info_compressed_second_level_page_header{
                     .entryPageOffset = entry_offset,
                     .entryCount = page.count,
@@ -183,8 +163,8 @@ const Page = struct {
                         break :blk ncommon + page.getPageEncoding(info, record.compactUnwindEncoding).?;
                     };
                     const compressed = macho.UnwindInfoCompressedEntry{
-                        .funcOffset = @intCast(u24, record.rangeStart - first_entry.rangeStart),
-                        .encodingIndex = @intCast(u8, enc_index),
+                        .funcOffset = @as(u24, @intCast(record.rangeStart - first_entry.rangeStart)),
+                        .encodingIndex = @as(u8, @intCast(enc_index)),
                     };
                     try writer.writeStruct(compressed);
                 }
@@ -201,135 +181,162 @@ pub fn deinit(info: *UnwindInfo) void {
     info.lsdas_lookup.deinit(info.gpa);
 }
 
-pub fn scanRelocs(zld: *Zld) !void {
-    if (zld.getSectionByName("__TEXT", "__unwind_info") == null) return;
+pub fn scanRelocs(macho_file: *MachO) !void {
+    if (macho_file.unwind_info_section_index == null) return;
 
-    const cpu_arch = zld.options.target.cpu.arch;
-    for (zld.objects.items, 0..) |*object, object_id| {
+    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    for (macho_file.objects.items, 0..) |*object, object_id| {
         const unwind_records = object.getUnwindRecords();
         for (object.exec_atoms.items) |atom_index| {
-            const record_id = object.unwind_records_lookup.get(atom_index) orelse continue;
-            if (object.unwind_relocs_lookup[record_id].dead) continue;
-            const record = unwind_records[record_id];
-            if (!UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
-                if (getPersonalityFunctionReloc(
-                    zld,
-                    @intCast(u32, object_id),
-                    record_id,
-                )) |rel| {
-                    // Personality function; add GOT pointer.
-                    const target = Atom.parseRelocTarget(zld, .{
-                        .object_id = @intCast(u32, object_id),
-                        .rel = rel,
-                        .code = mem.asBytes(&record),
-                        .base_offset = @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
-                    });
-                    try Atom.addGotEntry(zld, target);
+            var inner_syms_it = Atom.getInnerSymbolsIterator(macho_file, atom_index);
+            while (inner_syms_it.next()) |sym| {
+                const record_id = object.unwind_records_lookup.get(sym) orelse continue;
+                if (object.unwind_relocs_lookup[record_id].dead) continue;
+                const record = unwind_records[record_id];
+                if (!UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
+                    if (getPersonalityFunctionReloc(macho_file, @as(u32, @intCast(object_id)), record_id)) |rel| {
+                        // Personality function; add GOT pointer.
+                        const target = Atom.parseRelocTarget(macho_file, .{
+                            .object_id = @as(u32, @intCast(object_id)),
+                            .rel = rel,
+                            .code = mem.asBytes(&record),
+                            .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
+                        });
+                        try macho_file.addGotEntry(target);
+                    }
                 }
             }
         }
     }
 }
 
-pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
-    if (zld.getSectionByName("__TEXT", "__unwind_info") == null) return;
+pub fn collect(info: *UnwindInfo, macho_file: *MachO) !void {
+    if (macho_file.unwind_info_section_index == null) return;
 
-    const cpu_arch = zld.options.target.cpu.arch;
+    const cpu_arch = macho_file.base.options.target.cpu.arch;
 
     var records = std.ArrayList(macho.compact_unwind_entry).init(info.gpa);
     defer records.deinit();
 
-    var atom_indexes = std.ArrayList(AtomIndex).init(info.gpa);
-    defer atom_indexes.deinit();
+    var sym_indexes = std.ArrayList(SymbolWithLoc).init(info.gpa);
+    defer sym_indexes.deinit();
 
     // TODO handle dead stripping
-    for (zld.objects.items, 0..) |*object, object_id| {
+    for (macho_file.objects.items, 0..) |*object, object_id| {
         log.debug("collecting unwind records in {s} ({d})", .{ object.name, object_id });
         const unwind_records = object.getUnwindRecords();
 
         // Contents of unwind records does not have to cover all symbol in executable section
         // so we need insert them ourselves.
         try records.ensureUnusedCapacity(object.exec_atoms.items.len);
-        try atom_indexes.ensureUnusedCapacity(object.exec_atoms.items.len);
+        try sym_indexes.ensureUnusedCapacity(object.exec_atoms.items.len);
 
         for (object.exec_atoms.items) |atom_index| {
-            var record = if (object.unwind_records_lookup.get(atom_index)) |record_id| blk: {
-                if (object.unwind_relocs_lookup[record_id].dead) continue;
-                var record = unwind_records[record_id];
+            var inner_syms_it = Atom.getInnerSymbolsIterator(macho_file, atom_index);
+            var prev_symbol: ?SymbolWithLoc = null;
+            while (inner_syms_it.next()) |symbol| {
+                var record = if (object.unwind_records_lookup.get(symbol)) |record_id| blk: {
+                    if (object.unwind_relocs_lookup[record_id].dead) continue;
+                    var record = unwind_records[record_id];
 
-                if (UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
-                    try info.collectPersonalityFromDwarf(zld, @intCast(u32, object_id), atom_index, &record);
-                } else {
-                    if (getPersonalityFunctionReloc(
-                        zld,
-                        @intCast(u32, object_id),
-                        record_id,
-                    )) |rel| {
-                        const target = Atom.parseRelocTarget(zld, .{
-                            .object_id = @intCast(u32, object_id),
-                            .rel = rel,
-                            .code = mem.asBytes(&record),
-                            .base_offset = @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
-                        });
-                        const personality_index = info.getPersonalityFunction(target) orelse inner: {
-                            const personality_index = info.personalities_count;
-                            info.personalities[personality_index] = target;
-                            info.personalities_count += 1;
-                            break :inner personality_index;
-                        };
+                    if (UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
+                        info.collectPersonalityFromDwarf(macho_file, @as(u32, @intCast(object_id)), symbol, &record);
+                    } else {
+                        if (getPersonalityFunctionReloc(
+                            macho_file,
+                            @as(u32, @intCast(object_id)),
+                            record_id,
+                        )) |rel| {
+                            const target = Atom.parseRelocTarget(macho_file, .{
+                                .object_id = @as(u32, @intCast(object_id)),
+                                .rel = rel,
+                                .code = mem.asBytes(&record),
+                                .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
+                            });
+                            const personality_index = info.getPersonalityFunction(target) orelse inner: {
+                                const personality_index = info.personalities_count;
+                                info.personalities[personality_index] = target;
+                                info.personalities_count += 1;
+                                break :inner personality_index;
+                            };
 
-                        record.personalityFunction = personality_index + 1;
-                        UnwindEncoding.setPersonalityIndex(&record.compactUnwindEncoding, personality_index + 1);
-                    }
-
-                    if (getLsdaReloc(zld, @intCast(u32, object_id), record_id)) |rel| {
-                        const target = Atom.parseRelocTarget(zld, .{
-                            .object_id = @intCast(u32, object_id),
-                            .rel = rel,
-                            .code = mem.asBytes(&record),
-                            .base_offset = @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
-                        });
-                        record.lsda = @bitCast(u64, target);
-                    }
-                }
-                break :blk record;
-            } else blk: {
-                const atom = zld.getAtom(atom_index);
-                const sym = zld.getSymbol(atom.getSymbolWithLoc());
-                if (sym.n_desc == N_DEAD) continue;
-
-                if (!object.hasUnwindRecords()) {
-                    if (object.eh_frame_records_lookup.get(atom_index)) |fde_offset| {
-                        if (object.eh_frame_relocs_lookup.get(fde_offset).?.dead) continue;
-                        var record = nullRecord();
-                        try info.collectPersonalityFromDwarf(zld, @intCast(u32, object_id), atom_index, &record);
-                        switch (cpu_arch) {
-                            .aarch64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_ARM64_MODE.DWARF),
-                            .x86_64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_X86_64_MODE.DWARF),
-                            else => unreachable,
+                            record.personalityFunction = personality_index + 1;
+                            UnwindEncoding.setPersonalityIndex(&record.compactUnwindEncoding, personality_index + 1);
                         }
-                        break :blk record;
+
+                        if (getLsdaReloc(macho_file, @as(u32, @intCast(object_id)), record_id)) |rel| {
+                            const target = Atom.parseRelocTarget(macho_file, .{
+                                .object_id = @as(u32, @intCast(object_id)),
+                                .rel = rel,
+                                .code = mem.asBytes(&record),
+                                .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
+                            });
+                            record.lsda = @as(u64, @bitCast(target));
+                        }
                     }
-                }
+                    break :blk record;
+                } else blk: {
+                    const sym = macho_file.getSymbol(symbol);
+                    if (sym.n_desc == MachO.N_DEAD) continue;
+                    if (prev_symbol) |prev_sym| {
+                        const prev_addr = object.getSourceSymbol(prev_sym.sym_index).?.n_value;
+                        const curr_addr = object.getSourceSymbol(symbol.sym_index).?.n_value;
+                        if (prev_addr == curr_addr) continue;
+                    }
 
-                break :blk nullRecord();
-            };
+                    if (!object.hasUnwindRecords()) {
+                        if (object.eh_frame_records_lookup.get(symbol)) |fde_offset| {
+                            if (object.eh_frame_relocs_lookup.get(fde_offset).?.dead) continue;
+                            var record = nullRecord();
+                            info.collectPersonalityFromDwarf(macho_file, @as(u32, @intCast(object_id)), symbol, &record);
+                            switch (cpu_arch) {
+                                .aarch64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_ARM64_MODE.DWARF),
+                                .x86_64 => UnwindEncoding.setMode(&record.compactUnwindEncoding, macho.UNWIND_X86_64_MODE.DWARF),
+                                else => unreachable,
+                            }
+                            break :blk record;
+                        }
+                    }
 
-            const atom = zld.getAtom(atom_index);
-            const sym_loc = atom.getSymbolWithLoc();
-            const sym = zld.getSymbol(sym_loc);
-            assert(sym.n_desc != N_DEAD);
-            record.rangeStart = sym.n_value;
-            record.rangeLength = @intCast(u32, atom.size);
+                    break :blk nullRecord();
+                };
 
-            records.appendAssumeCapacity(record);
-            atom_indexes.appendAssumeCapacity(atom_index);
+                const atom = macho_file.getAtom(atom_index);
+                const sym = macho_file.getSymbol(symbol);
+                assert(sym.n_desc != MachO.N_DEAD);
+                const size = if (inner_syms_it.next()) |next_sym| blk: {
+                    // All this trouble to account for symbol aliases.
+                    // TODO I think that remodelling the linker so that a Symbol references an Atom
+                    // is the way to go, kinda like we do for ELF. We might also want to perhaps tag
+                    // symbol aliases somehow so that they are excluded from everything except relocation
+                    // resolution.
+                    defer inner_syms_it.pos -= 1;
+                    const curr_addr = object.getSourceSymbol(symbol.sym_index).?.n_value;
+                    const next_addr = object.getSourceSymbol(next_sym.sym_index).?.n_value;
+                    if (next_addr > curr_addr) break :blk next_addr - curr_addr;
+                    break :blk macho_file.getSymbol(atom.getSymbolWithLoc()).n_value + atom.size - sym.n_value;
+                } else macho_file.getSymbol(atom.getSymbolWithLoc()).n_value + atom.size - sym.n_value;
+                record.rangeStart = sym.n_value;
+                record.rangeLength = @as(u32, @intCast(size));
+
+                try records.append(record);
+                try sym_indexes.append(symbol);
+
+                prev_symbol = symbol;
+            }
         }
     }
 
+    // Record the ending boundary before folding.
+    assert(records.items.len > 0);
+    info.end_boundary = blk: {
+        const last_record = records.items[records.items.len - 1];
+        break :blk last_record.rangeStart + last_record.rangeLength;
+    };
+
     // Fold records
     try info.records.ensureTotalCapacity(info.gpa, records.items.len);
-    try info.records_lookup.ensureTotalCapacity(info.gpa, @intCast(u32, atom_indexes.items.len));
+    try info.records_lookup.ensureTotalCapacity(info.gpa, @as(u32, @intCast(sym_indexes.items.len)));
 
     var maybe_prev: ?macho.compact_unwind_entry = null;
     for (records.items, 0..) |record, i| {
@@ -341,21 +348,21 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
                     (prev.personalityFunction != record.personalityFunction) or
                     record.lsda > 0)
                 {
-                    const record_id = @intCast(RecordIndex, info.records.items.len);
+                    const record_id = @as(RecordIndex, @intCast(info.records.items.len));
                     info.records.appendAssumeCapacity(record);
                     maybe_prev = record;
                     break :blk record_id;
                 } else {
-                    break :blk @intCast(RecordIndex, info.records.items.len - 1);
+                    break :blk @as(RecordIndex, @intCast(info.records.items.len - 1));
                 }
             } else {
-                const record_id = @intCast(RecordIndex, info.records.items.len);
+                const record_id = @as(RecordIndex, @intCast(info.records.items.len));
                 info.records.appendAssumeCapacity(record);
                 maybe_prev = record;
                 break :blk record_id;
             }
         };
-        info.records_lookup.putAssumeCapacityNoClobber(atom_indexes.items[i], record_id);
+        info.records_lookup.putAssumeCapacityNoClobber(sym_indexes.items[i], record_id);
     }
 
     // Calculate common encodings
@@ -459,14 +466,14 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
                 }
             }
 
-            page.count = @intCast(u16, i - page.start);
+            page.count = @as(u16, @intCast(i - page.start));
 
             if (i < info.records.items.len and page.count < max_regular_second_level_entries) {
                 page.kind = .regular;
-                page.count = @intCast(u16, @min(
+                page.count = @as(u16, @intCast(@min(
                     max_regular_second_level_entries,
                     info.records.items.len - page.start,
-                ));
+                )));
                 i = page.start + page.count;
             } else {
                 page.kind = .compressed;
@@ -479,34 +486,34 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
     }
 
     // Save indices of records requiring LSDA relocation
-    try info.lsdas_lookup.ensureTotalCapacity(info.gpa, @intCast(u32, info.records.items.len));
+    try info.lsdas_lookup.ensureTotalCapacity(info.gpa, @as(u32, @intCast(info.records.items.len)));
     for (info.records.items, 0..) |rec, i| {
-        info.lsdas_lookup.putAssumeCapacityNoClobber(@intCast(RecordIndex, i), @intCast(u32, info.lsdas.items.len));
+        info.lsdas_lookup.putAssumeCapacityNoClobber(@as(RecordIndex, @intCast(i)), @as(u32, @intCast(info.lsdas.items.len)));
         if (rec.lsda == 0) continue;
-        try info.lsdas.append(info.gpa, @intCast(RecordIndex, i));
+        try info.lsdas.append(info.gpa, @as(RecordIndex, @intCast(i)));
     }
 }
 
 fn collectPersonalityFromDwarf(
     info: *UnwindInfo,
-    zld: *Zld,
+    macho_file: *MachO,
     object_id: u32,
-    atom_index: u32,
+    sym_loc: SymbolWithLoc,
     record: *macho.compact_unwind_entry,
-) !void {
-    const object = &zld.objects.items[object_id];
+) void {
+    const object = &macho_file.objects.items[object_id];
     var it = object.getEhFrameRecordsIterator();
-    const fde_offset = object.eh_frame_records_lookup.get(atom_index).?;
+    const fde_offset = object.eh_frame_records_lookup.get(sym_loc).?;
     it.seekTo(fde_offset);
-    const fde = (try it.next()).?;
-    const cie_ptr = fde.getCiePointer();
+    const fde = (it.next() catch return).?; // We don't care about the error since we already handled it
+    const cie_ptr = fde.getCiePointerSource(object_id, macho_file, fde_offset);
     const cie_offset = fde_offset + 4 - cie_ptr;
     it.seekTo(cie_offset);
-    const cie = (try it.next()).?;
+    const cie = (it.next() catch return).?; // We don't care about the error since we already handled it
 
     if (cie.getPersonalityPointerReloc(
-        zld,
-        @intCast(u32, object_id),
+        macho_file,
+        @as(u32, @intCast(object_id)),
         cie_offset,
     )) |target| {
         const personality_index = info.getPersonalityFunction(target) orelse inner: {
@@ -521,9 +528,9 @@ fn collectPersonalityFromDwarf(
     }
 }
 
-pub fn calcSectionSize(info: UnwindInfo, zld: *Zld) !void {
-    const sect_id = zld.getSectionByName("__TEXT", "__unwind_info") orelse return;
-    const sect = &zld.sections.items(.header)[sect_id];
+pub fn calcSectionSize(info: UnwindInfo, macho_file: *MachO) void {
+    const sect_id = macho_file.unwind_info_section_index orelse return;
+    const sect = &macho_file.sections.items(.header)[sect_id];
     sect.@"align" = 2;
     sect.size = info.calcRequiredSize();
 }
@@ -532,33 +539,31 @@ fn calcRequiredSize(info: UnwindInfo) usize {
     var total_size: usize = 0;
     total_size += @sizeOf(macho.unwind_info_section_header);
     total_size +=
-        @intCast(usize, info.common_encodings_count) * @sizeOf(macho.compact_unwind_encoding_t);
-    total_size += @intCast(usize, info.personalities_count) * @sizeOf(u32);
+        @as(usize, @intCast(info.common_encodings_count)) * @sizeOf(macho.compact_unwind_encoding_t);
+    total_size += @as(usize, @intCast(info.personalities_count)) * @sizeOf(u32);
     total_size += (info.pages.items.len + 1) * @sizeOf(macho.unwind_info_section_header_index_entry);
     total_size += info.lsdas.items.len * @sizeOf(macho.unwind_info_section_header_lsda_index_entry);
     total_size += info.pages.items.len * second_level_page_bytes;
     return total_size;
 }
 
-pub fn write(info: *UnwindInfo, zld: *Zld) !void {
-    const sect_id = zld.getSectionByName("__TEXT", "__unwind_info") orelse return;
-    const sect = &zld.sections.items(.header)[sect_id];
-    const seg_id = zld.sections.items(.segment_index)[sect_id];
-    const seg = zld.segments.items[seg_id];
+pub fn write(info: *UnwindInfo, macho_file: *MachO) !void {
+    const sect_id = macho_file.unwind_info_section_index orelse return;
+    const sect = &macho_file.sections.items(.header)[sect_id];
+    const seg_id = macho_file.sections.items(.segment_index)[sect_id];
+    const seg = macho_file.segments.items[seg_id];
 
-    const text_sect_id = zld.getSectionByName("__TEXT", "__text").?;
-    const text_sect = zld.sections.items(.header)[text_sect_id];
+    const text_sect_id = macho_file.text_section_index.?;
+    const text_sect = macho_file.sections.items(.header)[text_sect_id];
 
     var personalities: [max_personalities]u32 = undefined;
-    const cpu_arch = zld.options.target.cpu.arch;
+    const cpu_arch = macho_file.base.options.target.cpu.arch;
 
     log.debug("Personalities:", .{});
     for (info.personalities[0..info.personalities_count], 0..) |target, i| {
-        const atom_index = zld.getGotAtomIndexForSymbol(target).?;
-        const atom = zld.getAtom(atom_index);
-        const sym = zld.getSymbol(atom.getSymbolWithLoc());
-        personalities[i] = @intCast(u32, sym.n_value - seg.vmaddr);
-        log.debug("  {d}: 0x{x} ({s})", .{ i, personalities[i], zld.getSymbolName(target) });
+        const addr = macho_file.getGotEntryAddress(target).?;
+        personalities[i] = @as(u32, @intCast(addr - seg.vmaddr));
+        log.debug("  {d}: 0x{x} ({s})", .{ i, personalities[i], macho_file.getSymbolName(target) });
     }
 
     for (info.records.items) |*rec| {
@@ -570,9 +575,9 @@ pub fn write(info: *UnwindInfo, zld: *Zld) !void {
         }
 
         if (rec.compactUnwindEncoding > 0 and !UnwindEncoding.isDwarf(rec.compactUnwindEncoding, cpu_arch)) {
-            const lsda_target = @bitCast(SymbolWithLoc, rec.lsda);
+            const lsda_target = @as(SymbolWithLoc, @bitCast(rec.lsda));
             if (lsda_target.getFile()) |_| {
-                const sym = zld.getSymbol(lsda_target);
+                const sym = macho_file.getSymbol(lsda_target);
                 rec.lsda = sym.n_value - seg.vmaddr;
             }
         }
@@ -601,7 +606,7 @@ pub fn write(info: *UnwindInfo, zld: *Zld) !void {
     const personalities_offset: u32 = common_encodings_offset + common_encodings_count * @sizeOf(u32);
     const personalities_count: u32 = info.personalities_count;
     const indexes_offset: u32 = personalities_offset + personalities_count * @sizeOf(u32);
-    const indexes_count: u32 = @intCast(u32, info.pages.items.len + 1);
+    const indexes_count: u32 = @as(u32, @intCast(info.pages.items.len + 1));
 
     try writer.writeStruct(macho.unwind_info_section_header{
         .commonEncodingsArraySectionOffset = common_encodings_offset,
@@ -615,34 +620,34 @@ pub fn write(info: *UnwindInfo, zld: *Zld) !void {
     try writer.writeAll(mem.sliceAsBytes(info.common_encodings[0..info.common_encodings_count]));
     try writer.writeAll(mem.sliceAsBytes(personalities[0..info.personalities_count]));
 
-    const pages_base_offset = @intCast(u32, size - (info.pages.items.len * second_level_page_bytes));
-    const lsda_base_offset = @intCast(u32, pages_base_offset -
-        (info.lsdas.items.len * @sizeOf(macho.unwind_info_section_header_lsda_index_entry)));
+    const pages_base_offset = @as(u32, @intCast(size - (info.pages.items.len * second_level_page_bytes)));
+    const lsda_base_offset = @as(u32, @intCast(pages_base_offset -
+        (info.lsdas.items.len * @sizeOf(macho.unwind_info_section_header_lsda_index_entry))));
     for (info.pages.items, 0..) |page, i| {
         assert(page.count > 0);
         const first_entry = info.records.items[page.start];
         try writer.writeStruct(macho.unwind_info_section_header_index_entry{
-            .functionOffset = @intCast(u32, first_entry.rangeStart),
-            .secondLevelPagesSectionOffset = @intCast(u32, pages_base_offset + i * second_level_page_bytes),
+            .functionOffset = @as(u32, @intCast(first_entry.rangeStart)),
+            .secondLevelPagesSectionOffset = @as(u32, @intCast(pages_base_offset + i * second_level_page_bytes)),
             .lsdaIndexArraySectionOffset = lsda_base_offset +
                 info.lsdas_lookup.get(page.start).? * @sizeOf(macho.unwind_info_section_header_lsda_index_entry),
         });
     }
 
-    const last_entry = info.records.items[info.records.items.len - 1];
-    const sentinel_address = @intCast(u32, last_entry.rangeStart + last_entry.rangeLength);
+    // Relocate end boundary address
+    const end_boundary = @as(u32, @intCast(info.end_boundary + text_sect.addr - seg.vmaddr));
     try writer.writeStruct(macho.unwind_info_section_header_index_entry{
-        .functionOffset = sentinel_address,
+        .functionOffset = end_boundary,
         .secondLevelPagesSectionOffset = 0,
         .lsdaIndexArraySectionOffset = lsda_base_offset +
-            @intCast(u32, info.lsdas.items.len) * @sizeOf(macho.unwind_info_section_header_lsda_index_entry),
+            @as(u32, @intCast(info.lsdas.items.len)) * @sizeOf(macho.unwind_info_section_header_lsda_index_entry),
     });
 
     for (info.lsdas.items) |record_id| {
         const record = info.records.items[record_id];
         try writer.writeStruct(macho.unwind_info_section_header_lsda_index_entry{
-            .functionOffset = @intCast(u32, record.rangeStart),
-            .lsdaOffset = @intCast(u32, record.lsda),
+            .functionOffset = @as(u32, @intCast(record.rangeStart)),
+            .lsdaOffset = @as(u32, @intCast(record.lsda)),
         });
     }
 
@@ -662,11 +667,11 @@ pub fn write(info: *UnwindInfo, zld: *Zld) !void {
         @memset(buffer.items[offset..], 0);
     }
 
-    try zld.file.pwriteAll(buffer.items, sect.offset);
+    try macho_file.base.file.?.pwriteAll(buffer.items, sect.offset);
 }
 
-fn getRelocs(zld: *Zld, object_id: u32, record_id: usize) []const macho.relocation_info {
-    const object = &zld.objects.items[object_id];
+fn getRelocs(macho_file: *MachO, object_id: u32, record_id: usize) []const macho.relocation_info {
+    const object = &macho_file.objects.items[object_id];
     assert(object.hasUnwindRecords());
     const rel_pos = object.unwind_relocs_lookup[record_id].reloc;
     const relocs = object.getRelocs(object.unwind_info_sect_id.?);
@@ -674,17 +679,17 @@ fn getRelocs(zld: *Zld, object_id: u32, record_id: usize) []const macho.relocati
 }
 
 fn isPersonalityFunction(record_id: usize, rel: macho.relocation_info) bool {
-    const base_offset = @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry));
+    const base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry)));
     const rel_offset = rel.r_address - base_offset;
     return rel_offset == 16;
 }
 
 pub fn getPersonalityFunctionReloc(
-    zld: *Zld,
+    macho_file: *MachO,
     object_id: u32,
     record_id: usize,
 ) ?macho.relocation_info {
-    const relocs = getRelocs(zld, object_id, record_id);
+    const relocs = getRelocs(macho_file, object_id, record_id);
     for (relocs) |rel| {
         if (isPersonalityFunction(record_id, rel)) return rel;
     }
@@ -703,13 +708,13 @@ fn getPersonalityFunction(info: UnwindInfo, global_index: SymbolWithLoc) ?u2 {
 }
 
 fn isLsda(record_id: usize, rel: macho.relocation_info) bool {
-    const base_offset = @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry));
+    const base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry)));
     const rel_offset = rel.r_address - base_offset;
     return rel_offset == 24;
 }
 
-pub fn getLsdaReloc(zld: *Zld, object_id: u32, record_id: usize) ?macho.relocation_info {
-    const relocs = getRelocs(zld, object_id, record_id);
+pub fn getLsdaReloc(macho_file: *MachO, object_id: u32, record_id: usize) ?macho.relocation_info {
+    const relocs = getRelocs(macho_file, object_id, record_id);
     for (relocs) |rel| {
         if (isLsda(record_id, rel)) return rel;
     }
@@ -754,45 +759,45 @@ fn getCommonEncoding(info: UnwindInfo, enc: macho.compact_unwind_encoding_t) ?u7
 pub const UnwindEncoding = struct {
     pub fn getMode(enc: macho.compact_unwind_encoding_t) u4 {
         comptime assert(macho.UNWIND_ARM64_MODE_MASK == macho.UNWIND_X86_64_MODE_MASK);
-        return @truncate(u4, (enc & macho.UNWIND_ARM64_MODE_MASK) >> 24);
+        return @as(u4, @truncate((enc & macho.UNWIND_ARM64_MODE_MASK) >> 24));
     }
 
     pub fn isDwarf(enc: macho.compact_unwind_encoding_t, cpu_arch: std.Target.Cpu.Arch) bool {
         const mode = getMode(enc);
         return switch (cpu_arch) {
-            .aarch64 => @intToEnum(macho.UNWIND_ARM64_MODE, mode) == .DWARF,
-            .x86_64 => @intToEnum(macho.UNWIND_X86_64_MODE, mode) == .DWARF,
+            .aarch64 => @as(macho.UNWIND_ARM64_MODE, @enumFromInt(mode)) == .DWARF,
+            .x86_64 => @as(macho.UNWIND_X86_64_MODE, @enumFromInt(mode)) == .DWARF,
             else => unreachable,
         };
     }
 
     pub fn setMode(enc: *macho.compact_unwind_encoding_t, mode: anytype) void {
-        enc.* |= @intCast(u32, @enumToInt(mode)) << 24;
+        enc.* |= @as(u32, @intCast(@intFromEnum(mode))) << 24;
     }
 
     pub fn hasLsda(enc: macho.compact_unwind_encoding_t) bool {
-        const has_lsda = @truncate(u1, (enc & macho.UNWIND_HAS_LSDA) >> 31);
+        const has_lsda = @as(u1, @truncate((enc & macho.UNWIND_HAS_LSDA) >> 31));
         return has_lsda == 1;
     }
 
     pub fn setHasLsda(enc: *macho.compact_unwind_encoding_t, has_lsda: bool) void {
-        const mask = @intCast(u32, @boolToInt(has_lsda)) << 31;
+        const mask = @as(u32, @intCast(@intFromBool(has_lsda))) << 31;
         enc.* |= mask;
     }
 
     pub fn getPersonalityIndex(enc: macho.compact_unwind_encoding_t) u2 {
-        const index = @truncate(u2, (enc & macho.UNWIND_PERSONALITY_MASK) >> 28);
+        const index = @as(u2, @truncate((enc & macho.UNWIND_PERSONALITY_MASK) >> 28));
         return index;
     }
 
     pub fn setPersonalityIndex(enc: *macho.compact_unwind_encoding_t, index: u2) void {
-        const mask = @intCast(u32, index) << 28;
+        const mask = @as(u32, @intCast(index)) << 28;
         enc.* |= mask;
     }
 
     pub fn getDwarfSectionOffset(enc: macho.compact_unwind_encoding_t, cpu_arch: std.Target.Cpu.Arch) u24 {
         assert(isDwarf(enc, cpu_arch));
-        const offset = @truncate(u24, enc);
+        const offset = @as(u24, @truncate(enc));
         return offset;
     }
 
@@ -801,3 +806,23 @@ pub const UnwindEncoding = struct {
         enc.* |= offset;
     }
 };
+
+const UnwindInfo = @This();
+
+const std = @import("std");
+const assert = std.debug.assert;
+const eh_frame = @import("eh_frame.zig");
+const fs = std.fs;
+const leb = std.leb;
+const log = std.log.scoped(.unwind_info);
+const macho = std.macho;
+const math = std.math;
+const mem = std.mem;
+const trace = @import("../../tracy.zig").trace;
+
+const Allocator = mem.Allocator;
+const Atom = @import("Atom.zig");
+const EhFrameRecord = eh_frame.EhFrameRecord;
+const MachO = @import("../MachO.zig");
+const Object = @import("Object.zig");
+const SymbolWithLoc = MachO.SymbolWithLoc;

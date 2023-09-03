@@ -10,7 +10,7 @@ const XCR0_ZMM0_15 = 0x40;
 const XCR0_ZMM16_31 = 0x80;
 
 fn setFeature(cpu: *Target.Cpu, feature: Target.x86.Feature, enabled: bool) void {
-    const idx = @as(Target.Cpu.Feature.Set.Index, @enumToInt(feature));
+    const idx = @as(Target.Cpu.Feature.Set.Index, @intFromEnum(feature));
 
     if (enabled) cpu.features.addFeature(idx) else cpu.features.removeFeature(idx);
 }

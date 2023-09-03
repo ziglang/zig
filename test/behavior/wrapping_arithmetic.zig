@@ -31,12 +31,12 @@ test "wrapping add" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 
-    comptime try S.testWrapAdd(comptime_int, 0, 0, 0);
-    comptime try S.testWrapAdd(comptime_int, 3, 2, 5);
-    comptime try S.testWrapAdd(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 1119305249183743626545271163355074748512);
-    comptime try S.testWrapAdd(comptime_int, 7, -593423721213448152027139550640105366508, -593423721213448152027139550640105366501);
+    try comptime S.testWrapAdd(comptime_int, 0, 0, 0);
+    try comptime S.testWrapAdd(comptime_int, 3, 2, 5);
+    try comptime S.testWrapAdd(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 1119305249183743626545271163355074748512);
+    try comptime S.testWrapAdd(comptime_int, 7, -593423721213448152027139550640105366508, -593423721213448152027139550640105366501);
 }
 
 test "wrapping subtraction" {
@@ -64,12 +64,12 @@ test "wrapping subtraction" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 
-    comptime try S.testWrapSub(comptime_int, 0, 0, 0);
-    comptime try S.testWrapSub(comptime_int, 3, 2, 1);
-    comptime try S.testWrapSub(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 182846383813587550256162760261375991602);
-    comptime try S.testWrapSub(comptime_int, 7, -593423721213448152027139550640105366508, 593423721213448152027139550640105366515);
+    try comptime S.testWrapSub(comptime_int, 0, 0, 0);
+    try comptime S.testWrapSub(comptime_int, 3, 2, 1);
+    try comptime S.testWrapSub(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 182846383813587550256162760261375991602);
+    try comptime S.testWrapSub(comptime_int, 7, -593423721213448152027139550640105366508, 593423721213448152027139550640105366515);
 }
 
 test "wrapping multiplication" {
@@ -101,10 +101,10 @@ test "wrapping multiplication" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 
-    comptime try S.testWrapMul(comptime_int, 0, 0, 0);
-    comptime try S.testWrapMul(comptime_int, 3, 2, 6);
-    comptime try S.testWrapMul(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 304852860194144160265083087140337419215516305999637969803722975979232817921935);
-    comptime try S.testWrapMul(comptime_int, 7, -593423721213448152027139550640105366508, -4153966048494137064189976854480737565556);
+    try comptime S.testWrapMul(comptime_int, 0, 0, 0);
+    try comptime S.testWrapMul(comptime_int, 3, 2, 6);
+    try comptime S.testWrapMul(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 304852860194144160265083087140337419215516305999637969803722975979232817921935);
+    try comptime S.testWrapMul(comptime_int, 7, -593423721213448152027139550640105366508, -4153966048494137064189976854480737565556);
 }

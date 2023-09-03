@@ -37,13 +37,14 @@ const Hint = enum {
 
 /// Unstable in-place sort. O(n) best case, O(n*log(n)) worst case and average case.
 /// O(log(n)) memory (no allocator required).
-///
-/// Sorts in ascending order with respect to the given `lessThan` function.
+/// `context` must have methods `swap` and `lessThan`,
+/// which each take 2 `usize` parameters indicating the index of an item.
+/// Sorts in ascending order with respect to `lessThan`.
 pub fn pdqContext(a: usize, b: usize, context: anytype) void {
     // slices of up to this length get sorted using insertion sort.
     const max_insertion = 24;
     // number of allowed imbalanced partitions before switching to heap sort.
-    const max_limit = std.math.floorPowerOfTwo(usize, b) + 1;
+    const max_limit = std.math.floorPowerOfTwo(usize, b - a) + 1;
 
     // set upper bound on stack memory usage.
     const Range = struct { a: usize, b: usize, limit: usize };
@@ -100,7 +101,7 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
             // if the chosen pivot is equal to the predecessor, then it's the smallest element in the
             // slice. Partition the slice into elements equal to and elements greater than the pivot.
             // This case is usually hit when the slice contains many duplicate elements.
-            if (range.a > 0 and !context.lessThan(range.a - 1, pivot)) {
+            if (range.a > a and !context.lessThan(range.a - 1, pivot)) {
                 range.a = partitionEqual(range.a, range.b, pivot, context);
                 continue;
             }
@@ -251,7 +252,7 @@ fn breakPatterns(a: usize, b: usize, context: anytype) void {
     const len = b - a;
     if (len < 8) return;
 
-    var rand = @intCast(u64, len);
+    var rand = @as(u64, @intCast(len));
     const modulus = math.ceilPowerOfTwoAssert(u64, len);
 
     var i = a + (len / 4) * 2 - 1;
@@ -261,7 +262,7 @@ fn breakPatterns(a: usize, b: usize, context: anytype) void {
         rand ^= rand >> 7;
         rand ^= rand << 17;
 
-        var other = @intCast(usize, rand & (modulus - 1));
+        var other = @as(usize, @intCast(rand & (modulus - 1)));
         if (other >= len) other -= len;
         context.swap(i, a + other);
     }
@@ -284,13 +285,13 @@ fn chosePivot(a: usize, b: usize, pivot: *usize, context: anytype) Hint {
     if (len >= 8) {
         if (len >= shortest_ninther) {
             // find medians in the neighborhoods of `i`, `j` and `k`
-            i = sort3(i - 1, i, i + 1, &swaps, context);
-            j = sort3(j - 1, j, j + 1, &swaps, context);
-            k = sort3(k - 1, k, k + 1, &swaps, context);
+            sort3(i - 1, i, i + 1, &swaps, context);
+            sort3(j - 1, j, j + 1, &swaps, context);
+            sort3(k - 1, k, k + 1, &swaps, context);
         }
 
-        // find the median among `i`, `j` and `k`
-        j = sort3(i, j, k, &swaps, context);
+        // find the median among `i`, `j` and `k` and stores it in `j`
+        sort3(i, j, k, &swaps, context);
     }
 
     pivot.* = j;
@@ -301,7 +302,7 @@ fn chosePivot(a: usize, b: usize, pivot: *usize, context: anytype) Hint {
     };
 }
 
-fn sort3(a: usize, b: usize, c: usize, swaps: *usize, context: anytype) usize {
+fn sort3(a: usize, b: usize, c: usize, swaps: *usize, context: anytype) void {
     if (context.lessThan(b, a)) {
         swaps.* += 1;
         context.swap(b, a);
@@ -316,8 +317,6 @@ fn sort3(a: usize, b: usize, c: usize, swaps: *usize, context: anytype) usize {
         swaps.* += 1;
         context.swap(b, a);
     }
-
-    return b;
 }
 
 fn reverseRange(a: usize, b: usize, context: anytype) void {

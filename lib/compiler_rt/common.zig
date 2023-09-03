@@ -102,22 +102,22 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
         u16 => {
             // 16x16 --> 32 bit multiply
             const product = @as(u32, a) * @as(u32, b);
-            hi.* = @intCast(u16, product >> 16);
-            lo.* = @truncate(u16, product);
+            hi.* = @as(u16, @intCast(product >> 16));
+            lo.* = @as(u16, @truncate(product));
         },
         u32 => {
             // 32x32 --> 64 bit multiply
             const product = @as(u64, a) * @as(u64, b);
-            hi.* = @truncate(u32, product >> 32);
-            lo.* = @truncate(u32, product);
+            hi.* = @as(u32, @truncate(product >> 32));
+            lo.* = @as(u32, @truncate(product));
         },
         u64 => {
             const S = struct {
                 fn loWord(x: u64) u64 {
-                    return @truncate(u32, x);
+                    return @as(u32, @truncate(x));
                 }
                 fn hiWord(x: u64) u64 {
-                    return @truncate(u32, x >> 32);
+                    return @as(u32, @truncate(x >> 32));
                 }
             };
             // 64x64 -> 128 wide multiply for platforms that don't have such an operation;
@@ -141,16 +141,16 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
             const Word_FullMask = @as(u64, 0xffffffffffffffff);
             const S = struct {
                 fn Word_1(x: u128) u64 {
-                    return @truncate(u32, x >> 96);
+                    return @as(u32, @truncate(x >> 96));
                 }
                 fn Word_2(x: u128) u64 {
-                    return @truncate(u32, x >> 64);
+                    return @as(u32, @truncate(x >> 64));
                 }
                 fn Word_3(x: u128) u64 {
-                    return @truncate(u32, x >> 32);
+                    return @as(u32, @truncate(x >> 32));
                 }
                 fn Word_4(x: u128) u64 {
-                    return @truncate(u32, x);
+                    return @as(u32, @truncate(x));
                 }
             };
             // 128x128 -> 256 wide multiply for platforms that don't have such an operation;
@@ -216,7 +216,7 @@ pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeIn
     const integerBit = @as(Z, 1) << std.math.floatFractionalBits(T);
 
     const shift = @clz(significand.*) - @clz(integerBit);
-    significand.* <<= @intCast(std.math.Log2Int(Z), shift);
+    significand.* <<= @as(std.math.Log2Int(Z), @intCast(shift));
     return @as(i32, 1) - shift;
 }
 
@@ -228,8 +228,8 @@ pub inline fn fneg(a: anytype) @TypeOf(a) {
         .bits = bits,
     } });
     const sign_bit_mask = @as(U, 1) << (bits - 1);
-    const negated = @bitCast(U, a) ^ sign_bit_mask;
-    return @bitCast(F, negated);
+    const negated = @as(U, @bitCast(a)) ^ sign_bit_mask;
+    return @as(F, @bitCast(negated));
 }
 
 /// Allows to access underlying bits as two equally sized lower and higher

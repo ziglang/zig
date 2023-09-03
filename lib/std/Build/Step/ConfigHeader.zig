@@ -1,20 +1,24 @@
 const std = @import("std");
 const ConfigHeader = @This();
 const Step = std.Build.Step;
+const Allocator = std.mem.Allocator;
 
 pub const Style = union(enum) {
     /// The configure format supported by autotools. It uses `#undef foo` to
     /// mark lines that can be substituted with different values.
-    autoconf: std.Build.FileSource,
+    autoconf: std.Build.LazyPath,
     /// The configure format supported by CMake. It uses `@@FOO@@` and
     /// `#cmakedefine` for template substitution.
-    cmake: std.Build.FileSource,
+    cmake: std.Build.LazyPath,
     /// Instead of starting with an input file, start with nothing.
     blank,
     /// Start with nothing, like blank, and output a nasm .asm file.
     nasm,
 
-    pub fn getFileSource(style: Style) ?std.Build.FileSource {
+    /// deprecated: use `getPath`
+    pub const getFileSource = getPath;
+
+    pub fn getPath(style: Style) ?std.Build.LazyPath {
         switch (style) {
             .autoconf, .cmake => |s| return s,
             .blank, .nasm => return null,
@@ -53,7 +57,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 
     var include_path: []const u8 = "config.h";
 
-    if (options.style.getFileSource()) |s| switch (s) {
+    if (options.style.getPath()) |s| switch (s) {
         .path => |p| {
             const basename = std.fs.path.basename(p);
             if (std.mem.endsWith(u8, basename, ".h.in")) {
@@ -67,7 +71,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
         include_path = p;
     }
 
-    const name = if (options.style.getFileSource()) |s|
+    const name = if (options.style.getPath()) |s|
         owner.fmt("configure {s} header {s} to {s}", .{
             @tagName(options.style), s.getDisplayName(), include_path,
         })
@@ -97,7 +101,10 @@ pub fn addValues(self: *ConfigHeader, values: anytype) void {
     return addValuesInner(self, values) catch @panic("OOM");
 }
 
-pub fn getFileSource(self: *ConfigHeader) std.Build.FileSource {
+/// deprecated: use `getOutput`
+pub const getFileSource = getOutput;
+
+pub fn getOutput(self: *ConfigHeader) std.Build.LazyPath {
     return .{ .generated = &self.output_file };
 }
 
@@ -292,16 +299,29 @@ fn render_cmake(
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
+    var build = step.owner;
+    var allocator = build.allocator;
+
     var values_copy = try values.clone();
     defer values_copy.deinit();
 
     var any_errors = false;
     var line_index: u32 = 0;
     var line_it = std.mem.splitScalar(u8, contents, '\n');
-    while (line_it.next()) |line| : (line_index += 1) {
+    while (line_it.next()) |raw_line| : (line_index += 1) {
+        const last_line = line_it.index == line_it.buffer.len;
+
+        const first_pass = replace_variables(allocator, raw_line, values, "@", "@") catch @panic("Failed to substitute");
+        const line = replace_variables(allocator, first_pass, values, "${", "}") catch @panic("Failed to substitute");
+
+        allocator.free(first_pass);
+        defer allocator.free(line);
+
         if (!std.mem.startsWith(u8, line, "#")) {
             try output.appendSlice(line);
-            try output.appendSlice("\n");
+            if (!last_line) {
+                try output.appendSlice("\n");
+            }
             continue;
         }
         var it = std.mem.tokenizeAny(u8, line[1..], " \t\r");
@@ -310,9 +330,14 @@ fn render_cmake(
             !std.mem.eql(u8, cmakedefine, "cmakedefine01"))
         {
             try output.appendSlice(line);
-            try output.appendSlice("\n");
+            if (!last_line) {
+                try output.appendSlice("\n");
+            }
             continue;
         }
+
+        const booldefine = std.mem.eql(u8, cmakedefine, "cmakedefine01");
+
         const name = it.next() orelse {
             try step.addError("{s}:{d}: error: missing define name", .{
                 src_path, line_index + 1,
@@ -320,19 +345,65 @@ fn render_cmake(
             any_errors = true;
             continue;
         };
-        const kv = values_copy.fetchSwapRemove(name) orelse {
-            try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
-                src_path, line_index + 1, name,
-            });
-            any_errors = true;
-            continue;
+        var value = values_copy.get(name) orelse blk: {
+            if (booldefine) {
+                break :blk Value{ .int = 0 };
+            }
+            break :blk Value.undef;
         };
-        try renderValueC(output, name, kv.value);
-    }
 
-    for (values_copy.keys()) |name| {
-        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
-        any_errors = true;
+        value = blk: {
+            switch (value) {
+                .boolean => |b| {
+                    if (!b) {
+                        break :blk Value.undef;
+                    }
+                },
+                .int => |i| {
+                    if (i == 0) {
+                        break :blk Value.undef;
+                    }
+                },
+                .string => |string| {
+                    if (string.len == 0) {
+                        break :blk Value.undef;
+                    }
+                },
+
+                else => {},
+            }
+            break :blk value;
+        };
+
+        if (booldefine) {
+            value = blk: {
+                switch (value) {
+                    .undef => {
+                        break :blk Value{ .boolean = false };
+                    },
+                    .defined => {
+                        break :blk Value{ .boolean = false };
+                    },
+                    .boolean => |b| {
+                        break :blk Value{ .boolean = b };
+                    },
+                    .int => |i| {
+                        break :blk Value{ .boolean = i != 0 };
+                    },
+                    .string => |string| {
+                        break :blk Value{ .boolean = string.len != 0 };
+                    },
+
+                    else => {
+                        break :blk Value{ .boolean = false };
+                    },
+                }
+            };
+        } else if (value != Value.undef) {
+            value = Value{ .ident = it.rest() };
+        }
+
+        try renderValueC(output, name, value);
     }
 
     if (any_errors) {
@@ -392,8 +463,7 @@ fn renderValueC(output: *std.ArrayList(u8), name: []const u8, value: Value) !voi
         .boolean => |b| {
             try output.appendSlice("#define ");
             try output.appendSlice(name);
-            try output.appendSlice(" ");
-            try output.appendSlice(if (b) "true\n" else "false\n");
+            try output.appendSlice(if (b) " 1\n" else " 0\n");
         },
         .int => |i| {
             try output.writer().print("#define {s} {d}\n", .{ name, i });
@@ -436,4 +506,66 @@ fn renderValueNasm(output: *std.ArrayList(u8), name: []const u8, value: Value) !
             try output.writer().print("%define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
         },
     }
+}
+
+fn replace_variables(
+    allocator: Allocator,
+    contents: []const u8,
+    values: std.StringArrayHashMap(Value),
+    prefix: []const u8,
+    suffix: []const u8,
+) ![]const u8 {
+    var content_buf = allocator.dupe(u8, contents) catch @panic("OOM");
+
+    var last_index: usize = 0;
+    while (std.mem.indexOfPos(u8, content_buf, last_index, prefix)) |prefix_index| {
+        const start_index = prefix_index + prefix.len;
+        if (std.mem.indexOfPos(u8, content_buf, start_index, suffix)) |suffix_index| {
+            const end_index = suffix_index + suffix.len;
+
+            const beginline = content_buf[0..prefix_index];
+            const endline = content_buf[end_index..];
+            const key = content_buf[start_index..suffix_index];
+            const value = values.get(key) orelse .undef;
+
+            switch (value) {
+                .boolean => |b| {
+                    const buf = try std.fmt.allocPrint(allocator, "{s}{}{s}", .{ beginline, @intFromBool(b), endline });
+                    last_index = start_index + 1;
+
+                    allocator.free(content_buf);
+                    content_buf = buf;
+                },
+                .int => |i| {
+                    const buf = try std.fmt.allocPrint(allocator, "{s}{}{s}", .{ beginline, i, endline });
+                    const isNegative = i < 0;
+                    const digits = (if (0 < i) std.math.log10(std.math.absCast(i)) else 0) + 1;
+                    last_index = start_index + @intFromBool(isNegative) + digits + 1;
+
+                    allocator.free(content_buf);
+                    content_buf = buf;
+                },
+                .string, .ident => |x| {
+                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ beginline, x, endline });
+                    last_index = start_index + x.len + 1;
+
+                    allocator.free(content_buf);
+                    content_buf = buf;
+                },
+
+                else => {
+                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}", .{ beginline, endline });
+                    last_index = start_index + 1;
+
+                    allocator.free(content_buf);
+                    content_buf = buf;
+                },
+            }
+            continue;
+        }
+
+        last_index = start_index + 1;
+    }
+
+    return content_buf;
 }

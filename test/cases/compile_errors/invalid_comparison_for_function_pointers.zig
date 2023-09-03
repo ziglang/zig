@@ -1,7 +1,9 @@
 fn foo() void {}
 const invalid = foo > foo;
 
-export fn entry() usize { return @sizeOf(@TypeOf(invalid)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(invalid));
+}
 
 // error
 // backend=stage2

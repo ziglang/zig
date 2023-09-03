@@ -1,8 +1,10 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const bits = @import("bits.zig");
 const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
+const Module = @import("../../Module.zig");
 
 pub const Class = union(enum) {
     memory,
@@ -11,7 +13,7 @@ pub const Class = union(enum) {
     i64_array: u8,
 
     fn arrSize(total_size: u64, arr_size: u64) Class {
-        const count = @intCast(u8, std.mem.alignForwardGeneric(u64, total_size, arr_size) / arr_size);
+        const count = @as(u8, @intCast(std.mem.alignForward(u64, total_size, arr_size) / arr_size));
         if (arr_size == 32) {
             return .{ .i32_array = count };
         } else {
@@ -22,28 +24,29 @@ pub const Class = union(enum) {
 
 pub const Context = enum { ret, arg };
 
-pub fn classifyType(ty: Type, target: std.Target, ctx: Context) Class {
-    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime());
+pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
+    assert(ty.hasRuntimeBitsIgnoreComptime(mod));
 
     var maybe_float_bits: ?u16 = null;
     const max_byval_size = 512;
-    switch (ty.zigTypeTag()) {
+    const ip = &mod.intern_pool;
+    switch (ty.zigTypeTag(mod)) {
         .Struct => {
-            const bit_size = ty.bitSize(target);
-            if (ty.containerLayout() == .Packed) {
+            const bit_size = ty.bitSize(mod);
+            if (ty.containerLayout(mod) == .Packed) {
                 if (bit_size > 64) return .memory;
                 return .byval;
             }
             if (bit_size > max_byval_size) return .memory;
-            const float_count = countFloats(ty, target, &maybe_float_bits);
+            const float_count = countFloats(ty, mod, &maybe_float_bits);
             if (float_count <= byval_float_count) return .byval;
 
-            const fields = ty.structFieldCount();
+            const fields = ty.structFieldCount(mod);
             var i: u32 = 0;
             while (i < fields) : (i += 1) {
-                const field_ty = ty.structFieldType(i);
-                const field_alignment = ty.structFieldAlign(i, target);
-                const field_size = field_ty.bitSize(target);
+                const field_ty = ty.structFieldType(i, mod);
+                const field_alignment = ty.structFieldAlign(i, mod);
+                const field_size = field_ty.bitSize(mod);
                 if (field_size > 32 or field_alignment > 32) {
                     return Class.arrSize(bit_size, 64);
                 }
@@ -51,17 +54,20 @@ pub fn classifyType(ty: Type, target: std.Target, ctx: Context) Class {
             return Class.arrSize(bit_size, 32);
         },
         .Union => {
-            const bit_size = ty.bitSize(target);
-            if (ty.containerLayout() == .Packed) {
+            const bit_size = ty.bitSize(mod);
+            const union_obj = mod.typeToUnion(ty).?;
+            if (union_obj.getLayout(ip) == .Packed) {
                 if (bit_size > 64) return .memory;
                 return .byval;
             }
             if (bit_size > max_byval_size) return .memory;
-            const float_count = countFloats(ty, target, &maybe_float_bits);
+            const float_count = countFloats(ty, mod, &maybe_float_bits);
             if (float_count <= byval_float_count) return .byval;
 
-            for (ty.unionFields().values()) |field| {
-                if (field.ty.bitSize(target) > 32 or field.normalAlignment(target) > 32) {
+            for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
+                if (field_ty.toType().bitSize(mod) > 32 or
+                    mod.unionFieldNormalAlignment(union_obj, @intCast(field_index)) > 32)
+                {
                     return Class.arrSize(bit_size, 64);
                 }
             }
@@ -71,28 +77,28 @@ pub fn classifyType(ty: Type, target: std.Target, ctx: Context) Class {
         .Int => {
             // TODO this is incorrect for _BitInt(128) but implementing
             // this correctly makes implementing compiler-rt impossible.
-            // const bit_size = ty.bitSize(target);
+            // const bit_size = ty.bitSize(mod);
             // if (bit_size > 64) return .memory;
             return .byval;
         },
         .Enum, .ErrorSet => {
-            const bit_size = ty.bitSize(target);
+            const bit_size = ty.bitSize(mod);
             if (bit_size > 64) return .memory;
             return .byval;
         },
         .Vector => {
-            const bit_size = ty.bitSize(target);
+            const bit_size = ty.bitSize(mod);
             // TODO is this controlled by a cpu feature?
             if (ctx == .ret and bit_size > 128) return .memory;
             if (bit_size > 512) return .memory;
             return .byval;
         },
         .Optional => {
-            std.debug.assert(ty.isPtrLikeOptional());
+            assert(ty.isPtrLikeOptional(mod));
             return .byval;
         },
         .Pointer => {
-            std.debug.assert(!ty.isSlice());
+            assert(!ty.isSlice(mod));
             return .byval;
         },
         .ErrorUnion,
@@ -114,14 +120,16 @@ pub fn classifyType(ty: Type, target: std.Target, ctx: Context) Class {
 }
 
 const byval_float_count = 4;
-fn countFloats(ty: Type, target: std.Target, maybe_float_bits: *?u16) u32 {
+fn countFloats(ty: Type, mod: *Module, maybe_float_bits: *?u16) u32 {
+    const ip = &mod.intern_pool;
+    const target = mod.getTarget();
     const invalid = std.math.maxInt(u32);
-    switch (ty.zigTypeTag()) {
+    switch (ty.zigTypeTag(mod)) {
         .Union => {
-            const fields = ty.unionFields();
+            const union_obj = mod.typeToUnion(ty).?;
             var max_count: u32 = 0;
-            for (fields.values()) |field| {
-                const field_count = countFloats(field.ty, target, maybe_float_bits);
+            for (union_obj.field_types.get(ip)) |field_ty| {
+                const field_count = countFloats(field_ty.toType(), mod, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 if (field_count > max_count) max_count = field_count;
                 if (max_count > byval_float_count) return invalid;
@@ -129,12 +137,12 @@ fn countFloats(ty: Type, target: std.Target, maybe_float_bits: *?u16) u32 {
             return max_count;
         },
         .Struct => {
-            const fields_len = ty.structFieldCount();
+            const fields_len = ty.structFieldCount(mod);
             var count: u32 = 0;
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
-                const field_ty = ty.structFieldType(i);
-                const field_count = countFloats(field_ty, target, maybe_float_bits);
+                const field_ty = ty.structFieldType(i, mod);
+                const field_count = countFloats(field_ty, mod, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 count += field_count;
                 if (count > byval_float_count) return invalid;

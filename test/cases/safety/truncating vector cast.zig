@@ -9,8 +9,8 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 }
 
 pub fn main() !void {
-    var x = @splat(4, @as(u32, 0xdeadbeef));
-    var y = @intCast(@Vector(4, u16), x);
+    var x: @Vector(4, u32) = @splat(0xdeadbeef);
+    var y: @Vector(4, u16) = @intCast(x);
     _ = y;
     return error.TestFailed;
 }

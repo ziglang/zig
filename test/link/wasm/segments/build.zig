@@ -25,16 +25,20 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     b.installArtifact(lib);
 
     const check_lib = lib.checkObject();
-    check_lib.checkStart("Section data");
-    check_lib.checkNext("entries 2"); // rodata & data, no bss because we're exporting memory
+    check_lib.checkStart();
+    check_lib.checkExact("Section data");
+    check_lib.checkExact("entries 2"); // rodata & data, no bss because we're exporting memory
 
-    check_lib.checkStart("Section custom");
-    check_lib.checkStart("name name"); // names custom section
-    check_lib.checkStart("type data_segment");
-    check_lib.checkNext("names 2");
-    check_lib.checkNext("index 0");
-    check_lib.checkNext("name .rodata");
-    check_lib.checkNext("index 1");
-    check_lib.checkNext("name .data");
+    check_lib.checkStart();
+    check_lib.checkExact("Section custom");
+    check_lib.checkStart();
+    check_lib.checkExact("name name"); // names custom section
+    check_lib.checkStart();
+    check_lib.checkExact("type data_segment");
+    check_lib.checkExact("names 2");
+    check_lib.checkExact("index 0");
+    check_lib.checkExact("name .rodata");
+    check_lib.checkExact("index 1");
+    check_lib.checkExact("name .data");
     test_step.dependOn(&check_lib.step);
 }

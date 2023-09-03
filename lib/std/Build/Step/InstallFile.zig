@@ -1,6 +1,6 @@
 const std = @import("std");
 const Step = std.Build.Step;
-const FileSource = std.Build.FileSource;
+const LazyPath = std.Build.LazyPath;
 const InstallDir = std.Build.InstallDir;
 const InstallFile = @This();
 const assert = std.debug.assert;
@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 pub const base_id = .install_file;
 
 step: Step,
-source: FileSource,
+source: LazyPath,
 dir: InstallDir,
 dest_rel_path: []const u8,
 /// This is used by the build system when a file being installed comes from one
@@ -17,7 +17,7 @@ dest_builder: *std.Build,
 
 pub fn create(
     owner: *std.Build,
-    source: FileSource,
+    source: LazyPath,
     dir: InstallDir,
     dest_rel_path: []const u8,
 ) *InstallFile {

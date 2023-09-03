@@ -16,14 +16,28 @@ const Compilation = @import("Compilation.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const Liveness = @import("Liveness.zig");
 const Module = @import("Module.zig");
-const Package = @import("Package.zig");
+const InternPool = @import("InternPool.zig");
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 
 /// When adding a new field, remember to update `hashAddSystemLibs`.
+/// These are *always* dynamically linked. Static libraries will be
+/// provided as positional arguments.
 pub const SystemLib = struct {
+    needed: bool,
+    weak: bool,
+    /// This can be null in two cases right now:
+    /// 1. Windows DLLs that zig ships such as advapi32.
+    /// 2. extern "foo" fn declarations where we find out about libraries too late
+    /// TODO: make this non-optional and resolve those two cases somehow.
+    path: ?[]const u8,
+};
+
+/// When adding a new field, remember to update `hashAddFrameworks`.
+pub const Framework = struct {
     needed: bool = false,
     weak: bool = false,
+    path: []const u8,
 };
 
 pub const SortSection = enum { name, alignment };
@@ -31,15 +45,23 @@ pub const SortSection = enum { name, alignment };
 pub const CacheMode = enum { incremental, whole };
 
 pub fn hashAddSystemLibs(
-    hh: *Cache.HashHelper,
+    man: *Cache.Manifest,
     hm: std.StringArrayHashMapUnmanaged(SystemLib),
-) void {
+) !void {
     const keys = hm.keys();
-    hh.add(keys.len);
-    hh.addListOfBytes(keys);
+    man.hash.addListOfBytes(keys);
     for (hm.values()) |value| {
-        hh.add(value.needed);
-        hh.add(value.weak);
+        man.hash.add(value.needed);
+        man.hash.add(value.weak);
+        if (value.path) |p| _ = try man.addFile(p, null);
+    }
+}
+
+pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
+    for (hm) |value| {
+        man.hash.add(value.needed);
+        man.hash.add(value.weak);
+        _ = try man.addFile(value.path, null);
     }
 }
 
@@ -70,12 +92,14 @@ pub const Emit = struct {
 pub const Options = struct {
     /// This is `null` when `-fno-emit-bin` is used.
     emit: ?Emit,
-    /// This is `null` not building a Windows DLL, or when `-fno-emit-implib` is used.
+    /// This is `null` when not building a Windows DLL, or when `-fno-emit-implib` is used.
     implib_emit: ?Emit,
+    /// This is non-null when `-femit-docs` is provided.
+    docs_emit: ?Emit,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
-    optimize_mode: std.builtin.Mode,
+    optimize_mode: std.builtin.OptimizeMode,
     machine_code_model: std.builtin.CodeModel,
     root_name: [:0]const u8,
     /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
@@ -109,6 +133,7 @@ pub const Options = struct {
     /// other objects.
     /// Otherwise (depending on `use_lld`) this link code directly outputs and updates the final binary.
     use_llvm: bool,
+    use_lib_llvm: bool,
     link_libc: bool,
     link_libcpp: bool,
     link_libunwind: bool,
@@ -133,6 +158,7 @@ pub const Options = struct {
     compress_debug_sections: CompressDebugSections,
     bind_global_refs_locally: bool,
     import_memory: bool,
+    export_memory: bool,
     import_symbols: bool,
     import_table: bool,
     export_table: bool,
@@ -179,9 +205,12 @@ pub const Options = struct {
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,
-    frameworks: std.StringArrayHashMapUnmanaged(SystemLib),
+    frameworks: []const Framework,
+    /// These are *always* dynamically linked. Static libraries will be
+    /// provided as positional arguments.
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
     wasi_emulated_libs: []const wasi_libc.CRTFile,
+    // TODO: remove this. libraries are resolved by the frontend.
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
 
@@ -197,8 +226,8 @@ pub const Options = struct {
     /// __real_symbol.
     symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
 
-    version: ?std.builtin.Version,
-    compatibility_version: ?std.builtin.Version,
+    version: ?std.SemanticVersion,
+    compatibility_version: ?std.SemanticVersion,
     libc_installation: ?*const LibCInstallation,
 
     dwarf_format: ?std.dwarf.Format,
@@ -209,9 +238,6 @@ pub const Options = struct {
     /// (Zig compiler development) Enable dumping of linker's state as JSON.
     enable_link_snapshots: bool = false,
 
-    /// (Darwin) Path and version of the native SDK if detected.
-    native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
-
     /// (Darwin) Install name for the dylib
     install_name: ?[]const u8 = null,
 
@@ -220,9 +246,6 @@ pub const Options = struct {
 
     /// (Darwin) size of the __PAGEZERO segment
     pagezero_size: ?u64 = null,
-
-    /// (Darwin) search strategy for system libraries
-    search_strategy: ?File.MachO.SearchStrategy = null,
 
     /// (Darwin) set minimum space for future expansion of the load commands
     headerpad_size: ?u32 = null,
@@ -249,7 +272,6 @@ pub const Options = struct {
 
     pub fn move(self: *Options) Options {
         const copied_state = self.*;
-        self.frameworks = .{};
         self.system_libs = .{};
         self.force_undefined_symbols = .{};
         return copied_state;
@@ -502,8 +524,6 @@ pub const File = struct {
     /// of the final binary.
     pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl_index: Module.Decl.Index) UpdateDeclError!u32 {
         if (build_options.only_c) @compileError("unreachable");
-        const decl = base.options.module.?.declPtr(decl_index);
-        log.debug("lowerUnnamedConst {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
             // zig fmt: off
             .coff  => return @fieldParentPtr(Coff,  "base", base).lowerUnnamedConst(tv, decl_index),
@@ -543,7 +563,6 @@ pub const File = struct {
     /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
-        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmt(module) });
         assert(decl.has_tv);
         if (build_options.only_c) {
             assert(base.tag == .c);
@@ -564,34 +583,27 @@ pub const File = struct {
     }
 
     /// May be called before or after updateDeclExports for any given Decl.
-    pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
-        const owner_decl = module.declPtr(func.owner_decl);
-        log.debug("updateFunc {*} ({s}), type={}", .{
-            owner_decl, owner_decl.name, owner_decl.ty.fmt(module),
-        });
+    pub fn updateFunc(base: *File, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) UpdateDeclError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
-            return @fieldParentPtr(C, "base", base).updateFunc(module, func, air, liveness);
+            return @fieldParentPtr(C, "base", base).updateFunc(module, func_index, air, liveness);
         }
         switch (base.tag) {
             // zig fmt: off
-            .coff  => return @fieldParentPtr(Coff,  "base", base).updateFunc(module, func, air, liveness),
-            .elf   => return @fieldParentPtr(Elf,   "base", base).updateFunc(module, func, air, liveness),
-            .macho => return @fieldParentPtr(MachO, "base", base).updateFunc(module, func, air, liveness),
-            .c     => return @fieldParentPtr(C,     "base", base).updateFunc(module, func, air, liveness),
-            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateFunc(module, func, air, liveness),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).updateFunc(module, func, air, liveness),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateFunc(module, func, air, liveness),
-            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateFunc(module, func, air, liveness),
+            .coff  => return @fieldParentPtr(Coff,  "base", base).updateFunc(module, func_index, air, liveness),
+            .elf   => return @fieldParentPtr(Elf,   "base", base).updateFunc(module, func_index, air, liveness),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateFunc(module, func_index, air, liveness),
+            .c     => return @fieldParentPtr(C,     "base", base).updateFunc(module, func_index, air, liveness),
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateFunc(module, func_index, air, liveness),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).updateFunc(module, func_index, air, liveness),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateFunc(module, func_index, air, liveness),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateFunc(module, func_index, air, liveness),
             // zig fmt: on
         }
     }
 
     pub fn updateDeclLineNumber(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
-        log.debug("updateDeclLineNumber {*} ({s}), line={}", .{
-            decl, decl.name, decl.src_line + 1,
-        });
         assert(decl.has_tv);
         if (build_options.only_c) {
             assert(base.tag == .c);
@@ -625,7 +637,6 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
-        base.options.frameworks.deinit(base.allocator);
         base.options.system_libs.deinit(base.allocator);
         base.options.force_undefined_symbols.deinit(base.allocator);
         switch (base.tag) {
@@ -682,19 +693,15 @@ pub const File = struct {
     /// TODO audit this error set. most of these should be collapsed into one error,
     /// and ErrorFlags should be updated to convey the meaning to the user.
     pub const FlushError = error{
-        BadDwarfCfi,
         CacheUnavailable,
         CurrentWorkingDirectoryUnlinked,
         DivisionByZero,
         DllImportLibraryNotFound,
-        EmptyStubFile,
         ExpectedFuncType,
         FailedToEmit,
-        FailedToResolveRelocationTarget,
         FileSystem,
         FilesOpenedWithWrongFlags,
         FlushFailure,
-        FrameworkNotFound,
         FunctionSignatureMismatch,
         GlobalTypeMismatch,
         HotSwapUnavailableOnHostOperatingSystem,
@@ -711,27 +718,19 @@ pub const File = struct {
         LLD_LinkingIsTODO_ForSpirV,
         LibCInstallationMissingCRTDir,
         LibCInstallationNotAvailable,
-        LibraryNotFound,
         LinkingWithoutZigSourceUnimplemented,
         MalformedArchive,
         MalformedDwarf,
         MalformedSection,
         MemoryTooBig,
         MemoryTooSmall,
-        MismatchedCpuArchitecture,
         MissAlignment,
         MissingEndForBody,
         MissingEndForExpression,
-        /// TODO: this should be removed from the error set in favor of using ErrorFlags
-        MissingMainEntrypoint,
-        /// TODO: this should be removed from the error set in favor of using ErrorFlags
-        MissingSection,
         MissingSymbol,
         MissingTableSymbols,
         ModuleNameMismatch,
-        MultipleSymbolDefinitions,
         NoObjectsToLink,
-        NotObject,
         NotObjectFile,
         NotSupported,
         OutOfMemory,
@@ -743,21 +742,15 @@ pub const File = struct {
         SymbolMismatchingType,
         TODOImplementPlan9Objs,
         TODOImplementWritingLibFiles,
-        TODOImplementWritingStaticLibFiles,
         UnableToSpawnSelf,
         UnableToSpawnWasm,
         UnableToWriteArchive,
         UndefinedLocal,
-        /// TODO: merge with UndefinedSymbolReference
         UndefinedSymbol,
-        /// TODO: merge with UndefinedSymbol
-        UndefinedSymbolReference,
         Underflow,
         UnexpectedRemainder,
         UnexpectedTable,
         UnexpectedValue,
-        UnhandledDwFormValue,
-        UnhandledSymbolType,
         UnknownFeature,
         Unseekable,
         UnsupportedCpuArchitecture,
@@ -854,6 +847,13 @@ pub const File = struct {
         }
     }
 
+    pub fn miscErrors(base: *File) []const ErrorMsg {
+        switch (base.tag) {
+            .macho => return @fieldParentPtr(MachO, "base", base).misc_errors.items,
+            else => return &.{},
+        }
+    }
+
     pub const UpdateDeclExportsError = error{
         OutOfMemory,
         AnalysisFail,
@@ -867,7 +867,6 @@ pub const File = struct {
         exports: []const *Module.Export,
     ) UpdateDeclExportsError!void {
         const decl = module.declPtr(decl_index);
-        log.debug("updateDeclExports {*} ({s})", .{ decl, decl.name });
         assert(decl.has_tv);
         if (build_options.only_c) {
             assert(base.tag == .c);
@@ -973,6 +972,8 @@ pub const File = struct {
     }
 
     pub fn linkAsArchive(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
+        const emit = base.options.emit orelse return;
+
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -980,8 +981,8 @@ pub const File = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const directory = base.options.emit.?.directory; // Just an alias to make it shorter to type.
-        const full_out_path = try directory.join(arena, &[_][]const u8{base.options.emit.?.sub_path});
+        const directory = emit.directory; // Just an alias to make it shorter to type.
+        const full_out_path = try directory.join(arena, &[_][]const u8{emit.sub_path});
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
 
         // If there is no Zig code to compile, then we should skip flushing the output file
@@ -1116,6 +1117,19 @@ pub const File = struct {
         missing_libc: bool = false,
     };
 
+    pub const ErrorMsg = struct {
+        msg: []const u8,
+        notes: []ErrorMsg = &.{},
+
+        pub fn deinit(self: *ErrorMsg, gpa: Allocator) void {
+            for (self.notes) |*note| {
+                note.deinit(gpa);
+            }
+            gpa.free(self.notes);
+            gpa.free(self.msg);
+        }
+    };
+
     pub const LazySymbol = struct {
         pub const Kind = enum { code, const_data };
 
@@ -1124,13 +1138,13 @@ pub const File = struct {
 
         pub fn initDecl(kind: Kind, decl: ?Module.Decl.Index, mod: *Module) LazySymbol {
             return .{ .kind = kind, .ty = if (decl) |decl_index|
-                mod.declPtr(decl_index).val.castTag(.ty).?.data
+                mod.declPtr(decl_index).val.toType()
             else
                 Type.anyerror };
         }
 
-        pub fn getDecl(self: LazySymbol) Module.Decl.OptionalIndex {
-            return Module.Decl.OptionalIndex.init(self.ty.getOwnerDeclOrNull());
+        pub fn getDecl(self: LazySymbol, mod: *Module) Module.Decl.OptionalIndex {
+            return Module.Decl.OptionalIndex.init(self.ty.getOwnerDeclOrNull(mod));
         }
     };
 

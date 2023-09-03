@@ -28,7 +28,7 @@ fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, compt
             // TODO: https://github.com/ziglang/zig/issues/1544
             // This cast could be implicit if we teach the compiler that
             // u32 >> 30 -> u2
-            return @intCast(ShardKey, shard_key);
+            return @as(ShardKey, @intCast(shard_key));
         }
 
         pub fn put(self: *Self, node: *Node) void {
@@ -85,14 +85,14 @@ fn testShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, c
     var table = Table.create();
     var node_buffer: [node_count]Table.Node = undefined;
     for (&node_buffer, 0..) |*node, i| {
-        const key = @intCast(Key, i);
+        const key = @as(Key, @intCast(i));
         try expect(table.get(key) == null);
         node.init(key, {});
         table.put(node);
     }
 
     for (&node_buffer, 0..) |*node, i| {
-        try expect(table.get(@intCast(Key, i)) == node);
+        try expect(table.get(@as(Key, @intCast(i))) == node);
     }
 }
 

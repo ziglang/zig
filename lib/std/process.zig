@@ -68,7 +68,7 @@ pub const EnvMap = struct {
     pub const EnvNameHashContext = struct {
         fn upcase(c: u21) u21 {
             if (c <= std.math.maxInt(u16))
-                return std.os.windows.ntdll.RtlUpcaseUnicodeChar(@intCast(u16, c));
+                return std.os.windows.ntdll.RtlUpcaseUnicodeChar(@as(u16, @intCast(c)));
             return c;
         }
 
@@ -80,9 +80,9 @@ pub const EnvMap = struct {
                 while (it.nextCodepoint()) |cp| {
                     const cp_upper = upcase(cp);
                     h.update(&[_]u8{
-                        @intCast(u8, (cp_upper >> 16) & 0xff),
-                        @intCast(u8, (cp_upper >> 8) & 0xff),
-                        @intCast(u8, (cp_upper >> 0) & 0xff),
+                        @as(u8, @intCast((cp_upper >> 16) & 0xff)),
+                        @as(u8, @intCast((cp_upper >> 8) & 0xff)),
+                        @as(u8, @intCast((cp_upper >> 0) & 0xff)),
                     });
                 }
                 return h.final();
@@ -514,9 +514,9 @@ pub const ArgIteratorWasi = struct {
     /// Call to free the internal buffer of the iterator.
     pub fn deinit(self: *ArgIteratorWasi) void {
         const last_item = self.args[self.args.len - 1];
-        const last_byte_addr = @ptrToInt(last_item.ptr) + last_item.len + 1; // null terminated
+        const last_byte_addr = @intFromPtr(last_item.ptr) + last_item.len + 1; // null terminated
         const first_item_ptr = self.args[0].ptr;
-        const len = last_byte_addr - @ptrToInt(first_item_ptr);
+        const len = last_byte_addr - @intFromPtr(first_item_ptr);
         self.allocator.free(first_item_ptr[0..len]);
         self.allocator.free(self.args);
     }
@@ -872,8 +872,8 @@ pub fn argsFree(allocator: Allocator, args_alloc: []const [:0]u8) void {
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len + 1;
     }
-    const unaligned_allocated_buf = @ptrCast([*]const u8, args_alloc.ptr)[0..total_bytes];
-    const aligned_allocated_buf = @alignCast(@alignOf([]u8), unaligned_allocated_buf);
+    const unaligned_allocated_buf = @as([*]const u8, @ptrCast(args_alloc.ptr))[0..total_bytes];
+    const aligned_allocated_buf: []align(@alignOf([]u8)) const u8 = @alignCast(unaligned_allocated_buf);
     return allocator.free(aligned_allocated_buf);
 }
 
@@ -1079,9 +1079,9 @@ pub fn getBaseAddress() usize {
             return phdr - @sizeOf(std.elf.Ehdr);
         },
         .macos, .freebsd, .netbsd => {
-            return @ptrToInt(&std.c._mh_execute_header);
+            return @intFromPtr(&std.c._mh_execute_header);
         },
-        .windows => return @ptrToInt(os.windows.kernel32.GetModuleHandleW(null)),
+        .windows => return @intFromPtr(os.windows.kernel32.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
     }
 }
@@ -1131,7 +1131,7 @@ pub fn execve(
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const argv_buf = try arena.allocSentinel(?[*:0]u8, argv.len, null);
+    const argv_buf = try arena.allocSentinel(?[*:0]const u8, argv.len, null);
     for (argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
     const envp = m: {
@@ -1143,7 +1143,7 @@ pub fn execve(
         } else if (builtin.output_mode == .Exe) {
             // Then we have Zig start code and this works.
             // TODO type-safety for null-termination of `os.environ`.
-            break :m @ptrCast([*:null]?[*:0]u8, os.environ.ptr);
+            break :m @as([*:null]const ?[*:0]const u8, @ptrCast(os.environ.ptr));
         } else {
             // TODO come up with a solution for this.
             @compileError("missing std lib enhancement: std.process.execv implementation has no way to collect the environment variables to forward to the child process");
@@ -1163,19 +1163,31 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
         .linux => {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
         },
-        .freebsd, .netbsd, .openbsd, .dragonfly, .macos => {
+        .freebsd => {
             var physmem: c_ulong = undefined;
             var len: usize = @sizeOf(c_ulong);
-            const name = switch (builtin.os.tag) {
-                .macos => "hw.memsize",
-                .netbsd => "hw.physmem64",
-                else => "hw.physmem",
-            };
-            os.sysctlbynameZ(name, &physmem, &len, null, 0) catch |err| switch (err) {
+            os.sysctlbynameZ("hw.physmem", &physmem, &len, null, 0) catch |err| switch (err) {
                 error.NameTooLong, error.UnknownName => unreachable,
                 else => return error.UnknownTotalSystemMemory,
             };
-            return @intCast(usize, physmem);
+            return @as(usize, @intCast(physmem));
+        },
+        .openbsd => {
+            const mib: [2]c_int = [_]c_int{
+                std.os.CTL.HW,
+                std.os.HW.PHYSMEM64,
+            };
+            var physmem: i64 = undefined;
+            var len: usize = @sizeOf(@TypeOf(physmem));
+            std.os.sysctl(&mib, &physmem, &len, null, 0) catch |err| switch (err) {
+                error.NameTooLong => unreachable, // constant, known good value
+                error.PermissionDenied => unreachable, // only when setting values,
+                error.SystemResources => unreachable, // memory already on the stack
+                error.UnknownName => unreachable, // constant, known good value
+                else => return error.UnknownTotalSystemMemory,
+            };
+            assert(physmem >= 0);
+            return @as(usize, @bitCast(physmem));
         },
         .windows => {
             var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;

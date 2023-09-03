@@ -20,9 +20,10 @@ pub fn build(b: *std.Build) void {
 
     // Verify the result contains the features explicitly set on the target for the library.
     const check = lib.checkObject();
-    check.checkStart("name target_features");
-    check.checkNext("features 1");
-    check.checkNext("+ atomics");
+    check.checkStart();
+    check.checkExact("name target_features");
+    check.checkExact("features 1");
+    check.checkExact("+ atomics");
 
     const test_step = b.step("test", "Run linker test");
     test_step.dependOn(&check.step);

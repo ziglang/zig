@@ -6,6 +6,7 @@ const fs = std.fs;
 
 const C = @This();
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
@@ -87,12 +88,13 @@ pub fn freeDecl(self: *C, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *C, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.allocator;
 
+    const func = module.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const gop = try self.decl_table.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
@@ -111,7 +113,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
         .value_map = codegen.CValueMap.init(gpa),
         .air = air,
         .liveness = liveness,
-        .func = func,
+        .func_index = func_index,
         .object = .{
             .dg = .{
                 .gpa = gpa,
@@ -288,11 +290,11 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     }
 
     {
-        var export_names = std.StringHashMapUnmanaged(void){};
+        var export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
         defer export_names.deinit(gpa);
-        try export_names.ensureTotalCapacity(gpa, @intCast(u32, module.decl_exports.entries.len));
+        try export_names.ensureTotalCapacity(gpa, @as(u32, @intCast(module.decl_exports.entries.len)));
         for (module.decl_exports.values()) |exports| for (exports.items) |@"export"|
-            try export_names.put(gpa, @"export".options.name, {});
+            try export_names.put(gpa, @"export".opts.name, {});
 
         while (f.remaining_decls.popOrNull()) |kv| {
             const decl_index = kv.key;
@@ -424,7 +426,7 @@ fn flushCTypes(
                 return ctx.ctypes_map[idx - codegen.CType.Tag.no_payload_count];
             }
         };
-        const decl_idx = @intCast(codegen.CType.Index, codegen.CType.Tag.no_payload_count + decl_i);
+        const decl_idx = @as(codegen.CType.Index, @intCast(codegen.CType.Tag.no_payload_count + decl_i));
         const ctx = Context{
             .arena = global_ctypes.arena.allocator(),
             .ctypes_map = f.ctypes_map.items,
@@ -435,7 +437,7 @@ fn flushCTypes(
             .store = &global_ctypes.set,
         });
         const global_idx =
-            @intCast(codegen.CType.Index, codegen.CType.Tag.no_payload_count + gop.index);
+            @as(codegen.CType.Index, @intCast(codegen.CType.Tag.no_payload_count + gop.index));
         f.ctypes_map.appendAssumeCapacity(global_idx);
         if (!gop.found_existing) {
             errdefer _ = global_ctypes.set.map.pop();
@@ -536,7 +538,7 @@ fn flushLazyFn(self: *C, db: *DeclBlock, lazy_fn: codegen.LazyFnMap.Entry) Flush
 
 fn flushLazyFns(self: *C, f: *Flush, lazy_fns: codegen.LazyFnMap) FlushDeclError!void {
     const gpa = self.base.allocator;
-    try f.lazy_fns.ensureUnusedCapacity(gpa, @intCast(Flush.LazyFns.Size, lazy_fns.count()));
+    try f.lazy_fns.ensureUnusedCapacity(gpa, @as(Flush.LazyFns.Size, @intCast(lazy_fns.count())));
 
     var it = lazy_fns.iterator();
     while (it.next()) |entry| {
@@ -552,10 +554,11 @@ fn flushDecl(
     self: *C,
     f: *Flush,
     decl_index: Module.Decl.Index,
-    export_names: std.StringHashMapUnmanaged(void),
+    export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void),
 ) FlushDeclError!void {
     const gpa = self.base.allocator;
-    const decl = self.base.options.module.?.declPtr(decl_index);
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
     // Before flushing any particular Decl we must ensure its
     // dependencies are already flushed, so that the order in the .c
     // file comes out correctly.
@@ -569,7 +572,7 @@ fn flushDecl(
 
     try self.flushLazyFns(f, decl_block.lazy_fns);
     try f.all_buffers.ensureUnusedCapacity(gpa, 1);
-    if (!(decl.isExtern() and export_names.contains(mem.span(decl.name))))
+    if (!(decl.isExtern(mod) and export_names.contains(decl.name)))
         f.appendBufAssumeCapacity(decl_block.fwd_decl.items);
 }
 

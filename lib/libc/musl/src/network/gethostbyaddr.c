@@ -20,5 +20,5 @@ struct hostent *gethostbyaddr(const void *a, socklen_t l, int af)
 		err = gethostbyaddr_r(a, l, af, h,
 			(void *)(h+1), size-sizeof *h, &res, &h_errno);
 	} while (err == ERANGE);
-	return err ? 0 : h;
+	return res;
 }

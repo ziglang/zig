@@ -83,7 +83,7 @@ pub const Month = enum(u4) {
     /// return the numeric calendar value for the given month
     /// i.e. jan=1, feb=2, etc
     pub fn numeric(self: Month) u4 {
-        return @enumToInt(self);
+        return @intFromEnum(self);
     }
 };
 
@@ -122,9 +122,9 @@ pub const YearAndDay = struct {
             if (days_left < days_in_month)
                 break;
             days_left -= days_in_month;
-            month = @intToEnum(Month, @enumToInt(month) + 1);
+            month = @as(Month, @enumFromInt(@intFromEnum(month) + 1));
         }
-        return .{ .month = month, .day_index = @intCast(u5, days_left) };
+        return .{ .month = month, .day_index = @as(u5, @intCast(days_left)) };
     }
 };
 
@@ -146,7 +146,7 @@ pub const EpochDay = struct {
             year_day -= year_size;
             year += 1;
         }
-        return .{ .year = year, .day = @intCast(u9, year_day) };
+        return .{ .year = year, .day = @as(u9, @intCast(year_day)) };
     }
 };
 
@@ -156,11 +156,11 @@ pub const DaySeconds = struct {
 
     /// the number of hours past the start of the day (0 to 23)
     pub fn getHoursIntoDay(self: DaySeconds) u5 {
-        return @intCast(u5, @divTrunc(self.secs, 3600));
+        return @as(u5, @intCast(@divTrunc(self.secs, 3600)));
     }
     /// the number of minutes past the hour (0 to 59)
     pub fn getMinutesIntoHour(self: DaySeconds) u6 {
-        return @intCast(u6, @divTrunc(@mod(self.secs, 3600), 60));
+        return @as(u6, @intCast(@divTrunc(@mod(self.secs, 3600), 60)));
     }
     /// the number of seconds past the start of the minute (0 to 59)
     pub fn getSecondsIntoMinute(self: DaySeconds) u6 {
@@ -175,7 +175,7 @@ pub const EpochSeconds = struct {
     /// Returns the number of days since the epoch as an EpochDay.
     /// Use EpochDay to get information about the day of this time.
     pub fn getEpochDay(self: EpochSeconds) EpochDay {
-        return EpochDay{ .day = @intCast(u47, @divTrunc(self.secs, secs_per_day)) };
+        return EpochDay{ .day = @as(u47, @intCast(@divTrunc(self.secs, secs_per_day))) };
     }
 
     /// Returns the number of seconds into the day as DaySeconds.

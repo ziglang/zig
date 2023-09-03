@@ -151,6 +151,7 @@ fn fnWithUnreachable() noreturn {
 
 test "extern struct with stdcallcc fn pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = extern struct {
@@ -211,7 +212,7 @@ test "pass by non-copying value through var arg" {
 }
 
 fn addPointCoordsVar(pt: anytype) !i32 {
-    comptime try expect(@TypeOf(pt) == Point);
+    try comptime expect(@TypeOf(pt) == Point);
     return pt.x + pt.y;
 }
 
@@ -285,7 +286,7 @@ test "implicit cast fn call result to optional in field result" {
         };
     };
     try S.entry();
-    comptime try S.entry();
+    try comptime S.entry();
 }
 
 test "void parameters" {
@@ -326,7 +327,7 @@ test "function pointers" {
         &fn4,
     };
     for (fns, 0..) |f, i| {
-        try expect(f() == @intCast(u32, i) + 5);
+        try expect(f() == @as(u32, @intCast(i)) + 5);
     }
 }
 fn fn1() u32 {
@@ -344,7 +345,7 @@ fn fn4() u32 {
 
 test "number literal as an argument" {
     try numberLiteralArg(3);
-    comptime try numberLiteralArg(3);
+    try comptime numberLiteralArg(3);
 }
 
 fn numberLiteralArg(a: anytype) !void {
@@ -369,7 +370,7 @@ test "function call with anon list literal" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "function call with anon list literal - 2D" {
@@ -391,7 +392,7 @@ test "function call with anon list literal - 2D" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "ability to give comptime types and non comptime types to same parameter" {
@@ -410,7 +411,7 @@ test "ability to give comptime types and non comptime types to same parameter" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "function with inferred error set but returning no error" {
@@ -512,8 +513,8 @@ test "using @ptrCast on function pointers" {
 
         fn run() !void {
             const a = A{ .data = "abcd".* };
-            const casted_fn = @ptrCast(*const fn (*const anyopaque, usize) *const u8, &at);
-            const casted_impl = @ptrCast(*const anyopaque, &a);
+            const casted_fn = @as(*const fn (*const anyopaque, usize) *const u8, @ptrCast(&at));
+            const casted_impl = @as(*const anyopaque, @ptrCast(&a));
             const ptr = casted_fn(casted_impl, 2);
             try expect(ptr.* == 'c');
         }
@@ -575,8 +576,22 @@ test "lazy values passed to anytype parameter" {
     try B.foo(.{ .x = @sizeOf(B) });
 
     const C = struct {};
-    try expect(@truncate(u32, @sizeOf(C)) == 0);
+    try expect(@as(u32, @truncate(@sizeOf(C))) == 0);
 
     const D = struct {};
     try expect(@sizeOf(D) << 1 == 0);
+}
+
+test "pass and return comptime-only types" {
+    const S = struct {
+        fn returnNull(comptime x: @Type(.Null)) @Type(.Null) {
+            return x;
+        }
+        fn returnUndefined(comptime x: @Type(.Undefined)) @Type(.Undefined) {
+            return x;
+        }
+    };
+
+    try expectEqual(null, S.returnNull(null));
+    try expectEqual(@as(u0, 0), S.returnUndefined(undefined));
 }

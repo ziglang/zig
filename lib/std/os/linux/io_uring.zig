@@ -60,7 +60,7 @@ pub const IO_Uring = struct {
             .NOSYS => return error.SystemOutdated,
             else => |errno| return os.unexpectedErrno(errno),
         }
-        const fd = @intCast(os.fd_t, res);
+        const fd = @as(os.fd_t, @intCast(res));
         assert(fd >= 0);
         errdefer os.close(fd);
 
@@ -198,7 +198,7 @@ pub const IO_Uring = struct {
             .INTR => return error.SignalInterrupt,
             else => |errno| return os.unexpectedErrno(errno),
         }
-        return @intCast(u32, res);
+        return @as(u32, @intCast(res));
     }
 
     /// Sync internal state with kernel ring state on the SQ side.
@@ -277,7 +277,7 @@ pub const IO_Uring = struct {
     fn copy_cqes_ready(self: *IO_Uring, cqes: []linux.io_uring_cqe, wait_nr: u32) u32 {
         _ = wait_nr;
         const ready = self.cq_ready();
-        const count = std.math.min(cqes.len, ready);
+        const count = @min(cqes.len, ready);
         var head = self.cq.head.*;
         var tail = head +% count;
         // TODO Optimize this by using 1 or 2 memcpy's (if the tail wraps) rather than a loop.
@@ -937,8 +937,8 @@ pub const IO_Uring = struct {
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_FILES,
-            @ptrCast(*const anyopaque, fds.ptr),
-            @intCast(u32, fds.len),
+            @as(*const anyopaque, @ptrCast(fds.ptr)),
+            @as(u32, @intCast(fds.len)),
         );
         try handle_registration_result(res);
     }
@@ -962,14 +962,14 @@ pub const IO_Uring = struct {
         var update = FilesUpdate{
             .offset = offset,
             .resv = @as(u32, 0),
-            .fds = @as(u64, @ptrToInt(fds.ptr)),
+            .fds = @as(u64, @intFromPtr(fds.ptr)),
         };
 
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_FILES_UPDATE,
-            @ptrCast(*const anyopaque, &update),
-            @intCast(u32, fds.len),
+            @as(*const anyopaque, @ptrCast(&update)),
+            @as(u32, @intCast(fds.len)),
         );
         try handle_registration_result(res);
     }
@@ -982,7 +982,7 @@ pub const IO_Uring = struct {
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_EVENTFD,
-            @ptrCast(*const anyopaque, &fd),
+            @as(*const anyopaque, @ptrCast(&fd)),
             1,
         );
         try handle_registration_result(res);
@@ -997,7 +997,7 @@ pub const IO_Uring = struct {
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_EVENTFD_ASYNC,
-            @ptrCast(*const anyopaque, &fd),
+            @as(*const anyopaque, @ptrCast(&fd)),
             1,
         );
         try handle_registration_result(res);
@@ -1022,7 +1022,7 @@ pub const IO_Uring = struct {
             self.fd,
             .REGISTER_BUFFERS,
             buffers.ptr,
-            @intCast(u32, buffers.len),
+            @as(u32, @intCast(buffers.len)),
         );
         try handle_registration_result(res);
     }
@@ -1093,7 +1093,7 @@ pub const SubmissionQueue = struct {
     pub fn init(fd: os.fd_t, p: linux.io_uring_params) !SubmissionQueue {
         assert(fd >= 0);
         assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
-        const size = std.math.max(
+        const size = @max(
             p.sq_off.array + p.sq_entries * @sizeOf(u32),
             p.cq_off.cqes + p.cq_entries * @sizeOf(linux.io_uring_cqe),
         );
@@ -1122,20 +1122,17 @@ pub const SubmissionQueue = struct {
         errdefer os.munmap(mmap_sqes);
         assert(mmap_sqes.len == size_sqes);
 
-        const array = @ptrCast([*]u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.array]));
-        const sqes = @ptrCast([*]linux.io_uring_sqe, @alignCast(@alignOf(linux.io_uring_sqe), &mmap_sqes[0]));
+        const array: [*]u32 = @ptrCast(@alignCast(&mmap[p.sq_off.array]));
+        const sqes: [*]linux.io_uring_sqe = @ptrCast(@alignCast(&mmap_sqes[0]));
         // We expect the kernel copies p.sq_entries to the u32 pointed to by p.sq_off.ring_entries,
         // see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L7843-L7844.
-        assert(
-            p.sq_entries ==
-                @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.ring_entries])).*,
-        );
+        assert(p.sq_entries == @as(*u32, @ptrCast(@alignCast(&mmap[p.sq_off.ring_entries]))).*);
         return SubmissionQueue{
-            .head = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.head])),
-            .tail = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.tail])),
-            .mask = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.ring_mask])).*,
-            .flags = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.flags])),
-            .dropped = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.dropped])),
+            .head = @ptrCast(@alignCast(&mmap[p.sq_off.head])),
+            .tail = @ptrCast(@alignCast(&mmap[p.sq_off.tail])),
+            .mask = @as(*u32, @ptrCast(@alignCast(&mmap[p.sq_off.ring_mask]))).*,
+            .flags = @ptrCast(@alignCast(&mmap[p.sq_off.flags])),
+            .dropped = @ptrCast(@alignCast(&mmap[p.sq_off.dropped])),
             .array = array[0..p.sq_entries],
             .sqes = sqes[0..p.sq_entries],
             .mmap = mmap,
@@ -1160,17 +1157,13 @@ pub const CompletionQueue = struct {
         assert(fd >= 0);
         assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
         const mmap = sq.mmap;
-        const cqes = @ptrCast(
-            [*]linux.io_uring_cqe,
-            @alignCast(@alignOf(linux.io_uring_cqe), &mmap[p.cq_off.cqes]),
-        );
-        assert(p.cq_entries ==
-            @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.ring_entries])).*);
+        const cqes: [*]linux.io_uring_cqe = @ptrCast(@alignCast(&mmap[p.cq_off.cqes]));
+        assert(p.cq_entries == @as(*u32, @ptrCast(@alignCast(&mmap[p.cq_off.ring_entries]))).*);
         return CompletionQueue{
-            .head = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.head])),
-            .tail = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.tail])),
-            .mask = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.ring_mask])).*,
-            .overflow = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.overflow])),
+            .head = @ptrCast(@alignCast(&mmap[p.cq_off.head])),
+            .tail = @ptrCast(@alignCast(&mmap[p.cq_off.tail])),
+            .mask = @as(*u32, @ptrCast(@alignCast(&mmap[p.cq_off.ring_mask]))).*,
+            .overflow = @ptrCast(@alignCast(&mmap[p.cq_off.overflow])),
             .cqes = cqes[0..p.cq_entries],
         };
     }
@@ -1233,7 +1226,7 @@ pub fn io_uring_prep_rw(
         .fd = fd,
         .off = offset,
         .addr = addr,
-        .len = @intCast(u32, len),
+        .len = @as(u32, @intCast(len)),
         .rw_flags = 0,
         .user_data = 0,
         .buf_index = 0,
@@ -1244,11 +1237,11 @@ pub fn io_uring_prep_rw(
 }
 
 pub fn io_uring_prep_read(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []u8, offset: u64) void {
-    io_uring_prep_rw(.READ, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, offset);
+    io_uring_prep_rw(.READ, sqe, fd, @intFromPtr(buffer.ptr), buffer.len, offset);
 }
 
 pub fn io_uring_prep_write(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []const u8, offset: u64) void {
-    io_uring_prep_rw(.WRITE, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, offset);
+    io_uring_prep_rw(.WRITE, sqe, fd, @intFromPtr(buffer.ptr), buffer.len, offset);
 }
 
 pub fn io_uring_prep_readv(
@@ -1257,7 +1250,7 @@ pub fn io_uring_prep_readv(
     iovecs: []const os.iovec,
     offset: u64,
 ) void {
-    io_uring_prep_rw(.READV, sqe, fd, @ptrToInt(iovecs.ptr), iovecs.len, offset);
+    io_uring_prep_rw(.READV, sqe, fd, @intFromPtr(iovecs.ptr), iovecs.len, offset);
 }
 
 pub fn io_uring_prep_writev(
@@ -1266,16 +1259,16 @@ pub fn io_uring_prep_writev(
     iovecs: []const os.iovec_const,
     offset: u64,
 ) void {
-    io_uring_prep_rw(.WRITEV, sqe, fd, @ptrToInt(iovecs.ptr), iovecs.len, offset);
+    io_uring_prep_rw(.WRITEV, sqe, fd, @intFromPtr(iovecs.ptr), iovecs.len, offset);
 }
 
 pub fn io_uring_prep_read_fixed(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: *os.iovec, offset: u64, buffer_index: u16) void {
-    io_uring_prep_rw(.READ_FIXED, sqe, fd, @ptrToInt(buffer.iov_base), buffer.iov_len, offset);
+    io_uring_prep_rw(.READ_FIXED, sqe, fd, @intFromPtr(buffer.iov_base), buffer.iov_len, offset);
     sqe.buf_index = buffer_index;
 }
 
 pub fn io_uring_prep_write_fixed(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: *os.iovec, offset: u64, buffer_index: u16) void {
-    io_uring_prep_rw(.WRITE_FIXED, sqe, fd, @ptrToInt(buffer.iov_base), buffer.iov_len, offset);
+    io_uring_prep_rw(.WRITE_FIXED, sqe, fd, @intFromPtr(buffer.iov_base), buffer.iov_len, offset);
     sqe.buf_index = buffer_index;
 }
 
@@ -1298,7 +1291,7 @@ pub fn io_uring_prep_accept(
 ) void {
     // `addr` holds a pointer to `sockaddr`, and `addr2` holds a pointer to socklen_t`.
     // `addr2` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
-    io_uring_prep_rw(.ACCEPT, sqe, fd, @ptrToInt(addr), 0, @ptrToInt(addrlen));
+    io_uring_prep_rw(.ACCEPT, sqe, fd, @intFromPtr(addr), 0, @intFromPtr(addrlen));
     sqe.rw_flags = flags;
 }
 
@@ -1309,7 +1302,7 @@ pub fn io_uring_prep_connect(
     addrlen: os.socklen_t,
 ) void {
     // `addrlen` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
-    io_uring_prep_rw(.CONNECT, sqe, fd, @ptrToInt(addr), 0, addrlen);
+    io_uring_prep_rw(.CONNECT, sqe, fd, @intFromPtr(addr), 0, addrlen);
 }
 
 pub fn io_uring_prep_epoll_ctl(
@@ -1319,16 +1312,16 @@ pub fn io_uring_prep_epoll_ctl(
     op: u32,
     ev: ?*linux.epoll_event,
 ) void {
-    io_uring_prep_rw(.EPOLL_CTL, sqe, epfd, @ptrToInt(ev), op, @intCast(u64, fd));
+    io_uring_prep_rw(.EPOLL_CTL, sqe, epfd, @intFromPtr(ev), op, @as(u64, @intCast(fd)));
 }
 
 pub fn io_uring_prep_recv(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []u8, flags: u32) void {
-    io_uring_prep_rw(.RECV, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, 0);
+    io_uring_prep_rw(.RECV, sqe, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
     sqe.rw_flags = flags;
 }
 
 pub fn io_uring_prep_send(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []const u8, flags: u32) void {
-    io_uring_prep_rw(.SEND, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, 0);
+    io_uring_prep_rw(.SEND, sqe, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
     sqe.rw_flags = flags;
 }
 
@@ -1338,7 +1331,7 @@ pub fn io_uring_prep_recvmsg(
     msg: *os.msghdr,
     flags: u32,
 ) void {
-    linux.io_uring_prep_rw(.RECVMSG, sqe, fd, @ptrToInt(msg), 1, 0);
+    linux.io_uring_prep_rw(.RECVMSG, sqe, fd, @intFromPtr(msg), 1, 0);
     sqe.rw_flags = flags;
 }
 
@@ -1348,7 +1341,7 @@ pub fn io_uring_prep_sendmsg(
     msg: *const os.msghdr_const,
     flags: u32,
 ) void {
-    linux.io_uring_prep_rw(.SENDMSG, sqe, fd, @ptrToInt(msg), 1, 0);
+    linux.io_uring_prep_rw(.SENDMSG, sqe, fd, @intFromPtr(msg), 1, 0);
     sqe.rw_flags = flags;
 }
 
@@ -1359,7 +1352,7 @@ pub fn io_uring_prep_openat(
     flags: u32,
     mode: os.mode_t,
 ) void {
-    io_uring_prep_rw(.OPENAT, sqe, fd, @ptrToInt(path), mode, 0);
+    io_uring_prep_rw(.OPENAT, sqe, fd, @intFromPtr(path), mode, 0);
     sqe.rw_flags = flags;
 }
 
@@ -1387,7 +1380,7 @@ pub fn io_uring_prep_timeout(
     count: u32,
     flags: u32,
 ) void {
-    io_uring_prep_rw(.TIMEOUT, sqe, -1, @ptrToInt(ts), 1, count);
+    io_uring_prep_rw(.TIMEOUT, sqe, -1, @intFromPtr(ts), 1, count);
     sqe.rw_flags = flags;
 }
 
@@ -1414,7 +1407,7 @@ pub fn io_uring_prep_link_timeout(
     ts: *const os.linux.kernel_timespec,
     flags: u32,
 ) void {
-    linux.io_uring_prep_rw(.LINK_TIMEOUT, sqe, -1, @ptrToInt(ts), 1, 0);
+    linux.io_uring_prep_rw(.LINK_TIMEOUT, sqe, -1, @intFromPtr(ts), 1, 0);
     sqe.rw_flags = flags;
 }
 
@@ -1423,7 +1416,7 @@ pub fn io_uring_prep_poll_add(
     fd: os.fd_t,
     poll_mask: u32,
 ) void {
-    io_uring_prep_rw(.POLL_ADD, sqe, fd, @ptrToInt(@as(?*anyopaque, null)), 0, 0);
+    io_uring_prep_rw(.POLL_ADD, sqe, fd, @intFromPtr(@as(?*anyopaque, null)), 0, 0);
     sqe.rw_flags = __io_uring_prep_poll_mask(poll_mask);
 }
 
@@ -1459,7 +1452,7 @@ pub fn io_uring_prep_fallocate(
         .fd = fd,
         .off = offset,
         .addr = len,
-        .len = @intCast(u32, mode),
+        .len = @as(u32, @intCast(mode)),
         .rw_flags = 0,
         .user_data = 0,
         .buf_index = 0,
@@ -1477,7 +1470,7 @@ pub fn io_uring_prep_statx(
     mask: u32,
     buf: *linux.Statx,
 ) void {
-    io_uring_prep_rw(.STATX, sqe, fd, @ptrToInt(path), mask, @ptrToInt(buf));
+    io_uring_prep_rw(.STATX, sqe, fd, @intFromPtr(path), mask, @intFromPtr(buf));
     sqe.rw_flags = flags;
 }
 
@@ -1510,11 +1503,11 @@ pub fn io_uring_prep_renameat(
         .RENAMEAT,
         sqe,
         old_dir_fd,
-        @ptrToInt(old_path),
+        @intFromPtr(old_path),
         0,
-        @ptrToInt(new_path),
+        @intFromPtr(new_path),
     );
-    sqe.len = @bitCast(u32, new_dir_fd);
+    sqe.len = @bitCast(new_dir_fd);
     sqe.rw_flags = flags;
 }
 
@@ -1524,7 +1517,7 @@ pub fn io_uring_prep_unlinkat(
     path: [*:0]const u8,
     flags: u32,
 ) void {
-    io_uring_prep_rw(.UNLINKAT, sqe, dir_fd, @ptrToInt(path), 0, 0);
+    io_uring_prep_rw(.UNLINKAT, sqe, dir_fd, @intFromPtr(path), 0, 0);
     sqe.rw_flags = flags;
 }
 
@@ -1534,7 +1527,7 @@ pub fn io_uring_prep_mkdirat(
     path: [*:0]const u8,
     mode: os.mode_t,
 ) void {
-    io_uring_prep_rw(.MKDIRAT, sqe, dir_fd, @ptrToInt(path), mode, 0);
+    io_uring_prep_rw(.MKDIRAT, sqe, dir_fd, @intFromPtr(path), mode, 0);
 }
 
 pub fn io_uring_prep_symlinkat(
@@ -1547,9 +1540,9 @@ pub fn io_uring_prep_symlinkat(
         .SYMLINKAT,
         sqe,
         new_dir_fd,
-        @ptrToInt(target),
+        @intFromPtr(target),
         0,
-        @ptrToInt(link_path),
+        @intFromPtr(link_path),
     );
 }
 
@@ -1565,11 +1558,11 @@ pub fn io_uring_prep_linkat(
         .LINKAT,
         sqe,
         old_dir_fd,
-        @ptrToInt(old_path),
+        @intFromPtr(old_path),
         0,
-        @ptrToInt(new_path),
+        @intFromPtr(new_path),
     );
-    sqe.len = @bitCast(u32, new_dir_fd);
+    sqe.len = @bitCast(new_dir_fd);
     sqe.rw_flags = flags;
 }
 
@@ -1581,9 +1574,9 @@ pub fn io_uring_prep_provide_buffers(
     group_id: usize,
     buffer_id: usize,
 ) void {
-    const ptr = @ptrToInt(buffers);
-    io_uring_prep_rw(.PROVIDE_BUFFERS, sqe, @intCast(i32, num), ptr, buffer_len, buffer_id);
-    sqe.buf_index = @intCast(u16, group_id);
+    const ptr = @intFromPtr(buffers);
+    io_uring_prep_rw(.PROVIDE_BUFFERS, sqe, @as(i32, @intCast(num)), ptr, buffer_len, buffer_id);
+    sqe.buf_index = @intCast(group_id);
 }
 
 pub fn io_uring_prep_remove_buffers(
@@ -1591,8 +1584,8 @@ pub fn io_uring_prep_remove_buffers(
     num: usize,
     group_id: usize,
 ) void {
-    io_uring_prep_rw(.REMOVE_BUFFERS, sqe, @intCast(i32, num), 0, 0, 0);
-    sqe.buf_index = @intCast(u16, group_id);
+    io_uring_prep_rw(.REMOVE_BUFFERS, sqe, @as(i32, @intCast(num)), 0, 0, 0);
+    sqe.buf_index = @intCast(group_id);
 }
 
 test "structs/offsets/entries" {
@@ -1886,12 +1879,12 @@ test "write_fixed/read_fixed" {
 
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x45454545,
-        .res = @intCast(i32, buffers[0].iov_len),
+        .res = @as(i32, @intCast(buffers[0].iov_len)),
         .flags = 0,
     }, cqe_write);
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x12121212,
-        .res = @intCast(i32, buffers[1].iov_len),
+        .res = @as(i32, @intCast(buffers[1].iov_len)),
         .flags = 0,
     }, cqe_read);
 
@@ -1918,8 +1911,8 @@ test "openat" {
     // Workaround for LLVM bug: https://github.com/ziglang/zig/issues/12014
     const path_addr = if (builtin.zig_backend == .stage2_llvm) p: {
         var workaround = path;
-        break :p @ptrToInt(workaround);
-    } else @ptrToInt(path);
+        break :p @intFromPtr(workaround);
+    } else @intFromPtr(path);
 
     const flags: u32 = os.O.CLOEXEC | os.O.RDWR | os.O.CREAT;
     const mode: os.mode_t = 0o666;
@@ -1985,11 +1978,6 @@ test "close" {
 test "accept/connect/send/recv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
-
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2031,11 +2019,6 @@ test "accept/connect/send/recv" {
 test "sendmsg/recvmsg" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
-
     var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2043,14 +2026,17 @@ test "sendmsg/recvmsg" {
     };
     defer ring.deinit();
 
-    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
-    const address_server = try net.Address.parseIp4("127.0.0.1", 3131);
+    var address_server = try net.Address.parseIp4("127.0.0.1", 0);
 
     const server = try os.socket(address_server.any.family, os.SOCK.DGRAM, 0);
     defer os.close(server);
     try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEPORT, &mem.toBytes(@as(c_int, 1)));
     try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
     try os.bind(server, &address_server.any, address_server.getOsSockLen());
+
+    // set address_server to the OS-chosen IP/port.
+    var slen: os.socklen_t = address_server.getOsSockLen();
+    try os.getsockname(server, &address_server.any, &slen);
 
     const client = try os.socket(address_server.any.family, os.SOCK.DGRAM, 0);
     defer os.close(client);
@@ -2098,7 +2084,7 @@ test "sendmsg/recvmsg" {
     try testing.expectEqual(@as(u32, 2), ring.cq_ready());
 
     const cqe_sendmsg = try ring.copy_cqe();
-    if (cqe_sendmsg.res == -@as(i32, @enumToInt(linux.E.INVAL))) return error.SkipZigTest;
+    if (cqe_sendmsg.res == -@as(i32, @intFromEnum(linux.E.INVAL))) return error.SkipZigTest;
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x11111111,
         .res = buffer_send.len,
@@ -2106,7 +2092,7 @@ test "sendmsg/recvmsg" {
     }, cqe_sendmsg);
 
     const cqe_recvmsg = try ring.copy_cqe();
-    if (cqe_recvmsg.res == -@as(i32, @enumToInt(linux.E.INVAL))) return error.SkipZigTest;
+    if (cqe_recvmsg.res == -@as(i32, @intFromEnum(linux.E.INVAL))) return error.SkipZigTest;
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x22222222,
         .res = buffer_recv.len,
@@ -2140,12 +2126,12 @@ test "timeout (after a relative time)" {
 
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x55555555,
-        .res = -@as(i32, @enumToInt(linux.E.TIME)),
+        .res = -@as(i32, @intFromEnum(linux.E.TIME)),
         .flags = 0,
     }, cqe);
 
     // Tests should not depend on timings: skip test if outside margin.
-    if (!std.math.approxEqAbs(f64, ms, @intToFloat(f64, stopped - started), margin)) return error.SkipZigTest;
+    if (!std.math.approxEqAbs(f64, ms, @as(f64, @floatFromInt(stopped - started)), margin)) return error.SkipZigTest;
 }
 
 test "timeout (after a number of completions)" {
@@ -2227,7 +2213,7 @@ test "timeout_remove" {
         if (cqe.user_data == 0x88888888) {
             try testing.expectEqual(linux.io_uring_cqe{
                 .user_data = 0x88888888,
-                .res = -@as(i32, @enumToInt(linux.E.CANCELED)),
+                .res = -@as(i32, @intFromEnum(linux.E.CANCELED)),
                 .flags = 0,
             }, cqe);
         } else if (cqe.user_data == 0x99999999) {
@@ -2242,11 +2228,6 @@ test "timeout_remove" {
 
 test "accept/connect/recv/link_timeout" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
 
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2274,16 +2255,16 @@ test "accept/connect/recv/link_timeout" {
         const cqe = try ring.copy_cqe();
         switch (cqe.user_data) {
             0xffffffff => {
-                if (cqe.res != -@as(i32, @enumToInt(linux.E.INTR)) and
-                    cqe.res != -@as(i32, @enumToInt(linux.E.CANCELED)))
+                if (cqe.res != -@as(i32, @intFromEnum(linux.E.INTR)) and
+                    cqe.res != -@as(i32, @intFromEnum(linux.E.CANCELED)))
                 {
                     std.debug.print("Req 0x{x} got {d}\n", .{ cqe.user_data, cqe.res });
                     try testing.expect(false);
                 }
             },
             0x22222222 => {
-                if (cqe.res != -@as(i32, @enumToInt(linux.E.ALREADY)) and
-                    cqe.res != -@as(i32, @enumToInt(linux.E.TIME)))
+                if (cqe.res != -@as(i32, @intFromEnum(linux.E.ALREADY)) and
+                    cqe.res != -@as(i32, @intFromEnum(linux.E.TIME)))
                 {
                     std.debug.print("Req 0x{x} got {d}\n", .{ cqe.user_data, cqe.res });
                     try testing.expect(false);
@@ -2398,11 +2379,6 @@ test "statx" {
 test "accept/connect/recv/cancel" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
-
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2439,7 +2415,7 @@ test "accept/connect/recv/cancel" {
 
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
-        .res = -@as(i32, @enumToInt(linux.E.CANCELED)),
+        .res = -@as(i32, @intFromEnum(linux.E.CANCELED)),
         .flags = 0,
     }, cqe_recv);
 
@@ -2540,11 +2516,6 @@ test "register_files_update" {
 test "shutdown" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
-
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2552,8 +2523,7 @@ test "shutdown" {
     };
     defer ring.deinit();
 
-    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
-    const address = try net.Address.parseIp4("127.0.0.1", 3131);
+    var address = try net.Address.parseIp4("127.0.0.1", 0);
 
     // Socket bound, expect shutdown to work
     {
@@ -2562,6 +2532,10 @@ test "shutdown" {
         try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
         try os.bind(server, &address.any, address.getOsSockLen());
         try os.listen(server, 1);
+
+        // set address to the OS-chosen IP/port.
+        var slen: os.socklen_t = address.getOsSockLen();
+        try os.getsockname(server, &address.any, &slen);
 
         var shutdown_sqe = try ring.shutdown(0x445445445, server, os.linux.SHUT.RD);
         try testing.expectEqual(linux.IORING_OP.SHUTDOWN, shutdown_sqe.opcode);
@@ -2637,7 +2611,7 @@ test "renameat" {
     );
     try testing.expectEqual(linux.IORING_OP.RENAMEAT, sqe.opcode);
     try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
-    try testing.expectEqual(@as(i32, tmp.dir.fd), @bitCast(i32, sqe.len));
+    try testing.expectEqual(@as(i32, tmp.dir.fd), @as(i32, @bitCast(sqe.len)));
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
@@ -2850,7 +2824,7 @@ test "linkat" {
     );
     try testing.expectEqual(linux.IORING_OP.LINKAT, sqe.opcode);
     try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
-    try testing.expectEqual(@as(i32, tmp.dir.fd), @bitCast(i32, sqe.len));
+    try testing.expectEqual(@as(i32, tmp.dir.fd), @as(i32, @bitCast(sqe.len)));
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
@@ -2898,7 +2872,7 @@ test "provide_buffers: read" {
     // Provide 4 buffers
 
     {
-        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
+        const sqe = try ring.provide_buffers(0xcccccccc, @as([*]u8, @ptrCast(&buffers)), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(linux.IORING_OP.PROVIDE_BUFFERS, sqe.opcode);
         try testing.expectEqual(@as(i32, buffers.len), sqe.fd);
         try testing.expectEqual(@as(u32, buffers[0].len), sqe.len);
@@ -2939,7 +2913,7 @@ test "provide_buffers: read" {
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
 
         try testing.expectEqual(@as(u64, 0xdededede), cqe.user_data);
-        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@intCast(usize, cqe.res)]);
+        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@as(usize, @intCast(cqe.res))]);
     }
 
     // This read should fail
@@ -2971,7 +2945,7 @@ test "provide_buffers: read" {
     const reprovided_buffer_id = 2;
 
     {
-        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), buffer_len, 1, group_id, reprovided_buffer_id);
+        _ = try ring.provide_buffers(0xabababab, @as([*]u8, @ptrCast(&buffers[reprovided_buffer_id])), buffer_len, 1, group_id, reprovided_buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3003,7 +2977,7 @@ test "provide_buffers: read" {
         try testing.expectEqual(used_buffer_id, reprovided_buffer_id);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
-        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@intCast(usize, cqe.res)]);
+        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@as(usize, @intCast(cqe.res))]);
     }
 }
 
@@ -3030,7 +3004,7 @@ test "remove_buffers" {
     // Provide 4 buffers
 
     {
-        _ = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
+        _ = try ring.provide_buffers(0xcccccccc, @as([*]u8, @ptrCast(&buffers)), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3076,7 +3050,7 @@ test "remove_buffers" {
         try testing.expect(used_buffer_id >= 0 and used_buffer_id < 4);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
-        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@intCast(usize, cqe.res)]);
+        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@as(usize, @intCast(cqe.res))]);
     }
 
     // Final read should _not_ work
@@ -3098,11 +3072,6 @@ test "remove_buffers" {
 test "provide_buffers: accept/connect/send/recv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14907
-        return error.SkipZigTest;
-    }
-
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -3119,7 +3088,7 @@ test "provide_buffers: accept/connect/send/recv" {
     // Provide 4 buffers
 
     {
-        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
+        const sqe = try ring.provide_buffers(0xcccccccc, @as([*]u8, @ptrCast(&buffers)), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(linux.IORING_OP.PROVIDE_BUFFERS, sqe.opcode);
         try testing.expectEqual(@as(i32, buffers.len), sqe.fd);
         try testing.expectEqual(@as(u32, buffer_len), sqe.len);
@@ -3181,7 +3150,7 @@ test "provide_buffers: accept/connect/send/recv" {
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
 
         try testing.expectEqual(@as(u64, 0xdededede), cqe.user_data);
-        const buffer = buffers[used_buffer_id][0..@intCast(usize, cqe.res)];
+        const buffer = buffers[used_buffer_id][0..@as(usize, @intCast(cqe.res))];
         try testing.expectEqualSlices(u8, &([_]u8{'z'} ** buffer_len), buffer);
     }
 
@@ -3213,7 +3182,7 @@ test "provide_buffers: accept/connect/send/recv" {
     const reprovided_buffer_id = 2;
 
     {
-        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), buffer_len, 1, group_id, reprovided_buffer_id);
+        _ = try ring.provide_buffers(0xabababab, @as([*]u8, @ptrCast(&buffers[reprovided_buffer_id])), buffer_len, 1, group_id, reprovided_buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3259,7 +3228,7 @@ test "provide_buffers: accept/connect/send/recv" {
         try testing.expectEqual(used_buffer_id, reprovided_buffer_id);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
-        const buffer = buffers[used_buffer_id][0..@intCast(usize, cqe.res)];
+        const buffer = buffers[used_buffer_id][0..@as(usize, @intCast(cqe.res))];
         try testing.expectEqualSlices(u8, &([_]u8{'w'} ** buffer_len), buffer);
     }
 }
@@ -3279,8 +3248,7 @@ const SocketTestHarness = struct {
 fn createSocketTestHarness(ring: *IO_Uring) !SocketTestHarness {
     // Create a TCP server socket
 
-    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
-    const address = try net.Address.parseIp4("127.0.0.1", 3131);
+    var address = try net.Address.parseIp4("127.0.0.1", 0);
     const kernel_backlog = 1;
     const listener_socket = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
     errdefer os.closeSocket(listener_socket);
@@ -3288,6 +3256,10 @@ fn createSocketTestHarness(ring: *IO_Uring) !SocketTestHarness {
     try os.setsockopt(listener_socket, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
     try os.bind(listener_socket, &address.any, address.getOsSockLen());
     try os.listen(listener_socket, kernel_backlog);
+
+    // set address to the OS-chosen IP/port.
+    var slen: os.socklen_t = address.getOsSockLen();
+    try os.getsockname(listener_socket, &address.any, &slen);
 
     // Submit 1 accept
     var accept_addr: os.sockaddr = undefined;

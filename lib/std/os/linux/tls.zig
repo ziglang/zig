@@ -48,7 +48,7 @@ const TLSVariant = enum {
 };
 
 const tls_variant = switch (native_arch) {
-    .arm, .armeb, .thumb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => TLSVariant.VariantI,
+    .arm, .armeb, .thumb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le => TLSVariant.VariantI,
     .x86_64, .x86, .sparc64 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
@@ -115,14 +115,16 @@ pub fn setThreadPointer(addr: usize) void {
                 .entry_number = tls_image.gdt_entry_number,
                 .base_addr = addr,
                 .limit = 0xfffff,
-                .seg_32bit = 1,
-                .contents = 0, // Data
-                .read_exec_only = 0,
-                .limit_in_pages = 1,
-                .seg_not_present = 0,
-                .useable = 1,
+                .flags = .{
+                    .seg_32bit = 1,
+                    .contents = 0, // Data
+                    .read_exec_only = 0,
+                    .limit_in_pages = 1,
+                    .seg_not_present = 0,
+                    .useable = 1,
+                },
             };
-            const rc = std.os.linux.syscall1(.set_thread_area, @ptrToInt(&user_desc));
+            const rc = std.os.linux.syscall1(.set_thread_area, @intFromPtr(&user_desc));
             assert(rc == 0);
 
             const gdt_entry_number = user_desc.entry_number;
@@ -138,7 +140,7 @@ pub fn setThreadPointer(addr: usize) void {
             const rc = std.os.linux.syscall2(.arch_prctl, std.os.linux.ARCH.SET_FS, addr);
             assert(rc == 0);
         },
-        .aarch64 => {
+        .aarch64, .aarch64_be => {
             asm volatile (
                 \\ msr tpidr_el0, %[addr]
                 :
@@ -160,7 +162,7 @@ pub fn setThreadPointer(addr: usize) void {
             const rc = std.os.linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
         },
-        .powerpc => {
+        .powerpc, .powerpcle => {
             asm volatile (
                 \\ mr 2, %[addr]
                 :
@@ -191,7 +193,7 @@ fn initTLS(phdrs: []elf.Phdr) void {
 
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
-            elf.PT_PHDR => img_base = @ptrToInt(phdrs.ptr) - phdr.p_vaddr,
+            elf.PT_PHDR => img_base = @intFromPtr(phdrs.ptr) - phdr.p_vaddr,
             elf.PT_TLS => tls_phdr = phdr,
             else => {},
         }
@@ -205,7 +207,7 @@ fn initTLS(phdrs: []elf.Phdr) void {
         // the data stored in the PT_TLS segment is p_filesz and may be less
         // than the former
         tls_align_factor = phdr.p_align;
-        tls_data = @intToPtr([*]u8, img_base + phdr.p_vaddr)[0..phdr.p_filesz];
+        tls_data = @as([*]u8, @ptrFromInt(img_base + phdr.p_vaddr))[0..phdr.p_filesz];
         tls_data_alloc_size = phdr.p_memsz;
     } else {
         tls_align_factor = @alignOf(usize);
@@ -233,7 +235,7 @@ fn initTLS(phdrs: []elf.Phdr) void {
                 l += tls_align_factor - delta;
             l += @sizeOf(CustomData);
             tcb_offset = l;
-            l += mem.alignForward(tls_tcb_size, tls_align_factor);
+            l += mem.alignForward(usize, tls_tcb_size, tls_align_factor);
             data_offset = l;
             l += tls_data_alloc_size;
             break :blk l;
@@ -241,14 +243,14 @@ fn initTLS(phdrs: []elf.Phdr) void {
         .VariantII => blk: {
             var l: usize = 0;
             data_offset = l;
-            l += mem.alignForward(tls_data_alloc_size, tls_align_factor);
+            l += mem.alignForward(usize, tls_data_alloc_size, tls_align_factor);
             // The thread pointer is aligned to p_align
             tcb_offset = l;
             l += tls_tcb_size;
             // The CustomData structure is right after the TCB with no padding
             // in between so it can be easily found
             l += @sizeOf(CustomData);
-            l = mem.alignForward(l, @alignOf(DTV));
+            l = mem.alignForward(usize, l, @alignOf(DTV));
             dtv_offset = l;
             l += @sizeOf(DTV);
             break :blk l;
@@ -263,12 +265,12 @@ fn initTLS(phdrs: []elf.Phdr) void {
         .dtv_offset = dtv_offset,
         .data_offset = data_offset,
         .data_size = tls_data_alloc_size,
-        .gdt_entry_number = @bitCast(usize, @as(isize, -1)),
+        .gdt_entry_number = @as(usize, @bitCast(@as(isize, -1))),
     };
 }
 
 inline fn alignPtrCast(comptime T: type, ptr: [*]u8) *T {
-    return @ptrCast(*T, @alignCast(@alignOf(T), ptr));
+    return @ptrCast(@alignCast(ptr));
 }
 
 /// Initializes all the fields of the static TLS area and returns the computed
@@ -292,7 +294,7 @@ pub fn prepareTLS(area: []u8) usize {
     // Return the corrected value (if needed) for the tp register.
     // Overflow here is not a problem, the pointer arithmetic involving the tp
     // is done with wrapping semantics.
-    return @ptrToInt(area.ptr) +% tls_tp_offset +%
+    return @intFromPtr(area.ptr) +% tls_tp_offset +%
         if (tls_tp_points_past_tcb) tls_image.data_offset else tls_image.tcb_offset;
 }
 
@@ -328,8 +330,8 @@ pub fn initStaticTLS(phdrs: []elf.Phdr) void {
         ) catch os.abort();
 
         // Make sure the slice is correctly aligned.
-        const begin_addr = @ptrToInt(alloc_tls_area.ptr);
-        const begin_aligned_addr = mem.alignForward(begin_addr, tls_image.alloc_align);
+        const begin_addr = @intFromPtr(alloc_tls_area.ptr);
+        const begin_aligned_addr = mem.alignForward(usize, begin_addr, tls_image.alloc_align);
         const start = begin_aligned_addr - begin_addr;
         break :blk alloc_tls_area[start .. start + tls_image.alloc_size];
     };

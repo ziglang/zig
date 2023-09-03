@@ -43,24 +43,22 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
                 const release = mem.sliceTo(&uts.release, 0);
                 // The release field sometimes has a weird format,
                 // `Version.parse` will attempt to find some meaningful interpretation.
-                if (std.builtin.Version.parse(release)) |ver| {
+                if (std.SemanticVersion.parse(release)) |ver| {
                     os.version_range.linux.range.min = ver;
                     os.version_range.linux.range.max = ver;
                 } else |err| switch (err) {
                     error.Overflow => {},
-                    error.InvalidCharacter => {},
                     error.InvalidVersion => {},
                 }
             },
             .solaris => {
                 const uts = std.os.uname();
                 const release = mem.sliceTo(&uts.release, 0);
-                if (std.builtin.Version.parse(release)) |ver| {
+                if (std.SemanticVersion.parse(release)) |ver| {
                     os.version_range.semver.min = ver;
                     os.version_range.semver.max = ver;
                 } else |err| switch (err) {
                     error.Overflow => {},
-                    error.InvalidCharacter => {},
                     error.InvalidVersion => {},
                 }
             },
@@ -134,7 +132,9 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
                     std.os.KERN.OSRELEASE,
                 };
                 var buf: [64]u8 = undefined;
-                var len: usize = buf.len;
+                // consider that sysctl result includes null-termination
+                // reserve 1 byte to ensure we never overflow when appending ".0"
+                var len: usize = buf.len - 1;
 
                 std.os.sysctl(&mib, &buf, &len, null, 0) catch |err| switch (err) {
                     error.NameTooLong => unreachable, // constant, known good value
@@ -144,7 +144,12 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
                     error.Unexpected => return error.OSVersionDetectionFail,
                 };
 
-                if (std.builtin.Version.parse(buf[0 .. len - 1])) |ver| {
+                // append ".0" to satisfy semver
+                buf[len - 1] = '.';
+                buf[len] = '0';
+                len += 1;
+
+                if (std.SemanticVersion.parse(buf[0..len])) |ver| {
                     os.version_range.semver.min = ver;
                     os.version_range.semver.max = ver;
                 } else |_| {
@@ -209,10 +214,10 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
             })) {
                 switch (result.target.abi) {
                     .code16 => result.target.cpu.features.addFeature(
-                        @enumToInt(std.Target.x86.Feature.@"16bit_mode"),
+                        @intFromEnum(std.Target.x86.Feature.@"16bit_mode"),
                     ),
                     else => result.target.cpu.features.addFeature(
-                        @enumToInt(std.Target.x86.Feature.@"32bit_mode"),
+                        @intFromEnum(std.Target.x86.Feature.@"32bit_mode"),
                     ),
                 }
             }
@@ -223,7 +228,7 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
         },
         .thumb, .thumbeb => {
             result.target.cpu.features.addFeature(
-                @enumToInt(std.Target.arm.Feature.thumb_mode),
+                @intFromEnum(std.Target.arm.Feature.thumb_mode),
             );
         },
         else => {},
@@ -270,7 +275,7 @@ fn detectAbiAndDynamicLinker(
     // and supported by Zig. But that means that we must detect the system ABI here rather than
     // relying on `builtin.target`.
     const all_abis = comptime blk: {
-        assert(@enumToInt(Target.Abi.none) == 0);
+        assert(@intFromEnum(Target.Abi.none) == 0);
         const fields = std.meta.fields(Target.Abi)[1..];
         var array: [fields.len]Target.Abi = undefined;
         inline for (fields, 0..) |field, i| {
@@ -333,6 +338,7 @@ fn detectAbiAndDynamicLinker(
                 error.AccessDenied,
                 error.NoDevice,
                 error.FileNotFound,
+                error.NetworkNotFound,
                 error.FileTooBig,
                 error.Unexpected,
                 => |e| {
@@ -390,12 +396,13 @@ fn detectAbiAndDynamicLinker(
     };
 }
 
-fn glibcVerFromRPath(rpath: []const u8) !std.builtin.Version {
+fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
     var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
         error.NameTooLong => unreachable,
         error.InvalidUtf8 => unreachable,
         error.BadPathName => unreachable,
         error.DeviceBusy => unreachable,
+        error.NetworkNotFound => unreachable, // Windows-only
 
         error.FileNotFound,
         error.NotDir,
@@ -427,6 +434,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.builtin.Version {
         error.BadPathName => unreachable, // Windows only
         error.PipeBusy => unreachable, // Windows-only
         error.SharingViolation => unreachable, // Windows-only
+        error.NetworkNotFound => unreachable, // Windows-only
         error.FileLocksNotSupported => unreachable, // No lock requested.
         error.NoSpaceLeft => unreachable, // read-only
         error.PathAlreadyExists => unreachable, // read-only
@@ -471,11 +479,11 @@ fn glibcVerFromRPath(rpath: []const u8) !std.builtin.Version {
     };
 }
 
-fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
+fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;
     _ = try preadMin(file, &hdr_buf, 0, hdr_buf.len);
-    const hdr32 = @ptrCast(*elf.Elf32_Ehdr, &hdr_buf);
-    const hdr64 = @ptrCast(*elf.Elf64_Ehdr, &hdr_buf);
+    const hdr32 = @as(*elf.Elf32_Ehdr, @ptrCast(&hdr_buf));
+    const hdr64 = @as(*elf.Elf64_Ehdr, @ptrCast(&hdr_buf));
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
     const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
         elf.ELFDATA2LSB => .Little,
@@ -498,12 +506,12 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
     if (sh_buf.len < shentsize) return error.InvalidElfFile;
 
     _ = try preadMin(file, &sh_buf, str_section_off, shentsize);
-    const shstr32 = @ptrCast(*elf.Elf32_Shdr, @alignCast(@alignOf(elf.Elf32_Shdr), &sh_buf));
-    const shstr64 = @ptrCast(*elf.Elf64_Shdr, @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf));
+    const shstr32: *elf.Elf32_Shdr = @ptrCast(@alignCast(&sh_buf));
+    const shstr64: *elf.Elf64_Shdr = @ptrCast(@alignCast(&sh_buf));
     const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
     const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
     var strtab_buf: [4096:0]u8 = undefined;
-    const shstrtab_len = std.math.min(shstrtab_size, strtab_buf.len);
+    const shstrtab_len = @min(shstrtab_size, strtab_buf.len);
     const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
     const shstrtab = strtab_buf[0..shstrtab_read_len];
     const shnum = elfInt(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum);
@@ -524,14 +532,8 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
             shoff += shentsize;
             sh_buf_i += shentsize;
         }) {
-            const sh32 = @ptrCast(
-                *elf.Elf32_Shdr,
-                @alignCast(@alignOf(elf.Elf32_Shdr), &sh_buf[sh_buf_i]),
-            );
-            const sh64 = @ptrCast(
-                *elf.Elf64_Shdr,
-                @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf[sh_buf_i]),
-            );
+            const sh32: *elf.Elf32_Shdr = @ptrCast(@alignCast(&sh_buf[sh_buf_i]));
+            const sh64: *elf.Elf64_Shdr = @ptrCast(@alignCast(&sh_buf[sh_buf_i]));
             const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
             const sh_name = mem.sliceTo(shstrtab[sh_name_off..], 0);
             if (mem.eql(u8, sh_name, ".dynstr")) {
@@ -553,17 +555,16 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
     var buf: [80000]u8 = undefined;
     if (buf.len < dynstr.size) return error.InvalidGnuLibCVersion;
 
-    const dynstr_size = @intCast(usize, dynstr.size);
+    const dynstr_size = @as(usize, @intCast(dynstr.size));
     const dynstr_bytes = buf[0..dynstr_size];
     _ = try preadMin(file, dynstr_bytes, dynstr.offset, dynstr_bytes.len);
     var it = mem.splitScalar(u8, dynstr_bytes, 0);
-    var max_ver: std.builtin.Version = .{ .major = 2, .minor = 2, .patch = 5 };
+    var max_ver: std.SemanticVersion = .{ .major = 2, .minor = 2, .patch = 5 };
     while (it.next()) |s| {
         if (mem.startsWith(u8, s, "GLIBC_2.")) {
             const chopped = s["GLIBC_".len..];
-            const ver = std.builtin.Version.parse(chopped) catch |err| switch (err) {
+            const ver = std.SemanticVersion.parse(chopped) catch |err| switch (err) {
                 error.Overflow => return error.InvalidGnuLibCVersion,
-                error.InvalidCharacter => return error.InvalidGnuLibCVersion,
                 error.InvalidVersion => return error.InvalidGnuLibCVersion,
             };
             switch (ver.order(max_ver)) {
@@ -575,7 +576,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
     return max_ver;
 }
 
-fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) !std.builtin.Version {
+fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) !std.SemanticVersion {
     // example: "libc-2.3.4.so"
     // example: "libc-2.27.so"
     // example: "ld-2.33.so"
@@ -585,9 +586,8 @@ fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) !std.builtin.
     }
     // chop off "libc-" and ".so"
     const link_name_chopped = link_name[prefix.len .. link_name.len - suffix.len];
-    return std.builtin.Version.parse(link_name_chopped) catch |err| switch (err) {
+    return std.SemanticVersion.parse(link_name_chopped) catch |err| switch (err) {
         error.Overflow => return error.InvalidGnuLibCVersion,
-        error.InvalidCharacter => return error.InvalidGnuLibCVersion,
         error.InvalidVersion => return error.InvalidGnuLibCVersion,
     };
 }
@@ -618,8 +618,8 @@ pub fn abiAndDynamicLinkerFromFile(
 ) AbiAndDynamicLinkerFromFileError!NativeTargetInfo {
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;
     _ = try preadMin(file, &hdr_buf, 0, hdr_buf.len);
-    const hdr32 = @ptrCast(*elf.Elf32_Ehdr, &hdr_buf);
-    const hdr64 = @ptrCast(*elf.Elf64_Ehdr, &hdr_buf);
+    const hdr32 = @as(*elf.Elf32_Ehdr, @ptrCast(&hdr_buf));
+    const hdr64 = @as(*elf.Elf64_Ehdr, @ptrCast(&hdr_buf));
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
     const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
         elf.ELFDATA2LSB => .Little,
@@ -665,21 +665,21 @@ pub fn abiAndDynamicLinkerFromFile(
             phoff += phentsize;
             ph_buf_i += phentsize;
         }) {
-            const ph32 = @ptrCast(*elf.Elf32_Phdr, @alignCast(@alignOf(elf.Elf32_Phdr), &ph_buf[ph_buf_i]));
-            const ph64 = @ptrCast(*elf.Elf64_Phdr, @alignCast(@alignOf(elf.Elf64_Phdr), &ph_buf[ph_buf_i]));
+            const ph32: *elf.Elf32_Phdr = @ptrCast(@alignCast(&ph_buf[ph_buf_i]));
+            const ph64: *elf.Elf64_Phdr = @ptrCast(@alignCast(&ph_buf[ph_buf_i]));
             const p_type = elfInt(is_64, need_bswap, ph32.p_type, ph64.p_type);
             switch (p_type) {
                 elf.PT_INTERP => if (look_for_ld) {
                     const p_offset = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
                     const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
                     if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
-                    const filesz = @intCast(usize, p_filesz);
+                    const filesz = @as(usize, @intCast(p_filesz));
                     _ = try preadMin(file, result.dynamic_linker.buffer[0..filesz], p_offset, filesz);
                     // PT_INTERP includes a null byte in filesz.
                     const len = filesz - 1;
                     // dynamic_linker.max_byte is "max", not "len".
                     // We know it will fit in u8 because we check against dynamic_linker.buffer.len above.
-                    result.dynamic_linker.max_byte = @intCast(u8, len - 1);
+                    result.dynamic_linker.max_byte = @as(u8, @intCast(len - 1));
 
                     // Use it to determine ABI.
                     const full_ld_path = result.dynamic_linker.buffer[0..len];
@@ -717,14 +717,8 @@ pub fn abiAndDynamicLinkerFromFile(
                             dyn_off += dyn_size;
                             dyn_buf_i += dyn_size;
                         }) {
-                            const dyn32 = @ptrCast(
-                                *elf.Elf32_Dyn,
-                                @alignCast(@alignOf(elf.Elf32_Dyn), &dyn_buf[dyn_buf_i]),
-                            );
-                            const dyn64 = @ptrCast(
-                                *elf.Elf64_Dyn,
-                                @alignCast(@alignOf(elf.Elf64_Dyn), &dyn_buf[dyn_buf_i]),
-                            );
+                            const dyn32: *elf.Elf32_Dyn = @ptrCast(@alignCast(&dyn_buf[dyn_buf_i]));
+                            const dyn64: *elf.Elf64_Dyn = @ptrCast(@alignCast(&dyn_buf[dyn_buf_i]));
                             const tag = elfInt(is_64, need_bswap, dyn32.d_tag, dyn64.d_tag);
                             const val = elfInt(is_64, need_bswap, dyn32.d_val, dyn64.d_val);
                             if (tag == elf.DT_RUNPATH) {
@@ -752,12 +746,12 @@ pub fn abiAndDynamicLinkerFromFile(
         if (sh_buf.len < shentsize) return error.InvalidElfFile;
 
         _ = try preadMin(file, &sh_buf, str_section_off, shentsize);
-        const shstr32 = @ptrCast(*elf.Elf32_Shdr, @alignCast(@alignOf(elf.Elf32_Shdr), &sh_buf));
-        const shstr64 = @ptrCast(*elf.Elf64_Shdr, @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf));
+        const shstr32: *elf.Elf32_Shdr = @ptrCast(@alignCast(&sh_buf));
+        const shstr64: *elf.Elf64_Shdr = @ptrCast(@alignCast(&sh_buf));
         const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
         const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
         var strtab_buf: [4096:0]u8 = undefined;
-        const shstrtab_len = std.math.min(shstrtab_size, strtab_buf.len);
+        const shstrtab_len = @min(shstrtab_size, strtab_buf.len);
         const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
         const shstrtab = strtab_buf[0..shstrtab_read_len];
 
@@ -779,14 +773,8 @@ pub fn abiAndDynamicLinkerFromFile(
                 shoff += shentsize;
                 sh_buf_i += shentsize;
             }) {
-                const sh32 = @ptrCast(
-                    *elf.Elf32_Shdr,
-                    @alignCast(@alignOf(elf.Elf32_Shdr), &sh_buf[sh_buf_i]),
-                );
-                const sh64 = @ptrCast(
-                    *elf.Elf64_Shdr,
-                    @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf[sh_buf_i]),
-                );
+                const sh32: *elf.Elf32_Shdr = @ptrCast(@alignCast(&sh_buf[sh_buf_i]));
+                const sh64: *elf.Elf64_Shdr = @ptrCast(@alignCast(&sh_buf[sh_buf_i]));
                 const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
                 const sh_name = mem.sliceTo(shstrtab[sh_name_off..], 0);
                 if (mem.eql(u8, sh_name, ".dynstr")) {
@@ -806,7 +794,7 @@ pub fn abiAndDynamicLinkerFromFile(
                 const rpoff_file = ds.offset + rpoff_usize;
                 const rp_max_size = ds.size - rpoff_usize;
 
-                const strtab_len = std.math.min(rp_max_size, strtab_buf.len);
+                const strtab_len = @min(rp_max_size, strtab_buf.len);
                 const strtab_read_len = try preadMin(file, &strtab_buf, rpoff_file, strtab_len);
                 const strtab = strtab_buf[0..strtab_read_len];
 
@@ -845,6 +833,7 @@ pub fn abiAndDynamicLinkerFromFile(
                 error.InvalidUtf8 => unreachable, // Windows only
                 error.BadPathName => unreachable, // Windows only
                 error.UnsupportedReparsePointType => unreachable, // Windows only
+                error.NetworkNotFound => unreachable, // Windows only
 
                 error.AccessDenied,
                 error.FileNotFound,

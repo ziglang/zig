@@ -110,7 +110,7 @@ const Scope = struct {
             if (self.base.parent.?.id == .do_loop) {
                 // We reserve 1 extra statement if the parent is a do_loop. This is in case of
                 // do while, we want to put `if (cond) break;` at the end.
-                const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .do_loop);
+                const alloc_len = self.statements.items.len + @intFromBool(self.base.parent.?.id == .do_loop);
                 var stmts = try c.arena.alloc(Node, alloc_len);
                 stmts.len = self.statements.items.len;
                 @memcpy(stmts[0..self.statements.items.len], self.statements.items);
@@ -408,13 +408,11 @@ pub fn translate(
     }
 
     inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
-        if (decl.is_pub) {
-            const builtin = try Tag.pub_var_simple.create(arena, .{
-                .name = decl.name,
-                .init = try Tag.import_c_builtin.create(arena, decl.name),
-            });
-            try addTopLevelDecl(&context, decl.name, builtin);
-        }
+        const builtin = try Tag.pub_var_simple.create(arena, .{
+            .name = decl.name,
+            .init = try Tag.import_c_builtin.create(arena, decl.name),
+        });
+        try addTopLevelDecl(&context, decl.name, builtin);
     }
 
     try prepopulateGlobalNameTable(ast_unit, &context);
@@ -467,7 +465,7 @@ fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
         const entity = it.deref();
         switch (entity.getKind()) {
             .MacroDefinitionKind => {
-                const macro = @ptrCast(*clang.MacroDefinitionRecord, entity);
+                const macro = @as(*clang.MacroDefinitionRecord, @ptrCast(entity));
                 const raw_name = macro.getName_getNameStart();
                 const name = try c.str(raw_name);
 
@@ -481,13 +479,13 @@ fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
 }
 
 fn declVisitorNamesOnlyC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.C) bool {
-    const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
+    const c: *Context = @ptrCast(@alignCast(context));
     declVisitorNamesOnly(c, decl) catch return false;
     return true;
 }
 
 fn declVisitorC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.C) bool {
-    const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
+    const c: *Context = @ptrCast(@alignCast(context));
     declVisitor(c, decl) catch return false;
     return true;
 }
@@ -499,37 +497,37 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
 
         // Check for typedefs with unnamed enum/record child types.
         if (decl.getKind() == .Typedef) {
-            const typedef_decl = @ptrCast(*const clang.TypedefNameDecl, decl);
+            const typedef_decl = @as(*const clang.TypedefNameDecl, @ptrCast(decl));
             var child_ty = typedef_decl.getUnderlyingType().getTypePtr();
             const addr: usize = while (true) switch (child_ty.getTypeClass()) {
                 .Enum => {
-                    const enum_ty = @ptrCast(*const clang.EnumType, child_ty);
+                    const enum_ty = @as(*const clang.EnumType, @ptrCast(child_ty));
                     const enum_decl = enum_ty.getDecl();
                     // check if this decl is unnamed
-                    if (@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin()[0] != 0) return;
-                    break @ptrToInt(enum_decl.getCanonicalDecl());
+                    if (@as(*const clang.NamedDecl, @ptrCast(enum_decl)).getName_bytes_begin()[0] != 0) return;
+                    break @intFromPtr(enum_decl.getCanonicalDecl());
                 },
                 .Record => {
-                    const record_ty = @ptrCast(*const clang.RecordType, child_ty);
+                    const record_ty = @as(*const clang.RecordType, @ptrCast(child_ty));
                     const record_decl = record_ty.getDecl();
                     // check if this decl is unnamed
-                    if (@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin()[0] != 0) return;
-                    break @ptrToInt(record_decl.getCanonicalDecl());
+                    if (@as(*const clang.NamedDecl, @ptrCast(record_decl)).getName_bytes_begin()[0] != 0) return;
+                    break @intFromPtr(record_decl.getCanonicalDecl());
                 },
                 .Elaborated => {
-                    const elaborated_ty = @ptrCast(*const clang.ElaboratedType, child_ty);
+                    const elaborated_ty = @as(*const clang.ElaboratedType, @ptrCast(child_ty));
                     child_ty = elaborated_ty.getNamedType().getTypePtr();
                 },
                 .Decayed => {
-                    const decayed_ty = @ptrCast(*const clang.DecayedType, child_ty);
+                    const decayed_ty = @as(*const clang.DecayedType, @ptrCast(child_ty));
                     child_ty = decayed_ty.getDecayedType().getTypePtr();
                 },
                 .Attributed => {
-                    const attributed_ty = @ptrCast(*const clang.AttributedType, child_ty);
+                    const attributed_ty = @as(*const clang.AttributedType, @ptrCast(child_ty));
                     child_ty = attributed_ty.getEquivalentType().getTypePtr();
                 },
                 .MacroQualified => {
-                    const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, child_ty);
+                    const macroqualified_ty = @as(*const clang.MacroQualifiedType, @ptrCast(child_ty));
                     child_ty = macroqualified_ty.getModifiedType().getTypePtr();
                 },
                 else => return,
@@ -543,7 +541,7 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
             }
             result.value_ptr.* = decl_name;
             // Put this typedef in the decl_table to avoid redefinitions.
-            try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), decl_name);
+            try c.decl_table.putNoClobber(c.gpa, @intFromPtr(typedef_decl.getCanonicalDecl()), decl_name);
             try c.typedefs.put(c.gpa, decl_name, {});
         }
     }
@@ -552,25 +550,25 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
 fn declVisitor(c: *Context, decl: *const clang.Decl) Error!void {
     switch (decl.getKind()) {
         .Function => {
-            return visitFnDecl(c, @ptrCast(*const clang.FunctionDecl, decl));
+            return visitFnDecl(c, @as(*const clang.FunctionDecl, @ptrCast(decl)));
         },
         .Typedef => {
-            try transTypeDef(c, &c.global_scope.base, @ptrCast(*const clang.TypedefNameDecl, decl));
+            try transTypeDef(c, &c.global_scope.base, @as(*const clang.TypedefNameDecl, @ptrCast(decl)));
         },
         .Enum => {
-            try transEnumDecl(c, &c.global_scope.base, @ptrCast(*const clang.EnumDecl, decl));
+            try transEnumDecl(c, &c.global_scope.base, @as(*const clang.EnumDecl, @ptrCast(decl)));
         },
         .Record => {
-            try transRecordDecl(c, &c.global_scope.base, @ptrCast(*const clang.RecordDecl, decl));
+            try transRecordDecl(c, &c.global_scope.base, @as(*const clang.RecordDecl, @ptrCast(decl)));
         },
         .Var => {
-            return visitVarDecl(c, @ptrCast(*const clang.VarDecl, decl), null);
+            return visitVarDecl(c, @as(*const clang.VarDecl, @ptrCast(decl)), null);
         },
         .Empty => {
             // Do nothing
         },
         .FileScopeAsm => {
-            try transFileScopeAsm(c, &c.global_scope.base, @ptrCast(*const clang.FileScopeAsmDecl, decl));
+            try transFileScopeAsm(c, &c.global_scope.base, @as(*const clang.FileScopeAsmDecl, @ptrCast(decl)));
         },
         else => {
             const decl_name = try c.str(decl.getDeclKindName());
@@ -595,7 +593,7 @@ fn transFileScopeAsm(c: *Context, scope: *Scope, file_scope_asm: *const clang.Fi
 }
 
 fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
-    const fn_name = try c.str(@ptrCast(*const clang.NamedDecl, fn_decl).getName_bytes_begin());
+    const fn_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(fn_decl)).getName_bytes_begin());
     if (c.global_scope.sym_table.contains(fn_name))
         return; // Avoid processing this decl twice
 
@@ -630,22 +628,22 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
 
         switch (fn_type.getTypeClass()) {
             .Attributed => {
-                const attr_type = @ptrCast(*const clang.AttributedType, fn_type);
+                const attr_type = @as(*const clang.AttributedType, @ptrCast(fn_type));
                 fn_qt = attr_type.getEquivalentType();
             },
             .Paren => {
-                const paren_type = @ptrCast(*const clang.ParenType, fn_type);
+                const paren_type = @as(*const clang.ParenType, @ptrCast(fn_type));
                 fn_qt = paren_type.getInnerType();
             },
             else => break fn_type,
         }
     };
-    const fn_ty = @ptrCast(*const clang.FunctionType, fn_type);
+    const fn_ty = @as(*const clang.FunctionType, @ptrCast(fn_type));
     const return_qt = fn_ty.getReturnType();
 
     const proto_node = switch (fn_type.getTypeClass()) {
         .FunctionProto => blk: {
-            const fn_proto_type = @ptrCast(*const clang.FunctionProtoType, fn_type);
+            const fn_proto_type = @as(*const clang.FunctionProtoType, @ptrCast(fn_type));
             if (has_body and fn_proto_type.isVariadic()) {
                 decl_ctx.has_body = false;
                 decl_ctx.storage_class = .Extern;
@@ -661,7 +659,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
             };
         },
         .FunctionNoProto => blk: {
-            const fn_no_proto_type = @ptrCast(*const clang.FunctionType, fn_type);
+            const fn_no_proto_type = @as(*const clang.FunctionType, @ptrCast(fn_type));
             break :blk transFnNoProto(c, fn_no_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
                     return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function", .{});
@@ -714,7 +712,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         param_id += 1;
     }
 
-    const casted_body = @ptrCast(*const clang.CompoundStmt, body_stmt);
+    const casted_body = @as(*const clang.CompoundStmt, @ptrCast(body_stmt));
     transCompoundStmtInline(c, casted_body, &block_scope) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.UnsupportedTranslation,
@@ -788,7 +786,7 @@ fn stringLiteralToCharStar(c: *Context, str: Node) Error!Node {
 
 /// if mangled_name is not null, this var decl was declared in a block scope.
 fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]const u8) Error!void {
-    const var_name = mangled_name orelse try c.str(@ptrCast(*const clang.NamedDecl, var_decl).getName_bytes_begin());
+    const var_name = mangled_name orelse try c.str(@as(*const clang.NamedDecl, @ptrCast(var_decl)).getName_bytes_begin());
     if (c.global_scope.sym_table.contains(var_name))
         return; // Avoid processing this decl twice
 
@@ -830,7 +828,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     if (has_init) trans_init: {
         if (decl_init) |expr| {
             const node_or_error = if (expr.getStmtClass() == .StringLiteralClass)
-                transStringLiteralInitializer(c, @ptrCast(*const clang.StringLiteral, expr), type_node)
+                transStringLiteralInitializer(c, @as(*const clang.StringLiteral, @ptrCast(expr)), type_node)
             else
                 transExprCoercing(c, scope, expr, .used);
             init_node = node_or_error catch |err| switch (err) {
@@ -845,7 +843,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
                 error.OutOfMemory => |e| return e,
             };
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node.?)) {
-                init_node = try Tag.bool_to_int.create(c.arena, init_node.?);
+                init_node = try Tag.int_from_bool.create(c.arena, init_node.?);
             } else if (init_node.?.tag() == .string_literal and qualTypeIsCharStar(qual_type)) {
                 init_node = try stringLiteralToCharStar(c, init_node.?);
             }
@@ -913,19 +911,19 @@ const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
 });
 
 fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNameDecl) Error!void {
-    if (c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl()))) |_|
+    if (c.decl_table.get(@intFromPtr(typedef_decl.getCanonicalDecl()))) |_|
         return; // Avoid processing this decl twice
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    var name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, typedef_decl).getName_bytes_begin());
+    var name: []const u8 = try c.str(@as(*const clang.NamedDecl, @ptrCast(typedef_decl)).getName_bytes_begin());
     try c.typedefs.put(c.gpa, name, {});
 
     if (builtin_typedef_map.get(name)) |builtin| {
-        return c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), builtin);
+        return c.decl_table.putNoClobber(c.gpa, @intFromPtr(typedef_decl.getCanonicalDecl()), builtin);
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
-    try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
+    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(typedef_decl.getCanonicalDecl()), name);
 
     const child_qt = typedef_decl.getUnderlyingType();
     const typedef_loc = typedef_decl.getLocation();
@@ -938,7 +936,7 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
 
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
-        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@boolToInt(toplevel)] },
+        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@intFromBool(toplevel)] },
         .data = .{
             .name = name,
             .init = init_node,
@@ -967,6 +965,7 @@ fn buildFlexibleArrayFn(
     field_decl: *const clang.FieldDecl,
 ) TypeError!Node {
     const field_qt = field_decl.getType();
+    const field_qt_canon = qualTypeCanon(field_qt);
 
     const u8_type = try Tag.type.create(c.arena, "u8");
     const self_param_name = "self";
@@ -981,7 +980,7 @@ fn buildFlexibleArrayFn(
         .is_noalias = false,
     };
 
-    const array_type = @ptrCast(*const clang.ArrayType, field_qt.getTypePtr());
+    const array_type = @as(*const clang.ArrayType, @ptrCast(field_qt_canon));
     const element_qt = array_type.getElementType();
     const element_type = try transQualType(c, scope, element_qt, field_decl.getLocation());
 
@@ -1010,17 +1009,23 @@ fn buildFlexibleArrayFn(
     const bit_offset = layout.getFieldOffset(field_index); // this is a target-specific constant based on the struct layout
     const byte_offset = bit_offset / 8;
 
-    const casted_self = try Tag.ptr_cast.create(c.arena, .{
+    const casted_self = try Tag.as.create(c.arena, .{
         .lhs = intermediate_type_ident,
-        .rhs = self_param,
+        .rhs = try Tag.ptr_cast.create(c.arena, self_param),
     });
     const field_offset = try transCreateNodeNumber(c, byte_offset, .int);
     const field_ptr = try Tag.add.create(c.arena, .{ .lhs = casted_self, .rhs = field_offset });
 
-    const alignment = try Tag.alignof.create(c.arena, element_type);
-
-    const ptr_val = try Tag.align_cast.create(c.arena, .{ .lhs = alignment, .rhs = field_ptr });
-    const ptr_cast = try Tag.ptr_cast.create(c.arena, .{ .lhs = return_type_ident, .rhs = ptr_val });
+    const ptr_cast = try Tag.as.create(c.arena, .{
+        .lhs = return_type_ident,
+        .rhs = try Tag.ptr_cast.create(
+            c.arena,
+            try Tag.align_cast.create(
+                c.arena,
+                field_ptr,
+            ),
+        ),
+    });
     const return_stmt = try Tag.@"return".create(c.arena, ptr_cast);
     try block_scope.statements.append(return_stmt);
 
@@ -1045,25 +1050,37 @@ fn buildFlexibleArrayFn(
     return Node.initPayload(&payload.base);
 }
 
+/// Return true if `field_decl` is the flexible array field for its parent record
 fn isFlexibleArrayFieldDecl(c: *Context, field_decl: *const clang.FieldDecl) bool {
-    return qualTypeCanon(field_decl.getType()).isIncompleteOrZeroLengthArrayType(c.clang_context);
+    const record_decl = field_decl.getParent() orelse return false;
+    const record_flexible_field = flexibleArrayField(c, record_decl) orelse return false;
+    return field_decl == record_flexible_field;
 }
 
+/// Find the flexible array field for a record if any. A flexible array field is an
+/// incomplete or zero-length array that occurs as the last field of a record.
 /// clang's RecordDecl::hasFlexibleArrayMember is not suitable for determining
 /// this because it returns false for a record that ends with a zero-length
 /// array, but we consider those to be flexible arrays
-fn hasFlexibleArrayField(c: *Context, record_def: *const clang.RecordDecl) bool {
+fn flexibleArrayField(c: *Context, record_def: *const clang.RecordDecl) ?*const clang.FieldDecl {
     var it = record_def.field_begin();
     const end_it = record_def.field_end();
+    var flexible_field: ?*const clang.FieldDecl = null;
     while (it.neq(end_it)) : (it = it.next()) {
         const field_decl = it.deref();
-        if (isFlexibleArrayFieldDecl(c, field_decl)) return true;
+        const ty = qualTypeCanon(field_decl.getType());
+        const incomplete_or_zero_size = ty.isIncompleteOrZeroLengthArrayType(c.clang_context);
+        if (incomplete_or_zero_size) {
+            flexible_field = field_decl;
+        } else {
+            flexible_field = null;
+        }
     }
-    return false;
+    return flexible_field;
 }
 
 fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordDecl) Error!void {
-    if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |_|
+    if (c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl()))) |_|
         return; // Avoid processing this decl twice
     const record_loc = record_decl.getLocation();
     const toplevel = scope.id == .root;
@@ -1071,7 +1088,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
 
     var is_union = false;
     var container_kind_name: []const u8 = undefined;
-    var bare_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin());
+    var bare_name: []const u8 = try c.str(@as(*const clang.NamedDecl, @ptrCast(record_decl)).getName_bytes_begin());
 
     if (record_decl.isUnion()) {
         container_kind_name = "union";
@@ -1079,13 +1096,13 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
     } else if (record_decl.isStruct()) {
         container_kind_name = "struct";
     } else {
-        try c.decl_table.putNoClobber(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), bare_name);
+        try c.decl_table.putNoClobber(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), bare_name);
         return failDecl(c, record_loc, bare_name, "record {s} is not a struct or union", .{bare_name});
     }
 
     var is_unnamed = false;
     var name = bare_name;
-    if (c.unnamed_typedefs.get(@ptrToInt(record_decl.getCanonicalDecl()))) |typedef_name| {
+    if (c.unnamed_typedefs.get(@intFromPtr(record_decl.getCanonicalDecl()))) |typedef_name| {
         bare_name = typedef_name;
         name = typedef_name;
     } else {
@@ -1098,12 +1115,12 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
-    try c.decl_table.putNoClobber(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), name);
+    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), name);
 
     const is_pub = toplevel and !is_unnamed;
     const init_node = blk: {
         const record_def = record_decl.getDefinition() orelse {
-            try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+            try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), {});
             break :blk Tag.opaque_literal.init();
         };
 
@@ -1113,7 +1130,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         var functions = std.ArrayList(Node).init(c.gpa);
         defer functions.deinit();
 
-        const has_flexible_array = hasFlexibleArrayField(c, record_def);
+        const flexible_field = flexibleArrayField(c, record_def);
         var unnamed_field_count: u32 = 0;
         var it = record_def.field_begin();
         const end_it = record_def.field_end();
@@ -1126,23 +1143,23 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             const field_qt = field_decl.getType();
 
             if (field_decl.isBitField()) {
-                try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), {});
                 try warn(c, scope, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
                 break :blk Tag.opaque_literal.init();
             }
 
             var is_anon = false;
-            var field_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
+            var field_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(field_decl)).getName_bytes_begin());
             if (field_decl.isAnonymousStructOrUnion() or field_name.len == 0) {
                 // Context.getMangle() is not used here because doing so causes unpredictable field names for anonymous fields.
                 field_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{unnamed_field_count});
                 unnamed_field_count += 1;
                 is_anon = true;
             }
-            if (isFlexibleArrayFieldDecl(c, field_decl)) {
+            if (flexible_field == field_decl) {
                 const flexible_array_fn = buildFlexibleArrayFn(c, scope, layout, field_name, field_decl) catch |err| switch (err) {
                     error.UnsupportedType => {
-                        try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                        try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), {});
                         try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of flexible array field {s}", .{ container_kind_name, field_name });
                         break :blk Tag.opaque_literal.init();
                     },
@@ -1153,20 +1170,20 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             }
             const field_type = transQualType(c, scope, field_qt, field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
-                    try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                    try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), {});
                     try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, field_name });
                     break :blk Tag.opaque_literal.init();
                 },
                 else => |e| return e,
             };
 
-            const alignment = if (has_flexible_array and field_decl.getFieldIndex() == 0)
-                @intCast(c_uint, record_alignment)
+            const alignment = if (flexible_field != null and field_decl.getFieldIndex() == 0)
+                @as(c_uint, @intCast(record_alignment))
             else
                 ClangAlignment.forField(c, field_decl, record_def).zigAlignment();
 
             if (is_anon) {
-                try c.decl_table.putNoClobber(c.gpa, @ptrToInt(field_decl.getCanonicalDecl()), field_name);
+                try c.decl_table.putNoClobber(c.gpa, @intFromPtr(field_decl.getCanonicalDecl()), field_name);
             }
 
             try fields.append(.{
@@ -1178,7 +1195,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
 
         const record_payload = try c.arena.create(ast.Payload.Record);
         record_payload.* = .{
-            .base = .{ .tag = ([2]Tag{ .@"struct", .@"union" })[@boolToInt(is_union)] },
+            .base = .{ .tag = ([2]Tag{ .@"struct", .@"union" })[@intFromBool(is_union)] },
             .data = .{
                 .layout = .@"extern",
                 .fields = try c.arena.dupe(ast.Payload.Record.Field, fields.items),
@@ -1191,7 +1208,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
 
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
-        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
+        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@intFromBool(is_pub)] },
         .data = .{
             .name = name,
             .init = init_node,
@@ -1211,16 +1228,16 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
 }
 
 fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) Error!void {
-    if (c.decl_table.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |_|
+    if (c.decl_table.get(@intFromPtr(enum_decl.getCanonicalDecl()))) |_|
         return; // Avoid processing this decl twice
     const enum_loc = enum_decl.getLocation();
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
     var is_unnamed = false;
-    var bare_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
+    var bare_name: []const u8 = try c.str(@as(*const clang.NamedDecl, @ptrCast(enum_decl)).getName_bytes_begin());
     var name = bare_name;
-    if (c.unnamed_typedefs.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |typedef_name| {
+    if (c.unnamed_typedefs.get(@intFromPtr(enum_decl.getCanonicalDecl()))) |typedef_name| {
         bare_name = typedef_name;
         name = typedef_name;
     } else {
@@ -1231,20 +1248,20 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
         name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
-    try c.decl_table.putNoClobber(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), name);
+    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(enum_decl.getCanonicalDecl()), name);
 
     const enum_type_node = if (enum_decl.getDefinition()) |enum_def| blk: {
         var it = enum_def.enumerator_begin();
         const end_it = enum_def.enumerator_end();
         while (it.neq(end_it)) : (it = it.next()) {
             const enum_const = it.deref();
-            var enum_val_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, enum_const).getName_bytes_begin());
+            var enum_val_name: []const u8 = try c.str(@as(*const clang.NamedDecl, @ptrCast(enum_const)).getName_bytes_begin());
             if (!toplevel) {
                 enum_val_name = try bs.makeMangledName(c, enum_val_name);
             }
 
-            const enum_const_qt = @ptrCast(*const clang.ValueDecl, enum_const).getType();
-            const enum_const_loc = @ptrCast(*const clang.Decl, enum_const).getLocation();
+            const enum_const_qt = @as(*const clang.ValueDecl, @ptrCast(enum_const)).getType();
+            const enum_const_loc = @as(*const clang.Decl, @ptrCast(enum_const)).getLocation();
             const enum_const_type_node: ?Node = transQualType(c, scope, enum_const_qt, enum_const_loc) catch |err| switch (err) {
                 error.UnsupportedType => null,
                 else => |e| return e,
@@ -1280,14 +1297,14 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
         else
             try Tag.type.create(c.arena, "c_int");
     } else blk: {
-        try c.opaque_demotes.put(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), {});
+        try c.opaque_demotes.put(c.gpa, @intFromPtr(enum_decl.getCanonicalDecl()), {});
         break :blk Tag.opaque_literal.init();
     };
 
     const is_pub = toplevel and !is_unnamed;
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
     payload.* = .{
-        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@boolToInt(is_pub)] },
+        .base = .{ .tag = ([2]Tag{ .var_simple, .pub_var_simple })[@intFromBool(is_pub)] },
         .data = .{
             .init = enum_type_node,
             .name = name,
@@ -1319,77 +1336,77 @@ fn transStmt(
 ) TransError!Node {
     const sc = stmt.getStmtClass();
     switch (sc) {
-        .BinaryOperatorClass => return transBinaryOperator(c, scope, @ptrCast(*const clang.BinaryOperator, stmt), result_used),
-        .CompoundStmtClass => return transCompoundStmt(c, scope, @ptrCast(*const clang.CompoundStmt, stmt)),
-        .CStyleCastExprClass => return transCStyleCastExprClass(c, scope, @ptrCast(*const clang.CStyleCastExpr, stmt), result_used),
-        .DeclStmtClass => return transDeclStmt(c, scope, @ptrCast(*const clang.DeclStmt, stmt)),
-        .DeclRefExprClass => return transDeclRefExpr(c, scope, @ptrCast(*const clang.DeclRefExpr, stmt)),
-        .ImplicitCastExprClass => return transImplicitCastExpr(c, scope, @ptrCast(*const clang.ImplicitCastExpr, stmt), result_used),
-        .IntegerLiteralClass => return transIntegerLiteral(c, scope, @ptrCast(*const clang.IntegerLiteral, stmt), result_used, .with_as),
-        .ReturnStmtClass => return transReturnStmt(c, scope, @ptrCast(*const clang.ReturnStmt, stmt)),
-        .StringLiteralClass => return transStringLiteral(c, scope, @ptrCast(*const clang.StringLiteral, stmt), result_used),
+        .BinaryOperatorClass => return transBinaryOperator(c, scope, @as(*const clang.BinaryOperator, @ptrCast(stmt)), result_used),
+        .CompoundStmtClass => return transCompoundStmt(c, scope, @as(*const clang.CompoundStmt, @ptrCast(stmt))),
+        .CStyleCastExprClass => return transCStyleCastExprClass(c, scope, @as(*const clang.CStyleCastExpr, @ptrCast(stmt)), result_used),
+        .DeclStmtClass => return transDeclStmt(c, scope, @as(*const clang.DeclStmt, @ptrCast(stmt))),
+        .DeclRefExprClass => return transDeclRefExpr(c, scope, @as(*const clang.DeclRefExpr, @ptrCast(stmt))),
+        .ImplicitCastExprClass => return transImplicitCastExpr(c, scope, @as(*const clang.ImplicitCastExpr, @ptrCast(stmt)), result_used),
+        .IntegerLiteralClass => return transIntegerLiteral(c, scope, @as(*const clang.IntegerLiteral, @ptrCast(stmt)), result_used, .with_as),
+        .ReturnStmtClass => return transReturnStmt(c, scope, @as(*const clang.ReturnStmt, @ptrCast(stmt))),
+        .StringLiteralClass => return transStringLiteral(c, scope, @as(*const clang.StringLiteral, @ptrCast(stmt)), result_used),
         .ParenExprClass => {
-            const expr = try transExpr(c, scope, @ptrCast(*const clang.ParenExpr, stmt).getSubExpr(), .used);
+            const expr = try transExpr(c, scope, @as(*const clang.ParenExpr, @ptrCast(stmt)).getSubExpr(), .used);
             return maybeSuppressResult(c, result_used, expr);
         },
-        .InitListExprClass => return transInitListExpr(c, scope, @ptrCast(*const clang.InitListExpr, stmt), result_used),
-        .ImplicitValueInitExprClass => return transImplicitValueInitExpr(c, scope, @ptrCast(*const clang.Expr, stmt)),
-        .IfStmtClass => return transIfStmt(c, scope, @ptrCast(*const clang.IfStmt, stmt)),
-        .WhileStmtClass => return transWhileLoop(c, scope, @ptrCast(*const clang.WhileStmt, stmt)),
-        .DoStmtClass => return transDoWhileLoop(c, scope, @ptrCast(*const clang.DoStmt, stmt)),
+        .InitListExprClass => return transInitListExpr(c, scope, @as(*const clang.InitListExpr, @ptrCast(stmt)), result_used),
+        .ImplicitValueInitExprClass => return transImplicitValueInitExpr(c, scope, @as(*const clang.Expr, @ptrCast(stmt))),
+        .IfStmtClass => return transIfStmt(c, scope, @as(*const clang.IfStmt, @ptrCast(stmt))),
+        .WhileStmtClass => return transWhileLoop(c, scope, @as(*const clang.WhileStmt, @ptrCast(stmt))),
+        .DoStmtClass => return transDoWhileLoop(c, scope, @as(*const clang.DoStmt, @ptrCast(stmt))),
         .NullStmtClass => {
             return Tag.empty_block.init();
         },
         .ContinueStmtClass => return Tag.@"continue".init(),
         .BreakStmtClass => return Tag.@"break".init(),
-        .ForStmtClass => return transForLoop(c, scope, @ptrCast(*const clang.ForStmt, stmt)),
-        .FloatingLiteralClass => return transFloatingLiteral(c, @ptrCast(*const clang.FloatingLiteral, stmt), result_used),
+        .ForStmtClass => return transForLoop(c, scope, @as(*const clang.ForStmt, @ptrCast(stmt))),
+        .FloatingLiteralClass => return transFloatingLiteral(c, @as(*const clang.FloatingLiteral, @ptrCast(stmt)), result_used),
         .ConditionalOperatorClass => {
-            return transConditionalOperator(c, scope, @ptrCast(*const clang.ConditionalOperator, stmt), result_used);
+            return transConditionalOperator(c, scope, @as(*const clang.ConditionalOperator, @ptrCast(stmt)), result_used);
         },
         .BinaryConditionalOperatorClass => {
-            return transBinaryConditionalOperator(c, scope, @ptrCast(*const clang.BinaryConditionalOperator, stmt), result_used);
+            return transBinaryConditionalOperator(c, scope, @as(*const clang.BinaryConditionalOperator, @ptrCast(stmt)), result_used);
         },
-        .SwitchStmtClass => return transSwitch(c, scope, @ptrCast(*const clang.SwitchStmt, stmt)),
+        .SwitchStmtClass => return transSwitch(c, scope, @as(*const clang.SwitchStmt, @ptrCast(stmt))),
         .CaseStmtClass, .DefaultStmtClass => {
             return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO complex switch", .{});
         },
-        .ConstantExprClass => return transConstantExpr(c, scope, @ptrCast(*const clang.Expr, stmt), result_used),
-        .PredefinedExprClass => return transPredefinedExpr(c, scope, @ptrCast(*const clang.PredefinedExpr, stmt), result_used),
-        .CharacterLiteralClass => return transCharLiteral(c, scope, @ptrCast(*const clang.CharacterLiteral, stmt), result_used, .with_as),
-        .StmtExprClass => return transStmtExpr(c, scope, @ptrCast(*const clang.StmtExpr, stmt), result_used),
-        .MemberExprClass => return transMemberExpr(c, scope, @ptrCast(*const clang.MemberExpr, stmt), result_used),
-        .ArraySubscriptExprClass => return transArrayAccess(c, scope, @ptrCast(*const clang.ArraySubscriptExpr, stmt), result_used),
-        .CallExprClass => return transCallExpr(c, scope, @ptrCast(*const clang.CallExpr, stmt), result_used),
-        .UnaryExprOrTypeTraitExprClass => return transUnaryExprOrTypeTraitExpr(c, scope, @ptrCast(*const clang.UnaryExprOrTypeTraitExpr, stmt), result_used),
-        .UnaryOperatorClass => return transUnaryOperator(c, scope, @ptrCast(*const clang.UnaryOperator, stmt), result_used),
-        .CompoundAssignOperatorClass => return transCompoundAssignOperator(c, scope, @ptrCast(*const clang.CompoundAssignOperator, stmt), result_used),
+        .ConstantExprClass => return transConstantExpr(c, scope, @as(*const clang.Expr, @ptrCast(stmt)), result_used),
+        .PredefinedExprClass => return transPredefinedExpr(c, scope, @as(*const clang.PredefinedExpr, @ptrCast(stmt)), result_used),
+        .CharacterLiteralClass => return transCharLiteral(c, scope, @as(*const clang.CharacterLiteral, @ptrCast(stmt)), result_used, .with_as),
+        .StmtExprClass => return transStmtExpr(c, scope, @as(*const clang.StmtExpr, @ptrCast(stmt)), result_used),
+        .MemberExprClass => return transMemberExpr(c, scope, @as(*const clang.MemberExpr, @ptrCast(stmt)), result_used),
+        .ArraySubscriptExprClass => return transArrayAccess(c, scope, @as(*const clang.ArraySubscriptExpr, @ptrCast(stmt)), result_used),
+        .CallExprClass => return transCallExpr(c, scope, @as(*const clang.CallExpr, @ptrCast(stmt)), result_used),
+        .UnaryExprOrTypeTraitExprClass => return transUnaryExprOrTypeTraitExpr(c, scope, @as(*const clang.UnaryExprOrTypeTraitExpr, @ptrCast(stmt)), result_used),
+        .UnaryOperatorClass => return transUnaryOperator(c, scope, @as(*const clang.UnaryOperator, @ptrCast(stmt)), result_used),
+        .CompoundAssignOperatorClass => return transCompoundAssignOperator(c, scope, @as(*const clang.CompoundAssignOperator, @ptrCast(stmt)), result_used),
         .OpaqueValueExprClass => {
-            const source_expr = @ptrCast(*const clang.OpaqueValueExpr, stmt).getSourceExpr().?;
+            const source_expr = @as(*const clang.OpaqueValueExpr, @ptrCast(stmt)).getSourceExpr().?;
             const expr = try transExpr(c, scope, source_expr, .used);
             return maybeSuppressResult(c, result_used, expr);
         },
-        .OffsetOfExprClass => return transOffsetOfExpr(c, @ptrCast(*const clang.OffsetOfExpr, stmt), result_used),
+        .OffsetOfExprClass => return transOffsetOfExpr(c, @as(*const clang.OffsetOfExpr, @ptrCast(stmt)), result_used),
         .CompoundLiteralExprClass => {
-            const compound_literal = @ptrCast(*const clang.CompoundLiteralExpr, stmt);
+            const compound_literal = @as(*const clang.CompoundLiteralExpr, @ptrCast(stmt));
             return transExpr(c, scope, compound_literal.getInitializer(), result_used);
         },
         .GenericSelectionExprClass => {
-            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, stmt);
+            const gen_sel = @as(*const clang.GenericSelectionExpr, @ptrCast(stmt));
             return transExpr(c, scope, gen_sel.getResultExpr(), result_used);
         },
         .ConvertVectorExprClass => {
-            const conv_vec = @ptrCast(*const clang.ConvertVectorExpr, stmt);
+            const conv_vec = @as(*const clang.ConvertVectorExpr, @ptrCast(stmt));
             const conv_vec_node = try transConvertVectorExpr(c, scope, conv_vec);
             return maybeSuppressResult(c, result_used, conv_vec_node);
         },
         .ShuffleVectorExprClass => {
-            const shuffle_vec_expr = @ptrCast(*const clang.ShuffleVectorExpr, stmt);
+            const shuffle_vec_expr = @as(*const clang.ShuffleVectorExpr, @ptrCast(stmt));
             const shuffle_vec_node = try transShuffleVectorExpr(c, scope, shuffle_vec_expr);
             return maybeSuppressResult(c, result_used, shuffle_vec_node);
         },
         .ChooseExprClass => {
-            const choose_expr = @ptrCast(*const clang.ChooseExpr, stmt);
+            const choose_expr = @as(*const clang.ChooseExpr, @ptrCast(stmt));
             return transExpr(c, scope, choose_expr.getChosenSubExpr(), result_used);
         },
         // When adding new cases here, see comment for maybeBlockify()
@@ -1415,21 +1432,21 @@ fn transConvertVectorExpr(
     scope: *Scope,
     expr: *const clang.ConvertVectorExpr,
 ) TransError!Node {
-    const base_stmt = @ptrCast(*const clang.Stmt, expr);
+    const base_stmt = @as(*const clang.Stmt, @ptrCast(expr));
 
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
 
     const src_expr = expr.getSrcExpr();
     const src_type = qualTypeCanon(src_expr.getType());
-    const src_vector_ty = @ptrCast(*const clang.VectorType, src_type);
+    const src_vector_ty = @as(*const clang.VectorType, @ptrCast(src_type));
     const src_element_qt = src_vector_ty.getElementType();
 
     const src_expr_node = try transExpr(c, &block_scope.base, src_expr, .used);
 
     const dst_qt = expr.getTypeSourceInfo_getType();
     const dst_type_node = try transQualType(c, &block_scope.base, dst_qt, base_stmt.getBeginLoc());
-    const dst_vector_ty = @ptrCast(*const clang.VectorType, qualTypeCanon(dst_qt));
+    const dst_vector_ty = @as(*const clang.VectorType, @ptrCast(qualTypeCanon(dst_qt)));
     const num_elements = dst_vector_ty.getNumElements();
     const dst_element_qt = dst_vector_ty.getElementType();
 
@@ -1484,7 +1501,7 @@ fn makeShuffleMask(c: *Context, scope: *Scope, expr: *const clang.ShuffleVectorE
     const init_list = try c.arena.alloc(Node, mask_len);
 
     for (init_list, 0..) |*init, i| {
-        const index_expr = try transExprCoercing(c, scope, expr.getExpr(@intCast(c_uint, i + 2)), .used);
+        const index_expr = try transExprCoercing(c, scope, expr.getExpr(@as(c_uint, @intCast(i + 2))), .used);
         const converted_index = try Tag.helpers_shuffle_vector_index.create(c.arena, .{ .lhs = index_expr, .rhs = vector_len });
         init.* = converted_index;
     }
@@ -1508,7 +1525,7 @@ fn transShuffleVectorExpr(
     scope: *Scope,
     expr: *const clang.ShuffleVectorExpr,
 ) TransError!Node {
-    const base_expr = @ptrCast(*const clang.Expr, expr);
+    const base_expr = @as(*const clang.Expr, @ptrCast(expr));
     const num_subexprs = expr.getNumSubExprs();
     if (num_subexprs < 3) return fail(c, error.UnsupportedTranslation, base_expr.getBeginLoc(), "ShuffleVector needs at least 1 index", .{});
 
@@ -1536,10 +1553,10 @@ fn transSimpleOffsetOfExpr(c: *Context, expr: *const clang.OffsetOfExpr) TransEr
     if (component.getKind() == .Field) {
         const field_decl = component.getField();
         if (field_decl.getParent()) |record_decl| {
-            if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |type_name| {
+            if (c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl()))) |type_name| {
                 const type_node = try Tag.type.create(c.arena, type_name);
 
-                var raw_field_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
+                var raw_field_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(field_decl)).getName_bytes_begin());
                 const quoted_field_name = try std.fmt.allocPrint(c.arena, "\"{s}\"", .{raw_field_name});
                 const field_name_node = try Tag.string_literal.create(c.arena, quoted_field_name);
 
@@ -1579,14 +1596,14 @@ fn transOffsetOfExpr(
 /// pointer arithmetic expressions, where wraparound will ensure we get the correct value.
 /// node -> @bitCast(usize, @intCast(isize, node))
 fn usizeCastForWrappingPtrArithmetic(gpa: mem.Allocator, node: Node) TransError!Node {
-    const intcast_node = try Tag.int_cast.create(gpa, .{
+    const intcast_node = try Tag.as.create(gpa, .{
         .lhs = try Tag.type.create(gpa, "isize"),
-        .rhs = node,
+        .rhs = try Tag.int_cast.create(gpa, node),
     });
 
-    return Tag.bit_cast.create(gpa, .{
+    return Tag.as.create(gpa, .{
         .lhs = try Tag.type.create(gpa, "usize"),
-        .rhs = intcast_node,
+        .rhs = try Tag.bit_cast.create(gpa, intcast_node),
     });
 }
 
@@ -1753,22 +1770,22 @@ fn transBinaryOperator(
     const rhs_uncasted = try transExpr(c, scope, stmt.getRHS(), .used);
 
     const lhs = if (isBoolRes(lhs_uncasted))
-        try Tag.bool_to_int.create(c.arena, lhs_uncasted)
+        try Tag.int_from_bool.create(c.arena, lhs_uncasted)
     else if (isPointerDiffExpr)
-        try Tag.ptr_to_int.create(c.arena, lhs_uncasted)
+        try Tag.int_from_ptr.create(c.arena, lhs_uncasted)
     else
         lhs_uncasted;
 
     const rhs = if (isBoolRes(rhs_uncasted))
-        try Tag.bool_to_int.create(c.arena, rhs_uncasted)
+        try Tag.int_from_bool.create(c.arena, rhs_uncasted)
     else if (isPointerDiffExpr)
-        try Tag.ptr_to_int.create(c.arena, rhs_uncasted)
+        try Tag.int_from_ptr.create(c.arena, rhs_uncasted)
     else
         rhs_uncasted;
 
     const infixOpNode = try transCreateNodeInfixOp(c, op_id, lhs, rhs, result_used);
     if (isPointerDiffExpr) {
-        // @divExact(@bitCast(<platform-ptrdiff_t>, @ptrToInt(lhs) -% @ptrToInt(rhs)), @sizeOf(<lhs target type>))
+        // @divExact(@bitCast(<platform-ptrdiff_t>, @intFromPtr(lhs) -% @intFromPtr(rhs)), @sizeOf(<lhs target type>))
         const ptrdiff_type = try transQualTypeIntWidthOf(c, qt, true);
 
         // C standard requires that pointer subtraction operands are of the same type,
@@ -1781,7 +1798,10 @@ fn transBinaryOperator(
         const elem_type = c_pointer.castTag(.c_pointer).?.data.elem_type;
         const sizeof = try Tag.sizeof.create(c.arena, elem_type);
 
-        const bitcast = try Tag.bit_cast.create(c.arena, .{ .lhs = ptrdiff_type, .rhs = infixOpNode });
+        const bitcast = try Tag.as.create(c.arena, .{
+            .lhs = ptrdiff_type,
+            .rhs = try Tag.bit_cast.create(c.arena, infixOpNode),
+        });
 
         return Tag.div_exact.create(c.arena, .{
             .lhs = bitcast,
@@ -1820,7 +1840,7 @@ fn transCStyleCastExprClass(
     stmt: *const clang.CStyleCastExpr,
     result_used: ResultUsed,
 ) TransError!Node {
-    const cast_expr = @ptrCast(*const clang.CastExpr, stmt);
+    const cast_expr = @as(*const clang.CastExpr, @ptrCast(stmt));
     const sub_expr = stmt.getSubExpr();
     const dst_type = stmt.getType();
     const src_type = sub_expr.getType();
@@ -1829,7 +1849,7 @@ fn transCStyleCastExprClass(
 
     const cast_node = if (cast_expr.getCastKind() == .ToUnion) blk: {
         const field_decl = cast_expr.getTargetFieldForToUnionCast(dst_type, src_type).?; // C syntax error if target field is null
-        const field_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
+        const field_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(field_decl)).getName_bytes_begin());
 
         const union_ty = try transQualType(c, scope, dst_type, loc);
 
@@ -1914,12 +1934,12 @@ fn transDeclStmtOne(
 ) TransError!void {
     switch (decl.getKind()) {
         .Var => {
-            const var_decl = @ptrCast(*const clang.VarDecl, decl);
+            const var_decl = @as(*const clang.VarDecl, @ptrCast(decl));
             const decl_init = var_decl.getInit();
             const loc = decl.getLocation();
 
             const qual_type = var_decl.getTypeSourceInfo_getType();
-            const name = try c.str(@ptrCast(*const clang.NamedDecl, var_decl).getName_bytes_begin());
+            const name = try c.str(@as(*const clang.NamedDecl, @ptrCast(var_decl)).getName_bytes_begin());
             const mangled_name = try block_scope.makeMangledName(c, name);
 
             if (var_decl.getStorageClass() == .Extern) {
@@ -1936,7 +1956,7 @@ fn transDeclStmtOne(
 
             var init_node = if (decl_init) |expr|
                 if (expr.getStmtClass() == .StringLiteralClass)
-                    try transStringLiteralInitializer(c, @ptrCast(*const clang.StringLiteral, expr), type_node)
+                    try transStringLiteralInitializer(c, @as(*const clang.StringLiteral, @ptrCast(expr)), type_node)
                 else
                     try transExprCoercing(c, scope, expr, .used)
             else if (is_static_local)
@@ -1944,7 +1964,7 @@ fn transDeclStmtOne(
             else
                 Tag.undefined_literal.init();
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
-                init_node = try Tag.bool_to_int.create(c.arena, init_node);
+                init_node = try Tag.int_from_bool.create(c.arena, init_node);
             } else if (init_node.tag() == .string_literal and qualTypeIsCharStar(qual_type)) {
                 const dst_type_node = try transQualType(c, scope, qual_type, loc);
                 init_node = try removeCVQualifiers(c, dst_type_node, init_node);
@@ -1971,7 +1991,7 @@ fn transDeclStmtOne(
 
             const cleanup_attr = var_decl.getCleanupAttribute();
             if (cleanup_attr) |fn_decl| {
-                const cleanup_fn_name = try c.str(@ptrCast(*const clang.NamedDecl, fn_decl).getName_bytes_begin());
+                const cleanup_fn_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(fn_decl)).getName_bytes_begin());
                 const fn_id = try Tag.identifier.create(c.arena, cleanup_fn_name);
 
                 const varname = try Tag.identifier.create(c.arena, mangled_name);
@@ -1986,16 +2006,16 @@ fn transDeclStmtOne(
             }
         },
         .Typedef => {
-            try transTypeDef(c, scope, @ptrCast(*const clang.TypedefNameDecl, decl));
+            try transTypeDef(c, scope, @as(*const clang.TypedefNameDecl, @ptrCast(decl)));
         },
         .Record => {
-            try transRecordDecl(c, scope, @ptrCast(*const clang.RecordDecl, decl));
+            try transRecordDecl(c, scope, @as(*const clang.RecordDecl, @ptrCast(decl)));
         },
         .Enum => {
-            try transEnumDecl(c, scope, @ptrCast(*const clang.EnumDecl, decl));
+            try transEnumDecl(c, scope, @as(*const clang.EnumDecl, @ptrCast(decl)));
         },
         .Function => {
-            try visitFnDecl(c, @ptrCast(*const clang.FunctionDecl, decl));
+            try visitFnDecl(c, @as(*const clang.FunctionDecl, @ptrCast(decl)));
         },
         else => {
             const decl_name = try c.str(decl.getDeclKindName());
@@ -2021,15 +2041,15 @@ fn transDeclRefExpr(
     expr: *const clang.DeclRefExpr,
 ) TransError!Node {
     const value_decl = expr.getDecl();
-    const name = try c.str(@ptrCast(*const clang.NamedDecl, value_decl).getName_bytes_begin());
+    const name = try c.str(@as(*const clang.NamedDecl, @ptrCast(value_decl)).getName_bytes_begin());
     const mangled_name = scope.getAlias(name);
-    var ref_expr = if (cIsFunctionDeclRef(@ptrCast(*const clang.Expr, expr)))
+    var ref_expr = if (cIsFunctionDeclRef(@as(*const clang.Expr, @ptrCast(expr))))
         try Tag.fn_identifier.create(c.arena, mangled_name)
     else
         try Tag.identifier.create(c.arena, mangled_name);
 
-    if (@ptrCast(*const clang.Decl, value_decl).getKind() == .Var) {
-        const var_decl = @ptrCast(*const clang.VarDecl, value_decl);
+    if (@as(*const clang.Decl, @ptrCast(value_decl)).getKind() == .Var) {
+        const var_decl = @as(*const clang.VarDecl, @ptrCast(value_decl));
         if (var_decl.isStaticLocal()) {
             ref_expr = try Tag.field_access.create(c.arena, .{
                 .lhs = ref_expr,
@@ -2048,7 +2068,7 @@ fn transImplicitCastExpr(
     result_used: ResultUsed,
 ) TransError!Node {
     const sub_expr = expr.getSubExpr();
-    const dest_type = getExprQualType(c, @ptrCast(*const clang.Expr, expr));
+    const dest_type = getExprQualType(c, @as(*const clang.Expr, @ptrCast(expr)));
     const src_type = getExprQualType(c, sub_expr);
     switch (expr.getCastKind()) {
         .BitCast, .FloatingCast, .FloatingToIntegral, .IntegralToFloating, .IntegralCast, .PointerToIntegral, .IntegralToPointer => {
@@ -2074,11 +2094,11 @@ fn transImplicitCastExpr(
             return Tag.null_literal.init();
         },
         .PointerToBoolean => {
-            // @ptrToInt(val) != 0
+            // @intFromPtr(val) != 0
             const ptr_node = try transExpr(c, scope, sub_expr, .used);
-            const ptr_to_int = try Tag.ptr_to_int.create(c.arena, ptr_node);
+            const int_from_ptr = try Tag.int_from_ptr.create(c.arena, ptr_node);
 
-            const ne = try Tag.not_equal.create(c.arena, .{ .lhs = ptr_to_int, .rhs = Tag.zero_literal.init() });
+            const ne = try Tag.not_equal.create(c.arena, .{ .lhs = int_from_ptr, .rhs = Tag.zero_literal.init() });
             return maybeSuppressResult(c, result_used, ne);
         },
         .IntegralToBoolean, .FloatingToBoolean => {
@@ -2102,7 +2122,7 @@ fn transImplicitCastExpr(
         else => |kind| return fail(
             c,
             error.UnsupportedTranslation,
-            @ptrCast(*const clang.Stmt, expr).getBeginLoc(),
+            @as(*const clang.Stmt, @ptrCast(expr)).getBeginLoc(),
             "unsupported CastKind {s}",
             .{@tagName(kind)},
         ),
@@ -2111,7 +2131,6 @@ fn transImplicitCastExpr(
 
 fn isBuiltinDefined(name: []const u8) bool {
     inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
-        if (!decl.is_pub) continue;
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
@@ -2132,13 +2151,13 @@ fn transBoolExpr(
     expr: *const clang.Expr,
     used: ResultUsed,
 ) TransError!Node {
-    if (@ptrCast(*const clang.Stmt, expr).getStmtClass() == .IntegerLiteralClass) {
+    if (@as(*const clang.Stmt, @ptrCast(expr)).getStmtClass() == .IntegerLiteralClass) {
         var signum: c_int = undefined;
-        if (!(@ptrCast(*const clang.IntegerLiteral, expr).getSignum(&signum, c.clang_context))) {
+        if (!(@as(*const clang.IntegerLiteral, @ptrCast(expr)).getSignum(&signum, c.clang_context))) {
             return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid integer literal", .{});
         }
         const is_zero = signum == 0;
-        return Node{ .tag_if_small_enough = @enumToInt(([2]Tag{ .true_literal, .false_literal })[@boolToInt(is_zero)]) };
+        return Node{ .tag_if_small_enough = @intFromEnum(([2]Tag{ .true_literal, .false_literal })[@intFromBool(is_zero)]) };
     }
 
     var res = try transExpr(c, scope, expr, used);
@@ -2159,20 +2178,20 @@ fn exprIsBooleanType(expr: *const clang.Expr) bool {
 fn exprIsNarrowStringLiteral(expr: *const clang.Expr) bool {
     switch (expr.getStmtClass()) {
         .StringLiteralClass => {
-            const string_lit = @ptrCast(*const clang.StringLiteral, expr);
+            const string_lit = @as(*const clang.StringLiteral, @ptrCast(expr));
             return string_lit.getCharByteWidth() == 1;
         },
         .PredefinedExprClass => return true,
         .UnaryOperatorClass => {
-            const op_expr = @ptrCast(*const clang.UnaryOperator, expr).getSubExpr();
+            const op_expr = @as(*const clang.UnaryOperator, @ptrCast(expr)).getSubExpr();
             return exprIsNarrowStringLiteral(op_expr);
         },
         .ParenExprClass => {
-            const op_expr = @ptrCast(*const clang.ParenExpr, expr).getSubExpr();
+            const op_expr = @as(*const clang.ParenExpr, @ptrCast(expr)).getSubExpr();
             return exprIsNarrowStringLiteral(op_expr);
         },
         .GenericSelectionExprClass => {
-            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, expr);
+            const gen_sel = @as(*const clang.GenericSelectionExpr, @ptrCast(expr));
             return exprIsNarrowStringLiteral(gen_sel.getResultExpr());
         },
         else => return false,
@@ -2181,11 +2200,11 @@ fn exprIsNarrowStringLiteral(expr: *const clang.Expr) bool {
 
 fn exprIsFlexibleArrayRef(c: *Context, expr: *const clang.Expr) bool {
     if (expr.getStmtClass() == .MemberExprClass) {
-        const member_expr = @ptrCast(*const clang.MemberExpr, expr);
+        const member_expr = @as(*const clang.MemberExpr, @ptrCast(expr));
         const member_decl = member_expr.getMemberDecl();
-        const decl_kind = @ptrCast(*const clang.Decl, member_decl).getKind();
+        const decl_kind = @as(*const clang.Decl, @ptrCast(member_decl)).getKind();
         if (decl_kind == .Field) {
-            const field_decl = @ptrCast(*const clang.FieldDecl, member_decl);
+            const field_decl = @as(*const clang.FieldDecl, @ptrCast(member_decl));
             return isFlexibleArrayFieldDecl(c, field_decl);
         }
     }
@@ -2220,7 +2239,7 @@ fn finishBoolExpr(
 ) TransError!Node {
     switch (ty.getTypeClass()) {
         .Builtin => {
-            const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
+            const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(ty));
 
             switch (builtin_ty.getKind()) {
                 .Bool => return node,
@@ -2264,7 +2283,7 @@ fn finishBoolExpr(
             return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.null_literal.init() });
         },
         .Typedef => {
-            const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
+            const typedef_ty = @as(*const clang.TypedefType, @ptrCast(ty));
             const typedef_decl = typedef_ty.getDecl();
             const underlying_type = typedef_decl.getUnderlyingType();
             return finishBoolExpr(c, scope, loc, underlying_type.getTypePtr(), node, used);
@@ -2274,7 +2293,7 @@ fn finishBoolExpr(
             return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.zero_literal.init() });
         },
         .Elaborated => {
-            const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
+            const elaborated_ty = @as(*const clang.ElaboratedType, @ptrCast(ty));
             const named_type = elaborated_ty.getNamedType();
             return finishBoolExpr(c, scope, loc, named_type.getTypePtr(), node, used);
         },
@@ -2310,13 +2329,13 @@ fn transIntegerLiteral(
     //     unsigned char y = 256;
     // How this gets evaluated is the 256 is an integer, which gets truncated to signed char, then bit-casted
     // to unsigned char, resulting in 0. In order for this to work, we have to emit this zig code:
-    //     var y = @bitCast(u8, @truncate(i8, @as(c_int, 256)));
+    //     var y = @as(u8, @bitCast(@as(i8, @truncate(@as(c_int, 256)))));
     // Ideally in translate-c we could flatten this out to simply:
     //     var y: u8 = 0;
     // But the first step is to be correct, and the next step is to make the output more elegant.
 
     // @as(T, x)
-    const expr_base = @ptrCast(*const clang.Expr, expr);
+    const expr_base = @as(*const clang.Expr, @ptrCast(expr));
     const ty_node = try transQualType(c, scope, expr_base.getType(), expr_base.getBeginLoc());
     const rhs = try transCreateNodeAPInt(c, eval_result.Val.getInt());
     const as = try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = rhs });
@@ -2334,7 +2353,7 @@ fn transReturnStmt(
     var rhs = try transExprCoercing(c, scope, val_expr, .used);
     const return_qt = scope.findBlockReturnType();
     if (isBoolRes(rhs) and !qualTypeIsBoolean(return_qt)) {
-        rhs = try Tag.bool_to_int.create(c.arena, rhs);
+        rhs = try Tag.int_from_bool.create(c.arena, rhs);
     }
     return Tag.@"return".create(c.arena, rhs);
 }
@@ -2365,7 +2384,7 @@ fn transStringLiteral(
             const str_type = @tagName(stmt.getKind());
             const name = try std.fmt.allocPrint(c.arena, "zig.{s}_string_{d}", .{ str_type, c.getMangle() });
 
-            const expr_base = @ptrCast(*const clang.Expr, stmt);
+            const expr_base = @as(*const clang.Expr, @ptrCast(stmt));
             const array_type = try transQualTypeInitialized(c, scope, expr_base.getType(), expr_base, expr_base.getBeginLoc());
             const lit_array = try transStringLiteralInitializer(c, stmt, array_type);
             const decl = try Tag.var_simple.create(c.arena, .{ .name = name, .init = lit_array });
@@ -2400,7 +2419,7 @@ fn transStringLiteralInitializer(
 
     if (array_size == 0) return Tag.empty_array.create(c.arena, elem_type);
 
-    const num_inits = math.min(str_length, array_size);
+    const num_inits = @min(str_length, array_size);
     const init_node = if (num_inits > 0) blk: {
         if (is_narrow) {
             // "string literal".* or string literal"[0..num_inits].*
@@ -2442,11 +2461,11 @@ fn transStringLiteralInitializer(
 /// both operands resolve to addresses. The C standard requires that both operands
 /// point to elements of the same array object, but we do not verify that here.
 fn cIsPointerDiffExpr(stmt: *const clang.BinaryOperator) bool {
-    const lhs = @ptrCast(*const clang.Stmt, stmt.getLHS());
-    const rhs = @ptrCast(*const clang.Stmt, stmt.getRHS());
+    const lhs = @as(*const clang.Stmt, @ptrCast(stmt.getLHS()));
+    const rhs = @as(*const clang.Stmt, @ptrCast(stmt.getRHS()));
     return stmt.getOpcode() == .Sub and
-        qualTypeIsPtr(@ptrCast(*const clang.Expr, lhs).getType()) and
-        qualTypeIsPtr(@ptrCast(*const clang.Expr, rhs).getType());
+        qualTypeIsPtr(@as(*const clang.Expr, @ptrCast(lhs)).getType()) and
+        qualTypeIsPtr(@as(*const clang.Expr, @ptrCast(rhs)).getType());
 }
 
 fn cIsEnum(qt: clang.QualType) bool {
@@ -2463,7 +2482,7 @@ fn cIsVector(qt: clang.QualType) bool {
 fn cIntTypeForEnum(enum_qt: clang.QualType) clang.QualType {
     assert(cIsEnum(enum_qt));
     const ty = enum_qt.getCanonicalType().getTypePtr();
-    const enum_ty = @ptrCast(*const clang.EnumType, ty);
+    const enum_ty = @as(*const clang.EnumType, @ptrCast(ty));
     const enum_decl = enum_ty.getDecl();
     return enum_decl.getIntegerType();
 }
@@ -2493,7 +2512,7 @@ fn transCCast(
         var src_int_expr = expr;
 
         if (isBoolRes(src_int_expr)) {
-            src_int_expr = try Tag.bool_to_int.create(c.arena, src_int_expr);
+            src_int_expr = try Tag.int_from_bool.create(c.arena, src_int_expr);
             return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = src_int_expr });
         }
 
@@ -2501,7 +2520,10 @@ fn transCCast(
             .lt => {
                 // @truncate(SameSignSmallerInt, src_int_expr)
                 const ty_node = try transQualTypeIntWidthOf(c, dst_type, src_type_is_signed);
-                src_int_expr = try Tag.truncate.create(c.arena, .{ .lhs = ty_node, .rhs = src_int_expr });
+                src_int_expr = try Tag.as.create(c.arena, .{
+                    .lhs = ty_node,
+                    .rhs = try Tag.truncate.create(c.arena, src_int_expr),
+                });
             },
             .gt => {
                 // @as(SameSignBiggerInt, src_int_expr)
@@ -2512,72 +2534,93 @@ fn transCCast(
                 // src_int_expr = src_int_expr
             },
         }
-        // @bitCast(dest_type, intermediate_value)
-        return Tag.bit_cast.create(c.arena, .{ .lhs = dst_node, .rhs = src_int_expr });
+        // @as(dest_type, @bitCast(intermediate_value))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.bit_cast.create(c.arena, src_int_expr),
+        });
     }
     if (cIsVector(src_type) or cIsVector(dst_type)) {
         // C cast where at least 1 operand is a vector requires them to be same size
-        // @bitCast(dest_type, val)
-        return Tag.bit_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @as(dest_type, @bitCast(val))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.bit_cast.create(c.arena, expr),
+        });
     }
     if (cIsInteger(dst_type) and qualTypeIsPtr(src_type)) {
-        // @intCast(dest_type, @ptrToInt(val))
-        const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
-        return Tag.int_cast.create(c.arena, .{ .lhs = dst_node, .rhs = ptr_to_int });
+        // @intCast(dest_type, @intFromPtr(val))
+        const int_from_ptr = try Tag.int_from_ptr.create(c.arena, expr);
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.int_cast.create(c.arena, int_from_ptr),
+        });
     }
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
-        // @intToPtr(dest_type, val)
-        return Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @as(dest_type, @ptrFromInt(val))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.ptr_from_int.create(c.arena, expr),
+        });
     }
     if (cIsFloating(src_type) and cIsFloating(dst_type)) {
-        // @floatCast(dest_type, val)
-        return Tag.float_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @as(dest_type, @floatCast(val))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.float_cast.create(c.arena, expr),
+        });
     }
     if (cIsFloating(src_type) and !cIsFloating(dst_type)) {
-        // @floatToInt(dest_type, val)
-        return Tag.float_to_int.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @as(dest_type, @intFromFloat(val))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.int_from_float.create(c.arena, expr),
+        });
     }
     if (!cIsFloating(src_type) and cIsFloating(dst_type)) {
         var rhs = expr;
-        if (qualTypeIsBoolean(src_type)) rhs = try Tag.bool_to_int.create(c.arena, expr);
-        // @intToFloat(dest_type, val)
-        return Tag.int_to_float.create(c.arena, .{ .lhs = dst_node, .rhs = rhs });
+        if (qualTypeIsBoolean(src_type)) rhs = try Tag.int_from_bool.create(c.arena, expr);
+        // @as(dest_type, @floatFromInt(val))
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.float_from_int.create(c.arena, rhs),
+        });
     }
     if (qualTypeIsBoolean(src_type) and !qualTypeIsBoolean(dst_type)) {
-        // @boolToInt returns either a comptime_int or a u1
+        // @intFromBool returns a u1
         // TODO: if dst_type is 1 bit & signed (bitfield) we need @bitCast
         // instead of @as
-        const bool_to_int = try Tag.bool_to_int.create(c.arena, expr);
-        return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = bool_to_int });
+        const int_from_bool = try Tag.int_from_bool.create(c.arena, expr);
+        return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = int_from_bool });
     }
     // @as(dest_type, val)
     return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
 }
 
 fn transExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
-    return transStmt(c, scope, @ptrCast(*const clang.Stmt, expr), used);
+    return transStmt(c, scope, @as(*const clang.Stmt, @ptrCast(expr)), used);
 }
 
 /// Same as `transExpr` but with the knowledge that the operand will be type coerced, and therefore
 /// an `@as` would be redundant. This is used to prevent redundant `@as` in integer literals.
 fn transExprCoercing(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
-    switch (@ptrCast(*const clang.Stmt, expr).getStmtClass()) {
+    switch (@as(*const clang.Stmt, @ptrCast(expr)).getStmtClass()) {
         .IntegerLiteralClass => {
-            return transIntegerLiteral(c, scope, @ptrCast(*const clang.IntegerLiteral, expr), .used, .no_as);
+            return transIntegerLiteral(c, scope, @as(*const clang.IntegerLiteral, @ptrCast(expr)), .used, .no_as);
         },
         .CharacterLiteralClass => {
-            return transCharLiteral(c, scope, @ptrCast(*const clang.CharacterLiteral, expr), .used, .no_as);
+            return transCharLiteral(c, scope, @as(*const clang.CharacterLiteral, @ptrCast(expr)), .used, .no_as);
         },
         .UnaryOperatorClass => {
-            const un_expr = @ptrCast(*const clang.UnaryOperator, expr);
+            const un_expr = @as(*const clang.UnaryOperator, @ptrCast(expr));
             if (un_expr.getOpcode() == .Extension) {
                 return transExprCoercing(c, scope, un_expr.getSubExpr(), used);
             }
         },
         .ImplicitCastExprClass => {
-            const cast_expr = @ptrCast(*const clang.ImplicitCastExpr, expr);
+            const cast_expr = @as(*const clang.ImplicitCastExpr, @ptrCast(expr));
             const sub_expr = cast_expr.getSubExpr();
-            switch (@ptrCast(*const clang.Stmt, sub_expr).getStmtClass()) {
+            switch (@as(*const clang.Stmt, @ptrCast(sub_expr)).getStmtClass()) {
                 .IntegerLiteralClass, .CharacterLiteralClass => switch (cast_expr.getCastKind()) {
                     .IntegralToFloating => return transExprCoercing(c, scope, sub_expr, used),
                     .IntegralCast => {
@@ -2599,17 +2642,17 @@ fn literalFitsInType(c: *Context, expr: *const clang.Expr, qt: clang.QualType) b
     var width = qualTypeIntBitWidth(c, qt) catch 8;
     if (width == 0) width = 8; // Byte is the smallest type.
     const is_signed = cIsSignedInteger(qt);
-    const width_max_int = (@as(u64, 1) << math.lossyCast(u6, width - @boolToInt(is_signed))) - 1;
+    const width_max_int = (@as(u64, 1) << math.lossyCast(u6, width - @intFromBool(is_signed))) - 1;
 
-    switch (@ptrCast(*const clang.Stmt, expr).getStmtClass()) {
+    switch (@as(*const clang.Stmt, @ptrCast(expr)).getStmtClass()) {
         .CharacterLiteralClass => {
-            const char_lit = @ptrCast(*const clang.CharacterLiteral, expr);
+            const char_lit = @as(*const clang.CharacterLiteral, @ptrCast(expr));
             const val = char_lit.getValue();
             // If the val is less than the max int then it fits.
             return val <= width_max_int;
         },
         .IntegerLiteralClass => {
-            const int_lit = @ptrCast(*const clang.IntegerLiteral, expr);
+            const int_lit = @as(*const clang.IntegerLiteral, @ptrCast(expr));
             var eval_result: clang.ExprEvalResult = undefined;
             if (!int_lit.EvaluateAsInt(&eval_result, c.clang_context)) {
                 return false;
@@ -2662,9 +2705,9 @@ fn transInitListExprRecord(
 
         // Generate the field assignment expression:
         //     .field_name = expr
-        var raw_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
+        var raw_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(field_decl)).getName_bytes_begin());
         if (field_decl.isAnonymousStructOrUnion()) {
-            const name = c.decl_table.get(@ptrToInt(field_decl.getCanonicalDecl())).?;
+            const name = c.decl_table.get(@intFromPtr(field_decl.getCanonicalDecl())).?;
             raw_name = try c.arena.dupe(u8, name);
         }
 
@@ -2703,8 +2746,8 @@ fn transInitListExprArray(
     const child_qt = arr_type.getElementType();
     const child_type = try transQualType(c, scope, child_qt, loc);
     const init_count = expr.getNumInits();
-    assert(@ptrCast(*const clang.Type, arr_type).isConstantArrayType());
-    const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, arr_type);
+    assert(@as(*const clang.Type, @ptrCast(arr_type)).isConstantArrayType());
+    const const_arr_ty = @as(*const clang.ConstantArrayType, @ptrCast(arr_type));
     const size_ap_int = const_arr_ty.getSize();
     const all_count = size_ap_int.getLimitedValue(usize);
     const leftover_count = all_count - init_count;
@@ -2724,7 +2767,7 @@ fn transInitListExprArray(
         const init_list = try c.arena.alloc(Node, init_count);
 
         for (init_list, 0..) |*init, i| {
-            const elem_expr = expr.getInit(@intCast(c_uint, i));
+            const elem_expr = expr.getInit(@as(c_uint, @intCast(i)));
             init.* = try transExprCoercing(c, scope, elem_expr, .used);
         }
         const init_node = try Tag.array_init.create(c.arena, .{
@@ -2758,22 +2801,22 @@ fn transInitListExprVector(
     loc: clang.SourceLocation,
     expr: *const clang.InitListExpr,
 ) TransError!Node {
-    const qt = getExprQualType(c, @ptrCast(*const clang.Expr, expr));
-    const vector_ty = @ptrCast(*const clang.VectorType, qualTypeCanon(qt));
+    const qt = getExprQualType(c, @as(*const clang.Expr, @ptrCast(expr)));
+    const vector_ty = @as(*const clang.VectorType, @ptrCast(qualTypeCanon(qt)));
 
     const init_count = expr.getNumInits();
     const num_elements = vector_ty.getNumElements();
     const element_qt = vector_ty.getElementType();
 
     if (init_count == 0) {
-        const zero_node = try Tag.as.create(c.arena, .{
-            .lhs = try transQualType(c, scope, element_qt, loc),
-            .rhs = Tag.zero_literal.init(),
+        const vec_node = try Tag.vector.create(c.arena, .{
+            .lhs = try transCreateNodeNumber(c, num_elements, .int),
+            .rhs = try transQualType(c, scope, element_qt, loc),
         });
 
-        return Tag.vector_zero_init.create(c.arena, .{
-            .lhs = try transCreateNodeNumber(c, num_elements, .int),
-            .rhs = zero_node,
+        return Tag.as.create(c.arena, .{
+            .lhs = vec_node,
+            .rhs = try Tag.vector_zero_init.create(c.arena, Tag.zero_literal.init()),
         });
     }
 
@@ -2789,7 +2832,7 @@ fn transInitListExprVector(
     var i: usize = 0;
     while (i < init_count) : (i += 1) {
         const mangled_name = try block_scope.makeMangledName(c, "tmp");
-        const init_expr = expr.getInit(@intCast(c_uint, i));
+        const init_expr = expr.getInit(@as(c_uint, @intCast(i)));
         const tmp_decl_node = try Tag.var_simple.create(c.arena, .{
             .name = mangled_name,
             .init = try transExpr(c, &block_scope.base, init_expr, .used),
@@ -2827,9 +2870,9 @@ fn transInitListExpr(
     expr: *const clang.InitListExpr,
     used: ResultUsed,
 ) TransError!Node {
-    const qt = getExprQualType(c, @ptrCast(*const clang.Expr, expr));
+    const qt = getExprQualType(c, @as(*const clang.Expr, @ptrCast(expr)));
     var qual_type = qt.getTypePtr();
-    const source_loc = @ptrCast(*const clang.Expr, expr).getBeginLoc();
+    const source_loc = @as(*const clang.Expr, @ptrCast(expr)).getBeginLoc();
 
     if (qualTypeWasDemotedToOpaque(c, qt)) {
         return fail(c, error.UnsupportedTranslation, source_loc, "cannot initialize opaque type", .{});
@@ -2867,7 +2910,7 @@ fn transZeroInitExpr(
 ) TransError!Node {
     switch (ty.getTypeClass()) {
         .Builtin => {
-            const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
+            const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(ty));
             switch (builtin_ty.getKind()) {
                 .Bool => return Tag.false_literal.init(),
                 .Char_U,
@@ -2896,7 +2939,7 @@ fn transZeroInitExpr(
         },
         .Pointer => return Tag.null_literal.init(),
         .Typedef => {
-            const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
+            const typedef_ty = @as(*const clang.TypedefType, @ptrCast(ty));
             const typedef_decl = typedef_ty.getDecl();
             return transZeroInitExpr(
                 c,
@@ -2965,7 +3008,7 @@ fn transIfStmt(
         },
     };
     defer cond_scope.deinit();
-    const cond_expr = @ptrCast(*const clang.Expr, stmt.getCond());
+    const cond_expr = @as(*const clang.Expr, @ptrCast(stmt.getCond()));
     const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
 
     const then_stmt = stmt.getThen();
@@ -3001,7 +3044,7 @@ fn transWhileLoop(
         },
     };
     defer cond_scope.deinit();
-    const cond_expr = @ptrCast(*const clang.Expr, stmt.getCond());
+    const cond_expr = @as(*const clang.Expr, @ptrCast(stmt.getCond()));
     const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
 
     var loop_scope = Scope{
@@ -3030,7 +3073,7 @@ fn transDoWhileLoop(
         },
     };
     defer cond_scope.deinit();
-    const cond = try transBoolExpr(c, &cond_scope.base, @ptrCast(*const clang.Expr, stmt.getCond()), .used);
+    const cond = try transBoolExpr(c, &cond_scope.base, @as(*const clang.Expr, @ptrCast(stmt.getCond())), .used);
     const if_not_break = switch (cond.tag()) {
         .true_literal => {
             const body_node = try maybeBlockify(c, scope, stmt.getBody());
@@ -3151,7 +3194,7 @@ fn transSwitch(
 
     const body = stmt.getBody();
     assert(body.getStmtClass() == .CompoundStmtClass);
-    const compound_stmt = @ptrCast(*const clang.CompoundStmt, body);
+    const compound_stmt = @as(*const clang.CompoundStmt, @ptrCast(body));
     var it = compound_stmt.body_begin();
     const end_it = compound_stmt.body_end();
     // Iterate over switch body and collect all cases.
@@ -3178,12 +3221,12 @@ fn transSwitch(
             },
             .DefaultStmtClass => {
                 has_default = true;
-                const default_stmt = @ptrCast(*const clang.DefaultStmt, it[0]);
+                const default_stmt = @as(*const clang.DefaultStmt, @ptrCast(it[0]));
 
                 var sub = default_stmt.getSubStmt();
                 while (true) switch (sub.getStmtClass()) {
-                    .CaseStmtClass => sub = @ptrCast(*const clang.CaseStmt, sub).getSubStmt(),
-                    .DefaultStmtClass => sub = @ptrCast(*const clang.DefaultStmt, sub).getSubStmt(),
+                    .CaseStmtClass => sub = @as(*const clang.CaseStmt, @ptrCast(sub)).getSubStmt(),
+                    .DefaultStmtClass => sub = @as(*const clang.DefaultStmt, @ptrCast(sub)).getSubStmt(),
                     else => break,
                 };
 
@@ -3222,11 +3265,11 @@ fn transCaseStmt(c: *Context, scope: *Scope, stmt: *const clang.Stmt, items: *st
             .DefaultStmtClass => {
                 seen_default = true;
                 items.items.len = 0;
-                const default_stmt = @ptrCast(*const clang.DefaultStmt, sub);
+                const default_stmt = @as(*const clang.DefaultStmt, @ptrCast(sub));
                 sub = default_stmt.getSubStmt();
             },
             .CaseStmtClass => {
-                const case_stmt = @ptrCast(*const clang.CaseStmt, sub);
+                const case_stmt = @as(*const clang.CaseStmt, @ptrCast(sub));
 
                 if (seen_default) {
                     items.items.len = 0;
@@ -3293,10 +3336,10 @@ fn transSwitchProngStmtInline(
                 return;
             },
             .CaseStmtClass => {
-                var sub = @ptrCast(*const clang.CaseStmt, it[0]).getSubStmt();
+                var sub = @as(*const clang.CaseStmt, @ptrCast(it[0])).getSubStmt();
                 while (true) switch (sub.getStmtClass()) {
-                    .CaseStmtClass => sub = @ptrCast(*const clang.CaseStmt, sub).getSubStmt(),
-                    .DefaultStmtClass => sub = @ptrCast(*const clang.DefaultStmt, sub).getSubStmt(),
+                    .CaseStmtClass => sub = @as(*const clang.CaseStmt, @ptrCast(sub)).getSubStmt(),
+                    .DefaultStmtClass => sub = @as(*const clang.DefaultStmt, @ptrCast(sub)).getSubStmt(),
                     else => break,
                 };
                 const result = try transStmt(c, &block.base, sub, .unused);
@@ -3307,10 +3350,10 @@ fn transSwitchProngStmtInline(
                 }
             },
             .DefaultStmtClass => {
-                var sub = @ptrCast(*const clang.DefaultStmt, it[0]).getSubStmt();
+                var sub = @as(*const clang.DefaultStmt, @ptrCast(it[0])).getSubStmt();
                 while (true) switch (sub.getStmtClass()) {
-                    .CaseStmtClass => sub = @ptrCast(*const clang.CaseStmt, sub).getSubStmt(),
-                    .DefaultStmtClass => sub = @ptrCast(*const clang.DefaultStmt, sub).getSubStmt(),
+                    .CaseStmtClass => sub = @as(*const clang.CaseStmt, @ptrCast(sub)).getSubStmt(),
+                    .DefaultStmtClass => sub = @as(*const clang.DefaultStmt, @ptrCast(sub)).getSubStmt(),
                     else => break,
                 };
                 const result = try transStmt(c, &block.base, sub, .unused);
@@ -3321,7 +3364,7 @@ fn transSwitchProngStmtInline(
                 }
             },
             .CompoundStmtClass => {
-                const result = try transCompoundStmt(c, &block.base, @ptrCast(*const clang.CompoundStmt, it[0]));
+                const result = try transCompoundStmt(c, &block.base, @as(*const clang.CompoundStmt, @ptrCast(it[0])));
                 try block.statements.append(result);
                 if (result.isNoreturn(true)) {
                     return;
@@ -3348,7 +3391,7 @@ fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: 
         .Int => {
             // See comment in `transIntegerLiteral` for why this code is here.
             // @as(T, x)
-            const expr_base = @ptrCast(*const clang.Expr, expr);
+            const expr_base = @as(*const clang.Expr, @ptrCast(expr));
             const as_node = try Tag.as.create(c.arena, .{
                 .lhs = try transQualType(c, scope, expr_base.getType(), expr_base.getBeginLoc()),
                 .rhs = try transCreateNodeAPInt(c, result.Val.getInt()),
@@ -3367,7 +3410,7 @@ fn transPredefinedExpr(c: *Context, scope: *Scope, expr: *const clang.Predefined
 
 fn transCreateCharLitNode(c: *Context, narrow: bool, val: u32) TransError!Node {
     return Tag.char_literal.create(c.arena, if (narrow)
-        try std.fmt.allocPrint(c.arena, "'{'}'", .{std.zig.fmtEscapes(&.{@intCast(u8, val)})})
+        try std.fmt.allocPrint(c.arena, "'{'}'", .{std.zig.fmtEscapes(&.{@as(u8, @intCast(val))})})
     else
         try std.fmt.allocPrint(c.arena, "'\\u{{{x}}}'", .{val}));
 }
@@ -3394,7 +3437,7 @@ fn transCharLiteral(
     }
     // See comment in `transIntegerLiteral` for why this code is here.
     // @as(T, x)
-    const expr_base = @ptrCast(*const clang.Expr, stmt);
+    const expr_base = @as(*const clang.Expr, @ptrCast(stmt));
     const as_node = try Tag.as.create(c.arena, .{
         .lhs = try transQualType(c, scope, expr_base.getType(), expr_base.getBeginLoc()),
         .rhs = int_lit_node,
@@ -3436,22 +3479,22 @@ fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, re
 
     const member_decl = stmt.getMemberDecl();
     const name = blk: {
-        const decl_kind = @ptrCast(*const clang.Decl, member_decl).getKind();
+        const decl_kind = @as(*const clang.Decl, @ptrCast(member_decl)).getKind();
         // If we're referring to a anonymous struct/enum find the bogus name
         // we've assigned to it during the RecordDecl translation
         if (decl_kind == .Field) {
-            const field_decl = @ptrCast(*const clang.FieldDecl, member_decl);
+            const field_decl = @as(*const clang.FieldDecl, @ptrCast(member_decl));
             if (field_decl.isAnonymousStructOrUnion()) {
-                const name = c.decl_table.get(@ptrToInt(field_decl.getCanonicalDecl())).?;
+                const name = c.decl_table.get(@intFromPtr(field_decl.getCanonicalDecl())).?;
                 break :blk try c.arena.dupe(u8, name);
             }
         }
-        const decl = @ptrCast(*const clang.NamedDecl, member_decl);
+        const decl = @as(*const clang.NamedDecl, @ptrCast(member_decl));
         break :blk try c.str(decl.getName_bytes_begin());
     };
 
     var node = try Tag.field_access.create(c.arena, .{ .lhs = container_node, .field_name = name });
-    if (exprIsFlexibleArrayRef(c, @ptrCast(*const clang.Expr, stmt))) {
+    if (exprIsFlexibleArrayRef(c, @as(*const clang.Expr, @ptrCast(stmt)))) {
         node = try Tag.call.create(c.arena, .{ .lhs = node, .args = &.{} });
     }
     return maybeSuppressResult(c, result_used, node);
@@ -3487,9 +3530,9 @@ fn transSignedArrayAccess(
 
     const then_value = try Tag.add.create(c.arena, .{
         .lhs = container_node,
-        .rhs = try Tag.int_cast.create(c.arena, .{
+        .rhs = try Tag.as.create(c.arena, .{
             .lhs = try Tag.type.create(c.arena, "usize"),
-            .rhs = tmp_ref,
+            .rhs = try Tag.int_cast.create(c.arena, tmp_ref),
         }),
     });
 
@@ -3499,17 +3542,17 @@ fn transSignedArrayAccess(
     });
 
     const minuend = container_node;
-    const signed_size = try Tag.int_cast.create(c.arena, .{
+    const signed_size = try Tag.as.create(c.arena, .{
         .lhs = try Tag.type.create(c.arena, "isize"),
-        .rhs = tmp_ref,
+        .rhs = try Tag.int_cast.create(c.arena, tmp_ref),
     });
     const to_cast = try Tag.add_wrap.create(c.arena, .{
         .lhs = signed_size,
         .rhs = try Tag.negate.create(c.arena, Tag.one_literal.init()),
     });
-    const bitcast_node = try Tag.bit_cast.create(c.arena, .{
+    const bitcast_node = try Tag.as.create(c.arena, .{
         .lhs = try Tag.type.create(c.arena, "usize"),
-        .rhs = to_cast,
+        .rhs = try Tag.bit_cast.create(c.arena, to_cast),
     });
     const subtrahend = try Tag.bit_not.create(c.arena, bitcast_node);
     const difference = try Tag.sub.create(c.arena, .{
@@ -3549,8 +3592,8 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
     // Unwrap the base statement if it's an array decayed to a bare pointer type
     // so that we index the array itself
     var unwrapped_base = base_stmt;
-    if (@ptrCast(*const clang.Stmt, base_stmt).getStmtClass() == .ImplicitCastExprClass) {
-        const implicit_cast = @ptrCast(*const clang.ImplicitCastExpr, base_stmt);
+    if (@as(*const clang.Stmt, @ptrCast(base_stmt)).getStmtClass() == .ImplicitCastExprClass) {
+        const implicit_cast = @as(*const clang.ImplicitCastExpr, @ptrCast(base_stmt));
 
         if (implicit_cast.getCastKind() == .ArrayToPointerDecay) {
             unwrapped_base = implicit_cast.getSubExpr();
@@ -3566,7 +3609,13 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
     const rhs = if (is_longlong or is_signed) blk: {
         // check if long long first so that signed long long doesn't just become unsigned long long
         const typeid_node = if (is_longlong) try Tag.type.create(c.arena, "usize") else try transQualTypeIntWidthOf(c, subscr_qt, false);
-        break :blk try Tag.int_cast.create(c.arena, .{ .lhs = typeid_node, .rhs = try transExpr(c, scope, subscr_expr, .used) });
+        break :blk try Tag.as.create(c.arena, .{
+            .lhs = typeid_node,
+            .rhs = try Tag.int_cast.create(
+                c.arena,
+                try transExpr(c, scope, subscr_expr, .used),
+            ),
+        });
     } else try transExpr(c, scope, subscr_expr, .used);
 
     const node = try Tag.array_access.create(c.arena, .{
@@ -3581,17 +3630,17 @@ fn transArrayAccess(c: *Context, scope: *Scope, stmt: *const clang.ArraySubscrip
 fn cIsFunctionDeclRef(expr: *const clang.Expr) bool {
     switch (expr.getStmtClass()) {
         .ParenExprClass => {
-            const op_expr = @ptrCast(*const clang.ParenExpr, expr).getSubExpr();
+            const op_expr = @as(*const clang.ParenExpr, @ptrCast(expr)).getSubExpr();
             return cIsFunctionDeclRef(op_expr);
         },
         .DeclRefExprClass => {
-            const decl_ref = @ptrCast(*const clang.DeclRefExpr, expr);
+            const decl_ref = @as(*const clang.DeclRefExpr, @ptrCast(expr));
             const value_decl = decl_ref.getDecl();
             const qt = value_decl.getType();
             return qualTypeChildIsFnProto(qt);
         },
         .ImplicitCastExprClass => {
-            const implicit_cast = @ptrCast(*const clang.ImplicitCastExpr, expr);
+            const implicit_cast = @as(*const clang.ImplicitCastExpr, @ptrCast(expr));
             const cast_kind = implicit_cast.getCastKind();
             if (cast_kind == .BuiltinFnToFnPtr) return true;
             if (cast_kind == .FunctionToPointerDecay) {
@@ -3600,12 +3649,12 @@ fn cIsFunctionDeclRef(expr: *const clang.Expr) bool {
             return false;
         },
         .UnaryOperatorClass => {
-            const un_op = @ptrCast(*const clang.UnaryOperator, expr);
+            const un_op = @as(*const clang.UnaryOperator, @ptrCast(expr));
             const opcode = un_op.getOpcode();
             return (opcode == .AddrOf or opcode == .Deref) and cIsFunctionDeclRef(un_op.getSubExpr());
         },
         .GenericSelectionExprClass => {
-            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, expr);
+            const gen_sel = @as(*const clang.GenericSelectionExpr, @ptrCast(expr));
             return cIsFunctionDeclRef(gen_sel.getResultExpr());
         },
         else => return false,
@@ -3640,11 +3689,11 @@ fn transCallExpr(c: *Context, scope: *Scope, stmt: *const clang.CallExpr, result
                 .Proto => |fn_proto| {
                     const param_count = fn_proto.getNumParams();
                     if (i < param_count) {
-                        const param_qt = fn_proto.getParamType(@intCast(c_uint, i));
+                        const param_qt = fn_proto.getParamType(@as(c_uint, @intCast(i)));
                         if (isBoolRes(arg) and cIsNativeInt(param_qt)) {
-                            arg = try Tag.bool_to_int.create(c.arena, arg);
+                            arg = try Tag.int_from_bool.create(c.arena, arg);
                         } else if (arg.tag() == .string_literal and qualTypeIsCharStar(param_qt)) {
-                            const loc = @ptrCast(*const clang.Stmt, stmt).getBeginLoc();
+                            const loc = @as(*const clang.Stmt, @ptrCast(stmt)).getBeginLoc();
                             const dst_type_node = try transQualType(c, scope, param_qt, loc);
                             arg = try removeCVQualifiers(c, dst_type_node, arg);
                         }
@@ -3690,10 +3739,10 @@ fn qualTypeGetFnProto(qt: clang.QualType, is_ptr: *bool) ?ClangFunctionType {
         ty = child_qt.getTypePtr();
     }
     if (ty.getTypeClass() == .FunctionProto) {
-        return ClangFunctionType{ .Proto = @ptrCast(*const clang.FunctionProtoType, ty) };
+        return ClangFunctionType{ .Proto = @as(*const clang.FunctionProtoType, @ptrCast(ty)) };
     }
     if (ty.getTypeClass() == .FunctionNoProto) {
-        return ClangFunctionType{ .NoProto = @ptrCast(*const clang.FunctionType, ty) };
+        return ClangFunctionType{ .NoProto = @as(*const clang.FunctionType, @ptrCast(ty)) };
     }
     return null;
 }
@@ -3774,7 +3823,7 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
                 const sub_expr_node = try transExpr(c, scope, op_expr, .used);
                 const to_negate = if (isBoolRes(sub_expr_node)) blk: {
                     const ty_node = try Tag.type.create(c.arena, "c_int");
-                    const int_node = try Tag.bool_to_int.create(c.arena, sub_expr_node);
+                    const int_node = try Tag.int_from_bool.create(c.arena, sub_expr_node);
                     break :blk try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = int_node });
                 } else sub_expr_node;
                 return Tag.negate.create(c.arena, to_negate);
@@ -3968,8 +4017,7 @@ fn transCreateCompoundAssign(
         }
 
         if (is_shift) {
-            const cast_to_type = try qualTypeToLog2IntRef(c, scope, rhs_qt, loc);
-            rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
+            rhs_node = try Tag.int_cast.create(c.arena, rhs_node);
         } else if (requires_int_cast) {
             rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
         }
@@ -4008,8 +4056,7 @@ fn transCreateCompoundAssign(
         try block_scope.statements.append(assign);
     } else {
         if (is_shift) {
-            const cast_to_type = try qualTypeToLog2IntRef(c, &block_scope.base, rhs_qt, loc);
-            rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
+            rhs_node = try Tag.int_cast.create(c.arena, rhs_node);
         } else if (requires_int_cast) {
             rhs_node = try transCCast(c, &block_scope.base, loc, lhs_qt, rhs_qt, rhs_node);
         }
@@ -4026,10 +4073,13 @@ fn transCreateCompoundAssign(
     return block_scope.complete(c);
 }
 
-// Casting away const or volatile requires us to use @intToPtr
 fn removeCVQualifiers(c: *Context, dst_type_node: Node, expr: Node) Error!Node {
-    const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
-    return Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_type_node, .rhs = ptr_to_int });
+    const const_casted = try Tag.const_cast.create(c.arena, expr);
+    const volatile_casted = try Tag.volatile_cast.create(c.arena, const_casted);
+    return Tag.as.create(c.arena, .{
+        .lhs = dst_type_node,
+        .rhs = try Tag.ptr_cast.create(c.arena, volatile_casted),
+    });
 }
 
 fn transCPtrCast(
@@ -4062,11 +4112,12 @@ fn transCPtrCast(
             // For opaque types a ptrCast is enough
             expr
         else blk: {
-            const alignof = try Tag.std_meta_alignment.create(c.arena, dst_type_node);
-            const align_cast = try Tag.align_cast.create(c.arena, .{ .lhs = alignof, .rhs = expr });
-            break :blk align_cast;
+            break :blk try Tag.align_cast.create(c.arena, expr);
         };
-        return Tag.ptr_cast.create(c.arena, .{ .lhs = dst_type_node, .rhs = rhs });
+        return Tag.as.create(c.arena, .{
+            .lhs = dst_type_node,
+            .rhs = try Tag.ptr_cast.create(c.arena, rhs),
+        });
     }
 }
 
@@ -4100,9 +4151,9 @@ fn transFloatingLiteral(c: *Context, expr: *const clang.FloatingLiteral, used: R
 fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.BinaryConditionalOperator, used: ResultUsed) TransError!Node {
     // GNU extension of the ternary operator where the middle expression is
     // omitted, the condition itself is returned if it evaluates to true
-    const qt = @ptrCast(*const clang.Expr, stmt).getType();
+    const qt = @as(*const clang.Expr, @ptrCast(stmt)).getType();
     const res_is_bool = qualTypeIsBoolean(qt);
-    const casted_stmt = @ptrCast(*const clang.AbstractConditionalOperator, stmt);
+    const casted_stmt = @as(*const clang.AbstractConditionalOperator, @ptrCast(stmt));
     const cond_expr = casted_stmt.getCond();
     const false_expr = casted_stmt.getFalseExpr();
 
@@ -4132,12 +4183,12 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
     const cond_node = try finishBoolExpr(c, &cond_scope.base, cond_expr.getBeginLoc(), ty, cond_ident, .used);
     var then_body = cond_ident;
     if (!res_is_bool and isBoolRes(init_node)) {
-        then_body = try Tag.bool_to_int.create(c.arena, then_body);
+        then_body = try Tag.int_from_bool.create(c.arena, then_body);
     }
 
     var else_body = try transExpr(c, &block_scope.base, false_expr, .used);
     if (!res_is_bool and isBoolRes(else_body)) {
-        else_body = try Tag.bool_to_int.create(c.arena, else_body);
+        else_body = try Tag.int_from_bool.create(c.arena, else_body);
     }
     const if_node = try Tag.@"if".create(c.arena, .{
         .cond = cond_node,
@@ -4162,9 +4213,9 @@ fn transConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.Condi
     };
     defer cond_scope.deinit();
 
-    const qt = @ptrCast(*const clang.Expr, stmt).getType();
+    const qt = @as(*const clang.Expr, @ptrCast(stmt)).getType();
     const res_is_bool = qualTypeIsBoolean(qt);
-    const casted_stmt = @ptrCast(*const clang.AbstractConditionalOperator, stmt);
+    const casted_stmt = @as(*const clang.AbstractConditionalOperator, @ptrCast(stmt));
     const cond_expr = casted_stmt.getCond();
     const true_expr = casted_stmt.getTrueExpr();
     const false_expr = casted_stmt.getFalseExpr();
@@ -4173,12 +4224,12 @@ fn transConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.Condi
 
     var then_body = try transExpr(c, scope, true_expr, used);
     if (!res_is_bool and isBoolRes(then_body)) {
-        then_body = try Tag.bool_to_int.create(c.arena, then_body);
+        then_body = try Tag.int_from_bool.create(c.arena, then_body);
     }
 
     var else_body = try transExpr(c, scope, false_expr, used);
     if (!res_is_bool and isBoolRes(else_body)) {
-        else_body = try Tag.bool_to_int.create(c.arena, else_body);
+        else_body = try Tag.int_from_bool.create(c.arena, else_body);
     }
 
     const if_node = try Tag.@"if".create(c.arena, .{
@@ -4205,7 +4256,7 @@ fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
 
 fn transQualTypeInitializedStringLiteral(c: *Context, elem_ty: Node, string_lit: *const clang.StringLiteral) TypeError!Node {
     const string_lit_size = string_lit.getLength();
-    const array_size = @intCast(usize, string_lit_size);
+    const array_size = @as(usize, @intCast(string_lit_size));
 
     // incomplete array initialized with empty string, will be translated as [1]T{0}
     // see https://github.com/ziglang/zig/issues/8256
@@ -4225,16 +4276,16 @@ fn transQualTypeInitialized(
 ) TypeError!Node {
     const ty = qt.getTypePtr();
     if (ty.getTypeClass() == .IncompleteArray) {
-        const incomplete_array_ty = @ptrCast(*const clang.IncompleteArrayType, ty);
+        const incomplete_array_ty = @as(*const clang.IncompleteArrayType, @ptrCast(ty));
         const elem_ty = try transType(c, scope, incomplete_array_ty.getElementType().getTypePtr(), source_loc);
 
         switch (decl_init.getStmtClass()) {
             .StringLiteralClass => {
-                const string_lit = @ptrCast(*const clang.StringLiteral, decl_init);
+                const string_lit = @as(*const clang.StringLiteral, @ptrCast(decl_init));
                 return transQualTypeInitializedStringLiteral(c, elem_ty, string_lit);
             },
             .InitListExprClass => {
-                const init_expr = @ptrCast(*const clang.InitListExpr, decl_init);
+                const init_expr = @as(*const clang.InitListExpr, @ptrCast(decl_init));
                 const size = init_expr.getNumInits();
 
                 if (init_expr.isStringLiteralInit()) {
@@ -4265,7 +4316,7 @@ fn transQualTypeIntWidthOf(c: *Context, ty: clang.QualType, is_signed: bool) Typ
 /// Asserts the type is an integer.
 fn transTypeIntWidthOf(c: *Context, ty: *const clang.Type, is_signed: bool) TypeError!Node {
     assert(ty.getTypeClass() == .Builtin);
-    const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
+    const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(ty));
     return Tag.type.create(c.arena, switch (builtin_ty.getKind()) {
         .Char_U, .Char_S, .UChar, .SChar, .Char8 => if (is_signed) "i8" else "u8",
         .UShort, .Short => if (is_signed) "c_short" else "c_ushort",
@@ -4283,7 +4334,7 @@ fn isCBuiltinType(qt: clang.QualType, kind: clang.BuiltinTypeKind) bool {
     const c_type = qualTypeCanon(qt);
     if (c_type.getTypeClass() != .Builtin)
         return false;
-    const builtin_ty = @ptrCast(*const clang.BuiltinType, c_type);
+    const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(c_type));
     return builtin_ty.getKind() == kind;
 }
 
@@ -4300,7 +4351,7 @@ fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
 
     switch (ty.getTypeClass()) {
         .Builtin => {
-            const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
+            const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(ty));
 
             switch (builtin_ty.getKind()) {
                 .Char_U,
@@ -4317,9 +4368,9 @@ fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
             unreachable;
         },
         .Typedef => {
-            const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
+            const typedef_ty = @as(*const clang.TypedefType, @ptrCast(ty));
             const typedef_decl = typedef_ty.getDecl();
-            const type_name = try c.str(@ptrCast(*const clang.NamedDecl, typedef_decl).getName_bytes_begin());
+            const type_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(typedef_decl)).getName_bytes_begin());
 
             if (mem.eql(u8, type_name, "uint8_t") or mem.eql(u8, type_name, "int8_t")) {
                 return 8;
@@ -4335,19 +4386,6 @@ fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
         },
         else => return 0,
     }
-}
-
-fn qualTypeToLog2IntRef(c: *Context, scope: *Scope, qt: clang.QualType, source_loc: clang.SourceLocation) !Node {
-    const int_bit_width = try qualTypeIntBitWidth(c, qt);
-
-    if (int_bit_width != 0) {
-        // we can perform the log2 now.
-        const cast_bit_width = math.log2_int(u64, int_bit_width);
-        return Tag.log2_int_type.create(c.arena, cast_bit_width);
-    }
-
-    const zig_type = try transQualType(c, scope, qt, source_loc);
-    return Tag.std_math_Log2Int.create(c.arena, zig_type);
 }
 
 fn qualTypeChildIsFnProto(qt: clang.QualType) bool {
@@ -4368,12 +4406,12 @@ fn getExprQualType(c: *Context, expr: *const clang.Expr) clang.QualType {
     blk: {
         // If this is a C `char *`, turn it into a `const char *`
         if (expr.getStmtClass() != .ImplicitCastExprClass) break :blk;
-        const cast_expr = @ptrCast(*const clang.ImplicitCastExpr, expr);
+        const cast_expr = @as(*const clang.ImplicitCastExpr, @ptrCast(expr));
         if (cast_expr.getCastKind() != .ArrayToPointerDecay) break :blk;
         const sub_expr = cast_expr.getSubExpr();
         if (sub_expr.getStmtClass() != .StringLiteralClass) break :blk;
         const array_qt = sub_expr.getType();
-        const array_type = @ptrCast(*const clang.ArrayType, array_qt.getTypePtr());
+        const array_type = @as(*const clang.ArrayType, @ptrCast(array_qt.getTypePtr()));
         var pointee_qt = array_type.getElementType();
         pointee_qt.addConst();
         return c.clang_context.getPointerType(pointee_qt);
@@ -4384,11 +4422,11 @@ fn getExprQualType(c: *Context, expr: *const clang.Expr) clang.QualType {
 fn typeIsOpaque(c: *Context, ty: *const clang.Type, loc: clang.SourceLocation) bool {
     switch (ty.getTypeClass()) {
         .Builtin => {
-            const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
+            const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(ty));
             return builtin_ty.getKind() == .Void;
         },
         .Record => {
-            const record_ty = @ptrCast(*const clang.RecordType, ty);
+            const record_ty = @as(*const clang.RecordType, @ptrCast(ty));
             const record_decl = record_ty.getDecl();
             const record_def = record_decl.getDefinition() orelse
                 return true;
@@ -4404,12 +4442,12 @@ fn typeIsOpaque(c: *Context, ty: *const clang.Type, loc: clang.SourceLocation) b
             return false;
         },
         .Elaborated => {
-            const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
+            const elaborated_ty = @as(*const clang.ElaboratedType, @ptrCast(ty));
             const qt = elaborated_ty.getNamedType();
             return typeIsOpaque(c, qt.getTypePtr(), loc);
         },
         .Typedef => {
-            const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
+            const typedef_ty = @as(*const clang.TypedefType, @ptrCast(ty));
             const typedef_decl = typedef_ty.getDecl();
             const underlying_type = typedef_decl.getUnderlyingType();
             return typeIsOpaque(c, underlying_type.getTypePtr(), loc);
@@ -4431,7 +4469,7 @@ fn qualTypeIsCharStar(qt: clang.QualType) bool {
 fn cIsUnqualifiedChar(qt: clang.QualType) bool {
     const c_type = qualTypeCanon(qt);
     if (c_type.getTypeClass() != .Builtin) return false;
-    const builtin_ty = @ptrCast(*const clang.BuiltinType, c_type);
+    const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(c_type));
     return switch (builtin_ty.getKind()) {
         .Char_S, .Char_U => true,
         else => false,
@@ -4445,7 +4483,7 @@ fn cIsInteger(qt: clang.QualType) bool {
 fn cIsUnsignedInteger(qt: clang.QualType) bool {
     const c_type = qualTypeCanon(qt);
     if (c_type.getTypeClass() != .Builtin) return false;
-    const builtin_ty = @ptrCast(*const clang.BuiltinType, c_type);
+    const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(c_type));
     return switch (builtin_ty.getKind()) {
         .Char_U,
         .UChar,
@@ -4464,7 +4502,7 @@ fn cIsUnsignedInteger(qt: clang.QualType) bool {
 fn cIntTypeToIndex(qt: clang.QualType) u8 {
     const c_type = qualTypeCanon(qt);
     assert(c_type.getTypeClass() == .Builtin);
-    const builtin_ty = @ptrCast(*const clang.BuiltinType, c_type);
+    const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(c_type));
     return switch (builtin_ty.getKind()) {
         .Bool, .Char_U, .Char_S, .UChar, .SChar, .Char8 => 1,
         .WChar_U, .WChar_S => 2,
@@ -4485,9 +4523,9 @@ fn cIntTypeCmp(a: clang.QualType, b: clang.QualType) math.Order {
 
 /// Checks if expr is an integer literal >= 0
 fn cIsNonNegativeIntLiteral(c: *Context, expr: *const clang.Expr) bool {
-    if (@ptrCast(*const clang.Stmt, expr).getStmtClass() == .IntegerLiteralClass) {
+    if (@as(*const clang.Stmt, @ptrCast(expr)).getStmtClass() == .IntegerLiteralClass) {
         var signum: c_int = undefined;
-        if (!(@ptrCast(*const clang.IntegerLiteral, expr).getSignum(&signum, c.clang_context))) {
+        if (!(@as(*const clang.IntegerLiteral, @ptrCast(expr)).getSignum(&signum, c.clang_context))) {
             return false;
         }
         return signum >= 0;
@@ -4498,7 +4536,7 @@ fn cIsNonNegativeIntLiteral(c: *Context, expr: *const clang.Expr) bool {
 fn cIsSignedInteger(qt: clang.QualType) bool {
     const c_type = qualTypeCanon(qt);
     if (c_type.getTypeClass() != .Builtin) return false;
-    const builtin_ty = @ptrCast(*const clang.BuiltinType, c_type);
+    const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(c_type));
     return switch (builtin_ty.getKind()) {
         .SChar,
         .Short,
@@ -4515,14 +4553,14 @@ fn cIsSignedInteger(qt: clang.QualType) bool {
 fn cIsNativeInt(qt: clang.QualType) bool {
     const c_type = qualTypeCanon(qt);
     if (c_type.getTypeClass() != .Builtin) return false;
-    const builtin_ty = @ptrCast(*const clang.BuiltinType, c_type);
+    const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(c_type));
     return builtin_ty.getKind() == .Int;
 }
 
 fn cIsFloating(qt: clang.QualType) bool {
     const c_type = qualTypeCanon(qt);
     if (c_type.getTypeClass() != .Builtin) return false;
-    const builtin_ty = @ptrCast(*const clang.BuiltinType, c_type);
+    const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(c_type));
     return switch (builtin_ty.getKind()) {
         .Float,
         .Double,
@@ -4536,7 +4574,7 @@ fn cIsFloating(qt: clang.QualType) bool {
 fn cIsLongLongInteger(qt: clang.QualType) bool {
     const c_type = qualTypeCanon(qt);
     if (c_type.getTypeClass() != .Builtin) return false;
-    const builtin_ty = @ptrCast(*const clang.BuiltinType, c_type);
+    const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(c_type));
     return switch (builtin_ty.getKind()) {
         .LongLong, .ULongLong, .Int128, .UInt128 => true,
         else => false,
@@ -4556,7 +4594,7 @@ fn transCreateNodeAssign(
         const lhs_node = try transExpr(c, scope, lhs, .used);
         var rhs_node = try transExprCoercing(c, scope, rhs, .used);
         if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
-            rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
+            rhs_node = try Tag.int_from_bool.create(c.arena, rhs_node);
         }
         return transCreateNodeInfixOp(c, .assign, lhs_node, rhs_node, .used);
     }
@@ -4574,7 +4612,7 @@ fn transCreateNodeAssign(
     const tmp = try block_scope.reserveMangledName(c, "tmp");
     var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
     if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
-        rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
+        rhs_node = try Tag.int_from_bool.create(c.arena, rhs_node);
     }
 
     const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = rhs_node });
@@ -4653,8 +4691,8 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
                 limb_i += 2;
                 data_i += 1;
             }) {
-                limbs[limb_i] = @truncate(u32, data[data_i]);
-                limbs[limb_i + 1] = @truncate(u32, data[data_i] >> 32);
+                limbs[limb_i] = @as(u32, @truncate(data[data_i]));
+                limbs[limb_i + 1] = @as(u32, @truncate(data[data_i] >> 32));
             }
         },
         else => @compileError("unimplemented"),
@@ -4731,14 +4769,12 @@ fn transCreateNodeShiftOp(
 
     const lhs_expr = stmt.getLHS();
     const rhs_expr = stmt.getRHS();
-    const rhs_location = rhs_expr.getBeginLoc();
     // lhs >> @as(u5, rh)
 
     const lhs = try transExpr(c, scope, lhs_expr, .used);
 
-    const rhs_type = try qualTypeToLog2IntRef(c, scope, stmt.getType(), rhs_location);
     const rhs = try transExprCoercing(c, scope, rhs_expr, .used);
-    const rhs_casted = try Tag.int_cast.create(c.arena, .{ .lhs = rhs_type, .rhs = rhs });
+    const rhs_casted = try Tag.int_cast.create(c.arena, rhs);
 
     return transCreateNodeInfixOp(c, op, lhs, rhs_casted, used);
 }
@@ -4746,7 +4782,7 @@ fn transCreateNodeShiftOp(
 fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clang.SourceLocation) TypeError!Node {
     switch (ty.getTypeClass()) {
         .Builtin => {
-            const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
+            const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(ty));
             return Tag.type.create(c.arena, switch (builtin_ty.getKind()) {
                 .Void => "anyopaque",
                 .Bool => "bool",
@@ -4771,17 +4807,17 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             });
         },
         .FunctionProto => {
-            const fn_proto_ty = @ptrCast(*const clang.FunctionProtoType, ty);
+            const fn_proto_ty = @as(*const clang.FunctionProtoType, @ptrCast(ty));
             const fn_proto = try transFnProto(c, null, fn_proto_ty, source_loc, null, false);
             return Node.initPayload(&fn_proto.base);
         },
         .FunctionNoProto => {
-            const fn_no_proto_ty = @ptrCast(*const clang.FunctionType, ty);
+            const fn_no_proto_ty = @as(*const clang.FunctionType, @ptrCast(ty));
             const fn_proto = try transFnNoProto(c, fn_no_proto_ty, source_loc, null, false);
             return Node.initPayload(&fn_proto.base);
         },
         .Paren => {
-            const paren_ty = @ptrCast(*const clang.ParenType, ty);
+            const paren_ty = @as(*const clang.ParenType, @ptrCast(ty));
             return transQualType(c, scope, paren_ty.getInnerType(), source_loc);
         },
         .Pointer => {
@@ -4806,7 +4842,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             return Tag.c_pointer.create(c.arena, ptr_info);
         },
         .ConstantArray => {
-            const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
+            const const_arr_ty = @as(*const clang.ConstantArrayType, @ptrCast(ty));
 
             const size_ap_int = const_arr_ty.getSize();
             const size = size_ap_int.getLimitedValue(usize);
@@ -4815,7 +4851,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             return Tag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_type });
         },
         .IncompleteArray => {
-            const incomplete_array_ty = @ptrCast(*const clang.IncompleteArrayType, ty);
+            const incomplete_array_ty = @as(*const clang.IncompleteArrayType, @ptrCast(ty));
 
             const child_qt = incomplete_array_ty.getElementType();
             const is_const = child_qt.isConstQualified();
@@ -4825,67 +4861,67 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             return Tag.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
         },
         .Typedef => {
-            const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
+            const typedef_ty = @as(*const clang.TypedefType, @ptrCast(ty));
 
             const typedef_decl = typedef_ty.getDecl();
             var trans_scope = scope;
-            if (@ptrCast(*const clang.Decl, typedef_decl).castToNamedDecl()) |named_decl| {
+            if (@as(*const clang.Decl, @ptrCast(typedef_decl)).castToNamedDecl()) |named_decl| {
                 const decl_name = try c.str(named_decl.getName_bytes_begin());
                 if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
                 if (builtin_typedef_map.get(decl_name)) |builtin| return Tag.type.create(c.arena, builtin);
             }
             try transTypeDef(c, trans_scope, typedef_decl);
-            const name = c.decl_table.get(@ptrToInt(typedef_decl.getCanonicalDecl())).?;
+            const name = c.decl_table.get(@intFromPtr(typedef_decl.getCanonicalDecl())).?;
             return Tag.identifier.create(c.arena, name);
         },
         .Record => {
-            const record_ty = @ptrCast(*const clang.RecordType, ty);
+            const record_ty = @as(*const clang.RecordType, @ptrCast(ty));
 
             const record_decl = record_ty.getDecl();
             var trans_scope = scope;
-            if (@ptrCast(*const clang.Decl, record_decl).castToNamedDecl()) |named_decl| {
+            if (@as(*const clang.Decl, @ptrCast(record_decl)).castToNamedDecl()) |named_decl| {
                 const decl_name = try c.str(named_decl.getName_bytes_begin());
                 if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
             }
             try transRecordDecl(c, trans_scope, record_decl);
-            const name = c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl())).?;
+            const name = c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl())).?;
             return Tag.identifier.create(c.arena, name);
         },
         .Enum => {
-            const enum_ty = @ptrCast(*const clang.EnumType, ty);
+            const enum_ty = @as(*const clang.EnumType, @ptrCast(ty));
 
             const enum_decl = enum_ty.getDecl();
             var trans_scope = scope;
-            if (@ptrCast(*const clang.Decl, enum_decl).castToNamedDecl()) |named_decl| {
+            if (@as(*const clang.Decl, @ptrCast(enum_decl)).castToNamedDecl()) |named_decl| {
                 const decl_name = try c.str(named_decl.getName_bytes_begin());
                 if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
             }
             try transEnumDecl(c, trans_scope, enum_decl);
-            const name = c.decl_table.get(@ptrToInt(enum_decl.getCanonicalDecl())).?;
+            const name = c.decl_table.get(@intFromPtr(enum_decl.getCanonicalDecl())).?;
             return Tag.identifier.create(c.arena, name);
         },
         .Elaborated => {
-            const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
+            const elaborated_ty = @as(*const clang.ElaboratedType, @ptrCast(ty));
             return transQualType(c, scope, elaborated_ty.getNamedType(), source_loc);
         },
         .Decayed => {
-            const decayed_ty = @ptrCast(*const clang.DecayedType, ty);
+            const decayed_ty = @as(*const clang.DecayedType, @ptrCast(ty));
             return transQualType(c, scope, decayed_ty.getDecayedType(), source_loc);
         },
         .Attributed => {
-            const attributed_ty = @ptrCast(*const clang.AttributedType, ty);
+            const attributed_ty = @as(*const clang.AttributedType, @ptrCast(ty));
             return transQualType(c, scope, attributed_ty.getEquivalentType(), source_loc);
         },
         .MacroQualified => {
-            const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, ty);
+            const macroqualified_ty = @as(*const clang.MacroQualifiedType, @ptrCast(ty));
             return transQualType(c, scope, macroqualified_ty.getModifiedType(), source_loc);
         },
         .TypeOf => {
-            const typeof_ty = @ptrCast(*const clang.TypeOfType, ty);
+            const typeof_ty = @as(*const clang.TypeOfType, @ptrCast(ty));
             return transQualType(c, scope, typeof_ty.getUnmodifiedType(), source_loc);
         },
         .TypeOfExpr => {
-            const typeofexpr_ty = @ptrCast(*const clang.TypeOfExprType, ty);
+            const typeofexpr_ty = @as(*const clang.TypeOfExprType, @ptrCast(ty));
             const underlying_expr = transExpr(c, scope, typeofexpr_ty.getUnderlyingExpr(), .used) catch |err| switch (err) {
                 error.UnsupportedTranslation => {
                     return fail(c, error.UnsupportedType, source_loc, "unsupported underlying expression for TypeOfExpr", .{});
@@ -4895,7 +4931,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             return Tag.typeof.create(c.arena, underlying_expr);
         },
         .Vector => {
-            const vector_ty = @ptrCast(*const clang.VectorType, ty);
+            const vector_ty = @as(*const clang.VectorType, @ptrCast(ty));
             const num_elements = vector_ty.getNumElements();
             const element_qt = vector_ty.getElementType();
             return Tag.vector.create(c.arena, .{
@@ -4918,17 +4954,17 @@ fn qualTypeWasDemotedToOpaque(c: *Context, qt: clang.QualType) bool {
     const ty = qt.getTypePtr();
     switch (qt.getTypeClass()) {
         .Typedef => {
-            const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
+            const typedef_ty = @as(*const clang.TypedefType, @ptrCast(ty));
 
             const typedef_decl = typedef_ty.getDecl();
             const underlying_type = typedef_decl.getUnderlyingType();
             return qualTypeWasDemotedToOpaque(c, underlying_type);
         },
         .Record => {
-            const record_ty = @ptrCast(*const clang.RecordType, ty);
+            const record_ty = @as(*const clang.RecordType, @ptrCast(ty));
 
             const record_decl = record_ty.getDecl();
-            const canonical = @ptrToInt(record_decl.getCanonicalDecl());
+            const canonical = @intFromPtr(record_decl.getCanonicalDecl());
             if (c.opaque_demotes.contains(canonical)) return true;
 
             // check all childern for opaque types.
@@ -4941,26 +4977,26 @@ fn qualTypeWasDemotedToOpaque(c: *Context, qt: clang.QualType) bool {
             return false;
         },
         .Enum => {
-            const enum_ty = @ptrCast(*const clang.EnumType, ty);
+            const enum_ty = @as(*const clang.EnumType, @ptrCast(ty));
 
             const enum_decl = enum_ty.getDecl();
-            const canonical = @ptrToInt(enum_decl.getCanonicalDecl());
+            const canonical = @intFromPtr(enum_decl.getCanonicalDecl());
             return c.opaque_demotes.contains(canonical);
         },
         .Elaborated => {
-            const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
+            const elaborated_ty = @as(*const clang.ElaboratedType, @ptrCast(ty));
             return qualTypeWasDemotedToOpaque(c, elaborated_ty.getNamedType());
         },
         .Decayed => {
-            const decayed_ty = @ptrCast(*const clang.DecayedType, ty);
+            const decayed_ty = @as(*const clang.DecayedType, @ptrCast(ty));
             return qualTypeWasDemotedToOpaque(c, decayed_ty.getDecayedType());
         },
         .Attributed => {
-            const attributed_ty = @ptrCast(*const clang.AttributedType, ty);
+            const attributed_ty = @as(*const clang.AttributedType, @ptrCast(ty));
             return qualTypeWasDemotedToOpaque(c, attributed_ty.getEquivalentType());
         },
         .MacroQualified => {
-            const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, ty);
+            const macroqualified_ty = @as(*const clang.MacroQualifiedType, @ptrCast(ty));
             return qualTypeWasDemotedToOpaque(c, macroqualified_ty.getModifiedType());
         },
         else => return false,
@@ -4971,28 +5007,28 @@ fn isAnyopaque(qt: clang.QualType) bool {
     const ty = qt.getTypePtr();
     switch (ty.getTypeClass()) {
         .Builtin => {
-            const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
+            const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(ty));
             return builtin_ty.getKind() == .Void;
         },
         .Typedef => {
-            const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
+            const typedef_ty = @as(*const clang.TypedefType, @ptrCast(ty));
             const typedef_decl = typedef_ty.getDecl();
             return isAnyopaque(typedef_decl.getUnderlyingType());
         },
         .Elaborated => {
-            const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
+            const elaborated_ty = @as(*const clang.ElaboratedType, @ptrCast(ty));
             return isAnyopaque(elaborated_ty.getNamedType().getCanonicalType());
         },
         .Decayed => {
-            const decayed_ty = @ptrCast(*const clang.DecayedType, ty);
+            const decayed_ty = @as(*const clang.DecayedType, @ptrCast(ty));
             return isAnyopaque(decayed_ty.getDecayedType().getCanonicalType());
         },
         .Attributed => {
-            const attributed_ty = @ptrCast(*const clang.AttributedType, ty);
+            const attributed_ty = @as(*const clang.AttributedType, @ptrCast(ty));
             return isAnyopaque(attributed_ty.getEquivalentType().getCanonicalType());
         },
         .MacroQualified => {
-            const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, ty);
+            const macroqualified_ty = @as(*const clang.MacroQualifiedType, @ptrCast(ty));
             return isAnyopaque(macroqualified_ty.getModifiedType().getCanonicalType());
         },
         else => return false,
@@ -5040,7 +5076,7 @@ fn transFnProto(
     fn_decl_context: ?FnDeclContext,
     is_pub: bool,
 ) !*ast.Payload.Func {
-    const fn_ty = @ptrCast(*const clang.FunctionType, fn_proto_ty);
+    const fn_ty = @as(*const clang.FunctionType, @ptrCast(fn_proto_ty));
     const cc = try transCC(c, fn_ty, source_loc);
     const is_var_args = fn_proto_ty.isVariadic();
     return finishTransFnProto(c, fn_decl, fn_proto_ty, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
@@ -5082,14 +5118,14 @@ fn finishTransFnProto(
 
     var i: usize = 0;
     while (i < param_count) : (i += 1) {
-        const param_qt = fn_proto_ty.?.getParamType(@intCast(c_uint, i));
+        const param_qt = fn_proto_ty.?.getParamType(@as(c_uint, @intCast(i)));
         const is_noalias = param_qt.isRestrictQualified();
 
         const param_name: ?[]const u8 =
             if (fn_decl) |decl|
         blk: {
-            const param = decl.getParamDecl(@intCast(c_uint, i));
-            const param_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, param).getName_bytes_begin());
+            const param = decl.getParamDecl(@as(c_uint, @intCast(i)));
+            const param_name: []const u8 = try c.str(@as(*const clang.NamedDecl, @ptrCast(param)).getName_bytes_begin());
             if (param_name.len < 1)
                 break :blk null;
 
@@ -5533,7 +5569,7 @@ fn getMacroText(unit: *const clang.ASTUnit, c: *const Context, macro: *const cla
 
     const begin_c = c.source_manager.getCharacterData(begin_loc);
     const end_c = c.source_manager.getCharacterData(end_loc);
-    const slice_len = @ptrToInt(end_c) - @ptrToInt(begin_c);
+    const slice_len = @intFromPtr(end_c) - @intFromPtr(begin_c);
     return begin_c[0..slice_len];
 }
 
@@ -5550,7 +5586,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
         tok_list.items.len = 0;
         switch (entity.getKind()) {
             .MacroDefinitionKind => {
-                const macro = @ptrCast(*clang.MacroDefinitionRecord, entity);
+                const macro = @as(*clang.MacroDefinitionRecord, @ptrCast(entity));
                 const raw_name = macro.getName_getNameStart();
                 const begin_loc = macro.getSourceRange_getBegin();
 
@@ -6020,7 +6056,7 @@ fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
     if (std.unicode.utf8ValidateSlice(zigified)) return zigified;
 
     const formatter = std.fmt.fmtSliceEscapeLower(zigified);
-    const encoded_size = @intCast(usize, std.fmt.count("{s}", .{formatter}));
+    const encoded_size = @as(usize, @intCast(std.fmt.count("{s}", .{formatter})));
     var output = try ctx.arena.alloc(u8, encoded_size);
     return std.fmt.bufPrint(output, "{s}", .{formatter}) catch |err| switch (err) {
         error.NoSpaceLeft => unreachable,
@@ -6087,12 +6123,12 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     return node;
 }
 
-fn macroBoolToInt(c: *Context, node: Node) !Node {
+fn macroIntFromBool(c: *Context, node: Node) !Node {
     if (!isBoolRes(node)) {
         return node;
     }
 
-    return Tag.bool_to_int.create(c.arena, node);
+    return Tag.int_from_bool.create(c.arena, node);
 }
 
 fn macroIntToBool(c: *Context, node: Node) !Node {
@@ -6141,8 +6177,8 @@ fn parseCAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 fn parseCBitOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCBitXorExpr(c, m, scope);
     while (m.next().? == .Pipe) {
-        const lhs = try macroBoolToInt(c, node);
-        const rhs = try macroBoolToInt(c, try parseCBitXorExpr(c, m, scope));
+        const lhs = try macroIntFromBool(c, node);
+        const rhs = try macroIntFromBool(c, try parseCBitXorExpr(c, m, scope));
         node = try Tag.bit_or.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
@@ -6152,8 +6188,8 @@ fn parseCBitOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 fn parseCBitXorExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCBitAndExpr(c, m, scope);
     while (m.next().? == .Caret) {
-        const lhs = try macroBoolToInt(c, node);
-        const rhs = try macroBoolToInt(c, try parseCBitAndExpr(c, m, scope));
+        const lhs = try macroIntFromBool(c, node);
+        const rhs = try macroIntFromBool(c, try parseCBitAndExpr(c, m, scope));
         node = try Tag.bit_xor.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
@@ -6163,8 +6199,8 @@ fn parseCBitXorExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 fn parseCBitAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCEqExpr(c, m, scope);
     while (m.next().? == .Ampersand) {
-        const lhs = try macroBoolToInt(c, node);
-        const rhs = try macroBoolToInt(c, try parseCEqExpr(c, m, scope));
+        const lhs = try macroIntFromBool(c, node);
+        const rhs = try macroIntFromBool(c, try parseCEqExpr(c, m, scope));
         node = try Tag.bit_and.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
     }
     m.i -= 1;
@@ -6177,14 +6213,14 @@ fn parseCEqExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         switch (m.peek().?) {
             .BangEqual => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCRelExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCRelExpr(c, m, scope));
                 node = try Tag.not_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .EqualEqual => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCRelExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCRelExpr(c, m, scope));
                 node = try Tag.equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
@@ -6198,26 +6234,26 @@ fn parseCRelExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         switch (m.peek().?) {
             .AngleBracketRight => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
                 node = try Tag.greater_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketRightEqual => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
                 node = try Tag.greater_than_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketLeft => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
                 node = try Tag.less_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketLeftEqual => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCShiftExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
                 node = try Tag.less_than_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
@@ -6231,14 +6267,14 @@ fn parseCShiftExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         switch (m.peek().?) {
             .AngleBracketAngleBracketLeft => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCAddSubExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCAddSubExpr(c, m, scope));
                 node = try Tag.shl.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .AngleBracketAngleBracketRight => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCAddSubExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCAddSubExpr(c, m, scope));
                 node = try Tag.shr.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
@@ -6252,14 +6288,14 @@ fn parseCAddSubExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         switch (m.peek().?) {
             .Plus => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCMulExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCMulExpr(c, m, scope));
                 node = try Tag.add.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .Minus => {
                 _ = m.next();
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCMulExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCMulExpr(c, m, scope));
                 node = try Tag.sub.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             else => return node,
@@ -6272,18 +6308,18 @@ fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     while (true) {
         switch (m.next().?) {
             .Asterisk => {
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
                 node = try Tag.mul.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
             .Slash => {
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
                 node = try Tag.macro_arithmetic.create(c.arena, .{ .op = .div, .lhs = lhs, .rhs = rhs });
             },
             .Percent => {
-                const lhs = try macroBoolToInt(c, node);
-                const rhs = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
+                const lhs = try macroIntFromBool(c, node);
+                const rhs = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
                 node = try Tag.macro_arithmetic.create(c.arena, .{ .op = .rem, .lhs = lhs, .rhs = rhs });
             },
             else => {
@@ -6512,10 +6548,10 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
                 node = try Tag.field_access.create(c.arena, .{ .lhs = deref, .field_name = m.slice() });
             },
             .LBracket => {
-                const index_val = try macroBoolToInt(c, try parseCExpr(c, m, scope));
-                const index = try Tag.int_cast.create(c.arena, .{
+                const index_val = try macroIntFromBool(c, try parseCExpr(c, m, scope));
+                const index = try Tag.as.create(c.arena, .{
                     .lhs = try Tag.type.create(c.arena, "usize"),
-                    .rhs = index_val,
+                    .rhs = try Tag.int_cast.create(c.arena, index_val),
                 });
                 node = try Tag.array_access.create(c.arena, .{ .lhs = node, .rhs = index });
                 try m.skip(c, .RBracket);
@@ -6610,12 +6646,12 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             return Tag.not.create(c.arena, operand);
         },
         .Minus => {
-            const operand = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
+            const operand = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
             return Tag.negate.create(c.arena, operand);
         },
         .Plus => return try parseCCastExpr(c, m, scope),
         .Tilde => {
-            const operand = try macroBoolToInt(c, try parseCCastExpr(c, m, scope));
+            const operand = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
             return Tag.bit_not.create(c.arena, operand);
         },
         .Asterisk => {

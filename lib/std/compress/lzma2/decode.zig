@@ -119,11 +119,11 @@ pub const Decoder = struct {
                     return error.CorruptInput;
                 }
 
-                const lc = @intCast(u4, props % 9);
+                const lc = @as(u4, @intCast(props % 9));
                 props /= 9;
-                const lp = @intCast(u3, props % 5);
+                const lp = @as(u3, @intCast(props % 5));
                 props /= 5;
-                const pb = @intCast(u3, props);
+                const pb = @as(u3, @intCast(props));
 
                 if (lc + lp > 4) {
                     return error.CorruptInput;

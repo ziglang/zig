@@ -1,16 +1,23 @@
 const std = @import("std");
 const mem = std.mem;
 const testing = std.testing;
+const ArenaAllocator = std.heap.ArenaAllocator;
+const Allocator = std.mem.Allocator;
 
 const ObjectMap = @import("dynamic.zig").ObjectMap;
 const Array = @import("dynamic.zig").Array;
 const Value = @import("dynamic.zig").Value;
-const Parser = @import("dynamic.zig").Parser;
+
+const parseFromSlice = @import("static.zig").parseFromSlice;
+const parseFromSliceLeaky = @import("static.zig").parseFromSliceLeaky;
+const parseFromTokenSource = @import("static.zig").parseFromTokenSource;
+const parseFromValueLeaky = @import("static.zig").parseFromValueLeaky;
+const ParseOptions = @import("static.zig").ParseOptions;
+
+const jsonReader = @import("scanner.zig").reader;
+const JsonReader = @import("scanner.zig").Reader;
 
 test "json.parser.dynamic" {
-    var p = Parser.init(testing.allocator, .alloc_if_needed);
-    defer p.deinit();
-
     const s =
         \\{
         \\  "Image": {
@@ -31,10 +38,10 @@ test "json.parser.dynamic" {
         \\}
     ;
 
-    var tree = try p.parse(s);
-    defer tree.deinit();
+    var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
+    defer parsed.deinit();
 
-    var root = tree.root;
+    var root = parsed.value;
 
     var image = root.object.get("Image").?;
 
@@ -63,57 +70,53 @@ test "json.parser.dynamic" {
     try testing.expect(mem.eql(u8, large_int.number_string, "18446744073709551615"));
 }
 
-const writeStream = @import("./write_stream.zig").writeStream;
+const writeStream = @import("./stringify.zig").writeStream;
 test "write json then parse it" {
     var out_buffer: [1000]u8 = undefined;
 
     var fixed_buffer_stream = std.io.fixedBufferStream(&out_buffer);
     const out_stream = fixed_buffer_stream.writer();
-    var jw = writeStream(out_stream, 4);
+    var jw = writeStream(out_stream, .{});
+    defer jw.deinit();
 
     try jw.beginObject();
 
     try jw.objectField("f");
-    try jw.emitBool(false);
+    try jw.write(false);
 
     try jw.objectField("t");
-    try jw.emitBool(true);
+    try jw.write(true);
 
     try jw.objectField("int");
-    try jw.emitNumber(1234);
+    try jw.write(1234);
 
     try jw.objectField("array");
     try jw.beginArray();
-
-    try jw.arrayElem();
-    try jw.emitNull();
-
-    try jw.arrayElem();
-    try jw.emitNumber(12.34);
-
+    try jw.write(null);
+    try jw.write(12.34);
     try jw.endArray();
 
     try jw.objectField("str");
-    try jw.emitString("hello");
+    try jw.write("hello");
 
     try jw.endObject();
 
-    var parser = Parser.init(testing.allocator, .alloc_if_needed);
-    defer parser.deinit();
-    var tree = try parser.parse(fixed_buffer_stream.getWritten());
-    defer tree.deinit();
+    fixed_buffer_stream = std.io.fixedBufferStream(fixed_buffer_stream.getWritten());
+    var json_reader = jsonReader(testing.allocator, fixed_buffer_stream.reader());
+    defer json_reader.deinit();
+    var parsed = try parseFromTokenSource(Value, testing.allocator, &json_reader, .{});
+    defer parsed.deinit();
 
-    try testing.expect(tree.root.object.get("f").?.bool == false);
-    try testing.expect(tree.root.object.get("t").?.bool == true);
-    try testing.expect(tree.root.object.get("int").?.integer == 1234);
-    try testing.expect(tree.root.object.get("array").?.array.items[0].null == {});
-    try testing.expect(tree.root.object.get("array").?.array.items[1].float == 12.34);
-    try testing.expect(mem.eql(u8, tree.root.object.get("str").?.string, "hello"));
+    try testing.expect(parsed.value.object.get("f").?.bool == false);
+    try testing.expect(parsed.value.object.get("t").?.bool == true);
+    try testing.expect(parsed.value.object.get("int").?.integer == 1234);
+    try testing.expect(parsed.value.object.get("array").?.array.items[0].null == {});
+    try testing.expect(parsed.value.object.get("array").?.array.items[1].float == 12.34);
+    try testing.expect(mem.eql(u8, parsed.value.object.get("str").?.string, "hello"));
 }
 
-fn testParse(arena_allocator: std.mem.Allocator, json_str: []const u8) !Value {
-    var p = Parser.init(arena_allocator, .alloc_if_needed);
-    return (try p.parse(json_str)).root;
+fn testParse(allocator: std.mem.Allocator, json_str: []const u8) !Value {
+    return parseFromSliceLeaky(Value, allocator, json_str, .{});
 }
 
 test "parsing empty string gives appropriate error" {
@@ -122,22 +125,16 @@ test "parsing empty string gives appropriate error" {
     try testing.expectError(error.UnexpectedEndOfInput, testParse(arena_allocator.allocator(), ""));
 }
 
-test "parse tree should not contain dangling pointers" {
-    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_allocator.deinit();
-
-    var p = Parser.init(arena_allocator.allocator(), .alloc_if_needed);
-    defer p.deinit();
-
-    var tree = try p.parse("[]");
-    defer tree.deinit();
+test "Value.array allocator should still be usable after parsing" {
+    var parsed = try parseFromSlice(Value, std.testing.allocator, "[]", .{});
+    defer parsed.deinit();
 
     // Allocation should succeed
     var i: usize = 0;
     while (i < 100) : (i += 1) {
-        try tree.root.array.append(Value{ .integer = 100 });
+        try parsed.value.array.append(Value{ .integer = 100 });
     }
-    try testing.expectEqual(tree.root.array.items.len, 100);
+    try testing.expectEqual(parsed.value.array.items.len, 100);
 }
 
 test "integer after float has proper type" {
@@ -184,102 +181,150 @@ test "escaped characters" {
     try testing.expectEqualSlices(u8, obj.get("surrogatepair").?.string, "😂");
 }
 
-test "string copy option" {
-    const input =
+test "Value.jsonStringify" {
+    var vals = [_]Value{
+        .{ .integer = 1 },
+        .{ .integer = 2 },
+        .{ .number_string = "3" },
+    };
+    var obj = ObjectMap.init(testing.allocator);
+    defer obj.deinit();
+    try obj.putNoClobber("a", .{ .string = "b" });
+    var array = [_]Value{
+        Value.null,
+        Value{ .bool = true },
+        Value{ .integer = 42 },
+        Value{ .number_string = "43" },
+        Value{ .float = 42 },
+        Value{ .string = "weeee" },
+        Value{ .array = Array.fromOwnedSlice(undefined, &vals) },
+        Value{ .object = obj },
+    };
+    var buffer: [0x1000]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+
+    var jw = writeStream(fbs.writer(), .{ .whitespace = .indent_1 });
+    defer jw.deinit();
+    try jw.write(array);
+
+    const expected =
+        \\[
+        \\ null,
+        \\ true,
+        \\ 42,
+        \\ 43,
+        \\ 4.2e+01,
+        \\ "weeee",
+        \\ [
+        \\  1,
+        \\  2,
+        \\  3
+        \\ ],
+        \\ {
+        \\  "a": "b"
+        \\ }
+        \\]
+    ;
+    try testing.expectEqualSlices(u8, expected, fbs.getWritten());
+}
+
+test "parseFromValue(std.json.Value,...)" {
+    const str =
         \\{
-        \\  "noescape": "aą😂",
-        \\  "simple": "\\\/\n\r\t\f\b\"",
-        \\  "unicode": "\u0105",
-        \\  "surrogatepair": "\ud83d\ude02"
+        \\  "int": 32,
+        \\  "float": 3.2,
+        \\  "str": "str",
+        \\  "array": [3, 2],
+        \\  "object": {}
         \\}
     ;
 
-    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_allocator.deinit();
-    const allocator = arena_allocator.allocator();
-
-    var parser = Parser.init(allocator, .alloc_if_needed);
-    const tree_nocopy = try parser.parse(input);
-    const obj_nocopy = tree_nocopy.root.object;
-
-    parser = Parser.init(allocator, .alloc_always);
-    const tree_copy = try parser.parse(input);
-    const obj_copy = tree_copy.root.object;
-
-    for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {
-        try testing.expectEqualSlices(u8, obj_nocopy.get(field_name).?.string, obj_copy.get(field_name).?.string);
-    }
-
-    const nocopy_addr = &obj_nocopy.get("noescape").?.string[0];
-    const copy_addr = &obj_copy.get("noescape").?.string[0];
-
-    var found_nocopy = false;
-    for (input, 0..) |_, index| {
-        try testing.expect(copy_addr != &input[index]);
-        if (nocopy_addr == &input[index]) {
-            found_nocopy = true;
-        }
-    }
-    try testing.expect(found_nocopy);
+    const parsed_tree = try parseFromSlice(Value, testing.allocator, str, .{});
+    defer parsed_tree.deinit();
+    const tree = try parseFromValueLeaky(Value, parsed_tree.arena.allocator(), parsed_tree.value, .{});
+    try testing.expect(std.meta.eql(parsed_tree.value, tree));
 }
 
-test "Value.jsonStringify" {
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try @as(Value, .null).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "null");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .bool = true }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "true");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .integer = 42 }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "42");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .number_string = "43" }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "43");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .float = 42 }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "4.2e+01");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .string = "weeee" }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "\"weeee\"");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        var vals = [_]Value{
-            .{ .integer = 1 },
-            .{ .integer = 2 },
-            .{ .number_string = "3" },
+test "polymorphic parsing" {
+    if (true) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/16108
+    const doc =
+        \\{ "type": "div",
+        \\  "color": "blue",
+        \\  "children": [
+        \\    { "type": "button",
+        \\      "caption": "OK" },
+        \\    { "type": "button",
+        \\      "caption": "Cancel" } ] }
+    ;
+    const Node = union(enum) {
+        div: Div,
+        button: Button,
+        const Self = @This();
+        const Div = struct {
+            color: enum { red, blue },
+            children: []Self,
         };
-        try (Value{
-            .array = Array.fromOwnedSlice(undefined, &vals),
-        }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "[1,2,3]");
-    }
-    {
-        var buffer: [10]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        var obj = ObjectMap.init(testing.allocator);
-        defer obj.deinit();
-        try obj.putNoClobber("a", .{ .string = "b" });
-        try (Value{ .object = obj }).jsonStringify(.{}, fbs.writer());
-        try testing.expectEqualSlices(u8, fbs.getWritten(), "{\"a\":\"b\"}");
-    }
+        const Button = struct {
+            caption: []const u8,
+        };
+
+        pub fn jsonParseFromValue(allocator: Allocator, source: Value, options: ParseOptions) !@This() {
+            if (source != .object) return error.UnexpectedToken;
+            const type_value = source.object.get("type") orelse return error.UnexpectedToken; // Missing "type" field.
+            if (type_value != .string) return error.UnexpectedToken; // "type" expected to be string.
+            const type_str = type_value.string;
+            var child_options = options;
+            child_options.ignore_unknown_fields = true;
+            if (std.mem.eql(u8, type_str, "div")) return .{ .div = try parseFromValueLeaky(Div, allocator, source, child_options) };
+            if (std.mem.eql(u8, type_str, "button")) return .{ .button = try parseFromValueLeaky(Button, allocator, source, child_options) };
+            return error.UnexpectedToken; // unknown type.
+        }
+    };
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const dynamic_tree = try parseFromSliceLeaky(Value, arena.allocator(), doc, .{});
+    const tree = try parseFromValueLeaky(Node, arena.allocator(), dynamic_tree, .{});
+
+    try testing.expect(tree.div.color == .blue);
+    try testing.expectEqualStrings("Cancel", tree.div.children[1].button.caption);
+}
+
+test "long object value" {
+    const value = "01234567890123456789";
+    const doc = "{\"key\":\"" ++ value ++ "\"}";
+    var fbs = std.io.fixedBufferStream(doc);
+    var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
+    defer reader.deinit();
+    var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
+    defer parsed.deinit();
+
+    try testing.expectEqualStrings(value, parsed.value.object.get("key").?.string);
+}
+
+test "many object keys" {
+    const doc =
+        \\{
+        \\  "k1": "v1",
+        \\  "k2": "v2",
+        \\  "k3": "v3",
+        \\  "k4": "v4",
+        \\  "k5": "v5"
+        \\}
+    ;
+    var fbs = std.io.fixedBufferStream(doc);
+    var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
+    defer reader.deinit();
+    var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
+    defer parsed.deinit();
+
+    try testing.expectEqualStrings("v1", parsed.value.object.get("k1").?.string);
+    try testing.expectEqualStrings("v2", parsed.value.object.get("k2").?.string);
+    try testing.expectEqualStrings("v3", parsed.value.object.get("k3").?.string);
+    try testing.expectEqualStrings("v4", parsed.value.object.get("k4").?.string);
+    try testing.expectEqualStrings("v5", parsed.value.object.get("k5").?.string);
+}
+
+fn smallBufferJsonReader(allocator: Allocator, io_reader: anytype) JsonReader(16, @TypeOf(io_reader)) {
+    return JsonReader(16, @TypeOf(io_reader)).init(allocator, io_reader);
 }

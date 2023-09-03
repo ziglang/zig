@@ -21,7 +21,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
     });
-    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c11"});
+    exe.addCSourceFile(.{ .file = .{ .path = "test.c" }, .flags = &[_][]const u8{"-std=c11"} });
     exe.linkLibC();
 
     const run_cmd = b.addRunArtifact(exe);

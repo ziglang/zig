@@ -1,6 +1,5 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const cstr = std.cstr;
 const unicode = std.unicode;
 const io = std.io;
 const fs = std.fs;
@@ -13,8 +12,6 @@ const mem = std.mem;
 const math = std.math;
 const debug = std.debug;
 const EnvMap = process.EnvMap;
-const Os = std.builtin.Os;
-const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 
@@ -93,7 +90,7 @@ pub const ChildProcess = struct {
             switch (builtin.os.tag) {
                 .linux => {
                     if (rus.rusage) |ru| {
-                        return @intCast(usize, ru.maxrss) * 1024;
+                        return @as(usize, @intCast(ru.maxrss)) * 1024;
                     } else {
                         return null;
                     }
@@ -108,7 +105,7 @@ pub const ChildProcess = struct {
                 .macos, .ios => {
                     if (rus.rusage) |ru| {
                         // Darwin oddly reports in bytes instead of kilobytes.
-                        return @intCast(usize, ru.maxrss);
+                        return @as(usize, @intCast(ru.maxrss));
                     } else {
                         return null;
                     }
@@ -376,7 +373,7 @@ pub const ChildProcess = struct {
             if (windows.kernel32.GetExitCodeProcess(self.id, &exit_code) == 0) {
                 break :x Term{ .Unknown = 0 };
             } else {
-                break :x Term{ .Exited = @truncate(u8, exit_code) };
+                break :x Term{ .Exited = @as(u8, @truncate(exit_code)) };
             }
         });
 
@@ -449,7 +446,7 @@ pub const ChildProcess = struct {
                 // has a value greater than 0
                 if ((fd[0].revents & std.os.POLL.IN) != 0) {
                     const err_int = try readIntFd(err_pipe[0]);
-                    return @errSetCast(SpawnError, @intToError(err_int));
+                    return @as(SpawnError, @errSetCast(@errorFromInt(err_int)));
                 }
             } else {
                 // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
@@ -462,7 +459,7 @@ pub const ChildProcess = struct {
                 // Here we potentially return the fork child's error from the parent
                 // pid.
                 if (err_int != maxInt(ErrInt)) {
-                    return @errSetCast(SpawnError, @intToError(err_int));
+                    return @as(SpawnError, @errSetCast(@errorFromInt(err_int)));
                 }
             }
         }
@@ -509,6 +506,7 @@ pub const ChildProcess = struct {
                 error.BadPathName => unreachable, // Windows-only
                 error.InvalidHandle => unreachable, // WASI-only
                 error.WouldBlock => unreachable,
+                error.NetworkNotFound => unreachable, // Windows-only
                 else => |e| return e,
             }
         else
@@ -530,7 +528,7 @@ pub const ChildProcess = struct {
         // can fail between fork() and execve().
         // Therefore, we do all the allocation for the execve() before the fork().
         // This means we must do the null-termination of argv and env vars here.
-        const argv_buf = try arena.allocSentinel(?[*:0]u8, self.argv.len, null);
+        const argv_buf = try arena.allocSentinel(?[*:0]const u8, self.argv.len, null);
         for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
         const envp = m: {
@@ -542,7 +540,7 @@ pub const ChildProcess = struct {
             } else if (builtin.output_mode == .Exe) {
                 // Then we have Zig start code and this works.
                 // TODO type-safety for null-termination of `os.environ`.
-                break :m @ptrCast([*:null]?[*:0]u8, os.environ.ptr);
+                break :m @as([*:null]const ?[*:0]const u8, @ptrCast(os.environ.ptr));
             } else {
                 // TODO come up with a solution for this.
                 @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
@@ -605,7 +603,7 @@ pub const ChildProcess = struct {
         }
 
         // we are the parent
-        const pid = @intCast(i32, pid_result);
+        const pid = @as(i32, @intCast(pid_result));
         if (self.stdin_behavior == StdIo.Pipe) {
             self.stdin = File{ .handle = stdin_pipe[1] };
         } else {
@@ -660,6 +658,7 @@ pub const ChildProcess = struct {
                 error.AccessDenied => unreachable, // not possible for "NUL"
                 error.NameTooLong => unreachable, // not possible for "NUL"
                 error.WouldBlock => unreachable, // not possible for "NUL"
+                error.NetworkNotFound => unreachable, // not possible for "NUL"
                 else => |e| return e,
             }
         else
@@ -953,15 +952,16 @@ fn windowsCreateProcessPathExt(
     // for any directory that doesn't contain any possible matches, instead of having
     // to use a separate look up for each individual filename combination (unappended +
     // each PATHEXT appended). For directories where the wildcard *does* match something,
-    // we only need to do a maximum of <number of supported PATHEXT extensions> more
-    // NtQueryDirectoryFile calls.
+    // we iterate the matches and take note of any that are either the unappended version,
+    // or a version with a supported PATHEXT appended. We then try calling CreateProcessW
+    // with the found versions in the appropriate order.
 
     var dir = dir: {
         // needs to be null-terminated
         try dir_buf.append(allocator, 0);
         defer dir_buf.shrinkRetainingCapacity(dir_path_len);
         const dir_path_z = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
-        const prefixed_path = try windows.wToPrefixedFileW(dir_path_z);
+        const prefixed_path = try windows.wToPrefixedFileW(null, dir_path_z);
         break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{}, true) catch return error.FileNotFound;
     };
     defer dir.close();
@@ -971,11 +971,26 @@ fn windowsCreateProcessPathExt(
     try app_buf.append(allocator, 0);
     const app_name_wildcard = app_buf.items[0 .. app_buf.items.len - 1 :0];
 
-    // Enough for the FILE_DIRECTORY_INFORMATION + (NAME_MAX UTF-16 code units [2 bytes each]).
-    const file_info_buf_size = @sizeOf(windows.FILE_DIRECTORY_INFORMATION) + (windows.NAME_MAX * 2);
-    var file_information_buf: [file_info_buf_size]u8 align(@alignOf(os.windows.FILE_DIRECTORY_INFORMATION)) = undefined;
+    // This 2048 is arbitrary, we just want it to be large enough to get multiple FILE_DIRECTORY_INFORMATION entries
+    // returned per NtQueryDirectoryFile call.
+    var file_information_buf: [2048]u8 align(@alignOf(os.windows.FILE_DIRECTORY_INFORMATION)) = undefined;
+    const file_info_maximum_single_entry_size = @sizeOf(windows.FILE_DIRECTORY_INFORMATION) + (windows.NAME_MAX * 2);
+    if (file_information_buf.len < file_info_maximum_single_entry_size) {
+        @compileError("file_information_buf must be large enough to contain at least one maximum size FILE_DIRECTORY_INFORMATION entry");
+    }
     var io_status: windows.IO_STATUS_BLOCK = undefined;
-    const found_name: ?[]const u16 = found_name: {
+
+    const num_supported_pathext = @typeInfo(CreateProcessSupportedExtension).Enum.fields.len;
+    var pathext_seen = [_]bool{false} ** num_supported_pathext;
+    var any_pathext_seen = false;
+    var unappended_exists = false;
+
+    // Fully iterate the wildcard matches via NtQueryDirectoryFile and take note of all versions
+    // of the app_name we should try to spawn.
+    // Note: This is necessary because the order of the files returned is filesystem-dependent:
+    //       On NTFS, `blah.exe*` will always return `blah.exe` first if it exists.
+    //       On FAT32, it's possible for something like `blah.exe.obj` to be returned first.
+    while (true) {
         const app_name_len_bytes = math.cast(u16, app_name_wildcard.len * 2) orelse return error.NameTooLong;
         var app_name_unicode_string = windows.UNICODE_STRING{
             .Length = app_name_len_bytes,
@@ -991,18 +1006,9 @@ fn windowsCreateProcessPathExt(
             &file_information_buf,
             file_information_buf.len,
             .FileDirectoryInformation,
-            // TODO: It might be better to iterate over all wildcard matches and
-            //       only pick the ones that match an appended PATHEXT instead of only
-            //       using the wildcard as a lookup and then restarting iteration
-            //       on future NtQueryDirectoryFile calls.
-            //
-            //       However, note that this could lead to worse outcomes in the
-            //       case of a very generic command name (e.g. "a"), so it might
-            //       be better to only use the wildcard to determine if it's worth
-            //       checking with PATHEXT (this is the current behavior).
-            windows.TRUE, // single result
+            windows.FALSE, // single result
             &app_name_unicode_string,
-            windows.TRUE, // restart iteration
+            windows.FALSE, // restart iteration
         );
 
         // If we get nothing with the wildcard, then we can just bail out
@@ -1010,25 +1016,36 @@ fn windowsCreateProcessPathExt(
         switch (rc) {
             .SUCCESS => {},
             .NO_SUCH_FILE => return error.FileNotFound,
-            .NO_MORE_FILES => return error.FileNotFound,
+            .NO_MORE_FILES => break,
             .ACCESS_DENIED => return error.AccessDenied,
             else => return windows.unexpectedStatus(rc),
         }
 
-        const dir_info = @ptrCast(*windows.FILE_DIRECTORY_INFORMATION, &file_information_buf);
-        if (dir_info.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) {
-            break :found_name null;
+        // According to the docs, this can only happen if there is not enough room in the
+        // buffer to write at least one complete FILE_DIRECTORY_INFORMATION entry.
+        // Therefore, this condition should not be possible to hit with the buffer size we use.
+        std.debug.assert(io_status.Information != 0);
+
+        var it = windows.FileInformationIterator(windows.FILE_DIRECTORY_INFORMATION){ .buf = &file_information_buf };
+        while (it.next()) |info| {
+            // Skip directories
+            if (info.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) continue;
+            const filename = @as([*]u16, @ptrCast(&info.FileName))[0 .. info.FileNameLength / 2];
+            // Because all results start with the app_name since we're using the wildcard `app_name*`,
+            // if the length is equal to app_name then this is an exact match
+            if (filename.len == app_name_len) {
+                // Note: We can't break early here because it's possible that the unappended version
+                //       fails to spawn, in which case we still want to try the PATHEXT appended versions.
+                unappended_exists = true;
+            } else if (windowsCreateProcessSupportsExtension(filename[app_name_len..])) |pathext_ext| {
+                pathext_seen[@intFromEnum(pathext_ext)] = true;
+                any_pathext_seen = true;
+            }
         }
-        break :found_name @ptrCast([*]u16, &dir_info.FileName)[0 .. dir_info.FileNameLength / 2];
-    };
+    }
 
     const unappended_err = unappended: {
-        // NtQueryDirectoryFile returns results in order by filename, so the first result of
-        // the wildcard call will always be the unappended version if it exists. So, if found_name
-        // is not the unappended version, we can skip straight to trying versions with PATHEXT appended.
-        // TODO: This might depend on the filesystem, though; need to somehow verify that it always
-        //       works this way.
-        if (found_name != null and windows.eqlIgnoreCaseWTF16(found_name.?, app_buf.items[0..app_name_len])) {
+        if (unappended_exists) {
             if (dir_path_len != 0) switch (dir_buf.items[dir_buf.items.len - 1]) {
                 '/', '\\' => {},
                 else => try dir_buf.append(allocator, fs.path.sep),
@@ -1061,52 +1078,13 @@ fn windowsCreateProcessPathExt(
         break :unappended error.FileNotFound;
     };
 
-    // Now we know that at least *a* file matching the wildcard exists, we can loop
-    // through PATHEXT in order and exec any that exist
+    if (!any_pathext_seen) return unappended_err;
 
+    // Now try any PATHEXT appended versions that we've seen
     var ext_it = mem.tokenizeScalar(u16, pathext, ';');
     while (ext_it.next()) |ext| {
-        if (!windowsCreateProcessSupportsExtension(ext)) continue;
-
-        app_buf.shrinkRetainingCapacity(app_name_len);
-        try app_buf.appendSlice(allocator, ext);
-        try app_buf.append(allocator, 0);
-        const app_name_appended = app_buf.items[0 .. app_buf.items.len - 1 :0];
-
-        const app_name_len_bytes = math.cast(u16, app_name_appended.len * 2) orelse return error.NameTooLong;
-        var app_name_unicode_string = windows.UNICODE_STRING{
-            .Length = app_name_len_bytes,
-            .MaximumLength = app_name_len_bytes,
-            .Buffer = @constCast(app_name_appended.ptr),
-        };
-
-        // Re-use the directory handle but this time we call with the appended app name
-        // with no wildcard.
-        const rc = windows.ntdll.NtQueryDirectoryFile(
-            dir.fd,
-            null,
-            null,
-            null,
-            &io_status,
-            &file_information_buf,
-            file_information_buf.len,
-            .FileDirectoryInformation,
-            windows.TRUE, // single result
-            &app_name_unicode_string,
-            windows.TRUE, // restart iteration
-        );
-
-        switch (rc) {
-            .SUCCESS => {},
-            .NO_SUCH_FILE => continue,
-            .NO_MORE_FILES => continue,
-            .ACCESS_DENIED => continue,
-            else => return windows.unexpectedStatus(rc),
-        }
-
-        const dir_info = @ptrCast(*windows.FILE_DIRECTORY_INFORMATION, &file_information_buf);
-        // Skip directories
-        if (dir_info.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) continue;
+        const ext_enum = windowsCreateProcessSupportsExtension(ext) orelse continue;
+        if (!pathext_seen[@intFromEnum(ext_enum)]) continue;
 
         dir_buf.shrinkRetainingCapacity(dir_path_len);
         if (dir_path_len != 0) switch (dir_buf.items[dir_buf.items.len - 1]) {
@@ -1164,16 +1142,24 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
         null,
         windows.TRUE,
         windows.CREATE_UNICODE_ENVIRONMENT,
-        @ptrCast(?*anyopaque, envp_ptr),
+        @as(?*anyopaque, @ptrCast(envp_ptr)),
         cwd_ptr,
         lpStartupInfo,
         lpProcessInformation,
     );
 }
 
+// Should be kept in sync with `windowsCreateProcessSupportsExtension`
+const CreateProcessSupportedExtension = enum {
+    bat,
+    cmd,
+    com,
+    exe,
+};
+
 /// Case-insensitive UTF-16 lookup
-fn windowsCreateProcessSupportsExtension(ext: []const u16) bool {
-    if (ext.len != 4) return false;
+fn windowsCreateProcessSupportsExtension(ext: []const u16) ?CreateProcessSupportedExtension {
+    if (ext.len != 4) return null;
     const State = enum {
         start,
         dot,
@@ -1189,50 +1175,50 @@ fn windowsCreateProcessSupportsExtension(ext: []const u16) bool {
     for (ext) |c| switch (state) {
         .start => switch (c) {
             '.' => state = .dot,
-            else => return false,
+            else => return null,
         },
         .dot => switch (c) {
             'b', 'B' => state = .b,
             'c', 'C' => state = .c,
             'e', 'E' => state = .e,
-            else => return false,
+            else => return null,
         },
         .b => switch (c) {
             'a', 'A' => state = .ba,
-            else => return false,
+            else => return null,
         },
         .c => switch (c) {
             'm', 'M' => state = .cm,
             'o', 'O' => state = .co,
-            else => return false,
+            else => return null,
         },
         .e => switch (c) {
             'x', 'X' => state = .ex,
-            else => return false,
+            else => return null,
         },
         .ba => switch (c) {
-            't', 'T' => return true, // .BAT
-            else => return false,
+            't', 'T' => return .bat,
+            else => return null,
         },
         .cm => switch (c) {
-            'd', 'D' => return true, // .CMD
-            else => return false,
+            'd', 'D' => return .cmd,
+            else => return null,
         },
         .co => switch (c) {
-            'm', 'M' => return true, // .COM
-            else => return false,
+            'm', 'M' => return .com,
+            else => return null,
         },
         .ex => switch (c) {
-            'e', 'E' => return true, // .EXE
-            else => return false,
+            'e', 'E' => return .exe,
+            else => return null,
         },
     };
-    return false;
+    return null;
 }
 
 test "windowsCreateProcessSupportsExtension" {
-    try std.testing.expect(windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e' }));
-    try std.testing.expect(!windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e', 'c' }));
+    try std.testing.expectEqual(CreateProcessSupportedExtension.exe, windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e' }).?);
+    try std.testing.expect(windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e', 'c' }) == null);
 }
 
 /// Caller must dealloc.
@@ -1356,7 +1342,7 @@ fn destroyPipe(pipe: [2]os.fd_t) void {
 // Child of fork calls this to report an error to the fork parent.
 // Then the child exits.
 fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
-    writeIntFd(fd, @as(ErrInt, @errorToInt(err))) catch {};
+    writeIntFd(fd, @as(ErrInt, @intFromError(err))) catch {};
     // If we're linking libc, some naughty applications may have registered atexit handlers
     // which we really do not want to run in the fork child. I caught LLVM doing this and
     // it caused a deadlock instead of doing an exit syscall. In the words of Avril Lavigne,
@@ -1376,7 +1362,7 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    file.writer().writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
+    file.writer().writeIntNative(u64, @as(u64, @intCast(value))) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
@@ -1385,7 +1371,7 @@ fn readIntFd(fd: i32) !ErrInt {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    return @intCast(ErrInt, file.reader().readIntNative(u64) catch return error.SystemResources);
+    return @as(ErrInt, @intCast(file.reader().readIntNative(u64) catch return error.SystemResources));
 }
 
 /// Caller must free result.

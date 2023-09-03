@@ -2,7 +2,7 @@ const std = @import("std");
 
 inline fn offsetPtr(ptr: [*]const u8, offset: usize) [*]const u8 {
     // ptr + offset doesn't work at comptime so we need this instead.
-    return @ptrCast([*]const u8, &ptr[offset]);
+    return @as([*]const u8, @ptrCast(&ptr[offset]));
 }
 
 fn fetch32(ptr: [*]const u8, offset: usize) u32 {
@@ -49,18 +49,18 @@ pub const CityHash32 = struct {
     }
 
     fn hash32Len0To4(str: []const u8) u32 {
-        const len: u32 = @truncate(u32, str.len);
+        const len: u32 = @as(u32, @truncate(str.len));
         var b: u32 = 0;
         var c: u32 = 9;
         for (str) |v| {
-            b = b *% c1 +% @bitCast(u32, @intCast(i32, @bitCast(i8, v)));
+            b = b *% c1 +% @as(u32, @bitCast(@as(i32, @intCast(@as(i8, @bitCast(v))))));
             c ^= b;
         }
         return fmix(mur(b, mur(len, c)));
     }
 
     fn hash32Len5To12(str: []const u8) u32 {
-        var a: u32 = @truncate(u32, str.len);
+        var a: u32 = @as(u32, @truncate(str.len));
         var b: u32 = a *% 5;
         var c: u32 = 9;
         const d: u32 = b;
@@ -73,7 +73,7 @@ pub const CityHash32 = struct {
     }
 
     fn hash32Len13To24(str: []const u8) u32 {
-        const len: u32 = @truncate(u32, str.len);
+        const len: u32 = @as(u32, @truncate(str.len));
         const a: u32 = fetch32(str.ptr, (str.len >> 1) - 4);
         const b: u32 = fetch32(str.ptr, 4);
         const c: u32 = fetch32(str.ptr, str.len - 8);
@@ -95,7 +95,7 @@ pub const CityHash32 = struct {
             }
         }
 
-        const len: u32 = @truncate(u32, str.len);
+        const len: u32 = @as(u32, @truncate(str.len));
         var h: u32 = len;
         var g: u32 = c1 *% len;
         var f: u32 = g;
@@ -220,9 +220,9 @@ pub const CityHash64 = struct {
             const a: u8 = str[0];
             const b: u8 = str[str.len >> 1];
             const c: u8 = str[str.len - 1];
-            const y: u32 = @intCast(u32, a) +% (@intCast(u32, b) << 8);
-            const z: u32 = @truncate(u32, str.len) +% (@intCast(u32, c) << 2);
-            return shiftmix(@intCast(u64, y) *% k2 ^ @intCast(u64, z) *% k0) *% k2;
+            const y: u32 = @as(u32, @intCast(a)) +% (@as(u32, @intCast(b)) << 8);
+            const z: u32 = @as(u32, @truncate(str.len)) +% (@as(u32, @intCast(c)) << 2);
+            return shiftmix(@as(u64, @intCast(y)) *% k2 ^ @as(u64, @intCast(z)) *% k0) *% k2;
         }
         return k2;
     }
@@ -309,7 +309,7 @@ pub const CityHash64 = struct {
         var w: WeakPair = weakHashLen32WithSeeds(offsetPtr(str.ptr, str.len - 32), y +% k1, x);
 
         x = x *% k1 +% fetch64(str.ptr, 0);
-        len = (len - 1) & ~@intCast(u64, 63);
+        len = (len - 1) & ~@as(u64, @intCast(63));
 
         var ptr: [*]const u8 = str.ptr;
         while (true) {
@@ -353,19 +353,19 @@ fn SMHasherTest(comptime hash_fn: anytype) u32 {
 
     var i: u32 = 0;
     while (i < 256) : (i += 1) {
-        key[i] = @intCast(u8, i);
+        key[i] = @as(u8, @intCast(i));
 
         var h: HashResult = hash_fn(key[0..i], 256 - i);
 
         // comptime can't really do reinterpret casting yet,
         // so we need to write the bytes manually.
         for (hashes_bytes[i * @sizeOf(HashResult) ..][0..@sizeOf(HashResult)]) |*byte| {
-            byte.* = @truncate(u8, h);
+            byte.* = @as(u8, @truncate(h));
             h = h >> 8;
         }
     }
 
-    return @truncate(u32, hash_fn(&hashes_bytes, 0));
+    return @as(u32, @truncate(hash_fn(&hashes_bytes, 0)));
 }
 
 fn CityHash32hashIgnoreSeed(str: []const u8, seed: u32) u32 {

@@ -60,8 +60,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             };
         }
 
-        /// Initialize with capacity to hold at least `num` elements.
-        /// The resulting capacity is likely to be equal to `num`.
+        /// Initialize with capacity to hold `num` elements.
+        /// The resulting capacity will equal `num` exactly.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self.init(allocator);
@@ -379,9 +379,9 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return self.ensureTotalCapacityPrecise(better_capacity);
         }
 
-        /// Modify the array so that it can hold at least `new_capacity` items.
-        /// Like `ensureTotalCapacity`, but the resulting capacity is much more likely
-        /// (but not guaranteed) to be equal to `new_capacity`.
+        /// Modify the array so that it can hold `new_capacity` items.
+        /// Like `ensureTotalCapacity`, but the resulting capacity is guaranteed
+        /// to be equal to `new_capacity`.
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacityPrecise(self: *Self, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
@@ -459,6 +459,28 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return self.items[prev_len..][0..n];
         }
 
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the newly allocated elements.
+        /// The returned pointer becomes invalid when the list is resized.
+        /// Resizes list if `self.capacity` is not large enough.
+        pub fn addManyAsSlice(self: *Self, n: usize) Allocator.Error![]T {
+            const prev_len = self.items.len;
+            try self.resize(self.items.len + n);
+            return self.items[prev_len..][0..n];
+        }
+
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the newly allocated elements.
+        /// Asserts that there is already space for the new item without allocating more.
+        /// **Does not** invalidate element pointers.
+        /// The returned pointer becomes invalid when the list is resized.
+        pub fn addManyAsSliceAssumeCapacity(self: *Self, n: usize) []T {
+            assert(self.items.len + n <= self.capacity);
+            const prev_len = self.items.len;
+            self.items.len += n;
+            return self.items[prev_len..][0..n];
+        }
+
         /// Remove and return the last element from the list.
         /// Asserts the list has at least one item.
         /// Invalidates pointers to the removed element.
@@ -479,8 +501,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Returns a slice of all the items plus the extra capacity, whose memory
         /// contents are `undefined`.
         pub fn allocatedSlice(self: Self) Slice {
-            // For a nicer API, `items.len` is the length, not the capacity.
-            // This requires "unsafe" slicing.
+            // `items.len` is the length, not the capacity.
             return self.items.ptr[0..self.capacity];
         }
 
@@ -548,8 +569,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return if (alignment) |a| ([:s]align(a) T) else [:s]T;
         }
 
-        /// Initialize with capacity to hold at least num elements.
-        /// The resulting capacity is likely to be equal to `num`.
+        /// Initialize with capacity to hold `num` elements.
+        /// The resulting capacity will equal `num` exactly.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self{};
@@ -863,9 +884,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return self.ensureTotalCapacityPrecise(allocator, better_capacity);
         }
 
-        /// Modify the array so that it can hold at least `new_capacity` items.
-        /// Like `ensureTotalCapacity`, but the resulting capacity is much more likely
-        /// (but not guaranteed) to be equal to `new_capacity`.
+        /// Modify the array so that it can hold `new_capacity` items.
+        /// Like `ensureTotalCapacity`, but the resulting capacity is guaranteed
+        /// to be equal to `new_capacity`.
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacityPrecise(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
@@ -949,6 +970,28 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return self.items[prev_len..][0..n];
         }
 
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the newly allocated elements.
+        /// The returned pointer becomes invalid when the list is resized.
+        /// Resizes list if `self.capacity` is not large enough.
+        pub fn addManyAsSlice(self: *Self, allocator: Allocator, n: usize) Allocator.Error![]T {
+            const prev_len = self.items.len;
+            try self.resize(allocator, self.items.len + n);
+            return self.items[prev_len..][0..n];
+        }
+
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the newly allocated elements.
+        /// Asserts that there is already space for the new item without allocating more.
+        /// **Does not** invalidate element pointers.
+        /// The returned pointer becomes invalid when the list is resized.
+        pub fn addManyAsSliceAssumeCapacity(self: *Self, n: usize) []T {
+            assert(self.items.len + n <= self.capacity);
+            const prev_len = self.items.len;
+            self.items.len += n;
+            return self.items[prev_len..][0..n];
+        }
+
         /// Remove and return the last element from the list.
         /// Asserts the list has at least one item.
         /// Invalidates pointers to last element.
@@ -966,8 +1009,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return self.pop();
         }
 
-        /// For a nicer API, `items.len` is the length, not the capacity.
-        /// This requires "unsafe" slicing.
+        /// Returns a slice of all the items plus the extra capacity, whose memory
+        /// contents are `undefined`.
         pub fn allocatedSlice(self: Self) Slice {
             return self.items.ptr[0..self.capacity];
         }
@@ -1079,19 +1122,19 @@ test "std.ArrayList/ArrayListUnmanaged.basic" {
         {
             var i: usize = 0;
             while (i < 10) : (i += 1) {
-                list.append(@intCast(i32, i + 1)) catch unreachable;
+                list.append(@as(i32, @intCast(i + 1))) catch unreachable;
             }
         }
 
         {
             var i: usize = 0;
             while (i < 10) : (i += 1) {
-                try testing.expect(list.items[i] == @intCast(i32, i + 1));
+                try testing.expect(list.items[i] == @as(i32, @intCast(i + 1)));
             }
         }
 
         for (list.items, 0..) |v, i| {
-            try testing.expect(v == @intCast(i32, i + 1));
+            try testing.expect(v == @as(i32, @intCast(i + 1)));
         }
 
         try testing.expect(list.pop() == 10);
@@ -1129,19 +1172,19 @@ test "std.ArrayList/ArrayListUnmanaged.basic" {
         {
             var i: usize = 0;
             while (i < 10) : (i += 1) {
-                list.append(a, @intCast(i32, i + 1)) catch unreachable;
+                list.append(a, @as(i32, @intCast(i + 1))) catch unreachable;
             }
         }
 
         {
             var i: usize = 0;
             while (i < 10) : (i += 1) {
-                try testing.expect(list.items[i] == @intCast(i32, i + 1));
+                try testing.expect(list.items[i] == @as(i32, @intCast(i + 1)));
             }
         }
 
         for (list.items, 0..) |v, i| {
-            try testing.expect(v == @intCast(i32, i + 1));
+            try testing.expect(v == @as(i32, @intCast(i + 1)));
         }
 
         try testing.expect(list.pop() == 10);

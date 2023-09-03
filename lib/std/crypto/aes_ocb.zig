@@ -86,18 +86,18 @@ fn AesOcb(comptime Aes: anytype) type {
 
         fn getOffset(aes_enc_ctx: EncryptCtx, npub: [nonce_length]u8) Block {
             var nx = [_]u8{0} ** 16;
-            nx[0] = @intCast(u8, @truncate(u7, tag_length * 8) << 1);
+            nx[0] = @as(u8, @intCast(@as(u7, @truncate(tag_length * 8)) << 1));
             nx[16 - nonce_length - 1] = 1;
             nx[nx.len - nonce_length ..].* = npub;
 
-            const bottom = @truncate(u6, nx[15]);
+            const bottom: u6 = @truncate(nx[15]);
             nx[15] &= 0xc0;
             var ktop_: Block = undefined;
             aes_enc_ctx.encrypt(&ktop_, &nx);
             const ktop = mem.readIntBig(u128, &ktop_);
-            var stretch = (@as(u192, ktop) << 64) | @as(u192, @truncate(u64, ktop >> 64) ^ @truncate(u64, ktop >> 56));
+            var stretch = (@as(u192, ktop) << 64) | @as(u192, @as(u64, @truncate(ktop >> 64)) ^ @as(u64, @truncate(ktop >> 56)));
             var offset: Block = undefined;
-            mem.writeIntBig(u128, &offset, @truncate(u128, stretch >> (64 - @as(u7, bottom))));
+            mem.writeIntBig(u128, &offset, @as(u128, @truncate(stretch >> (64 - @as(u7, bottom)))));
             return offset;
         }
 
@@ -168,12 +168,15 @@ fn AesOcb(comptime Aes: anytype) type {
             tag.* = xorBlocks(e, hash(aes_enc_ctx, &lx, ad));
         }
 
-        /// m: message: output buffer should be of size c.len
-        /// c: ciphertext
-        /// tag: authentication tag
-        /// ad: Associated Data
-        /// npub: public nonce
-        /// k: secret key
+        /// `m`: Message
+        /// `c`: Ciphertext
+        /// `tag`: Authentication tag
+        /// `ad`: Associated data
+        /// `npub`: Public nonce
+        /// `k`: Private key
+        /// Asserts `c.len == m.len`.
+        ///
+        /// Contents of `m` are undefined if an error is returned.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
 
@@ -232,8 +235,9 @@ fn AesOcb(comptime Aes: anytype) type {
             aes_enc_ctx.encrypt(&e, &e);
             var computed_tag = xorBlocks(e, hash(aes_enc_ctx, &lx, ad));
             const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
-            crypto.utils.secureZero(u8, &computed_tag);
             if (!verify) {
+                crypto.utils.secureZero(u8, &computed_tag);
+                @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
         }

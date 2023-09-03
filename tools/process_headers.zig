@@ -32,7 +32,7 @@ const MultiArch = union(enum) {
     specific: Arch,
 
     fn eql(a: MultiArch, b: MultiArch) bool {
-        if (@enumToInt(a) != @enumToInt(b))
+        if (@intFromEnum(a) != @intFromEnum(b))
             return false;
         if (a != .specific)
             return true;
@@ -45,7 +45,7 @@ const MultiAbi = union(enum) {
     specific: Abi,
 
     fn eql(a: MultiAbi, b: MultiAbi) bool {
-        if (@enumToInt(a) != @enumToInt(b))
+        if (@intFromEnum(a) != @intFromEnum(b))
             return false;
         if (std.meta.Tag(MultiAbi)(a) != .specific)
             return true;
@@ -208,7 +208,7 @@ const musl_targets = [_]LibCTarget{
         .abi = MultiAbi.musl,
     },
     LibCTarget{
-        .name = "x86",
+        .name = "i386",
         .arch = MultiArch{ .specific = .x86 },
         .abi = MultiAbi.musl,
     },
@@ -262,9 +262,9 @@ const DestTarget = struct {
     const HashContext = struct {
         pub fn hash(self: @This(), a: DestTarget) u32 {
             _ = self;
-            return @enumToInt(a.arch) +%
-                (@enumToInt(a.os) *% @as(u32, 4202347608)) +%
-                (@enumToInt(a.abi) *% @as(u32, 4082223418));
+            return @intFromEnum(a.arch) +%
+                (@intFromEnum(a.os) *% @as(u32, 4202347608)) +%
+                (@intFromEnum(a.abi) *% @as(u32, 4082223418));
         }
 
         pub fn eql(self: @This(), a: DestTarget, b: DestTarget, b_index: usize) bool {

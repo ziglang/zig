@@ -32,7 +32,7 @@ pub fn BiasedFp(comptime T: type) type {
 
         pub fn toFloat(self: Self, comptime FloatT: type, negative: bool) FloatT {
             var word = self.f;
-            word |= @intCast(MantissaT, self.e) << std.math.floatMantissaBits(FloatT);
+            word |= @as(MantissaT, @intCast(self.e)) << std.math.floatMantissaBits(FloatT);
             var f = floatFromUnsigned(FloatT, MantissaT, word);
             if (negative) f = -f;
             return f;
@@ -42,10 +42,10 @@ pub fn BiasedFp(comptime T: type) type {
 
 pub fn floatFromUnsigned(comptime T: type, comptime MantissaT: type, v: MantissaT) T {
     return switch (T) {
-        f16 => @bitCast(f16, @truncate(u16, v)),
-        f32 => @bitCast(f32, @truncate(u32, v)),
-        f64 => @bitCast(f64, @truncate(u64, v)),
-        f128 => @bitCast(f128, v),
+        f16 => @as(f16, @bitCast(@as(u16, @truncate(v)))),
+        f32 => @as(f32, @bitCast(@as(u32, @truncate(v)))),
+        f64 => @as(f64, @bitCast(@as(u64, @truncate(v)))),
+        f128 => @as(f128, @bitCast(v)),
         else => unreachable,
     };
 }

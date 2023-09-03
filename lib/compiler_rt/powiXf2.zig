@@ -13,6 +13,8 @@ comptime {
     @export(__powihf2, .{ .name = "__powihf2", .linkage = common.linkage, .visibility = common.visibility });
     @export(__powisf2, .{ .name = "__powisf2", .linkage = common.linkage, .visibility = common.visibility });
     @export(__powidf2, .{ .name = "__powidf2", .linkage = common.linkage, .visibility = common.visibility });
+    if (common.want_ppc_abi)
+        @export(__powitf2, .{ .name = "__powikf2", .linkage = common.linkage, .visibility = common.visibility });
     @export(__powitf2, .{ .name = "__powitf2", .linkage = common.linkage, .visibility = common.visibility });
     @export(__powixf2, .{ .name = "__powixf2", .linkage = common.linkage, .visibility = common.visibility });
 }
@@ -23,7 +25,7 @@ inline fn powiXf2(comptime FT: type, a: FT, b: i32) FT {
     const is_recip: bool = b < 0;
     var r: FT = 1.0;
     while (true) {
-        if (@bitCast(u32, x_b) & @as(u32, 1) != 0) {
+        if (@as(u32, @bitCast(x_b)) & @as(u32, 1) != 0) {
             r *= x_a;
         }
         x_b = @divTrunc(x_b, @as(i32, 2));

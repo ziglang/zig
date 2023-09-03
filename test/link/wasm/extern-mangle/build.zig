@@ -21,12 +21,13 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.rdynamic = true; // export `foo`
 
     const check_lib = lib.checkObject();
-    check_lib.checkStart("Section import");
-    check_lib.checkNext("entries 2"); // a.hello & b.hello
-    check_lib.checkNext("module a");
-    check_lib.checkNext("name hello");
-    check_lib.checkNext("module b");
-    check_lib.checkNext("name hello");
+    check_lib.checkStart();
+    check_lib.checkExact("Section import");
+    check_lib.checkExact("entries 2"); // a.hello & b.hello
+    check_lib.checkExact("module a");
+    check_lib.checkExact("name hello");
+    check_lib.checkExact("module b");
+    check_lib.checkExact("name hello");
 
     test_step.dependOn(&check_lib.step);
 }

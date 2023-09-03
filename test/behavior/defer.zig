@@ -70,7 +70,7 @@ test "return variable while defer expression in scope to modify it" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 var result: [3]u8 = undefined;
@@ -131,7 +131,7 @@ test "errdefer with payload" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "reference to errdefer payload" {
@@ -157,7 +157,7 @@ test "reference to errdefer payload" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "simple else prong doesn't emit an error for unreachable else prong" {
@@ -188,4 +188,16 @@ test "errdefer used in function that doesn't return an error" {
         }
     };
     try expect(S.foo() == 5);
+}
+
+// Originally reported at https://github.com/ziglang/zig/issues/10591
+const defer_assign = switch (block: {
+    var x = 0;
+    defer x = 1;
+    break :block x;
+}) {
+    else => |i| i,
+};
+comptime {
+    if (defer_assign != 0) @compileError("defer_assign failed!");
 }

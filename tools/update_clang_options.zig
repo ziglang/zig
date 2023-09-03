@@ -591,7 +591,7 @@ pub fn main() anyerror!void {
 
         for (all_features, 0..) |feat, i| {
             const llvm_name = feat.llvm_name orelse continue;
-            const zig_feat = @intToEnum(Feature, i);
+            const zig_feat = @as(Feature, @enumFromInt(i));
             const zig_name = @tagName(zig_feat);
             try llvm_to_zig_cpu_features.put(llvm_name, zig_name);
         }
@@ -624,9 +624,9 @@ pub fn main() anyerror!void {
         },
     };
 
-    var parser = json.Parser.init(allocator, .alloc_if_needed);
-    const tree = try parser.parse(json_text);
-    const root_map = &tree.root.object;
+    const parsed = try json.parseFromSlice(json.Value, allocator, json_text, .{});
+    defer parsed.deinit();
+    const root_map = &parsed.value.object;
 
     var all_objects = std.ArrayList(*json.ObjectMap).init(allocator);
     {
@@ -790,7 +790,7 @@ const Syntax = union(enum) {
 };
 
 fn objSyntax(obj: *json.ObjectMap) ?Syntax {
-    const num_args = @intCast(u8, obj.get("NumArgs").?.integer);
+    const num_args = @as(u8, @intCast(obj.get("NumArgs").?.integer));
     for (obj.get("!superclasses").?.array.items) |superclass_json| {
         const superclass = superclass_json.string;
         if (std.mem.eql(u8, superclass, "Joined")) {

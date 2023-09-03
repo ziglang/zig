@@ -100,7 +100,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
             var x = x_;
             var out = Self.zero;
             for (0..out.limbs.capacity()) |i| {
-                const t = if (@bitSizeOf(T) > t_bits) @truncate(TLimb, x) else x;
+                const t = if (@bitSizeOf(T) > t_bits) @as(TLimb, @truncate(x)) else x;
                 out.limbs.set(i, t);
                 x = math.shr(T, x, t_bits);
             }
@@ -143,9 +143,9 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                 var remaining_bits = t_bits;
                 var limb = self.limbs.get(i);
                 while (remaining_bits >= 8) {
-                    bytes[out_i] |= math.shl(u8, @truncate(u8, limb), shift);
+                    bytes[out_i] |= math.shl(u8, @as(u8, @truncate(limb)), shift);
                     const consumed = 8 - shift;
-                    limb >>= @truncate(u4, consumed);
+                    limb >>= @as(u4, @truncate(consumed));
                     remaining_bits -= consumed;
                     shift = 0;
                     switch (endian) {
@@ -169,7 +169,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                         },
                     }
                 }
-                bytes[out_i] |= @truncate(u8, limb);
+                bytes[out_i] |= @as(u8, @truncate(limb));
                 shift = remaining_bits;
             }
         }
@@ -190,7 +190,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                 shift += 8;
                 if (shift >= t_bits) {
                     shift -= t_bits;
-                    out.limbs.set(out_i, @truncate(TLimb, out.limbs.get(out_i)));
+                    out.limbs.set(out_i, @as(TLimb, @truncate(out.limbs.get(out_i))));
                     const overflow = math.shr(Limb, bi, 8 - shift);
                     out_i += 1;
                     if (out_i >= out.limbs.len) {
@@ -242,7 +242,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
 
         /// Returns `true` if the integer is odd.
         pub fn isOdd(x: Self) bool {
-            return @bitCast(bool, @truncate(u1, x.limbs.get(0)));
+            return @as(bool, @bitCast(@as(u1, @truncate(x.limbs.get(0)))));
         }
 
         /// Adds `y` to `x`, and returns `true` if the operation overflowed.
@@ -273,8 +273,8 @@ pub fn Uint(comptime max_bits: comptime_int) type {
             var carry: u1 = 0;
             for (0..x.limbs_count()) |i| {
                 const res = x_limbs[i] + y_limbs[i] + carry;
-                x_limbs[i] = ct.select(on, @truncate(TLimb, res), x_limbs[i]);
-                carry = @truncate(u1, res >> t_bits);
+                x_limbs[i] = ct.select(on, @as(TLimb, @truncate(res)), x_limbs[i]);
+                carry = @as(u1, @truncate(res >> t_bits));
             }
             return carry;
         }
@@ -288,8 +288,8 @@ pub fn Uint(comptime max_bits: comptime_int) type {
             var borrow: u1 = 0;
             for (0..x.limbs_count()) |i| {
                 const res = x_limbs[i] -% y_limbs[i] -% borrow;
-                x_limbs[i] = ct.select(on, @truncate(TLimb, res), x_limbs[i]);
-                borrow = @truncate(u1, res >> t_bits);
+                x_limbs[i] = ct.select(on, @as(TLimb, @truncate(res)), x_limbs[i]);
+                borrow = @as(u1, @truncate(res >> t_bits));
             }
             return borrow;
         }
@@ -432,7 +432,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             inline for (0..comptime math.log2_int(usize, t_bits)) |_| {
                 y = y *% (2 -% lo *% y);
             }
-            const m0inv = (@as(Limb, 1) << t_bits) - (@truncate(TLimb, y));
+            const m0inv = (@as(Limb, 1) << t_bits) - (@as(TLimb, @truncate(y)));
 
             const zero = Fe{ .v = FeUint.zero };
 
@@ -508,18 +508,18 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             var need_sub = false;
             var i: usize = t_bits - 1;
             while (true) : (i -= 1) {
-                var carry = @truncate(u1, math.shr(Limb, y, i));
+                var carry: u1 = @truncate(math.shr(Limb, y, i));
                 var borrow: u1 = 0;
                 for (0..self.limbs_count()) |j| {
                     const l = ct.select(need_sub, d_limbs[j], x_limbs[j]);
                     var res = (l << 1) + carry;
-                    x_limbs[j] = @truncate(TLimb, res);
-                    carry = @truncate(u1, res >> t_bits);
+                    x_limbs[j] = @as(TLimb, @truncate(res));
+                    carry = @truncate(res >> t_bits);
 
                     res = x_limbs[j] -% m_limbs[j] -% borrow;
-                    d_limbs[j] = @truncate(TLimb, res);
+                    d_limbs[j] = @as(TLimb, @truncate(res));
 
-                    borrow = @truncate(u1, res >> t_bits);
+                    borrow = @truncate(res >> t_bits);
                 }
                 need_sub = ct.eql(carry, borrow);
                 if (i == 0) break;
@@ -531,7 +531,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         pub fn add(self: Self, x: Fe, y: Fe) Fe {
             var out = x;
             const overflow = out.v.addWithOverflow(y.v);
-            const underflow = @bitCast(u1, ct.limbsCmpLt(out.v, self.v));
+            const underflow: u1 = @bitCast(ct.limbsCmpLt(out.v, self.v));
             const need_sub = ct.eql(overflow, underflow);
             _ = out.v.conditionalSubWithOverflow(need_sub, self.v);
             return out;
@@ -540,7 +540,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         /// Subtracts two field elements (mod m).
         pub fn sub(self: Self, x: Fe, y: Fe) Fe {
             var out = x;
-            const underflow = @bitCast(bool, out.v.subWithOverflow(y.v));
+            const underflow: bool = @bitCast(out.v.subWithOverflow(y.v));
             _ = out.v.conditionalAddWithOverflow(underflow, self.v);
             return out;
         }
@@ -570,7 +570,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             var out = self.zero;
             var i = x.limbs_count() - 1;
             if (self.limbs_count() >= 2) {
-                const start = math.min(i, self.limbs_count() - 2);
+                const start = @min(i, self.limbs_count() - 2);
                 var j = start;
                 while (true) : (j -= 1) {
                     out.v.limbs.set(j, x.limbs.get(i));
@@ -601,7 +601,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
 
                 var wide = ct.mulWide(a_limbs[i], b_limbs[0]);
                 var z_lo = @addWithOverflow(d_limbs[0], wide.lo);
-                const f = @truncate(TLimb, z_lo[0] *% self.m0inv);
+                const f = @as(TLimb, @truncate(z_lo[0] *% self.m0inv));
                 var z_hi = wide.hi +% z_lo[1];
                 wide = ct.mulWide(f, m_limbs[0]);
                 z_lo = @addWithOverflow(z_lo[0], wide.lo);
@@ -620,13 +620,13 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
                     z_lo = @addWithOverflow(z_lo[0], carry);
                     z_hi +%= z_lo[1];
                     if (j > 0) {
-                        d_limbs[j - 1] = @truncate(TLimb, z_lo[0]);
+                        d_limbs[j - 1] = @as(TLimb, @truncate(z_lo[0]));
                     }
                     carry = (z_hi << 1) | (z_lo[0] >> t_bits);
                 }
                 const z = overflow + carry;
-                d_limbs[self.limbs_count() - 1] = @truncate(TLimb, z);
-                overflow = @truncate(u1, z >> t_bits);
+                d_limbs[self.limbs_count() - 1] = @as(TLimb, @truncate(z));
+                overflow = @as(u1, @truncate(z >> t_bits));
             }
             return overflow;
         }
@@ -637,7 +637,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             assert(x.limbs_count() == self.limbs_count());
             assert(y.limbs_count() == self.limbs_count());
             const overflow = self.montgomeryLoop(&d, x, y);
-            const underflow = 1 -% @boolToInt(ct.limbsCmpGeq(d.v, self.v));
+            const underflow = 1 -% @intFromBool(ct.limbsCmpGeq(d.v, self.v));
             const need_sub = ct.eql(overflow, underflow);
             _ = d.v.conditionalSubWithOverflow(need_sub, self.v);
             d.montgomery = x.montgomery == y.montgomery;
@@ -649,7 +649,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             var d = self.zero;
             assert(x.limbs_count() == self.limbs_count());
             const overflow = self.montgomeryLoop(&d, x, x);
-            const underflow = 1 -% @boolToInt(ct.limbsCmpGeq(d.v, self.v));
+            const underflow = 1 -% @intFromBool(ct.limbsCmpGeq(d.v, self.v));
             const need_sub = ct.eql(overflow, underflow);
             _ = d.v.conditionalSubWithOverflow(need_sub, self.v);
             d.montgomery = true;
@@ -735,7 +735,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
                         t0 = pc[k - 1];
                     } else {
                         for (pc, 0..) |t, i| {
-                            t0.v.cmov(ct.eql(k, @truncate(u8, i + 1)), t.v);
+                            t0.v.cmov(ct.eql(k, @as(u8, @truncate(i + 1))), t.v);
                         }
                     }
                     const t1 = self.montgomeryMul(out, t0);
@@ -763,7 +763,7 @@ const ct = if (std.options.side_channels_mitigations == .none) ct_unprotected el
 const ct_protected = struct {
     // Returns x if on is true, otherwise y.
     fn select(on: bool, x: Limb, y: Limb) Limb {
-        const mask = @as(Limb, 0) -% @boolToInt(on);
+        const mask = @as(Limb, 0) -% @intFromBool(on);
         return y ^ (mask & (y ^ x));
     }
 
@@ -771,7 +771,7 @@ const ct_protected = struct {
     fn eql(x: anytype, y: @TypeOf(x)) bool {
         const c1 = @subWithOverflow(x, y)[1];
         const c2 = @subWithOverflow(y, x)[1];
-        return @bitCast(bool, 1 - (c1 | c2));
+        return @as(bool, @bitCast(1 - (c1 | c2)));
     }
 
     // Compares two big integers in constant time, returning true if x < y.
@@ -782,28 +782,28 @@ const ct_protected = struct {
 
         var c: u1 = 0;
         for (0..x.limbs_count()) |i| {
-            c = @truncate(u1, (x_limbs[i] -% y_limbs[i] -% c) >> t_bits);
+            c = @as(u1, @truncate((x_limbs[i] -% y_limbs[i] -% c) >> t_bits));
         }
-        return @bitCast(bool, c);
+        return @as(bool, @bitCast(c));
     }
 
     // Compares two big integers in constant time, returning true if x >= y.
     fn limbsCmpGeq(x: anytype, y: @TypeOf(x)) bool {
-        return @bitCast(bool, 1 - @boolToInt(ct.limbsCmpLt(x, y)));
+        return @as(bool, @bitCast(1 - @intFromBool(ct.limbsCmpLt(x, y))));
     }
 
     // Multiplies two limbs and returns the result as a wide limb.
     fn mulWide(x: Limb, y: Limb) WideLimb {
         const half_bits = @typeInfo(Limb).Int.bits / 2;
         const Half = meta.Int(.unsigned, half_bits);
-        const x0 = @truncate(Half, x);
-        const x1 = @truncate(Half, x >> half_bits);
-        const y0 = @truncate(Half, y);
-        const y1 = @truncate(Half, y >> half_bits);
+        const x0 = @as(Half, @truncate(x));
+        const x1 = @as(Half, @truncate(x >> half_bits));
+        const y0 = @as(Half, @truncate(y));
+        const y1 = @as(Half, @truncate(y >> half_bits));
         const w0 = math.mulWide(Half, x0, y0);
         const t = math.mulWide(Half, x1, y0) + (w0 >> half_bits);
-        var w1: Limb = @truncate(Half, t);
-        const w2 = @truncate(Half, t >> half_bits);
+        var w1: Limb = @as(Half, @truncate(t));
+        const w2 = @as(Half, @truncate(t >> half_bits));
         w1 += math.mulWide(Half, x0, y1);
         const hi = math.mulWide(Half, x1, y1) + w2 + (w1 >> half_bits);
         const lo = x *% y;
@@ -847,8 +847,8 @@ const ct_unprotected = struct {
     fn mulWide(x: Limb, y: Limb) WideLimb {
         const wide = math.mulWide(Limb, x, y);
         return .{
-            .hi = @truncate(Limb, wide >> @typeInfo(Limb).Int.bits),
-            .lo = @truncate(Limb, wide),
+            .hi = @as(Limb, @truncate(wide >> @typeInfo(Limb).Int.bits)),
+            .lo = @as(Limb, @truncate(wide)),
         };
     }
 };

@@ -18,9 +18,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .name = "test",
         .optimize = optimize,
     });
-    exe.addIncludePath(".");
-    exe.addCSourceFile("Foo.m", &[0][]const u8{});
-    exe.addCSourceFile("test.m", &[0][]const u8{});
+    exe.addIncludePath(.{ .path = "." });
+    exe.addCSourceFile(.{ .file = .{ .path = "Foo.m" }, .flags = &[0][]const u8{} });
+    exe.addCSourceFile(.{ .file = .{ .path = "test.m" }, .flags = &[0][]const u8{} });
     exe.linkLibC();
     // TODO when we figure out how to ship framework stubs for cross-compilation,
     // populate paths to the sysroot here.

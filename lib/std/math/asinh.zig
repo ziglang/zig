@@ -26,11 +26,11 @@ pub fn asinh(x: anytype) @TypeOf(x) {
 
 // asinh(x) = sign(x) * log(|x| + sqrt(x * x + 1)) ~= x - x^3/6 + o(x^5)
 fn asinh32(x: f32) f32 {
-    const u = @bitCast(u32, x);
+    const u = @as(u32, @bitCast(x));
     const i = u & 0x7FFFFFFF;
     const s = i >> 31;
 
-    var rx = @bitCast(f32, i); // |x|
+    var rx = @as(f32, @bitCast(i)); // |x|
 
     // TODO: Shouldn't need this explicit check.
     if (math.isNegativeInf(x)) {
@@ -58,11 +58,11 @@ fn asinh32(x: f32) f32 {
 }
 
 fn asinh64(x: f64) f64 {
-    const u = @bitCast(u64, x);
+    const u = @as(u64, @bitCast(x));
     const e = (u >> 52) & 0x7FF;
     const s = e >> 63;
 
-    var rx = @bitCast(f64, u & (maxInt(u64) >> 1)); // |x|
+    var rx = @as(f64, @bitCast(u & (maxInt(u64) >> 1))); // |x|
 
     if (math.isNegativeInf(x)) {
         return x;

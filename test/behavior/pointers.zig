@@ -5,7 +5,7 @@ const expect = testing.expect;
 const expectError = testing.expectError;
 
 test "dereference pointer" {
-    comptime try testDerefPtr();
+    try comptime testDerefPtr();
     try testDerefPtr();
 }
 
@@ -42,7 +42,7 @@ test "pointer arithmetic" {
 }
 
 test "double pointer parsing" {
-    comptime try expect(PtrOf(PtrOf(i32)) == **i32);
+    try comptime expect(PtrOf(PtrOf(i32)) == **i32);
 }
 
 fn PtrOf(comptime T: type) type {
@@ -62,7 +62,7 @@ test "implicit cast single item pointer to C pointer and back" {
 test "initialize const optional C pointer to null" {
     const a: ?[*c]i32 = null;
     try expect(a == null);
-    comptime try expect(a == null);
+    try comptime expect(a == null);
 }
 
 test "assigning integer to C pointer" {
@@ -105,12 +105,12 @@ test "C pointer comparison and arithmetic" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "dereference pointer again" {
     try testDerefPtrOneVal();
-    comptime try testDerefPtrOneVal();
+    try comptime testDerefPtrOneVal();
 }
 
 const Foo1 = struct {
@@ -180,12 +180,12 @@ test "implicit cast error unions with non-optional to optional pointer" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "compare equality of optional and non-optional pointer" {
-    const a = @intToPtr(*const usize, 0x12345678);
-    const b = @intToPtr(?*usize, 0x12345678);
+    const a = @as(*const usize, @ptrFromInt(0x12345678));
+    const b = @as(?*usize, @ptrFromInt(0x12345678));
     try expect(a == b);
     try expect(b == a);
 }
@@ -197,17 +197,17 @@ test "allowzero pointer and slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    var ptr = @intToPtr([*]allowzero i32, 0);
+    var ptr = @as([*]allowzero i32, @ptrFromInt(0));
     var opt_ptr: ?[*]allowzero i32 = ptr;
     try expect(opt_ptr != null);
-    try expect(@ptrToInt(ptr) == 0);
+    try expect(@intFromPtr(ptr) == 0);
     var runtime_zero: usize = 0;
     var slice = ptr[runtime_zero..10];
-    comptime try expect(@TypeOf(slice) == []allowzero i32);
-    try expect(@ptrToInt(&slice[5]) == 20);
+    try comptime expect(@TypeOf(slice) == []allowzero i32);
+    try expect(@intFromPtr(&slice[5]) == 20);
 
-    comptime try expect(@typeInfo(@TypeOf(ptr)).Pointer.is_allowzero);
-    comptime try expect(@typeInfo(@TypeOf(slice)).Pointer.is_allowzero);
+    try comptime expect(@typeInfo(@TypeOf(ptr)).Pointer.is_allowzero);
+    try comptime expect(@typeInfo(@TypeOf(slice)).Pointer.is_allowzero);
 }
 
 test "assign null directly to C pointer and test null equality" {
@@ -229,17 +229,17 @@ test "assign null directly to C pointer and test null equality" {
     try expect((x orelse &otherx) == &otherx);
 
     const y: [*c]i32 = null;
-    comptime try expect(y == null);
-    comptime try expect(null == y);
-    comptime try expect(!(y != null));
-    comptime try expect(!(null != y));
+    try comptime expect(y == null);
+    try comptime expect(null == y);
+    try comptime expect(!(y != null));
+    try comptime expect(!(null != y));
     if (y) |same_y| {
         _ = same_y;
         @panic("fail");
     }
     const othery: i32 = undefined;
     const ptr_othery = &othery;
-    comptime try expect((y orelse ptr_othery) == ptr_othery);
+    try comptime expect((y orelse ptr_othery) == ptr_othery);
 
     var n: i32 = 1234;
     var x1: [*c]i32 = &n;
@@ -257,17 +257,17 @@ test "assign null directly to C pointer and test null equality" {
 
     const nc: i32 = 1234;
     const y1: [*c]const i32 = &nc;
-    comptime try expect(!(y1 == null));
-    comptime try expect(!(null == y1));
-    comptime try expect(y1 != null);
-    comptime try expect(null != y1);
-    comptime try expect(y1.?.* == 1234);
+    try comptime expect(!(y1 == null));
+    try comptime expect(!(null == y1));
+    try comptime expect(y1 != null);
+    try comptime expect(null != y1);
+    try comptime expect(y1.?.* == 1234);
     if (y1) |same_y1| {
         try expect(same_y1.* == 1234);
     } else {
         @compileError("fail");
     }
-    comptime try expect((y1 orelse &othery) == y1);
+    try comptime expect((y1 orelse &othery) == y1);
 }
 
 test "array initialization types" {
@@ -286,14 +286,14 @@ test "null terminated pointer" {
     const S = struct {
         fn doTheTest() !void {
             var array_with_zero = [_:0]u8{ 'h', 'e', 'l', 'l', 'o' };
-            var zero_ptr: [*:0]const u8 = @ptrCast([*:0]const u8, &array_with_zero);
+            var zero_ptr: [*:0]const u8 = @as([*:0]const u8, @ptrCast(&array_with_zero));
             var no_zero_ptr: [*]const u8 = zero_ptr;
-            var zero_ptr_again = @ptrCast([*:0]const u8, no_zero_ptr);
+            var zero_ptr_again = @as([*:0]const u8, @ptrCast(no_zero_ptr));
             try expect(std.mem.eql(u8, std.mem.sliceTo(zero_ptr_again, 0), "hello"));
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "allow any sentinel" {
@@ -308,7 +308,7 @@ test "allow any sentinel" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "pointer sentinel with enums" {
@@ -325,11 +325,11 @@ test "pointer sentinel with enums" {
 
         fn doTheTest() !void {
             var ptr: [*:.sentinel]const Number = &[_:.sentinel]Number{ .one, .two, .two, .one };
-            try expect(ptr[4] == .sentinel); // TODO this should be comptime try expect, see #3731
+            try expect(ptr[4] == .sentinel); // TODO this should be try comptime expect, see #3731
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "pointer sentinel with optional element" {
@@ -341,11 +341,11 @@ test "pointer sentinel with optional element" {
     const S = struct {
         fn doTheTest() !void {
             var ptr: [*:null]const ?i32 = &[_:null]?i32{ 1, 2, 3, 4 };
-            try expect(ptr[4] == null); // TODO this should be comptime try expect, see #3731
+            try expect(ptr[4] == null); // TODO this should be try comptime expect, see #3731
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "pointer sentinel with +inf" {
@@ -357,20 +357,20 @@ test "pointer sentinel with +inf" {
 
     const S = struct {
         fn doTheTest() !void {
-            const inf = std.math.inf_f32;
-            var ptr: [*:inf]const f32 = &[_:inf]f32{ 1.1, 2.2, 3.3, 4.4 };
-            try expect(ptr[4] == inf); // TODO this should be comptime try expect, see #3731
+            const inf_f32 = comptime std.math.inf(f32);
+            var ptr: [*:inf_f32]const f32 = &[_:inf_f32]f32{ 1.1, 2.2, 3.3, 4.4 };
+            try expect(ptr[4] == inf_f32); // TODO this should be try comptime expect, see #3731
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "pointer to array at fixed address" {
-    const array = @intToPtr(*volatile [2]u32, 0x10);
+    const array = @as(*volatile [2]u32, @ptrFromInt(0x10));
     // Silly check just to reference `array`
-    try expect(@ptrToInt(&array[0]) == 0x10);
-    try expect(@ptrToInt(&array[1]) == 0x14);
+    try expect(@intFromPtr(&array[0]) == 0x10);
+    try expect(@intFromPtr(&array[1]) == 0x14);
 }
 
 test "pointer arithmetic affects the alignment" {
@@ -404,16 +404,16 @@ test "pointer arithmetic affects the alignment" {
     }
 }
 
-test "@ptrToInt on null optional at comptime" {
+test "@intFromPtr on null optional at comptime" {
     {
-        const pointer = @intToPtr(?*u8, 0x000);
-        const x = @ptrToInt(pointer);
+        const pointer = @as(?*u8, @ptrFromInt(0x000));
+        const x = @intFromPtr(pointer);
         _ = x;
-        comptime try expect(0 == @ptrToInt(pointer));
+        try comptime expect(0 == @intFromPtr(pointer));
     }
     {
-        const pointer = @intToPtr(?*u8, 0xf00);
-        comptime try expect(0xf00 == @ptrToInt(pointer));
+        const pointer = @as(?*u8, @ptrFromInt(0xf00));
+        try comptime expect(0xf00 == @intFromPtr(pointer));
     }
 }
 
@@ -447,7 +447,7 @@ test "element pointer to slice" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "element pointer arithmetic to slice" {
@@ -463,8 +463,8 @@ test "element pointer arithmetic to slice" {
             };
 
             const elem_ptr = &cases[0]; // *[2]i32
-            const many = @ptrCast([*][2]i32, elem_ptr);
-            const many_elem = @ptrCast(*[2]i32, &many[1]);
+            const many = @as([*][2]i32, @ptrCast(elem_ptr));
+            const many_elem = @as(*[2]i32, @ptrCast(&many[1]));
             const items: []i32 = many_elem;
             try testing.expect(items.len == 2);
             try testing.expect(items[1] == 3);
@@ -473,7 +473,7 @@ test "element pointer arithmetic to slice" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "array slicing to slice" {
@@ -491,7 +491,7 @@ test "array slicing to slice" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "pointer to constant decl preserves alignment" {
@@ -512,11 +512,11 @@ test "ptrCast comptime known slice to C pointer" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s: [:0]const u8 = "foo";
-    var p = @ptrCast([*c]const u8, s);
+    var p = @as([*c]const u8, @ptrCast(s));
     try std.testing.expectEqualStrings(s, std.mem.sliceTo(p, 0));
 }
 
-test "ptrToInt on a generic function" {
+test "intFromPtr on a generic function" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -527,7 +527,7 @@ test "ptrToInt on a generic function" {
             return i;
         }
         fn doTheTest(a: anytype) !void {
-            try expect(@ptrToInt(a) != 0);
+            try expect(@intFromPtr(a) != 0);
         }
     };
     try S.doTheTest(&S.generic);
@@ -550,7 +550,7 @@ test "pointer to array has explicit alignment" {
         const Base = extern struct { a: u8 };
         const Base2 = extern struct { a: u8 };
         fn func(ptr: *[4]Base) *align(1) [4]Base2 {
-            return @alignCast(1, @ptrCast(*[4]Base2, ptr));
+            return @alignCast(@as(*[4]Base2, @ptrCast(ptr)));
         }
     };
     var bases = [_]S.Base{.{ .a = 2 }} ** 4;

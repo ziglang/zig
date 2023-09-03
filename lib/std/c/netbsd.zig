@@ -93,7 +93,7 @@ pub const pthread_rwlock_t = extern struct {
     wblocked_first: ?*u8 = null,
     wblocked_last: ?*u8 = null,
     nreaders: c_uint = 0,
-    owner: std.c.pthread_t = null,
+    owner: ?std.c.pthread_t = null,
     private: ?*anyopaque = null,
 };
 
@@ -121,21 +121,9 @@ pub const pthread_attr_t = extern struct {
 };
 
 pub const sem_t = ?*opaque {};
-pub const cpuset_t = opaque {};
-pub const cpuid_t = c_ulong;
 
 pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8, arg: ?*anyopaque) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
-pub extern "c" fn pthread_setaffinity_np(thread: std.c.pthread_t, size: usize, set: ?*cpuset_t) c_int;
-pub extern "c" fn pthread_getaffinity_np(thread: std.c.pthread_t, size: usize, set: ?*cpuset_t) c_int;
-
-pub extern "c" fn cpuset_create() ?*cpuset_t;
-pub extern "c" fn cpuset_destroy(set: ?*cpuset_t) void;
-pub extern "c" fn cpuset_zero(set: ?*cpuset_t) void;
-pub extern "c" fn cpuset_set(cpu: cpuid_t, set: ?*cpuset_t) c_int;
-pub extern "c" fn cpuset_clr(cpu: cpuid_t, set: ?*cpuset_t) c_int;
-pub extern "c" fn cpuset_isset(cpu: cpuid_t, set: ?*const cpuset_t) c_int;
-pub extern "c" fn cpuset_size(set: ?*cpuset_t) usize;
 
 pub const blkcnt_t = i64;
 pub const blksize_t = i32;
@@ -172,9 +160,9 @@ pub const RTLD = struct {
     pub const NODELETE = 0x01000;
     pub const NOLOAD = 0x02000;
 
-    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
+    pub const NEXT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
+    pub const DEFAULT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -2)))));
+    pub const SELF = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -3)))));
 };
 
 pub const dl_phdr_info = extern struct {
@@ -485,11 +473,6 @@ pub const AF = struct {
     pub const MAX = 37;
 };
 
-pub const accept_filter_arg = extern struct {
-    af_name: [16]u8,
-    af_args: [240]u8,
-};
-
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
 
@@ -591,7 +574,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const REMAPDUP = 0x0004;
@@ -608,17 +591,6 @@ pub const MAP = struct {
     pub const ANON = 0x1000;
     pub const ANONYMOUS = ANON;
     pub const STACK = 0x2000;
-
-    pub const ALIGNMENT_SHIFT = 24;
-    pub fn ALIGNED(n: u32) u32 {
-        return n << ALIGNMENT_SHIFT;
-    }
-    pub const ALIGNMENT_64KB = MAP.ALIGNED(0xff);
-    pub const ALIGNMENT_16MB = MAP.ALIGNED(16);
-    pub const ALIGNMENT_4GB = MAP.ALIGNED(32);
-    pub const ALIGNMENT_1TB = MAP.ALIGNED(40);
-    pub const ALIGNMENT_256TB = MAP.ALIGNED(48);
-    pub const ALIGNMENT_64PB = MAP.ALIGNED(56);
 };
 
 pub const MSF = struct {
@@ -637,7 +609,7 @@ pub const W = struct {
     pub const TRAPPED = 0x00000040;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, (s >> 8) & 0xff);
+        return @as(u8, @intCast((s >> 8) & 0xff));
     }
     pub fn TERMSIG(s: u32) u32 {
         return s & 0x7f;
@@ -1090,9 +1062,9 @@ pub const winsize = extern struct {
 const NSIG = 32;
 
 pub const SIG = struct {
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -1255,9 +1227,32 @@ pub const REG = switch (builtin.cpu.arch) {
         pub const PC = 15;
     },
     .x86_64 => struct {
+        pub const RDI = 0;
+        pub const RSI = 1;
+        pub const RDX = 2;
+        pub const RCX = 3;
+        pub const R8 = 4;
+        pub const R9 = 5;
+        pub const R10 = 6;
+        pub const R11 = 7;
+        pub const R12 = 8;
+        pub const R13 = 9;
+        pub const R14 = 10;
+        pub const R15 = 11;
         pub const RBP = 12;
+        pub const RBX = 13;
+        pub const RAX = 14;
+        pub const GS = 15;
+        pub const FS = 16;
+        pub const ES = 17;
+        pub const DS = 18;
+        pub const TRAPNO = 19;
+        pub const ERR = 20;
         pub const RIP = 21;
+        pub const CS = 22;
+        pub const RFLAGS = 23;
         pub const RSP = 24;
+        pub const SS = 25;
     },
     else => struct {},
 };
@@ -1649,77 +1644,3 @@ pub const POLL = struct {
     pub const HUP = 0x0010;
     pub const NVAL = 0x0020;
 };
-
-pub const SIGEV = struct {
-    pub const NONE = 0;
-    pub const SIGNAL = 1;
-    pub const THREAD = 2;
-};
-
-pub const sigval = extern union {
-    int: c_int,
-    ptr: ?*anyopaque,
-};
-
-pub const sigevent = extern struct {
-    sigev_notify: c_int,
-    sigev_signo: c_int,
-    sigev_value: sigval,
-    sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
-    sigev_notify_attributes: ?*pthread_attr_t,
-};
-
-pub const PTRACE = struct {
-    pub const FORK = 0x0001;
-    pub const VFORK = 0x0002;
-    pub const VFORK_DONE = 0x0004;
-    pub const LWP_CREATE = 0x0008;
-    pub const LWP_EXIT = 0x0010;
-    pub const POSIX_SPAWN = 0x0020;
-};
-
-pub const PT = struct {
-    pub const TRACE_ME = 0;
-    pub const READ_I = 1;
-    pub const READ_D = 2;
-    pub const WRITE_I = 4;
-    pub const WRITE_D = 5;
-    pub const CONTINUE = 7;
-    pub const KILL = 8;
-    pub const ATTACH = 9;
-    pub const DETACH = 10;
-    pub const IO = 11;
-    pub const DUMPCORE = 11;
-    pub const LWPINFO = 12;
-};
-
-pub const ptrace_event = extern struct {
-    set_event: c_int,
-};
-
-pub const ptrace_state = extern struct {
-    report_event: c_int,
-    _option: extern union {
-        other_pid: pid_t,
-        lwp: lwpid_t,
-    },
-};
-
-pub const ptrace_io_desc = extern struct {
-    op: c_int,
-    offs: ?*anyopaque,
-    addr: ?*anyopaque,
-    len: usize,
-};
-
-pub const PIOD = struct {
-    pub const READ_D = 1;
-    pub const WRITE_D = 2;
-    pub const READ_I = 3;
-    pub const WRITE_I = 4;
-};
-
-pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: ?*anyopaque, data: c_int) c_int;
-
-/// TODO refines if necessary
-pub const PTHREAD_STACK_MIN = 16 * 1024;

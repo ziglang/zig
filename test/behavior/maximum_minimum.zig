@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -19,7 +20,7 @@ test "@max" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@max on vectors" {
@@ -43,14 +44,14 @@ test "@max on vectors" {
             var y = @max(c, d);
             try expect(mem.eql(f32, &@as([4]f32, y), &[4]f32{ 0, 0.42, -0.64, 7.8 }));
 
-            var e: @Vector(2, f32) = [2]f32{ 0, std.math.qnan_f32 };
-            var f: @Vector(2, f32) = [2]f32{ std.math.qnan_f32, 0 };
+            var e: @Vector(2, f32) = [2]f32{ 0, std.math.nan(f32) };
+            var f: @Vector(2, f32) = [2]f32{ std.math.nan(f32), 0 };
             var z = @max(e, f);
             try expect(mem.eql(f32, &@as([2]f32, z), &[2]f32{ 0, 0 }));
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@min" {
@@ -68,7 +69,7 @@ test "@min" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@min for vectors" {
@@ -92,14 +93,14 @@ test "@min for vectors" {
             var y = @min(c, d);
             try expect(mem.eql(f32, &@as([4]f32, y), &[4]f32{ -0.23, 0.4, -2.4, 0.9 }));
 
-            var e: @Vector(2, f32) = [2]f32{ 0, std.math.qnan_f32 };
-            var f: @Vector(2, f32) = [2]f32{ std.math.qnan_f32, 0 };
+            var e: @Vector(2, f32) = [2]f32{ 0, std.math.nan(f32) };
+            var f: @Vector(2, f32) = [2]f32{ std.math.nan(f32), 0 };
             var z = @max(e, f);
             try expect(mem.eql(f32, &@as([2]f32, z), &[2]f32{ 0, 0 }));
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@min/max for floats" {
@@ -109,6 +110,7 @@ test "@min/max for floats" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(comptime T: type) !void {
@@ -123,9 +125,9 @@ test "@min/max for floats" {
 
     inline for (.{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         try S.doTheTest(T);
-        comptime try S.doTheTest(T);
+        try comptime S.doTheTest(T);
     }
-    comptime try S.doTheTest(comptime_float);
+    try comptime S.doTheTest(comptime_float);
 }
 
 test "@min/@max on lazy values" {
@@ -209,4 +211,104 @@ test "@min/@max on comptime_int" {
     try expectEqual(comptime_int, @TypeOf(max));
     try expectEqual(-2, min);
     try expectEqual(2, max);
+}
+
+test "@min/@max notices bounds from types" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var x: u16 = 123;
+    var y: u32 = 456;
+    var z: u8 = 10;
+
+    const min = @min(x, y, z);
+    const max = @max(x, y, z);
+
+    comptime assert(@TypeOf(min) == u8);
+    comptime assert(@TypeOf(max) == u32);
+
+    try expectEqual(z, min);
+    try expectEqual(y, max);
+}
+
+test "@min/@max notices bounds from vector types" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var x: @Vector(2, u16) = .{ 30, 67 };
+    var y: @Vector(2, u32) = .{ 20, 500 };
+    var z: @Vector(2, u8) = .{ 60, 15 };
+
+    const min = @min(x, y, z);
+    const max = @max(x, y, z);
+
+    comptime assert(@TypeOf(min) == @Vector(2, u8));
+    comptime assert(@TypeOf(max) == @Vector(2, u32));
+
+    try expectEqual(@Vector(2, u8){ 20, 15 }, min);
+    try expectEqual(@Vector(2, u32){ 60, 500 }, max);
+}
+
+test "@min/@max notices bounds from types when comptime-known value is undef" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var x: u32 = 1_000_000;
+    const y: u16 = undefined;
+    // y is comptime-known, but is undef, so bounds cannot be refined using its value
+
+    const min = @min(x, y);
+    const max = @max(x, y);
+
+    comptime assert(@TypeOf(min) == u16);
+    comptime assert(@TypeOf(max) == u32);
+
+    // Cannot assert values as one was undefined
+}
+
+test "@min/@max notices bounds from vector types when element of comptime-known vector is undef" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var x: @Vector(2, u32) = .{ 1_000_000, 12345 };
+    const y: @Vector(2, u16) = .{ 10, undefined };
+    // y is comptime-known, but an element is undef, so bounds cannot be refined using its value
+
+    const min = @min(x, y);
+    const max = @max(x, y);
+
+    comptime assert(@TypeOf(min) == @Vector(2, u16));
+    comptime assert(@TypeOf(max) == @Vector(2, u32));
+
+    try expectEqual(@as(u16, 10), min[0]);
+    try expectEqual(@as(u32, 1_000_000), max[0]);
+    // Cannot assert values at index 1 as one was undefined
+}
+
+test "@min/@max of signed and unsigned runtime integers" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var x: i32 = -1;
+    var y: u31 = 1;
+
+    const min = @min(x, y);
+    const max = @max(x, y);
+
+    comptime assert(@TypeOf(min) == i32);
+    comptime assert(@TypeOf(max) == u31);
+
+    try expectEqual(x, @min(x, y));
+    try expectEqual(y, @max(x, y));
 }

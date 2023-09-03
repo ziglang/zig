@@ -166,10 +166,10 @@ test "zig fmt: respect line breaks after var declarations" {
         \\    lookup_tables[1][p[6]] ^
         \\    lookup_tables[2][p[5]] ^
         \\    lookup_tables[3][p[4]] ^
-        \\    lookup_tables[4][@truncate(u8, self.crc >> 24)] ^
-        \\    lookup_tables[5][@truncate(u8, self.crc >> 16)] ^
-        \\    lookup_tables[6][@truncate(u8, self.crc >> 8)] ^
-        \\    lookup_tables[7][@truncate(u8, self.crc >> 0)];
+        \\    lookup_tables[4][@as(u8, self.crc >> 24)] ^
+        \\    lookup_tables[5][@as(u8, self.crc >> 16)] ^
+        \\    lookup_tables[6][@as(u8, self.crc >> 8)] ^
+        \\    lookup_tables[7][@as(u8, self.crc >> 0)];
         \\
     );
 }
@@ -270,6 +270,17 @@ test "zig fmt: top-level enum missing 'const name ='" {
         \\enum(u32)
         \\
     , &[_]Error{.expected_token});
+}
+
+test "zig fmt: top-level for/while loop" {
+    try testCanonical(
+        \\for (foo) |_| foo
+        \\
+    );
+    try testCanonical(
+        \\while (foo) |_| foo
+        \\
+    );
 }
 
 test "zig fmt: top-level bare asterisk+identifier" {
@@ -628,7 +639,7 @@ test "zig fmt: builtin call with trailing comma" {
     try testCanonical(
         \\pub fn main() void {
         \\    @breakpoint();
-        \\    _ = @boolToInt(a);
+        \\    _ = @intFromBool(a);
         \\    _ = @call(
         \\        a,
         \\        b,
@@ -1108,7 +1119,7 @@ test "zig fmt: async function" {
         \\    handleRequestFn: fn (*Server, *const std.net.Address, File) callconv(.Async) void,
         \\};
         \\test "hi" {
-        \\    var ptr = @ptrCast(fn (i32) callconv(.Async) void, other);
+        \\    var ptr: fn (i32) callconv(.Async) void = @ptrCast(other);
         \\}
         \\
     );
@@ -1825,10 +1836,10 @@ test "zig fmt: respect line breaks after infix operators" {
         \\        lookup_tables[1][p[6]] ^
         \\        lookup_tables[2][p[5]] ^
         \\        lookup_tables[3][p[4]] ^
-        \\        lookup_tables[4][@truncate(u8, self.crc >> 24)] ^
-        \\        lookup_tables[5][@truncate(u8, self.crc >> 16)] ^
-        \\        lookup_tables[6][@truncate(u8, self.crc >> 8)] ^
-        \\        lookup_tables[7][@truncate(u8, self.crc >> 0)];
+        \\        lookup_tables[4][@as(u8, self.crc >> 24)] ^
+        \\        lookup_tables[5][@as(u8, self.crc >> 16)] ^
+        \\        lookup_tables[6][@as(u8, self.crc >> 8)] ^
+        \\        lookup_tables[7][@as(u8, self.crc >> 0)];
         \\}
         \\
     );
@@ -4814,8 +4825,8 @@ test "zig fmt: use of comments and multiline string literals may force the param
         \\        \\ unknown-length pointers and C pointers cannot be hashed deeply.
         \\        \\ Consider providing your own hash function.
         \\    );
-        \\    return @intCast(i1, doMemCheckClientRequestExpr(0, // default return
-        \\        .MakeMemUndefined, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0));
+        \\    return @intCast(doMemCheckClientRequestExpr(0, // default return
+        \\        .MakeMemUndefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0));
         \\}
         \\
         \\// This looks like garbage don't do this

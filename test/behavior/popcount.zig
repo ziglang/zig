@@ -9,7 +9,7 @@ test "@popCount integers" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testPopCountIntegers();
+    try comptime testPopCountIntegers();
     try testPopCountIntegers();
 }
 
@@ -63,7 +63,7 @@ fn testPopCountIntegers() !void {
         try expect(@popCount(x) == 2);
     }
     comptime {
-        try expect(@popCount(@bitCast(u8, @as(i8, -120))) == 2);
+        try expect(@popCount(@as(u8, @bitCast(@as(i8, -120)))) == 2);
     }
 }
 
@@ -75,7 +75,7 @@ test "@popCount vectors" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testPopCountVectors();
+    try comptime testPopCountVectors();
     try testPopCountVectors();
 }
 

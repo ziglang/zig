@@ -7,7 +7,7 @@ const Tag = @Type(.{
     },
 });
 export fn entry() void {
-    _ = @intToEnum(Tag, 0);
+    _ = @as(Tag, @enumFromInt(0));
 }
 
 // error

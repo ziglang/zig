@@ -34,7 +34,7 @@ fn next(self: *RomuTrio) u64 {
 }
 
 pub fn seedWithBuf(self: *RomuTrio, buf: [24]u8) void {
-    const seed_buf = @bitCast([3]u64, buf);
+    const seed_buf = @as([3]u64, @bitCast(buf));
     self.x_state = seed_buf[0];
     self.y_state = seed_buf[1];
     self.z_state = seed_buf[2];
@@ -58,7 +58,7 @@ pub fn fill(self: *RomuTrio, buf: []u8) void {
         var n = self.next();
         comptime var j: usize = 0;
         inline while (j < 8) : (j += 1) {
-            buf[i + j] = @truncate(u8, n);
+            buf[i + j] = @as(u8, @truncate(n));
             n >>= 8;
         }
     }
@@ -67,7 +67,7 @@ pub fn fill(self: *RomuTrio, buf: []u8) void {
     if (i != buf.len) {
         var n = self.next();
         while (i < buf.len) : (i += 1) {
-            buf[i] = @truncate(u8, n);
+            buf[i] = @as(u8, @truncate(n));
             n >>= 8;
         }
     }
@@ -122,7 +122,7 @@ test "RomuTrio fill" {
 }
 
 test "RomuTrio buf seeding test" {
-    const buf0 = @bitCast([24]u8, [3]u64{ 16294208416658607535, 13964609475759908645, 4703697494102998476 });
+    const buf0 = @as([24]u8, @bitCast([3]u64{ 16294208416658607535, 13964609475759908645, 4703697494102998476 }));
     const resulting_state = .{ .x = 16294208416658607535, .y = 13964609475759908645, .z = 4703697494102998476 };
     var r = RomuTrio.init(0);
     r.seedWithBuf(buf0);

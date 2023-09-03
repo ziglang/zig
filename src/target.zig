@@ -6,7 +6,7 @@ pub const ArchOsAbi = struct {
     arch: std.Target.Cpu.Arch,
     os: std.Target.Os.Tag,
     abi: std.Target.Abi,
-    os_ver: ?std.builtin.Version = null,
+    os_ver: ?std.SemanticVersion = null,
 };
 
 pub const available_libcs = [_]ArchOsAbi{
@@ -16,9 +16,9 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .aarch64, .os = .linux, .abi = .gnu },
     .{ .arch = .aarch64, .os = .linux, .abi = .musl },
     .{ .arch = .aarch64, .os = .windows, .abi = .gnu },
-    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0 } },
-    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 12, .minor = 0 } },
-    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 13, .minor = 0 } },
+    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0, .patch = 0 } },
+    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 12, .minor = 0, .patch = 0 } },
+    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 13, .minor = 0, .patch = 0 } },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabi },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .armeb, .os = .linux, .abi = .musleabi },
@@ -71,9 +71,9 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl },
     .{ .arch = .x86_64, .os = .windows, .abi = .gnu },
-    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0 } },
-    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 12, .minor = 0 } },
-    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 13, .minor = 0 } },
+    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0, .patch = 0 } },
+    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 12, .minor = 0, .patch = 0 } },
+    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 13, .minor = 0, .patch = 0 } },
 };
 
 pub fn libCGenericName(target: std.Target) [:0]const u8 {
@@ -208,7 +208,8 @@ pub fn supports_fpic(target: std.Target) bool {
 }
 
 pub fn isSingleThreaded(target: std.Target) bool {
-    return target.isWasm();
+    _ = target;
+    return false;
 }
 
 /// Valgrind supports more, but Zig does not support them yet.
@@ -365,6 +366,15 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
         if (eqlIgnoreCase(ignore_case, name, "m"))
             return true;
 
+        if (eqlIgnoreCase(ignore_case, name, "uuid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "mingw32"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "msvcrt-os"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "mingwex"))
+            return true;
+
         return false;
     }
 
@@ -431,7 +441,7 @@ pub fn hasDebugInfo(target: std.Target) bool {
     return true;
 }
 
-pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.Mode {
+pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.OptimizeMode {
     if (target.cpu.arch.isWasm() and target.os.tag == .freestanding) {
         return .ReleaseSmall;
     } else {
@@ -509,135 +519,7 @@ pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
 }
 
 pub fn needUnwindTables(target: std.Target) bool {
-    return target.os.tag == .windows;
-}
-
-pub const AtomicPtrAlignmentError = error{
-    FloatTooBig,
-    IntTooBig,
-    BadType,
-};
-
-pub const AtomicPtrAlignmentDiagnostics = struct {
-    bits: u16 = undefined,
-    max_bits: u16 = undefined,
-};
-
-/// If ABI alignment of `ty` is OK for atomic operations, returns 0.
-/// Otherwise returns the alignment required on a pointer for the target
-/// to perform atomic operations.
-// TODO this function does not take into account CPU features, which can affect
-// this value. Audit this!
-pub fn atomicPtrAlignment(
-    target: std.Target,
-    ty: Type,
-    diags: *AtomicPtrAlignmentDiagnostics,
-) AtomicPtrAlignmentError!u32 {
-    const max_atomic_bits: u16 = switch (target.cpu.arch) {
-        .avr,
-        .msp430,
-        .spu_2,
-        => 16,
-
-        .arc,
-        .arm,
-        .armeb,
-        .hexagon,
-        .m68k,
-        .le32,
-        .mips,
-        .mipsel,
-        .nvptx,
-        .powerpc,
-        .powerpcle,
-        .r600,
-        .riscv32,
-        .sparc,
-        .sparcel,
-        .tce,
-        .tcele,
-        .thumb,
-        .thumbeb,
-        .x86,
-        .xcore,
-        .amdil,
-        .hsail,
-        .spir,
-        .kalimba,
-        .lanai,
-        .shave,
-        .wasm32,
-        .renderscript32,
-        .csky,
-        .spirv32,
-        .dxil,
-        .loongarch32,
-        .xtensa,
-        => 32,
-
-        .amdgcn,
-        .bpfel,
-        .bpfeb,
-        .le64,
-        .mips64,
-        .mips64el,
-        .nvptx64,
-        .powerpc64,
-        .powerpc64le,
-        .riscv64,
-        .sparc64,
-        .s390x,
-        .amdil64,
-        .hsail64,
-        .spir64,
-        .wasm64,
-        .renderscript64,
-        .ve,
-        .spirv64,
-        .loongarch64,
-        => 64,
-
-        .aarch64,
-        .aarch64_be,
-        .aarch64_32,
-        => 128,
-
-        .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .cx16)) 128 else 64,
-    };
-
-    var buffer: Type.Payload.Bits = undefined;
-
-    const int_ty = switch (ty.zigTypeTag()) {
-        .Int => ty,
-        .Enum => ty.intTagType(&buffer),
-        .Float => {
-            const bit_count = ty.floatBits(target);
-            if (bit_count > max_atomic_bits) {
-                diags.* = .{
-                    .bits = bit_count,
-                    .max_bits = max_atomic_bits,
-                };
-                return error.FloatTooBig;
-            }
-            return 0;
-        },
-        .Bool => return 0,
-        else => {
-            if (ty.isPtrAtRuntime()) return 0;
-            return error.BadType;
-        },
-    };
-
-    const bit_count = int_ty.intInfo(target).bits;
-    if (bit_count > max_atomic_bits) {
-        diags.* = .{
-            .bits = bit_count,
-            .max_bits = max_atomic_bits,
-        };
-        return error.IntTooBig;
-    }
-
-    return 0;
+    return target.os.tag == .windows or target.isDarwin() or std.dwarf.abi.supportsUnwinding(target);
 }
 
 pub fn defaultAddressSpace(
@@ -775,5 +657,16 @@ pub fn compilerRtIntAbbrev(bits: u16) []const u8 {
         64 => "d",
         128 => "t",
         else => "o", // Non-standard
+    };
+}
+
+pub fn fnCallConvAllowsZigTypes(target: std.Target, cc: std.builtin.CallingConvention) bool {
+    return switch (cc) {
+        .Unspecified, .Async, .Inline => true,
+        // For now we want to authorize PTX kernel to use zig objects, even if
+        // we end up exposing the ABI. The goal is to experiment with more
+        // integrated CPU/GPU code.
+        .Kernel => target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64,
+        else => false,
     };
 }

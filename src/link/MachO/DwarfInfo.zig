@@ -1,17 +1,3 @@
-const DwarfInfo = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const dwarf = std.dwarf;
-const leb = std.leb;
-const log = std.log.scoped(.macho);
-const math = std.math;
-const mem = std.mem;
-
-const Allocator = mem.Allocator;
-pub const AbbrevLookupTable = std.AutoHashMap(u64, struct { pos: usize, len: usize });
-pub const SubprogramLookupByName = std.StringHashMap(struct { addr: u64, size: u64 });
-
 debug_info: []const u8,
 debug_abbrev: []const u8,
 debug_str: []const u8,
@@ -70,7 +56,7 @@ pub fn genSubprogramLookupByName(
                         low_pc = addr;
                     }
                     if (try attr.getConstant(self)) |constant| {
-                        low_pc = @intCast(u64, constant);
+                        low_pc = @as(u64, @intCast(constant));
                     }
                 },
                 dwarf.AT.high_pc => {
@@ -78,7 +64,7 @@ pub fn genSubprogramLookupByName(
                         high_pc = addr;
                     }
                     if (try attr.getConstant(self)) |constant| {
-                        high_pc = @intCast(u64, constant);
+                        high_pc = @as(u64, @intCast(constant));
                     }
                 },
                 else => {},
@@ -261,7 +247,7 @@ pub const Attribute = struct {
 
         switch (self.form) {
             dwarf.FORM.string => {
-                return mem.sliceTo(@ptrCast([*:0]const u8, debug_info.ptr), 0);
+                return mem.sliceTo(@as([*:0]const u8, @ptrCast(debug_info.ptr)), 0);
             },
             dwarf.FORM.strp => {
                 const off = if (cuh.is_64bit)
@@ -458,7 +444,8 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
         },
 
         else => {
-            log.err("unhandled DW_FORM_* value with identifier {x}", .{form});
+            // TODO figure out how to handle this
+            log.debug("unhandled DW_FORM_* value with identifier {x}", .{form});
             return error.UnhandledDwFormValue;
         },
     }
@@ -499,5 +486,19 @@ fn findAbbrevEntrySize(self: DwarfInfo, da_off: usize, da_len: usize, di_off: us
 
 fn getString(self: DwarfInfo, off: u64) []const u8 {
     assert(off < self.debug_str.len);
-    return mem.sliceTo(@ptrCast([*:0]const u8, self.debug_str.ptr + @intCast(usize, off)), 0);
+    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.debug_str.ptr + @as(usize, @intCast(off)))), 0);
 }
+
+const DwarfInfo = @This();
+
+const std = @import("std");
+const assert = std.debug.assert;
+const dwarf = std.dwarf;
+const leb = std.leb;
+const log = std.log.scoped(.macho);
+const math = std.math;
+const mem = std.mem;
+
+const Allocator = mem.Allocator;
+pub const AbbrevLookupTable = std.AutoHashMap(u64, struct { pos: usize, len: usize });
+pub const SubprogramLookupByName = std.StringHashMap(struct { addr: u64, size: u64 });

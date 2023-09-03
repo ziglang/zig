@@ -40,11 +40,11 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
 
         /// Size of the memory pool items. This is not necessarily the same
         /// as `@sizeOf(Item)` as the pool also uses the items for internal means.
-        pub const item_size = std.math.max(@sizeOf(Node), @sizeOf(Item));
+        pub const item_size = @max(@sizeOf(Node), @sizeOf(Item));
 
         /// Alignment of the memory pool items. This is not necessarily the same
         /// as `@alignOf(Item)` as the pool also uses the items for internal means.
-        pub const item_alignment = std.math.max(@alignOf(Node), pool_options.alignment orelse 0);
+        pub const item_alignment = @max(@alignOf(Node), pool_options.alignment orelse 0);
 
         const Node = struct {
             next: ?*@This(),
@@ -70,7 +70,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
             var i: usize = 0;
             while (i < initial_size) : (i += 1) {
                 const raw_mem = try pool.allocNew();
-                const free_node = @ptrCast(NodePtr, raw_mem);
+                const free_node = @as(NodePtr, @ptrCast(raw_mem));
                 free_node.* = Node{
                     .next = pool.free_list,
                 };
@@ -106,11 +106,11 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
                 pool.free_list = item.next;
                 break :blk item;
             } else if (pool_options.growable)
-                @ptrCast(NodePtr, try pool.allocNew())
+                @as(NodePtr, @ptrCast(try pool.allocNew()))
             else
                 return error.OutOfMemory;
 
-            const ptr = @ptrCast(ItemPtr, node);
+            const ptr = @as(ItemPtr, @ptrCast(node));
             ptr.* = undefined;
             return ptr;
         }
@@ -120,7 +120,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         pub fn destroy(pool: *Pool, ptr: ItemPtr) void {
             ptr.* = undefined;
 
-            const node = @ptrCast(NodePtr, ptr);
+            const node = @as(NodePtr, @ptrCast(ptr));
             node.* = Node{
                 .next = pool.free_list,
             };
