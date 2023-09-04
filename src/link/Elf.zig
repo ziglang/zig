@@ -154,7 +154,8 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 
     // Index 0 is always a null symbol.
     try self.locals.append(allocator, null_sym);
-
+    // Allocate atom index 0 to null atom
+    try self.atoms.append(allocator, .{});
     // There must always be a null section in index 0
     try self.sections.append(allocator, .{
         .shdr = .{
@@ -212,6 +213,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     if (use_llvm) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
+
     return self;
 }
 
@@ -2158,11 +2160,7 @@ pub fn createAtom(self: *Elf) !Atom.Index {
     const atom_ptr = try self.atoms.addOne(gpa);
     const sym_index = try self.allocateSymbol();
     try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom_index);
-    atom_ptr.* = .{
-        .sym_index = sym_index,
-        .prev_index = null,
-        .next_index = null,
-    };
+    atom_ptr.* = .{ .sym_index = sym_index };
     log.debug("creating ATOM(%{d}) at index {d}", .{ sym_index, atom_index });
     return atom_index;
 }
@@ -2300,14 +2298,7 @@ pub fn allocateSymbol(self: *Elf) !u32 {
             break :blk index;
         }
     };
-    self.locals.items[index] = .{
-        .st_name = 0,
-        .st_info = 0,
-        .st_other = 0,
-        .st_shndx = 0,
-        .st_value = 0,
-        .st_size = 0,
-    };
+    self.locals.items[index] = null_sym;
     return index;
 }
 

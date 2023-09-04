@@ -4,12 +4,12 @@
 /// the symbol references, and adding that to the file offset of the section.
 /// If this field is 0, it means the codegen size = 0 and there is no symbol or
 /// offset table entry.
-sym_index: u32,
+sym_index: u32 = 0,
 
 /// Points to the previous and next neighbors, based on the `text_offset`.
 /// This can be used to find, for example, the capacity of this `TextBlock`.
-prev_index: ?Index,
-next_index: ?Index,
+prev_index: ?Index = null,
+next_index: ?Index = null,
 
 pub const Index = u32;
 
